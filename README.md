@@ -52,7 +52,15 @@ Start: December 2025.
 - Vibe-coded the cross-platform X4 Savegame Launcher with Rust (Tauri) and React (Typescript + Vite)
 - Bridged the PHP / Tauri worlds for X4 Savegame Launcher: NDJSON layer specification by Copilot, Implementation in Rust by Gemini, spec refined by manual Copilot<>Gemini exchange
 - Multi-project agentic coding with VS Code and Copilot 
-- AGENTS.md generation and maintenance
 - Upgraded the app framework for agentic coding
 - Upgraded a 10-year old PHP app for agentic coding
 - Upgraded multiple open source projects for agentic coding
+
+### February 2026
+
+- AGENTS.md generation and maintenance
+- Now using a custom system prompt for plan mode
+- Switched to VS Code Copilot for agentic coding, PHPStorm is too buggy
+- X4 library ecology upgrade
+- X4 physics calculations
+
