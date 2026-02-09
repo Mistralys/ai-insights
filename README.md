@@ -1,2 +1,58 @@
-# ai-insights
+# AI Insights
+
 AI and agentic coding insights
+
+## Key Learnings
+
+- Have relevant documents open to make it easier for the agent to see them
+- Create a project manifest describing the whole project, from the tech stack to the available functionality
+- Create a technical guidelines document detailing preferred coding methods
+- Create a document with resuable prompts for repeatable tasks
+- Create high-level feature descriptions, and use AI to synthesize implementation guides out of them
+- Ask the agent to review the implementation plan (see question below)
+- Claude has proven reliable for implementing larger concepts in one go
+- Use one chat per feature implementation to keep the context and be able to use shorter prompts
+- I can start with high-level application or feature descriptions.
+- Writing agent-friendly concepts is a real skill.
+- I can ask my agent to review the implementation plan to find logic fallacies and things that may be missing.
+- These detailed implementation plans are immensely valuable even for me to detect possible issues early.
+- Keep the implentation plans in an archive for documentation purposes.
+- Create usage scenarios early on that can be used as basis for tests.
+- Documentation and context are key (as in critically vital).
+- Given some high-level descriptions of systems, agents can create documentation by analyzing the code.
+- Maintain application manifests. Keep them updated with each added feature.
+- Testability is as vital as documentation.
+- Agents are excellent at creating tests, provided the documentation exists.
+- Don't do too much at once. Implement bigger features in smaller logical steps, showing the agent the entire roadmap for context.
+- Dont't write implementation prompts - create plans even for small features.
+- Keep AI-maintained documentation files small, AI tends to delete blocks in large files and get lost.
+- Develop in small chunks to make reviewing easier.
+- Web-based LLMs do not use the same data. Same architecture, different knowledge.
+- Combine web-based LLMs with agent coding LLMs for best effect.
+- Web-based LLMs can create detailed implementation plans from a high-level description, filling in concrete details from massive online knowledge.
+- Combine with GIT or other versioning for DIFF and rollback.
+- Use agents to upgrade your code between versions, but do it incrementally - not from PHP5 to PHP8 right away, for example.
+- Agents have a limited context storage. When reaching approx. 80%, they start to compact the context, losing precision.
+- Use plan mode when planning. If the concept is detailed enough, no need to use a big model for the implementation.
+- Use AGENTS.md to link all resources and describe core concepts.
+- Use CTX generator to compile context files
+- Set up a context MCP server to simplify access to the project context.
+- Can go back in a conversation to fix what you wrote when the results are not good.
+- Split documents into smaller chunks
+- Give web LLMs a combined project manifest to discuss app details
+
+## My AI Journey Milestones
+
+Start: December 2025.
+
+- Vibe-coded the Starfield Load Order Keeper with WPF C# 
+- Created a GitHub actions workflow to automate release with Windows binaries
+- Agentic coding with Copilot, Claude and Roo Code.
+- IDEs: PHPStorm, Visual Studio, Visual Studio Code, Cursor
+- Vibe-coded the cross-platform X4 Savegame Launcher with Rust (Tauri) and React (Typescript + Vite)
+- Bridged the PHP / Tauri worlds for X4 Savegame Launcher: NDJSON layer specification by Copilot, Implementation in Rust by Gemini, spec refined by manual Copilot<>Gemini exchange
+- Multi-project agentic coding with VS Code and Copilot 
+- AGENTS.md generation and maintenance
+- Upgraded the app framework for agentic coding
+- Upgraded a 10-year old PHP app for agentic coding
+- Upgraded multiple open source projects for agentic coding
