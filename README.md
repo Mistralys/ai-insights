@@ -58,9 +58,11 @@ Start: December 2025.
 
 ### February 2026
 
-- AGENTS.md generation and maintenance
-- Now using a custom system prompt for plan mode
-- Switched to VS Code Copilot for agentic coding, PHPStorm is too buggy
-- X4 library ecology upgrade
-- X4 physics calculations
-
+- AGENTS.md generation and maintenance.
+- Now using a custom system prompt for plan mode.
+- Switched to VS Code Copilot for agentic coding, PHPStorm is too buggy.
+- X4 library ecology upgrade.
+- X4 physics calculations, created and reviewed by three LLMs (gemini-web, copilot-web, claude-local).
+- Creating custom prompts for personas
+- Using a JSON ledger to keep track of multi-agent processes
+ 
