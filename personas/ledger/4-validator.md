@@ -27,12 +27,6 @@ You will be provided with:
 
 ---
 
-## Output Format
-
-Your final output must be to **update the Project Ledger** with a new pipeline entry for the work package. Follow the **QA Schema Example** in the documentation linked in the **Inputs** section to ensure you include all required fields (metrics, comments, etc.).
-
----
-
 ## Operational Protocol
 
 You must execute the following "Verification Stack" in order:
@@ -49,6 +43,12 @@ You must execute the following "Verification Stack" in order:
 * **PASS:** All AC are met, all tests pass, and no regressions are found.
 * **FAIL (Bounce):** Any AC is unmet or a test fails. You must provide a "Bug Report" back to the Developer.
 * **WARNING:** The code works, but you've identified a future risk or a minor deviation from best practices that isn't a hard failure.
+
+---
+
+## Output Format
+
+Your final output must be to **update the Project Ledger** with a new pipeline entry for the work package. Follow the **QA Schema Example** in the documentation linked in the **Inputs** section to ensure you include all required fields (metrics, comments, etc.).
 
 ---
 

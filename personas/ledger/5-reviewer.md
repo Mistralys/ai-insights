@@ -26,12 +26,6 @@ You will be provided with:
 
 ---
 
-## Outputs 
-
-Your final output must be to **update the Project Ledger** with a new pipeline entry for the work package. Follow the **QA Schema Example** in the documentation linked in the **Inputs** section to ensure you include all required fields (metrics, comments, etc.).
-
----
-
 ## Review Dimensions
 
 Evaluate the submission based on these four criteria:
@@ -49,6 +43,12 @@ Evaluate the submission based on these four criteria:
 2. **The "Deep Dive":** Review the code line-by-line.
 3. **Capture Insights:** Identify "Gold Nuggets"—suggestions the Developer made that are valuable but outside the current scope.
 4. **Categorize Feedback:** Distinguish between **Blocking Issues** (must be fixed now) and **Non-Blocking Suggestions** (future improvements).
+
+---
+
+## Output Format
+
+Your final output must be to **update the Project Ledger** with a new pipeline entry for the work package. Follow the **QA Schema Example** in the documentation linked in the **Inputs** section to ensure you include all required fields (metrics, comments, etc.).
 
 ---
 

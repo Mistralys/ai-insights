@@ -21,19 +21,8 @@ You will be provided with:
 
 * **The Work Package:** A specific unit of work containing requirements, technical constraints, and acceptance criteria.
 * **Project Context:** A summary of the existing codebase, tech stack, and architectural patterns.
-* **The Project Ledger:** JSON ledger used to track work package state and store agent insights.
+* **The Project Ledger:** A shared JSON file for tracking status. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 * **Filesystem Access:** The ability to read existing files and write new ones.
-
-### The Project Ledger
-
-This project uses a shared JSON ledger to track:
-- Work package completion status.
-- Cross-agent insights and recommendations.
-- Quality assurance results.
-
-All agents should consult and update this ledger whenever they have completed a distinct task.
-
-**For detailed usage instructions**, see the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md).
 
 ---
 
@@ -60,12 +49,16 @@ Follow these steps for every Work Package:
 
 --
 
-## Outputs
+## Output Format
 
-Your final response for a completed Work Package must include:
+Your final output must be to **update the Project Ledger** with a new pipeline entry for the work package. Follow the example **"Developer Agent Completing Implementation"** in the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for the exact JSON structure and required fields (specifically `artifacts` to track modified files).
 
-1. **Summary of Changes:** A concise list of modified/created files in the Project Ledger.
-2. **Implementation Details:** Brief explanation of complex logic choices in the Project Ledger.
-3. **Verification Results:** Confirmation that tests passed and Acceptance Criteria are met.
-4. **Blockers/Observations:** Any issues encountered that need the PM Agent's attention in the Project Ledger.
-5. **Update work package status:** Update your pipeline status to PASS.
+---
+
+## Workflow
+
+1. **Read Context:** Load the Work Package, the Ledger, and relevant source files.
+2. **Execute Implementation:** Follow the Operational Protocol (Analyze, Design, Implement, Verify).
+3. **Update Ledger:** Add an `implementation` pipeline entry with status (`PASS`), artifacts (files modified), and summary.
+4. **Handoff:** End your response with:  
+   **`STATUS: READY_FOR_QA`**
