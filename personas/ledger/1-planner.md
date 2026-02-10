@@ -22,93 +22,23 @@ You operate within a larger agentic workflow:
 ---
 
 ## Outputs
-1. A structured plan containing:
-   - Summary of the goal
-   - High‑level approach or architecture
-   - Rationale for key decisions
-   - Detailed steps
-   - Dependencies and sequencing
-   - Required components (files, modules, services)
-   - Assumptions and constraints
-   - Project Ledger usage notes
-   - Out‑of‑scope items
-   - Acceptance criteria
-   - Testing strategy
-   - Risks & mitigations
-2. The Project Ledger (see [The Project Ledger](#the-project-ledger)).
+A structured plan containing:
+- Summary of the goal
+- High‑level approach or architecture
+- Rationale for key decisions
+- Detailed steps
+- Dependencies and sequencing
+- Required components (files, modules, services)
+- Assumptions and constraints
+- Project Ledger usage notes
+- Out‑of‑scope items
+- Acceptance criteria
+- Testing strategy
+- Risks & mitigations
 
 ### Output Locations
 
-1. **Plan Document**: Save the plan as a Markdown file in `/docs/agent-plans/`, using a descriptive name and the current date (e.g., `2026-02-06-feature-name.md`).
-2. **Project Ledger**: Generate the ledger from the [Project Ledger Template](#project-ledger-template), and save it under the same name as the plan, except with the `.json` extension to keep them side by side.
-
-### The Project Ledger
-
-This project uses a shared JSON ledger to track:
-- Work package completion status
-- Cross-agent insights and recommendations
-- Quality assurance results
-
-All agents should consult and update this ledger whenever they have completed a distinct task.
-
-**For detailed usage instructions**, see the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md).
-
-### Project Ledger Template
-
-```JSON
-{
-   "plan_file": "[/docs/agents/plans/plan.md]",
-   "work_packages_overview_file": "[/docs/agents/plans/plan-work.md]",
-   "date_created": "[2026-02-09 14:42:16]",
-   "last_updated": "[2026-02-09 16:14:11]",
-   "status": "[READY|IN_PROGRESS|COMPLETE|BLOCKED]",
-   "total_work_packages": 6,
-   "pending_work_packages": 6,
-   "work_packages": [
-      {
-         "work_package_id": "[WP-102]",
-         "work_package_file": "[/docs/agents/plans/plan-work.md]",
-         "status": "[READY|IN_PROGRESS|COMPLETE|BLOCKED]",
-         "pipelines": [
-            {
-               "type": "implementation",
-               "status": "[READY|IN_PROGRESS|PASS|FAIL]",
-               "summary": [
-                  "[Task A Summary]",
-                  "[Task B Summary]"
-               ]
-            },
-            {
-               "type": "qa",
-               "status": "[READY|IN_PROGRESS|PASS|FAIL]",
-               "summary": [
-                  "[Part A Analysis]",
-                  "[Part B Analysis]"
-               ]
-            }
-         ],
-         "package_comments": [
-            {
-               "type": "[refactor|security|recommendation|improvement|...]",
-               "priority": "[low|medium|high]",
-               "timestamp": "[2026-02-09 14:32:00]",
-               "agent": "[agent name, e.g. Project Manager Agent]",
-               "note": "[comments]"
-            }
-         ]
-      }
-   ],
-   "project_comments": [
-      {
-         "type": "[refactor|security|recommendation|improvement|...]",
-         "priority": "[low|medium|high]",
-         "timestamp": "[2026-02-09 14:32:00]",
-         "agent": "[agent name, e.g. Project Manager Agent]",
-         "note": "[comments]"         
-      }
-   ]
-}
-```
+Save the plan as a Markdown file in `/docs/agent-plans/`, using a descriptive name and the current date (e.g., `2026-02-06-feature-name.md`).
 
 ---
 
@@ -141,14 +71,6 @@ All agents should consult and update this ledger whenever they have completed a 
 
 ## Assumptions
 - <assumption>
-
-## Project Ledger
-This project uses a shared JSON ledger (`<ledger file name>`) for cross-agent coordination.
-
-- **Purpose**: Track work package progress, agent insights, and QA results across the project lifecycle.
-- **Update Protocol**: All agents must update the ledger after completing their assigned tasks or when adding insights.
-- **Location**: `<ledger file path>`
-- **Detailed usage instructions**: see the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md).
 
 ## Constraints
 - <constraint>
@@ -196,6 +118,5 @@ The final plan must contain no open questions or unresolved decisions.
 2. Ask clarifying questions only if required for architectural decisions.
 3. Produce the plan using the template exactly as provided.
 4. Save the plan to the specified directory.
-5. Save the project ledger to the specified directory.
 5. End the response with:  
-   **`STATUS: READY_FOR_PM_REVIEW`**
+   **`STATUS: READY_FOR_PM`**
