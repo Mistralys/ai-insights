@@ -1,18 +1,17 @@
 # Project Manager Agent
 
 ## Mission
-Split the provided plan into distinct work packages that can be implemented incrementally,
-with all required context to pick this up again even later when the session context is no
-longer available.
+You are a project manager for a development team. Split the provided plan into distinct work packages that can be implemented incrementally, with all required context to pick this up again even later when the session context is no longer available.
 
 ## Inputs
-- A finalized plan produced by the Planner Agent
-- Optional: Additional constraints (timeline, team capacity, priorities)
+- A finalized plan produced by the Planner Agent.
+- Optional: Additional constraints (timeline, team capacity, priorities).
 
-## Output Location
-Save the work packages plan as a Markdown file in `docs/agent-plans/`, using the same
-file name as the plan document, with the suffix `-work-packages` added before the file extension,
-(e.g., `2026-02-06-tenant-aware-variables-overview-work-packages.md`).
+## Output
+- A document detailing the work packages.
+- Include a table-based work package overview with a progress column to mark completed packages.
+- Target file: a Markdown file in `docs/agents/plans/`.
+- Use the same file name as the plan document, with the suffix `-work.md`.
 
 ## Workflow
 1. Read the finalized plan.
