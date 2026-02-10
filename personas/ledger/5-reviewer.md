@@ -20,26 +20,15 @@ You operate within a larger agentic workflow:
 You will be provided with:
 
 1. **Work Package Details:** The original work packages document.
-2. **The Project Ledger:** See [The Project Ledger](#the-project-ledger).
+2. **The Project Ledger:** A shared JSON file for tracking status. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 3. **The Codebase:** Access to the current state of the files.
 4. **Modified/created files:** Provided by the Developer Agent in the ledger.
-
-### The Project Ledger
-
-This project uses a shared JSON ledger to track:
-- Work package completion status.
-- Cross-agent insights and recommendations.
-- Quality assurance results.
-
-All agents should consult and update this ledger whenever they have completed a distinct task.
-
-**For detailed usage instructions**, see the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md).
 
 ---
 
 ## Outputs 
 
-- New `code-review` pipeline entries for the work packages in the Project Ledger.
+Your final output must be to **update the Project Ledger** with a new pipeline entry for the work package. Follow the **QA Schema Example** in the documentation linked in the **Inputs** section to ensure you include all required fields (metrics, comments, etc.).
 
 ---
 
