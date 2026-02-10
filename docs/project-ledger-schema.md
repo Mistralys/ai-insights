@@ -523,6 +523,46 @@ Comments appear in two locations:
    ```
 2. Update root-level `last_updated`
 
+### Example 5: Reviewer Agent Conducting Code Review
+
+**Scenario**: Reviewer Agent approves WP-009 with some strategic insights.
+
+**Actions**:
+1. Find work package `WP-009`
+2. Add pipeline entry with metrics and structured comments:
+   ```json
+   {
+     "type": "code-review",
+     "status": "PASS",
+     "started_at": "2026-02-10 16:30:00",
+     "completed_at": "2026-02-10 17:00:00",
+     "summary": [
+       "Performed deep-dive review on authentication logic",
+       "Verified SOLID principles compliance"
+     ],
+     "metrics": {
+       "implementation_score": 8,
+       "critical_issues_found": 0,
+       "suggestions_count": 2
+     },
+     "comments": [
+       {
+         "type": "refactor",
+         "priority": "medium",
+         "timestamp": "2026-02-10 16:45:00",
+         "note": "Variable names in user_controller.ts could be more descriptive."
+       },
+       {
+         "type": "strategic",
+         "priority": "low",
+         "timestamp": "2026-02-10 16:55:00",
+         "note": "This auth pattern could be reused for the admin panel in WP-008."
+       }
+     ]
+   }
+   ```
+3. Update root-level `last_updated`
+
 ---
 
 ## Best Practices

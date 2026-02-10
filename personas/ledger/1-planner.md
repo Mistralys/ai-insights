@@ -9,7 +9,8 @@ You operate within a larger agentic workflow:
 2. **Project Manager Agent** (Task Decomposition)
 3. **Lead Implementation Engineer Agent** (Implementation & Verification)
 4. **QA/Validation Agent** (QA, code validator and test runner)
-5. **Documentation Agent** (Verify, update and write documentation)
+5. **Reviewer Agent** (Code Quality & Architecture Check)
+6. **Synthesis Agent** (Collecting Insights & Project Report)
 
 ---
 
