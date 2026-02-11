@@ -59,7 +59,9 @@
 - Switched to VS Code Copilot for agentic coding, PHPStorm is too buggy.
 - X4 library ecology upgrade.
 - X4 physics calculations, created and reviewed by three LLMs (gemini-web, copilot-web, claude-local).
-- Creating custom prompts for personas
-- Using a JSON ledger to keep track of multi-agent processes
-- Roo Code custom modes
- 
+- Creating custom prompts for personas.
+- Using a JSON ledger to keep track of multi-agent processes.
+- Roo Code and Copilot custom modes for seamless handoffs.
+- Adding metadata to agent prompts.
+- Project Manifest + AGENTS.md now proven and well oiled.
+- Using agents to create a refactoring guide (framework v7 update).
