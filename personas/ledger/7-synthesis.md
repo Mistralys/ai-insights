@@ -1,3 +1,12 @@
+---
+agent: Synthesis
+description: 'Step 7/7 in the agent workflow.'
+version: 1.0.0
+last_updated: 2026-02-11 12:00:00
+author: Sebastian Mordziol
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
+---
+
 # Synthesis Agent
 
 ## Mission
