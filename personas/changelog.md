@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v1.0.2 - QA Handoff Fix
+- Ledger: QA agent handoff clarified for open work packages not assigned to the DEV agent.
+
 ## v1.0.1 - Fixed VSCode frontmatter
 - Removed unsupported VSCode YAML properties.
 - Moved metadata to an HTML comment block.

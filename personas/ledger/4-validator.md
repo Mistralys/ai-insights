@@ -1,12 +1,12 @@
 ---
-name: '4 - QA v1.0.0'
+name: '4 - QA v1.0.1'
 description: 'Step 4/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
+  Version: 1.0.1
   Last Updated: 2026-02-11 12:00:00
   Author: Sebastian Mordziol
 -->
@@ -74,8 +74,8 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
     - Add a `qa` pipeline entry with status (`PASS`/`FAIL`), metrics, and comments.
     - Update the **Acceptance Criteria** objects (set `"met": true`/`false`).
 4. **Handoff:**
-   - If validation **FAILED**, end with: **`STATUS: READY_FOR_ENGINEERING`** (to return the package for fixes).
+   - If validation **FAILED**, end with: **`STATUS: RETURN_TO_ENGINEERING`** (to return the package for fixes).
    - If validation **PASSED**:
-       - If there are **unstarted or pending work packages** (status `READY` or `FAILED`) in the Project Ledger, end with: **`STATUS: READY_FOR_ENGINEERING`**.
-       - If **all work packages** in the Ledger are marked as `PASSED` (or equivalent completed status), end with: **`STATUS: READY_FOR_REVIEW`**.
+       - If there are **unstarted or pending work packages** (status `READY` or `FAILED`) **assigned to the implementation engineer (agent 3)** in the Project Ledger, end with: **`STATUS: RETURN_TO_ENGINEERING`**.
+       - Otherwise (all engineer work packages are completed), end with: **`STATUS: READY_FOR_REVIEW`** — even if work packages for other agents (e.g., documentation) remain pending.
 
