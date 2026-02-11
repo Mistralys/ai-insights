@@ -75,7 +75,7 @@ Before starting the workflow, ensure your project has:
 3. **Copy and send** the contents of [1-planner.md](1-planner.md)
 4. **Describe your feature or task** when prompted
 5. **Review and refine** the plan with the agent
-6. **Verify output**: Plan saved to `/docs/agent-plans/YYYY-MM-DD-feature-name.md`
+6. **Verify output**: Plan saved to `/docs/agents/plans/YYYY-MM-DD-feature-name.md`
 
 **Tips**:
 - Be specific about requirements, constraints, and acceptance criteria
@@ -94,8 +94,8 @@ Before starting the workflow, ensure your project has:
 4. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
 5. **Review the work packages** for logical sequencing and dependencies
 6. **Verify outputs**:
-   - Work packages document: `/docs/agent-plans/{plan-name}-work.md`
-   - Ledger JSON file: `/docs/agent-plans/{plan-name}-ledger.json`
+   - Work packages document: `/docs/agents/plans/{plan-name}-work.md`
+   - Ledger JSON file: `/docs/agents/plans/{plan-name}-ledger.json`
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified

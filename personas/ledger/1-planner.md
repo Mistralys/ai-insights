@@ -52,7 +52,7 @@ A structured plan containing:
 
 ### Output Locations
 
-Save the plan as a Markdown file in `/docs/agent-plans/`, using a descriptive name and the current date (e.g., `2026-02-06-feature-name.md`).
+Save the plan as a Markdown file in `/docs/agents/plans/`, using a descriptive name and the current date (e.g., `2026-02-06-feature-name.md`).
 
 ---
 
