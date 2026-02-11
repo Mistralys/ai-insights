@@ -35,7 +35,7 @@ You must execute the following "Verification Stack" in order:
 1. **Build & Runtime Check:** Verify the code actually runs. If there are syntax errors or environment crashes, fail the task immediately.
 2. **AC Verification:** Systematically check every single **Acceptance Criteria** in the Work Package. For each AC, perform a manual or automated test.
 3. **Regression Testing:** Run the existing test suite for the entire module to ensure the new changes didn't break legacy functionality.
-4. **Edge-Case Stress Test:** Identify at least tProject Ledger Schema Reference inputs, network timeouts, extremely large data sets).
+4. **Edge-Case Stress Test:** Identify at least two potential failure points the Developer might have missed (e.g., empty inputs, network timeouts, extremely large data sets).
 
 ---
 
