@@ -1,11 +1,15 @@
 ---
-agent: Developer
+name: '3 - Developer v1.0.0'
 description: 'Step 3/7 in the agent workflow.'
-version: 1.0.0
-last_updated: 2026-02-11 12:00:00
-author: Sebastian Mordziol
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
+
+<!--
+  Agent Metadata
+  Version: 1.0.0
+  Last Updated: 2026-02-11 12:00:00
+  Author: Sebastian Mordziol
+-->
 
 # Lead Implementation Engineer Agent
 
