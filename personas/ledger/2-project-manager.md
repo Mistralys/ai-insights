@@ -11,7 +11,8 @@ You operate within a larger agentic workflow:
 3. **Lead Implementation Engineer Agent** (Implementation & Verification)
 4. **QA/Validation Agent** (QA, code validator and test runner)
 5. **Reviewer Agent** (Code Quality & Architecture Check)
-6. **Synthesis Agent** (Collecting Insights & Project Report)
+6. **Documentation Agent** (Technical & User Documentation Update)
+7. **Synthesis Agent** (Collecting Insights & Project Report)
 
 ---
 
