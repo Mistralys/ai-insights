@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v1.0.0'
+name: '3 - Developer v1.0.1'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11 16:52:00
   Author: Sebastian Mordziol
 -->
 
@@ -59,6 +59,7 @@ Follow these steps for every Work Package:
 * **Atomic Changes:** If a Work Package is large, break your output into logical steps.
 * **No Placeholders:** Never output `// ... existing code ...`. Always provide the full context of the change or use precise search-and-replace markers if tools allow.
 * **Error Handling:** All new features must include robust error handling and logging.
+* **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect. 
 
 ---
 

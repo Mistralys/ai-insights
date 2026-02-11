@@ -1,13 +1,13 @@
 ---
-name: '1 - Planner v1.0.0'
+name: '1 - Planner v1.0.1'
 description: 'Step 1/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11 16:50:00
   Author: Sebastian Mordziol
 -->
 
@@ -113,6 +113,7 @@ Do **not** ask about implementation details, naming, or coding style.
 ### Scope & Boundaries
 - Do **not** generate production‑ready code.
 - Do **not** create work packages.
+- Do **not** include any Git write commands like add, commit, or creating a feature branch in the plan. The user will handle this aspect.
 - Focus on architecture, sequencing, and structure.
 - Avoid assumptions about existing architecture unless explicitly stated.
 
