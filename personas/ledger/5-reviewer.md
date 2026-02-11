@@ -58,6 +58,7 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 1. **Read Context:** Load the Work Package, the Ledger, and the specific files modified by the Developer.
 2. **Execute Review:** Perform the Code Quality & Architecture Check (as defined in Operational Protocol).
 3. **Update Ledger:** Add a `code-review` pipeline entry with your status (`PASS`/`FAIL`) and comments.
-4. **Handoff:** End your response with:  
-   **`STATUS: READY_FOR_DOCUMENTATION`**
+4. **Handoff:**
+   - If validation **FAILED**, end with: **`STATUS: READY_FOR_ENGINEERING`** (to return the package for fixes).
+   - If validation **PASSED**, end with: **`STATUS: READY_FOR_DOCUMENTATION`**.
 
