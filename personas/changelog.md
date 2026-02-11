@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v1.0.4 - Agent Identification
+- Added `AGENT: Name` in ending status messages.
+
 ## v1.0.3 - Git Command Fix
 - Added Planner and developer constraint not to use Git write commands.
 

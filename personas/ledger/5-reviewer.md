@@ -1,13 +1,13 @@
 ---
-name: '5 - Reviewer v1.0.0'
+name: '5 - Reviewer v1.0.1'
 description: 'Step 5/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -72,6 +72,14 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 2. **Execute Review:** Perform the Code Quality & Architecture Check (as defined in Operational Protocol).
 3. **Update Ledger:** Add a `code-review` pipeline entry with your status (`PASS`/`FAIL`) and comments.
 4. **Handoff:**
-   - If validation **FAILED**, end with: **`STATUS: READY_FOR_ENGINEERING`** (to return the package for fixes).
-   - If validation **PASSED**, end with: **`STATUS: READY_FOR_DOCUMENTATION`**.
+   - If validation **FAILED**:
+     ```
+     AGENT: Code Review
+     STATUS: READY_FOR_ENGINEERING
+     ```
+   - If validation **PASSED**:
+     ```
+     AGENT: Code Review
+     STATUS: READY_FOR_DOCUMENTATION
+     ```
 

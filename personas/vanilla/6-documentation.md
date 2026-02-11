@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v1.0.0'
+name: '6 - Documentation v1.0.1'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -85,4 +85,7 @@ Your response must include two deliverables:
 2. **Update Docs:** Edit the markdown files in the workspace.
 3. **Create Documentation Summary:** Save the summary of changes to the markdown file.
 4. **Handoff:** End your response with:  
-   **`STATUS: READY_FOR_SYNTHESIS`**
+   ```
+   AGENT: Documentation
+   STATUS: READY_FOR_SYNTHESIS
+   ```

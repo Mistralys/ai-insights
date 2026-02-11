@@ -1,13 +1,13 @@
 ---
-name: '5 - Reviewer v1.0.0'
+name: '5 - Reviewer v1.0.1'
 description: 'Step 5/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -104,4 +104,7 @@ Your response must be saved to a file named like the work packages document (but
 2. **Execute Review:** Perform the Code Quality & Architecture Check (as defined in Operational Protocol).
 3. **Create Review Report:** Save the review report to the markdown file.
 4. **Handoff:** End your response with:  
-   **`STATUS: READY_FOR_DOCUMENTATION`**
+   ```
+   AGENT: Code Review
+   STATUS: READY_FOR_DOCUMENTATION
+   ```

@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v1.0.0'
+name: '7 - Synthesis v1.0.1'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -157,8 +157,14 @@ Create a comprehensive Markdown report saved as `/docs/agents/plans/{plan-name}-
 
 1. **Read Context:** Load all agent output documents from `/docs/agents/plans/`.
 2. **Analyze Data:** Aggregate metrics and insights from all reports. If critical data is missing or reports are incomplete, end your response with:
-   **`STATUS: FAIL_INCOMPLETE_REPORTS`**
+   ```
+   AGENT: Synthesis
+   STATUS: FAIL_INCOMPLETE_REPORTS
+   ```
 3. **Generate Report:** Create the comprehensive status report.
 4. **Update Work Packages:** Mark the overall project status in the work packages document.
 5. **Conclusion:** End your response with:
-   **`STATUS: PROCESS_COMPLETE`**
+   ```
+   AGENT: Synthesis
+   STATUS: PROCESS_COMPLETE
+   ```

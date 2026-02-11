@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v1.0.1'
+name: '3 - Developer v1.0.2'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11 16:52:00
+  Version: 1.0.2
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -76,5 +76,13 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 2. **Execute Implementation:** Follow the Operational Protocol (Analyze, Design, Implement, Verify).
 3. **Update Ledger:** Add an `implementation` pipeline entry with status (`PASS`), artifacts (files modified), and summary.
 4. **Handoff:** End your response with:
-   - If there are **unstarted or pending work packages** (status `READY` or `FAILED`) in the Project Ledger, end with: **`STATUS: READY_TO_CONTINUE`**.
-   - If all work packages have been completed, end with: **`STATUS: READY_FOR_QA`**
+   - If there are **unstarted or pending work packages** (status `READY` or `FAILED`) in the Project Ledger:
+     ```
+     AGENT: Lead Implementation Engineer
+     STATUS: READY_TO_CONTINUE
+     ```
+   - If all work packages have been completed:
+     ```
+     AGENT: Lead Implementation Engineer
+     STATUS: READY_FOR_QA
+     ```

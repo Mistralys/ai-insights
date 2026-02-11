@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v1.0.0'
+name: '7 - Synthesis v1.0.1'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -64,8 +64,14 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments`.
 
 1.  **Read Context:** Load the Project Ledger.
 2.  **Analyze Data:** Aggregate metrics and insights from the pipeline arrays. If critical ledger data is incomplete or missing, end your response with:
-    **`STATUS: FAIL_LEDGER_FAULTY`**
+    ```
+    AGENT: Synthesis
+    STATUS: FAIL_LEDGER_FAULTY
+    ```
 3.  **Generate Report:** Output the summary to the user.
 4.  **Finalize:** Update the Ledger status.
 5.  **Conclusion:** End your response with:
-    **`STATUS: PROCESS_COMPLETE`**
+    ```
+    AGENT: Synthesis
+    STATUS: PROCESS_COMPLETE
+    ```

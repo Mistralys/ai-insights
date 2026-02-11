@@ -1,13 +1,13 @@
 ---
-name: '1 - Planner v1.0.1'
+name: '1 - Planner v1.0.2'
 description: 'Step 1/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11 16:50:00
+  Version: 1.0.2
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -134,4 +134,7 @@ The final plan must contain no open questions or unresolved decisions.
 3. Produce the plan using the template exactly as provided.
 4. Save the plan to the specified directory.
 5. End the response with:  
-   **`STATUS: READY_FOR_PM`**
+   ```
+   AGENT: Planning
+   STATUS: READY_FOR_PM
+   ```

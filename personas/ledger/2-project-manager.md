@@ -1,13 +1,13 @@
 ---
-name: '2 - Project Manager v1.0.0'
+name: '2 - Project Manager v1.0.1'
 description: 'Step 2/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -61,5 +61,8 @@ You will be provided with:
 5. Save the work‑package document to the specified directory.
 6. Add work package entries in the Project Ledger with the `READY` status.
 7. End the response with:  
-   **`STATUS: READY_FOR_ENGINEERING`**
+   ```
+   AGENT: Project Manager
+   STATUS: READY_FOR_ENGINEERING
+   ```
 

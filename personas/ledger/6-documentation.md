@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v1.0.0'
+name: '6 - Documentation v1.0.1'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 12:00:00
+  Version: 1.0.1
+  Last Updated: 2026-02-11
   Author: Sebastian Mordziol
 -->
 
@@ -60,4 +60,7 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 2. **Update Docs:** Edit the markdown files in the workspace.
 3. **Update Ledger:** Add a `documentation` pipeline entry with a summary of detailed pages updated.
 4. **Handoff:** End your response with:  
-   **`STATUS: READY_FOR_SYNTHESIS`**
+   ```
+   AGENT: Documentation
+   STATUS: READY_FOR_SYNTHESIS
+   ```
