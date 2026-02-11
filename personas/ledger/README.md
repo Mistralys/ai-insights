@@ -350,7 +350,7 @@ Add custom validation or review steps by:
                     │ Work Packages & Ledger
                     ▼
         ╔═════════════════════════════════════════════╗
-        ║    ITERATIVE LOOP (for Each Work Package).  ║
+        ║    ITERATIVE LOOP (for Each Work Package)   ║
         ║                                             ║
         ║  ┌─────────────────┐                        ║
         ║  │  3. Developer   │◄───────────┐           ║
