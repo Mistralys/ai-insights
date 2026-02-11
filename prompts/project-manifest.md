@@ -1,16 +1,14 @@
-# Question: Agent-generated project manifest
+# Create a Project Manifest
 
-> This sounds like something I should be able to let my agent create and maintain. What about using a prompt dedicated to creating / updating the project skeleton with all relevant information? This would enable me to re-run the prompt whenever I want to update the document.
+## Prerequisites
 
-----
+- A README or any kind of document with a high-level description of the 
+  project explaining the project's role and dependencies between data
+  types. 
+- For larger repositories, an overview of the folder structure and main
+  classes / module folders can help a lot.
 
-This is a brilliant idea. You are essentially creating a **"Project Manifest"**—a condensed, high-density file that acts as the "save state" for your application's architecture.
-
-By having the agent generate this manifest, you stop being the "technical writer" and start being the "editor." You simply run the prompt, copy the output into a file called `Project_Manifest.md`, and then feed that file to any new agent session.
-
-----
-
-## Copy & Paste version: Create manifest
+## Prompt: Create Manifest
 
 ```markdown
 Please generate a comprehensive **Project Manifest** for our current application. These documents are intended to be the 'Source of Truth' for future AI agent sessions to understand the codebase without reading every line.
@@ -31,7 +29,7 @@ Save the files in Markdown format into the folder
 2. Individual documents by topics (not numbered, use logical file names)
 ```
 
-## Copy & Paste version: Update manifest
+## Prompt: Update manifest
 
 ```markdown
 Please update the Project Manifest for our current application in the file /Docs/Agents/project-manifest with the current state of the application. It is outdated because of features that were added recently.
