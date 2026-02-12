@@ -1,11 +1,17 @@
+<!--
+  Project Ledger Metadata
+  Version: 1.0.0
+  Last Updated: 2026-02-12 09:00
+  Author: Sebastian Mordziol
+-->
+
 # Project Ledger Schema Reference
 
 ## Overview
 
 The Project Ledger is a shared JSON file that enables coordination between agents throughout the project lifecycle. All agents must read and update this ledger to maintain project state and share insights.
 
-**File Location**: `docs/agent-plans/<project-name>.json`  
-**Naming Convention**: Same base name as the plan file, with `.json` extension
+**File Location**: `docs/agents/plans/{PROJECT_FOLDER}/ledger.json` (Project Folder = Folder where the `plan.md` file is located).
 
 ---
 
@@ -60,7 +66,7 @@ The ledger provides comprehensive project tracking through:
 ### `plan_file`
 - **Type**: String (file path)
 - **Purpose**: Reference to the original plan document
-- **Example**: `"docs/agent-plans/2026-02-10-feature-name.md"`
+- **Example**: `"docs/agents/plans/2026-02-10-feature-name/plan.md"`
 - **Updated by**: Planner Agent (initial creation only)
 
 ### `date_created`
@@ -116,7 +122,7 @@ The ledger provides comprehensive project tracking through:
 ### `work_package_file`
 - **Type**: String (file path)
 - **Purpose**: Reference to the work package document
-- **Example**: `"docs/work-packages/WP-001-setup.md"`
+- **Example**: `"docs/agents/plans/2026-02-10-feature-name/work.md"`
 - **Updated by**: Project Manager Agent (creation only)
 
 ### `status`
@@ -625,7 +631,7 @@ Comments appear in two locations:
 
 ```json
 {
-   "plan_file": "docs/agent-plans/YYYY-MM-DD-project-name.md",
+   "plan_file": "docs/agents/plans/YYYY-MM-DD-project-name/plan.md",
    "date_created": "YYYY-MM-DD HH:MM:SS",
    "last_updated": "YYYY-MM-DD HH:MM:SS",
    "status": "READY|IN_PROGRESS|COMPLETE|BLOCKED",
@@ -634,7 +640,7 @@ Comments appear in two locations:
    "work_packages": [
       {
          "work_package_id": "WP-###",
-         "work_package_file": "docs/work-packages/WP-###-name.md",
+         "work_package_file": "docs/agents/plans/YYYY-MM-DD-project-name/work.md",
          "status": "READY|IN_PROGRESS|COMPLETE|BLOCKED",
          "assigned_to": "Agent Name",
          "dependencies": ["WP-###"],
