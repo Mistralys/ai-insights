@@ -2,6 +2,8 @@
 
 ## v1.0.5 - Plan Folders
 - Now creating a folder per project, simplified file names (e.g. `plan.md`).
+- Moved ledger to the ledger personas folder.
+- Fixed paths in the ledger.
 
 ## v1.0.4 - Agent Identification
 - Added `AGENT: Name` in ending status messages.
