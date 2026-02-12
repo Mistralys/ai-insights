@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v1.0.1'
+name: '7 - Synthesis v1.0.2'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11
+  Version: 1.0.2
+  Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
 -->
 
@@ -50,7 +50,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments`.
 
 ## Output Format
 
-1.  **Report Document:** A concise Markdown file saved as `/docs/agents/{plan-name}-report.md` (based on the plan file name) summarizing:
+1.  **Report Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) summarizing:
     *   **Executive Summary:** What was built.
     *   **Metrics:** Tests passed, coverage, clean code scores.
     *   **Strategic Recommendations:** The "Gold Nuggets" found during the session.

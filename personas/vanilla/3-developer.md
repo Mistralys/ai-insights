@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v1.0.2'
+name: '3 - Developer v1.0.3'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.2
-  Last Updated: 2026-02-11
+  Version: 1.0.3
+  Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
 -->
 
@@ -65,7 +65,7 @@ Follow these steps for every Work Package:
 
 ## Output Format
 
-Your final response for a completed Work Package must be saved to a file named like the work packages document (but with `-impl.md` as suffix instead of `-work.md`) in `/docs/agents/plans/`, which must include:
+Your final response for a completed Work Package must be saved as `impl.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/impl.md`), which must include:
 
 1. **Summary of Changes:** A concise list of modified/created files.
 2. **Implementation Details:** Brief explanation of complex logic choices.

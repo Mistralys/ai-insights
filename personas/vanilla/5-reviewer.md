@@ -1,13 +1,13 @@
 ---
-name: '5 - Reviewer v1.0.1'
+name: '5 - Reviewer v1.0.2'
 description: 'Step 5/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11
+  Version: 1.0.2
+  Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
 -->
 
@@ -63,7 +63,7 @@ Evaluate the submission based on these four criteria:
 
 ## Output Format
 
-Your response must be saved to a file named like the work packages document (but with `-review.md` as suffix instead of `-work.md`) in `/docs/agents/plans/`, structured as follows:
+Your response must be saved as `review.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/review.md`), structured as follows:
 
 > ## **Code Review Report: [Work Package ID]**
 > 

@@ -1,13 +1,13 @@
 ---
-name: '1 - Planner v1.0.2'
+name: '1 - Planner v1.0.3'
 description: 'Step 1/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.2
-  Last Updated: 2026-02-11
+  Version: 1.0.3
+  Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
 -->
 
@@ -50,9 +50,9 @@ A structured plan containing:
 - Testing strategy
 - Risks & mitigations
 
-### Output Locations
+### Output Location
 
-Save the plan as a Markdown file in `/docs/agents/plans/`, using a descriptive name and the current date (e.g., `2026-02-06-feature-name.md`).
+Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save the plan as `plan.md` inside this folder.
 
 ---
 

@@ -1,13 +1,13 @@
 ---
-name: '2 - Project Manager v1.0.1'
+name: '2 - Project Manager v1.0.2'
 description: 'Step 2/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11
+  Version: 1.0.2
+  Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
 -->
 
@@ -42,7 +42,7 @@ You will be provided with:
 **Work Packages Document:**
 - Create a Markdown document detailing the work packages.
 - Include a table-based work package overview.
-- Target file: `/docs/agents/plans/{plan-name}-work.md` (based on the plan file name).
+- Target file: `work.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/work.md`).
 
 ---
 

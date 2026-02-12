@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v1.0.1'
+name: '6 - Documentation v1.0.2'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11
+  Version: 1.0.2
+  Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
 -->
 
@@ -53,7 +53,7 @@ You will be provided with:
 Your response must include two deliverables:
 
 1. **Updated Documentation Files:** Directly edit the relevant markdown files in the workspace (e.g., `README.md`, `docs/*.md`).
-2. **Documentation Summary:** Save a summary to a file named like the work packages document (but with `-docs.md` as suffix instead of `-work.md`) in `/docs/agents/plans/`, structured as follows:
+2. **Documentation Summary:** Save a summary as `docs.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/docs.md`), structured as follows:
 
 > ## **Documentation Update Summary: [Plan Name]**
 > 
