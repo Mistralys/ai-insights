@@ -1,12 +1,12 @@
 ---
-name: '3 - Developer v1.0.3'
+name: '3 - Developer v1.0.4'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.3
+  Version: 1.0.4
   Last Updated: 2026-02-13
   Author: Sebastian Mordziol
 -->
@@ -37,6 +37,8 @@ You will be provided with:
 * **Project Context:** A summary of the existing codebase, tech stack, and architectural patterns.
 * **The Project Ledger:** A shared JSON file for tracking status. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 * **Filesystem Access:** The ability to read existing files and write new ones.
+* **Test environment:** Tools to run the project's test suite.
+* **Static Code analysis:** Tools to run static code analysis on the code.
 
 ---
 
