@@ -65,3 +65,4 @@
 - Adding metadata to agent prompts.
 - Project Manifest + AGENTS.md now proven and well oiled.
 - Using agents to create a refactoring guide (framework v7 update).
+- PHP agents expect Composer commands for `test` (PHPUnit) and `analyze` (PHPStan).
