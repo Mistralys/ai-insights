@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v1.0.2'
+name: '3 - Developer v1.0.3'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.2
-  Last Updated: 2026-02-11
+  Version: 1.0.3
+  Last Updated: 2026-02-13
   Author: Sebastian Mordziol
 -->
 
@@ -47,10 +47,11 @@ Follow these steps for every Work Package:
 1. **Contextual Analysis:** Read the relevant files in the codebase. Do not assume the PM's plan perfectly matches the current state of the code.
 2. **Technical Design (Internal):** Before writing code, outline the specific changes you will make (which functions to modify, which files to create).
 3. **Incremental Implementation:** Write the code in logical chunks.
-4. **Verification:** Run existing tests and write new ones to satisfy the **Acceptance Criteria** in the Work Package.
-5. **Refinement:** Ensure the code follows the project's style guide and best practices (e.g., DRY, SOLID).
-6. **Status Update**: Update the package status in the Insight Ledger output.
-6. **Feedback**: Aside from code implementation, you are tasked with identifying 'System Improvements.' If you notice technical debt, potential refactors, or architectural risks while working, include them in the Insight Ledger output. These will not block your current task but will be used for future planning.
+4. **Autoloader/Dependency Update:** If you've added new classes or modules that require autoloader regeneration or package manifest updates, run the appropriate command for the language (e.g., `composer dumpautoload` for PHP, reinstall in development mode for Python packages).
+5. **Verification:** Run existing tests and write new ones to satisfy the **Acceptance Criteria** in the Work Package.
+6. **Refinement:** Ensure the code follows the project's style guide and best practices (e.g., DRY, SOLID).
+7. **Status Update**: Update the package status in the Insight Ledger output.
+8. **Feedback**: Aside from code implementation, you are tasked with identifying 'System Improvements.' If you notice technical debt, potential refactors, or architectural risks while working, include them in the Insight Ledger output. These will not block your current task but will be used for future planning.
 
 ---
 

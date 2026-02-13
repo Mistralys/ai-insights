@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v1.0.6 - Autoloader/Dependency Update Step
+- Developer: Added step to regenerate autoloaders or update package manifests when new classes/modules are added.
+
 ## v1.0.5 - Plan Folders
 - Now creating a folder per project, simplified file names (e.g. `plan.md`).
 - Moved ledger to the ledger personas folder.
