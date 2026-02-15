@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v1.0.8 - Code Improvement Tracking
+- Developer Persona: Made commenting code a foundational role.
+
 ## v1.0.7 - Testing and Analysis
 - Developer Persona: Provided with testing and analysis capabilities.
 
