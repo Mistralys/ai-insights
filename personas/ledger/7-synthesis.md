@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v2.0.0'
+name: '7 - Synthesis v2.1.0'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.0.0
-  Last Updated: 2026-02-15 12:00
+  Version: 2.1.0
+  Last Updated: 2026-02-15 15:00
   Author: Sebastian Mordziol
 -->
 
@@ -34,7 +34,7 @@ You operate within a larger agentic workflow:
 You will be provided with:
 
 1. **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) for the project overview, work package summary list, and `project_comments`. Then load **all individual WP detail files** (`ledger/WP-###.json`) to access pipeline data, metrics, and comments. The Synthesis Agent is the one role that needs to read every WP file. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
-2. **Work Package Documents:** For referencing original requirements.
+2. **Work Package Documents:** Individual work package specification files (`work/WP-###.md`) for referencing original requirements.
 
 ---
 

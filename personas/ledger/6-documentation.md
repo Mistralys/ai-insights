@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v2.0.0'
+name: '6 - Documentation v2.1.0'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.0.0
-  Last Updated: 2026-02-15 12:00
+  Version: 2.1.0
+  Last Updated: 2026-02-15 15:00
   Author: Sebastian Mordziol
 -->
 
@@ -34,7 +34,7 @@ You operate within a larger agentic workflow:
 You will be provided with:
 
 1. **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) to identify completed work packages from the summary list, then load the **individual WP detail files** (`ledger/WP-###.json`) for completed work packages to find `artifacts` (modified files) in their `implementation` pipeline entries. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
-2. **Completed Work Packages:** Use the root index to identify which work packages have status `COMPLETE`, then load their detail files for artifact information.
+2. **Completed Work Packages:** Use the root index to identify which work packages have status `COMPLETE`, then load their individual specification files (`work/WP-###.md`) and ledger detail files for artifact information.
 2. **The Codebase:** Access to read current source code to verify API signatures or configuration details.
 3. **Existing Documentation:** The `docs/` folder and root `README.md`.
 

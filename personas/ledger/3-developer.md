@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v2.0.0'
+name: '3 - Developer v2.1.0'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.0.0
-  Last Updated: 2026-02-15 12:00
+  Version: 2.1.0
+  Last Updated: 2026-02-15 15:00
   Author: Sebastian Mordziol
 -->
 
@@ -38,7 +38,7 @@ You operate within a larger agentic workflow:
 
 You will be provided with:
 
-* **The Work Package:** A specific unit of work containing requirements, technical constraints, and acceptance criteria.
+* **The Work Package:** The individual work package specification file (`work/WP-###.md`) containing requirements, technical constraints, and acceptance criteria.
 * **Project Context:** A summary of the existing codebase, tech stack, and architectural patterns.
 * **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) first to get the project overview and work package summaries, then load the **individual WP detail file** (`ledger/WP-###.json`) for the work package you are implementing. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 * **Filesystem Access:** The ability to read existing files and write new ones.
@@ -142,7 +142,7 @@ The `comments` array of the `implementation` pipeline **must** contain your Code
 
 ## Workflow
 
-1. **Read Context:** Load the Work Package. Read the root `project-ledger.json` to check the work package summary (status, dependencies). Verify dependencies are `COMPLETE` from the root index. Load the individual WP detail file (`ledger/WP-###.json`). Read relevant source files.
+1. **Read Context:** Load the Work Package (`work/WP-###.md`). Read the root `project-ledger.json` to check the work package summary (status, dependencies). Verify dependencies are `COMPLETE` from the root index. Load the individual WP detail file (`ledger/WP-###.json`). Read relevant source files.
 2. **Execute Implementation:** Follow the Operational Protocol (Analyze, Design, Implement, Verify).
 3. **Update Ledger:** 
    - Update the WP detail file (`ledger/WP-###.json`): add an `implementation` pipeline entry with status (`PASS`), artifacts (files modified), summary, and your **Code Insight Observer comments**.

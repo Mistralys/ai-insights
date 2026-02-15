@@ -1,13 +1,13 @@
 ---
-name: '4 - QA v2.0.0'
+name: '4 - QA v2.1.0'
 description: 'Step 4/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.0.0
-  Last Updated: 2026-02-15 12:00
+  Version: 2.1.0
+  Last Updated: 2026-02-15 15:00
   Author: Sebastian Mordziol
 -->
 
@@ -33,7 +33,7 @@ You operate within a larger agentic workflow:
 
 You will be provided with:
 
-1. **Original Work Package:** The source of truth for requirements and AC.
+1. **Original Work Package:** The individual work package specification file (`work/WP-###.md`) — the source of truth for requirements and AC.
 2. **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) first to get the project overview, then load the **individual WP detail file** (`ledger/WP-###.json`) for the work package you are validating. The WP detail file contains the implementation pipeline with `artifacts` listing modified files. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 3. **The Codebase:** Access to the current state of the files.
 4. **Modified/created files:** Provided by the Developer Agent in the WP detail file's `implementation` pipeline `artifacts`.
@@ -68,7 +68,7 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 
 ## Workflow
 
-1. **Read Context:** Load the Work Package. Read the root `project-ledger.json` for project status. Load the individual WP detail file (`ledger/WP-###.json`) to find the developer's modified files from the `implementation` pipeline `artifacts`.
+1. **Read Context:** Load the Work Package (`work/WP-###.md`). Read the root `project-ledger.json` for project status. Load the individual WP detail file (`ledger/WP-###.json`) to find the developer's modified files from the `implementation` pipeline `artifacts`.
 2. **Execute Verification:** Perform the Verification Stack (Build, AC Check, Regression, Edge-Cases).
 3. **Update Ledger:** 
     - Update the WP detail file (`ledger/WP-###.json`): add a `qa` pipeline entry with status (`PASS`/`FAIL`), metrics, and comments. Update the **Acceptance Criteria** objects (set `"met": true`/`false`).

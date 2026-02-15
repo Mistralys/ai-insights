@@ -1,13 +1,13 @@
 ---
-name: '5 - Reviewer v2.0.0'
+name: '5 - Reviewer v2.1.0'
 description: 'Step 5/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.0.0
-  Last Updated: 2026-02-15 12:00
+  Version: 2.1.0
+  Last Updated: 2026-02-15 15:00
   Author: Sebastian Mordziol
 -->
 
@@ -33,7 +33,7 @@ You operate within a larger agentic workflow:
 
 You will be provided with:
 
-1. **Work Package Details:** The original work packages document.
+1. **Work Package Details:** The individual work package specification file (`work/WP-###.md`).
 2. **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) first, then load the **individual WP detail file** (`ledger/WP-###.json`) for the work package you are reviewing. The WP detail file contains the implementation pipeline with `artifacts` listing modified files. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 3. **The Codebase:** Access to the current state of the files.
 4. **Modified/created files:** Provided by the Developer Agent in the WP detail file's `implementation` pipeline `artifacts`.
@@ -68,7 +68,7 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 
 ## Workflow
 
-1. **Read Context:** Load the Work Package. Read the root `project-ledger.json` for project status. Load the individual WP detail file (`ledger/WP-###.json`) to find the developer's modified files from the `implementation` pipeline `artifacts`. Read the specific modified files.
+1. **Read Context:** Load the Work Package (`work/WP-###.md`). Read the root `project-ledger.json` for project status. Load the individual WP detail file (`ledger/WP-###.json`) to find the developer's modified files from the `implementation` pipeline `artifacts`. Read the specific modified files.
 2. **Execute Review:** Perform the Code Quality & Architecture Check (as defined in Operational Protocol).
 3. **Update Ledger:**
    - Update the WP detail file (`ledger/WP-###.json`): add a `code-review` pipeline entry with your status (`PASS`/`FAIL`) and comments.

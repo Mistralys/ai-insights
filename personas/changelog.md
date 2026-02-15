@@ -1,5 +1,11 @@
 # Personas Changelog
 
+## v2.1.0 - Split Work Packages
+- Work packages now use a split-file architecture: `work.md` is a summary index, individual specifications live in `work/WP-###.md`.
+- Project Manager creates `work/` subfolder with per-WP specification files alongside the summary index.
+- Consumer personas (Developer, Validator, Reviewer, Documentation, Synthesis) now reference `work/WP-###.md` instead of the monolithic `work.md`.
+- Updated README file structure diagram and all stage instructions.
+
 ## v2.0.0 - Ledger Architecture (Breaking)
 - **Breaking Change**: Ledger now uses a split-file architecture instead of a single monolithic JSON file.
 - Root `project-ledger.json` is now a lightweight index with work package summaries (id, status, dependencies, file path).

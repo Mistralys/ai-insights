@@ -95,9 +95,10 @@ Before starting the workflow, ensure your project has:
 4. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
 5. **Review the work packages** for logical sequencing and dependencies
 6. **Verify outputs**:
-   - Work packages document: `/docs/agents/plans/{plan-name}/work.md`
+   - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
+   - Individual WP specification files: `/docs/agents/plans/{plan-name}/work/WP-001.md`, etc.
    - Root ledger index: `/docs/agents/plans/{plan-name}/project-ledger.json`
-   - Individual WP files: `/docs/agents/plans/{plan-name}/ledger/WP-001.json`, etc.
+   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/ledger/WP-001.json`, etc.
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
@@ -114,7 +115,7 @@ For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
 2. **Open these files**:
-   - Work packages document (`work.md`)
+   - The specific work package specification (`work/WP-###.md`) for the target work package
    - Root ledger index (`project-ledger.json`)
    - The specific WP detail file (`ledger/WP-###.json`) for the target work package
    - Relevant source files for context
@@ -140,7 +141,7 @@ For **each work package**:
 
 1. **Start a new chat session** or continue from implementation
 2. **Open these files**:
-   - Work packages document (for acceptance criteria)
+   - The specific work package specification (`work/WP-###.md`) for acceptance criteria
    - Root ledger index (`project-ledger.json`)
    - The specific WP detail file (`ledger/WP-###.json`)
    - Implemented code files
@@ -165,7 +166,7 @@ For **each work package**:
 
 1. **Start a new chat session** or continue from validation
 2. **Open these files**:
-   - Work packages document
+   - The specific work package specification (`work/WP-###.md`)
    - Root ledger index (`project-ledger.json`)
    - The specific WP detail file (`ledger/WP-###.json`)
    - Implemented and validated code
@@ -219,7 +220,7 @@ For **each work package**:
 2. **Open these files**:
    - Root ledger index (`project-ledger.json`) (primary source for overview)
    - All WP detail files (`ledger/WP-###.json`) for pipeline data
-   - Work packages document (for reference)
+   - Work package specification files (`work/WP-###.md`) for reference
 3. **Copy and send** the contents of [7-synthesis.md](7-synthesis.md)
 4. **Review the generated report**:
    - Executive summary of what was built
@@ -288,7 +289,7 @@ For **each work package**:
 
 **Context getting lost**:
 - Start fresh chat sessions between stages
-- Keep the ledger and work packages documents open
+- Keep the ledger index and relevant work package files open
 - Reference specific work package IDs in prompts
 
 **Agent modifying wrong files**:
@@ -436,9 +437,13 @@ your-project/
 │   │   └── plans/
 │   │       └── 2026-02-11-feature-name/
 │   │           ├── plan.md                # Plan document
-│   │           ├── work.md                # Work packages
-│   │           ├── project-ledger.json            # Root index (lightweight)
-│   │           ├── ledger/                # WP detail files
+│   │           ├── work.md                # WP summary index
+│   │           ├── work/                  # WP specification files
+│   │           │   ├── WP-001.md
+│   │           │   ├── WP-002.md
+│   │           │   └── ...
+│   │           ├── project-ledger.json    # Root index (lightweight)
+│   │           ├── ledger/                # Ledger detail files
 │   │           │   ├── WP-001.json
 │   │           │   ├── WP-002.json
 │   │           │   └── ...

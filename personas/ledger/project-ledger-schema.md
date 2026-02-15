@@ -1,7 +1,7 @@
 <!--
   Project Ledger Metadata
-  Version: 2.0.0
-  Last Updated: 2026-02-15 12:00
+  Version: 2.1.0
+  Last Updated: 2026-02-15 15:00
   Author: Sebastian Mordziol
 -->
 
@@ -18,11 +18,15 @@ All agents must read and update the ledger to maintain project state and share i
 ```
 docs/agents/plans/{PROJECT_FOLDER}/
 ├── plan.md                    ← The original plan
-├── work.md                    ← Work packages document
-├── project-ledger.json                ← Root index (lightweight summary)
+├── work.md                    ← Work packages summary index
+├── work/
+│   ├── WP-001.md              ← Full specification for WP-001
+│   ├── WP-002.md              ← Full specification for WP-002
+│   └── ...                    ← One file per work package
+├── project-ledger.json        ← Root index (lightweight summary)
 └── ledger/
-    ├── WP-001.json            ← Full detail for WP-001
-    ├── WP-002.json            ← Full detail for WP-002
+    ├── WP-001.json            ← Ledger detail for WP-001
+    ├── WP-002.json            ← Ledger detail for WP-002
     └── ...                    ← One file per work package
 ```
 
@@ -189,8 +193,8 @@ Each work package has its own JSON file at `ledger/WP-###.json`. This file conta
 
 ### `work_package_file`
 - **Type**: String (file path)
-- **Purpose**: Reference to the work package document
-- **Example**: `"docs/agents/plans/2026-02-10-feature-name/work.md"`
+- **Purpose**: Reference to the individual work package specification document
+- **Example**: `"docs/agents/plans/2026-02-10-feature-name/work/WP-001.md"`
 - **Updated by**: Project Manager Agent (creation only)
 
 ### `status`
@@ -748,7 +752,7 @@ Comments appear in two locations:
 ```json
 {
    "work_package_id": "WP-###",
-   "work_package_file": "docs/agents/plans/YYYY-MM-DD-project-name/work.md",
+   "work_package_file": "docs/agents/plans/YYYY-MM-DD-project-name/work/WP-###.md",
    "status": "READY|IN_PROGRESS|COMPLETE|BLOCKED",
    "assigned_to": "Agent Name",
    "dependencies": ["WP-###"],
