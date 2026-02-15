@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v1.0.2'
+name: '7 - Synthesis v2.0.0'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.2
-  Last Updated: 2026-02-12 09:00
+  Version: 2.0.0
+  Last Updated: 2026-02-15 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -33,7 +33,7 @@ You operate within a larger agentic workflow:
 
 You will be provided with:
 
-1. **The Project Ledger:** A shared JSON file for tracking status. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details. This is your primary data source. 
+1. **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) for the project overview, work package summary list, and `project_comments`. Then load **all individual WP detail files** (`ledger/WP-###.json`) to access pipeline data, metrics, and comments. The Synthesis Agent is the one role that needs to read every WP file. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
 2. **Work Package Documents:** For referencing original requirements.
 
 ---
@@ -62,8 +62,8 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments`.
 
 ## Workflow
 
-1.  **Read Context:** Load the Project Ledger.
-2.  **Analyze Data:** Aggregate metrics and insights from the pipeline arrays. If critical ledger data is incomplete or missing, end your response with:
+1.  **Read Context:** Load the root `project-ledger.json` for the project overview and `project_comments`. Load all individual WP detail files (`ledger/WP-###.json`) using the `file` paths from the root index summary entries.
+2.  **Analyze Data:** Aggregate metrics and insights from the pipeline arrays across all WP detail files. If critical ledger data is incomplete or missing, end your response with:
     ```
     AGENT: Synthesis
     STATUS: FAIL_LEDGER_FAULTY

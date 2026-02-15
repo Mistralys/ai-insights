@@ -1,7 +1,7 @@
 <!--
   Project Ledger Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-12 09:00
+  Version: 2.0.0
+  Last Updated: 2026-02-15 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -9,9 +9,34 @@
 
 ## Overview
 
-The Project Ledger is a shared JSON file that enables coordination between agents throughout the project lifecycle. All agents must read and update this ledger to maintain project state and share insights.
+The Project Ledger is a **split-file system** that enables coordination between agents throughout the project lifecycle. It consists of a lightweight **root index** (`project-ledger.json`) and individual **per-work-package files** (`ledger/WP-###.json`). This architecture keeps each file small, isolates corruption risk, and allows agents to load only the data they need.
 
-**File Location**: `docs/agents/plans/{PROJECT_FOLDER}/ledger.json` (Project Folder = Folder where the `plan.md` file is located).
+All agents must read and update the ledger to maintain project state and share insights.
+
+### File Structure
+
+```
+docs/agents/plans/{PROJECT_FOLDER}/
+├── plan.md                    ← The original plan
+├── work.md                    ← Work packages document
+├── project-ledger.json                ← Root index (lightweight summary)
+└── ledger/
+    ├── WP-001.json            ← Full detail for WP-001
+    ├── WP-002.json            ← Full detail for WP-002
+    └── ...                    ← One file per work package
+```
+
+**Root Index Location**: `docs/agents/plans/{PROJECT_FOLDER}/project-ledger.json`  
+**Work Package Files Location**: `docs/agents/plans/{PROJECT_FOLDER}/ledger/WP-###.json`
+
+(Project Folder = Folder where the `plan.md` file is located).
+
+### Reading & Writing Rules
+
+1. **Always read the root index first** to get project status, the work package summary list, and project comments.
+2. **Load only the WP files you need** — typically the one(s) you are actively working on. Do not load all WP files unless your role requires it (e.g., Synthesis Agent).
+3. **When updating a work package**, write changes to **both** the individual WP file (source of truth for detail) **and** the corresponding summary entry in the root index (status, assigned_to, dependencies).
+4. **When updating project-level fields** (status, pending_work_packages, last_updated, project_comments), write to the root index only.
 
 ---
 
@@ -108,9 +133,52 @@ The ledger provides comprehensive project tracking through:
 - **Example**: `4`
 - **Updated by**: Any agent that changes work package status
 
+### `work_packages`
+- **Type**: Array of **Work Package Summary** objects
+- **Purpose**: Lightweight overview of all work packages — enables agents to check status and dependencies without loading individual WP files
+- **Updated by**: Project Manager Agent (initial creation), any agent that changes a work package's status, assignment, or dependencies
+
+### `project_comments`
+- **Type**: Array of comment objects
+- **Purpose**: Project-wide insights that span multiple work packages (see [Comment Object Structure](#comment-object-structure))
+- **Updated by**: Any agent
+
 ---
 
-## Work Package Object
+## Work Package Summary Object (Root Index)
+
+Each entry in the root index's `work_packages` array is a **summary** — just enough for agents to assess status and dependencies without loading the full WP file.
+
+### `work_package_id`
+- **Type**: String
+- **Format**: `"WP-###"`
+- **Example**: `"WP-001"`
+
+### `status`
+- **Type**: String (enum: `READY`, `IN_PROGRESS`, `COMPLETE`, `BLOCKED`)
+- **Purpose**: Mirrors the status in the individual WP file — must be kept in sync
+
+### `assigned_to`
+- **Type**: String
+- **Purpose**: Which agent is responsible for this work package
+- **Example**: `"Developer Agent"`
+
+### `dependencies`
+- **Type**: Array of strings (work package IDs)
+- **Purpose**: Allows agents to check dependency status from the root index alone
+- **Example**: `["WP-001", "WP-002"]`
+
+### `file`
+- **Type**: String (relative file path)
+- **Purpose**: Path to the individual WP detail file, relative to the plan folder
+- **Example**: `"ledger/WP-001.json"`
+- **Updated by**: Project Manager Agent (creation only)
+
+---
+
+## Work Package Detail Object (Individual WP File)
+
+Each work package has its own JSON file at `ledger/WP-###.json`. This file contains the **complete** work package data including pipelines, acceptance criteria, blockers, and artifacts.
 
 ### `work_package_id`
 - **Type**: String
@@ -380,8 +448,9 @@ Comments appear in two locations:
 **Scenario**: Developer Agent finishes implementing WP-003
 
 **Actions**:
-1. Find the work package object with `"work_package_id": "WP-003"`
-2. Add a pipeline entry:
+1. Read root `project-ledger.json` to find the WP-003 summary entry and its `file` path
+2. Load `ledger/WP-003.json`
+3. In `ledger/WP-003.json`, add a pipeline entry:
    ```json
    {
      "type": "implementation",
@@ -412,22 +481,23 @@ Comments appear in two locations:
      ]
    }
    ```
-3. Update acceptance criteria:
+4. In `ledger/WP-003.json`, update acceptance criteria:
    ```json
    "acceptance_criteria": [
      {"criterion": "User can authenticate with JWT token", "met": true},
      {"criterion": "Rate limiting prevents abuse", "met": true}
    ]
    ```
-4. Update root-level `last_updated` to current timestamp
+5. In root `project-ledger.json`, update the WP-003 summary status and `last_updated`
 
 ### Example 2: QA Agent Finding Security Issue
 
 **Scenario**: QA Agent discovers security vulnerability in WP-005
 
 **Actions**:
-1. Find work package `WP-005`
-2. Add pipeline entry with comments and metrics:
+1. Read root `project-ledger.json` to find WP-005 summary and its `file` path
+2. Load `ledger/WP-005.json`
+3. In `ledger/WP-005.json`, add pipeline entry with comments and metrics:
    ```json
    {
      "type": "qa",
@@ -460,7 +530,7 @@ Comments appear in two locations:
      ]
    }
    ```
-3. Update work package status and add blocker:
+4. In `ledger/WP-005.json`, update status and add blocker:
    ```json
    "status": "BLOCKED",
    "blocked_by": {
@@ -468,31 +538,30 @@ Comments appear in two locations:
      "description": "Critical security vulnerabilities must be fixed before proceeding"
    }
    ```
-4. Update acceptance criteria:
+5. In `ledger/WP-005.json`, update acceptance criteria:
    ```json
    "acceptance_criteria": [
      {"criterion": "All security tests pass", "met": false},
      {"criterion": "No SQL injection vulnerabilities", "met": false}
    ]
    ```
-5. Increment revision counter: `"revision": 2`
-6. Update root-level `last_updated`
+6. In `ledger/WP-005.json`, increment revision counter: `"revision": 2`
+7. In root `project-ledger.json`, update WP-005 summary status to `"BLOCKED"` and update `last_updated`
 
 ### Example 3: Developer Agent Starting Work with Dependencies
 
 **Scenario**: Developer Agent wants to start WP-007 which depends on WP-003 and WP-005
 
 **Actions**:
-1. Find work package `WP-007`
-2. Check dependencies:
+1. Read root `project-ledger.json` — check the `work_packages` summary array
+2. Find WP-007 summary and check its dependencies:
    ```json
    "dependencies": ["WP-003", "WP-005"]
    ```
-3. Verify both WP-003 and WP-005 have status `COMPLETE`
+3. Check the status of WP-003 and WP-005 **from the root index summaries** (no need to load their detail files)
 4. If dependencies are met:
-   - Update status: `"status": "IN_PROGRESS"`
-   - Set assignment: `"assigned_to": "Developer Agent"`
-   - Add pipeline with start timestamp:
+   - Load `ledger/WP-007.json`
+   - In `ledger/WP-007.json`, update status: `"status": "IN_PROGRESS"`, set `"assigned_to": "Developer Agent"`, and add pipeline:
      ```json
      {
        "type": "implementation",
@@ -501,9 +570,9 @@ Comments appear in two locations:
        "summary": []
      }
      ```
+   - In root `project-ledger.json`, update the WP-007 summary: set `"status": "IN_PROGRESS"` and `"assigned_to": "Developer Agent"`, update `last_updated`
 5. If dependencies NOT met (e.g., WP-005 is still `IN_PROGRESS`):
-   - Keep status as `READY`
-   - Add blocker:
+   - Load `ledger/WP-007.json` and add blocker:
      ```json
      "blocked_by": {
        "type": "dependency",
@@ -511,13 +580,14 @@ Comments appear in two locations:
        "blocking_work_package": "WP-005"
      }
      ```
+   - In root `project-ledger.json`, update WP-007 summary status to `"BLOCKED"`, update `last_updated`
 
 ### Example 4: Adding Project-Wide Recommendation
 
 **Scenario**: Validator Agent notices pattern that affects multiple work packages
 
 **Actions**:
-1. Add to `project_comments` array:
+1. In root `project-ledger.json`, add to `project_comments` array:
    ```json
    {
      "type": "recommendation",
@@ -527,15 +597,18 @@ Comments appear in two locations:
      "note": "Consider extracting error handling logic into a centralized middleware. Currently duplicated across WP-003, WP-007, and WP-009."
    }
    ```
-2. Update root-level `last_updated`
+2. Update root-level `last_updated` in `project-ledger.json`
+
+**Note**: Project comments always go in the root `project-ledger.json`, never in individual WP files.
 
 ### Example 5: Reviewer Agent Conducting Code Review
 
 **Scenario**: Reviewer Agent approves WP-009 with some strategic insights.
 
 **Actions**:
-1. Find work package `WP-009`
-2. Add pipeline entry with metrics and structured comments:
+1. Read root `project-ledger.json` to find WP-009 summary and its `file` path
+2. Load `ledger/WP-009.json`
+3. In `ledger/WP-009.json`, add pipeline entry with metrics and structured comments:
    ```json
    {
      "type": "code-review",
@@ -567,7 +640,7 @@ Comments appear in two locations:
      ]
    }
    ```
-3. Update root-level `last_updated`
+4. In root `project-ledger.json`, update `last_updated`
 
 ---
 
@@ -575,12 +648,22 @@ Comments appear in two locations:
 
 ### For All Agents
 
-1. **Always read before writing**: Load the current ledger state before making updates
-2. **Update timestamps**: Always set `last_updated` at root level when modifying ledger
-3. **Be specific**: Use clear, actionable language in summaries and comments
-4. **Reference work packages**: When adding project comments that relate to specific work packages, mention their IDs
-5. **Keep summaries concise**: Use bullet-point style, 1-2 lines per item
-6. **Use appropriate priorities**: Reserve "high" priority for blockers and critical issues
+1. **Always read the root index first**: Load `project-ledger.json` to get project status and work package summaries
+2. **Load only what you need**: Read individual WP files only for the work packages you are actively working on
+3. **Keep both files in sync**: When changing a work package's `status`, `assigned_to`, or `dependencies`, update **both** the WP detail file and the root index summary
+4. **Update timestamps**: Always set `last_updated` in the root index when modifying any ledger file
+5. **Be specific**: Use clear, actionable language in summaries and comments
+6. **Reference work packages**: When adding project comments that relate to specific work packages, mention their IDs
+7. **Keep summaries concise**: Use bullet-point style, 1-2 lines per item
+8. **Use appropriate priorities**: Reserve "high" priority for blockers and critical issues
+
+### For the Split-File Architecture
+
+1. **Root index is the status dashboard**: Agents can check dependency status and overall progress from the root index alone — no need to load WP detail files just to check status
+2. **Detail files are the source of truth**: For pipeline data, acceptance criteria, metrics, and artifacts, the individual WP file is authoritative
+3. **Project comments belong in the root index**: Cross-cutting insights go in `project_comments` in `project-ledger.json`, never in individual WP files
+4. **Pipeline comments belong in WP files**: Stage-specific observations go in the pipeline's `comments` array within the WP detail file
+5. **Never duplicate pipeline data in the root index**: The root index summary only mirrors `status`, `assigned_to`, and `dependencies`
 
 ### For Status Updates
 
@@ -627,7 +710,9 @@ Comments appear in two locations:
 
 ---
 
-## Schema Template (for reference)
+## Schema Templates (for reference)
+
+### Root Index (`project-ledger.json`)
 
 ```json
 {
@@ -640,50 +725,10 @@ Comments appear in two locations:
    "work_packages": [
       {
          "work_package_id": "WP-###",
-         "work_package_file": "docs/agents/plans/YYYY-MM-DD-project-name/work.md",
          "status": "READY|IN_PROGRESS|COMPLETE|BLOCKED",
          "assigned_to": "Agent Name",
          "dependencies": ["WP-###"],
-         "blocked_by": {
-            "type": "dependency|decision|external|technical",
-            "description": "string",
-            "blocking_work_package": "WP-###"
-         },
-         "acceptance_criteria": [
-            {
-               "criterion": "string",
-               "met": true
-            }
-         ],
-         "revision": 1,
-         "pipelines": [
-            {
-               "type": "string",
-               "status": "READY|IN_PROGRESS|PASS|FAIL",
-               "started_at": "YYYY-MM-DD HH:MM:SS",
-               "completed_at": "YYYY-MM-DD HH:MM:SS",
-               "summary": ["string"],
-               "artifacts": {
-                  "files_modified": ["string"],
-                  "commit_hash": "string",
-                  "pull_request": "string"
-               },
-               "metrics": {
-                  "test_coverage": "string",
-                  "tests_passed": 0,
-                  "tests_failed": 0,
-                  "security_issues": 0
-               },
-               "comments": [
-                  {
-                     "type": "string",
-                     "priority": "low|medium|high",
-                     "timestamp": "YYYY-MM-DD HH:MM:SS",
-                     "note": "string"
-                  }
-               ]
-            }
-         ]
+         "file": "ledger/WP-###.json"
       }
    ],
    "project_comments": [
@@ -693,6 +738,58 @@ Comments appear in two locations:
          "timestamp": "YYYY-MM-DD HH:MM:SS",
          "agent": "string",
          "note": "string"
+      }
+   ]
+}
+```
+
+### Work Package Detail (`ledger/WP-###.json`)
+
+```json
+{
+   "work_package_id": "WP-###",
+   "work_package_file": "docs/agents/plans/YYYY-MM-DD-project-name/work.md",
+   "status": "READY|IN_PROGRESS|COMPLETE|BLOCKED",
+   "assigned_to": "Agent Name",
+   "dependencies": ["WP-###"],
+   "blocked_by": {
+      "type": "dependency|decision|external|technical",
+      "description": "string",
+      "blocking_work_package": "WP-###"
+   },
+   "acceptance_criteria": [
+      {
+         "criterion": "string",
+         "met": true
+      }
+   ],
+   "revision": 1,
+   "pipelines": [
+      {
+         "type": "string",
+         "status": "READY|IN_PROGRESS|PASS|FAIL",
+         "started_at": "YYYY-MM-DD HH:MM:SS",
+         "completed_at": "YYYY-MM-DD HH:MM:SS",
+         "summary": ["string"],
+         "artifacts": {
+            "files_modified": ["string"],
+            "commit_hash": "string",
+            "pull_request": "string"
+         },
+         "metrics": {
+            "test_coverage": "string",
+            "tests_passed": 0,
+            "tests_failed": 0,
+            "security_issues": 0
+         },
+         "comments": [
+            {
+               "type": "string",
+               "priority": "low|medium|high",
+               "timestamp": "YYYY-MM-DD HH:MM:SS",
+               "note": "string"
+            }
+         ]
       }
    ]
 }

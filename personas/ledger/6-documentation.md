@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v1.0.1'
+name: '6 - Documentation v2.0.0'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.1
-  Last Updated: 2026-02-11
+  Version: 2.0.0
+  Last Updated: 2026-02-15 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -33,8 +33,8 @@ You operate within a larger agentic workflow:
 
 You will be provided with:
 
-1. **The Project Ledger:** A shared JSON file for tracking status. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
-2. **Completed Work Packages:** Use the ledger to identify which Work Packages were completed and which files were modified (`artifacts`)
+1. **The Project Ledger (Split Structure):** The ledger uses a split-file architecture. Read the **root index** (`project-ledger.json`) to identify completed work packages from the summary list, then load the **individual WP detail files** (`ledger/WP-###.json`) for completed work packages to find `artifacts` (modified files) in their `implementation` pipeline entries. See the [Project Ledger Schema Reference](/docs/agents/project-ledger-schema.md) for usage and schema details.
+2. **Completed Work Packages:** Use the root index to identify which work packages have status `COMPLETE`, then load their detail files for artifact information.
 2. **The Codebase:** Access to read current source code to verify API signatures or configuration details.
 3. **Existing Documentation:** The `docs/` folder and root `README.md`.
 
@@ -56,9 +56,11 @@ Your final output must be to **update the Project Ledger** with a new pipeline e
 
 ## Workflow
 
-1. **Read Context:** Load the Ledger to find completed Work Packages.
+1. **Read Context:** Load the root `project-ledger.json` to find completed Work Packages. Load the individual WP detail files for completed packages to access `implementation` pipeline `artifacts`.
 2. **Update Docs:** Edit the markdown files in the workspace.
-3. **Update Ledger:** Add a `documentation` pipeline entry with a summary of detailed pages updated.
+3. **Update Ledger:** 
+   - In each relevant WP detail file, add a `documentation` pipeline entry with a summary of pages updated.
+   - Update root `project-ledger.json` `last_updated`.
 4. **Handoff:** End your response with:  
    ```
    AGENT: Documentation

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a structured multi-agent workflow for systematic software development. It uses a JSON ledger to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
+This is a structured multi-agent workflow for systematic software development. It uses a **split-file JSON ledger** to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
 
 ### Why Use This Workflow?
 
@@ -11,6 +11,7 @@ This is a structured multi-agent workflow for systematic software development. I
 - **Traceability**: Track work packages, acceptance criteria, dependencies, and blockers
 - **Quality Assurance**: Built-in validation, review, and documentation stages
 - **Scalability**: Handle complex projects by breaking them into manageable work packages
+- **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP file doesn't affect others
 
 ### Agents in the Workflow
 
@@ -94,8 +95,9 @@ Before starting the workflow, ensure your project has:
 4. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
 5. **Review the work packages** for logical sequencing and dependencies
 6. **Verify outputs**:
-   - Work packages document: `/docs/agents/plans/{plan-name}-work.md`
-   - Ledger JSON file: `/docs/agents/plans/{plan-name}-ledger.json`
+   - Work packages document: `/docs/agents/plans/{plan-name}/work.md`
+   - Root ledger index: `/docs/agents/plans/{plan-name}/project-ledger.json`
+   - Individual WP files: `/docs/agents/plans/{plan-name}/ledger/WP-001.json`, etc.
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
@@ -112,16 +114,17 @@ For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
 2. **Open these files**:
-   - Work packages document (`{plan-name}-work.md`)
-   - Project ledger (`{plan-name}-ledger.json`)
+   - Work packages document (`work.md`)
+   - Root ledger index (`project-ledger.json`)
+   - The specific WP detail file (`ledger/WP-###.json`) for the target work package
    - Relevant source files for context
 3. **Copy and send** the contents of [3-developer.md](3-developer.md)
 4. **Specify which work package** to implement (e.g., "Implement WP-1")
-5. **Monitor progress**: Agent will update ledger status from `READY` → `IN_PROGRESS` → `IMPLEMENTED`
+5. **Monitor progress**: Agent will update both the WP detail file and root index status
 6. **Verify outputs**:
    - Code changes in your project files
-   - Ledger updated with artifacts (file paths) and timestamp
-   - Package status changed to `IMPLEMENTED`
+   - WP detail file updated with artifacts (file paths) and pipeline entry
+   - Root index status updated
 
 **Tips**:
 - Keep related files open for the agent to reference
@@ -138,14 +141,15 @@ For **each work package**:
 1. **Start a new chat session** or continue from implementation
 2. **Open these files**:
    - Work packages document (for acceptance criteria)
-   - Project ledger
+   - Root ledger index (`project-ledger.json`)
+   - The specific WP detail file (`ledger/WP-###.json`)
    - Implemented code files
 3. **Copy and send** the contents of [4-validator.md](4-validator.md)
 4. **Specify the work package** to validate
 5. **Review validation results**:
    - **PASS**: All acceptance criteria met, tests pass → Status becomes `VALIDATED`
-   - **FAIL**: Issues found → Agent updates ledger with blockers, returns to developer
-6. **Verify ledger update**: Check `validation` pipeline entry with test metrics
+   - **FAIL**: Issues found → Agent updates WP detail file with blockers, returns to developer
+6. **Verify ledger update**: Check `validation` pipeline entry in the WP detail file
 
 **Tips**:
 - Ensure test environment is properly configured
@@ -162,7 +166,8 @@ For **each work package**:
 1. **Start a new chat session** or continue from validation
 2. **Open these files**:
    - Work packages document
-   - Project ledger
+   - Root ledger index (`project-ledger.json`)
+   - The specific WP detail file (`ledger/WP-###.json`)
    - Implemented and validated code
 3. **Copy and send** the contents of [5-reviewer.md](5-reviewer.md)
 4. **Review the analysis**:
@@ -171,7 +176,7 @@ For **each work package**:
    - Architectural alignment
    - Suggested improvements
 5. **Address blocking issues** if any are identified
-6. **Verify ledger update**: Check `review` pipeline entry with findings
+6. **Verify ledger update**: Check `review` pipeline entry in the WP detail file
 7. **Status becomes** `REVIEWED` if approved
 
 **Tips**:
@@ -188,14 +193,15 @@ For **each work package**:
 
 1. **Start a new chat session**
 2. **Open these files**:
-   - Project ledger
+   - Root ledger index (`project-ledger.json`)
+   - WP detail files for completed packages (`ledger/WP-###.json`)
    - Current project documentation (README, API docs)
 3. **Copy and send** the contents of [6-documentation.md](6-documentation.md)
 4. **Review documentation updates**:
    - Updated API references
    - New configuration instructions
    - Architecture diagram changes
-5. **Verify ledger update**: Check `documentation` pipeline entry
+5. **Verify ledger update**: Check `documentation` pipeline entries in the WP detail files
 
 **Tips**:
 - Ensure all new features are documented
@@ -211,7 +217,8 @@ For **each work package**:
 
 1. **Start a new chat session**
 2. **Open these files**:
-   - Project ledger (primary source)
+   - Root ledger index (`project-ledger.json`) (primary source for overview)
+   - All WP detail files (`ledger/WP-###.json`) for pipeline data
    - Work packages document (for reference)
 3. **Copy and send** the contents of [7-synthesis.md](7-synthesis.md)
 4. **Review the generated report**:
@@ -241,9 +248,10 @@ For **each work package**:
 
 ### Ledger Hygiene
 
-- **Commit regularly**: Version control the ledger with your code
-- **Review updates**: Check that agents update the ledger correctly after each stage
+- **Commit regularly**: Version control the ledger files (root index + WP detail files) with your code
+- **Review updates**: Check that agents update both the WP detail file and root index consistently
 - **Monitor status**: Track work package statuses (`READY` → `IN_PROGRESS` → `IMPLEMENTED` → `VALIDATED` → `REVIEWED`)
+- **Keep in sync**: Root index status must mirror each WP detail file's status
 
 ### Workflow Flexibility
 
@@ -268,6 +276,11 @@ For **each work package**:
 **Agent can't find the ledger schema**:
 - Verify [project-ledger-schema.md](../../docs/project-ledger-schema.md) is at `/docs/agents/project-ledger-schema.md` in your project
 - Check file permissions
+
+**Root index and WP detail file out of sync**:
+- Open both files and compare the status fields
+- The WP detail file is the source of truth — update the root index to match
+- Agents should always update both files; if one was missed, manually correct it
 
 **Work package dependencies not respected**:
 - Review the ledger's `dependencies` field for each package
@@ -421,10 +434,15 @@ your-project/
 │   ├── agents/
 │   │   ├── project-ledger-schema.md   # Reference doc
 │   │   └── plans/
-│   │       ├── 2026-02-11-feature-name.md          # Plan document
-│   │       ├── 2026-02-11-feature-name-work.md     # Work packages
-│   │       ├── 2026-02-11-feature-name-ledger.json # State tracking
-│   │       └── 2026-02-11-feature-name-report.md   # Final report
+│   │       └── 2026-02-11-feature-name/
+│   │           ├── plan.md                # Plan document
+│   │           ├── work.md                # Work packages
+│   │           ├── project-ledger.json            # Root index (lightweight)
+│   │           ├── ledger/                # WP detail files
+│   │           │   ├── WP-001.json
+│   │           │   ├── WP-002.json
+│   │           │   └── ...
+│   │           └── synthesis.md           # Final report
 │   └── [other project docs]
 └── [your source code]
 ```
