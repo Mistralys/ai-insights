@@ -5,6 +5,8 @@
   "description": "MCP server for Project Ledger workflow coordination",
   "main": "dist/index.js",
   "scripts": {
+    "sync-version": "node scripts/sync-version.js",
+    "predev": "npm run sync-version",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest"

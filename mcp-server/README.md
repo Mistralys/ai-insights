@@ -305,6 +305,31 @@ Work package updates are atomic across both files:
 
 ## Development
 
+### Versioning
+
+This project uses **`changelog.md` as the source of truth** for versioning:
+
+1. **When releasing a new version**, update the changelog first:
+   ```markdown
+   ## v1.0.2 - 2026-02-20
+   
+   ### Added
+   - New feature...
+   ```
+
+2. **Sync the version** to `package.json`:
+   ```bash
+   npm run sync-version
+   ```
+   This script extracts the version from `changelog.md` and updates `package.json` automatically.
+
+3. **The MCP server displays its version** at startup in STDERR:
+   ```
+   [project-ledger-mcp] Server v1.0.2 started successfully
+   ```
+
+The `sync-version` script runs automatically before `npm run dev` via the `predev` hook.
+
 ### Running Tests
 
 ```bash

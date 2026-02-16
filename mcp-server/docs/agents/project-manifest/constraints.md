@@ -298,6 +298,69 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ---
 
+## Development & Build Constraints
+
+### 16. Changelog Is the Source of Truth for Versioning
+
+**Rule:** All version changes must be made in `changelog.md` first, then synced to `package.json`.
+
+**Rationale:** Maintains a single source of truth and ensures version history is documented.
+
+**Process:**
+1. Update `changelog.md` with new version header:
+   ```markdown
+   ## v1.0.2 - 2026-02-20
+   
+   ### Added
+   - New feature...
+   ```
+2. Run `npm run sync-version` to extract version and update `package.json`
+3. The MCP server will display the version at startup in STDERR
+
+**Anti-pattern:**
+```bash
+# ❌ WRONG — manually editing package.json version
+vim package.json  # Don't do this!
+```
+
+**Correct pattern:**
+```bash
+# ✅ CORRECT — update changelog first, then sync
+vim changelog.md  # Add new version
+npm run sync-version
+```
+
+---
+
+### 17. Version Sync Runs Automatically Before Dev
+
+**Rule:** The `predev` hook ensures version is synced before running the development server.
+
+**Implication:** You can skip manual `npm run sync-version` if running `npm run dev` — it happens automatically.
+
+**Manual sync needed when:**
+- Building for distribution
+- Running in production
+- CI/CD pipelines
+- Testing version display without starting server
+
+---
+
+### 18. Server Version Displays at Startup
+
+**Rule:** The MCP server logs its version to STDERR on startup.
+
+**Example output:**
+```
+[project-ledger-mcp] Server v1.0.1 started successfully
+[project-ledger-mcp] Transport: STDIO
+[project-ledger-mcp] Registered tools: ledger_get_project_status, ...
+```
+
+**Purpose:** Allows users and CI systems to verify which version is running in their project.
+
+---
+
 ## Gotchas
 
 ### ⚠️ Gotcha 1: Revision Only Increments on COMPLETE → IN_PROGRESS
