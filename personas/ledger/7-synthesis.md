@@ -1,12 +1,12 @@
 ---
-name: '7 - Synthesis v2.2.0'
+name: '7 - Synthesis v2.3.0'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.2.0
+  Version: 2.3.0
   Last Updated: 2026-02-16 20:15
   Author: Sebastian Mordziol
 -->
@@ -53,6 +53,12 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 | `ledger_update_work_package_status` | Mark individual WPs as COMPLETE if needed. |
 | `ledger_add_project_comment` | Add project-level synthesis observations. |
 | `ledger_get_handoff_status` | Compute the final AGENT/STATUS handoff block. Call with `current_agent: "Synthesis"`. |
+
+### Pre-flight check
+
+Before starting your workflow, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`. If the tool is not available (not listed among your tools) or fails with a connection error, **stop immediately** and inform the user:
+
+> **MCP server unavailable.** The `project-ledger` MCP server is a hard prerequisite for this workflow. Please ensure it is configured and running before retrying. Check `.mcp.json` for the server configuration.
 
 ---
 

@@ -1,12 +1,12 @@
 ---
-name: '2 - Project Manager v2.2.0'
+name: '2 - Project Manager v2.3.0'
 description: 'Step 2/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.2.0
+  Version: 2.3.0
   Last Updated: 2026-02-16 18:00
   Author: Sebastian Mordziol
 -->
@@ -50,6 +50,14 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 | `ledger_create_work_package` | Create a work package (both `ledger/WP-###.json` and root index summary). Auto-generates the WP ID. Requires `project_path`, `assigned_to`, `dependencies` (array of WP-### IDs), `acceptance_criteria` (array of strings), and `work_package_file` (relative path to `work/WP-###.md`). |
 | `ledger_get_project_status` | Read the root index (self-heals incorrect counters). Use to verify the ledger after creation. |
 | `ledger_get_handoff_status` | Compute the correct AGENT/STATUS handoff block. Use at the end of your workflow. |
+
+### Pre-flight check
+
+Before starting your workflow, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`. If the tool is not available (not listed among your tools) or fails with a connection error, **stop immediately** and inform the user:
+
+> **MCP server unavailable.** The `project-ledger` MCP server is a hard prerequisite for this workflow. Please ensure it is configured and running before retrying. Check `.mcp.json` for the server configuration.
+
+A "project not found" response is expected at this stage (the project hasn't been created yet) and confirms the server **is** running.
 
 ### Important notes:
 - `ledger_create_work_package` validates that all listed dependencies already exist — **create work packages in dependency order** (dependencies first).

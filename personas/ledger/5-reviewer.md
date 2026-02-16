@@ -1,12 +1,12 @@
 ---
-name: '5 - Reviewer v2.2.0'
+name: '5 - Reviewer v2.3.0'
 description: 'Step 5/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.2.0
+  Version: 2.3.0
   Last Updated: 2026-02-16 19:45
   Author: Sebastian Mordziol
 -->
@@ -53,6 +53,12 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 | `ledger_complete_pipeline` | Finalize the review pipeline with PASS/FAIL status, summary, metrics, and comments. |
 | `ledger_add_project_comment` | Add project-level comments for cross-cutting architectural insights. |
 | `ledger_get_handoff_status` | Compute the correct AGENT/STATUS handoff block at the end of your turn. Call with `current_agent: "Reviewer"`. |
+
+### Pre-flight check
+
+Before starting your workflow, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`. If the tool is not available (not listed among your tools) or fails with a connection error, **stop immediately** and inform the user:
+
+> **MCP server unavailable.** The `project-ledger` MCP server is a hard prerequisite for this workflow. Please ensure it is configured and running before retrying. Check `.mcp.json` for the server configuration.
 
 ---
 
