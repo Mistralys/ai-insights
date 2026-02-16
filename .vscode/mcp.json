@@ -3,7 +3,11 @@
 		"AI Insights CTX": {
 			"type": "stdio",
 			"command": "ctx",
-			"args": ["server"]
+			"args": [
+				"server",
+				"-c",
+				"F:\\Webserver\\www\\htdocs\\tools\\ai-insights"
+			]
 		}
 	},
 	"inputs": []
