@@ -31,11 +31,13 @@
 - Agents have a limited context storage. When reaching approx. 80%, they start to compact the context, losing precision.
 - Use plan mode when planning. If the concept is detailed enough, no need to use a big model for the implementation.
 - Use AGENTS.md to link all resources and describe core concepts.
-- Use CTX generator to compile context files
+- Use CTX generator to compile context files.
 - Set up a context MCP server to simplify access to the project context.
 - Can go back in a conversation to fix what you wrote when the results are not good.
-- Split documents into smaller chunks
+- Split documents into smaller chunks.
 - Give web LLMs a combined project manifest to discuss app details
+- Rename files to support agents naturally expecting specific names (e.g. `project-ledger.json`).
+- Robust code requires oversight.
 
 ## My AI Journey Milestones
 
