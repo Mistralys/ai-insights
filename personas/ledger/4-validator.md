@@ -1,13 +1,13 @@
 ---
-name: '4 - QA v2.1.0'
+name: '4 - QA v2.2.0'
 description: 'Step 4/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.1.0
-  Last Updated: 2026-02-15 15:00
+  Version: 2.2.0
+  Last Updated: 2026-02-16 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -57,6 +57,10 @@ You must execute the following "Verification Stack" in order:
 * **PASS:** All AC are met, all tests pass, and no regressions are found.
 * **FAIL (Bounce):** Any AC is unmet or a test fails. You must provide a "Bug Report" back to the Developer.
 * **WARNING:** The code works, but you've identified a future risk or a minor deviation from best practices that isn't a hard failure.
+
+### Environment Incident Logging
+
+If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), log it as a `project_comment` with type `"incident"` in the root `project-ledger.json`. Include a `context` object with `os`, `tool`, `work_package`, `resolved`, and optionally `workaround`. Do not investigate root causes — just record what happened and whether you found a workaround.
 
 ---
 

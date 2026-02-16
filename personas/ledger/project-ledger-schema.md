@@ -1,7 +1,7 @@
 <!--
   Project Ledger Metadata
-  Version: 2.1.0
-  Last Updated: 2026-02-15 15:00
+  Version: 2.2.0
+  Last Updated: 2026-02-16 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -414,6 +414,7 @@ Comments appear in two locations:
   - `"blocker"` - Issue preventing progress
   - `"risk"` - Potential future problem
   - `"dependency"` - External dependency issue
+  - `"incident"` - Environment or tooling issue not caused by agent error (see [Incident Comments](#incident-comments))
 - **Custom Values**: Allowed - use descriptive names
 
 ### `priority`
@@ -442,6 +443,52 @@ Comments appear in two locations:
 - **Purpose**: The actual comment content
 - **Format**: Clear, actionable description
 - **Example**: `"Database queries in user controller lack proper indexing. Consider adding compound index on (user_id, created_at) for performance."`
+
+### `context` (Incident Comments Only)
+- **Type**: Object (optional)
+- **Purpose**: Structured metadata for `"incident"` type comments. Helps automated tooling filter and aggregate environment issues.
+- **Fields**:
+  - `os` (String) - Operating system where the incident occurred (e.g., `"Windows"`, `"Linux"`)
+  - `tool` (String) - The tool or command that misbehaved (e.g., `"run_in_terminal"`, `"read_file"`)
+  - `work_package` (String, optional) - The work package ID during which the incident occurred (e.g., `"WP-003"`)
+  - `resolved` (Boolean) - Whether the agent was able to work around the issue
+  - `workaround` (String, optional) - Brief description of the workaround used, if any
+
+---
+
+### Incident Comments
+
+Incident comments record **environment or tooling failures** that are not caused by the agent's own mistakes. These are system-level issues such as terminal output not being visible, tool calls returning unexpected errors, or file operations silently failing.
+
+**What qualifies as an incident:**
+- Terminal command output not visible or truncated
+- Tool returning unexpected errors unrelated to input
+- File operations silently failing or producing unexpected results
+- Environment inconsistencies (e.g., different behavior across OS)
+
+**What does NOT qualify:**
+- Syntax errors in commands the agent wrote
+- Logical mistakes in implementation
+- Expected failures (e.g., tests failing because code is incomplete)
+
+Incident comments belong in `project_comments` (root `project-ledger.json`) because they are environment-level, not task-level. Example:
+
+```json
+{
+  "type": "incident",
+  "priority": "high",
+  "timestamp": "2026-02-10 14:30:00",
+  "agent": "Developer Agent",
+  "note": "Terminal command output not visible — unable to verify test results. Re-ran with workaround.",
+  "context": {
+    "os": "Windows",
+    "tool": "run_in_terminal",
+    "work_package": "WP-003",
+    "resolved": true,
+    "workaround": "Used get_terminal_output to retrieve results"
+  }
+}
+```
 
 ---
 

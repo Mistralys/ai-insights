@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v2.1.0'
+name: '6 - Documentation v2.2.0'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.1.0
-  Last Updated: 2026-02-15 15:00
+  Version: 2.2.0
+  Last Updated: 2026-02-16 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -45,6 +45,10 @@ You will be provided with:
 1. **Change Analysis:** specificially look at the **Implementation** pipeline entries in the Ledger.
 2. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes.
 3. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
+
+### Environment Incident Logging
+
+If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), log it as a `project_comment` with type `"incident"` in the root `project-ledger.json`. Include a `context` object with `os`, `tool`, `work_package`, `resolved`, and optionally `workaround`. Do not investigate root causes — just record what happened and whether you found a workaround.
 
 ---
 

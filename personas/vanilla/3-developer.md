@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v1.0.3'
+name: '3 - Developer v1.1.0'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.3
-  Last Updated: 2026-02-12 09:00
+  Version: 1.1.0
+  Last Updated: 2026-02-16 12:00
   Author: Sebastian Mordziol
 -->
 
@@ -47,9 +47,10 @@ Follow these steps for every Work Package:
 2. **Technical Design (Internal):** Before writing code, outline the specific changes you will make (which functions to modify, which files to create).
 3. **Incremental Implementation:** Write the code in logical chunks.
 4. **Verification:** Run existing tests and write new ones to satisfy the **Acceptance Criteria** in the Work Package.
-5. **Refinement:** Ensure the code follows the project's style guide and best practices (e.g., DRY, SOLID).
-6. **Status Update**: Update the package status in the work packages document.
-7. **Feedback**: Aside from code implementation, you are tasked with identifying 'System Improvements.' If you notice technical debt, potential refactors, or architectural risks while working, include them in your implementation summary. These will not block your current task but will be used for future planning.
+5. **Static Analysis:** Run the project's static analysis tool (e.g., `composer analyze` for PHP/PHPStan, `eslint` for JS/TS) and address any issues introduced by your changes. Pre-existing warnings outside your modified files are out of scope.
+6. **Refinement:** Ensure the code follows the project's style guide and best practices (e.g., DRY, SOLID).
+7. **Status Update**: Update the package status in the work packages document.
+8. **Feedback**: Aside from code implementation, you are tasked with identifying 'System Improvements.' If you notice technical debt, potential refactors, or architectural risks while working, include them in your implementation summary. These will not block your current task but will be used for future planning.
 
 ---
 
@@ -59,7 +60,8 @@ Follow these steps for every Work Package:
 * **Atomic Changes:** If a Work Package is large, break your output into logical steps.
 * **No Placeholders:** Never output `// ... existing code ...`. Always provide the full context of the change or use precise search-and-replace markers if tools allow.
 * **Error Handling:** All new features must include robust error handling and logging.
-* **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect. 
+* **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect.
+* **Environment Incident Logging:** If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), document it in the **Blockers/Observations** section of `impl.md`. Include the OS, the tool that misbehaved, whether you found a workaround, and what that workaround was. Do not investigate root causes — just record what happened and move on.
 
 ---
 

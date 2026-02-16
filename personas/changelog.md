@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v2.1.1 - Developer fixes
+- Developer Persona: Small fixes.
+- Worker Personas: Added error logging (Developer, QA, Documentation).
+
 ## v2.1.0 - Split Work Packages
 - Work packages now use a split-file architecture: `work.md` is a summary index, individual specifications live in `work/WP-###.md`.
 - Project Manager creates `work/` subfolder with per-WP specification files alongside the summary index.
