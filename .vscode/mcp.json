@@ -1,0 +1,10 @@
+{
+	"servers": {
+		"AI Insights CTX": {
+			"type": "stdio",
+			"command": "ctx",
+			"args": ["server"]
+		}
+	},
+	"inputs": []
+}
