@@ -18,7 +18,7 @@ This document codifies established rules, conventions, and non-obvious gotchas.
 
 ### 2. Dual-File Updates Require Locking
 
-**Rule:** When updating both `project-ledger.json` and `ledger/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock()`.
+**Rule:** When updating both `.ledger/project-ledger.json` and `.ledger/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock()`.
 
 **Rationale:** Prevents race conditions and dual-file desync when multiple agents run concurrently.
 

@@ -86,7 +86,7 @@ export const PipelineSchema = z.object({
 export type Pipeline = z.infer<typeof PipelineSchema>;
 
 /**
- * Work Package Detail schema (ledger/WP-###.json)
+ * Work Package Detail schema (.ledger/WP-###.json)
  */
 export const WorkPackageDetailSchema = z.object({
   work_package_id: z.string().regex(/^WP-\d{3}$/),

@@ -11,8 +11,8 @@
 The **Project Ledger MCP Server** is a TypeScript-based Model Context Protocol (MCP) server that provides typed tools for managing project ledgers in AI agent workflows. It eliminates dual-file desync bugs by wrapping ledger operations with validation, atomicity, and consistency guarantees.
 
 The server manages two types of JSON files:
-- **Root Index** (`project-ledger.json`): Project-level metadata and work package summaries
-- **Work Package Details** (`ledger/WP-###.json`): Per-work-package implementation details, pipelines, and acceptance criteria
+- **Root Index** (`.ledger/project-ledger.json`): Project-level metadata and work package summaries
+- **Work Package Details** (`.ledger/WP-###.json`): Per-work-package implementation details, pipelines, and acceptance criteria
 
 ---
 

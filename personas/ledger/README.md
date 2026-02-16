@@ -104,8 +104,8 @@ Before starting the workflow, ensure your project has:
 5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
    - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
    - Individual WP specification files: `/docs/agents/plans/{plan-name}/work/WP-001.md`, etc.
-   - Root ledger index: `/docs/agents/plans/{plan-name}/project-ledger.json`
-   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/ledger/WP-001.json`, etc.
+   - Root ledger index: `/docs/agents/plans/{plan-name}/.ledger/project-ledger.json`
+   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/.ledger/WP-001.json`, etc.
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
@@ -432,8 +432,8 @@ your-project/
 │   │           │   ├── WP-001.md
 │   │           │   ├── WP-002.md
 │   │           │   └── ...
-│   │           ├── project-ledger.json    # Root index (lightweight)
-│   │           ├── ledger/                # Ledger detail files
+│   │           ├── .ledger/               # Ledger files (private)
+│   │           │   ├── project-ledger.json  # Root index (lightweight)
 │   │           │   ├── WP-001.json
 │   │           │   ├── WP-002.json
 │   │           │   └── ...

@@ -67,10 +67,11 @@ The server exposes **13 MCP tools** that agents invoke to manage project state:
          ┌───────────┴──────────┐
          │   JSON Files on Disk │
          ├──────────────────────┤
-         │ project-ledger.json  │ ← Root index
-         │ ledger/WP-001.json   │ ← Work package 1
-         │ ledger/WP-002.json   │ ← Work package 2
-         │ ...                  │
+         │ .ledger/             │
+         │   project-ledger.json│ ← Root index
+         │   WP-001.json        │ ← Work package 1
+         │   WP-002.json        │ ← Work package 2
+         │   ...                │
          └──────────────────────┘
 ```
 
@@ -78,12 +79,12 @@ The server exposes **13 MCP tools** that agents invoke to manage project state:
 
 The server manages two types of files:
 
-1. **Root Index** (`project-ledger.json`): High-level project metadata
+1. **Root Index** (`.ledger/project-ledger.json`): High-level project metadata
    - Project status (READY, IN_PROGRESS, COMPLETE, BLOCKED)
    - Work package summaries (status, assigned agent, dependencies)
    - Project-level comments and incidents
 
-2. **Work Package Details** (`ledger/WP-###.json`): Per-task implementation details
+2. **Work Package Details** (`.ledger/WP-###.json`): Per-task implementation details
    - Acceptance criteria and completion status
    - Pipeline history (implementation, QA, review, documentation)
    - Artifacts (files modified, commit hashes, test results)
@@ -190,10 +191,10 @@ You can read the ledger files directly — they're human-readable JSON:
 
 ```bash
 # View project overview
-cat docs/agents/plans/2026-02-11-feature-name/project-ledger.json
+cat docs/agents/plans/2026-02-11-feature-name/.ledger/project-ledger.json
 
 # View work package details
-cat docs/agents/plans/2026-02-11-feature-name/ledger/WP-001.json
+cat docs/agents/plans/2026-02-11-feature-name/.ledger/WP-001.json
 ```
 
 **Warning**: Never edit ledger files manually. Always let agents use MCP tools to ensure consistency.

@@ -112,7 +112,7 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
  * Tool: create_work_package
  *
  * Creates a new work package with auto-generated WP ID.
- * Creates both the detail file (ledger/WP-###.json) and root index summary atomically.
+ * Creates both the detail file (.ledger/WP-###.json) and root index summary atomically.
  */
 const CreateWorkPackageSchema = z.object({
   project_path: z.string().describe('Absolute path to the project directory'),

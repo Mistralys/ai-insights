@@ -12,9 +12,9 @@ mcp-server/
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums (ProjectStatus, WorkPackageStatus, etc.)
-│   │   ├── root-index.ts        # RootIndex schema (project-ledger.json structure)
+│   │   ├── root-index.ts        # RootIndex schema (.ledger/project-ledger.json structure)
 │   │   ├── validators.ts        # Business rule validators (status transitions, dependencies)
-│   │   └── work-package.ts      # WorkPackageDetail schema (ledger/WP-###.json structure)
+│   │   └── work-package.ts      # WorkPackageDetail schema (.ledger/WP-###.json structure)
 │   │
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename implementation

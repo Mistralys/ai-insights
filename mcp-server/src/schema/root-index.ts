@@ -28,7 +28,7 @@ export const ProjectCommentSchema = z.object({
 export type ProjectComment = z.infer<typeof ProjectCommentSchema>;
 
 /**
- * Root Index schema (project-ledger.json)
+ * Root Index schema (.ledger/project-ledger.json)
  */
 export const RootIndexSchema = z.object({
   plan_file: z.string(),

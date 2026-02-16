@@ -62,8 +62,16 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
       };
     }
 
-    // Re-throw other errors (validation failures, etc.)
-    throw error;
+    // Return other errors (validation failures, etc.) as error responses
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
   }
 }
 
@@ -107,7 +115,7 @@ async function initializeProject(
       content: [
         {
           type: 'text' as const,
-          text: `Error: Project ledger already exists at ${args.project_path}/project-ledger.json. Use MCP tools to update the existing ledger.`,
+          text: `Error: Project ledger already exists at ${args.project_path}/.ledger/project-ledger.json. Use MCP tools to update the existing ledger.`,
         },
       ],
       isError: true,

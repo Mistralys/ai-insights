@@ -46,8 +46,8 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 
 | MCP Tool | Purpose |
 |---|---|
-| `ledger_initialize_project` | Create the root `project-ledger.json` and `ledger/` directory. Requires `project_path` (absolute) and `plan_file` (relative path to plan.md). |
-| `ledger_create_work_package` | Create a work package (both `ledger/WP-###.json` and root index summary). Auto-generates the WP ID. Requires `project_path`, `assigned_to`, `dependencies` (array of WP-### IDs), `acceptance_criteria` (array of strings), and `work_package_file` (relative path to `work/WP-###.md`). |
+| `ledger_initialize_project` | Create the root `.ledger/project-ledger.json` and `.ledger/` directory. Requires `project_path` (absolute) and `plan_file` (relative path to plan.md). |
+| `ledger_create_work_package` | Create a work package (both `.ledger/WP-###.json` and root index summary). Auto-generates the WP ID. Requires `project_path`, `assigned_to`, `dependencies` (array of WP-### IDs), `acceptance_criteria` (array of strings), and `work_package_file` (relative path to `work/WP-###.md`). |
 | `ledger_get_project_status` | Read the root index (self-heals incorrect counters). Use to verify the ledger after creation. |
 | `ledger_get_handoff_status` | Compute the correct AGENT/STATUS handoff block. Use at the end of your workflow. |
 
@@ -92,8 +92,8 @@ If the pre-flight check fails, **stop immediately** and inform the user:
    │   ├── WP-001.md                  ← Full WP specification
    │   ├── WP-002.md
    │   └── ...
-   ├── project-ledger.json            ← Root index (created by MCP)
-   └── ledger/
+   └── .ledger/
+       ├── project-ledger.json        ← Root index (created by MCP)
        ├── WP-001.json                ← Ledger detail file (created by MCP)
        ├── WP-002.json
        └── ...

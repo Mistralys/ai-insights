@@ -18,7 +18,7 @@
 ## v2.0.0 - Ledger Architecture (Breaking)
 - **Breaking Change**: Ledger now uses a split-file architecture instead of a single monolithic JSON file.
 - Root `project-ledger.json` is now a lightweight index with work package summaries (id, status, dependencies, file path).
-- Each work package has its own detail file at `ledger/WP-###.json` containing full pipeline, acceptance criteria, and artifact data.
+- Each work package has its own detail file at `.ledger/WP-###.json` containing full pipeline, acceptance criteria, and artifact data.
 - Renamed root index from `ledger.json` to `project-ledger.json` for discoverability (LLMs naturally expect this name).
 
 ## v1.0.8 - Code Improvement Tracking

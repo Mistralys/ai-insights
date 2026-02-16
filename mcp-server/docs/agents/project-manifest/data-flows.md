@@ -13,11 +13,11 @@ Agent → ledger_initialize_project(project_path, plan_file)
   ↓
 LedgerStore.writeRootIndex()
   ↓
-atomicWriteJson(project-ledger.json)
+atomicWriteJson(.ledger/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
   2. Write to {file}.tmp.{pid}
-  3. Atomically rename to project-ledger.json
+  3. Atomically rename to .ledger/project-ledger.json
   ↓
 Return RootIndex to agent
 ```
@@ -60,7 +60,7 @@ Release lock
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `ledger/WP-###.json` and `project-ledger.json` are created/updated atomically within a single lock.
+**Result:** Both `.ledger/WP-###.json` and `.ledger/project-ledger.json` are created/updated atomically within a single lock.
 
 ---
 
@@ -75,8 +75,8 @@ LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
 withLock(project_path) — acquire .ledger.lock
   ↓
-Read WorkPackageDetail (ledger/WP-###.json) — validated with Zod
-Read RootIndex (project-ledger.json) — validated with Zod
+Read WorkPackageDetail (.ledger/WP-###.json) — validated with Zod
+Read RootIndex (.ledger/project-ledger.json) — validated with Zod
   ↓
 updater function:
   1. Validate current status is READY
@@ -87,8 +87,8 @@ updater function:
   ↓
 Validate updated WP and root with Zod
   ↓
-atomicWriteJson(ledger/WP-###.json, updatedWP)
-atomicWriteJson(project-ledger.json, updatedRoot)
+atomicWriteJson(.ledger/WP-###.json, updatedWP)
+atomicWriteJson(.ledger/project-ledger.json, updatedRoot)
   ↓
 Release lock
   ↓

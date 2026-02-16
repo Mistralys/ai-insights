@@ -22,15 +22,15 @@ export class LedgerStore {
   // ==================== Path Helpers ====================
 
   private rootIndexPath(): string {
-    return join(this.projectPath, 'project-ledger.json');
+    return join(this.projectPath, '.ledger', 'project-ledger.json');
   }
 
   private wpDetailPath(wpId: string): string {
-    return join(this.projectPath, 'ledger', `${wpId}.json`);
+    return join(this.projectPath, '.ledger', `${wpId}.json`);
   }
 
   private ledgerDirPath(): string {
-    return join(this.projectPath, 'ledger');
+    return join(this.projectPath, '.ledger');
   }
 
   // ==================== Existence Checks ====================
@@ -65,7 +65,7 @@ export class LedgerStore {
   // ==================== Read Methods ====================
 
   /**
-   * Reads and validates the root index (project-ledger.json).
+   * Reads and validates the root index (.ledger/project-ledger.json).
    *
    * @throws Error if file does not exist, JSON is malformed, or validation fails
    */
@@ -93,7 +93,7 @@ export class LedgerStore {
   }
 
   /**
-   * Reads and validates a work package detail file (ledger/WP-###.json).
+   * Reads and validates a work package detail file (.ledger/WP-###.json).
    *
    * @param wpId - Work package ID (e.g., "WP-001")
    * @throws Error if file does not exist, JSON is malformed, or validation fails

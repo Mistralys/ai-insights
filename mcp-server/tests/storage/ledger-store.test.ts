@@ -84,14 +84,15 @@ describe('LedgerStore', () => {
     });
 
     it('throws on malformed JSON', async () => {
-      const path = join(tempDir, 'project-ledger.json');
-      const { writeFile } = await import('fs/promises');
+      const path = join(tempDir, '.ledger', 'project-ledger.json');
+      const { writeFile, mkdir } = await import('fs/promises');
+      await mkdir(join(tempDir, '.ledger'), { recursive: true });
       await writeFile(path, '{ invalid json !!!', 'utf-8');
       await expect(store.readRootIndex()).rejects.toThrow('Malformed JSON');
     });
 
     it('throws on schema validation failure', async () => {
-      const path = join(tempDir, 'project-ledger.json');
+      const path = join(tempDir, '.ledger', 'project-ledger.json');
       await atomicWriteJson(path, { status: 'INVALID', random: 'data' });
       await expect(store.readRootIndex()).rejects.toThrow('validation failed');
     });
@@ -119,7 +120,7 @@ describe('LedgerStore', () => {
       const data = makeRootIndex();
       await store.writeRootIndex(data);
 
-      const raw = await readFile(join(tempDir, 'project-ledger.json'), 'utf-8');
+      const raw = await readFile(join(tempDir, '.ledger', 'project-ledger.json'), 'utf-8');
       const parsed = JSON.parse(raw);
       expect(parsed.plan_file).toBe('plan.md');
       expect(raw.endsWith('\n')).toBe(true);
@@ -134,9 +135,9 @@ describe('LedgerStore', () => {
   });
 
   describe('writeWorkPackage', () => {
-    it('creates ledger/ directory automatically', async () => {
+    it('creates .ledger/ directory automatically', async () => {
       await store.writeWorkPackage('WP-001', makeWpDetail());
-      const raw = await readFile(join(tempDir, 'ledger', 'WP-001.json'), 'utf-8');
+      const raw = await readFile(join(tempDir, '.ledger', 'WP-001.json'), 'utf-8');
       expect(JSON.parse(raw).work_package_id).toBe('WP-001');
     });
   });
@@ -154,7 +155,7 @@ describe('LedgerStore', () => {
             status: 'READY',
             assigned_to: 'Developer Agent',
             dependencies: [],
-            file: 'ledger/WP-001.json',
+            file: '.ledger/WP-001.json',
           },
         ],
       });
