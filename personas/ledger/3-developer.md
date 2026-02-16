@@ -147,8 +147,8 @@ Update the **Project Ledger** as described in the Workflow section below. Follow
 3. **Update Ledger:** 
    - Update the WP detail file (`ledger/WP-###.json`): add an `implementation` pipeline entry with status (`PASS`), artifacts (files modified), summary, and your **Code Insight Observer comments**.
    - Update the root `project-ledger.json`: set the WP summary status accordingly and update `last_updated`.
-4. **Handoff:** End your response with:
-   - If there are **unstarted or pending work packages** (status `READY` or `FAILED`) in the Project Ledger:
+4. **Handoff:** After updating the ledger in step 3, re-read the work package statuses from the root `project-ledger.json`. Then end your response with:
+   - If there are **remaining** work packages with status `READY` or `FAILED` in the updated Project Ledger:
      ```
      AGENT: Lead Implementation Engineer
      STATUS: READY_TO_CONTINUE
