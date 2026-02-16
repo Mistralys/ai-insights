@@ -1,12 +1,12 @@
 ---
-name: '3 - Developer v2.4.0'
+name: '3 - Developer v3.0.0'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.4.0
+  Version: 3.0.0
   Last Updated: 2026-02-16 19:00
   Author: Sebastian Mordziol
 -->

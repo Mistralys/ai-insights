@@ -1,12 +1,12 @@
 ---
-name: '2 - Project Manager v2.3.0'
+name: '2 - Project Manager v3.0.0'
 description: 'Step 2/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.3.0
+  Version: 3.0.0
   Last Updated: 2026-02-16 18:00
   Author: Sebastian Mordziol
 -->

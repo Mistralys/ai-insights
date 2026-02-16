@@ -1,12 +1,12 @@
 ---
-name: '4 - QA v2.4.0'
+name: '4 - QA v3.0.0'
 description: 'Step 4/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.4.0
+  Version: 3.0.0
   Last Updated: 2026-02-16 19:30
   Author: Sebastian Mordziol
 -->

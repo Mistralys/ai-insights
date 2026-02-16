@@ -1,12 +1,12 @@
 ---
-name: '7 - Synthesis v2.3.0'
+name: '7 - Synthesis v3.0.0'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.3.0
+  Version: 3.0.0
   Last Updated: 2026-02-16 20:15
   Author: Sebastian Mordziol
 -->

@@ -1,12 +1,12 @@
 ---
-name: '6 - Documentation v2.4.0'
+name: '6 - Documentation v3.0.0'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 2.4.0
+  Version: 3.0.0
   Last Updated: 2026-02-16 20:00
   Author: Sebastian Mordziol
 -->
