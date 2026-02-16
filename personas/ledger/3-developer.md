@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v3.0.1'
+name: '3 - Developer v3.0.2'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.1
-  Last Updated: 2026-02-16 21:00
+  Version: 3.0.2
+  Last Updated: 2026-02-16 23:11
   Author: Sebastian Mordziol
 -->
 
@@ -57,7 +57,7 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 | `ledger_get_next_action` | Call at the start of your turn with `agent_role: "Developer"`. Returns the recommended action (which WP to implement, or WAIT). |
 | `ledger_claim_work_package` | Transition a READY WP to IN_PROGRESS. Validates all dependencies are COMPLETE. Requires `project_path`, `work_package_id`, and `agent: "Developer Agent"`. |
 | `ledger_start_pipeline` | Begin the `implementation` pipeline for a WP. Validates WP is IN_PROGRESS and no duplicate pipeline exists. Requires `project_path`, `work_package_id`, `type: "implementation"`. |
-| `ledger_complete_pipeline` | Finalize the pipeline with PASS/FAIL status, summary, artifacts, and comments (your Code Insight Observer observations). Requires `project_path`, `work_package_id`, `type`, `status`, `summary`. Optional: `artifacts`, `metrics`, `comments`, `acceptance_criteria_updates`. |
+| `ledger_complete_pipeline` | **PRIMARY TOOL FOR UPDATING ACCEPTANCE CRITERIA.** Finalize the pipeline with PASS/FAIL status, summary, artifacts, and comments (your Code Insight Observer observations). Use the `acceptance_criteria_updates` parameter to mark which criteria are met—this is the ONLY way to update acceptance criteria during normal workflow. Requires `project_path`, `work_package_id`, `type`, `status`, `summary`. Optional but important: `artifacts`, `metrics`, `comments`, `acceptance_criteria_updates`. |
 | `ledger_add_observation` | Add an additional observation to an existing pipeline after completion. Requires `project_path`, `work_package_id`, `pipeline_type`, `type`, `priority`, `note`. |
 | `ledger_add_project_comment` | Add a project-level comment (e.g., incident reports). Requires `project_path`, `type`, `priority`, `agent`, `note`. For `incident` type, `context` is also required. |
 | `ledger_get_work_package` | Read the full detail for a specific WP (status, pipelines, acceptance criteria). |
@@ -181,7 +181,15 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `artifacts`: `{ files_modified: [...], commit_hash: "...", pull_request: "..." }`
    - `comments`: array of your **Code Insight Observer observations** (see observation format above)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC you verified
-7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Developer"` and end your response with the returned handoff block, formatted as:
+   
+   **IMPORTANT:** The `acceptance_criteria_updates` parameter is the ONLY way to mark acceptance criteria as met during normal workflow. Do NOT skip this step and try to mark the work package as COMPLETE—you will get an error. Update the criteria here first.
+   
+7. **Update Status (if all criteria met):** If all acceptance criteria are now met (or were already met), call `ledger_update_work_package_status` with `status: "COMPLETE"`. If some criteria are not met, either:
+   - Mark the WP as BLOCKED if you cannot proceed
+   - Start a new pipeline to address remaining criteria
+   - Leave as IN_PROGRESS for the next agent
+   
+8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Developer"` and end your response with the returned handoff block, formatted as:
    ```
    AGENT: <agent>
    STATUS: <status>

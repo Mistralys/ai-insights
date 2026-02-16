@@ -138,7 +138,7 @@ const CompletePipelineSchema = z.object({
       })
     )
     .optional()
-    .describe('Updates to acceptance criteria met status'),
+    .describe('Updates to acceptance criteria met status. This is the PRIMARY way to mark acceptance criteria as met—you must update criteria here before marking a work package as COMPLETE.'),
 });
 
 async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
@@ -229,14 +229,14 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 export function register(server: McpServer): void {
   server.tool(
     'ledger_start_pipeline',
-    'Start a new pipeline for a work package. Validates WP is IN_PROGRESS and rejects duplicate in-progress pipelines.',
+    'Start a new pipeline (e.g., implementation, qa, review) for a work package. Validates WP is IN_PROGRESS and rejects duplicate in-progress pipelines of the same type. Call this before beginning work on a pipeline.',
     StartPipelineSchema.shape,
     startPipeline
   );
 
   server.tool(
     'ledger_complete_pipeline',
-    'Complete the most recent IN_PROGRESS pipeline of the specified type. Sets status, completion timestamp, summary, and optional fields.',
+    'Complete the most recent IN_PROGRESS pipeline of the specified type. USE THIS to update acceptance criteria (via acceptance_criteria_updates parameter) and record observations (via comments parameter). This is the primary way to mark which acceptance criteria have been met before marking a work package as COMPLETE.',
     CompletePipelineSchema.shape,
     completePipeline
   );

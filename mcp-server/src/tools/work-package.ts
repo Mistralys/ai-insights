@@ -386,7 +386,7 @@ async function updateWorkPackageStatus(
         const completeCheck = canCompleteWorkPackage(wp);
         if (!completeCheck.allowed) {
           throw new Error(
-            `Cannot mark work package as COMPLETE: the following acceptance criteria are not met:\n${completeCheck.unmet?.map((c) => `  - ${c}`).join('\n')}`
+            `Cannot mark work package as COMPLETE: the following acceptance criteria are not met:\n${completeCheck.unmet?.map((c) => `  - ${c}`).join('\n')}\n\nTo update acceptance criteria:\n1. Complete your pipeline using ledger_complete_pipeline\n2. Include the acceptance_criteria_updates parameter with the criteria you've met\n3. Then mark the work package as COMPLETE`
           );
         }
       }
