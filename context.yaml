@@ -1,10 +1,5 @@
 $schema: 'https://raw.githubusercontent.com/context-hub/generator/refs/heads/main/json-schema.json'
 
-# CTX Utility Server - To access CTX-specific tools
-mcp:
-  name: "AI Insights MCP"
-  version: "1.0.0"
-
 # Import all module context files
 import:
   - path: "**/module-context.yaml"
