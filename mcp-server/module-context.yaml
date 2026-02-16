@@ -1,0 +1,20 @@
+documents:
+  - description: 'Ledger MCP Server - Overview'
+    outputPath: 'ledger/overview.md'
+    sources:
+      - type: file
+        description: "Overview"
+        sourcePaths:
+          - README.md
+        filePattern: "README.md"
+
+  - description: 'Ledger MCP Server - Manifest'
+    outputPath: 'ledger/manifest.md'
+    sources:
+      - type: file
+        description: "Public Interfaces and APIs"
+        sourcePaths:
+          - docs/agents/project-manifest
+        filePattern: "*.md"
+
+  
