@@ -18,36 +18,53 @@ const GetProjectStatusSchema = z.object({
 async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
   const store = new LedgerStore(args.project_path);
 
-  // Read the root index
-  const rootIndex = await store.readRootIndex();
+  try {
+    // Read the root index
+    const rootIndex = await store.readRootIndex();
 
-  // Self-healing: recompute counters from actual work package summaries
-  const totalWps = rootIndex.work_packages.length;
-  const pendingWps = rootIndex.work_packages.filter(
-    (wp) => wp.status !== 'COMPLETE'
-  ).length;
+    // Self-healing: recompute counters from actual work package summaries
+    const totalWps = rootIndex.work_packages.length;
+    const pendingWps = rootIndex.work_packages.filter(
+      (wp) => wp.status !== 'COMPLETE'
+    ).length;
 
-  // If counts are incorrect, update them
-  if (
-    rootIndex.total_work_packages !== totalWps ||
-    rootIndex.pending_work_packages !== pendingWps
-  ) {
-    rootIndex.total_work_packages = totalWps;
-    rootIndex.pending_work_packages = pendingWps;
-    rootIndex.last_updated = now();
+    // If counts are incorrect, update them
+    if (
+      rootIndex.total_work_packages !== totalWps ||
+      rootIndex.pending_work_packages !== pendingWps
+    ) {
+      rootIndex.total_work_packages = totalWps;
+      rootIndex.pending_work_packages = pendingWps;
+      rootIndex.last_updated = now();
 
-    // Write the corrected root index
-    await store.writeRootIndex(rootIndex);
+      // Write the corrected root index
+      await store.writeRootIndex(rootIndex);
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(rootIndex, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    // Handle "project not found" gracefully for pre-flight checks
+    if ((error as Error).message.includes('Root index not found')) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Project not initialized at ${args.project_path}. Use ledger_initialize_project to create a new project ledger.`,
+          },
+        ],
+      };
+    }
+
+    // Re-throw other errors (validation failures, etc.)
+    throw error;
   }
-
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(rootIndex, null, 2),
-      },
-    ],
-  };
 }
 
 /**

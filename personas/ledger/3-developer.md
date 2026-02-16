@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v3.0.0'
+name: '3 - Developer v3.0.1'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.0
-  Last Updated: 2026-02-16 19:00
+  Version: 3.0.1
+  Last Updated: 2026-02-16 21:00
   Author: Sebastian Mordziol
 -->
 
@@ -65,7 +65,13 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 
 ### Pre-flight check
 
-Before starting your workflow, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`. If the tool is not available (not listed among your tools) or fails with a connection error, **stop immediately** and inform the user:
+Before starting your workflow, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`. 
+
+**Expected responses:**
+- ✅ **Success:** Either the project status JSON (if initialized) or "Project not initialized at {path}" message. Both confirm the MCP server is running.
+- ❌ **Failure:** Tool is not available (not listed among your tools) or the call throws an error/times out.
+
+If the pre-flight check fails, **stop immediately** and inform the user:
 
 > **MCP server unavailable.** The `project-ledger` MCP server is a hard prerequisite for this workflow. Please ensure it is configured and running before retrying. Check `.mcp.json` for the server configuration.
 

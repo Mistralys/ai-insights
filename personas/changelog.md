@@ -3,6 +3,7 @@
 ## v3.0.0 - MCP Ledger
 - Ledger Personas: The ledger is now handled via the dedicated MCP server.
 - Ledger MCP: Created the ledger MCP server.
+- Ledger Personas: Refined the pre-flight check.
 
 ## v2.1.1 - Developer fixes
 - Developer Persona: Small fixes.
