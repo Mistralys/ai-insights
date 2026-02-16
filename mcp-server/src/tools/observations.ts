@@ -5,6 +5,7 @@ import { now } from '../utils/timestamp.js';
 import { withLock } from '../storage/file-lock.js';
 import type { PipelineComment, IncidentContext } from '../schema/work-package.js';
 import type { ProjectComment } from '../schema/root-index.js';
+import { validatePlanPathOrError } from '../utils/path-validator.js';
 
 /**
  * Tool: add_observation
@@ -29,6 +30,9 @@ const AddObservationSchema = z.object({
 });
 
 async function addObservation(args: z.infer<typeof AddObservationSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -117,6 +121,9 @@ const AddProjectCommentSchema = z.object({
 });
 
 async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {

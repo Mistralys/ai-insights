@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline } from '../schema/work-package.js';
+import { validatePlanPathOrError } from '../utils/path-validator.js';
 
 /**
  * Tool: start_pipeline
@@ -20,6 +21,9 @@ const StartPipelineSchema = z.object({
 });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -138,6 +142,9 @@ const CompletePipelineSchema = z.object({
 });
 
 async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {

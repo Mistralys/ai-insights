@@ -15,6 +15,7 @@ import {
   canCompleteWorkPackage,
 } from '../schema/validators.js';
 import { withLock } from '../storage/file-lock.js';
+import { validatePlanPathOrError } from '../utils/path-validator.js';
 
 /**
  * Tool: get_work_package
@@ -30,6 +31,9 @@ const GetWorkPackageSchema = z.object({
 });
 
 async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -72,6 +76,9 @@ const ListWorkPackagesSchema = z.object({
 });
 
 async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -133,6 +140,9 @@ const CreateWorkPackageSchema = z.object({
 async function createWorkPackage(
   args: z.infer<typeof CreateWorkPackageSchema>
 ) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   let createdWpId = '';
@@ -256,6 +266,9 @@ const ClaimWorkPackageSchema = z.object({
 });
 
 async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -351,6 +364,9 @@ const UpdateWorkPackageStatusSchema = z.object({
 async function updateWorkPackageStatus(
   args: z.infer<typeof UpdateWorkPackageStatusSchema>
 ) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {

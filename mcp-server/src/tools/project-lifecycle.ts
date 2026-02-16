@@ -4,6 +4,7 @@ import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
+import { validatePlanPathOrError } from '../utils/path-validator.js';
 
 /**
  * Tool: get_project_status
@@ -16,6 +17,12 @@ const GetProjectStatusSchema = z.object({
 });
 
 async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
+  // Validate that the path ends with a valid plan folder pattern
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) {
+    return validationError;
+  }
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -91,6 +98,12 @@ const InitializeProjectSchema = z.object({
 async function initializeProject(
   args: z.infer<typeof InitializeProjectSchema>
 ) {
+  // Validate that the path ends with a valid plan folder pattern
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) {
+    return validationError;
+  }
+
   const store = new LedgerStore(args.project_path);
 
   try {

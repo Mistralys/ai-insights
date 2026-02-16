@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex, WorkPackageSummary } from '../schema/root-index.js';
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
+import { validatePlanPathOrError } from '../utils/path-validator.js';
 
 /**
  * Agent role definitions for the 7-stage workflow
@@ -45,6 +46,9 @@ const GetNextActionSchema = z.object({
 });
 
 async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
@@ -640,6 +644,9 @@ const GetHandoffStatusSchema = z.object({
 });
 
 async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
   const store = new LedgerStore(args.project_path);
 
   try {
