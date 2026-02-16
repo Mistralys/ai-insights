@@ -49,25 +49,13 @@ This is a structured multi-agent workflow for systematic software development. I
 
 Agents 2–7 depend on the **`project-ledger` MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
 
-1. **Install dependencies** (once):
-   ```bash
-   cd mcp-server && npm install
-   ```
+**For setup instructions, see the [MCP Server Documentation](../../mcp-server/README.md).**
 
-2. **Configure `.mcp.json`** in your project root (or the directory where you launch Claude Code):
-   ```json
-   {
-     "mcpServers": {
-       "project-ledger": {
-         "command": "npx",
-         "args": ["tsx", "/absolute/path/to/ai-insights/mcp-server/src/index.ts"]
-       }
-     }
-   }
-   ```
-   Adjust the path to match your local setup. A template is available at `.mcp.dist.json`.
-
-3. **Verify**: The MCP server starts automatically when Claude Code loads. Each agent performs a pre-flight check (`ledger_get_project_status`) before starting work. If the server is not available, the agent will stop and ask you to check the configuration.
+Quick summary:
+1. Install dependencies: `cd mcp-server && npm install`
+2. Configure `.mcp.json` with absolute path to server
+3. Restart your AI IDE to load the MCP server
+4. Agents will verify connectivity on startup
 
 ### Initial Project Setup
 
