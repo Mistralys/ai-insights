@@ -653,12 +653,16 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // Read root index
     const rootIndex = await store.readRootIndex();
 
-    // Check for BLOCKED work packages
+    // Check for BLOCKED work packages, but only report BLOCKED if there's no work that can proceed
     const blockedWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'BLOCKED'
     );
+    const readyOrInProgressWps = rootIndex.work_packages.filter(
+      (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
+    );
 
-    if (blockedWps.length > 0) {
+    // Only report BLOCKED if there are blocked packages AND no work packages that can proceed
+    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0) {
       return {
         content: [
           {
@@ -667,7 +671,7 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
               {
                 agent: args.current_agent,
                 status: 'BLOCKED',
-                details: `Work package(s) ${blockedWps.map((wp) => wp.work_package_id).join(', ')} are BLOCKED. Resolution required before proceeding.`,
+                details: `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`,
               },
               null,
               2
