@@ -1,13 +1,13 @@
 ---
-name: '2 - Project Manager v3.0.2'
+name: '2 - Project Manager v3.1.0'
 description: 'Step 2/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.2
-  Last Updated: 2026-02-17
+  Version: 3.1.0
+  Last Updated: 2026-02-17 14:10
   Author: Sebastian Mordziol
 -->
 
@@ -53,7 +53,7 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 
 ### Pre-flight check
 
-The ledger MCP tools are deferred tools. Before using them, search for them using `tool_search_tool_regex` with pattern `ledger_`. Once loaded, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`.
+The ledger MCP tools are deferred tools. Before using them, load them using `tool_search_tool_regex` with the pattern `ledger_` as an unanchored substring search. The runtime prefixes all MCP tools with the server name (e.g. `mcp_central_pm_ledger_*`), so a substring pattern ensures the match works regardless of prefix. Once loaded, verify the MCP server is reachable by calling `ledger_get_project_status` with the target `project_path`.
 
 **Expected responses:**
 - ✅ **Success:** "Project not initialized at {path}. Use ledger_initialize_project to create a new project ledger." — This confirms the MCP server is running and you can proceed.

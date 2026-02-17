@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.0.2 - Pre-Flight Optimization
+- Ledger Personas: Optimized pre-flight so agents know how to search for the ledger tools.
+
 ## v3.0.1 - MCP Ledger
 - Ledger Personas: Tweaked pre-flight wording to avoid "Tools not found" messages.
 
