@@ -223,7 +223,7 @@ If you are operating in a **specific agent role**, consult the relevant persona 
 | Planner | `/personas/ledger/1-planner.md` | Breaking user requests into work packages |
 | Project Manager | `/personas/ledger/2-project-manager.md` | Creating work packages + dependency management |
 | Developer | `/personas/ledger/3-developer.md` | Implementation + pipeline execution |
-| Validator (QA) | `/personas/ledger/4-validator.md` | Testing + quality assurance |
+| Validator (QA) | `/personas/ledger/4-qa.md` | Testing + quality assurance |
 | Reviewer | `/personas/ledger/5-reviewer.md` | Code review + security audit |
 | Documentation | `/personas/ledger/6-documentation.md` | Manifest maintenance + README updates |
 | Synthesis | `/personas/ledger/7-synthesis.md` | Cross-session coordination + handoff |

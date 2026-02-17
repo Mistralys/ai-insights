@@ -34,7 +34,7 @@ This is a structured multi-agent workflow for systematic software development. I
 2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](1-planner.md) → Describe feature → Review plan
 3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](2-project-manager.md) → Review work packages & ledger
 4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work package spec → Paste [3-developer.md](3-developer.md) → Agent reads ledger via MCP → Review code
-5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-validator.md](4-validator.md) → Agent reads ledger via MCP → Review test results
+5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-qa.md](4-qa.md) → Agent reads ledger via MCP → Review test results
 6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Paste [5-reviewer.md](5-reviewer.md) → Agent reads ledger via MCP → Address findings
 7. **[Documentation](#stage-6-documentation-update)**: New chat → Paste [6-documentation.md](6-documentation.md) → Agent reads ledger via MCP → Review updates
 8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Paste [7-synthesis.md](7-synthesis.md) → Agent reads ledger via MCP → Review final report
@@ -143,7 +143,7 @@ For **each work package**:
 
 1. **Start a new chat session** or continue from implementation
 2. **Open** the work package specification (`work/WP-###.md`) and relevant source files
-3. **Copy and send** the contents of [4-validator.md](4-validator.md)
+3. **Copy and send** the contents of [4-qa.md](4-qa.md)
 4. **Specify the work package** to validate (the agent reads implementation artifacts from the ledger via MCP)
 5. **Review validation results**:
    - **PASS**: All acceptance criteria met, tests pass
