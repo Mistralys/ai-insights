@@ -38,6 +38,8 @@
 - Give web LLMs a combined project manifest to discuss app details
 - Rename files to support agents naturally expecting specific names (e.g. `project-ledger.json`).
 - Robust code requires oversight.
+- PHP agents expect Composer commands for `test` (PHPUnit) and `analyze` (PHPStan).
+- MCP server tools are handled via "Deferred loading": The agent has to actively search for them to see them (reason: token efficiency). 
 
 ## My AI Journey Milestones
 
@@ -67,4 +69,4 @@
 - Adding metadata to agent prompts.
 - Project Manifest + AGENTS.md now proven and well oiled.
 - Using agents to create a refactoring guide (framework v7 update).
-- PHP agents expect Composer commands for `test` (PHPUnit) and `analyze` (PHPStan).
+- Created a custom project ledger MCP server.
