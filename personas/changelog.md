@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.0.1 - MCP Ledger
+- Ledger Personas: Tweaked pre-flight wording to avoid "Tools not found" messages.
+
 ## v3.0.0 - MCP Ledger
 - Ledger Personas: The ledger is now handled via the dedicated MCP server.
 - Ledger MCP: Created the ledger MCP server.
