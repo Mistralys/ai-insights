@@ -1,5 +1,11 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.2.3 - Documentation BLOCKED Handoff Fix
+- Fixed `ledger_get_handoff_status` to allow agent-specific logic to handle mixed WP states (BLOCKED + COMPLETE)
+- The early BLOCKED check now only triggers when ALL WPs are blocked with no COMPLETE work
+- Documentation agent can now properly route to Developer when some WPs are COMPLETE and others are BLOCKED
+- Resolves confusion where Documentation would receive "BLOCKED" status instead of "READY_FOR_DEVELOPER"
+
 ## v1.2.2 - Reviewer Dependency-Aware Handoff
 - Fixed deadlock scenario where Reviewer would hand to Developer when remaining work packages were blocked by dependencies
 - Reviewer now checks if unimplemented WPs are actually ready or blocked before deciding handoff
