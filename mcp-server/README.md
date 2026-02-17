@@ -181,7 +181,8 @@ Agent:
    )
    └─ Updates: Pipeline status, artifacts, acceptance criteria
 
-7. Calls ledger_update_work_package_status(status="COMPLETE")
+7. After QA, review, and documentation pipelines pass, the Documentation Agent calls
+   ledger_update_work_package_status(status="COMPLETE", agent="Documentation Agent")
    └─ Updates: WP-003 status to COMPLETE (if all criteria met)
 ```
 

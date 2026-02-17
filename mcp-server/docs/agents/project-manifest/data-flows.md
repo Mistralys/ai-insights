@@ -165,7 +165,7 @@ Return updated WorkPackageDetail to agent
 **Entry Point:** Agent invokes `ledger_update_work_package_status` tool
 
 ```
-Agent → ledger_update_work_package_status(project_path, work_package_id, status, blocked_by?)
+Agent → ledger_update_work_package_status(project_path, work_package_id, status, agent, blocked_by?)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓

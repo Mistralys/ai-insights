@@ -89,6 +89,7 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
   project_path: string;
   work_package_id: string;
   status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+  agent: string;
   blocked_by?: {
     type: 'dependency' | 'decision' | 'external' | 'technical';
     description: string;
@@ -97,7 +98,7 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
 }) => Promise<MCPResult>
 ```
 
-Updates work package status with validation. Enforces legal status transitions and special rules (e.g., `COMPLETE` requires all acceptance criteria met).
+Updates work package status with validation. Enforces legal status transitions and special rules (e.g., `COMPLETE` requires all acceptance criteria met). The `agent` field is required because the server checks which persona is attempting the transition (e.g., only the Documentation Agent can mark a work package `COMPLETE`).
 
 ---
 
