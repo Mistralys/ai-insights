@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.2.1 - Handoff Logic Fix
+- The QA agent will no longer hand off to the reviewer when there are open DEV packages.
+
 ## v1.2.0 - Property Handling
 - Tools now allow additional properties to be more flexible when weaker models send unneeded metadata. 
 
