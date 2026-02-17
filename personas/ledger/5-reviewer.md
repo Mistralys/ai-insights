@@ -107,9 +107,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `metrics`: `{ implementation_score: N, critical_issues_found: N, suggestions_count: N }`
    - `comments`: array of review comments (type, priority, timestamp, note)
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns that span multiple work packages, call `ledger_add_project_comment` with `agent: "Reviewer Agent"` to record them at the project level.
-7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Reviewer"` and end your response with the returned handoff block, formatted as:
+7. **Repeat:** Call `ledger_get_next_action` again. If it indicates more WPs need review (action: `RUN_REVIEW` or `REWORK_REVIEW`), repeat steps 2–6 for each work package. Continue until `get_next_action` returns `WAIT`.
+8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
    ```
    AGENT: <agent>
    STATUS: <status>
    ```
-

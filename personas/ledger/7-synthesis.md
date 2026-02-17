@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v3.0.2'
+name: '7 - Synthesis v3.0.3'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.2
-  Last Updated: 2026-02-17
+  Version: 3.0.3
+  Last Updated: 2026-02-17 09:42
   Author: Sebastian Mordziol
 -->
 
@@ -101,8 +101,8 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     ```
 5.  **Generate Report:** Write the `synthesis.md` file to the plan folder.
 6.  **Finalize:** Add any project-level synthesis observations via `ledger_add_project_comment` if you identified cross-cutting insights or patterns that span multiple work packages.
-7.  **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"` and end your response with:
+7.  **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. End your response with the handoff block:
     ```
-    AGENT: Synthesis
-    STATUS: PROCESS_COMPLETE
+    AGENT: <agent>
+    STATUS: <status>
     ```

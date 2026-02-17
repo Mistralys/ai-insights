@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v3.0.3'
+name: '3 - Developer v3.0.4'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.3
-  Last Updated: 2026-02-17 07:26
+  Version: 3.0.4
+  Last Updated: 2026-02-17 09:41
   Author: Sebastian Mordziol
 -->
 
@@ -181,7 +181,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `artifacts`: `{ files_modified: [...], commit_hash: "...", pull_request: "..." }`
    - `comments`: array of your **Code Insight Observer observations** (see observation format above)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC you verified
-7. **Handoff:** After completing your pipeline, leave the work package as IN_PROGRESS and call `ledger_get_handoff_status` with `current_agent: "Developer"`. End your response with the returned handoff block, formatted as:
+7. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
    ```
    AGENT: <agent>
    STATUS: <status>
