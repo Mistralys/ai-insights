@@ -936,7 +936,32 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
     wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
   );
 
+  // Check if there are WPs that still need implementation (BLOCKED, READY, or IN_PROGRESS without PASS impl)
+  const wpsStillNeedingImpl = wpDetails.filter(
+    (wp) => !wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
+  );
+
   if (allQaPassed && wpsWithImpl.length > 0) {
+    // If there are still WPs that haven't been implemented, hand back to Developer
+    if (wpsStillNeedingImpl.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                agent: 'QA',
+                status: 'READY_FOR_DEVELOPER',
+                details: `QA passed for ${wpsWithImpl.length} implemented work package(s), but ${wpsStillNeedingImpl.length} work package(s) still need implementation: ${wpsStillNeedingImpl.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
     return {
       content: [
         {
@@ -945,7 +970,7 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'QA',
               status: 'READY_FOR_REVIEW',
-              details: 'All implemented work packages have PASS QA pipelines.',
+              details: 'All work packages have PASS QA pipelines.',
             },
             null,
             2
@@ -989,6 +1014,26 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
     };
   }
 
+  // All implemented WPs have QA but some WPs still need implementation
+  if (wpsStillNeedingImpl.length > 0) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            {
+              agent: 'QA',
+              status: 'READY_FOR_DEVELOPER',
+              details: `QA complete for all implemented work packages. ${wpsStillNeedingImpl.length} work package(s) still need implementation: ${wpsStillNeedingImpl.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
   return {
     content: [
       {
@@ -1020,7 +1065,32 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
     wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
   );
 
+  // Check if there are WPs that haven't reached QA yet
+  const wpsNotYetQaPassed = wpDetails.filter(
+    (wp) => !wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
+  );
+
   if (allReviewPassed && wpsWithQa.length > 0) {
+    // If there are still WPs that haven't passed QA, earlier stages need to catch up
+    if (wpsNotYetQaPassed.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                agent: 'Reviewer',
+                status: 'READY_FOR_DEVELOPER',
+                details: `Review passed for ${wpsWithQa.length} work package(s), but ${wpsNotYetQaPassed.length} work package(s) still need implementation/QA: ${wpsNotYetQaPassed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
     return {
       content: [
         {
@@ -1029,7 +1099,7 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'Reviewer',
               status: 'READY_FOR_DOCUMENTATION',
-              details: 'All QA-passed work packages have PASS code-review pipelines.',
+              details: 'All work packages have PASS code-review pipelines.',
             },
             null,
             2
@@ -1073,6 +1143,26 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
     };
   }
 
+  // All reviewed WPs are done but some haven't reached QA yet
+  if (wpsNotYetQaPassed.length > 0) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            {
+              agent: 'Reviewer',
+              status: 'READY_FOR_DEVELOPER',
+              details: `Review complete for all QA-passed work packages. ${wpsNotYetQaPassed.length} work package(s) still need earlier stages: ${wpsNotYetQaPassed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
   return {
     content: [
       {
@@ -1104,7 +1194,32 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
     wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS')
   );
 
+  // Check if there are WPs that haven't reached code-review yet
+  const wpsNotYetReviewed = wpDetails.filter(
+    (wp) => !wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
+  );
+
   if (allDocsPassed && wpsWithReview.length > 0) {
+    // If there are still WPs that haven't been reviewed, earlier stages need to catch up
+    if (wpsNotYetReviewed.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                agent: 'Documentation',
+                status: 'READY_FOR_DEVELOPER',
+                details: `Documentation passed for ${wpsWithReview.length} work package(s), but ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
     return {
       content: [
         {
@@ -1114,7 +1229,7 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
               agent: 'Documentation',
               status: 'READY_FOR_SYNTHESIS',
               details:
-                'All reviewed work packages have PASS documentation pipelines.',
+                'All work packages have PASS documentation pipelines.',
             },
             null,
             2
@@ -1158,6 +1273,26 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
     };
   }
 
+  // All documented WPs are done but some haven't reached review yet
+  if (wpsNotYetReviewed.length > 0) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            {
+              agent: 'Documentation',
+              status: 'READY_FOR_DEVELOPER',
+              details: `Documentation complete for all reviewed work packages. ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
   return {
     content: [
       {
@@ -1175,6 +1310,17 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
     ],
   };
 }
+
+/**
+ * @internal — exported for unit testing only
+ */
+export const _internal = {
+  getQaHandoff,
+  getReviewerHandoff,
+  getDocumentationHandoff,
+  getDeveloperHandoff,
+  getProjectManagerHandoff,
+};
 
 /**
  * Register workflow tools on the MCP server
