@@ -699,16 +699,21 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // Read root index
     const rootIndex = await store.readRootIndex();
 
-    // Check for BLOCKED work packages, but only report BLOCKED if there's no work that can proceed
+    // Check for BLOCKED work packages, but only report BLOCKED if there's truly nothing that can be worked on
     const blockedWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'BLOCKED'
+    );
+    const completeWps = rootIndex.work_packages.filter(
+      (wp) => wp.status === 'COMPLETE'
     );
     const readyOrInProgressWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
     );
 
-    // Only report BLOCKED if there are blocked packages AND no work packages that can proceed
-    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0) {
+    // Only report BLOCKED if ALL WPs are blocked (no READY/IN_PROGRESS, no COMPLETE).
+    // If any WPs are COMPLETE, downstream agents (QA, Reviewer, Documentation) can still process them,
+    // so let agent-specific logic determine the appropriate handoff.
+    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0 && completeWps.length === 0) {
       return {
         content: [
           {
