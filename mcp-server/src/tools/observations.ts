@@ -116,6 +116,7 @@ const AddProjectCommentSchema = z.object({
       resolved: z.boolean(),
       workaround: z.string().optional(),
     })
+    .passthrough()
     .optional()
     .describe('REQUIRED when type is "incident". Provide os, tool, resolved fields at minimum.'),
 });
@@ -189,17 +190,21 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
  * Register observation tools on the MCP server
  */
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'ledger_add_observation',
-    'Add an observation/comment to the most recent pipeline of the specified type. REQUIRED params: project_path, work_package_id, pipeline_type, type, priority, note. The pipeline must already exist (use ledger_start_pipeline first).',
-    AddObservationSchema.shape,
-    addObservation
+    {
+      description: 'Add an observation/comment to the most recent pipeline of the specified type. REQUIRED params: project_path, work_package_id, pipeline_type, type, priority, note. The pipeline must already exist (use ledger_start_pipeline first).',
+      inputSchema: AddObservationSchema.passthrough(),
+    },
+    addObservation as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_add_project_comment',
-    'Add a project-level comment. REQUIRED params: project_path, type, priority, agent, note. If type is "incident", the context param is also required (with os, tool, resolved fields).',
-    AddProjectCommentSchema.shape,
-    addProjectComment
+    {
+      description: 'Add a project-level comment. REQUIRED params: project_path, type, priority, agent, note. If type is "incident", the context param is also required (with os, tool, resolved fields).',
+      inputSchema: AddProjectCommentSchema.passthrough(),
+    },
+    addProjectComment as any
   );
 }

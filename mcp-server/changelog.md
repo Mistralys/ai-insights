@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.2.0 - Property Handling
+- Tools now allow additional properties to be more flexible when weaker models send unneeded metadata. 
+
 ## v1.1.0 - Help Tool
 - New `ledger_help` tool to help some models along that can get confused using the ledger.
 - All tools now have more helpful descriptions.

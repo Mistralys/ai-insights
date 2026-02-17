@@ -1180,17 +1180,21 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
  * Register workflow tools on the MCP server
  */
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'ledger_get_next_action',
-    'Get the next recommended action for your agent role. REQUIRED params: project_path, agent_role. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states.',
-    GetNextActionSchema.shape,
-    getNextAction
+    {
+      description: 'Get the next recommended action for your agent role. REQUIRED params: project_path, agent_role. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states.',
+      inputSchema: GetNextActionSchema.passthrough(),
+    },
+    getNextAction as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_get_handoff_status',
-    'Get the handoff status to determine if your work is done and which agent should work next. REQUIRED params: project_path, current_agent. Call this after completing your pipelines to check if work should be handed to the next agent in the workflow.',
-    GetHandoffStatusSchema.shape,
-    getHandoffStatus
+    {
+      description: 'Get the handoff status to determine if your work is done and which agent should work next. REQUIRED params: project_path, current_agent. Call this after completing your pipelines to check if work should be handed to the next agent in the workflow.',
+      inputSchema: GetHandoffStatusSchema.passthrough(),
+    },
+    getHandoffStatus as any
   );
 }

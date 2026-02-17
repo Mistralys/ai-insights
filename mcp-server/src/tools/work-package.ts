@@ -360,6 +360,7 @@ const UpdateWorkPackageStatusSchema = z.object({
       description: z.string(),
       blocking_work_package: z.string().optional(),
     })
+    .passthrough()
     .optional()
     .describe('Blocker details — REQUIRED when setting status to BLOCKED, omit otherwise'),
 });
@@ -507,38 +508,48 @@ function getLegalTransitions(status: string): string {
  * Register work package tools on the MCP server
  */
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'ledger_get_work_package',
-    'Read the full detail for a specific work package',
-    GetWorkPackageSchema.shape,
-    getWorkPackage
+    {
+      description: 'Read the full detail for a specific work package',
+      inputSchema: GetWorkPackageSchema.passthrough(),
+    },
+    getWorkPackage as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_list_work_packages',
-    'List work package summaries with optional filters',
-    ListWorkPackagesSchema.shape,
-    listWorkPackages
+    {
+      description: 'List work package summaries with optional filters',
+      inputSchema: ListWorkPackagesSchema.passthrough(),
+    },
+    listWorkPackages as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_create_work_package',
-    'Create a new work package with auto-generated WP ID. REQUIRED params: project_path, assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically.',
-    CreateWorkPackageSchema.shape,
-    createWorkPackage
+    {
+      description: 'Create a new work package with auto-generated WP ID. REQUIRED params: project_path, assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically.',
+      inputSchema: CreateWorkPackageSchema.passthrough(),
+    },
+    createWorkPackage as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_claim_work_package',
-    'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Validates that all dependencies are COMPLETE before allowing the claim.',
-    ClaimWorkPackageSchema.shape,
-    claimWorkPackage
+    {
+      description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Validates that all dependencies are COMPLETE before allowing the claim.',
+      inputSchema: ClaimWorkPackageSchema.passthrough(),
+    },
+    claimWorkPackage as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_update_work_package_status',
-    'Update work package status. REQUIRED params: project_path, work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by.',
-    UpdateWorkPackageStatusSchema.shape,
-    updateWorkPackageStatus
+    {
+      description: 'Update work package status. REQUIRED params: project_path, work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by.',
+      inputSchema: UpdateWorkPackageStatusSchema.passthrough(),
+    },
+    updateWorkPackageStatus as any
   );
 }

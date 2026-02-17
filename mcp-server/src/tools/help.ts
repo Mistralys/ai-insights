@@ -415,10 +415,12 @@ async function help(args: z.infer<typeof HelpSchema>) {
  * Register help tool on the MCP server
  */
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'ledger_help',
-    'Get usage documentation, examples, and required parameters for all ledger tools. Call with no arguments for a full overview, or pass tool_name to get detailed help for a specific tool (e.g., tool_name: "ledger_update_work_package_status"). START HERE if you are unsure how to use the ledger tools.',
-    HelpSchema.shape,
-    help
+    {
+      description: 'Get usage documentation, examples, and required parameters for all ledger tools. Call with no arguments for a full overview, or pass tool_name to get detailed help for a specific tool (e.g., tool_name: "ledger_update_work_package_status"). START HERE if you are unsure how to use the ledger tools.',
+      inputSchema: HelpSchema.passthrough(),
+    },
+    help as any
   );
 }

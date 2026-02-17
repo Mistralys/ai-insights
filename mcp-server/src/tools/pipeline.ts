@@ -107,6 +107,7 @@ const CompletePipelineSchema = z.object({
       commit_hash: z.string().optional(),
       pull_request: z.string().optional(),
     })
+    .passthrough()
     .optional()
     .describe('Artifacts produced by the pipeline'),
   metrics: z
@@ -126,7 +127,7 @@ const CompletePipelineSchema = z.object({
         priority: z.enum(['low', 'medium', 'high']),
         timestamp: z.string(),
         note: z.string(),
-      })
+      }).passthrough()
     )
     .optional()
     .describe('Comments and observations from the pipeline'),
@@ -135,7 +136,7 @@ const CompletePipelineSchema = z.object({
       z.object({
         criterion: z.string(),
         met: z.boolean(),
-      })
+      }).passthrough()
     )
     .optional()
     .describe('Updates to acceptance criteria met status. This is the PRIMARY way to mark acceptance criteria as met—you must update criteria here before marking a work package as COMPLETE.'),
@@ -227,17 +228,21 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
  * Register pipeline tools on the MCP server
  */
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'ledger_start_pipeline',
-    'Start a new pipeline for a work package. REQUIRED params: project_path, work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type.',
-    StartPipelineSchema.shape,
-    startPipeline
+    {
+      description: 'Start a new pipeline for a work package. REQUIRED params: project_path, work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type.',
+      inputSchema: StartPipelineSchema.passthrough(),
+    },
+    startPipeline as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_complete_pipeline',
-    'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL: acceptance_criteria_updates (use this to mark criteria as met before marking WP COMPLETE), artifacts, metrics, comments. Must call ledger_start_pipeline first.',
-    CompletePipelineSchema.shape,
-    completePipeline
+    {
+      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL: acceptance_criteria_updates (use this to mark criteria as met before marking WP COMPLETE), artifacts, metrics, comments. Must call ledger_start_pipeline first.',
+      inputSchema: CompletePipelineSchema.passthrough(),
+    },
+    completePipeline as any
   );
 }

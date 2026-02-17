@@ -177,17 +177,21 @@ async function initializeProject(
  * Register project lifecycle tools on the MCP server
  */
 export function register(server: McpServer): void {
-  server.tool(
+  server.registerTool(
     'ledger_get_project_status',
-    'Read project overview from the root index. REQUIRED params: project_path. Returns work package summaries, counters, and project status. Self-heals incorrect counters. Call this first to understand project state.',
-    GetProjectStatusSchema.shape,
-    getProjectStatus
+    {
+      description: 'Read project overview from the root index. REQUIRED params: project_path. Returns work package summaries, counters, and project status. Self-heals incorrect counters. Call this first to understand project state.',
+      inputSchema: GetProjectStatusSchema.passthrough(),
+    },
+    getProjectStatus as any
   );
 
-  server.tool(
+  server.registerTool(
     'ledger_initialize_project',
-    'Create a new project ledger. REQUIRED params: project_path, plan_file. Creates root index and .ledger/ subdirectory. Rejects if ledger already exists. Call this once at project start before creating work packages.',
-    InitializeProjectSchema.shape,
-    initializeProject
+    {
+      description: 'Create a new project ledger. REQUIRED params: project_path, plan_file. Creates root index and .ledger/ subdirectory. Rejects if ledger already exists. Call this once at project start before creating work packages.',
+      inputSchema: InitializeProjectSchema.passthrough(),
+    },
+    initializeProject as any
   );
 }
