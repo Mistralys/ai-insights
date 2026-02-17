@@ -688,31 +688,8 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
       };
     }
 
-    // Check if all WPs are COMPLETE
-    const allComplete = rootIndex.work_packages.every(
-      (wp) => wp.status === 'COMPLETE'
-    );
-
-    if (allComplete) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: args.current_agent,
-                status: 'READY_FOR_SYNTHESIS',
-                details: 'All work packages are COMPLETE.',
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
-    }
-
-    // Load all WP details to examine pipeline states
+    // Load all WP details to examine pipeline states first
+    // (We need this to make informed decisions about handoff status)
     const wpDetails = await Promise.all(
       rootIndex.work_packages.map((wp) =>
         store.readWorkPackage(wp.work_package_id)

@@ -351,6 +351,9 @@ const UpdateWorkPackageStatusSchema = z.object({
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
     .describe('New status for the work package'),
+  agent: z
+    .string()
+    .describe('Agent name performing the status update (e.g., "Documentation Agent")'),
   blocked_by: z
     .object({
       type: z.enum(['dependency', 'decision', 'external', 'technical']),
@@ -381,7 +384,27 @@ async function updateWorkPackageStatus(
         );
       }
 
-      // 2. Special validation for COMPLETE
+      // 2. Validate agent permissions for COMPLETE status
+      if (newStatus === 'COMPLETE') {
+        // Only Documentation Agent can mark work packages as COMPLETE
+        // This enforces the correct workflow: Developer -> QA -> Reviewer -> Documentation -> COMPLETE
+        if (
+          args.agent !== 'Documentation Agent' &&
+          args.agent !== 'Documentation'
+        ) {
+          throw new Error(
+            `Only the Documentation Agent can mark work packages as COMPLETE. You are: ${args.agent}\n\n` +
+              `Workflow reminder:\n` +
+              `  1. Developer Agent: Completes implementation pipeline, leaves WP as IN_PROGRESS\n` +
+              `  2. QA Agent: Completes qa pipeline, leaves WP as IN_PROGRESS\n` +
+              `  3. Reviewer Agent: Completes code-review pipeline, leaves WP as IN_PROGRESS\n` +
+              `  4. Documentation Agent: Completes documentation pipeline, marks WP as COMPLETE\n\n` +
+              `If you've completed your pipeline, leave the work package as IN_PROGRESS and call ledger_get_handoff_status to determine the next agent.`
+          );
+        }
+      }
+
+      // 3. Special validation for COMPLETE: check acceptance criteria
       if (newStatus === 'COMPLETE') {
         const completeCheck = canCompleteWorkPackage(wp);
         if (!completeCheck.allowed) {
@@ -391,32 +414,32 @@ async function updateWorkPackageStatus(
         }
       }
 
-      // 3. Special validation for BLOCKED
+      // 4. Special validation for BLOCKED
       if (newStatus === 'BLOCKED' && !args.blocked_by) {
         throw new Error(
           'Cannot transition to BLOCKED status without providing blocked_by information'
         );
       }
 
-      // 4. Update work package status
+      // 5. Update work package status
       wp.status = newStatus;
 
-      // 5. Handle BLOCKED -> IN_PROGRESS (clear blocker)
+      // 6. Handle BLOCKED -> IN_PROGRESS (clear blocker)
       if (oldStatus === 'BLOCKED' && newStatus === 'IN_PROGRESS') {
         delete wp.blocked_by;
       }
 
-      // 6. Handle BLOCKED status (set blocker)
+      // 7. Handle BLOCKED status (set blocker)
       if (newStatus === 'BLOCKED' && args.blocked_by) {
         wp.blocked_by = args.blocked_by as Blocker;
       }
 
-      // 7. Handle COMPLETE -> IN_PROGRESS (increment revision)
+      // 8. Handle COMPLETE -> IN_PROGRESS (increment revision)
       if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
         wp.revision += 1;
       }
 
-      // 8. Update root index summary
+      // 9. Update root index summary
       const summary = root.work_packages.find(
         (s) => s.work_package_id === args.work_package_id
       );
@@ -424,7 +447,7 @@ async function updateWorkPackageStatus(
         summary.status = newStatus;
       }
 
-      // 9. Update pending_work_packages counter
+      // 10. Update pending_work_packages counter
       // Decrement when transitioning to COMPLETE
       if (oldStatus !== 'COMPLETE' && newStatus === 'COMPLETE') {
         root.pending_work_packages -= 1;
