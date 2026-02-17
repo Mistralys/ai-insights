@@ -181,15 +181,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `artifacts`: `{ files_modified: [...], commit_hash: "...", pull_request: "..." }`
    - `comments`: array of your **Code Insight Observer observations** (see observation format above)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC you verified
-   
-   **IMPORTANT:** The `acceptance_criteria_updates` parameter is the ONLY way to mark acceptance criteria as met during normal workflow. Do NOT skip this step and try to mark the work package as COMPLETE—you will get an error. Update the criteria here first.
-   
-7. **Update Status (if all criteria met):** If all acceptance criteria are now met (or were already met), call `ledger_update_work_package_status` with `status: "COMPLETE"`. If some criteria are not met, either:
-   - Mark the WP as BLOCKED if you cannot proceed
-   - Start a new pipeline to address remaining criteria
-   - Leave as IN_PROGRESS for the next agent
-   
-8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Developer"` and end your response with the returned handoff block, formatted as:
+7. **Handoff:** After completing your pipeline, leave the work package as IN_PROGRESS and call `ledger_get_handoff_status` with `current_agent: "Developer"`. End your response with the returned handoff block, formatted as:
    ```
    AGENT: <agent>
    STATUS: <status>

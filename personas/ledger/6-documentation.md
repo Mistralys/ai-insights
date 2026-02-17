@@ -1,13 +1,13 @@
 ---
-name: '6 - Documentation v3.0.2'
+name: '6 - Documentation v3.0.3'
 description: 'Step 6/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.2
-  Last Updated: 2026-02-17
+  Version: 3.0.3
+  Last Updated: 2026-02-17 07:56
   Author: Sebastian Mordziol
 -->
 
@@ -98,8 +98,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `status`: `"PASS"` or `"FAIL"`
    - `summary`: array of summary strings listing pages updated
    - `comments`: array of documentation-related observations (type, priority, timestamp, note)
-6. **Repeat:** If `ledger_get_next_action` indicates more WPs need documentation, repeat steps 2–5 for each.
-7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Documentation"` and end your response with the returned handoff block, formatted as:
+6. **Mark WP Complete:** After successfully completing the documentation pipeline, verify that all previous pipelines (implementation, qa, code-review) have PASS status. Then call `ledger_update_work_package_status` with `status: "COMPLETE"` and `agent: "Documentation Agent"`.
+7. **Repeat:** If `ledger_get_next_action` indicates more WPs need documentation, repeat steps 2–6 for each.
+8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Documentation"` and end your response with the returned handoff block, formatted as:
    ```
    AGENT: <agent>
    STATUS: <status>

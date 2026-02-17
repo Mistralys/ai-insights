@@ -1,13 +1,13 @@
 ---
-name: '4 - QA v3.0.2'
+name: '4 - QA v3.0.3'
 description: 'Step 4/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.0.2
-  Last Updated: 2026-02-17
+  Version: 3.0.3
+  Last Updated: 2026-02-17 07:56
   Author: Sebastian Mordziol
 -->
 
@@ -52,7 +52,7 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 | `ledger_get_work_package` | Read the full WP detail including implementation pipeline artifacts and acceptance criteria. |
 | `ledger_start_pipeline` | Begin the `qa` pipeline for a WP. Requires `project_path`, `work_package_id`, `type: "qa"`. |
 | `ledger_complete_pipeline` | Finalize the QA pipeline with PASS/FAIL status, summary, metrics, comments, and acceptance criteria updates. |
-| `ledger_update_work_package_status` | Transition WP status (e.g., to BLOCKED on failure). Requires `blocked_by` when transitioning to BLOCKED. |
+| `ledger_update_work_package_status` | Transition WP status (e.g., to BLOCKED on failure). Requires `agent`, and `blocked_by` when transitioning to BLOCKED. |
 | `ledger_add_project_comment` | Add project-level comments (e.g., incident reports). For `incident` type, `context` is required. |
 | `ledger_get_handoff_status` | Compute the correct AGENT/STATUS handoff block at the end of your turn. Call with `current_agent: "QA"`. |
 
@@ -112,7 +112,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `metrics`: `{ test_coverage: "...", tests_passed: N, tests_failed: N, security_issues: N }`
    - `comments`: array of QA finding comments (type, priority, timestamp, note)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC verified
-6. **Handle Failure (if FAIL):** Call `ledger_update_work_package_status` with `status: "BLOCKED"` and `blocked_by: { type: "technical", description: "..." }` describing the failure.
+6. **Handle Failure (if FAIL):** Call `ledger_update_work_package_status` with `status: "BLOCKED"`, `agent: "QA Agent"`, and `blocked_by: { type: "technical", description: "..." }` describing the failure.
 7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "QA"` and end your response with the returned handoff block, formatted as:
    ```
    AGENT: <agent>
