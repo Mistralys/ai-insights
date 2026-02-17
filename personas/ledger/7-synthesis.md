@@ -1,7 +1,7 @@
 ---
 name: '7 - Synthesis v3.1.0'
 description: 'Step 7/7 in the agent workflow.'
-tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--

@@ -1,7 +1,7 @@
 ---
 name: '6 - Documentation v3.1.0'
 description: 'Step 6/7 in the agent workflow.'
-tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
