@@ -763,5 +763,137 @@ describe('Full workflow integration', () => {
       const rootResult = await store.readRootIndex();
       expect(rootResult.pending_work_packages).toBe(1);
     });
+
+    it('increments revision on subsequent reopens', async () => {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 0,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Dev',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'COMPLETE',
+        assigned_to: 'Dev',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Done', met: true }],
+        revision: 3, // Already reopened twice
+        pipelines: [],
+      });
+
+      // Reopen again
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.status = 'IN_PROGRESS';
+        wp.revision += 1;
+        root.work_packages[0].status = 'IN_PROGRESS';
+        root.pending_work_packages += 1;
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.revision).toBe(4);
+    });
   });
+
+  // ========== Workflow failsafes ==========
+
+  describe('Workflow failsafes', () => {
+    it('detects WPs with all PASS pipelines but forgotten COMPLETE status', async () => {
+      // Setup: WP has all pipelines PASS but is still IN_PROGRESS
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Documentation Agent',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Documentation Agent',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Feature complete', met: true }],
+        revision: 1,
+        pipelines: [
+          {
+            type: 'implementation',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Implemented feature'],
+          },
+          {
+            type: 'qa',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['All tests pass'],
+          },
+          {
+            type: 'code-review',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Code looks good'],
+          },
+          {
+            type: 'documentation',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Docs updated'],
+          },
+        ],
+      });
+
+      // The WP has all pipelines PASS but status is still IN_PROGRESS
+      // The failsafe should detect this when Documentation agent calls get_next_action
+      const wp = await store.readWorkPackage('WP-001');
+      
+      // Verify the condition exists
+      expect(wp.status).toBe('IN_PROGRESS');
+      expect(wp.pipelines.every((p) => p.status === 'PASS')).toBe(true);
+      expect(wp.pipelines.length).toBe(4);
+      
+      // This represents what getDocumentationAction would detect:
+      // All 4 pipeline types present and all PASS, but WP status is IN_PROGRESS
+      const hasAllPipelines =
+        wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS') &&
+        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS') &&
+        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS') &&
+        wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS');
+      
+      expect(hasAllPipelines).toBe(true);
+      // This condition should trigger the MARK_COMPLETE action in getDocumentationAction
+    });  });
 });

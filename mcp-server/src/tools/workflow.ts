@@ -529,6 +529,45 @@ async function getDocumentationAction(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
 
+  // First, check for WPs with PASS pipelines but still IN_PROGRESS status
+  // This catches cases where Documentation agent completed pipeline but forgot to mark WP as COMPLETE
+  for (const wpDetail of wpDetails) {
+    if (wpDetail.status === 'IN_PROGRESS') {
+      const hasPassDocs = wpDetail.pipelines.some(
+        (p) => p.type === 'documentation' && p.status === 'PASS'
+      );
+      const hasPassReview = wpDetail.pipelines.some(
+        (p) => p.type === 'code-review' && p.status === 'PASS'
+      );
+      const hasPassQa = wpDetail.pipelines.some(
+        (p) => p.type === 'qa' && p.status === 'PASS'
+      );
+      const hasPassImpl = wpDetail.pipelines.some(
+        (p) => p.type === 'implementation' && p.status === 'PASS'
+      );
+
+      // If all pipelines are PASS but WP is still IN_PROGRESS, prompt to mark COMPLETE
+      if (hasPassDocs && hasPassReview && hasPassQa && hasPassImpl) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  action: 'MARK_COMPLETE',
+                  work_package_id: wpDetail.work_package_id,
+                  reason: `Work package ${wpDetail.work_package_id} has all pipelines completed with PASS status but is still IN_PROGRESS. Mark it as COMPLETE using ledger_update_work_package_status.`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+    }
+  }
+
   // Look for WPs with PASS code-review pipeline but no documentation pipeline
   for (const wpDetail of wpDetails) {
     const hasPassReviewPipeline = wpDetail.pipelines.some(
