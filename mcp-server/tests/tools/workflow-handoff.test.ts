@@ -34,7 +34,7 @@ function makeWp(
 
 describe('Handoff logic: incomplete project detection', () => {
   describe('QA handoff', () => {
-    it('returns READY_FOR_DEVELOPER when only some WPs are implemented + QA passed', () => {
+    it('returns READY_FOR_REVIEW when remaining WPs are blocked by dependencies', () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -45,7 +45,8 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('READY_FOR_DEVELOPER');
+      expect(result.status).toBe('READY_FOR_REVIEW');
+      expect(result.details).toContain('blocked by dependencies');
       expect(result.details).toContain('WP-002');
       expect(result.details).toContain('WP-003');
     });
@@ -92,10 +93,26 @@ describe('Handoff logic: incomplete project detection', () => {
       const result = parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('IN_PROGRESS');
     });
+
+    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ]),
+        makeWp('WP-002', 'READY', [], []), // Not blocked, ready for work
+        makeWp('WP-003', 'BLOCKED', [], ['WP-001']), // Blocked by dependency
+      ];
+
+      const result = parseResult(getQaHandoff(wpDetails));
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
+      expect(result.details).toContain('ready for implementation');
+      expect(result.details).toContain('WP-002');
+    });
   });
 
   describe('Reviewer handoff', () => {
-    it('returns READY_FOR_DEVELOPER when only some WPs have passed QA + review', () => {
+    it('returns READY_FOR_DOCUMENTATION when remaining WPs are blocked by dependencies', () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -106,7 +123,8 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = parseResult(getReviewerHandoff(wpDetails));
-      expect(result.status).toBe('READY_FOR_DEVELOPER');
+      expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+      expect(result.details).toContain('blocked by dependencies');
       expect(result.details).toContain('WP-002');
     });
 
@@ -126,6 +144,23 @@ describe('Handoff logic: incomplete project detection', () => {
 
       const result = parseResult(getReviewerHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    });
+
+    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+        ]),
+        makeWp('WP-002', 'READY', [], []), // Not blocked, ready for work
+        makeWp('WP-003', 'BLOCKED', [], ['WP-001']), // Blocked by dependency
+      ];
+
+      const result = parseResult(getReviewerHandoff(wpDetails));
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
+      expect(result.details).toContain('ready for');
+      expect(result.details).toContain('WP-002');
     });
   });
 

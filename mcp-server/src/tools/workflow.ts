@@ -796,6 +796,24 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
 }
 
 /**
+ * Helper function: Check if a WP is blocked by incomplete dependencies
+ */
+function isBlockedByDependencies(
+  wp: WorkPackageDetail,
+  allWpDetails: WorkPackageDetail[]
+): boolean {
+  if (!wp.dependencies || wp.dependencies.length === 0) {
+    return false;
+  }
+
+  // Check if any dependency is not COMPLETE
+  return wp.dependencies.some((depId) => {
+    const depWp = allWpDetails.find((w) => w.work_package_id === depId);
+    return !depWp || depWp.status !== 'COMPLETE';
+  });
+}
+
+/**
  * Get handoff status for Project Manager
  */
 function getProjectManagerHandoff(wpDetails: WorkPackageDetail[]) {
@@ -942,8 +960,37 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (allQaPassed && wpsWithImpl.length > 0) {
-    // If there are still WPs that haven't been implemented, hand back to Developer
+    // If there are still WPs that haven't been implemented, check if they're blocked or ready
     if (wpsStillNeedingImpl.length > 0) {
+      // Check if these WPs are actually ready or blocked by dependencies
+      const readyWps = wpsStillNeedingImpl.filter(
+        (wp) => !isBlockedByDependencies(wp, wpDetails)
+      );
+      const blockedWps = wpsStillNeedingImpl.filter((wp) =>
+        isBlockedByDependencies(wp, wpDetails)
+      );
+
+      // If all unimplemented WPs are blocked, proceed to Review instead of waiting
+      if (readyWps.length === 0 && blockedWps.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  agent: 'QA',
+                  status: 'READY_FOR_REVIEW',
+                  details: `QA passed for ${wpsWithImpl.length} implemented work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      // Some WPs are ready for implementation
       return {
         content: [
           {
@@ -952,7 +999,7 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
               {
                 agent: 'QA',
                 status: 'READY_FOR_DEVELOPER',
-                details: `QA passed for ${wpsWithImpl.length} implemented work package(s), but ${wpsStillNeedingImpl.length} work package(s) still need implementation: ${wpsStillNeedingImpl.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+                details: `QA passed for ${wpsWithImpl.length} implemented work package(s). ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
               },
               null,
               2
@@ -1016,6 +1063,35 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
 
   // All implemented WPs have QA but some WPs still need implementation
   if (wpsStillNeedingImpl.length > 0) {
+    // Check if these WPs are actually ready or blocked by dependencies
+    const readyWps = wpsStillNeedingImpl.filter(
+      (wp) => !isBlockedByDependencies(wp, wpDetails)
+    );
+    const blockedWps = wpsStillNeedingImpl.filter((wp) =>
+      isBlockedByDependencies(wp, wpDetails)
+    );
+
+    // If all unimplemented WPs are blocked, proceed to Review instead of waiting
+    if (readyWps.length === 0 && blockedWps.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                agent: 'QA',
+                status: 'READY_FOR_REVIEW',
+                details: `QA complete for all implemented work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    // Some WPs are ready for implementation
     return {
       content: [
         {
@@ -1024,7 +1100,7 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'QA',
               status: 'READY_FOR_DEVELOPER',
-              details: `QA complete for all implemented work packages. ${wpsStillNeedingImpl.length} work package(s) still need implementation: ${wpsStillNeedingImpl.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+              details: `QA complete for all implemented work packages. ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
             },
             null,
             2
@@ -1071,8 +1147,37 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (allReviewPassed && wpsWithQa.length > 0) {
-    // If there are still WPs that haven't passed QA, earlier stages need to catch up
+    // If there are still WPs that haven't passed QA, check if they're blocked or ready
     if (wpsNotYetQaPassed.length > 0) {
+      // Check if these WPs are actually ready or blocked by dependencies
+      const readyWps = wpsNotYetQaPassed.filter(
+        (wp) => !isBlockedByDependencies(wp, wpDetails)
+      );
+      const blockedWps = wpsNotYetQaPassed.filter((wp) =>
+        isBlockedByDependencies(wp, wpDetails)
+      );
+
+      // If all unimplemented WPs are blocked, proceed to Documentation instead of waiting
+      if (readyWps.length === 0 && blockedWps.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  agent: 'Reviewer',
+                  status: 'READY_FOR_DOCUMENTATION',
+                  details: `Review passed for ${wpsWithQa.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
+      // Some WPs are ready for implementation/QA
       return {
         content: [
           {
@@ -1081,7 +1186,7 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
               {
                 agent: 'Reviewer',
                 status: 'READY_FOR_DEVELOPER',
-                details: `Review passed for ${wpsWithQa.length} work package(s), but ${wpsNotYetQaPassed.length} work package(s) still need implementation/QA: ${wpsNotYetQaPassed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+                details: `Review passed for ${wpsWithQa.length} work package(s). ${readyWps.length} work package(s) ready for implementation/QA: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
               },
               null,
               2
@@ -1145,6 +1250,35 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
 
   // All reviewed WPs are done but some haven't reached QA yet
   if (wpsNotYetQaPassed.length > 0) {
+    // Check if these WPs are actually ready or blocked by dependencies
+    const readyWps = wpsNotYetQaPassed.filter(
+      (wp) => !isBlockedByDependencies(wp, wpDetails)
+    );
+    const blockedWps = wpsNotYetQaPassed.filter((wp) =>
+      isBlockedByDependencies(wp, wpDetails)
+    );
+
+    // If all unimplemented WPs are blocked, proceed to Documentation instead of waiting
+    if (readyWps.length === 0 && blockedWps.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                agent: 'Reviewer',
+                status: 'READY_FOR_DOCUMENTATION',
+                details: `Review complete for all QA-passed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    // Some WPs are ready for earlier stages
     return {
       content: [
         {
@@ -1153,7 +1287,7 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'Reviewer',
               status: 'READY_FOR_DEVELOPER',
-              details: `Review complete for all QA-passed work packages. ${wpsNotYetQaPassed.length} work package(s) still need earlier stages: ${wpsNotYetQaPassed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+              details: `Review complete for all QA-passed work packages. ${readyWps.length} work package(s) ready for earlier stages: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
             },
             null,
             2
