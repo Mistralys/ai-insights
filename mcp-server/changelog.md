@@ -1,5 +1,11 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.2.2 - Reviewer Dependency-Aware Handoff
+- Fixed deadlock scenario where Reviewer would hand to Developer when remaining work packages were blocked by dependencies
+- Reviewer now checks if unimplemented WPs are actually ready or blocked before deciding handoff
+- When all remaining WPs are blocked, Reviewer correctly hands to Documentation to complete current WPs first
+- Added test coverage for blocked dependency handoff scenarios
+
 ## v1.2.1 - Handoff Logic Fix
 - The QA agent will no longer hand off to the reviewer when there are open DEV packages.
 
