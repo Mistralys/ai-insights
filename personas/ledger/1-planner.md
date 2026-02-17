@@ -9,6 +9,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
   Version: 1.0.3
   Last Updated: 2026-02-12 09:00
   Author: Sebastian Mordziol
+  VS File Name: 1-planner.agent.md
 -->
 
 # Planner Agent

@@ -9,6 +9,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', '
   Version: 3.1.0
   Last Updated: 2026-02-17 14:10
   Author: Sebastian Mordziol
+  VS File Name: 2-pm.agent.md
 -->
 
 # Project Manager Agent
