@@ -50,7 +50,6 @@ You have access to the **`project-ledger`** MCP server which manages all ledger 
 | `ledger_get_project_status` | Read the full root index including project overview, WP summaries, and `project_comments`. Self-heals incorrect counters. |
 | `ledger_list_work_packages` | List all WP summaries. Useful for iterating over every WP. |
 | `ledger_get_work_package` | Read the full WP detail including all pipelines, metrics, acceptance criteria, and comments. Call once per WP. |
-| `ledger_update_work_package_status` | Mark individual WPs as COMPLETE if needed. |
 | `ledger_add_project_comment` | Add project-level synthesis observations. |
 | `ledger_get_handoff_status` | Compute the final AGENT/STATUS handoff block. Call with `current_agent: "Synthesis"`. |
 
@@ -101,7 +100,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     STATUS: FAIL_LEDGER_FAULTY
     ```
 5.  **Generate Report:** Write the `synthesis.md` file to the plan folder.
-6.  **Finalize:** Call `ledger_update_work_package_status` to mark any remaining WPs as COMPLETE if appropriate. Add any project-level synthesis observations via `ledger_add_project_comment`.
+6.  **Finalize:** Add any project-level synthesis observations via `ledger_add_project_comment` if you identified cross-cutting insights or patterns that span multiple work packages.
 7.  **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"` and end your response with:
     ```
     AGENT: Synthesis
