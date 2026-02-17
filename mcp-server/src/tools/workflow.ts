@@ -879,6 +879,13 @@ function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (needsWork) {
+    // Count how many work packages still need implementation
+    const wpsNeedingWork = wpDetails.filter(
+      (wp) =>
+        !wp.pipelines.some((p) => p.type === 'implementation') ||
+        wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'FAIL')
+    );
+
     return {
       content: [
         {
@@ -887,8 +894,8 @@ function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'Developer',
               status: 'IN_PROGRESS',
-              details:
-                'Implementation work in progress. Some WPs need implementation or rework.',
+              details: `Implementation work in progress. ${wpsNeedingWork.length} work package(s) still need implementation or rework.`,
+              next_action: `Call ledger_get_next_action with agent_role: "Developer" to find the next work package to implement. Continue working until all WPs have PASS implementation pipelines.`,
             },
             null,
             2
@@ -956,6 +963,13 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (needsWork) {
+    // Count how many work packages still need QA
+    const wpsNeedingWork = wpsWithImpl.filter(
+      (wp) =>
+        !wp.pipelines.some((p) => p.type === 'qa') ||
+        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL')
+    );
+
     return {
       content: [
         {
@@ -964,7 +978,8 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'QA',
               status: 'IN_PROGRESS',
-              details: 'QA work in progress. Some WPs need QA or rework.',
+              details: `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA or rework.`,
+              next_action: `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`,
             },
             null,
             2
@@ -1032,6 +1047,13 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (needsWork) {
+    // Count how many work packages still need review
+    const wpsNeedingWork = wpsWithQa.filter(
+      (wp) =>
+        !wp.pipelines.some((p) => p.type === 'code-review') ||
+        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL')
+    );
+
     return {
       content: [
         {
@@ -1040,7 +1062,8 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'Reviewer',
               status: 'IN_PROGRESS',
-              details: 'Review work in progress. Some WPs need review or rework.',
+              details: `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review or rework.`,
+              next_action: `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`,
             },
             null,
             2
@@ -1109,6 +1132,13 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (needsWork) {
+    // Count how many work packages still need documentation
+    const wpsNeedingWork = wpsWithReview.filter(
+      (wp) =>
+        !wp.pipelines.some((p) => p.type === 'documentation') ||
+        wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL')
+    );
+
     return {
       content: [
         {
@@ -1117,8 +1147,8 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
             {
               agent: 'Documentation',
               status: 'IN_PROGRESS',
-              details:
-                'Documentation work in progress. Some WPs need docs or rework.',
+              details: `Documentation work in progress. ${wpsNeedingWork.length} work package(s) still need documentation or rework.`,
+              next_action: `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`,
             },
             null,
             2
