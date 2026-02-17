@@ -174,7 +174,7 @@ Unclear → Pause and request user clarification
 | **Primary Pattern** | Schema-First Design (Zod) + Atomic Writes + File Locking |
 | **Lines of Code** | ~2,000 (src/) |
 | **Test Coverage** | ~85% (unit + integration) |
-| **MCP Tools** | 13 registered tools |
+| **MCP Tools** | 14 registered tools |
 | **Dependencies** | 3 production, 4 development |
 
 ---

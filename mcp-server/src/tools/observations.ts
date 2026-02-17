@@ -14,18 +14,18 @@ import { validatePlanPathOrError } from '../utils/path-validator.js';
  * Comments do NOT include an agent field (agent is inferred from pipeline type).
  */
 const AddObservationSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3}$/)
-    .describe('Work package ID (e.g., WP-001)'),
-  pipeline_type: z.string().describe('Pipeline type to add the observation to'),
+    .describe('Work package ID, format: WP-001, WP-002, etc.'),
+  pipeline_type: z.string().describe('Pipeline type to add the observation to (e.g., "implementation", "qa", "code-review", "documentation")'),
   type: z
     .string()
     .describe(
-      'Comment type (e.g., code-smell, refactor, improvement, debt, convention)'
+      'Observation category (e.g., "code-smell", "refactor", "improvement", "debt", "convention")'
     ),
-  priority: z.enum(['low', 'medium', 'high']).describe('Priority of the observation'),
+  priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   note: z.string().describe('Detailed description of the observation'),
 });
 
@@ -103,10 +103,10 @@ async function addObservation(args: z.infer<typeof AddObservationSchema>) {
  * For incident type comments, context is required.
  */
 const AddProjectCommentSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
-  type: z.string().describe('Comment type (e.g., incident, note, decision)'),
-  priority: z.enum(['low', 'medium', 'high']).describe('Priority of the comment'),
-  agent: z.string().describe('Agent name adding this comment'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  type: z.string().describe('Comment type: "incident", "note", or "decision"'),
+  priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
+  agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
   note: z.string().describe('Detailed description of the comment'),
   context: z
     .object({
@@ -117,7 +117,7 @@ const AddProjectCommentSchema = z.object({
       workaround: z.string().optional(),
     })
     .optional()
-    .describe('Context for incident type comments (required for incident type)'),
+    .describe('REQUIRED when type is "incident". Provide os, tool, resolved fields at minimum.'),
 });
 
 async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) {
@@ -191,14 +191,14 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
 export function register(server: McpServer): void {
   server.tool(
     'ledger_add_observation',
-    'Add a comment to the most recent pipeline of the specified type. Comments do not include an agent field.',
+    'Add an observation/comment to the most recent pipeline of the specified type. REQUIRED params: project_path, work_package_id, pipeline_type, type, priority, note. The pipeline must already exist (use ledger_start_pipeline first).',
     AddObservationSchema.shape,
     addObservation
   );
 
   server.tool(
     'ledger_add_project_comment',
-    'Add a comment to the project-level comments array. For incident type comments, context is required.',
+    'Add a project-level comment. REQUIRED params: project_path, type, priority, agent, note. If type is "incident", the context param is also required (with os, tool, resolved fields).',
     AddProjectCommentSchema.shape,
     addProjectComment
   );

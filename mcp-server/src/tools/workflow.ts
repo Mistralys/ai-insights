@@ -37,11 +37,11 @@ const PIPELINE_TYPE_MAP: Record<string, string> = {
  * Returns actionable recommendations based on work package statuses and pipeline states.
  */
 const GetNextActionSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   agent_role: z
     .string()
     .describe(
-      'Agent role: Planner, Project Manager, Developer, QA, Reviewer, Documentation, or Synthesis'
+      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
     ),
 });
 
@@ -674,11 +674,11 @@ function hasDependencyBlocked(
  * the correct AGENT: and STATUS: handoff block for the current agent.
  */
 const GetHandoffStatusSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   current_agent: z
     .string()
     .describe(
-      'Current agent role: Planner, Project Manager, Developer, QA, Reviewer, Documentation, or Synthesis'
+      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
     ),
 });
 
@@ -1182,14 +1182,14 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
 export function register(server: McpServer): void {
   server.tool(
     'ledger_get_next_action',
-    'Recommend the next action for an agent based on project state and agent role. Examines work package statuses and pipeline states to provide actionable recommendations.',
+    'Get the next recommended action for your agent role. REQUIRED params: project_path, agent_role. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states.',
     GetNextActionSchema.shape,
     getNextAction
   );
 
   server.tool(
     'ledger_get_handoff_status',
-    'Compute the correct AGENT and STATUS handoff block for the current agent. Examines all work package statuses and pipelines to determine project state.',
+    'Get the handoff status to determine if your work is done and which agent should work next. REQUIRED params: project_path, current_agent. Call this after completing your pipelines to check if work should be handed to the next agent in the workflow.',
     GetHandoffStatusSchema.shape,
     getHandoffStatus
   );

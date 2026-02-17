@@ -13,7 +13,7 @@ import { validatePlanPathOrError } from '../utils/path-validator.js';
  * Includes self-healing logic that recomputes counters from actual WP data.
  */
 const GetProjectStatusSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
 });
 
 async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
@@ -89,10 +89,10 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
  * Rejects if ledger already exists.
  */
 const InitializeProjectSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   plan_file: z
     .string()
-    .describe('Relative path to the plan file (e.g., docs/agents/plans/2026-02-12/plan.md)'),
+    .describe('Relative path to the plan file from project_path (e.g., "plan.md")'),
 });
 
 async function initializeProject(
@@ -179,14 +179,14 @@ async function initializeProject(
 export function register(server: McpServer): void {
   server.tool(
     'ledger_get_project_status',
-    'Read project overview from the root index. Self-heals incorrect counters.',
+    'Read project overview from the root index. REQUIRED params: project_path. Returns work package summaries, counters, and project status. Self-heals incorrect counters. Call this first to understand project state.',
     GetProjectStatusSchema.shape,
     getProjectStatus
   );
 
   server.tool(
     'ledger_initialize_project',
-    'Create a new project ledger with root index and ledger/ subdirectory. Rejects if ledger already exists.',
+    'Create a new project ledger. REQUIRED params: project_path, plan_file. Creates root index and .ledger/ subdirectory. Rejects if ledger already exists. Call this once at project start before creating work packages.',
     InitializeProjectSchema.shape,
     initializeProject
   );

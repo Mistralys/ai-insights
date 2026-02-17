@@ -23,11 +23,11 @@ import { validatePlanPathOrError } from '../utils/path-validator.js';
  * Reads and returns the full work package detail for a given WP ID.
  */
 const GetWorkPackageSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3}$/)
-    .describe('Work package ID (e.g., WP-001)'),
+    .describe('Work package ID, format: WP-001, WP-002, etc.'),
 });
 
 async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
@@ -67,12 +67,12 @@ async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
  * Optionally filters by status and/or assigned_to.
  */
 const ListWorkPackagesSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
     .optional()
-    .describe('Filter by work package status'),
-  assigned_to: z.string().optional().describe('Filter by assigned agent'),
+    .describe('Optional filter by work package status'),
+  assigned_to: z.string().optional().describe('Optional filter by assigned agent name'),
 });
 
 async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
@@ -122,19 +122,19 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
  * Creates both the detail file (.ledger/WP-###.json) and root index summary atomically.
  */
 const CreateWorkPackageSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   assigned_to: z
     .string()
-    .describe('Agent or team assigned to this work package'),
+    .describe('Agent name assigned to this work package (e.g., "Developer")'),
   dependencies: z
     .array(z.string().regex(/^WP-\d{3}$/))
-    .describe('Array of work package IDs this depends on (e.g., ["WP-001"])'),
+    .describe('Array of WP IDs this depends on (e.g., ["WP-001"]). Use [] for no dependencies.'),
   acceptance_criteria: z
     .array(z.string())
-    .describe('Array of acceptance criteria descriptions'),
+    .describe('Array of acceptance criteria strings (e.g., ["All tests pass", "No lint errors"])'),
   work_package_file: z
     .string()
-    .describe('Relative path to the work package specification file'),
+    .describe('Relative path to the work package spec file (e.g., "work/WP-001.md")'),
 });
 
 async function createWorkPackage(
@@ -257,12 +257,12 @@ async function createWorkPackage(
  * Validates dependencies are met before allowing the transition.
  */
 const ClaimWorkPackageSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3}$/)
-    .describe('Work package ID to claim (e.g., WP-001)'),
-  agent: z.string().describe('Agent name claiming this work package'),
+    .describe('Work package ID to claim, format: WP-001, WP-002, etc.'),
+  agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
 });
 
 async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
@@ -343,17 +343,17 @@ async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
  * Enforces legal status transitions and special rules (COMPLETE requires all criteria met, etc.).
  */
 const UpdateWorkPackageStatusSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3}$/)
-    .describe('Work package ID to update (e.g., WP-001)'),
+    .describe('Work package ID to update, format: WP-001, WP-002, etc.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
-    .describe('New status for the work package'),
+    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, BLOCKED→IN_PROGRESS, COMPLETE→IN_PROGRESS'),
   agent: z
     .string()
-    .describe('Agent name performing the status update (e.g., "Documentation Agent")'),
+    .describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation"). Note: only "Documentation" or "Documentation Agent" can set status to COMPLETE.'),
   blocked_by: z
     .object({
       type: z.enum(['dependency', 'decision', 'external', 'technical']),
@@ -361,7 +361,7 @@ const UpdateWorkPackageStatusSchema = z.object({
       blocking_work_package: z.string().optional(),
     })
     .optional()
-    .describe('Blocker information (required when transitioning to BLOCKED)'),
+    .describe('Blocker details — REQUIRED when setting status to BLOCKED, omit otherwise'),
 });
 
 async function updateWorkPackageStatus(
@@ -523,21 +523,21 @@ export function register(server: McpServer): void {
 
   server.tool(
     'ledger_create_work_package',
-    'Create a new work package with auto-generated WP ID. Creates both detail file and root index summary atomically.',
+    'Create a new work package with auto-generated WP ID. REQUIRED params: project_path, assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically.',
     CreateWorkPackageSchema.shape,
     createWorkPackage
   );
 
   server.tool(
     'ledger_claim_work_package',
-    'Claim a READY work package by transitioning to IN_PROGRESS. Validates dependencies are met.',
+    'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Validates that all dependencies are COMPLETE before allowing the claim.',
     ClaimWorkPackageSchema.shape,
     claimWorkPackage
   );
 
   server.tool(
     'ledger_update_work_package_status',
-    'Update work package status with validation. Enforces legal status transitions and special rules.',
+    'Update work package status. REQUIRED params: project_path, work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by.',
     UpdateWorkPackageStatusSchema.shape,
     updateWorkPackageStatus
   );

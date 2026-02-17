@@ -12,12 +12,12 @@ import { validatePlanPathOrError } from '../utils/path-validator.js';
  * Validates WP is IN_PROGRESS and no duplicate in-progress pipeline exists.
  */
 const StartPipelineSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3}$/)
-    .describe('Work package ID (e.g., WP-001)'),
-  type: z.string().describe('Pipeline type (e.g., implementation, qa, review)'),
+    .describe('Work package ID, format: WP-001, WP-002, etc.'),
+  type: z.string().describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
 });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
@@ -93,14 +93,14 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
  * Sets status, completion timestamp, summary, and optional fields.
  */
 const CompletePipelineSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project directory'),
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3}$/)
-    .describe('Work package ID (e.g., WP-001)'),
-  type: z.string().describe('Pipeline type to complete'),
-  status: z.enum(['PASS', 'FAIL']).describe('Pipeline completion status'),
-  summary: z.array(z.string()).describe('Summary points for the pipeline'),
+    .describe('Work package ID, format: WP-001, WP-002, etc.'),
+  type: z.string().describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
+  status: z.enum(['PASS', 'FAIL']).describe('Pipeline result: "PASS" if successful, "FAIL" if issues found'),
+  summary: z.array(z.string()).describe('Array of summary strings describing what was done (e.g., ["Implemented feature X", "Added tests"])'),
   artifacts: z
     .object({
       files_modified: z.array(z.string()).optional(),
@@ -229,14 +229,14 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 export function register(server: McpServer): void {
   server.tool(
     'ledger_start_pipeline',
-    'Start a new pipeline (e.g., implementation, qa, review) for a work package. Validates WP is IN_PROGRESS and rejects duplicate in-progress pipelines of the same type. Call this before beginning work on a pipeline.',
+    'Start a new pipeline for a work package. REQUIRED params: project_path, work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type.',
     StartPipelineSchema.shape,
     startPipeline
   );
 
   server.tool(
     'ledger_complete_pipeline',
-    'Complete the most recent IN_PROGRESS pipeline of the specified type. USE THIS to update acceptance criteria (via acceptance_criteria_updates parameter) and record observations (via comments parameter). This is the primary way to mark which acceptance criteria have been met before marking a work package as COMPLETE.',
+    'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL: acceptance_criteria_updates (use this to mark criteria as met before marking WP COMPLETE), artifacts, metrics, comments. Must call ledger_start_pipeline first.',
     CompletePipelineSchema.shape,
     completePipeline
   );

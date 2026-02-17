@@ -10,6 +10,7 @@ import * as workPackageTools from './tools/work-package.js';
 import * as pipelineTools from './tools/pipeline.js';
 import * as observationTools from './tools/observations.js';
 import * as workflowTools from './tools/workflow.js';
+import * as helpTools from './tools/help.js';
 
 // Load version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -34,12 +35,13 @@ async function main(): Promise<void> {
     version: VERSION,
   });
 
-  // Register tools (Wave 1: Read Tools)
+  // Register tools
   projectLifecycleTools.register(server);
   workPackageTools.register(server);
   pipelineTools.register(server);
   observationTools.register(server);
   workflowTools.register(server);
+  helpTools.register(server);
 
   // Connect to STDIO transport
   // Note: stdout is reserved for MCP protocol, all logs go to stderr
@@ -51,7 +53,7 @@ async function main(): Promise<void> {
   console.error(`[project-ledger-mcp] Server v${VERSION} started successfully`);
   console.error('[project-ledger-mcp] Transport: STDIO');
   console.error(
-    '[project-ledger-mcp] Registered tools: ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_start_pipeline, ledger_complete_pipeline, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status'
+    '[project-ledger-mcp] Registered tools: ledger_help, ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_start_pipeline, ledger_complete_pipeline, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status'
   );
 }
 
