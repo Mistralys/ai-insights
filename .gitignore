@@ -2,5 +2,6 @@
 /mcp-server/node_modules/
 /.mcp.json
 /context/
-/docs/agents/plans/**/work.md
-/docs/agents/plans/**/.ledger/
+/mcp-server/docs/agents/plans/**/work.md
+/mcp-server/docs/agents/plans/**/work/
+/mcp-server/docs/agents/plans/**/.ledger/
