@@ -9,6 +9,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
   Version: 1.0.0
   Last Updated: 2026-02-18
   Author: Sebastian Mordziol
+  VS File Name: readme-curator.agent.md
 -->
 
 # Human‑Centric README Curator Agent

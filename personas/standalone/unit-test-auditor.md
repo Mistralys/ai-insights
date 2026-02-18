@@ -9,6 +9,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
   Version: 1.0.0
   Last Updated: 2026-02-11 18:20:00
   Author: Sebastian Mordziol
+  VS File Name: unit-test-auditor.agent.md
 -->
 
 # Unit Test Auditor Agent

@@ -9,6 +9,7 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
   Version: 1.0.0
   Last Updated: 2026-02-12 10:00:00
   Author: Sebastian Mordziol
+  VS File Name: researcher.agent.md
 -->
 
 # Researcher Agent

@@ -1,14 +1,15 @@
 ---
-name: 'Manifest Curator v1.0.0'
+name: 'Manifest Curator v1.0.1'
 description: 'Create, update, and audit project manifests — the source of truth for AI agent sessions.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.0
+  Version: 1.0.1
   Last Updated: 2026-02-15 18:00:00
   Author: Sebastian Mordziol
+  VS File Name: manifest-curator.agent.md
 -->
 
 # Manifest Curator Agent
