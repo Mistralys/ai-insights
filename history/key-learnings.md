@@ -43,6 +43,7 @@
 - Include detailed explanations in tool error responses to explain why it went wrong and what should be done instead as auto-documenting tools.
 - MCP Server tool names are prefixed internally by the name of the server, typically as defined in the MCP server config. E.g. `server_name` = `mcp_server_name_tool_name`.
 - Avoid repeating tool prefix in server names, e.g. `project-ledger` server name = `mcp_project-ledge_ledger_add_observation` full tool name for `ledger_add_observation`.
+- To trigger personas, use `**Identity: Senior Software Architect.**`. The `Identity:` syntax acts as a permanent attribute, rather than a conversational instruction ("You are xxx").
 
 ## My AI Journey Milestones
 
