@@ -31,7 +31,8 @@ mcp-server/
 │   │
 │   └── utils/                   # Utility functions
 │       ├── path-validator.ts    # Project path validation (absolute path checks)
-│       ├── timestamp.ts         # Timestamp formatting (YYYY-MM-DD HH:MM:SS)
+│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, AGENT_PIPELINE_MAP)
+│       ├── timestamp.ts         # Timestamp formatting — now() returns ISO 8601 T-separator (YYYY-MM-DDTHH:MM:SS); parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites

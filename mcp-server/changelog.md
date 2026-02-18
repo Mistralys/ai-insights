@@ -1,5 +1,21 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.3.1 - Technical Debt Remediation
+
+### Changed
+- **WP-001:** Extracted shared pipeline routing constants (`PIPELINE_PREREQUISITES`, `PIPELINE_AGENT_MAP`, `NEXT_AGENT_MAP`, `AGENT_PIPELINE_MAP`) into `src/utils/pipeline-maps.ts`. Both `pipeline.ts` and `workflow.ts` now import from this single source of truth — no local duplicate definitions remain.
+- **WP-002:** `now()` in `src/utils/timestamp.ts` now returns ISO 8601 T-separator format (`YYYY-MM-DDTHH:MM:SS`) instead of legacy space-separated format. Added `parseTimestamp()` helper that normalises both old and new formats via `.replace(' ', 'T')` before parsing — ensures backward compatibility with existing ledger data. `isStalePipeline` and all `ageHours` calculations now use `parseTimestamp()` exclusively.
+- **WP-004:** Added `extractStalePipelineAction()` and `extractReworkAction()` private helpers to `workflow.ts`, eliminating the duplicated stale-pipeline detection and rework-response logic that existed separately in all four `get*Action` functions. Both helpers return `ToolActionResponse | null` and are exported via `_internal` for unit-testability.
+- **WP-005:** Added a `DESIGN NOTE` inline comment above the `propagateDependencyUnblock` call in `updateWorkPackageStatus` (`work-package.ts`) explaining the two-lock sequential pattern, its safety via idempotency, and why holding the first lock during the cascade is deliberately avoided.
+- **WP-006 (batch):**
+  - Added cross-reference comments between `hasDependencyBlocked` and `isBlockedByDependencies` clarifying their different input granularity.
+  - Replaced `Math.max(...existingNumbers)` spread in `createWorkPackage` with `reduce`-based max, preventing `RangeError` on large WP lists.
+  - Added 4 gap-resilience tests to `wp-id.test.ts` (empty list, contiguous IDs, gap scenario, single-item list).
+  - Added `NOTE` comment on `getDeveloperHandoff` explaining why `isMostRecentPipelineFail` is intentionally not used (conservative FAIL detection).
+  - Replaced all `[...arr].reverse().find()` / `.map().reverse().find()` patterns in `pipeline.ts` with `.filter().at(-1)` (ES2022-compatible alternative to `.findLast()`).
+  - Added priority-explanation comment on the `continue` statement in the stale-pipeline check inside `getNextActions`.
+  - Added maintenance comment to `index.ts` tool registration block noting that the listing requires manual sync when new tools are added.
+
 ## v1.3.0 - Workflow Hardening
 
 ### Added

@@ -43,7 +43,7 @@ The MCP server solves these problems by:
 
 ### Architecture
 
-The server exposes **14 MCP tools** that agents invoke to manage project state:
+The server exposes **17 MCP tools** that agents invoke to manage project state:
 
 ```
 ┌─────────────────────────────────────────────────┐
