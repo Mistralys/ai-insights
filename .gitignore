@@ -1,7 +1,7 @@
 .DS_Store
 /mcp-server/node_modules/
 /.mcp.json
-/context/
+/.context/
 /mcp-server/docs/agents/plans/**/work.md
 /mcp-server/docs/agents/plans/**/work/
 /mcp-server/docs/agents/plans/**/.ledger/
