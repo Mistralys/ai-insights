@@ -4,7 +4,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (13 Total)
+## MCP Tools (17 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -147,10 +147,37 @@ Starts a new pipeline for a work package. Validates WP is `IN_PROGRESS` and no d
     criterion: string;
     met: boolean;
   }>;
+  handoff_notes?: string[]; // Notes for the next agent in the pipeline chain
 }) => Promise<MCPResult>
 ```
 
-Completes the most recent `IN_PROGRESS` pipeline of the specified type. Sets status, completion timestamp, summary, and optional fields.
+Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package, addressed to the next agent in the pipeline chain (determined by `NEXT_AGENT_MAP`). Sets status, completion timestamp, summary, and optional fields.
+
+#### `ledger_cancel_pipeline`
+
+```typescript
+(args: { 
+  project_path: string;
+  work_package_id: string;
+  type: string;
+  reason: string;
+}) => Promise<MCPResult>
+```
+
+Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting its status to `FAIL` and recording the reason as the summary. Throws an error if no `IN_PROGRESS` pipeline of the given type exists. Use this to cancel pipelines that have become stale (detected via `ledger_get_next_action` returning `RESUME_OR_CANCEL`).
+
+#### `ledger_update_pipeline_progress`
+
+```typescript
+(args: { 
+  project_path: string;
+  work_package_id: string;
+  type: string;
+  summary: string[];
+}) => Promise<MCPResult>
+```
+
+Appends to the summary array of the most recent `IN_PROGRESS` pipeline without completing it. Useful for recording incremental progress checkpoints during long-running pipelines.
 
 ---
 
@@ -205,7 +232,19 @@ Adds a comment to the project-level comments array in the root index. For `incid
 }) => Promise<MCPResult>
 ```
 
-Reads root index and work package details to recommend the next action for an agent. Returns actionable recommendations based on work package statuses and pipeline states.
+Reads root index and work package details to recommend the next action for an agent. Returns a single actionable recommendation. For projects with many independent WPs, prefer `ledger_get_next_actions`.
+
+#### `ledger_get_next_actions`
+
+```typescript
+(args: { 
+  project_path: string;
+  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  max_results?: number; // default: 5
+}) => Promise<MCPResult>
+```
+
+Batch version of `ledger_get_next_action`. Returns all currently actionable work packages for the given agent role, up to `max_results`. Useful in projects with many independent WPs that can be processed in parallel.
 
 #### `ledger_get_handoff_status`
 
@@ -284,7 +323,7 @@ All types are inferred from Zod schemas using `z.infer<typeof Schema>`.
 ```typescript
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
-type PipelineStatus = 'READY' | 'IN_PROGRESS' | 'PASS' | 'FAIL';
+type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
 type CommentPriority = 'low' | 'medium' | 'high';
 ```
@@ -311,6 +350,13 @@ interface WorkPackageSummary {
   file: string; // Path to detail file
 }
 
+interface HandoffNote {
+  from_agent: string;
+  to_agent: string;
+  timestamp: string;
+  notes: string[];
+}
+
 interface WorkPackageDetail {
   work_package_id: string;
   work_package_file: string;
@@ -320,6 +366,8 @@ interface WorkPackageDetail {
   blocked_by?: Blocker;
   acceptance_criteria: AcceptanceCriterion[];
   revision: number;
+  rework_count?: number;  // Incremented each time a pipeline is restarted after a FAIL
+  handoff_notes?: HandoffNote[];  // Notes appended via completePipeline's handoff_notes param
   pipelines: Pipeline[];
 }
 
@@ -414,6 +462,47 @@ function now(): string;  // Returns "YYYY-MM-DD HH:MM:SS"
 function formatWpId(n: number): string;  // Returns "WP-###"
 function parseWpId(id: string): number;  // Extracts numeric part
 ```
+
+---
+
+## Internal Testing Utilities
+
+`src/tools/workflow.ts` exports a single `_internal` object for unit-test access to pure helper functions. **These are not part of the public API — do not call them from production code.**
+
+```typescript
+export const _internal: {
+  // Returns true ONLY if the most recent pipeline of pipelineType has FAIL status.
+  // A [FAIL, PASS] sequence correctly returns false — only an unrecovered FAIL
+  // (i.e., the most recent pipeline for that type is still FAIL) triggers REWORK.
+  isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean;
+
+  // Returns true if a pipeline is IN_PROGRESS and was started more than 24 hours ago.
+  isStalePipeline(pipeline: Pipeline): boolean;
+
+  // Handoff computation functions (one per agent role)
+  getDeveloperHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+  getQaHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+  getReviewerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+  getDocumentationHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+  getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+
+  STALE_PIPELINE_HOURS: number; // default 24
+
+  // Returns the handoff notes in the WP addressed to agentName, or undefined if none.
+  getHandoffNotesForAgent(wpDetail: WorkPackageDetail, agentName: string): string[] | undefined;
+};
+```
+
+**`isMostRecentPipelineFail` semantics:**
+
+| Pipeline history | Returns |
+|---|---|
+| `[]` (empty) | `false` |
+| `[FAIL]` | `true` |
+| `[PASS]` | `false` |
+| `[FAIL, PASS]` | `false` (most recent is PASS — no REWORK) |
+| `[PASS, FAIL]` | `true` (most recent is FAIL — REWORK needed) |
+| Wrong type (no match) | `false` |
 
 ---
 

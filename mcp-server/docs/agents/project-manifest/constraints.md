@@ -175,6 +175,77 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 
 ---
 
+### 13a. Pipelines Must Follow the Required Ordering
+
+**Rule:** Pipelines must be started in order: `implementation` → `qa` → `code-review` → `documentation`. Attempting to start a pipeline without the prerequisite having a `PASS` status throws a descriptive error.
+
+**Enforcement:** `ledger_start_pipeline` checks the `PIPELINE_PREREQUISITES` map before creating a pipeline.
+
+**Error message format:**
+```
+Cannot start 'qa' pipeline: requires a PASS 'implementation' pipeline first.
+Pipeline order: implementation → qa → code-review → documentation.
+```
+
+**Exception:** `implementation` has no prerequisite and can always be started (subject to other constraints).
+
+---
+
+### 13b. Pipeline Start Auto-Updates `assigned_to`
+
+**Rule:** When a pipeline starts, the work package's `assigned_to` field is automatically updated to the responsible agent according to the `PIPELINE_AGENT_MAP`:
+
+| Pipeline type | Assigned agent |
+|---|---|
+| `implementation` | `Developer` |
+| `qa` | `QA` |
+| `code-review` | `Reviewer` |
+| `documentation` | `Documentation` |
+
+**Enforcement:** `ledger_start_pipeline` applies the map atomically alongside the pipeline creation. Both WP detail and root index summary are updated.
+
+---
+
+### 13c. Rework Count Increments on Pipeline Retry
+
+**Rule:** When `ledger_start_pipeline` is called for a pipeline type that already has a previous `FAIL` pipeline, the work package's `rework_count` field is automatically incremented.
+
+**Enforcement:** `ledger_start_pipeline` checks for any previous FAIL pipeline of the same type before creating the new pipeline entry; if found, `rework_count` is incremented atomically.
+
+**Initial value:** The field is absent (`undefined`) until the first rework; it is never initialised to `0` on creation.
+
+| Previous pipelines for type | rework_count change |
+|---|---|
+| None or only PASS | No increment |
+| At least one FAIL | +1 |
+
+---
+
+### 13d. Handoff Notes Are Routed via NEXT_AGENT_MAP
+
+**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined automatically by `NEXT_AGENT_MAP`:
+
+| Pipeline type | Next agent (to_agent) |
+|---|---|
+| `implementation` | `QA` |
+| `qa` | `Reviewer` |
+| `code-review` | `Documentation` |
+| `documentation` | `Synthesis` |
+
+**Schema:**
+```typescript
+interface HandoffNote {
+  from_agent: string; // Inferred from PIPELINE_AGENT_MAP
+  to_agent: string;   // Inferred from NEXT_AGENT_MAP
+  timestamp: string;
+  notes: string[];    // The strings passed in handoff_notes
+}
+```
+
+**Consumption:** `ledger_get_next_action` and `ledger_get_next_actions` include any handoff notes addressed to the requesting agent in their response, so the next agent sees the notes immediately when they ask for their next action.
+
+---
+
 ### 14. Pipeline Comments Have No Agent Field
 
 **Rule:** Pipeline-level comments do not include an `agent` field. The agent is inferred from the pipeline type.
@@ -288,13 +359,18 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ## Counter Self-Healing
 
-### 23. Project Status Tool Auto-Corrects Counters
+### 23. Project Status Tool Auto-Corrects Counters and Project Status
 
-**Rule:** `ledger_get_project_status` recomputes `total_work_packages` and `pending_work_packages` from the `work_packages` array on every invocation.
+**Rule:** `ledger_get_project_status` recomputes `total_work_packages`, `pending_work_packages`, and the project `status` from the `work_packages` array on every invocation.
 
-**Behavior:** If counters are incorrect, they are silently corrected and the root index is rewritten.
+**Behavior:**
+- If counters are incorrect, they are silently corrected.
+- If `status === 'IN_PROGRESS'` and all WPs are complete (pending = 0, WPs exist), status is healed to `COMPLETE`.
+- If `status === 'COMPLETE'` and pending WPs exist, status is healed back to `IN_PROGRESS`.
+- An empty project (no WPs) is never auto-healed to `COMPLETE`.
+- The root index is rewritten only when a correction is made.
 
-**Rationale:** Provides fault tolerance against bugs that might cause counter drift.
+**Rationale:** Provides fault tolerance against bugs that might cause counter or status drift.
 
 ---
 
@@ -392,6 +468,40 @@ Work package summaries in the root index duplicate a subset of data from the wor
 **Reason:** Performance — agents can list work packages without loading all detail files.
 
 **Invariant:** Summaries must always match the corresponding detail files. This is enforced by `updateWorkPackageWithSync()`.
+
+---
+
+### ⚠️ Gotcha 6: REWORK Is Triggered Only by the Most Recent FAIL
+
+The REWORK recommendation in `ledger_get_next_action` is based **only on the most recent pipeline** of a given type, not any historical FAIL. A work package with pipeline history `[FAIL, PASS]` does NOT receive a REWORK recommendation — the PASS pipeline means the issue was resolved.
+
+**Why it matters:** Before this was corrected, a WP that failed and then passed (e.g., tests failed, bugs were fixed, tests re-run and passed) would permanently trigger a REWORK recommendation, even though the work was complete. Now only a WP whose most recent pipeline is still `FAIL` will trigger REWORK.
+
+**Implementation:** `isMostRecentPipelineFail(pipelines, pipelineType)` — see [Internal Testing Utilities](api-surface.md#internal-testing-utilities).
+
+---
+
+### ⚠️ Gotcha 7: Documentation Handoff Skips Dependency-Blocked WPs
+
+`getDocumentationHandoff` (and `getQaHandoff`, `getReviewerHandoff`) treat WPs blocked by incomplete dependencies as ineligible for their stage. If all unreviewed/undocumented WPs are dependency-blocked, the handoff returns `READY_FOR_SYNTHESIS` rather than routing the agent back to the Developer.
+
+**Why it matters:** Without this check, a project where the only remaining WPs are blocked by incomplete dependencies would incorrectly route the Documentation Agent back to the Developer stage, stalling the workflow.
+
+---
+
+### ⚠️ Gotcha 8: Dependency Auto-Unblocking Uses a Separate Lock
+
+When a work package transitions to `COMPLETE`, `propagateDependencyUnblock` automatically transitions eligible downstream dependents from `BLOCKED` to `READY`. This runs **after** the main lock in `updateWorkPackageStatus` is released — it acquires its own lock.
+
+**Implication:** There is a brief window between the COMPLETE write and the unblocking write during which the root index shows the WP as COMPLETE but dependents are still BLOCKED. This is safe for single-user workflows, but would be a race condition risk in a concurrent multi-agent environment.
+
+---
+
+### ⚠️ Gotcha 9: WP ID Generation Is Max-Based, Not Length-Based
+
+Work package IDs are generated by scanning the highest existing numeric suffix and adding 1. This means:
+- Deleting a WP does not cause ID collisions (unlike a length+1 approach)
+- IDs are monotonically increasing but may have gaps (e.g., WP-001, WP-003 if WP-002 was removed)
 
 ---
 

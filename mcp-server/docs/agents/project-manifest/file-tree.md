@@ -22,13 +22,15 @@ mcp-server/
 │   │   └── ledger-store.ts      # Central storage abstraction (reads, writes, dual-file sync)
 │   │
 │   ├── tools/                   # MCP tool implementations
+│   │   ├── help.ts              # ledger_help (inline documentation for all tools)
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
-│   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline
+│   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_get_project_status, ledger_initialize_project
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
-│   │   └── workflow.ts          # ledger_get_next_action, ledger_get_handoff_status
+│   │   └── workflow.ts          # ledger_get_next_action, ledger_get_next_actions, ledger_get_handoff_status
 │   │
 │   └── utils/                   # Utility functions
+│       ├── path-validator.ts    # Project path validation (absolute path checks)
 │       ├── timestamp.ts         # Timestamp formatting (YYYY-MM-DD HH:MM:SS)
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
@@ -42,7 +44,12 @@ mcp-server/
     ├── storage/                 # Storage layer tests
     │   └── ledger-store.test.ts
     │
+    ├── tools/                   # Tool-level tests
+    │   ├── pipeline.test.ts
+    │   └── workflow-handoff.test.ts
+    │
     └── utils/                   # Utility function tests
+        ├── path-validator.test.ts
         ├── timestamp.test.ts
         └── wp-id.test.ts
 ```

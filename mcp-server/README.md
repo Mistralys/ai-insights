@@ -43,7 +43,7 @@ The MCP server solves these problems by:
 
 ### Architecture
 
-The server exposes **13 MCP tools** that agents invoke to manage project state:
+The server exposes **14 MCP tools** that agents invoke to manage project state:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -204,7 +204,7 @@ cat docs/agents/plans/2026-02-11-feature-name/.ledger/WP-001.json
 
 ## Available Tools
 
-The server exposes 13 MCP tools organized by category:
+The server exposes 17 MCP tools organized by category:
 
 ### Project Lifecycle
 - `ledger_get_project_status` — Read project overview
@@ -220,14 +220,15 @@ The server exposes 13 MCP tools organized by category:
 ### Pipelines
 - `ledger_start_pipeline` — Begin implementation/QA/review/docs phase
 - `ledger_complete_pipeline` — Record results and artifacts
+- `ledger_cancel_pipeline` — Cancel a stale IN_PROGRESS pipeline (marks it FAIL)
+- `ledger_update_pipeline_progress` — Update summary of an IN_PROGRESS pipeline without completing it
 
 ### Observations
 - `ledger_add_observation` — Add comment to pipeline
 - `ledger_add_project_comment` — Add project-level comment
 
 ### Workflow Coordination
-- `ledger_get_next_action` — Ask "what should I do next?"
-- `ledger_get_handoff_status` — Compute handoff status for current agent
+- `ledger_get_next_action` — Ask “what should I do next?” (includes stale pipeline detection)- `ledger_get_next_actions` — Batch version returning all actionable WPs for an agent role- `ledger_get_handoff_status` — Compute handoff status for current agent
 
 For detailed API signatures and parameters, see the [API Surface](docs/agents/project-manifest/api-surface.md).
 

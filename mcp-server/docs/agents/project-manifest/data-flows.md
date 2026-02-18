@@ -37,7 +37,10 @@ withLock(project_path) — acquire .ledger.lock
   ↓
 LedgerStore.readRootIndex()
   ↓
-Generate next WP ID (e.g., WP-001)
+Generate next WP ID (max-based):
+  - Scan existing work_packages for highest numeric suffix
+  - Next ID = max + 1 (e.g., if highest is WP-003, next is WP-004)
+  - Empty project → WP-001
   ↓
 Validate dependencies exist
   ↓
@@ -115,9 +118,22 @@ Read WorkPackageDetail and RootIndex
 updater function:
   1. Validate WP status is IN_PROGRESS
   2. Check for duplicate in-progress pipeline of same type
-  3. Create new Pipeline object (status: IN_PROGRESS, started_at: now())
-  4. Append to WP.pipelines array
-  5. Update root.last_updated timestamp
+  3. Enforce pipeline ordering via PIPELINE_PREREQUISITES map:
+       implementation → no prerequisite
+       qa             → requires PASS implementation
+       code-review    → requires PASS qa
+       documentation  → requires PASS code-review
+     If prerequisite not met → throw descriptive error
+  4. If any existing pipeline of same type has FAIL status → increment WP.rework_count
+  5. Create new Pipeline object (status: IN_PROGRESS, started_at: now())
+  6. Append to WP.pipelines array
+  7. Update WP.assigned_to via PIPELINE_AGENT_MAP:
+       implementation → 'Developer'
+       qa             → 'QA'
+       code-review    → 'Reviewer'
+       documentation  → 'Documentation'
+  8. Update root index summary assigned_to to match
+  9. Update root.last_updated timestamp
   ↓
 Write both files atomically
 Release lock
@@ -148,7 +164,11 @@ updater function:
   3. Set completed_at timestamp
   4. Set summary, artifacts, metrics, comments
   5. Update acceptance_criteria if provided
-  6. Update root.last_updated timestamp
+  6. If handoff_notes provided:
+       fromAgent = PIPELINE_AGENT_MAP[type]
+       toAgent   = NEXT_AGENT_MAP[type]
+       Append HandoffNote { from_agent, to_agent, timestamp, notes } to WP.handoff_notes
+  7. Update root.last_updated timestamp
   ↓
 Write both files atomically
 Release lock
@@ -188,10 +208,25 @@ updater function:
 Write both files atomically
 Release lock
   ↓
+If new status is COMPLETE:
+  propagateDependencyUnblock(projectPath, completedWpId)
+  ↓
+  Acquire lock (separate lock acquisition)
+  Read root index
+  For each BLOCKED WP that lists completedWpId as a dependency:
+    Read WP detail
+    Run canStartWorkPackage() — checks ALL dependencies are COMPLETE
+    If eligible:
+      Update WP detail status BLOCKED → READY
+      Clear blocked_by field
+      Update root index summary status
+      Write both files atomically
+  Release lock
+  ↓
 Return updated WorkPackageDetail to agent
 ```
 
-**Result:** Work package status updated with all business rules enforced.
+**Result:** Work package status updated with all business rules enforced. If transitioned to COMPLETE, all eligible downstream dependents are automatically unblocked.
 
 ---
 
@@ -212,17 +247,21 @@ Load all WorkPackageDetail files (Promise.all)
   ↓
 Agent-specific logic:
   - Project Manager: Check for BLOCKED work packages
-  - Developer: Look for WPs needing implementation or with FAIL pipelines
-  - QA: Look for WPs with PASS implementation but no QA pipeline
-  - Reviewer: Look for WPs with PASS QA but no review pipeline
-  - Documentation: Look for WPs with PASS review but no docs pipeline
+  - Developer: If any IN_PROGRESS implementation pipeline is stale (>24h) → RESUME_OR_CANCEL
+               Look for WPs needing implementation, or where the MOST RECENT
+               implementation pipeline has FAIL status [FAIL,PASS] → NOT REWORK
+  - QA: Same stale check for qa pipelines, then look for WPs with PASS implementation
+  - Reviewer: Same stale check for code-review pipelines, then PASS QA
+  - Documentation: Same stale check for documentation pipelines, then PASS code-review
   - Synthesis: Wait until all complete
   ↓
 Return recommendation:
   {
-    action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | "WAIT" | ...,
+    action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | "WAIT" |
+            "RESUME_OR_CANCEL" | ...,
     work_package_id?: "WP-###",
     reason: "..."
+    // RESUME_OR_CANCEL includes: pipeline_type, started_at, age_hours
   }
 ```
 
@@ -230,7 +269,147 @@ Return recommendation:
 
 ---
 
-## Flow 8: Self-Healing Counter Correction
+## Flow 12: Workflow Coordination (Get Next Actions — Batch)
+
+**Entry Point:** Agent invokes `ledger_get_next_actions` tool
+
+```
+Agent → ledger_get_next_actions(project_path, agent_role, max_results?)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Check project state:
+  - No work packages? → Return empty array or single CREATE_WORK_PACKAGES recommendation
+  - All complete? → Return single GENERATE_SYNTHESIS (for Synthesis) or empty array
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific logic (same as Flow 7, but collects ALL matches):
+  - Project Manager: Find all BLOCKED WPs needing unblock
+  - Developer: Find all WPs needing implementation or with stale/failed implementation pipelines
+  - QA: Find all WPs with PASS implementation needing QA or with stale/failed QA pipelines
+  - Reviewer: Find all WPs with PASS QA needing review or with stale/failed review pipelines
+  - Documentation: Find all WPs with PASS review needing docs or with stale/failed docs pipelines
+  - Synthesis: Wait until all complete
+  ↓
+Collect actions up to max_results limit (default: 5)
+  ↓
+Return array of recommendations:
+  [
+    {
+      action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | ...,
+      work_package_id: "WP-###",
+      reason: "...",
+      handoff_notes?: string[]  // If addressed to this agent
+    },
+    ...
+  ]
+```
+
+**Result:** Agent receives multiple actionable recommendations, enabling parallel work on independent work packages.
+
+---
+
+## Flow 10: Pipeline Cancellation
+
+**Entry Point:** Agent invokes `ledger_cancel_pipeline` tool
+
+```
+Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(project_path)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Set pipeline status to FAIL
+  4. Set completed_at to now()
+  5. Set summary to [reason]
+  6. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Stale or abandoned pipeline is closed as FAIL, allowing a fresh pipeline to be started.
+
+---
+
+## Flow 11: Pipeline Progress Update
+
+**Entry Point:** Agent invokes `ledger_update_pipeline_progress` tool
+
+```
+Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, summary)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(project_path)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Append new summary strings to pipeline.summary array
+  4. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Pipeline summary updated with incremental progress notes without closing the pipeline.
+
+---
+
+## Flow 8: Workflow Coordination (Get Handoff Status)
+
+**Entry Point:** Agent invokes `ledger_get_handoff_status` tool
+
+```
+Agent → ledger_get_handoff_status(project_path, current_agent)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific handoff logic:
+  - Developer: If any WP needs QA → READY_FOR_QA
+               If all WPs are complete → READY_FOR_SYNTHESIS
+               Otherwise → continue or wait
+  - QA: If WPs unreviewed (no code-review PASS) →
+          Check if all such WPs are dependency-blocked
+          If yes → READY_FOR_SYNTHESIS (not READY_FOR_REVIEWER)
+          If no → READY_FOR_REVIEWER
+  - Reviewer: Same pattern as QA for documentation stage
+  - Documentation: If WPs not yet documented →
+                     Check if all such WPs are dependency-blocked
+                     If yes → READY_FOR_SYNTHESIS (not READY_FOR_DEVELOPER)
+                     If no → READY_FOR_DEVELOPER
+  - Others: Synthesize based on overall completion state
+  ↓
+Return handoff block:
+  {
+    agent: "QA" | "Reviewer" | "Documentation" | "Synthesis" | "Developer" | ...,
+    status: "READY_FOR_QA" | "READY_FOR_REVIEWER" | "READY_FOR_SYNTHESIS" | ...
+  }
+```
+
+**Key invariant:** The dependency-blocked check is applied symmetrically in the QA, Reviewer, and Documentation handoff functions. A work package is considered unblocked only when its dependencies are `COMPLETE`. WPs blocked by incomplete dependencies are excluded from the "work remaining" count — they do not prevent progression to the next stage.
+
+**Result:** Agent receives the `AGENT: <next> / STATUS: <status>` handoff block.
+
+---
+
+## Flow 9: Self-Healing Counter and Status Correction
 
 **Entry Point:** Agent invokes `ledger_get_project_status` tool
 
@@ -247,12 +426,18 @@ If counters are incorrect:
   ↓
   Update root index counters
   Set last_updated timestamp
-  LedgerStore.writeRootIndex(correctedRoot)
+  ↓
+Auto-heal project status:
+  - If status === 'IN_PROGRESS' and pending === 0 and WPs exist → set status to COMPLETE
+  - If status === 'COMPLETE' and pending > 0 → set status back to IN_PROGRESS
+  - Empty project (no WPs) is never marked COMPLETE
+  ↓
+LedgerStore.writeRootIndex(correctedRoot) [if any correction was made]
   ↓
 Return corrected RootIndex to agent
 ```
 
-**Result:** Root index counters are automatically corrected if they drift out of sync.
+**Result:** Root index counters and project status are automatically corrected if they drift out of sync.
 
 ---
 
