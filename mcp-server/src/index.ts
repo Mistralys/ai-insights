@@ -52,6 +52,9 @@ async function main(): Promise<void> {
   // Log startup to stderr (never stdout - that's for MCP protocol)
   console.error(`[project-ledger-mcp] Server v${VERSION} started successfully`);
   console.error('[project-ledger-mcp] Transport: STDIO');
+  // NOTE: This list must be kept in sync manually when tools are added or
+  // removed in src/tools/**. The MCP SDK does not expose a listTools() method
+  // at startup, so dynamic generation is not currently possible.
   console.error(
     '[project-ledger-mcp] Registered tools: ledger_help, ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_next_actions, ledger_get_handoff_status'
   );

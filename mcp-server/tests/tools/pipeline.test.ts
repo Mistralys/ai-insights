@@ -6,6 +6,7 @@ import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
+import { _internal } from '../../src/tools/pipeline.js';
 
 /**
  * Unit tests for pipeline ordering and assigned_to updates.
@@ -15,20 +16,7 @@ import type { WorkPackageDetail } from '../../src/schema/work-package.js';
  * the new pipeline ordering and assigned_to update behaviors.
  */
 
-/** Inline the same ordering / agent maps from pipeline.ts for test assertions */
-const PIPELINE_PREREQUISITES: Record<string, string | null> = {
-  'implementation': null,
-  'qa': 'implementation',
-  'code-review': 'qa',
-  'documentation': 'code-review',
-};
-
-const PIPELINE_AGENT_MAP: Record<string, string> = {
-  'implementation': 'Developer',
-  'qa': 'QA',
-  'code-review': 'Reviewer',
-  'documentation': 'Documentation',
-};
+const { PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP } = _internal;
 
 describe('Pipeline ordering enforcement', () => {
   let tempDir: string;

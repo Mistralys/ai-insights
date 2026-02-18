@@ -4,39 +4,19 @@ import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline, HandoffNote } from '../schema/work-package.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+import {
+  PIPELINE_PREREQUISITES,
+  PIPELINE_AGENT_MAP,
+  NEXT_AGENT_MAP,
+} from '../utils/pipeline-maps.js';
 
 /**
- * Enforced pipeline execution order.
- * A pipeline type may only start when the prerequisite type has a PASS pipeline.
- * null means no prerequisite (can always start).
+ * @internal — exported for unit testing only
  */
-const PIPELINE_PREREQUISITES: Record<string, string | null> = {
-  'implementation': null,
-  'qa': 'implementation',
-  'code-review': 'qa',
-  'documentation': 'code-review',
-};
-
-/**
- * Map of pipeline type to the agent role that owns it.
- * Used to automatically update assigned_to when a pipeline starts.
- */
-const PIPELINE_AGENT_MAP: Record<string, string> = {
-  'implementation': 'Developer',
-  'qa': 'QA',
-  'code-review': 'Reviewer',
-  'documentation': 'Documentation',
-};
-
-/**
- * Map of pipeline type to the next agent in the pipeline chain.
- * Used to route handoff notes to the correct recipient agent.
- */
-const NEXT_AGENT_MAP: Record<string, string> = {
-  'implementation': 'QA',
-  'qa': 'Reviewer',
-  'code-review': 'Documentation',
-  'documentation': 'Synthesis',
+export const _internal = {
+  PIPELINE_PREREQUISITES,
+  PIPELINE_AGENT_MAP,
+  NEXT_AGENT_MAP,
 };
 
 /**
@@ -222,18 +202,15 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
       // 1. Find most recent IN_PROGRESS pipeline of given type
-      const pipelineIndex = wp.pipelines
-        .map((p, idx) => ({ pipeline: p, index: idx }))
-        .reverse()
-        .find((p) => p.pipeline.type === args.type && p.pipeline.status === 'IN_PROGRESS');
+      const pipeline = wp.pipelines
+        .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
+        .at(-1);
 
-      if (!pipelineIndex) {
+      if (!pipeline) {
         throw new Error(
           `Cannot complete pipeline: no IN_PROGRESS pipeline of type "${args.type}" found for work package ${args.work_package_id}.`
         );
       }
-
-      const pipeline = pipelineIndex.pipeline;
 
       // 2. Update pipeline status and completion fields
       pipeline.status = args.status;
@@ -336,9 +313,9 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
       // Find the most recent IN_PROGRESS pipeline of the requested type
-      const pipeline = [...wp.pipelines]
-        .reverse()
-        .find((p) => p.type === args.type && p.status === 'IN_PROGRESS');
+      const pipeline = wp.pipelines
+        .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
+        .at(-1);
 
       if (!pipeline) {
         throw new Error(
@@ -401,9 +378,9 @@ async function updatePipelineProgress(args: z.infer<typeof UpdatePipelineProgres
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
       // Find the most recent IN_PROGRESS pipeline of the given type
-      const pipeline = [...wp.pipelines]
-        .reverse()
-        .find((p) => p.type === args.type && p.status === 'IN_PROGRESS');
+      const pipeline = wp.pipelines
+        .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
+        .at(-1);
 
       if (!pipeline) {
         throw new Error(

@@ -17,6 +17,8 @@ const {
   isStalePipeline,
   STALE_PIPELINE_HOURS,
   getHandoffNotesForAgent,
+  PIPELINE_AGENT_MAP,
+  NEXT_AGENT_MAP,
 } = _internal;
 
 /** Helper to parse the JSON from a handoff result */
@@ -421,19 +423,6 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  /** Maps matching completePipeline handoff note logic */
-  const PIPELINE_AGENT_MAP_LOCAL: Record<string, string> = {
-    'implementation': 'Developer',
-    'qa': 'QA',
-    'code-review': 'Reviewer',
-    'documentation': 'Documentation',
-  };
-  const NEXT_AGENT_MAP_LOCAL: Record<string, string> = {
-    'implementation': 'QA',
-    'qa': 'Reviewer',
-    'code-review': 'Documentation',
-    'documentation': 'Synthesis',
-  };
 
   async function simulateCompletePipelineWithHandoff(
     pipelineType: string,
@@ -451,8 +440,8 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
       if (handoffNotes.length > 0) {
         if (!wp.handoff_notes) wp.handoff_notes = [];
         wp.handoff_notes.push({
-          from_agent: PIPELINE_AGENT_MAP_LOCAL[pipelineType] ?? pipelineType,
-          to_agent: NEXT_AGENT_MAP_LOCAL[pipelineType] ?? 'Unknown',
+          from_agent: PIPELINE_AGENT_MAP[pipelineType] ?? pipelineType,
+          to_agent: NEXT_AGENT_MAP[pipelineType] ?? 'Unknown',
           timestamp: now(),
           notes: handoffNotes,
         });
@@ -528,10 +517,10 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
   });
 
   it('NEXT_AGENT_MAP maps all pipeline types correctly', () => {
-    expect(NEXT_AGENT_MAP_LOCAL['implementation']).toBe('QA');
-    expect(NEXT_AGENT_MAP_LOCAL['qa']).toBe('Reviewer');
-    expect(NEXT_AGENT_MAP_LOCAL['code-review']).toBe('Documentation');
-    expect(NEXT_AGENT_MAP_LOCAL['documentation']).toBe('Synthesis');
+    expect(NEXT_AGENT_MAP['implementation']).toBe('QA');
+    expect(NEXT_AGENT_MAP['qa']).toBe('Reviewer');
+    expect(NEXT_AGENT_MAP['code-review']).toBe('Documentation');
+    expect(NEXT_AGENT_MAP['documentation']).toBe('Synthesis');
   });
 });
 

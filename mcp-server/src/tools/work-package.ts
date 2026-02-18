@@ -158,7 +158,7 @@ async function createWorkPackage(
         parseInt(wp.work_package_id.replace('WP-', ''), 10)
       );
       const nextWpNumber =
-        existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+        existingNumbers.length > 0 ? existingNumbers.reduce((max, n) => Math.max(max, n), 0) + 1 : 1;
       const wpId = formatWpId(nextWpNumber);
       createdWpId = wpId;
 
@@ -467,7 +467,16 @@ async function updateWorkPackageStatus(
       return { wp, root };
     });
 
-    // If the WP was transitioned to COMPLETE, propagate unblocking to dependent WPs
+    // If the WP was transitioned to COMPLETE, propagate unblocking to dependent WPs.
+    //
+    // DESIGN NOTE: propagateDependencyUnblock acquires its own lock separately
+    // from the updateWorkPackageWithSync lock above. This is intentional:
+    // - The first lock (updateWorkPackageWithSync) covers the WP status transition
+    // - The second lock (inside propagateDependencyUnblock) covers the cascade unblock
+    // - Keeping them as two sequential locks avoids holding a lock during the
+    //   potentially slow cascade read of multiple WP detail files
+    // - The gap between locks is safe because propagateDependencyUnblock is
+    //   idempotent: re-running it on an already-unblocked WP is a no-op
     if (args.status === 'COMPLETE') {
       await propagateDependencyUnblock(args.project_path, args.work_package_id);
     }
