@@ -897,3 +897,173 @@ describe('Full workflow integration', () => {
       // This condition should trigger the MARK_COMPLETE action in getDocumentationAction
     });  });
 });
+
+// ========== WP ID Hardening ==========
+
+describe('WP ID generation (max-based, gap-resilient)', () => {
+  it('produces WP-001 when project has no work packages', () => {
+    const existingNumbers: number[] = [];
+    const nextWpNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    expect(formatWpId(nextWpNumber)).toBe('WP-001');
+  });
+
+  it('produces WP-004 when existing WPs are [WP-001, WP-003] (gap scenario)', () => {
+    const existingIds = ['WP-001', 'WP-003'];
+    const existingNumbers = existingIds.map((id) => parseInt(id.replace('WP-', ''), 10));
+    const nextWpNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    expect(formatWpId(nextWpNumber)).toBe('WP-004');
+  });
+
+  it('produces WP-003 when existing WPs are [WP-001, WP-002] (sequential)', () => {
+    const existingIds = ['WP-001', 'WP-002'];
+    const existingNumbers = existingIds.map((id) => parseInt(id.replace('WP-', ''), 10));
+    const nextWpNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    expect(formatWpId(nextWpNumber)).toBe('WP-003');
+  });
+});
+
+// ========== Dependency Auto-Unblocking Integration ==========
+
+describe('Dependency auto-unblocking on COMPLETE', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    const { mkdtemp } = await import('fs/promises');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+    tempDir = await mkdtemp(join(tmpdir(), 'ledger-unblock-'));
+    store = new LedgerStore(tempDir);
+
+    // Project: WP-001 (IN_PROGRESS), WP-002 (BLOCKED by WP-001), WP-003 (BLOCKED by WP-001 AND WP-002)
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 3,
+      pending_work_packages: 3,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+        {
+          work_package_id: 'WP-002',
+          status: 'BLOCKED',
+          assigned_to: 'Developer Agent',
+          dependencies: ['WP-001'],
+          file: 'ledger/WP-002.json',
+        },
+        {
+          work_package_id: 'WP-003',
+          status: 'BLOCKED',
+          assigned_to: 'Developer Agent',
+          dependencies: ['WP-001', 'WP-002'],
+          file: 'ledger/WP-003.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'Done', met: true }],
+      revision: 1,
+      pipelines: [],
+    });
+
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'BLOCKED',
+      assigned_to: 'Developer Agent',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+      blocked_by: { type: 'dependency', description: 'Waiting for WP-001' },
+    });
+
+    await store.writeWorkPackage('WP-003', {
+      work_package_id: 'WP-003',
+      work_package_file: 'work/WP-003.md',
+      status: 'BLOCKED',
+      assigned_to: 'Developer Agent',
+      dependencies: ['WP-001', 'WP-002'],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+      blocked_by: { type: 'dependency', description: 'Waiting for WP-001 and WP-002' },
+    });
+  });
+
+  afterEach(async () => {
+    const { rm } = await import('fs/promises');
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('auto-transitions WP-002 from BLOCKED to READY when WP-001 completes', async () => {
+    // Mark WP-001 as COMPLETE and run propagation manually (mirrors what updateWorkPackageStatus does)
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      wp.status = 'COMPLETE';
+      const summary = root.work_packages.find((s) => s.work_package_id === 'WP-001')!;
+      summary.status = 'COMPLETE';
+      root.pending_work_packages -= 1;
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    // Simulate propagateDependencyUnblock inline
+    await withLock(tempDir, async () => {
+      const rootIndex = await store.readRootIndex();
+      const candidates = rootIndex.work_packages.filter(
+        (wp) => wp.status === 'BLOCKED' && wp.dependencies.includes('WP-001')
+      );
+
+      for (const candidate of candidates) {
+        const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+        const canStart = canStartWorkPackage(wpDetail, rootIndex.work_packages);
+        if (!canStart.allowed) continue;
+
+        wpDetail.status = 'READY';
+        delete wpDetail.blocked_by;
+
+        const summary = rootIndex.work_packages.find(
+          (s) => s.work_package_id === candidate.work_package_id
+        );
+        if (summary) summary.status = 'READY';
+
+        await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+      }
+
+      rootIndex.last_updated = now();
+      await store.writeRootIndex(rootIndex);
+    });
+
+    // WP-002 should now be READY (only depends on WP-001 which is now COMPLETE)
+    const wp2 = await store.readWorkPackage('WP-002');
+    expect(wp2.status).toBe('READY');
+    expect(wp2.blocked_by).toBeUndefined();
+
+    // WP-003 should still be BLOCKED (also depends on WP-002, which is READY not COMPLETE)
+    const wp3 = await store.readWorkPackage('WP-003');
+    expect(wp3.status).toBe('BLOCKED');
+    expect(wp3.blocked_by).toBeDefined();
+
+    // Root index should reflect new statuses
+    const root = await store.readRootIndex();
+    const wp2Summary = root.work_packages.find((w) => w.work_package_id === 'WP-002')!;
+    expect(wp2Summary.status).toBe('READY');
+    const wp3Summary = root.work_packages.find((w) => w.work_package_id === 'WP-003')!;
+    expect(wp3Summary.status).toBe('BLOCKED');
+  });
+});

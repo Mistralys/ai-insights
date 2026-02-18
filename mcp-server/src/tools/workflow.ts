@@ -31,6 +31,22 @@ const PIPELINE_TYPE_MAP: Record<string, string> = {
 };
 
 /**
+ * Number of hours after which an IN_PROGRESS pipeline is considered stale.
+ */
+const STALE_PIPELINE_HOURS = 24;
+
+/**
+ * Helper: Returns true if the pipeline is IN_PROGRESS and was started more than
+ * STALE_PIPELINE_HOURS hours ago.
+ */
+function isStalePipeline(pipeline: Pipeline): boolean {
+  if (pipeline.status !== 'IN_PROGRESS' || !pipeline.started_at) return false;
+  const startedAt = new Date(pipeline.started_at).getTime();
+  const ageHours = (Date.now() - startedAt) / (1000 * 60 * 60);
+  return ageHours > STALE_PIPELINE_HOURS;
+}
+
+/**
  * Tool: get_next_action
  *
  * Reads root index and WP detail files to recommend the next action for an agent.
@@ -277,6 +293,38 @@ async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
 
+  // Check for stale IN_PROGRESS implementation pipelines (>24h)
+  for (const wpDetail of wpDetails) {
+    const stalePipeline = wpDetail.pipelines.find(
+      (p) => p.type === 'implementation' && isStalePipeline(p)
+    );
+    if (stalePipeline) {
+      const startedAt = stalePipeline.started_at ?? 'unknown';
+      const ageHours = stalePipeline.started_at
+        ? Math.floor((Date.now() - new Date(stalePipeline.started_at).getTime()) / (1000 * 60 * 60))
+        : -1;
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                action: 'RESUME_OR_CANCEL',
+                work_package_id: wpDetail.work_package_id,
+                pipeline_type: 'implementation',
+                started_at: startedAt,
+                age_hours: ageHours,
+                reason: `Work package ${wpDetail.work_package_id} has a stale 'implementation' pipeline that has been IN_PROGRESS for ~${ageHours} hours. Resume or cancel it using ledger_cancel_pipeline.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  }
+
   // Look for READY or IN_PROGRESS WPs with no implementation pipeline
   for (const wpDetail of wpDetails) {
     if (
@@ -288,6 +336,7 @@ async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
       );
 
       if (!hasImplPipeline) {
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
         return {
           content: [
             {
@@ -297,6 +346,7 @@ async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
                   action: 'IMPLEMENT',
                   work_package_id: wpDetail.work_package_id,
                   reason: `Work package ${wpDetail.work_package_id} is ${wpDetail.status} with no implementation pipeline. Claim and implement.`,
+                  ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
                 },
                 null,
                 2
@@ -308,14 +358,9 @@ async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
     }
   }
 
-  // Look for FAIL implementation pipelines needing rework
+  // Look for FAIL implementation pipelines needing rework (only check the most recent pipeline)
   for (const wpDetail of wpDetails) {
-    const failedImplPipeline = wpDetail.pipelines
-      .filter((p) => p.type === 'implementation')
-      .reverse()
-      .find((p) => p.status === 'FAIL');
-
-    if (failedImplPipeline) {
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'implementation')) {
       return {
         content: [
           {
@@ -362,23 +407,28 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
 
-  // Look for WPs with PASS implementation pipeline but no QA pipeline
+  // Check for stale IN_PROGRESS qa pipelines (>24h)
   for (const wpDetail of wpDetails) {
-    const hasPassImplPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'implementation' && p.status === 'PASS'
+    const stalePipeline = wpDetail.pipelines.find(
+      (p) => p.type === 'qa' && isStalePipeline(p)
     );
-    const hasQaPipeline = wpDetail.pipelines.some((p) => p.type === 'qa');
-
-    if (hasPassImplPipeline && !hasQaPipeline) {
+    if (stalePipeline) {
+      const startedAt = stalePipeline.started_at ?? 'unknown';
+      const ageHours = stalePipeline.started_at
+        ? Math.floor((Date.now() - new Date(stalePipeline.started_at).getTime()) / (1000 * 60 * 60))
+        : -1;
       return {
         content: [
           {
             type: 'text' as const,
             text: JSON.stringify(
               {
-                action: 'RUN_QA',
+                action: 'RESUME_OR_CANCEL',
                 work_package_id: wpDetail.work_package_id,
-                reason: `Work package ${wpDetail.work_package_id} has PASS implementation pipeline but no QA pipeline. Run QA.`,
+                pipeline_type: 'qa',
+                started_at: startedAt,
+                age_hours: ageHours,
+                reason: `Work package ${wpDetail.work_package_id} has a stale 'qa' pipeline that has been IN_PROGRESS for ~${ageHours} hours. Resume or cancel it using ledger_cancel_pipeline.`,
               },
               null,
               2
@@ -389,14 +439,38 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
     }
   }
 
-  // Look for FAIL QA pipelines needing rework
+  // Look for WPs with PASS implementation pipeline but no QA pipeline
   for (const wpDetail of wpDetails) {
-    const failedQaPipeline = wpDetail.pipelines
-      .filter((p) => p.type === 'qa')
-      .reverse()
-      .find((p) => p.status === 'FAIL');
+    const hasPassImplPipeline = wpDetail.pipelines.some(
+      (p) => p.type === 'implementation' && p.status === 'PASS'
+    );
+    const hasQaPipeline = wpDetail.pipelines.some((p) => p.type === 'qa');
 
-    if (failedQaPipeline) {
+    if (hasPassImplPipeline && !hasQaPipeline) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                action: 'RUN_QA',
+                work_package_id: wpDetail.work_package_id,
+                reason: `Work package ${wpDetail.work_package_id} has PASS implementation pipeline but no QA pipeline. Run QA.`,
+                ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  }
+
+  // Look for FAIL QA pipelines needing rework (only check the most recent pipeline)
+  for (const wpDetail of wpDetails) {
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'qa')) {
       return {
         content: [
           {
@@ -443,25 +517,28 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
 
-  // Look for WPs with PASS QA pipeline but no code-review pipeline
+  // Check for stale IN_PROGRESS code-review pipelines (>24h)
   for (const wpDetail of wpDetails) {
-    const hasPassQaPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'qa' && p.status === 'PASS'
+    const stalePipeline = wpDetail.pipelines.find(
+      (p) => p.type === 'code-review' && isStalePipeline(p)
     );
-    const hasReviewPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'code-review'
-    );
-
-    if (hasPassQaPipeline && !hasReviewPipeline) {
+    if (stalePipeline) {
+      const startedAt = stalePipeline.started_at ?? 'unknown';
+      const ageHours = stalePipeline.started_at
+        ? Math.floor((Date.now() - new Date(stalePipeline.started_at).getTime()) / (1000 * 60 * 60))
+        : -1;
       return {
         content: [
           {
             type: 'text' as const,
             text: JSON.stringify(
               {
-                action: 'RUN_REVIEW',
+                action: 'RESUME_OR_CANCEL',
                 work_package_id: wpDetail.work_package_id,
-                reason: `Work package ${wpDetail.work_package_id} has PASS QA pipeline but no code-review pipeline. Run review.`,
+                pipeline_type: 'code-review',
+                started_at: startedAt,
+                age_hours: ageHours,
+                reason: `Work package ${wpDetail.work_package_id} has a stale 'code-review' pipeline that has been IN_PROGRESS for ~${ageHours} hours. Resume or cancel it using ledger_cancel_pipeline.`,
               },
               null,
               2
@@ -472,14 +549,40 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
     }
   }
 
-  // Look for FAIL code-review pipelines needing rework
+  // Look for WPs with PASS QA pipeline but no code-review pipeline
   for (const wpDetail of wpDetails) {
-    const failedReviewPipeline = wpDetail.pipelines
-      .filter((p) => p.type === 'code-review')
-      .reverse()
-      .find((p) => p.status === 'FAIL');
+    const hasPassQaPipeline = wpDetail.pipelines.some(
+      (p) => p.type === 'qa' && p.status === 'PASS'
+    );
+    const hasReviewPipeline = wpDetail.pipelines.some(
+      (p) => p.type === 'code-review'
+    );
 
-    if (failedReviewPipeline) {
+    if (hasPassQaPipeline && !hasReviewPipeline) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                action: 'RUN_REVIEW',
+                work_package_id: wpDetail.work_package_id,
+                reason: `Work package ${wpDetail.work_package_id} has PASS QA pipeline but no code-review pipeline. Run review.`,
+                ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  }
+
+  // Look for FAIL code-review pipelines needing rework (only check the most recent pipeline)
+  for (const wpDetail of wpDetails) {
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'code-review')) {
       return {
         content: [
           {
@@ -528,6 +631,38 @@ async function getDocumentationAction(
   const wpDetails = await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
+
+  // Check for stale IN_PROGRESS documentation pipelines (>24h)
+  for (const wpDetail of wpDetails) {
+    const stalePipeline = wpDetail.pipelines.find(
+      (p) => p.type === 'documentation' && isStalePipeline(p)
+    );
+    if (stalePipeline) {
+      const startedAt = stalePipeline.started_at ?? 'unknown';
+      const ageHours = stalePipeline.started_at
+        ? Math.floor((Date.now() - new Date(stalePipeline.started_at).getTime()) / (1000 * 60 * 60))
+        : -1;
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                action: 'RESUME_OR_CANCEL',
+                work_package_id: wpDetail.work_package_id,
+                pipeline_type: 'documentation',
+                started_at: startedAt,
+                age_hours: ageHours,
+                reason: `Work package ${wpDetail.work_package_id} has a stale 'documentation' pipeline that has been IN_PROGRESS for ~${ageHours} hours. Resume or cancel it using ledger_cancel_pipeline.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  }
 
   // First, check for WPs with PASS pipelines but still IN_PROGRESS status
   // This catches cases where Documentation agent completed pipeline but forgot to mark WP as COMPLETE
@@ -578,6 +713,7 @@ async function getDocumentationAction(
     );
 
     if (hasPassReviewPipeline && !hasDocsPipeline) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Documentation');
       return {
         content: [
           {
@@ -587,6 +723,7 @@ async function getDocumentationAction(
                 action: 'WRITE_DOCS',
                 work_package_id: wpDetail.work_package_id,
                 reason: `Work package ${wpDetail.work_package_id} has PASS code-review pipeline but no documentation pipeline. Write docs.`,
+                ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
               },
               null,
               2
@@ -597,14 +734,9 @@ async function getDocumentationAction(
     }
   }
 
-  // Look for FAIL documentation pipelines needing rework
+  // Look for FAIL documentation pipelines needing rework (only check the most recent pipeline)
   for (const wpDetail of wpDetails) {
-    const failedDocsPipeline = wpDetail.pipelines
-      .filter((p) => p.type === 'documentation')
-      .reverse()
-      .find((p) => p.status === 'FAIL');
-
-    if (failedDocsPipeline) {
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'documentation')) {
       return {
         content: [
           {
@@ -640,6 +772,31 @@ async function getDocumentationAction(
       },
     ],
   };
+}
+
+/**
+ * Helper: Returns handoff notes on the given WP addressed to agentName, or undefined.
+ */
+function getHandoffNotesForAgent(
+  wpDetail: WorkPackageDetail,
+  agentName: string
+): string[] | undefined {
+  if (!wpDetail.handoff_notes || wpDetail.handoff_notes.length === 0) {
+    return undefined;
+  }
+  const relevant = wpDetail.handoff_notes.filter((n) => n.to_agent === agentName);
+  if (relevant.length === 0) return undefined;
+  // Flatten all notes from matching entries into a single array
+  return relevant.flatMap((n) => n.notes);
+}
+
+/**
+ * Helper: Returns true only if the most recent pipeline of the given type has FAIL status.
+ * A [FAIL, PASS] sequence correctly returns false — only historical FAILs preceding a PASS are ignored.
+ */
+function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean {
+  const mostRecent = pipelines.filter((p) => p.type === pipelineType).at(-1);
+  return mostRecent?.status === 'FAIL';
 }
 
 /**
@@ -1341,6 +1498,34 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
   if (allDocsPassed && wpsWithReview.length > 0) {
     // If there are still WPs that haven't been reviewed, earlier stages need to catch up
     if (wpsNotYetReviewed.length > 0) {
+      // Check if these WPs are actually blocked by dependencies (not genuinely waiting)
+      const readyWps = wpsNotYetReviewed.filter(
+        (wp) => !isBlockedByDependencies(wp, wpDetails)
+      );
+      const blockedWps = wpsNotYetReviewed.filter((wp) =>
+        isBlockedByDependencies(wp, wpDetails)
+      );
+
+      // If all unreviewed WPs are blocked by dependencies, proceed to Synthesis
+      if (readyWps.length === 0 && blockedWps.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  agent: 'Documentation',
+                  status: 'READY_FOR_SYNTHESIS',
+                  details: `Documentation passed for ${wpsWithReview.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+
       return {
         content: [
           {
@@ -1414,6 +1599,34 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
 
   // All documented WPs are done but some haven't reached review yet
   if (wpsNotYetReviewed.length > 0) {
+    // Check if these WPs are actually blocked by dependencies (not genuinely waiting)
+    const readyWps = wpsNotYetReviewed.filter(
+      (wp) => !isBlockedByDependencies(wp, wpDetails)
+    );
+    const blockedWps = wpsNotYetReviewed.filter((wp) =>
+      isBlockedByDependencies(wp, wpDetails)
+    );
+
+    // If all unreviewed WPs are blocked by dependencies, proceed to Synthesis
+    if (readyWps.length === 0 && blockedWps.length > 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                agent: 'Documentation',
+                status: 'READY_FOR_SYNTHESIS',
+                details: `Documentation complete for all reviewed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
     return {
       content: [
         {
@@ -1451,6 +1664,209 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
 }
 
 /**
+ * Tool: get_next_actions (plural / batch)
+ *
+ * Returns ALL actionable work packages for an agent's role instead of just the first one.
+ * Useful for projects with many independent WPs where an agent can process several in parallel.
+ * The existing ledger_get_next_action (singular) remains unchanged.
+ */
+const GetNextActionsSchema = z.object({
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  agent_role: z
+    .string()
+    .describe(
+      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
+    ),
+  max_results: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Maximum number of actionable WPs to return (default: 5)'),
+});
+
+async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
+  const store = new LedgerStore(args.project_path);
+  const limit = args.max_results ?? 5;
+
+  try {
+    if (!AGENT_ROLES.includes(args.agent_role as AgentRole)) {
+      throw new Error(
+        `Unknown agent role: ${args.agent_role}. Valid roles are: ${AGENT_ROLES.join(', ')}`
+      );
+    }
+
+    const rootIndex = await store.readRootIndex();
+
+    if (rootIndex.work_packages.length === 0) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ actions: [], reason: 'No work packages exist yet.' }, null, 2),
+          },
+        ],
+      };
+    }
+
+    const allComplete = rootIndex.work_packages.every((wp) => wp.status === 'COMPLETE');
+    if (allComplete) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ actions: [], reason: 'All work packages are COMPLETE.' }, null, 2),
+          },
+        ],
+      };
+    }
+
+    const wpDetails = await Promise.all(
+      rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
+    );
+
+    const actions: object[] = [];
+
+    const pipelineType = PIPELINE_TYPE_MAP[args.agent_role];
+    if (!pipelineType) {
+      // Planner, Synthesis, Project Manager — batch not meaningful, fall through with empty
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              { actions: [], reason: `Batch actions not applicable for role: ${args.agent_role}` },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    // Prerequisite type for this agent's pipeline
+    const prerequisiteMap: Record<string, string | null> = {
+      'implementation': null,
+      'qa': 'implementation',
+      'code-review': 'qa',
+      'documentation': 'code-review',
+    };
+    const prerequisite = prerequisiteMap[pipelineType];
+
+    for (const wpDetail of wpDetails) {
+      if (actions.length >= limit) break;
+
+      // Skip stale pipelines (RESUME_OR_CANCEL handling remains the same)
+      const stale = wpDetail.pipelines.find((p) => p.type === pipelineType && isStalePipeline(p));
+      if (stale) {
+        const ageHours = stale.started_at
+          ? Math.floor((Date.now() - new Date(stale.started_at).getTime()) / (1000 * 60 * 60))
+          : -1;
+        actions.push({
+          action: 'RESUME_OR_CANCEL',
+          work_package_id: wpDetail.work_package_id,
+          pipeline_type: pipelineType,
+          started_at: stale.started_at ?? 'unknown',
+          age_hours: ageHours,
+          reason: `Work package ${wpDetail.work_package_id} has a stale '${pipelineType}' pipeline (~${ageHours}h). Resume or cancel.`,
+        });
+        continue;
+      }
+
+      // For implementation: look for READY/IN_PROGRESS WPs with no implementation pipeline yet
+      if (pipelineType === 'implementation') {
+        if (
+          (wpDetail.status === 'READY' || wpDetail.status === 'IN_PROGRESS') &&
+          !hasDependencyBlocked(wpDetail, rootIndex) &&
+          !wpDetail.pipelines.some((p) => p.type === 'implementation')
+        ) {
+          const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
+          actions.push({
+            action: 'IMPLEMENT',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} is ${wpDetail.status} with no implementation pipeline.`,
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          });
+          continue;
+        }
+        // Rework
+        if (isMostRecentPipelineFail(wpDetail.pipelines, 'implementation')) {
+          actions.push({
+            action: 'REWORK',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has a FAIL implementation pipeline.`,
+          });
+        }
+        continue;
+      }
+
+      // For qa / code-review / documentation: check prerequisite PASS and no own pipeline yet
+      const agentNameMap: Record<string, string> = {
+        'qa': 'QA',
+        'code-review': 'Reviewer',
+        'documentation': 'Documentation',
+      };
+      const actionNameMap: Record<string, string> = {
+        'qa': 'RUN_QA',
+        'code-review': 'RUN_REVIEW',
+        'documentation': 'WRITE_DOCS',
+      };
+      const reworkActionMap: Record<string, string> = {
+        'qa': 'REWORK_QA',
+        'code-review': 'REWORK_REVIEW',
+        'documentation': 'REWORK_DOCS',
+      };
+
+      const hasPassPrerequisite =
+        prerequisite === null ||
+        wpDetail.pipelines.some((p) => p.type === prerequisite && p.status === 'PASS');
+      const hasPipelineAlready = wpDetail.pipelines.some((p) => p.type === pipelineType);
+
+      if (hasPassPrerequisite && !hasPipelineAlready) {
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, agentNameMap[pipelineType]);
+        actions.push({
+          action: actionNameMap[pipelineType],
+          work_package_id: wpDetail.work_package_id,
+          reason: `Work package ${wpDetail.work_package_id} is ready for ${pipelineType}.`,
+          ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+        });
+        continue;
+      }
+
+      if (isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) {
+        actions.push({
+          action: reworkActionMap[pipelineType],
+          work_package_id: wpDetail.work_package_id,
+          reason: `Work package ${wpDetail.work_package_id} has a FAIL ${pipelineType} pipeline.`,
+        });
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ actions, total: actions.length }, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
  * @internal — exported for unit testing only
  */
 export const _internal = {
@@ -1459,6 +1875,10 @@ export const _internal = {
   getDocumentationHandoff,
   getDeveloperHandoff,
   getProjectManagerHandoff,
+  isMostRecentPipelineFail,
+  isStalePipeline,
+  STALE_PIPELINE_HOURS,
+  getHandoffNotesForAgent,
 };
 
 /**
@@ -1481,5 +1901,14 @@ export function register(server: McpServer): void {
       inputSchema: GetHandoffStatusSchema.passthrough(),
     },
     getHandoffStatus as any
+  );
+
+  server.registerTool(
+    'ledger_get_next_actions',
+    {
+      description: 'Get all actionable work packages for your agent role (batch version of ledger_get_next_action). REQUIRED params: project_path, agent_role. OPTIONAL: max_results (default: 5). Returns an array of action recommendations. The singular ledger_get_next_action remains unchanged.',
+      inputSchema: GetNextActionsSchema.passthrough(),
+    },
+    getNextActions as any
   );
 }

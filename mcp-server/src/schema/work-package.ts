@@ -86,6 +86,17 @@ export const PipelineSchema = z.object({
 export type Pipeline = z.infer<typeof PipelineSchema>;
 
 /**
+ * Handoff note schema (optional, appended when completing a pipeline with handoff_notes)
+ */
+export const HandoffNoteSchema = z.object({
+  from_agent: z.string(),
+  to_agent: z.string(),
+  timestamp: z.string(),
+  notes: z.array(z.string()),
+});
+export type HandoffNote = z.infer<typeof HandoffNoteSchema>;
+
+/**
  * Work Package Detail schema (.ledger/WP-###.json)
  */
 export const WorkPackageDetailSchema = z.object({
@@ -98,5 +109,7 @@ export const WorkPackageDetailSchema = z.object({
   acceptance_criteria: z.array(AcceptanceCriterionSchema),
   revision: z.number().int().positive(),
   pipelines: z.array(PipelineSchema),
+  rework_count: z.number().int().nonnegative().optional(),
+  handoff_notes: z.array(HandoffNoteSchema).optional(),
 });
 export type WorkPackageDetail = z.infer<typeof WorkPackageDetailSchema>;

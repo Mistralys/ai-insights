@@ -35,13 +35,29 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
       (wp) => wp.status !== 'COMPLETE'
     ).length;
 
-    // If counts are incorrect, update them
+    // Self-healing: auto-transition project status based on pending count
+    let healedStatus = rootIndex.status;
+    if (
+      rootIndex.status === 'IN_PROGRESS' &&
+      pendingWps === 0 &&
+      totalWps > 0
+    ) {
+      // All work packages are done — project should be COMPLETE
+      healedStatus = 'COMPLETE';
+    } else if (rootIndex.status === 'COMPLETE' && pendingWps > 0) {
+      // Work was reopened — project should be back to IN_PROGRESS
+      healedStatus = 'IN_PROGRESS';
+    }
+
+    // If counts or status are incorrect, update them
     if (
       rootIndex.total_work_packages !== totalWps ||
-      rootIndex.pending_work_packages !== pendingWps
+      rootIndex.pending_work_packages !== pendingWps ||
+      rootIndex.status !== healedStatus
     ) {
       rootIndex.total_work_packages = totalWps;
       rootIndex.pending_work_packages = pendingWps;
+      rootIndex.status = healedStatus;
       rootIndex.last_updated = now();
 
       // Write the corrected root index

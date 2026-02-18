@@ -24,11 +24,14 @@ const TOOL_HELP: Record<string, string> = {
 | ledger_create_work_package | project_path, assigned_to, dependencies, acceptance_criteria, work_package_file | Create a new work package |
 | ledger_claim_work_package | project_path, work_package_id, agent | Claim a READY WP → IN_PROGRESS |
 | ledger_update_work_package_status | project_path, work_package_id, status, agent | Update WP status |
-| ledger_start_pipeline | project_path, work_package_id, type | Start a pipeline |
+| ledger_start_pipeline | project_path, work_package_id, type | Start a pipeline (ordered: impl → qa → code-review → docs) |
 | ledger_complete_pipeline | project_path, work_package_id, type, status, summary | Complete a pipeline |
+| ledger_cancel_pipeline | project_path, work_package_id, type, reason | Cancel a stale IN_PROGRESS pipeline (sets to FAIL) |
+| ledger_update_pipeline_progress | project_path, work_package_id, type, summary | Update summary of IN_PROGRESS pipeline without completing it |
 | ledger_add_observation | project_path, work_package_id, pipeline_type, type, priority, note | Add observation to pipeline |
 | ledger_add_project_comment | project_path, type, priority, agent, note | Add project-level comment |
-| ledger_get_next_action | project_path, agent_role | Get next recommended action |
+| ledger_get_next_action | project_path, agent_role | Get next recommended action (singular) |
+| ledger_get_next_actions | project_path, agent_role | Get ALL recommended actions (batch, optional max_results) |
 | ledger_get_handoff_status | project_path, current_agent | Check handoff status |
 
 ## Common Mistakes
@@ -38,14 +41,20 @@ const TOOL_HELP: Record<string, string> = {
 3. **Trying to mark COMPLETE as non-Documentation agent** — Only the Documentation agent can set status to COMPLETE.
 4. **Starting a pipeline before claiming the WP** — WP must be IN_PROGRESS before starting a pipeline.
 5. **Not updating acceptance_criteria** — Use the acceptance_criteria_updates param in ledger_complete_pipeline to mark criteria as met before marking WP COMPLETE.
+6. **Starting pipelines out of order** — Pipelines must follow the enforced order: implementation → qa → code-review → documentation. Starting qa requires a PASS implementation pipeline, etc.
 
 ## Workflow Order
 
 1. PM creates work packages (ledger_create_work_package)
-2. Developer claims WP (ledger_claim_work_package), starts pipeline (ledger_start_pipeline type="implementation"), completes pipeline (ledger_complete_pipeline)
+2. Developer claims WP (ledger_claim_work_package), starts pipeline (ledger_start_pipeline type="implementation"), completes pipeline (ledger_complete_pipeline). Note: starting a pipeline auto-updates assigned_to on the WP.
 3. QA starts pipeline (type="qa"), completes pipeline
 4. Reviewer starts pipeline (type="code-review"), completes pipeline
 5. Documentation starts pipeline (type="documentation"), completes pipeline, then marks WP COMPLETE (ledger_update_work_package_status)
+
+## Batch vs Singular Action Tools
+
+- **ledger_get_next_action** (singular): Returns the first actionable WP for your role. Best for simple projects or when you process one WP at a time.
+- **ledger_get_next_actions** (plural): Returns ALL actionable WPs up to max_results (default 5). Best for projects with many independent WPs.
 `,
 
   ledger_get_project_status: `
@@ -233,6 +242,9 @@ Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 ## Prerequisites
 - WP must be IN_PROGRESS (use ledger_claim_work_package first if READY)
 - No duplicate in-progress pipeline of the same type allowed
+- **Pipeline ordering is enforced:** implementation → qa → code-review → documentation
+  Starting a qa pipeline requires a PASS implementation pipeline, etc.
+- Starting a pipeline **automatically updates** the work package's \`assigned_to\` field to the responsible agent (Developer, QA, Reviewer, Documentation).
 `,
 
   ledger_complete_pipeline: `
@@ -252,6 +264,7 @@ Complete the most recent IN_PROGRESS pipeline of the specified type.
 - **artifacts** (object): { files_modified, commit_hash, pull_request }
 - **metrics** (object): { test_coverage, tests_passed, tests_failed, security_issues }
 - **comments** (array): Observations from the pipeline
+- **handoff_notes** (array of strings): Notes for the next agent. Creates a structured handoff note entry on the WP addressed to the next agent in the pipeline chain.
 
 ## Example
 \`\`\`json
@@ -263,7 +276,54 @@ Complete the most recent IN_PROGRESS pipeline of the specified type.
   "summary": ["Implemented feature X", "Added unit tests"],
   "acceptance_criteria_updates": [
     { "criterion": "All tests pass", "met": true }
-  ]
+  ],
+  "handoff_notes": ["Pay attention to the auth module", "Edge case: empty input"]
+}
+\`\`\`
+`,
+
+  ledger_cancel_pipeline: `
+# ledger_cancel_pipeline
+
+Cancel the most recent IN_PROGRESS pipeline of the specified type by setting it to FAIL.
+Use this to clean up stale or abandoned pipelines, typically after a RESUME_OR_CANCEL action from ledger_get_next_action.
+
+## Required Parameters
+- **project_path** (string): Absolute path to the plan directory
+- **work_package_id** (string): WP ID (format: WP-001)
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation"
+- **reason** (string): Human-readable reason for the cancellation
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "type": "implementation",
+  "reason": "Pipeline was stale from a prior session; restarting fresh"
+}
+\`\`\`
+`,
+
+  ledger_update_pipeline_progress: `
+# ledger_update_pipeline_progress
+
+Update the summary array of the most recent IN_PROGRESS pipeline without completing it.
+Use this for long-running pipelines where you want to record incremental progress checkpoints.
+
+## Required Parameters
+- **project_path** (string): Absolute path to the plan directory
+- **work_package_id** (string): WP ID (format: WP-001)
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation"
+- **summary** (array of strings): Progress notes to append to the pipeline summary
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "type": "implementation",
+  "summary": ["Completed schema changes", "Running tests now"]
 }
 \`\`\`
 `,
@@ -324,7 +384,8 @@ Add a project-level comment (not tied to a specific pipeline).
   ledger_get_next_action: `
 # ledger_get_next_action
 
-Get the next recommended action for your agent role.
+Get the next recommended action for your agent role (singular — returns the first actionable WP).
+For projects with many independent WPs, use ledger_get_next_actions instead.
 
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
@@ -335,6 +396,41 @@ Get the next recommended action for your agent role.
 {
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
   "agent_role": "Developer"
+}
+\`\`\`
+`,
+
+  ledger_get_next_actions: `
+# ledger_get_next_actions
+
+Get ALL currently actionable work packages for your agent role (batch version of ledger_get_next_action).
+Returns an array of action recommendations instead of just the first one.
+Useful for projects with many independent work packages.
+
+## Required Parameters
+- **project_path** (string): Absolute path to the plan directory
+- **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
+
+## Optional Parameters
+- **max_results** (number): Maximum number of results to return. Defaults to 5.
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "agent_role": "Developer",
+  "max_results": 3
+}
+\`\`\`
+
+## Returns
+\`\`\`json
+{
+  "actions": [
+    { "action": "IMPLEMENT", "work_package_id": "WP-001", "reason": "..." },
+    { "action": "REWORK", "work_package_id": "WP-003", "reason": "..." }
+  ],
+  "total": 2
 }
 \`\`\`
 `,

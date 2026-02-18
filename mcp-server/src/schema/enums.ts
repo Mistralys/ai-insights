@@ -14,8 +14,9 @@ export type WorkPackageStatus = z.infer<typeof WorkPackageStatus>;
 
 /**
  * Pipeline status enum matching project-ledger-schema.md
+ * Note: 'READY' was removed as pipelines are always created with 'IN_PROGRESS' status.
  */
-export const PipelineStatus = z.enum(['READY', 'IN_PROGRESS', 'PASS', 'FAIL']);
+export const PipelineStatus = z.enum(['IN_PROGRESS', 'PASS', 'FAIL']);
 export type PipelineStatus = z.infer<typeof PipelineStatus>;
 
 /**

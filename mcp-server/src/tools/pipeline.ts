@@ -2,8 +2,42 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
-import type { Pipeline } from '../schema/work-package.js';
+import type { Pipeline, HandoffNote } from '../schema/work-package.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+
+/**
+ * Enforced pipeline execution order.
+ * A pipeline type may only start when the prerequisite type has a PASS pipeline.
+ * null means no prerequisite (can always start).
+ */
+const PIPELINE_PREREQUISITES: Record<string, string | null> = {
+  'implementation': null,
+  'qa': 'implementation',
+  'code-review': 'qa',
+  'documentation': 'code-review',
+};
+
+/**
+ * Map of pipeline type to the agent role that owns it.
+ * Used to automatically update assigned_to when a pipeline starts.
+ */
+const PIPELINE_AGENT_MAP: Record<string, string> = {
+  'implementation': 'Developer',
+  'qa': 'QA',
+  'code-review': 'Reviewer',
+  'documentation': 'Documentation',
+};
+
+/**
+ * Map of pipeline type to the next agent in the pipeline chain.
+ * Used to route handoff notes to the correct recipient agent.
+ */
+const NEXT_AGENT_MAP: Record<string, string> = {
+  'implementation': 'QA',
+  'qa': 'Reviewer',
+  'code-review': 'Documentation',
+  'documentation': 'Synthesis',
+};
 
 /**
  * Tool: start_pipeline
@@ -46,7 +80,20 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
-      // 3. Create new pipeline entry
+      // 3. Enforce pipeline ordering: check prerequisite
+      const prerequisite = PIPELINE_PREREQUISITES[args.type];
+      if (prerequisite !== undefined && prerequisite !== null) {
+        const hasPassPrerequisite = wp.pipelines.some(
+          (p) => p.type === prerequisite && p.status === 'PASS'
+        );
+        if (!hasPassPrerequisite) {
+          throw new Error(
+            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Pipeline order: implementation → qa → code-review → documentation.`
+          );
+        }
+      }
+
+      // 4. Create new pipeline entry
       const newPipeline: Pipeline = {
         type: args.type,
         status: 'IN_PROGRESS',
@@ -54,10 +101,30 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         summary: [],
       };
 
-      // 4. Append to pipelines array
+      // 5. Increment rework_count if restarting a previously-failed pipeline of the same type
+      const hasPreviousFail = wp.pipelines.some(
+        (p) => p.type === args.type && p.status === 'FAIL'
+      );
+      if (hasPreviousFail) {
+        wp.rework_count = (wp.rework_count ?? 0) + 1;
+      }
+
+      // 6. Append to pipelines array
       wp.pipelines.push(newPipeline);
 
-      // 5. Update root index timestamp
+      // 7. Update assigned_to to reflect the agent now working on this WP
+      const agentName = PIPELINE_AGENT_MAP[args.type];
+      if (agentName) {
+        wp.assigned_to = agentName;
+        const summary = root.work_packages.find(
+          (s) => s.work_package_id === args.work_package_id
+        );
+        if (summary) {
+          summary.assigned_to = agentName;
+        }
+      }
+
+      // 8. Update root index timestamp
       root.last_updated = now();
 
       return { wp, root };
@@ -140,6 +207,10 @@ const CompletePipelineSchema = z.object({
     )
     .optional()
     .describe('Updates to acceptance criteria met status. This is the PRIMARY way to mark acceptance criteria as met—you must update criteria here before marking a work package as COMPLETE.'),
+  handoff_notes: z
+    .array(z.string())
+    .optional()
+    .describe('Notes for the next agent in the pipeline. Will be attached to the WP as a structured handoff note entry.'),
 });
 
 async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
@@ -195,7 +266,23 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
         }
       }
 
-      // 5. Update root index timestamp
+      // 5. Append handoff note if provided
+      if (args.handoff_notes && args.handoff_notes.length > 0) {
+        const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
+        const toAgent = NEXT_AGENT_MAP[args.type] ?? 'Unknown';
+        const note: HandoffNote = {
+          from_agent: fromAgent,
+          to_agent: toAgent,
+          timestamp: now(),
+          notes: args.handoff_notes,
+        };
+        if (!wp.handoff_notes) {
+          wp.handoff_notes = [];
+        }
+        wp.handoff_notes.push(note);
+      }
+
+      // 6. Update root index timestamp
       root.last_updated = now();
 
       return { wp, root };
@@ -225,6 +312,134 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 }
 
 /**
+ * Tool: cancel_pipeline
+ *
+ * Cancels the most recent IN_PROGRESS pipeline of the specified type by setting
+ * its status to FAIL and recording the cancellation reason as the summary.
+ */
+const CancelPipelineSchema = z.object({
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  work_package_id: z
+    .string()
+    .regex(/^WP-\d{3}$/)
+    .describe('Work package ID, format: WP-001, WP-002, etc.'),
+  type: z.string().describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
+  reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
+});
+
+async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
+  const store = new LedgerStore(args.project_path);
+
+  try {
+    await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // Find the most recent IN_PROGRESS pipeline of the requested type
+      const pipeline = [...wp.pipelines]
+        .reverse()
+        .find((p) => p.type === args.type && p.status === 'IN_PROGRESS');
+
+      if (!pipeline) {
+        throw new Error(
+          `Cannot cancel pipeline: no IN_PROGRESS pipeline of type "${args.type}" found for work package ${args.work_package_id}.`
+        );
+      }
+
+      pipeline.status = 'FAIL';
+      pipeline.completed_at = now();
+      pipeline.summary = [`Cancelled: ${args.reason}`];
+
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    const updatedWp = await store.readWorkPackage(args.work_package_id);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(updatedWp, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error cancelling pipeline: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Tool: update_pipeline_progress
+ *
+ * Updates the summary of the most recent IN_PROGRESS pipeline of the given type.
+ * Allows agents to record progress notes without completing the pipeline.
+ */
+const UpdatePipelineProgressSchema = z.object({
+  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  work_package_id: z
+    .string()
+    .regex(/^WP-\d{3}$/)
+    .describe('Work package ID, format: WP-001, WP-002, etc.'),
+  type: z.string().describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  summary: z.array(z.string()).describe('Updated summary strings to record as partial progress'),
+});
+
+async function updatePipelineProgress(args: z.infer<typeof UpdatePipelineProgressSchema>) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
+  const store = new LedgerStore(args.project_path);
+
+  try {
+    await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // Find the most recent IN_PROGRESS pipeline of the given type
+      const pipeline = [...wp.pipelines]
+        .reverse()
+        .find((p) => p.type === args.type && p.status === 'IN_PROGRESS');
+
+      if (!pipeline) {
+        throw new Error(
+          `Cannot update pipeline progress: no IN_PROGRESS pipeline of type "${args.type}" found for work package ${args.work_package_id}.`
+        );
+      }
+
+      pipeline.summary = args.summary;
+
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    const updatedWp = await store.readWorkPackage(args.work_package_id);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(updatedWp, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error updating pipeline progress: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
  * Register pipeline tools on the MCP server
  */
 export function register(server: McpServer): void {
@@ -244,5 +459,23 @@ export function register(server: McpServer): void {
       inputSchema: CompletePipelineSchema.passthrough(),
     },
     completePipeline as any
+  );
+
+  server.registerTool(
+    'ledger_cancel_pipeline',
+    {
+      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: project_path, work_package_id, type, reason.',
+      inputSchema: CancelPipelineSchema.passthrough(),
+    },
+    cancelPipeline as any
+  );
+
+  server.registerTool(
+    'ledger_update_pipeline_progress',
+    {
+      description: 'Update the summary of the most recent IN_PROGRESS pipeline without completing it. Allows agents to record partial progress notes mid-work. REQUIRED params: project_path, work_package_id, type, summary.',
+      inputSchema: UpdatePipelineProgressSchema.passthrough(),
+    },
+    updatePipelineProgress as any
   );
 }

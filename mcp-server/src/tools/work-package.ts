@@ -153,8 +153,12 @@ async function createWorkPackage(
       // 1. Read root index to get next WP ID
       const rootIndex = await store.readRootIndex();
 
-      // 2. Generate next WP ID (1-indexed)
-      const nextWpNumber = rootIndex.work_packages.length + 1;
+      // 2. Generate next WP ID using max-based approach (resilient to gaps/deletions)
+      const existingNumbers = rootIndex.work_packages.map((wp) =>
+        parseInt(wp.work_package_id.replace('WP-', ''), 10)
+      );
+      const nextWpNumber =
+        existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
       const wpId = formatWpId(nextWpNumber);
       createdWpId = wpId;
 
@@ -463,6 +467,11 @@ async function updateWorkPackageStatus(
       return { wp, root };
     });
 
+    // If the WP was transitioned to COMPLETE, propagate unblocking to dependent WPs
+    if (args.status === 'COMPLETE') {
+      await propagateDependencyUnblock(args.project_path, args.work_package_id);
+    }
+
     // Return updated work package
     const updatedWp = await store.readWorkPackage(args.work_package_id);
     return {
@@ -484,6 +493,58 @@ async function updateWorkPackageStatus(
       isError: true,
     };
   }
+}
+
+/**
+ * Helper: Propagate dependency unblocking after a work package transitions to COMPLETE.
+ *
+ * For all BLOCKED WPs that depend on the just-completed WP, checks whether ALL of
+ * their dependencies are now COMPLETE. If so, transitions them to READY and clears
+ * the blocked_by field.
+ */
+async function propagateDependencyUnblock(
+  projectPath: string,
+  completedWpId: string
+): Promise<void> {
+  const store = new LedgerStore(projectPath);
+
+  await withLock(projectPath, async () => {
+    const rootIndex = await store.readRootIndex();
+
+    // Find BLOCKED WPs whose dependency list includes the just-completed WP
+    const candidates = rootIndex.work_packages.filter(
+      (wp) => wp.status === 'BLOCKED' && wp.dependencies.includes(completedWpId)
+    );
+
+    if (candidates.length === 0) return;
+
+    for (const candidate of candidates) {
+      // Read full WP detail to check all dependencies
+      const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+
+      // Check if all dependencies are now COMPLETE
+      const canStart = canStartWorkPackage(wpDetail, rootIndex.work_packages);
+      if (!canStart.allowed) continue;
+
+      // Transition BLOCKED -> READY and clear blocked_by
+      wpDetail.status = 'READY';
+      delete wpDetail.blocked_by;
+
+      // Update root summary
+      const summary = rootIndex.work_packages.find(
+        (s) => s.work_package_id === candidate.work_package_id
+      );
+      if (summary) {
+        summary.status = 'READY';
+      }
+
+      // Persist the WP detail update
+      await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+    }
+
+    rootIndex.last_updated = now();
+    await store.writeRootIndex(rootIndex);
+  });
 }
 
 /**
