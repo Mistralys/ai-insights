@@ -467,7 +467,21 @@ function parseWpId(id: string): number;  // Extracts numeric part
 
 ## Internal Testing Utilities
 
-`src/tools/workflow.ts` exports a single `_internal` object for unit-test access to pure helper functions. **These are not part of the public API — do not call them from production code.**
+Two tool modules export a `_internal` object to give unit tests white-box access to constants and pure helper functions. **These are not part of the public API — do not call them from production code.** The underscore prefix is a deliberate signal of this convention.
+
+### `src/tools/pipeline.ts` — routing constants
+
+```typescript
+export const _internal: {
+  // Live references to routing maps from pipeline-maps.ts.
+  // Tests import these to avoid maintaining local copies that could drift.
+  PIPELINE_PREREQUISITES: Record<string, string[]>;
+  PIPELINE_AGENT_MAP: Record<string, string>;
+  NEXT_AGENT_MAP: Record<string, string>;
+};
+```
+
+### `src/tools/workflow.ts` — helper functions and routing constants
 
 ```typescript
 export const _internal: {
@@ -490,6 +504,13 @@ export const _internal: {
 
   // Returns the handoff notes in the WP addressed to agentName, or undefined if none.
   getHandoffNotesForAgent(wpDetail: WorkPackageDetail, agentName: string): string[] | undefined;
+
+  extractStalePipelineAction(wps: WorkPackageDetail[]): ActionResult | null;
+  extractReworkAction(wps: WorkPackageDetail[]): ActionResult | null;
+
+  // Routing constants re-exported from pipeline-maps.ts for workflow-handoff tests.
+  PIPELINE_AGENT_MAP: Record<string, string>;
+  NEXT_AGENT_MAP: Record<string, string>;
 };
 ```
 
