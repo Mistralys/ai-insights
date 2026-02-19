@@ -27,6 +27,7 @@ export const _internal = {
   getDocumentationHandoff,
   getDeveloperHandoff,
   getProjectManagerHandoff,
+  getDeveloperAction,
   isMostRecentPipelineFail,
   isStalePipeline,
   STALE_PIPELINE_HOURS,
@@ -447,6 +448,43 @@ async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
       `Work package ${wpDetail.work_package_id} has a FAIL implementation pipeline. Rework and retry.`
     );
     if (reworkAction) return reworkAction;
+  }
+
+  // Look for downstream pipeline failures (QA or code-review) that need Developer rework.
+  // When QA or a Reviewer rejects a WP, the Developer must fix the implementation.
+  // This prevents deadlocks where BLOCKED or IN_PROGRESS WPs with downstream FAILs
+  // are invisible to the Developer because the implementation pipeline itself is PASS.
+  for (const wpDetail of wpDetails) {
+    // Only consider WPs that have a PASS implementation (Developer already worked on it)
+    const hasPassImpl = wpDetail.pipelines.some(
+      (p) => p.type === 'implementation' && p.status === 'PASS'
+    );
+    if (!hasPassImpl) continue;
+
+    // Check downstream pipelines for most-recent FAIL
+    for (const downstreamType of ['qa', 'code-review'] as const) {
+      if (isMostRecentPipelineFail(wpDetail.pipelines, downstreamType)) {
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify(
+                {
+                  action: 'REWORK',
+                  work_package_id: wpDetail.work_package_id,
+                  reason: `Work package ${wpDetail.work_package_id} has a FAIL ${downstreamType} pipeline. Developer rework needed to address ${downstreamType} rejection.`,
+                  pipeline_that_failed: downstreamType,
+                  ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      }
+    }
   }
 
   return {
@@ -1774,13 +1812,33 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
           });
           continue;
         }
-        // Rework
+        // Rework: FAIL implementation pipeline
         if (isMostRecentPipelineFail(wpDetail.pipelines, 'implementation')) {
           actions.push({
             action: 'REWORK',
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} has a FAIL implementation pipeline.`,
           });
+          continue;
+        }
+        // Rework: downstream pipeline (QA or code-review) failed — Developer must fix
+        const hasPassImpl = wpDetail.pipelines.some(
+          (p) => p.type === 'implementation' && p.status === 'PASS'
+        );
+        if (hasPassImpl) {
+          for (const downstreamType of ['qa', 'code-review'] as const) {
+            if (isMostRecentPipelineFail(wpDetail.pipelines, downstreamType)) {
+              const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
+              actions.push({
+                action: 'REWORK',
+                work_package_id: wpDetail.work_package_id,
+                reason: `Work package ${wpDetail.work_package_id} has a FAIL ${downstreamType} pipeline. Developer rework needed.`,
+                pipeline_that_failed: downstreamType,
+                ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+              });
+              break; // Only surface the earliest failing downstream pipeline
+            }
+          }
         }
         continue;
       }

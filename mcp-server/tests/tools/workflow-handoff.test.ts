@@ -13,6 +13,7 @@ const {
   getReviewerHandoff,
   getDocumentationHandoff,
   getDeveloperHandoff,
+  getDeveloperAction,
   isMostRecentPipelineFail,
   isStalePipeline,
   STALE_PIPELINE_HOURS,
@@ -763,5 +764,225 @@ describe('BLOCKED WP handling — no rework loop', () => {
       const result = parseResult(getDocumentationHandoff(wpDetails));
       expect(result.status).not.toBe('IN_PROGRESS');
     });
+  });
+});
+
+describe('Developer downstream pipeline failure detection', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'dev-downstream-'));
+    store = new LedgerStore(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /** Helper to set up a root index and WP detail file, then call getDeveloperAction */
+  async function setupAndGetDevAction(
+    wps: Array<{
+      id: string;
+      status: string;
+      pipelines: Array<{ type: string; status: string }>;
+      deps?: string[];
+    }>
+  ) {
+    const timestamp = now();
+    const rootIndex: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: timestamp,
+      last_updated: timestamp,
+      status: 'IN_PROGRESS',
+      total_work_packages: wps.length,
+      pending_work_packages: wps.filter((w) => w.status !== 'COMPLETE').length,
+      work_packages: wps.map((w) => ({
+        work_package_id: w.id,
+        status: w.status as any,
+        assigned_to: 'Developer',
+        dependencies: w.deps ?? [],
+        file: `ledger/${w.id}.json`,
+      })),
+      project_comments: [],
+    };
+    await store.writeRootIndex(rootIndex);
+
+    for (const w of wps) {
+      const wpDetail: WorkPackageDetail = {
+        work_package_id: w.id,
+        work_package_file: `work/${w.id}.md`,
+        status: w.status as any,
+        assigned_to: 'Developer',
+        dependencies: w.deps ?? [],
+        acceptance_criteria: [],
+        revision: 1,
+        pipelines: w.pipelines.map((p) => ({
+          type: p.type,
+          status: p.status as any,
+          summary: [],
+        })),
+      };
+      await store.writeWorkPackage(w.id, wpDetail);
+    }
+
+    return getDeveloperAction(rootIndex, store);
+  }
+
+  it('returns REWORK when QA pipeline fails (deadlock prevention)', async () => {
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    expect(parsed.action).toBe('REWORK');
+    expect(parsed.work_package_id).toBe('WP-001');
+    expect(parsed.pipeline_that_failed).toBe('qa');
+    expect(parsed.reason).toContain('FAIL qa pipeline');
+  });
+
+  it('returns REWORK when code-review pipeline fails', async () => {
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'FAIL' },
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    expect(parsed.action).toBe('REWORK');
+    expect(parsed.work_package_id).toBe('WP-001');
+    expect(parsed.pipeline_that_failed).toBe('code-review');
+    expect(parsed.reason).toContain('FAIL code-review pipeline');
+  });
+
+  it('returns REWORK for BLOCKED WP with downstream FAIL (the exact deadlock scenario)', async () => {
+    // This is the exact scenario that caused the deadlock:
+    // WP has PASS impl, FAIL QA, and status is BLOCKED
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-005',
+        status: 'BLOCKED',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    expect(parsed.action).toBe('REWORK');
+    expect(parsed.work_package_id).toBe('WP-005');
+    expect(parsed.pipeline_that_failed).toBe('qa');
+  });
+
+  it('returns WAIT when all pipelines are PASS (no rework needed)', async () => {
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    expect(parsed.action).toBe('WAIT');
+  });
+
+  it('prioritizes FAIL implementation pipeline over downstream FAIL', async () => {
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'FAIL' },
+        ],
+      },
+      {
+        id: 'WP-002',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    expect(parsed.action).toBe('REWORK');
+    expect(parsed.work_package_id).toBe('WP-001');
+    // WP-001 has a FAIL implementation — that takes priority
+    expect(parsed.pipeline_that_failed).toBeUndefined();
+  });
+
+  it('does not return REWORK for downstream FAIL when implementation is not PASS', async () => {
+    // Edge case: WP has no PASS implementation but has a FAIL QA —
+    // this shouldn't happen in practice, but be defensive
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'IN_PROGRESS' },
+          { type: 'qa', status: 'FAIL' },
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    // Should not suggest rework because impl isn't PASS
+    expect(parsed.action).toBe('WAIT');
+  });
+
+  it('surfaces QA failure even when QA was retried and failed again', async () => {
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+          { type: 'qa', status: 'FAIL' }, // Retried and failed again
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    expect(parsed.action).toBe('REWORK');
+    expect(parsed.pipeline_that_failed).toBe('qa');
+  });
+
+  it('does not surface downstream FAIL when QA passed after a retry', async () => {
+    const result = await setupAndGetDevAction([
+      {
+        id: 'WP-001',
+        status: 'IN_PROGRESS',
+        pipelines: [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+          { type: 'qa', status: 'PASS' }, // Retried and passed
+        ],
+      },
+    ]);
+
+    const parsed = parseResult(result);
+    // QA most-recent is PASS, so no rework needed
+    expect(parsed.action).toBe('WAIT');
   });
 });
