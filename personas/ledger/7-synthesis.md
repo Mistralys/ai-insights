@@ -1,13 +1,13 @@
 ---
-name: '7 - Synthesis v3.1.1'
+name: '7 - Synthesis v3.1.2'
 description: 'Step 7/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.1
-  Last Updated: 2026-02-18 21:02
+  Version: 3.1.2
+  Last Updated: 2026-02-19 09:50
   Author: Sebastian Mordziol
   VS File Name: 7-synthesis.agent.md
 -->
@@ -99,13 +99,15 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
 3.  **Read All Work Packages:** Call `ledger_get_work_package` for each WP listed in the project status to load all pipeline data, metrics, and comments.
 4.  **Analyze Data:** Aggregate metrics and insights from the pipeline arrays across all WPs. If critical ledger data is incomplete or missing, end your response with:
     ```
-    AGENT: Synthesis
+    CURRENT AGENT: Synthesis
+    NEXT AGENT: Project Manager
     STATUS: FAIL_LEDGER_FAULTY
     ```
 5.  **Generate Report:** Write the `synthesis.md` file to the plan folder.
 6.  **Finalize:** Add any project-level synthesis observations via `ledger_add_project_comment` if you identified cross-cutting insights or patterns that span multiple work packages.
 7.  **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. End your response with the handoff block:
     ```
-    AGENT: <agent>
+    CURRENT AGENT: <current_agent>
+    NEXT AGENT: <next_agent>
     STATUS: <status>
     ```

@@ -1,13 +1,13 @@
 ---
-name: '2 - Project Manager v3.1.1'
+name: '2 - Project Manager v3.1.2'
 description: 'Step 2/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.1
-  Last Updated: 2026-02-18 21:02
+  Version: 3.1.2
+  Last Updated: 2026-02-19 09:50
   Author: Sebastian Mordziol
   VS File Name: 2-pm.agent.md
 -->
@@ -123,7 +123,8 @@ If the pre-flight check fails, **stop immediately** and inform the user:
 10. Call `ledger_get_project_status` to verify the ledger was created correctly.
 11. Call `ledger_get_handoff_status` with `current_agent: "Project Manager"` and end the response with the returned handoff block, formatted as:
     ```
-    AGENT: <agent>
+    CURRENT AGENT: <current_agent>
+    NEXT AGENT: <next_agent>
     STATUS: <status>
     ```
 

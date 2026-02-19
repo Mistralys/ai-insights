@@ -1,13 +1,13 @@
 ---
-name: '4 - QA v3.1.1'
+name: '4 - QA v3.1.2'
 description: 'Step 4/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.1
-  Last Updated: 2026-02-18 21:02
+  Version: 3.1.2
+  Last Updated: 2026-02-19 09:50
   Author: Sebastian Mordziol
   VS File Name: 4-qa.agent.md
 -->
@@ -115,11 +115,11 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `metrics`: `{ test_coverage: "...", tests_passed: N, tests_failed: N, security_issues: N }`
    - `comments`: array of QA finding comments (type, priority, timestamp, note)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC verified
-6. **Handle Failure (if FAIL):** Call `ledger_update_work_package_status` with `status: "BLOCKED"`, `agent: "QA Agent"`, and `blocked_by: { type: "technical", description: "..." }` describing the failure.
-7. **Repeat:** Call `ledger_get_next_action` again. If it indicates more WPs need validation (action: `RUN_QA` or `REWORK_QA`), repeat steps 2–6 for each work package. Continue until `get_next_action` returns `WAIT`.
-8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "QA"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
+6. **Repeat:** Call `ledger_get_next_action` again. If it indicates more WPs need validation (action: `RUN_QA` or `REWORK_QA`), repeat steps 2–5 for each work package. Continue until `get_next_action` returns `WAIT`.
+7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "QA"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
    ```
-   AGENT: <agent>
+   CURRENT AGENT: <current_agent>
+   NEXT AGENT: <next_agent>
    STATUS: <status>
    ```
 

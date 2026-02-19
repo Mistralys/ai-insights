@@ -1,13 +1,13 @@
 ---
-name: '3 - Developer v3.1.1'
+name: '3 - Developer v3.1.2'
 description: 'Step 3/7 in the agent workflow.'
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.1
-  Last Updated: 2026-02-18 21:02
+  Version: 3.1.2
+  Last Updated: 2026-02-19 09:50
   Author: Sebastian Mordziol
   VS File Name: 3-dev.agent.md
 -->
@@ -187,6 +187,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC you verified
 7. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
    ```
-   AGENT: <agent>
+   CURRENT AGENT: <current_agent>
+   NEXT AGENT: <next_agent>
    STATUS: <status>
    ```
