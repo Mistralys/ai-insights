@@ -1,5 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.3.2 - Micro Debt Followup
+
+### Changed
+- **WP-005:** Clarified `propagateDependencyUnblock()` inline comment with concurrent safety guarantee (idempotency protects against race conditions even without a held lock).
+
 ## v1.3.1 - Technical Debt Remediation
 
 ### Changed

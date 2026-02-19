@@ -35,6 +35,9 @@ async function main(): Promise<void> {
     version: VERSION,
   });
 
+  // NOTE: The tool list printed in the startup log below must be kept in sync
+  // with the tools registered here. Update the log message whenever a tool is
+  // added or removed in src/tools/**. There is no auto-discovery at startup.
   // Register tools
   projectLifecycleTools.register(server);
   workPackageTools.register(server);

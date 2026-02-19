@@ -17,6 +17,7 @@ const {
   isStalePipeline,
   STALE_PIPELINE_HOURS,
   getHandoffNotesForAgent,
+  extractReworkAction,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
 } = _internal;
@@ -654,5 +655,113 @@ describe('getNextActions batch tool (WP-006)', () => {
     const notes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
     expect(notes).toBeDefined();
     expect(notes).toEqual(['please check auth module']);
+  });
+});
+
+describe('BLOCKED WP handling — no rework loop', () => {
+  describe('extractReworkAction skips BLOCKED WPs', () => {
+    it('returns null when WP is BLOCKED even if most recent pipeline is FAIL', () => {
+      const wp = makeWp('WP-005', 'BLOCKED', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]);
+      const result = extractReworkAction(wp, 'qa', 'REWORK_QA', 'rework reason');
+      expect(result).toBeNull();
+    });
+
+    it('returns rework action when WP is IN_PROGRESS with FAIL pipeline', () => {
+      const wp = makeWp('WP-005', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]);
+      const result = extractReworkAction(wp, 'qa', 'REWORK_QA', 'rework reason');
+      expect(result).not.toBeNull();
+      const parsed = JSON.parse(result!.content[0].text);
+      expect(parsed.action).toBe('REWORK_QA');
+    });
+
+    it('returns null for BLOCKED WP with FAIL code-review pipeline', () => {
+      const wp = makeWp('WP-001', 'BLOCKED', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'FAIL' },
+      ]);
+      const result = extractReworkAction(wp, 'code-review', 'REWORK_REVIEW', 'rework reason');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('QA handoff excludes BLOCKED WPs from needsWork', () => {
+    it('returns READY_FOR_REVIEW when only BLOCKED WPs have FAIL QA (exact stuck-loop scenario)', () => {
+      // This reproduces the exact QA stuck-loop: WP-005 BLOCKED + FAIL QA, WP-006 PASS QA
+      const wpDetails = [
+        makeWp('WP-005', 'BLOCKED', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+        ], ['WP-001']),
+        makeWp('WP-006', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ], ['WP-001']),
+      ];
+
+      const result = parseResult(getQaHandoff(wpDetails));
+      // QA's work is done — BLOCKED WP needs Developer, not QA retry
+      expect(result.status).not.toBe('IN_PROGRESS');
+    });
+
+    it('returns IN_PROGRESS when a non-BLOCKED WP has FAIL QA', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'FAIL' },
+        ]),
+      ];
+
+      const result = parseResult(getQaHandoff(wpDetails));
+      expect(result.status).toBe('IN_PROGRESS');
+    });
+  });
+
+  describe('Reviewer handoff excludes BLOCKED WPs from needsWork', () => {
+    it('does not return IN_PROGRESS when only BLOCKED WPs have FAIL review', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'BLOCKED', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'FAIL' },
+        ], ['WP-002']),
+        makeWp('WP-002', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+        ]),
+      ];
+
+      const result = parseResult(getReviewerHandoff(wpDetails));
+      expect(result.status).not.toBe('IN_PROGRESS');
+    });
+  });
+
+  describe('Documentation handoff excludes BLOCKED WPs from needsWork', () => {
+    it('does not return IN_PROGRESS when only BLOCKED WPs have FAIL docs', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'BLOCKED', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+          { type: 'documentation', status: 'FAIL' },
+        ], ['WP-002']),
+        makeWp('WP-002', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+          { type: 'documentation', status: 'PASS' },
+        ]),
+      ];
+
+      const result = parseResult(getDocumentationHandoff(wpDetails));
+      expect(result.status).not.toBe('IN_PROGRESS');
+    });
   });
 });

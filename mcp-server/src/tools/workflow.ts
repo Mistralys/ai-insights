@@ -9,8 +9,33 @@ import {
   AGENT_PIPELINE_MAP,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  type PipelineType,
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp } from '../utils/timestamp.js';
+
+/**
+ * Number of hours after which an IN_PROGRESS pipeline is considered stale.
+ */
+const STALE_PIPELINE_HOURS = 24;
+
+/**
+ * @internal — exported for unit testing only
+ */
+export const _internal = {
+  getQaHandoff,
+  getReviewerHandoff,
+  getDocumentationHandoff,
+  getDeveloperHandoff,
+  getProjectManagerHandoff,
+  isMostRecentPipelineFail,
+  isStalePipeline,
+  STALE_PIPELINE_HOURS,
+  getHandoffNotesForAgent,
+  extractStalePipelineAction,
+  extractReworkAction,
+  PIPELINE_AGENT_MAP,
+  NEXT_AGENT_MAP,
+};
 
 /**
  * Agent role definitions for the 7-stage workflow
@@ -27,10 +52,22 @@ const AGENT_ROLES = [
 
 type AgentRole = typeof AGENT_ROLES[number];
 
-/**
- * Number of hours after which an IN_PROGRESS pipeline is considered stale.
- */
-const STALE_PIPELINE_HOURS = 24;
+/** Display-name maps used by getNextActions for human-readable output. */
+const agentNameMap: Record<string, string> = {
+  'qa': 'QA',
+  'code-review': 'Reviewer',
+  'documentation': 'Documentation',
+};
+const actionNameMap: Record<string, string> = {
+  'qa': 'RUN_QA',
+  'code-review': 'RUN_REVIEW',
+  'documentation': 'WRITE_DOCS',
+};
+const reworkActionMap: Record<string, string> = {
+  'qa': 'REWORK_QA',
+  'code-review': 'REWORK_REVIEW',
+  'documentation': 'REWORK_DOCS',
+};
 
 /**
  * Helper: Returns true if the pipeline is IN_PROGRESS and was started more than
@@ -93,6 +130,9 @@ function extractReworkAction(
   reworkActionName: string,
   reworkReason: string,
 ): ToolActionResponse | null {
+  // BLOCKED WPs need upstream agent intervention (e.g. Developer rework)
+  // before the current pipeline agent can retry — skip rework suggestion.
+  if (wpDetail.status === 'BLOCKED') return null;
   if (!isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) return null;
   return {
     content: [
@@ -1126,19 +1166,22 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
     };
   }
 
-  // Check if any WP needs QA or has FAIL pipeline
+  // Check if any non-BLOCKED WP needs QA or has FAIL pipeline.
+  // BLOCKED WPs need Developer rework before QA can retry — exclude them.
   const needsWork = wpsWithImpl.some(
     (wp) =>
-      !wp.pipelines.some((p) => p.type === 'qa') ||
-      wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL')
+      wp.status !== 'BLOCKED' &&
+      (!wp.pipelines.some((p) => p.type === 'qa') ||
+      wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
   );
 
   if (needsWork) {
     // Count how many work packages still need QA
     const wpsNeedingWork = wpsWithImpl.filter(
       (wp) =>
-        !wp.pipelines.some((p) => p.type === 'qa') ||
-        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL')
+        wp.status !== 'BLOCKED' &&
+        (!wp.pipelines.some((p) => p.type === 'qa') ||
+        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
     );
 
     return {
@@ -1313,19 +1356,22 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
     };
   }
 
-  // Check if any WP needs review or has FAIL pipeline
+  // Check if any non-BLOCKED WP needs review or has FAIL pipeline.
+  // BLOCKED WPs need upstream rework before Reviewer can retry — exclude them.
   const needsWork = wpsWithQa.some(
     (wp) =>
-      !wp.pipelines.some((p) => p.type === 'code-review') ||
-      wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL')
+      wp.status !== 'BLOCKED' &&
+      (!wp.pipelines.some((p) => p.type === 'code-review') ||
+      wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
   );
 
   if (needsWork) {
     // Count how many work packages still need review
     const wpsNeedingWork = wpsWithQa.filter(
       (wp) =>
-        !wp.pipelines.some((p) => p.type === 'code-review') ||
-        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL')
+        wp.status !== 'BLOCKED' &&
+        (!wp.pipelines.some((p) => p.type === 'code-review') ||
+        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
     );
 
     return {
@@ -1500,19 +1546,22 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
     };
   }
 
-  // Check if any WP needs documentation or has FAIL pipeline
+  // Check if any non-BLOCKED WP needs documentation or has FAIL pipeline.
+  // BLOCKED WPs need upstream rework before Documentation can retry — exclude them.
   const needsWork = wpsWithReview.some(
     (wp) =>
-      !wp.pipelines.some((p) => p.type === 'documentation') ||
-      wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL')
+      wp.status !== 'BLOCKED' &&
+      (!wp.pipelines.some((p) => p.type === 'documentation') ||
+      wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL'))
   );
 
   if (needsWork) {
     // Count how many work packages still need documentation
     const wpsNeedingWork = wpsWithReview.filter(
       (wp) =>
-        !wp.pipelines.some((p) => p.type === 'documentation') ||
-        wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL')
+        wp.status !== 'BLOCKED' &&
+        (!wp.pipelines.some((p) => p.type === 'documentation') ||
+        wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL'))
     );
 
     return {
@@ -1685,7 +1734,7 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
     }
 
     // Prerequisite type for this agent's pipeline
-    const prerequisite = PIPELINE_PREREQUISITES[pipelineType];
+    const prerequisite = PIPELINE_PREREQUISITES[pipelineType as PipelineType];
 
     for (const wpDetail of wpDetails) {
       if (actions.length >= limit) break;
@@ -1737,21 +1786,6 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
       }
 
       // For qa / code-review / documentation: check prerequisite PASS and no own pipeline yet
-      const agentNameMap: Record<string, string> = {
-        'qa': 'QA',
-        'code-review': 'Reviewer',
-        'documentation': 'Documentation',
-      };
-      const actionNameMap: Record<string, string> = {
-        'qa': 'RUN_QA',
-        'code-review': 'RUN_REVIEW',
-        'documentation': 'WRITE_DOCS',
-      };
-      const reworkActionMap: Record<string, string> = {
-        'qa': 'REWORK_QA',
-        'code-review': 'REWORK_REVIEW',
-        'documentation': 'REWORK_DOCS',
-      };
 
       const hasPassPrerequisite =
         prerequisite === null ||
@@ -1769,7 +1803,9 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
         continue;
       }
 
-      if (isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) {
+      // BLOCKED WPs need upstream agent intervention before the current agent
+      // can retry — skip rework suggestion to avoid infinite-loop signals.
+      if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) {
         actions.push({
           action: reworkActionMap[pipelineType],
           work_package_id: wpDetail.work_package_id,
@@ -1798,25 +1834,6 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
     };
   }
 }
-
-/**
- * @internal — exported for unit testing only
- */
-export const _internal = {
-  getQaHandoff,
-  getReviewerHandoff,
-  getDocumentationHandoff,
-  getDeveloperHandoff,
-  getProjectManagerHandoff,
-  isMostRecentPipelineFail,
-  isStalePipeline,
-  STALE_PIPELINE_HOURS,
-  getHandoffNotesForAgent,
-  extractStalePipelineAction,
-  extractReworkAction,
-  PIPELINE_AGENT_MAP,
-  NEXT_AGENT_MAP,
-};
 
 /**
  * Register workflow tools on the MCP server

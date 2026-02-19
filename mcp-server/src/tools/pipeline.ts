@@ -8,6 +8,7 @@ import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  type PipelineType,
 } from '../utils/pipeline-maps.js';
 
 /**
@@ -61,7 +62,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
       }
 
       // 3. Enforce pipeline ordering: check prerequisite
-      const prerequisite = PIPELINE_PREREQUISITES[args.type];
+      const prerequisite = PIPELINE_PREREQUISITES[args.type as PipelineType];
       if (prerequisite !== undefined && prerequisite !== null) {
         const hasPassPrerequisite = wp.pipelines.some(
           (p) => p.type === prerequisite && p.status === 'PASS'
@@ -93,7 +94,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
       wp.pipelines.push(newPipeline);
 
       // 7. Update assigned_to to reflect the agent now working on this WP
-      const agentName = PIPELINE_AGENT_MAP[args.type];
+      const agentName = PIPELINE_AGENT_MAP[args.type as PipelineType];
       if (agentName) {
         wp.assigned_to = agentName;
         const summary = root.work_packages.find(
@@ -245,8 +246,8 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
       // 5. Append handoff note if provided
       if (args.handoff_notes && args.handoff_notes.length > 0) {
-        const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
-        const toAgent = NEXT_AGENT_MAP[args.type] ?? 'Unknown';
+        const fromAgent = PIPELINE_AGENT_MAP[args.type as PipelineType] ?? args.type;
+        const toAgent = NEXT_AGENT_MAP[args.type as PipelineType] ?? 'Unknown';
         const note: HandoffNote = {
           from_agent: fromAgent,
           to_agent: toAgent,

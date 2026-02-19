@@ -324,6 +324,7 @@ All types are inferred from Zod schemas using `z.infer<typeof Schema>`.
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
+type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
 type CommentPriority = 'low' | 'medium' | 'high';
 ```
@@ -458,7 +459,12 @@ function canCompleteWorkPackage(
 ## Utility Functions
 
 ```typescript
-function now(): string;  // Returns "YYYY-MM-DD HH:MM:SS"
+// Returns "YYYY-MM-DDTHH:MM:SS" using local time.
+// NOTE: toISOString() is intentionally NOT used — it converts to UTC, which would
+// corrupt timestamps for users in non-UTC timezones. This manual construction is
+// deliberate. Do not replace with toISOString().
+function now(): string;
+
 function formatWpId(n: number): string;  // Returns "WP-###"
 function parseWpId(id: string): number;  // Extracts numeric part
 ```
@@ -475,9 +481,9 @@ Two tool modules export a `_internal` object to give unit tests white-box access
 export const _internal: {
   // Live references to routing maps from pipeline-maps.ts.
   // Tests import these to avoid maintaining local copies that could drift.
-  PIPELINE_PREREQUISITES: Record<string, string[]>;
-  PIPELINE_AGENT_MAP: Record<string, string>;
-  NEXT_AGENT_MAP: Record<string, string>;
+  PIPELINE_PREREQUISITES: Record<PipelineType, PipelineType | null>;
+  PIPELINE_AGENT_MAP: Record<PipelineType, string>;
+  NEXT_AGENT_MAP: Record<PipelineType, string>;
 };
 ```
 
@@ -509,8 +515,8 @@ export const _internal: {
   extractReworkAction(wps: WorkPackageDetail[]): ActionResult | null;
 
   // Routing constants re-exported from pipeline-maps.ts for workflow-handoff tests.
-  PIPELINE_AGENT_MAP: Record<string, string>;
-  NEXT_AGENT_MAP: Record<string, string>;
+  PIPELINE_AGENT_MAP: Record<PipelineType, string>;
+  NEXT_AGENT_MAP: Record<PipelineType, string>;
 };
 ```
 
