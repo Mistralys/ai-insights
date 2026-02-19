@@ -110,11 +110,11 @@ Updates work package status with validation. Enforces legal status transitions a
 (args: { 
   project_path: string;
   work_package_id: string;
-  type: string; // e.g., "implementation", "qa", "code-review"
+  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
 }) => Promise<MCPResult>
 ```
 
-Starts a new pipeline for a work package. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
+Starts a new pipeline for a work package. The `type` field is validated by a Zod enum — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
 
 #### `ledger_complete_pipeline`
 
@@ -122,7 +122,7 @@ Starts a new pipeline for a work package. Validates WP is `IN_PROGRESS` and no d
 (args: { 
   project_path: string;
   work_package_id: string;
-  type: string;
+  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   status: 'PASS' | 'FAIL';
   summary: string[];
   artifacts?: {
@@ -159,7 +159,7 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 (args: { 
   project_path: string;
   work_package_id: string;
-  type: string;
+  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   reason: string;
 }) => Promise<MCPResult>
 ```
@@ -172,7 +172,7 @@ Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting 
 (args: { 
   project_path: string;
   work_package_id: string;
-  type: string;
+  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   summary: string[];
 }) => Promise<MCPResult>
 ```
@@ -189,14 +189,14 @@ Appends to the summary array of the most recent `IN_PROGRESS` pipeline without c
 (args: { 
   project_path: string;
   work_package_id: string;
-  pipeline_type: string;
+  pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   type: string; // e.g., "code-smell", "refactor", "debt"
   priority: 'low' | 'medium' | 'high';
   note: string;
 }) => Promise<MCPResult>
 ```
 
-Adds a comment to the most recent pipeline of the specified type. Comments do not include an agent field (agent is inferred from pipeline type).
+Adds a comment to the most recent pipeline of the specified type. The `pipeline_type` field is validated by a Zod enum. Comments do not include an agent field (agent is inferred from pipeline type).
 
 #### `ledger_add_project_comment`
 
@@ -324,7 +324,8 @@ All types are inferred from Zod schemas using `z.infer<typeof Schema>`.
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
-type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps
+type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
+type PostImplPipelineType = Exclude<PipelineType, 'implementation'>; // Subset type for maps that only apply to post-implementation stages (QA, code-review, documentation)
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
 type CommentPriority = 'low' | 'medium' | 'high';
 ```

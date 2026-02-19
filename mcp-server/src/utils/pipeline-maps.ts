@@ -6,12 +6,36 @@
  * Workflow Hardening synthesis report.
  */
 
+import { z } from 'zod';
+
+/**
+ * The four valid pipeline type values as a const tuple.
+ * Used as the source of truth for the PipelineType union, the Zod enum, and
+ * all Record keys that depend on exhaustiveness checking.
+ */
+export const PIPELINE_TYPES = ['implementation', 'qa', 'code-review', 'documentation'] as const;
+
+/**
+ * Zod enum schema for pipeline types. Using this in tool schemas (instead of
+ * z.string()) means invalid type values are rejected at the MCP validation
+ * layer with a clear error, and `args.type` is automatically narrowed to
+ * PipelineType — eliminating the need for `as PipelineType` casts.
+ */
+export const PipelineTypeEnum = z.enum(PIPELINE_TYPES);
+
 /**
  * The four valid pipeline type keys. Using this union as a Record key provides
  * compile-time exhaustiveness checking — a misspelled or missing key is a
  * TypeScript error rather than a silent runtime gap.
  */
-export type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation';
+export type PipelineType = z.infer<typeof PipelineTypeEnum>;
+
+/**
+ * Subset of PipelineType that excludes 'implementation'. Used for maps that
+ * only apply to post-implementation pipeline stages (QA, code-review,
+ * documentation), providing compile-time exhaustiveness on those maps.
+ */
+export type PostImplPipelineType = Exclude<PipelineType, 'implementation'>;
 
 /**
  * Enforced pipeline execution order.

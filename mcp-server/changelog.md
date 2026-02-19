@@ -1,9 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.3.2 - Micro Debt Followup
+## v1.3.2 - Micro Debt Followup (2026-02-18)
 
 ### Changed
-- **WP-005:** Clarified `propagateDependencyUnblock()` inline comment with concurrent safety guarantee (idempotency protects against race conditions even without a held lock).
+- **WP-001:** Derived `AGENT_PIPELINE_MAP` from `PIPELINE_AGENT_MAP` via `Object.fromEntries`; removes manual duplicate
+- **WP-001:** Introduced `PipelineType` string union type; all four pipeline maps now have compile-time exhaustiveness checking
+- **WP-002:** Added UTC-trap inline comment to `now()` in `timestamp.ts`
+- **WP-003:** Hoisted `agentNameMap`, `actionNameMap`, `reworkActionMap` to module-level in `workflow.ts`
+- **WP-003:** Relocated `_internal` export in `workflow.ts` to after imports, matching `pipeline.ts` convention
+- **WP-004:** Added inline source comment above registration block in `index.ts` noting manual tool-list sync requirement
+- **WP-006:** Updated `api-surface.md` to document the new `PipelineType` export
 
 ## v1.3.1 - Technical Debt Remediation
 

@@ -47,6 +47,7 @@ mcp-server/
     │
     ├── tools/                   # Tool-level tests
     │   ├── pipeline.test.ts
+    │   ├── work-package.test.ts
     │   └── workflow-handoff.test.ts
     │
     └── utils/                   # Utility function tests

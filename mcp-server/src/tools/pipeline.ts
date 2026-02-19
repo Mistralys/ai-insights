@@ -8,6 +8,7 @@ import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  PipelineTypeEnum,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
 
@@ -23,11 +24,11 @@ import {
  */
 function buildCompletionGuidance(
   wpId: string,
-  pipelineType: string,
+  pipelineType: PipelineType,
   status: 'PASS' | 'FAIL',
 ): string {
-  const currentAgent = PIPELINE_AGENT_MAP[pipelineType as PipelineType] ?? pipelineType;
-  const nextAgent = NEXT_AGENT_MAP[pipelineType as PipelineType] ?? 'the next agent';
+  const currentAgent = PIPELINE_AGENT_MAP[pipelineType] ?? pipelineType;
+  const nextAgent = NEXT_AGENT_MAP[pipelineType] ?? 'the next agent';
 
   if (status === 'PASS') {
     if (pipelineType === 'documentation') {
@@ -86,7 +87,7 @@ const StartPipelineSchema = z.object({
     .string()
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: z.string().describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
 });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
@@ -116,7 +117,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
       }
 
       // 3. Enforce pipeline ordering: check prerequisite
-      const prerequisite = PIPELINE_PREREQUISITES[args.type as PipelineType];
+      const prerequisite = PIPELINE_PREREQUISITES[args.type];
       if (prerequisite !== undefined && prerequisite !== null) {
         const hasPassPrerequisite = wp.pipelines.some(
           (p) => p.type === prerequisite && p.status === 'PASS'
@@ -148,7 +149,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
       wp.pipelines.push(newPipeline);
 
       // 7. Update assigned_to to reflect the agent now working on this WP
-      const agentName = PIPELINE_AGENT_MAP[args.type as PipelineType];
+      const agentName = PIPELINE_AGENT_MAP[args.type];
       if (agentName) {
         wp.assigned_to = agentName;
         const summary = root.work_packages.find(
@@ -200,7 +201,7 @@ const CompletePipelineSchema = z.object({
     .string()
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: z.string().describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
   status: z.enum(['PASS', 'FAIL']).describe('Pipeline result: "PASS" if successful, "FAIL" if issues found'),
   summary: z.array(z.string()).describe('Array of summary strings describing what was done (e.g., ["Implemented feature X", "Added tests"])'),
   artifacts: z
@@ -300,8 +301,8 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
       // 5. Append handoff note if provided
       if (args.handoff_notes && args.handoff_notes.length > 0) {
-        const fromAgent = PIPELINE_AGENT_MAP[args.type as PipelineType] ?? args.type;
-        const toAgent = NEXT_AGENT_MAP[args.type as PipelineType] ?? 'Unknown';
+        const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
+        const toAgent = NEXT_AGENT_MAP[args.type] ?? 'Unknown';
         const note: HandoffNote = {
           from_agent: fromAgent,
           to_agent: toAgent,
@@ -360,7 +361,7 @@ const CancelPipelineSchema = z.object({
     .string()
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: z.string().describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
 });
 
@@ -425,7 +426,7 @@ const UpdatePipelineProgressSchema = z.object({
     .string()
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: z.string().describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
   summary: z.array(z.string()).describe('Updated summary strings to record as partial progress'),
 });
 

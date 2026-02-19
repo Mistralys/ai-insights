@@ -10,6 +10,7 @@ import {
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
   type PipelineType,
+  type PostImplPipelineType,
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp } from '../utils/timestamp.js';
 
@@ -55,18 +56,20 @@ const AGENT_ROLES = [
 
 type AgentRole = typeof AGENT_ROLES[number];
 
-/** Display-name maps used by getNextActions for human-readable output. */
-const agentNameMap: Record<string, string> = {
+/** Display-name maps used by getNextActions for human-readable output.
+ * These deliberately exclude 'implementation' — only post-impl stages appear
+ * in batch action output. PostImplPipelineType enforces this at compile time. */
+const agentNameMap: Record<PostImplPipelineType, string> = {
   'qa': 'QA',
   'code-review': 'Reviewer',
   'documentation': 'Documentation',
 };
-const actionNameMap: Record<string, string> = {
+const actionNameMap: Record<PostImplPipelineType, string> = {
   'qa': 'RUN_QA',
   'code-review': 'RUN_REVIEW',
   'documentation': 'WRITE_DOCS',
 };
-const reworkActionMap: Record<string, string> = {
+const reworkActionMap: Record<PostImplPipelineType, string> = {
   'qa': 'REWORK_QA',
   'code-review': 'REWORK_REVIEW',
   'documentation': 'REWORK_DOCS',
@@ -1493,7 +1496,7 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
     }
 
     // Prerequisite type for this agent's pipeline
-    const prerequisite = PIPELINE_PREREQUISITES[pipelineType as PipelineType];
+    const prerequisite = PIPELINE_PREREQUISITES[pipelineType as PipelineType]; // AGENT_PIPELINE_MAP values are PipelineType but typed as string
 
     for (const wpDetail of wpDetails) {
       if (actions.length >= limit) break;

@@ -6,6 +6,7 @@ import { withLock } from '../storage/file-lock.js';
 import type { PipelineComment, IncidentContext } from '../schema/work-package.js';
 import type { ProjectComment } from '../schema/root-index.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { PipelineTypeEnum } from '../utils/pipeline-maps.js';
 
 /**
  * Tool: add_observation
@@ -19,7 +20,7 @@ const AddObservationSchema = z.object({
     .string()
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  pipeline_type: z.string().describe('Pipeline type to add the observation to (e.g., "implementation", "qa", "code-review", "documentation")'),
+  pipeline_type: PipelineTypeEnum.describe('Pipeline type to add the observation to: "implementation", "qa", "code-review", or "documentation"'),
   type: z
     .string()
     .describe(
