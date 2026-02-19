@@ -42,6 +42,7 @@ const TOOL_HELP: Record<string, string> = {
 4. **Starting a pipeline before claiming the WP** — WP must be IN_PROGRESS before starting a pipeline.
 5. **Not updating acceptance_criteria** — Use the acceptance_criteria_updates param in ledger_complete_pipeline to mark criteria as met before marking WP COMPLETE.
 6. **Starting pipelines out of order** — Pipelines must follow the enforced order: implementation → qa → code-review → documentation. Starting qa requires a PASS implementation pipeline, etc.
+7. **Setting WP to BLOCKED after a pipeline FAIL** — When QA or Reviewer fails a pipeline, do NOT set the WP to BLOCKED. Leave it as IN_PROGRESS so the Developer can find it via ledger_get_next_action and rework. BLOCKED should only be used for external blockers (missing APIs, pending decisions, etc.).
 
 ## Workflow Order
 
@@ -50,6 +51,32 @@ const TOOL_HELP: Record<string, string> = {
 3. QA starts pipeline (type="qa"), completes pipeline
 4. Reviewer starts pipeline (type="code-review"), completes pipeline
 5. Documentation starts pipeline (type="documentation"), completes pipeline, then marks WP COMPLETE (ledger_update_work_package_status)
+
+**Important:** Every ledger_complete_pipeline and ledger_update_work_package_status response includes a "--- NEXT STEP ---" guidance block telling you exactly what to do next. Follow it.
+
+## Rework After Pipeline FAIL
+
+When a QA or code-review pipeline completes with FAIL:
+- The agent who ran the failing pipeline should leave the WP as IN_PROGRESS (do NOT set to BLOCKED)
+- Call ledger_get_handoff_status to confirm handoff
+- The Developer will automatically see a REWORK action via ledger_get_next_action
+- The Developer re-implements, then the pipeline chain continues from QA again
+
+## Handoff Block Format
+
+Every agent must end their response with the handoff block returned by ledger_get_handoff_status. The block uses three fields:
+
+\`\`\`
+CURRENT AGENT: <current_agent>
+NEXT AGENT: <next_agent>
+STATUS: <status>
+\`\`\`
+
+- **current_agent**: The agent that just finished working (you)
+- **next_agent**: The agent that should pick up work next (derived from status)
+- **status**: The workflow status (e.g., READY_FOR_QA, IN_PROGRESS, COMPLETE)
+
+All three fields are returned by ledger_get_handoff_status — copy them verbatim.
 
 ## Batch vs Singular Action Tools
 
@@ -439,6 +466,20 @@ Useful for projects with many independent work packages.
 # ledger_get_handoff_status
 
 Check handoff status to determine if your work is done.
+
+## Response Format
+The response JSON includes:
+- **current_agent**: The agent that just finished working (you)
+- **next_agent**: The agent that should pick up next (derived from status; omitted for COMPLETE)
+- **status**: Workflow status (READY_FOR_DEVELOPER, READY_FOR_QA, READY_FOR_REVIEW, READY_FOR_DOCUMENTATION, READY_FOR_SYNTHESIS, IN_PROGRESS, BLOCKED, COMPLETE)
+- **details**: Human-readable description of the current state
+
+Copy the current_agent, next_agent, and status into your handoff block:
+\`\`\`
+CURRENT AGENT: <current_agent>
+NEXT AGENT: <next_agent>
+STATUS: <status>
+\`\`\`
 
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory

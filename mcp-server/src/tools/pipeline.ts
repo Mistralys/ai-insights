@@ -12,12 +12,66 @@ import {
 } from '../utils/pipeline-maps.js';
 
 /**
+ * Build a next-step guidance string for the agent after completing a pipeline.
+ *
+ * On PASS: directs the agent to call ledger_get_handoff_status.
+ * On FAIL: tells the agent who will rework and what to do (leave WP as
+ * IN_PROGRESS so the Developer can pick it up via ledger_get_next_action).
+ *
+ * Returning explicit guidance at every state transition is a self-healing
+ * measure — agents never have to guess what to do next.
+ */
+function buildCompletionGuidance(
+  wpId: string,
+  pipelineType: string,
+  status: 'PASS' | 'FAIL',
+): string {
+  const currentAgent = PIPELINE_AGENT_MAP[pipelineType as PipelineType] ?? pipelineType;
+  const nextAgent = NEXT_AGENT_MAP[pipelineType as PipelineType] ?? 'the next agent';
+
+  if (status === 'PASS') {
+    if (pipelineType === 'documentation') {
+      return (
+        `\n\n--- NEXT STEP ---\n` +
+        `Pipeline PASS. As the Documentation agent, you should now mark ${wpId} as COMPLETE ` +
+        `using ledger_update_work_package_status (status: "COMPLETE", agent: "Documentation"). ` +
+        `Then call ledger_get_handoff_status to confirm handoff.`
+      );
+    }
+    return (
+      `\n\n--- NEXT STEP ---\n` +
+      `Pipeline PASS. Call ledger_get_handoff_status (current_agent: "${currentAgent}") ` +
+      `to confirm your work is done and hand off to ${nextAgent}.`
+    );
+  }
+
+  // FAIL path
+  if (pipelineType === 'implementation') {
+    return (
+      `\n\n--- NEXT STEP ---\n` +
+      `Pipeline FAIL. Leave ${wpId} as IN_PROGRESS. ` +
+      `The Developer will see this via ledger_get_next_action and rework. ` +
+      `Call ledger_get_handoff_status to confirm handoff.`
+    );
+  }
+
+  // QA or code-review FAIL → Developer needs to rework the implementation
+  return (
+    `\n\n--- NEXT STEP ---\n` +
+    `Pipeline FAIL. Do NOT set ${wpId} to BLOCKED — leave it as IN_PROGRESS. ` +
+    `The Developer will see the FAIL ${pipelineType} pipeline via ledger_get_next_action and rework the implementation. ` +
+    `Call ledger_get_handoff_status to confirm handoff back to the Developer.`
+  );
+}
+
+/**
  * @internal — exported for unit testing only
  */
 export const _internal = {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  buildCompletionGuidance,
 };
 
 /**
@@ -266,13 +320,18 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
       return { wp, root };
     });
 
-    // Return updated work package
+    // Return updated work package with next-step guidance
     const updatedWp = await store.readWorkPackage(args.work_package_id);
+    const guidance = buildCompletionGuidance(
+      args.work_package_id,
+      args.type,
+      args.status,
+    );
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(updatedWp, null, 2),
+          text: JSON.stringify(updatedWp, null, 2) + guidance,
         },
       ],
     };

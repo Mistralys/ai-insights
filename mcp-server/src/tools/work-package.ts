@@ -18,6 +18,50 @@ import { withLock } from '../storage/file-lock.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
 
 /**
+ * Build a next-step guidance string after a WP status transition.
+ *
+ * Provides explicit routing so agents never have to guess what comes next.
+ * This is a key self-healing measure: the tool response itself tells the agent
+ * the correct next action, preventing silent workflow stalls.
+ */
+function buildStatusTransitionGuidance(
+  wpId: string,
+  newStatus: string,
+  agent: string,
+): string {
+  switch (newStatus) {
+    case 'BLOCKED':
+      return (
+        `\n\n--- NEXT STEP ---\n` +
+        `${wpId} is now BLOCKED. ` +
+        `Call ledger_get_handoff_status to confirm your handoff. ` +
+        `The Developer will see this WP via ledger_get_next_action and rework the implementation to resolve the blocker.`
+      );
+    case 'COMPLETE':
+      return (
+        `\n\n--- NEXT STEP ---\n` +
+        `${wpId} is now COMPLETE. Dependent work packages have been auto-unblocked if eligible. ` +
+        `Call ledger_get_handoff_status to confirm handoff and check if more WPs need your attention.`
+      );
+    case 'IN_PROGRESS':
+      return (
+        `\n\n--- NEXT STEP ---\n` +
+        `${wpId} is now IN_PROGRESS. ` +
+        `Start your pipeline using ledger_start_pipeline, then complete it with ledger_complete_pipeline when done.`
+      );
+    default:
+      return '';
+  }
+}
+
+/**
+ * @internal — exported for unit testing only
+ */
+export const _internal = {
+  buildStatusTransitionGuidance,
+};
+
+/**
  * Tool: get_work_package
  *
  * Reads and returns the full work package detail for a given WP ID.
@@ -481,13 +525,18 @@ async function updateWorkPackageStatus(
       await propagateDependencyUnblock(args.project_path, args.work_package_id);
     }
 
-    // Return updated work package
+    // Return updated work package with next-step guidance
     const updatedWp = await store.readWorkPackage(args.work_package_id);
+    const guidance = buildStatusTransitionGuidance(
+      args.work_package_id,
+      args.status,
+      args.agent,
+    );
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(updatedWp, null, 2),
+          text: JSON.stringify(updatedWp, null, 2) + guidance,
         },
       ],
     };

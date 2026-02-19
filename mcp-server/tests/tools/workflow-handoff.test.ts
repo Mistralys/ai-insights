@@ -21,6 +21,8 @@ const {
   extractReworkAction,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  nextAgentFromStatus,
+  buildHandoffResponse,
 } = _internal;
 
 /** Helper to parse the JSON from a handoff result */
@@ -984,5 +986,151 @@ describe('Developer downstream pipeline failure detection', () => {
     const parsed = parseResult(result);
     // QA most-recent is PASS, so no rework needed
     expect(parsed.action).toBe('WAIT');
+  });
+});
+
+describe('Three-field handoff format (current_agent / next_agent / status)', () => {
+  describe('nextAgentFromStatus', () => {
+    it('maps READY_FOR_* statuses to target agent', () => {
+      expect(nextAgentFromStatus('READY_FOR_DEVELOPER', 'QA')).toBe('Developer');
+      expect(nextAgentFromStatus('READY_FOR_QA', 'Developer')).toBe('QA');
+      expect(nextAgentFromStatus('READY_FOR_REVIEW', 'QA')).toBe('Reviewer');
+      expect(nextAgentFromStatus('READY_FOR_DOCUMENTATION', 'Reviewer')).toBe('Documentation');
+      expect(nextAgentFromStatus('READY_FOR_SYNTHESIS', 'Documentation')).toBe('Synthesis');
+    });
+
+    it('returns current agent for IN_PROGRESS', () => {
+      expect(nextAgentFromStatus('IN_PROGRESS', 'Developer')).toBe('Developer');
+      expect(nextAgentFromStatus('IN_PROGRESS', 'QA')).toBe('QA');
+    });
+
+    it('returns Project Manager for BLOCKED', () => {
+      expect(nextAgentFromStatus('BLOCKED', 'Developer')).toBe('Project Manager');
+    });
+
+    it('returns null for COMPLETE', () => {
+      expect(nextAgentFromStatus('COMPLETE', 'Synthesis')).toBeNull();
+    });
+
+    it('returns null for unknown status', () => {
+      expect(nextAgentFromStatus('UNKNOWN', 'Developer')).toBeNull();
+    });
+  });
+
+  describe('buildHandoffResponse', () => {
+    it('includes current_agent, next_agent, and status in payload', () => {
+      const result = parseResult(buildHandoffResponse('QA', 'READY_FOR_REVIEW', 'QA done.'));
+      expect(result.current_agent).toBe('QA');
+      expect(result.next_agent).toBe('Reviewer');
+      expect(result.status).toBe('READY_FOR_REVIEW');
+      expect(result.details).toBe('QA done.');
+    });
+
+    it('omits next_agent for COMPLETE status', () => {
+      const result = parseResult(buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.'));
+      expect(result.current_agent).toBe('Synthesis');
+      expect(result.next_agent).toBeUndefined();
+      expect(result.status).toBe('COMPLETE');
+    });
+
+    it('sets next_agent to current agent for IN_PROGRESS', () => {
+      const result = parseResult(buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.'));
+      expect(result.current_agent).toBe('Developer');
+      expect(result.next_agent).toBe('Developer');
+    });
+
+    it('includes next_action when provided', () => {
+      const result = parseResult(buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.', 'Call get_next_action'));
+      expect(result.next_action).toBe('Call get_next_action');
+    });
+
+    it('omits next_action when not provided', () => {
+      const result = parseResult(buildHandoffResponse('QA', 'READY_FOR_REVIEW', 'Done.'));
+      expect(result.next_action).toBeUndefined();
+    });
+  });
+
+  describe('handoff functions emit current_agent and next_agent', () => {
+    it('getQaHandoff includes current_agent: QA and next_agent: Reviewer', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ]),
+      ];
+      const result = parseResult(getQaHandoff(wpDetails));
+      expect(result.current_agent).toBe('QA');
+      expect(result.next_agent).toBe('Reviewer');
+      expect(result.status).toBe('READY_FOR_REVIEW');
+    });
+
+    it('getReviewerHandoff includes current_agent: Reviewer and next_agent: Documentation', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+        ]),
+      ];
+      const result = parseResult(getReviewerHandoff(wpDetails));
+      expect(result.current_agent).toBe('Reviewer');
+      expect(result.next_agent).toBe('Documentation');
+      expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    });
+
+    it('getDocumentationHandoff includes current_agent: Documentation and next_agent: Synthesis', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'COMPLETE', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+          { type: 'documentation', status: 'PASS' },
+        ]),
+      ];
+      const result = parseResult(getDocumentationHandoff(wpDetails));
+      expect(result.current_agent).toBe('Documentation');
+      expect(result.next_agent).toBe('Synthesis');
+    });
+
+    it('getDeveloperHandoff IN_PROGRESS has next_agent: Developer (self)', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', []),
+        makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
+      ];
+      const result = parseResult(getDeveloperHandoff(wpDetails));
+      expect(result.current_agent).toBe('Developer');
+      expect(result.next_agent).toBe('Developer');
+      expect(result.status).toBe('IN_PROGRESS');
+    });
+
+    it('getDeveloperHandoff READY_FOR_QA has next_agent: QA', () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+        ]),
+      ];
+      const result = parseResult(getDeveloperHandoff(wpDetails));
+      expect(result.current_agent).toBe('Developer');
+      expect(result.next_agent).toBe('QA');
+    });
+
+    it('no handoff response contains the old "agent" field', () => {
+      // Verify QA handoff does not include "agent" key
+      const qaResult = parseResult(getQaHandoff([
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ]),
+      ]));
+      expect(qaResult).not.toHaveProperty('agent');
+
+      // Verify Developer handoff does not include "agent" key
+      const devResult = parseResult(getDeveloperHandoff([
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+        ]),
+      ]));
+      expect(devResult).not.toHaveProperty('agent');
+    });
   });
 });

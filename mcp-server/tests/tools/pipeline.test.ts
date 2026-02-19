@@ -640,3 +640,55 @@ describe('updatePipelineProgress logic (WP-005)', () => {
     expect(wp.work_package_id).toBe('WP-001');
   });
 });
+
+describe('Pipeline completion guidance (buildCompletionGuidance)', () => {
+  const { buildCompletionGuidance } = _internal;
+
+  it('PASS implementation suggests calling get_handoff_status and mentions QA', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'implementation', 'PASS');
+    expect(guidance).toContain('NEXT STEP');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    expect(guidance).toContain('QA');
+  });
+
+  it('PASS qa suggests calling get_handoff_status and mentions Reviewer', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'qa', 'PASS');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    expect(guidance).toContain('Reviewer');
+  });
+
+  it('PASS code-review suggests calling get_handoff_status and mentions Documentation', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'code-review', 'PASS');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    expect(guidance).toContain('Documentation');
+  });
+
+  it('PASS documentation suggests marking WP as COMPLETE', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'documentation', 'PASS');
+    expect(guidance).toContain('COMPLETE');
+    expect(guidance).toContain('ledger_update_work_package_status');
+  });
+
+  it('FAIL implementation tells agent to leave WP as IN_PROGRESS for Developer rework', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'implementation', 'FAIL');
+    expect(guidance).toContain('FAIL');
+    expect(guidance).toContain('IN_PROGRESS');
+    expect(guidance).toContain('Developer');
+    expect(guidance).toContain('ledger_get_next_action');
+  });
+
+  it('FAIL qa explicitly says do NOT set to BLOCKED and mentions Developer rework', () => {
+    const guidance = buildCompletionGuidance('WP-005', 'qa', 'FAIL');
+    expect(guidance).toContain('Do NOT set WP-005 to BLOCKED');
+    expect(guidance).toContain('Developer');
+    expect(guidance).toContain('ledger_get_next_action');
+    expect(guidance).toContain('rework');
+  });
+
+  it('FAIL code-review explicitly says do NOT set to BLOCKED and mentions Developer rework', () => {
+    const guidance = buildCompletionGuidance('WP-003', 'code-review', 'FAIL');
+    expect(guidance).toContain('Do NOT set WP-003 to BLOCKED');
+    expect(guidance).toContain('Developer');
+    expect(guidance).toContain('rework');
+  });
+});

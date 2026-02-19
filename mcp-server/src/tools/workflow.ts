@@ -36,6 +36,8 @@ export const _internal = {
   extractReworkAction,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  nextAgentFromStatus,
+  buildHandoffResponse,
 };
 
 /**
@@ -875,22 +877,11 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // If any WPs are COMPLETE, downstream agents (QA, Reviewer, Documentation) can still process them,
     // so let agent-specific logic determine the appropriate handoff.
     if (blockedWps.length > 0 && readyOrInProgressWps.length === 0 && completeWps.length === 0) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: args.current_agent,
-                status: 'BLOCKED',
-                details: `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        args.current_agent,
+        'BLOCKED',
+        `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`
+      );
     }
 
     // Load all WP details to examine pipeline states first
@@ -914,39 +905,9 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
       case 'Documentation':
         return getDocumentationHandoff(wpDetails);
       case 'Synthesis':
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  agent: args.current_agent,
-                  status: 'COMPLETE',
-                  details: 'Synthesis complete.',
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return buildHandoffResponse(args.current_agent, 'COMPLETE', 'Synthesis complete.');
       default:
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  agent: args.current_agent,
-                  status: 'IN_PROGRESS',
-                  details: 'Work in progress.',
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.');
     }
   } catch (error) {
     return {
@@ -985,6 +946,53 @@ function isBlockedByDependencies(
 }
 
 /**
+ * Derive the next agent from a handoff status.
+ *
+ * For READY_FOR_* statuses the next agent is the target role.
+ * For IN_PROGRESS the caller continues (next === current).
+ * For BLOCKED, the Project Manager triages.
+ * For COMPLETE, no next agent is needed.
+ */
+function nextAgentFromStatus(status: string, currentAgent: string): string | null {
+  const map: Record<string, string> = {
+    READY_FOR_DEVELOPER: 'Developer',
+    READY_FOR_QA: 'QA',
+    READY_FOR_REVIEW: 'Reviewer',
+    READY_FOR_DOCUMENTATION: 'Documentation',
+    READY_FOR_SYNTHESIS: 'Synthesis',
+    BLOCKED: 'Project Manager',
+  };
+  if (status === 'IN_PROGRESS') return currentAgent;
+  if (status === 'COMPLETE') return null;
+  return map[status] ?? null;
+}
+
+/** Build a standard handoff response payload with current_agent, next_agent, and status. */
+function buildHandoffResponse(
+  currentAgent: string,
+  status: string,
+  details: string,
+  nextAction?: string
+) {
+  const nextAgent = nextAgentFromStatus(status, currentAgent);
+  const payload: Record<string, string> = {
+    current_agent: currentAgent,
+    ...(nextAgent ? { next_agent: nextAgent } : {}),
+    status,
+    details,
+  };
+  if (nextAction) payload.next_action = nextAction;
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(payload, null, 2),
+      },
+    ],
+  };
+}
+
+/**
  * Get handoff status for Project Manager
  */
 function getProjectManagerHandoff(wpDetails: WorkPackageDetail[]) {
@@ -996,40 +1004,18 @@ function getProjectManagerHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (needsImplementation) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Project Manager',
-              status: 'READY_FOR_DEVELOPER',
-              details: 'Work packages created and ready for implementation.',
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Project Manager',
+      'READY_FOR_DEVELOPER',
+      'Work packages created and ready for implementation.'
+    );
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(
-          {
-            agent: 'Project Manager',
-            status: 'IN_PROGRESS',
-            details: 'Work packages in progress.',
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  };
+  return buildHandoffResponse(
+    'Project Manager',
+    'IN_PROGRESS',
+    'Work packages in progress.'
+  );
 }
 
 /**
@@ -1042,22 +1028,11 @@ function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
   );
 
   if (allImplemented) {
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Developer',
-              status: 'READY_FOR_QA',
-              details: 'All work packages have PASS implementation pipelines.',
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Developer',
+      'READY_FOR_QA',
+      'All work packages have PASS implementation pipelines.'
+    );
   }
 
   // Check if any WP needs implementation or has FAIL pipeline.
@@ -1081,41 +1056,19 @@ function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
         wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'FAIL')
     );
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Developer',
-              status: 'IN_PROGRESS',
-              details: `Implementation work in progress. ${wpsNeedingWork.length} work package(s) still need implementation or rework.`,
-              next_action: `Call ledger_get_next_action with agent_role: "Developer" to find the next work package to implement. Continue working until all WPs have PASS implementation pipelines.`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Developer',
+      'IN_PROGRESS',
+      `Implementation work in progress. ${wpsNeedingWork.length} work package(s) still need implementation or rework.`,
+      `Call ledger_get_next_action with agent_role: "Developer" to find the next work package to implement. Continue working until all WPs have PASS implementation pipelines.`
+    );
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(
-          {
-            agent: 'Developer',
-            status: 'READY_FOR_QA',
-            details: 'Implementation complete.',
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  };
+  return buildHandoffResponse(
+    'Developer',
+    'READY_FOR_QA',
+    'Implementation complete.'
+  );
 }
 
 /**
@@ -1149,59 +1102,26 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
 
       // If all unimplemented WPs are blocked, proceed to Review instead of waiting
       if (readyWps.length === 0 && blockedWps.length > 0) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  agent: 'QA',
-                  status: 'READY_FOR_REVIEW',
-                  details: `QA passed for ${wpsWithImpl.length} implemented work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return buildHandoffResponse(
+          'QA',
+          'READY_FOR_REVIEW',
+          `QA passed for ${wpsWithImpl.length} implemented work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`
+        );
       }
 
       // Some WPs are ready for implementation
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: 'QA',
-                status: 'READY_FOR_DEVELOPER',
-                details: `QA passed for ${wpsWithImpl.length} implemented work package(s). ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        'QA',
+        'READY_FOR_DEVELOPER',
+        `QA passed for ${wpsWithImpl.length} implemented work package(s). ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+      );
     }
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'QA',
-              status: 'READY_FOR_REVIEW',
-              details: 'All work packages have PASS QA pipelines.',
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'QA',
+      'READY_FOR_REVIEW',
+      'All work packages have PASS QA pipelines.'
+    );
   }
 
   // Check if any non-BLOCKED WP needs QA or has FAIL pipeline.
@@ -1222,23 +1142,12 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
         wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
     );
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'QA',
-              status: 'IN_PROGRESS',
-              details: `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA or rework.`,
-              next_action: `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'QA',
+      'IN_PROGRESS',
+      `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA or rework.`,
+      `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`
+    );
   }
 
   // All implemented WPs have QA but some WPs still need implementation
@@ -1253,59 +1162,26 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
 
     // If all unimplemented WPs are blocked, proceed to Review instead of waiting
     if (readyWps.length === 0 && blockedWps.length > 0) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: 'QA',
-                status: 'READY_FOR_REVIEW',
-                details: `QA complete for all implemented work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        'QA',
+        'READY_FOR_REVIEW',
+        `QA complete for all implemented work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`
+      );
     }
 
     // Some WPs are ready for implementation
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'QA',
-              status: 'READY_FOR_DEVELOPER',
-              details: `QA complete for all implemented work packages. ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'QA',
+      'READY_FOR_DEVELOPER',
+      `QA complete for all implemented work packages. ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+    );
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(
-          {
-            agent: 'QA',
-            status: 'READY_FOR_REVIEW',
-            details: 'QA complete.',
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  };
+  return buildHandoffResponse(
+    'QA',
+    'READY_FOR_REVIEW',
+    'QA complete.'
+  );
 }
 
 /**
@@ -1339,59 +1215,26 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
 
       // If all unimplemented WPs are blocked, proceed to Documentation instead of waiting
       if (readyWps.length === 0 && blockedWps.length > 0) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  agent: 'Reviewer',
-                  status: 'READY_FOR_DOCUMENTATION',
-                  details: `Review passed for ${wpsWithQa.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return buildHandoffResponse(
+          'Reviewer',
+          'READY_FOR_DOCUMENTATION',
+          `Review passed for ${wpsWithQa.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`
+        );
       }
 
       // Some WPs are ready for implementation/QA
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: 'Reviewer',
-                status: 'READY_FOR_DEVELOPER',
-                details: `Review passed for ${wpsWithQa.length} work package(s). ${readyWps.length} work package(s) ready for implementation/QA: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        'Reviewer',
+        'READY_FOR_DEVELOPER',
+        `Review passed for ${wpsWithQa.length} work package(s). ${readyWps.length} work package(s) ready for implementation/QA: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+      );
     }
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Reviewer',
-              status: 'READY_FOR_DOCUMENTATION',
-              details: 'All work packages have PASS code-review pipelines.',
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Reviewer',
+      'READY_FOR_DOCUMENTATION',
+      'All work packages have PASS code-review pipelines.'
+    );
   }
 
   // Check if any non-BLOCKED WP needs review or has FAIL pipeline.
@@ -1412,23 +1255,12 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
         wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
     );
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Reviewer',
-              status: 'IN_PROGRESS',
-              details: `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review or rework.`,
-              next_action: `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Reviewer',
+      'IN_PROGRESS',
+      `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review or rework.`,
+      `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`
+    );
   }
 
   // All reviewed WPs are done but some haven't reached QA yet
@@ -1443,59 +1275,26 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
 
     // If all unimplemented WPs are blocked, proceed to Documentation instead of waiting
     if (readyWps.length === 0 && blockedWps.length > 0) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: 'Reviewer',
-                status: 'READY_FOR_DOCUMENTATION',
-                details: `Review complete for all QA-passed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        'Reviewer',
+        'READY_FOR_DOCUMENTATION',
+        `Review complete for all QA-passed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`
+      );
     }
 
     // Some WPs are ready for earlier stages
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Reviewer',
-              status: 'READY_FOR_DEVELOPER',
-              details: `Review complete for all QA-passed work packages. ${readyWps.length} work package(s) ready for earlier stages: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Reviewer',
+      'READY_FOR_DEVELOPER',
+      `Review complete for all QA-passed work packages. ${readyWps.length} work package(s) ready for earlier stages: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+    );
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(
-          {
-            agent: 'Reviewer',
-            status: 'READY_FOR_DOCUMENTATION',
-            details: 'Code review complete.',
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  };
+  return buildHandoffResponse(
+    'Reviewer',
+    'READY_FOR_DOCUMENTATION',
+    'Code review complete.'
+  );
 }
 
 /**
@@ -1529,59 +1328,25 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
 
       // If all unreviewed WPs are blocked by dependencies, proceed to Synthesis
       if (readyWps.length === 0 && blockedWps.length > 0) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  agent: 'Documentation',
-                  status: 'READY_FOR_SYNTHESIS',
-                  details: `Documentation passed for ${wpsWithReview.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return buildHandoffResponse(
+          'Documentation',
+          'READY_FOR_SYNTHESIS',
+          `Documentation passed for ${wpsWithReview.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`
+        );
       }
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: 'Documentation',
-                status: 'READY_FOR_DEVELOPER',
-                details: `Documentation passed for ${wpsWithReview.length} work package(s), but ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        'Documentation',
+        'READY_FOR_DEVELOPER',
+        `Documentation passed for ${wpsWithReview.length} work package(s), but ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`
+      );
     }
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Documentation',
-              status: 'READY_FOR_SYNTHESIS',
-              details:
-                'All work packages have PASS documentation pipelines.',
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Documentation',
+      'READY_FOR_SYNTHESIS',
+      'All work packages have PASS documentation pipelines.'
+    );
   }
 
   // Check if any non-BLOCKED WP needs documentation or has FAIL pipeline.
@@ -1602,23 +1367,12 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
         wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL'))
     );
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Documentation',
-              status: 'IN_PROGRESS',
-              details: `Documentation work in progress. ${wpsNeedingWork.length} work package(s) still need documentation or rework.`,
-              next_action: `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Documentation',
+      'IN_PROGRESS',
+      `Documentation work in progress. ${wpsNeedingWork.length} work package(s) still need documentation or rework.`,
+      `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`
+    );
   }
 
   // All documented WPs are done but some haven't reached review yet
@@ -1633,58 +1387,25 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
 
     // If all unreviewed WPs are blocked by dependencies, proceed to Synthesis
     if (readyWps.length === 0 && blockedWps.length > 0) {
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              {
-                agent: 'Documentation',
-                status: 'READY_FOR_SYNTHESIS',
-                details: `Documentation complete for all reviewed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`,
-              },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+      return buildHandoffResponse(
+        'Documentation',
+        'READY_FOR_SYNTHESIS',
+        `Documentation complete for all reviewed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`
+      );
     }
 
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify(
-            {
-              agent: 'Documentation',
-              status: 'READY_FOR_DEVELOPER',
-              details: `Documentation complete for all reviewed work packages. ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    };
+    return buildHandoffResponse(
+      'Documentation',
+      'READY_FOR_DEVELOPER',
+      `Documentation complete for all reviewed work packages. ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`
+    );
   }
 
-  return {
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(
-          {
-            agent: 'Documentation',
-            status: 'READY_FOR_SYNTHESIS',
-            details: 'Documentation complete.',
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  };
+  return buildHandoffResponse(
+    'Documentation',
+    'READY_FOR_SYNTHESIS',
+    'Documentation complete.'
+  );
 }
 
 /**
