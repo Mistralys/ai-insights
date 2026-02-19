@@ -1,0 +1,18 @@
+$schema: 'https://raw.githubusercontent.com/context-hub/generator/refs/heads/main/json-schema.json'
+
+# Import all module context files
+import:
+  - path: "**/module-context.yaml"
+
+# DOCUMENT GENERATION - To create documentation from codebase
+documents:
+  -
+    description: 'AI Insights - Overview'
+    outputPath: README.md
+    overwrite: true
+    sources:
+      - type: file
+        description: "Overview"
+        sourcePaths:
+          - README.md
+        filePattern: "README.md"

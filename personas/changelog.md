@@ -1,5 +1,16 @@
 # Personas Changelog
 
+## v3.0.2 - Pre-Flight Optimization
+- Ledger Personas: Optimized pre-flight so agents know how to search for the ledger tools.
+
+## v3.0.1 - MCP Ledger
+- Ledger Personas: Tweaked pre-flight wording to avoid "Tools not found" messages.
+
+## v3.0.0 - MCP Ledger
+- Ledger Personas: The ledger is now handled via the dedicated MCP server.
+- Ledger MCP: Created the ledger MCP server.
+- Ledger Personas: Refined the pre-flight check.
+
 ## v2.1.1 - Developer fixes
 - Developer Persona: Small fixes.
 - Worker Personas: Added error logging (Developer, QA, Documentation).
@@ -13,7 +24,7 @@
 ## v2.0.0 - Ledger Architecture (Breaking)
 - **Breaking Change**: Ledger now uses a split-file architecture instead of a single monolithic JSON file.
 - Root `project-ledger.json` is now a lightweight index with work package summaries (id, status, dependencies, file path).
-- Each work package has its own detail file at `ledger/WP-###.json` containing full pipeline, acceptance criteria, and artifact data.
+- Each work package has its own detail file at `.ledger/WP-###.json` containing full pipeline, acceptance criteria, and artifact data.
 - Renamed root index from `ledger.json` to `project-ledger.json` for discoverability (LLMs naturally expect this name).
 
 ## v1.0.8 - Code Improvement Tracking

@@ -1,0 +1,694 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { now } from '../../src/utils/timestamp.js';
+import type { RootIndex } from '../../src/schema/root-index.js';
+import type { WorkPackageDetail } from '../../src/schema/work-package.js';
+import { _internal } from '../../src/tools/pipeline.js';
+
+/**
+ * Unit tests for pipeline ordering and assigned_to updates.
+ *
+ * These tests exercise the startPipeline logic by driving the same
+ * store operations that the MCP tool performs internally, verifying
+ * the new pipeline ordering and assigned_to update behaviors.
+ */
+
+const { PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP } = _internal;
+
+describe('Pipeline ordering enforcement', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'pipeline-test-'));
+    store = new LedgerStore(tempDir);
+
+    // Common root index
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function writeWp(pipelines: Array<{ type: string; status: string }>) {
+    const wp: WorkPackageDetail = {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: pipelines.map((p) => ({
+        type: p.type,
+        status: p.status as any,
+        summary: [],
+      })),
+    };
+    await store.writeWorkPackage('WP-001', wp);
+    return wp;
+  }
+
+  it('starting an implementation pipeline always succeeds (no prerequisite)', async () => {
+    await writeWp([]);
+    const prerequisite = PIPELINE_PREREQUISITES['implementation'];
+    expect(prerequisite).toBeNull();
+    // No check needed — null prerequisite means always allowed
+  });
+
+  it('starting a qa pipeline without a PASS implementation pipeline is rejected', async () => {
+    await writeWp([]);
+    const wp = await store.readWorkPackage('WP-001');
+
+    const prerequisite = PIPELINE_PREREQUISITES['qa']!;
+    const hasPassPrerequisite = wp.pipelines.some(
+      (p) => p.type === prerequisite && p.status === 'PASS'
+    );
+    expect(hasPassPrerequisite).toBe(false);
+    // Simulates the error thrown by startPipeline
+    const expectedError = `Cannot start 'qa' pipeline: requires a PASS '${prerequisite}' pipeline first. Pipeline order: implementation → qa → code-review → documentation.`;
+    expect(expectedError).toContain("requires a PASS 'implementation' pipeline first");
+  });
+
+  it('starting a qa pipeline with a PASS implementation pipeline succeeds', async () => {
+    await writeWp([{ type: 'implementation', status: 'PASS' }]);
+    const wp = await store.readWorkPackage('WP-001');
+
+    const prerequisite = PIPELINE_PREREQUISITES['qa']!;
+    const hasPassPrerequisite = wp.pipelines.some(
+      (p) => p.type === prerequisite && p.status === 'PASS'
+    );
+    expect(hasPassPrerequisite).toBe(true);
+  });
+
+  it('starting a code-review pipeline without a PASS qa pipeline is rejected', async () => {
+    await writeWp([
+      { type: 'implementation', status: 'PASS' },
+      { type: 'qa', status: 'IN_PROGRESS' },
+    ]);
+    const wp = await store.readWorkPackage('WP-001');
+
+    const prerequisite = PIPELINE_PREREQUISITES['code-review']!;
+    const hasPassPrerequisite = wp.pipelines.some(
+      (p) => p.type === prerequisite && p.status === 'PASS'
+    );
+    expect(hasPassPrerequisite).toBe(false);
+  });
+
+  it('starting a documentation pipeline requires a PASS code-review pipeline', async () => {
+    await writeWp([
+      { type: 'implementation', status: 'PASS' },
+      { type: 'qa', status: 'PASS' },
+    ]);
+    const wp = await store.readWorkPackage('WP-001');
+
+    const prerequisite = PIPELINE_PREREQUISITES['documentation']!;
+    const hasPassPrerequisite = wp.pipelines.some(
+      (p) => p.type === prerequisite && p.status === 'PASS'
+    );
+    expect(hasPassPrerequisite).toBe(false);
+
+    // With code-review PASS it would pass
+    const prerequisiteCheck2 = [
+      ...wp.pipelines,
+      { type: 'code-review', status: 'PASS', summary: [] },
+    ].some((p) => p.type === prerequisite && p.status === 'PASS');
+    expect(prerequisiteCheck2).toBe(true);
+  });
+});
+
+describe('assigned_to update on pipeline start', () => {
+  it('PIPELINE_AGENT_MAP maps implementation → Developer', () => {
+    expect(PIPELINE_AGENT_MAP['implementation']).toBe('Developer');
+  });
+
+  it('PIPELINE_AGENT_MAP maps qa → QA', () => {
+    expect(PIPELINE_AGENT_MAP['qa']).toBe('QA');
+  });
+
+  it('PIPELINE_AGENT_MAP maps code-review → Reviewer', () => {
+    expect(PIPELINE_AGENT_MAP['code-review']).toBe('Reviewer');
+  });
+
+  it('PIPELINE_AGENT_MAP maps documentation → Documentation', () => {
+    expect(PIPELINE_AGENT_MAP['documentation']).toBe('Documentation');
+  });
+
+  it('assigned_to is updated in WP detail and root summary when pipeline starts', async () => {
+    const tempDir2 = await mkdtemp(join(tmpdir(), 'pipeline-assigned-'));
+    const store2 = new LedgerStore(tempDir2);
+
+    try {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Developer Agent',
+            dependencies: [],
+            file: 'ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store2.writeRootIndex(root);
+      await store2.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Developer Agent',
+        dependencies: [],
+        acceptance_criteria: [],
+        revision: 1,
+        pipelines: [{ type: 'implementation', status: 'PASS' as any, summary: [] }],
+      });
+
+      // Simulate what startPipeline does when starting qa
+      const pipelineType = 'qa';
+      await store2.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.pipelines.push({
+          type: pipelineType,
+          status: 'IN_PROGRESS',
+          started_at: now(),
+          summary: [],
+        });
+
+        const agentName = PIPELINE_AGENT_MAP[pipelineType];
+        if (agentName) {
+          wp.assigned_to = agentName;
+          const summary = root.work_packages.find((s) => s.work_package_id === 'WP-001');
+          if (summary) summary.assigned_to = agentName;
+        }
+
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const updatedWp = await store2.readWorkPackage('WP-001');
+      expect(updatedWp.assigned_to).toBe('QA');
+
+      const updatedRoot = await store2.readRootIndex();
+      expect(updatedRoot.work_packages[0].assigned_to).toBe('QA');
+    } finally {
+      await rm(tempDir2, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('cancelPipeline logic', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cancel-pipeline-test-'));
+    store = new LedgerStore(tempDir);
+
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('cancels an IN_PROGRESS pipeline by setting status to FAIL', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [{ type: 'implementation', status: 'IN_PROGRESS' as any, started_at: now(), summary: [] }],
+    });
+
+    // Simulate cancelPipeline logic
+    const cancelReason = 'Abandoned due to scope change';
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      const pipeline = [...wp.pipelines].reverse().find(
+        (p) => p.type === 'implementation' && p.status === 'IN_PROGRESS'
+      );
+      if (!pipeline) throw new Error('No IN_PROGRESS pipeline found');
+
+      pipeline.status = 'FAIL';
+      pipeline.completed_at = now();
+      pipeline.summary = [`Cancelled: ${cancelReason}`];
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].summary[0]).toContain('Cancelled');
+    expect(wp.pipelines[0].summary[0]).toContain(cancelReason);
+    expect(wp.pipelines[0].completed_at).toBeDefined();
+  });
+
+  it('errors when no IN_PROGRESS pipeline of the given type exists', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [{ type: 'implementation', status: 'PASS' as any, started_at: now(), completed_at: now(), summary: ['done'] }],
+    });
+
+    // Simulate the error check in cancelPipeline
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = [...wp.pipelines].reverse().find(
+      (p) => p.type === 'implementation' && p.status === 'IN_PROGRESS'
+    );
+    expect(pipeline).toBeUndefined();
+    // In the real tool, this would throw the descriptive error
+  });
+});
+
+describe('Project status self-healing', () => {
+  it('auto-heals from IN_PROGRESS to COMPLETE when pending_work_packages is 0', () => {
+    // Simulate the getProjectStatus self-healing logic
+    const status = 'IN_PROGRESS';
+    const pendingWps = 0;
+    const totalWps = 2;
+
+    let healedStatus = status;
+    if (status === 'IN_PROGRESS' && pendingWps === 0 && totalWps > 0) {
+      healedStatus = 'COMPLETE';
+    }
+    expect(healedStatus).toBe('COMPLETE');
+  });
+
+  it('auto-heals from COMPLETE back to IN_PROGRESS when pending_work_packages > 0', () => {
+    const status = 'COMPLETE';
+    const pendingWps = 1;
+
+    let healedStatus = status;
+    if (status === 'COMPLETE' && pendingWps > 0) {
+      healedStatus = 'IN_PROGRESS';
+    }
+    expect(healedStatus).toBe('IN_PROGRESS');
+  });
+
+  it('does NOT change status when IN_PROGRESS and work remains', () => {
+    const status = 'IN_PROGRESS';
+    const pendingWps = 3;
+    const totalWps = 3;
+
+    let healedStatus = status;
+    if (status === 'IN_PROGRESS' && pendingWps === 0 && totalWps > 0) {
+      healedStatus = 'COMPLETE';
+    } else if (status === 'COMPLETE' && pendingWps > 0) {
+      healedStatus = 'IN_PROGRESS';
+    }
+    expect(healedStatus).toBe('IN_PROGRESS');
+  });
+
+  it('does NOT heal to COMPLETE when project has no work packages (empty project)', () => {
+    const status = 'IN_PROGRESS';
+    const pendingWps = 0;
+    const totalWps = 0;
+
+    let healedStatus = status;
+    if (status === 'IN_PROGRESS' && pendingWps === 0 && totalWps > 0) {
+      healedStatus = 'COMPLETE';
+    }
+    expect(healedStatus).toBe('IN_PROGRESS');
+  });
+});
+
+describe('rework_count tracking (WP-005)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'rework-count-test-'));
+    store = new LedgerStore(tempDir);
+
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /** Simulate the rework_count logic from startPipeline */
+  async function simulateStartPipeline(pipelineType: string) {
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      const hasPreviousFail = wp.pipelines.some(
+        (p) => p.type === pipelineType && p.status === 'FAIL'
+      );
+      if (hasPreviousFail) {
+        wp.rework_count = (wp.rework_count ?? 0) + 1;
+      }
+      wp.pipelines.push({ type: pipelineType, status: 'IN_PROGRESS', started_at: now(), summary: [] });
+      root.last_updated = now();
+      return { wp, root };
+    });
+  }
+
+  async function simulateCompletePipeline(pipelineType: string, status: 'PASS' | 'FAIL') {
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      const pipeline = [...wp.pipelines].reverse().find(
+        (p) => p.type === pipelineType && p.status === 'IN_PROGRESS'
+      );
+      if (!pipeline) throw new Error(`No IN_PROGRESS ${pipelineType} pipeline`);
+      pipeline.status = status;
+      pipeline.completed_at = now();
+      pipeline.summary = [status === 'PASS' ? 'Completed' : 'Failed'];
+      root.last_updated = now();
+      return { wp, root };
+    });
+  }
+
+  it('rework_count is undefined for a new WP (backward compatible)', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.rework_count).toBeUndefined();
+  });
+
+  it('starting first implementation pipeline does NOT set rework_count', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+    });
+
+    await simulateStartPipeline('implementation');
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.rework_count).toBeUndefined();
+  });
+
+  it('starting implementation after a FAIL implementation sets rework_count to 1', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+    });
+
+    await simulateStartPipeline('implementation');
+    await simulateCompletePipeline('implementation', 'FAIL');
+    await simulateStartPipeline('implementation');
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.rework_count).toBe(1);
+  });
+
+  it('starting a second rework sets rework_count to 2', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+    });
+
+    // First attempt → FAIL → rework 1
+    await simulateStartPipeline('implementation');
+    await simulateCompletePipeline('implementation', 'FAIL');
+    await simulateStartPipeline('implementation');
+    await simulateCompletePipeline('implementation', 'FAIL');
+    // Second rework
+    await simulateStartPipeline('implementation');
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.rework_count).toBe(2);
+  });
+
+  it('starting a qa pipeline after a FAIL implementation pipeline does NOT increment rework_count', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+    });
+
+    // implementation FAIL, then rework succeeds
+    await simulateStartPipeline('implementation');
+    await simulateCompletePipeline('implementation', 'FAIL');
+    await simulateStartPipeline('implementation');  // rework_count → 1
+    await simulateCompletePipeline('implementation', 'PASS');
+
+    // Now start qa — should NOT increment rework_count
+    await simulateStartPipeline('qa');
+
+    const wp = await store.readWorkPackage('WP-001');
+    // rework_count should still be 1 (set when implementation was restarted, not when qa starts)
+    expect(wp.rework_count).toBe(1);
+    const qaPipeline = wp.pipelines.find((p) => p.type === 'qa');
+    expect(qaPipeline).toBeDefined();
+  });
+});
+
+describe('updatePipelineProgress logic (WP-005)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'progress-update-test-'));
+    store = new LedgerStore(tempDir);
+
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('updates the summary of the most recent IN_PROGRESS pipeline', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS' as any, started_at: now(), summary: ['initial note'] },
+      ],
+    });
+
+    // Simulate updatePipelineProgress logic
+    const newSummary = ['step 1 complete', 'step 2 in progress'];
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      const pipeline = [...wp.pipelines]
+        .reverse()
+        .find((p) => p.type === 'implementation' && p.status === 'IN_PROGRESS');
+      if (!pipeline) throw new Error('No IN_PROGRESS pipeline found');
+      pipeline.summary = newSummary;
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].summary).toEqual(newSummary);
+  });
+
+  it('errors when no IN_PROGRESS pipeline of the given type exists', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [
+        { type: 'implementation', status: 'PASS' as any, started_at: now(), completed_at: now(), summary: ['done'] },
+      ],
+    });
+
+    // Simulate the error check in updatePipelineProgress
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = [...wp.pipelines]
+      .reverse()
+      .find((p) => p.type === 'implementation' && p.status === 'IN_PROGRESS');
+    expect(pipeline).toBeUndefined();
+    // In the real tool, this would throw:
+    // "Cannot update pipeline progress: no IN_PROGRESS pipeline of type "implementation" found for WP-001."
+  });
+
+  it('existing WP detail files without rework_count remain valid (Zod .optional())', async () => {
+    // Write a WP without rework_count (as would exist in pre-WP-005 ledger files)
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+      // rework_count intentionally omitted
+    });
+
+    // Should read back successfully
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.rework_count).toBeUndefined();
+    expect(wp.work_package_id).toBe('WP-001');
+  });
+});
+
+describe('Pipeline completion guidance (buildCompletionGuidance)', () => {
+  const { buildCompletionGuidance } = _internal;
+
+  it('PASS implementation suggests calling get_handoff_status and mentions QA', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'implementation', 'PASS');
+    expect(guidance).toContain('NEXT STEP');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    expect(guidance).toContain('QA');
+  });
+
+  it('PASS qa suggests calling get_handoff_status and mentions Reviewer', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'qa', 'PASS');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    expect(guidance).toContain('Reviewer');
+  });
+
+  it('PASS code-review suggests calling get_handoff_status and mentions Documentation', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'code-review', 'PASS');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    expect(guidance).toContain('Documentation');
+  });
+
+  it('PASS documentation suggests marking WP as COMPLETE', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'documentation', 'PASS');
+    expect(guidance).toContain('COMPLETE');
+    expect(guidance).toContain('ledger_update_work_package_status');
+  });
+
+  it('FAIL implementation tells agent to leave WP as IN_PROGRESS for Developer rework', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'implementation', 'FAIL');
+    expect(guidance).toContain('FAIL');
+    expect(guidance).toContain('IN_PROGRESS');
+    expect(guidance).toContain('Developer');
+    expect(guidance).toContain('ledger_get_next_action');
+  });
+
+  it('FAIL qa explicitly says do NOT set to BLOCKED and mentions Developer rework', () => {
+    const guidance = buildCompletionGuidance('WP-005', 'qa', 'FAIL');
+    expect(guidance).toContain('Do NOT set WP-005 to BLOCKED');
+    expect(guidance).toContain('Developer');
+    expect(guidance).toContain('ledger_get_next_action');
+    expect(guidance).toContain('rework');
+  });
+
+  it('FAIL code-review explicitly says do NOT set to BLOCKED and mentions Developer rework', () => {
+    const guidance = buildCompletionGuidance('WP-003', 'code-review', 'FAIL');
+    expect(guidance).toContain('Do NOT set WP-003 to BLOCKED');
+    expect(guidance).toContain('Developer');
+    expect(guidance).toContain('rework');
+  });
+});

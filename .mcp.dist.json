@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "central_pm": {
+      "command": "npx",
+      "args": ["tsx", "/Users/path/to/repo/ai-insights/mcp-server/src/index.ts"]
+    }
+  }
+}

@@ -33,7 +33,7 @@ This is a structured multi-agent workflow for systematic software development. U
 2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](1-planner.md) → Describe feature → Review plan
 3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](2-project-manager.md) → Review work packages
 4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work packages → Paste [3-developer.md](3-developer.md) → Specify work package → Review code & implementation summary
-5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Open work packages & impl summary → Paste [4-validator.md](4-validator.md) → Review QA report
+5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Open work packages & impl summary → Paste [4-qa.md](4-qa.md) → Review QA report
 6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Open QA report & code → Paste [5-reviewer.md](5-reviewer.md) → Review findings
 7. **[Documentation](#stage-6-documentation-update)**: New chat → Open all reports → Paste [6-documentation.md](6-documentation.md) → Review updates
 8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Open all documents → Paste [7-synthesis.md](7-synthesis.md) → Review final report
@@ -149,7 +149,7 @@ For **each work package**:
    - Work packages document (for acceptance criteria)
    - Implementation summary (to see what was implemented)
    - Implemented code files
-3. **Copy and send** the contents of [4-validator.md](4-validator.md)
+3. **Copy and send** the contents of [4-qa.md](4-qa.md)
 4. **Specify the work package** to validate
 5. **Review validation results** in the QA report
 6. **Verify output**: QA report saved to `/docs/agents/plans/{plan-name}-qa.md`

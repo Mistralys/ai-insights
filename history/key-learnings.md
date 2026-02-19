@@ -38,6 +38,12 @@
 - Give web LLMs a combined project manifest to discuss app details
 - Rename files to support agents naturally expecting specific names (e.g. `project-ledger.json`).
 - Robust code requires oversight.
+- PHP agents expect Composer commands for `test` (PHPUnit) and `analyze` (PHPStan).
+- MCP server tools are handled via "Deferred loading": The agent has to actively search for them to see them (reason: token efficiency). 
+- Include detailed explanations in tool error responses to explain why it went wrong and what should be done instead as auto-documenting tools.
+- MCP Server tool names are prefixed internally by the name of the server, typically as defined in the MCP server config. E.g. `server_name` = `mcp_server_name_tool_name`.
+- Avoid repeating tool prefix in server names, e.g. `project-ledger` server name = `mcp_project-ledge_ledger_add_observation` full tool name for `ledger_add_observation`.
+- To trigger personas, use `**Identity: Senior Software Architect.**`. The `Identity:` syntax acts as a permanent attribute, rather than a conversational instruction ("You are xxx").
 
 ## My AI Journey Milestones
 
@@ -67,4 +73,5 @@
 - Adding metadata to agent prompts.
 - Project Manifest + AGENTS.md now proven and well oiled.
 - Using agents to create a refactoring guide (framework v7 update).
-- PHP agents expect Composer commands for `test` (PHPUnit) and `analyze` (PHPStan).
+- Creating a custom project ledger MCP server.
+- Optimizing MCP tool descriptions and adding a `help` tool to guide weaker models.

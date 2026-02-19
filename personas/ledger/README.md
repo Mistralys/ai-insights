@@ -12,6 +12,7 @@ This is a structured multi-agent workflow for systematic software development. I
 - **Quality Assurance**: Built-in validation, review, and documentation stages
 - **Scalability**: Handle complex projects by breaking them into manageable work packages
 - **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP file doesn't affect others
+- **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and dual-file sync
 
 ### Agents in the Workflow
 
@@ -29,20 +30,32 @@ This is a structured multi-agent workflow for systematic software development. I
 
 **For experienced users** - follow these steps (expand sections below for detailed instructions):
 
-1. **[Setup](#prerequisites)**: Copy `project-ledger-schema.md` to `/docs/agents/` in your project
+1. **[Setup](#prerequisites)**: Configure the MCP server via `.mcp.json`
 2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](1-planner.md) → Describe feature → Review plan
 3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](2-project-manager.md) → Review work packages & ledger
-4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work packages & ledger → Paste [3-developer.md](3-developer.md) → Specify work package → Review code
-5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Open work packages & ledger → Paste [4-validator.md](4-validator.md) → Review test results
-6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Open ledger & code → Paste [5-reviewer.md](5-reviewer.md) → Address findings
-7. **[Documentation](#stage-6-documentation-update)**: New chat → Open ledger & docs → Paste [6-documentation.md](6-documentation.md) → Review updates
-8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Open ledger → Paste [7-synthesis.md](7-synthesis.md) → Review final report
+4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work package spec → Paste [3-developer.md](3-developer.md) → Agent reads ledger via MCP → Review code
+5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-qa.md](4-qa.md) → Agent reads ledger via MCP → Review test results
+6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Paste [5-reviewer.md](5-reviewer.md) → Agent reads ledger via MCP → Address findings
+7. **[Documentation](#stage-6-documentation-update)**: New chat → Paste [6-documentation.md](6-documentation.md) → Agent reads ledger via MCP → Review updates
+8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Paste [7-synthesis.md](7-synthesis.md) → Agent reads ledger via MCP → Review final report
 
 **Repeat steps 4-6** for each work package. See detailed instructions below for tips, troubleshooting, and best practices.
 
 ---
 
 ## Prerequisites
+
+### MCP Server (Required)
+
+Agents 2–7 depend on the **`project-ledger` MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
+
+**For setup instructions, see the [MCP Server Documentation](../../mcp-server/README.md).**
+
+Quick summary:
+1. Install dependencies: `cd mcp-server && npm install`
+2. Configure `.mcp.json` with absolute path to server
+3. Restart your AI IDE to load the MCP server
+4. Agents will verify connectivity on startup
 
 ### Initial Project Setup
 
@@ -53,12 +66,7 @@ Before starting the workflow, ensure your project has:
    mkdir -p docs/agents
    ```
 
-2. **Ledger Schema**: Copy [project-ledger-schema.md](../../docs/project-ledger-schema.md) to `/docs/agents/` in your project
-   ```bash
-   cp personas/ledger/project-ledger-schema.md /your-project/docs/agents/
-   ```
-
-3. **Project Context** (Recommended):
+2. **Project Context** (Recommended):
    - Create `AGENTS.md` or project manifest describing tech stack, architecture, and conventions
    - Ensure relevant code files are accessible
    - Have existing documentation (README, API docs) available
@@ -91,14 +99,13 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** (fresh context)
 2. **Open the plan document** created in Stage 1
-3. **Ensure** [project-ledger-schema.md](../../docs/project-ledger-schema.md) is accessible at `/docs/agents/project-ledger-schema.md`
-4. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
-5. **Review the work packages** for logical sequencing and dependencies
-6. **Verify outputs**:
+3. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
+4. **Review the work packages** for logical sequencing and dependencies
+5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
    - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
    - Individual WP specification files: `/docs/agents/plans/{plan-name}/work/WP-001.md`, etc.
-   - Root ledger index: `/docs/agents/plans/{plan-name}/project-ledger.json`
-   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/ledger/WP-001.json`, etc.
+   - Root ledger index: `/docs/agents/plans/{plan-name}/.ledger/project-ledger.json`
+   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/.ledger/WP-001.json`, etc.
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
@@ -114,18 +121,13 @@ Before starting the workflow, ensure your project has:
 For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
-2. **Open these files**:
-   - The specific work package specification (`work/WP-###.md`) for the target work package
-   - Root ledger index (`project-ledger.json`)
-   - The specific WP detail file (`ledger/WP-###.json`) for the target work package
-   - Relevant source files for context
+2. **Open** the work package specification (`work/WP-###.md`) and relevant source files for context
 3. **Copy and send** the contents of [3-developer.md](3-developer.md)
 4. **Specify which work package** to implement (e.g., "Implement WP-1")
-5. **Monitor progress**: Agent will update both the WP detail file and root index status
+5. **Monitor progress**: The agent reads and updates the ledger via MCP tools automatically
 6. **Verify outputs**:
    - Code changes in your project files
-   - WP detail file updated with artifacts (file paths) and pipeline entry
-   - Root index status updated
+   - Ledger updated with artifacts, pipeline entry, and observations (via MCP)
 
 **Tips**:
 - Keep related files open for the agent to reference
@@ -140,17 +142,13 @@ For **each work package**:
 **Goal**: Verify acceptance criteria and run tests
 
 1. **Start a new chat session** or continue from implementation
-2. **Open these files**:
-   - The specific work package specification (`work/WP-###.md`) for acceptance criteria
-   - Root ledger index (`project-ledger.json`)
-   - The specific WP detail file (`ledger/WP-###.json`)
-   - Implemented code files
-3. **Copy and send** the contents of [4-validator.md](4-validator.md)
-4. **Specify the work package** to validate
+2. **Open** the work package specification (`work/WP-###.md`) and relevant source files
+3. **Copy and send** the contents of [4-qa.md](4-qa.md)
+4. **Specify the work package** to validate (the agent reads implementation artifacts from the ledger via MCP)
 5. **Review validation results**:
-   - **PASS**: All acceptance criteria met, tests pass → Status becomes `VALIDATED`
-   - **FAIL**: Issues found → Agent updates WP detail file with blockers, returns to developer
-6. **Verify ledger update**: Check `validation` pipeline entry in the WP detail file
+   - **PASS**: All acceptance criteria met, tests pass
+   - **FAIL**: Issues found → Agent sets WP to BLOCKED via MCP, returns to developer
+6. **Verify**: The agent records QA metrics, findings, and AC status in the ledger via MCP
 
 **Tips**:
 - Ensure test environment is properly configured
@@ -165,20 +163,16 @@ For **each work package**:
 **Goal**: Ensure code quality, maintainability, and architectural alignment
 
 1. **Start a new chat session** or continue from validation
-2. **Open these files**:
-   - The specific work package specification (`work/WP-###.md`)
-   - Root ledger index (`project-ledger.json`)
-   - The specific WP detail file (`ledger/WP-###.json`)
-   - Implemented and validated code
+2. **Open** relevant source files modified by the developer
 3. **Copy and send** the contents of [5-reviewer.md](5-reviewer.md)
-4. **Review the analysis**:
+4. **The agent reads** WP details and implementation artifacts from the ledger via MCP
+5. **Review the analysis**:
    - Maintainability assessment
    - Security and performance concerns
    - Architectural alignment
    - Suggested improvements
-5. **Address blocking issues** if any are identified
-6. **Verify ledger update**: Check `review` pipeline entry in the WP detail file
-7. **Status becomes** `REVIEWED` if approved
+6. **Address blocking issues** if any are identified
+7. **Verify**: The agent records review findings and scores in the ledger via MCP
 
 **Tips**:
 - Pay attention to technical debt warnings
@@ -193,16 +187,14 @@ For **each work package**:
 **Goal**: Keep documentation synchronized with code changes
 
 1. **Start a new chat session**
-2. **Open these files**:
-   - Root ledger index (`project-ledger.json`)
-   - WP detail files for completed packages (`ledger/WP-###.json`)
-   - Current project documentation (README, API docs)
+2. **Open** current project documentation (README, API docs) for context
 3. **Copy and send** the contents of [6-documentation.md](6-documentation.md)
-4. **Review documentation updates**:
+4. **The agent reads** completed WP details and artifacts from the ledger via MCP
+5. **Review documentation updates**:
    - Updated API references
    - New configuration instructions
    - Architecture diagram changes
-5. **Verify ledger update**: Check `documentation` pipeline entries in the WP detail files
+6. **Verify**: The agent records documentation pipeline results in the ledger via MCP
 
 **Tips**:
 - Ensure all new features are documented
@@ -217,11 +209,8 @@ For **each work package**:
 **Goal**: Generate comprehensive project status report
 
 1. **Start a new chat session**
-2. **Open these files**:
-   - Root ledger index (`project-ledger.json`) (primary source for overview)
-   - All WP detail files (`ledger/WP-###.json`) for pipeline data
-   - Work package specification files (`work/WP-###.md`) for reference
-3. **Copy and send** the contents of [7-synthesis.md](7-synthesis.md)
+2. **Copy and send** the contents of [7-synthesis.md](7-synthesis.md)
+3. **The agent reads** the full project status, all WP details, and pipeline data from the ledger via MCP
 4. **Review the generated report**:
    - Executive summary of what was built
    - Metrics (tests passed, coverage, issues found)
@@ -250,9 +239,9 @@ For **each work package**:
 ### Ledger Hygiene
 
 - **Commit regularly**: Version control the ledger files (root index + WP detail files) with your code
-- **Review updates**: Check that agents update both the WP detail file and root index consistently
-- **Monitor status**: Track work package statuses (`READY` → `IN_PROGRESS` → `IMPLEMENTED` → `VALIDATED` → `REVIEWED`)
-- **Keep in sync**: Root index status must mirror each WP detail file's status
+- **MCP handles consistency**: The MCP server ensures atomic writes and dual-file sync — root index and WP detail files are always kept in sync automatically
+- **Monitor status**: Track work package statuses (`READY` → `IN_PROGRESS` → `COMPLETE` → `BLOCKED`)
+- **Never edit JSON manually**: Always let agents use MCP tools to modify ledger files
 
 ### Workflow Flexibility
 
@@ -274,22 +263,23 @@ For **each work package**:
 
 ### Common Issues
 
-**Agent can't find the ledger schema**:
-- Verify [project-ledger-schema.md](../../docs/project-ledger-schema.md) is at `/docs/agents/project-ledger-schema.md` in your project
-- Check file permissions
+**Agent stops with "MCP server unavailable"**:
+- Verify `.mcp.json` exists and points to the correct MCP server path
+- Ensure the MCP server dependencies are installed (`cd mcp-server && npm install`)
+- Restart Claude Code to reload the MCP configuration
 
-**Root index and WP detail file out of sync**:
-- Open both files and compare the status fields
-- The WP detail file is the source of truth — update the root index to match
-- Agents should always update both files; if one was missed, manually correct it
+**MCP tool call fails with unexpected error**:
+- Check the MCP server logs for details
+- Ensure the `project_path` is an absolute path to the plan folder
+- Verify the ledger files haven't been corrupted by manual editing
 
 **Work package dependencies not respected**:
-- Review the ledger's `dependencies` field for each package
-- Ensure prerequisite packages are marked as `REVIEWED` before starting dependent work
+- The MCP server validates dependencies automatically — check the error message for details
+- Ensure prerequisite packages are marked as `COMPLETE` before starting dependent work
 
 **Context getting lost**:
 - Start fresh chat sessions between stages
-- Keep the ledger index and relevant work package files open
+- Agents read ledger state via MCP, so you only need to keep work package specs and source files open
 - Reference specific work package IDs in prompts
 
 **Agent modifying wrong files**:
@@ -442,8 +432,8 @@ your-project/
 │   │           │   ├── WP-001.md
 │   │           │   ├── WP-002.md
 │   │           │   └── ...
-│   │           ├── project-ledger.json    # Root index (lightweight)
-│   │           ├── ledger/                # Ledger detail files
+│   │           ├── .ledger/               # Ledger files (private)
+│   │           │   ├── project-ledger.json  # Root index (lightweight)
 │   │           │   ├── WP-001.json
 │   │           │   ├── WP-002.json
 │   │           │   └── ...
@@ -458,7 +448,8 @@ your-project/
 
 1. **Try the workflow**: Start with a small feature to familiarize yourself
 2. **Customize personas**: Adapt the agent prompts to your team's conventions
-3. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](../../docs/project-ledger-schema.md)
-4. **Share feedback**: Document what works and what doesn't for your use cases
+3. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)
+4. **Explore MCP tools**: The MCP server exposes tools for project lifecycle, work packages, pipelines, observations, and workflow coordination
+5. **Share feedback**: Document what works and what doesn't for your use cases
 
 For questions or improvements, refer to the main project [README.md](../../README.md).

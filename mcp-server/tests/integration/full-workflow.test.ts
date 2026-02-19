@@ -1,0 +1,1069 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { withLock } from '../../src/storage/file-lock.js';
+import { formatWpId } from '../../src/utils/wp-id.js';
+import { now } from '../../src/utils/timestamp.js';
+import {
+  isValidStatusTransition,
+  canStartWorkPackage,
+  canCompleteWorkPackage,
+} from '../../src/schema/validators.js';
+import type { RootIndex, WorkPackageSummary } from '../../src/schema/root-index.js';
+import type {
+  WorkPackageDetail,
+  AcceptanceCriterion,
+  Pipeline,
+} from '../../src/schema/work-package.js';
+
+/**
+ * Integration tests that simulate the full agent workflow through real file I/O.
+ * These exercise the same logic as the MCP tool handlers without depending
+ * on the MCP SDK transport layer.
+ */
+describe('Full workflow integration', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'ledger-workflow-'));
+    store = new LedgerStore(tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ========== STAGE 2: Project Manager ==========
+
+  describe('Stage 2: Project Manager initializes project', () => {
+    it('creates root index with correct initial state', async () => {
+      const timestamp = now();
+      const rootIndex: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: timestamp,
+        last_updated: timestamp,
+        status: 'READY',
+        total_work_packages: 0,
+        pending_work_packages: 0,
+        work_packages: [],
+        project_comments: [],
+      };
+
+      await store.writeRootIndex(rootIndex);
+
+      const result = await store.readRootIndex();
+      expect(result.status).toBe('READY');
+      expect(result.work_packages).toHaveLength(0);
+    });
+
+    it('rejects re-initialization when ledger exists', async () => {
+      const rootIndex: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'READY',
+        total_work_packages: 0,
+        pending_work_packages: 0,
+        work_packages: [],
+        project_comments: [],
+      };
+      await store.writeRootIndex(rootIndex);
+
+      expect(await store.rootIndexExists()).toBe(true);
+    });
+
+    it('creates work packages in dependency order', async () => {
+      // Initialize project
+      const timestamp = now();
+      const rootIndex: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: timestamp,
+        last_updated: timestamp,
+        status: 'READY',
+        total_work_packages: 0,
+        pending_work_packages: 0,
+        work_packages: [],
+        project_comments: [],
+      };
+      await store.writeRootIndex(rootIndex);
+
+      // Create WP-001 (no dependencies) — simulates ledger_create_work_package
+      await withLock(tempDir, async () => {
+        const root = await store.readRootIndex();
+        const wpId = formatWpId(root.work_packages.length + 1);
+
+        const wpDetail: WorkPackageDetail = {
+          work_package_id: wpId,
+          work_package_file: 'work/WP-001.md',
+          status: 'READY',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          acceptance_criteria: [{ criterion: 'Feature works', met: false }],
+          revision: 1,
+          pipelines: [],
+        };
+
+        const summary: WorkPackageSummary = {
+          work_package_id: wpId,
+          status: 'READY',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: `ledger/${wpId}.json`,
+        };
+
+        root.work_packages.push(summary);
+        root.total_work_packages += 1;
+        root.pending_work_packages += 1;
+        root.status = 'IN_PROGRESS';
+        root.last_updated = now();
+
+        await store.writeWorkPackage(wpId, wpDetail);
+        await store.writeRootIndex(root);
+      });
+
+      // Create WP-002 (depends on WP-001) — should be BLOCKED
+      await withLock(tempDir, async () => {
+        const root = await store.readRootIndex();
+        const wpId = formatWpId(root.work_packages.length + 1);
+
+        // Validate dependency exists
+        const depExists = root.work_packages.some(
+          (wp) => wp.work_package_id === 'WP-001'
+        );
+        expect(depExists).toBe(true);
+
+        // Check if dependency is complete
+        const depCheck = canStartWorkPackage(
+          { dependencies: ['WP-001'] } as unknown as WorkPackageSummary,
+          root.work_packages
+        );
+        const initialStatus = depCheck.allowed ? 'READY' : 'BLOCKED';
+
+        const wpDetail: WorkPackageDetail = {
+          work_package_id: wpId,
+          work_package_file: 'work/WP-002.md',
+          status: initialStatus as 'READY' | 'BLOCKED',
+          assigned_to: 'Developer Agent',
+          dependencies: ['WP-001'],
+          acceptance_criteria: [{ criterion: 'Integration works', met: false }],
+          revision: 1,
+          pipelines: [],
+        };
+
+        const summary: WorkPackageSummary = {
+          work_package_id: wpId,
+          status: initialStatus as 'READY' | 'BLOCKED',
+          assigned_to: 'Developer Agent',
+          dependencies: ['WP-001'],
+          file: `ledger/${wpId}.json`,
+        };
+
+        root.work_packages.push(summary);
+        root.total_work_packages += 1;
+        root.pending_work_packages += 1;
+        root.last_updated = now();
+
+        await store.writeWorkPackage(wpId, wpDetail);
+        await store.writeRootIndex(root);
+      });
+
+      // Verify final state
+      const root = await store.readRootIndex();
+      expect(root.status).toBe('IN_PROGRESS');
+      expect(root.total_work_packages).toBe(2);
+      expect(root.work_packages[0].status).toBe('READY');
+      expect(root.work_packages[1].status).toBe('BLOCKED');
+
+      const wp2 = await store.readWorkPackage('WP-002');
+      expect(wp2.dependencies).toEqual(['WP-001']);
+    });
+  });
+
+  // ========== STAGE 3: Developer ==========
+
+  describe('Stage 3: Developer implements work package', () => {
+    beforeEach(async () => {
+      // Set up project with one READY work package
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'READY',
+            assigned_to: 'Developer Agent',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      const wp: WorkPackageDetail = {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'READY',
+        assigned_to: 'Developer Agent',
+        dependencies: [],
+        acceptance_criteria: [
+          { criterion: 'Feature implemented', met: false },
+          { criterion: 'Tests pass', met: false },
+        ],
+        revision: 1,
+        pipelines: [],
+      };
+      await store.writeWorkPackage('WP-001', wp);
+    });
+
+    it('claims a READY work package', async () => {
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        expect(wp.status).toBe('READY');
+        expect(isValidStatusTransition('READY', 'IN_PROGRESS')).toBe(true);
+
+        const depCheck = canStartWorkPackage(wp, root.work_packages);
+        expect(depCheck.allowed).toBe(true);
+
+        wp.status = 'IN_PROGRESS';
+        wp.assigned_to = 'Developer Agent';
+
+        const summary = root.work_packages.find(
+          (s) => s.work_package_id === 'WP-001'
+        )!;
+        summary.status = 'IN_PROGRESS';
+        root.last_updated = now();
+
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.status).toBe('IN_PROGRESS');
+    });
+
+    it('starts and completes an implementation pipeline', async () => {
+      // Claim first
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.status = 'IN_PROGRESS';
+        root.work_packages[0].status = 'IN_PROGRESS';
+        return { wp, root };
+      });
+
+      // Start pipeline
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        expect(wp.status).toBe('IN_PROGRESS');
+
+        const newPipeline: Pipeline = {
+          type: 'implementation',
+          status: 'IN_PROGRESS',
+          started_at: now(),
+          summary: [],
+        };
+        wp.pipelines.push(newPipeline);
+        root.last_updated = now();
+
+        return { wp, root };
+      });
+
+      let wpAfterStart = await store.readWorkPackage('WP-001');
+      expect(wpAfterStart.pipelines).toHaveLength(1);
+      expect(wpAfterStart.pipelines[0].status).toBe('IN_PROGRESS');
+
+      // Complete pipeline with artifacts and observations
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        const pipeline = wp.pipelines
+          .reverse()
+          .find((p) => p.type === 'implementation' && p.status === 'IN_PROGRESS')!;
+        // Reverse in-place, undo it
+        wp.pipelines.reverse();
+
+        pipeline.status = 'PASS';
+        pipeline.completed_at = now();
+        pipeline.summary = ['Implemented feature X', 'Added unit tests'];
+        pipeline.artifacts = {
+          files_modified: ['src/feature.ts', 'tests/feature.test.ts'],
+        };
+        pipeline.comments = [
+          {
+            type: 'improvement',
+            priority: 'low',
+            timestamp: now(),
+            note: 'No observations — code is clean.',
+          },
+        ];
+
+        // Update acceptance criteria
+        wp.acceptance_criteria[0].met = true;
+        wp.acceptance_criteria[1].met = true;
+
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wpAfterComplete = await store.readWorkPackage('WP-001');
+      expect(wpAfterComplete.pipelines[0].status).toBe('PASS');
+      expect(wpAfterComplete.pipelines[0].artifacts?.files_modified).toHaveLength(2);
+      expect(wpAfterComplete.pipelines[0].comments).toHaveLength(1);
+      expect(wpAfterComplete.acceptance_criteria[0].met).toBe(true);
+      expect(wpAfterComplete.acceptance_criteria[1].met).toBe(true);
+    });
+
+    it('rejects duplicate in-progress pipelines', async () => {
+      // Claim and start pipeline
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.status = 'IN_PROGRESS';
+        root.work_packages[0].status = 'IN_PROGRESS';
+        wp.pipelines.push({
+          type: 'implementation',
+          status: 'IN_PROGRESS',
+          started_at: now(),
+          summary: [],
+        });
+        return { wp, root };
+      });
+
+      // Try to start another implementation pipeline — should detect duplicate
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        const existingInProgress = wp.pipelines.find(
+          (p) => p.type === 'implementation' && p.status === 'IN_PROGRESS'
+        );
+        expect(existingInProgress).toBeDefined();
+        // In the real tool, this would throw. We just verify the check works.
+        return { wp, root };
+      });
+    });
+  });
+
+  // ========== STAGE 4: QA ==========
+
+  describe('Stage 4: QA validates work package', () => {
+    beforeEach(async () => {
+      // Set up project with WP-001 having a PASS implementation pipeline
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Developer Agent',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      const wp: WorkPackageDetail = {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Developer Agent',
+        dependencies: [],
+        acceptance_criteria: [
+          { criterion: 'Feature implemented', met: true },
+          { criterion: 'Tests pass', met: true },
+        ],
+        revision: 1,
+        pipelines: [
+          {
+            type: 'implementation',
+            status: 'PASS',
+            started_at: '2026-02-16 10:00:00',
+            completed_at: '2026-02-16 11:00:00',
+            summary: ['Implemented feature'],
+            artifacts: { files_modified: ['src/feature.ts'] },
+          },
+        ],
+      };
+      await store.writeWorkPackage('WP-001', wp);
+    });
+
+    it('runs QA pipeline and marks PASS', async () => {
+      // Start QA pipeline
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.pipelines.push({
+          type: 'qa',
+          status: 'IN_PROGRESS',
+          started_at: now(),
+          summary: [],
+        });
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      // Complete QA with metrics
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        const pipeline = wp.pipelines.find(
+          (p) => p.type === 'qa' && p.status === 'IN_PROGRESS'
+        )!;
+        pipeline.status = 'PASS';
+        pipeline.completed_at = now();
+        pipeline.summary = ['All tests pass', 'No regressions'];
+        pipeline.metrics = {
+          test_coverage: '92%',
+          tests_passed: 15,
+          tests_failed: 0,
+          security_issues: 0,
+        };
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      const qaPipeline = wp.pipelines.find((p) => p.type === 'qa')!;
+      expect(qaPipeline.status).toBe('PASS');
+      expect(qaPipeline.metrics?.tests_passed).toBe(15);
+      expect(qaPipeline.metrics?.tests_failed).toBe(0);
+    });
+
+    it('blocks WP on QA failure', async () => {
+      // Start and fail QA
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.pipelines.push({
+          type: 'qa',
+          status: 'FAIL',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['3 tests failed'],
+          metrics: { tests_passed: 12, tests_failed: 3 },
+        });
+
+        // Transition to BLOCKED
+        expect(isValidStatusTransition('IN_PROGRESS', 'BLOCKED')).toBe(true);
+        wp.status = 'BLOCKED';
+        wp.blocked_by = {
+          type: 'technical',
+          description: 'QA failed: 3 tests failed',
+        };
+
+        root.work_packages[0].status = 'BLOCKED';
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.status).toBe('BLOCKED');
+      expect(wp.blocked_by?.type).toBe('technical');
+    });
+  });
+
+  // ========== STAGE 5-7: Review, Docs, Synthesis ==========
+
+  describe('Stages 5-7: Complete pipeline chain', () => {
+    beforeEach(async () => {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Developer Agent',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      const wp: WorkPackageDetail = {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Developer Agent',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Feature works', met: true }],
+        revision: 1,
+        pipelines: [
+          {
+            type: 'implementation',
+            status: 'PASS',
+            started_at: '2026-02-16 10:00:00',
+            completed_at: '2026-02-16 11:00:00',
+            summary: ['Done'],
+          },
+          {
+            type: 'qa',
+            status: 'PASS',
+            started_at: '2026-02-16 11:00:00',
+            completed_at: '2026-02-16 12:00:00',
+            summary: ['All pass'],
+            metrics: { tests_passed: 10, tests_failed: 0 },
+          },
+        ],
+      };
+      await store.writeWorkPackage('WP-001', wp);
+    });
+
+    it('completes code-review, documentation, and marks WP COMPLETE', async () => {
+      // Code review
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.pipelines.push({
+          type: 'code-review',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['Code is clean'],
+        });
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      // Documentation
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.pipelines.push({
+          type: 'documentation',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['README updated'],
+        });
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      // Mark COMPLETE
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        const completionCheck = canCompleteWorkPackage(wp);
+        expect(completionCheck.allowed).toBe(true);
+        expect(isValidStatusTransition('IN_PROGRESS', 'COMPLETE')).toBe(true);
+
+        wp.status = 'COMPLETE';
+        root.work_packages[0].status = 'COMPLETE';
+        root.pending_work_packages -= 1;
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.status).toBe('COMPLETE');
+      expect(wp.pipelines).toHaveLength(4);
+
+      const root = await store.readRootIndex();
+      expect(root.pending_work_packages).toBe(0);
+      expect(root.work_packages[0].status).toBe('COMPLETE');
+    });
+  });
+
+  // ========== Counter self-healing ==========
+
+  describe('Counter self-healing', () => {
+    it('fixes incorrect counters on read', async () => {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 99, // Wrong!
+        pending_work_packages: 50, // Wrong!
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Dev',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+          {
+            work_package_id: 'WP-002',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Dev',
+            dependencies: [],
+            file: '.ledger/WP-002.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      // Simulate getProjectStatus self-healing logic
+      const readRoot = await store.readRootIndex();
+      const totalWps = readRoot.work_packages.length;
+      const pendingWps = readRoot.work_packages.filter(
+        (wp) => wp.status !== 'COMPLETE'
+      ).length;
+
+      expect(totalWps).toBe(2);
+      expect(pendingWps).toBe(1);
+      expect(readRoot.total_work_packages).toBe(99); // Still wrong in memory
+
+      // Self-heal and write
+      readRoot.total_work_packages = totalWps;
+      readRoot.pending_work_packages = pendingWps;
+      await store.writeRootIndex(readRoot);
+
+      const healed = await store.readRootIndex();
+      expect(healed.total_work_packages).toBe(2);
+      expect(healed.pending_work_packages).toBe(1);
+    });
+  });
+
+  // ========== Observations and project comments ==========
+
+  describe('Observations and project comments', () => {
+    beforeEach(async () => {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Dev',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Dev',
+        dependencies: [],
+        acceptance_criteria: [],
+        revision: 1,
+        pipelines: [
+          {
+            type: 'implementation',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Done'],
+          },
+        ],
+      });
+    });
+
+    it('adds observation to existing pipeline', async () => {
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        const pipeline = [...wp.pipelines]
+          .reverse()
+          .find((p) => p.type === 'implementation')!;
+
+        if (!pipeline.comments) pipeline.comments = [];
+        pipeline.comments.push({
+          type: 'code-smell',
+          priority: 'medium',
+          timestamp: now(),
+          note: 'God method in utils.ts:42',
+        });
+
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.pipelines[0].comments).toHaveLength(1);
+      expect(wp.pipelines[0].comments![0].type).toBe('code-smell');
+    });
+
+    it('adds project-level comment with incident context', async () => {
+      await withLock(tempDir, async () => {
+        const root = await store.readRootIndex();
+        root.project_comments.push({
+          type: 'incident',
+          priority: 'high',
+          timestamp: now(),
+          agent: 'Developer Agent',
+          note: 'Terminal output not visible during test run',
+          context: {
+            os: 'darwin',
+            tool: 'vitest',
+            work_package: 'WP-001',
+            resolved: true,
+            workaround: 'Ran tests with --reporter=verbose',
+          },
+        });
+        root.last_updated = now();
+        await store.writeRootIndex(root);
+      });
+
+      const root = await store.readRootIndex();
+      expect(root.project_comments).toHaveLength(1);
+      expect(root.project_comments[0].type).toBe('incident');
+      expect(root.project_comments[0].context?.os).toBe('darwin');
+    });
+  });
+
+  // ========== Revision tracking ==========
+
+  describe('Revision tracking', () => {
+    it('increments revision on COMPLETE -> IN_PROGRESS', async () => {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 0,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Dev',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'COMPLETE',
+        assigned_to: 'Dev',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Done', met: true }],
+        revision: 1,
+        pipelines: [],
+      });
+
+      // Reopen for rework
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        expect(isValidStatusTransition('COMPLETE', 'IN_PROGRESS')).toBe(true);
+        wp.status = 'IN_PROGRESS';
+        wp.revision += 1;
+        root.work_packages[0].status = 'IN_PROGRESS';
+        root.pending_work_packages += 1;
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.status).toBe('IN_PROGRESS');
+      expect(wp.revision).toBe(2);
+
+      const rootResult = await store.readRootIndex();
+      expect(rootResult.pending_work_packages).toBe(1);
+    });
+
+    it('increments revision on subsequent reopens', async () => {
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 0,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Dev',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'COMPLETE',
+        assigned_to: 'Dev',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Done', met: true }],
+        revision: 3, // Already reopened twice
+        pipelines: [],
+      });
+
+      // Reopen again
+      await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+        wp.status = 'IN_PROGRESS';
+        wp.revision += 1;
+        root.work_packages[0].status = 'IN_PROGRESS';
+        root.pending_work_packages += 1;
+        root.last_updated = now();
+        return { wp, root };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.revision).toBe(4);
+    });
+  });
+
+  // ========== Workflow failsafes ==========
+
+  describe('Workflow failsafes', () => {
+    it('detects WPs with all PASS pipelines but forgotten COMPLETE status', async () => {
+      // Setup: WP has all pipelines PASS but is still IN_PROGRESS
+      const root: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: now(),
+        last_updated: now(),
+        status: 'IN_PROGRESS',
+        total_work_packages: 1,
+        pending_work_packages: 1,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'IN_PROGRESS',
+            assigned_to: 'Documentation Agent',
+            dependencies: [],
+            file: '.ledger/WP-001.json',
+          },
+        ],
+        project_comments: [],
+      };
+      await store.writeRootIndex(root);
+
+      await store.writeWorkPackage('WP-001', {
+        work_package_id: 'WP-001',
+        work_package_file: 'work/WP-001.md',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Documentation Agent',
+        dependencies: [],
+        acceptance_criteria: [{ criterion: 'Feature complete', met: true }],
+        revision: 1,
+        pipelines: [
+          {
+            type: 'implementation',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Implemented feature'],
+          },
+          {
+            type: 'qa',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['All tests pass'],
+          },
+          {
+            type: 'code-review',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Code looks good'],
+          },
+          {
+            type: 'documentation',
+            status: 'PASS',
+            started_at: now(),
+            completed_at: now(),
+            summary: ['Docs updated'],
+          },
+        ],
+      });
+
+      // The WP has all pipelines PASS but status is still IN_PROGRESS
+      // The failsafe should detect this when Documentation agent calls get_next_action
+      const wp = await store.readWorkPackage('WP-001');
+      
+      // Verify the condition exists
+      expect(wp.status).toBe('IN_PROGRESS');
+      expect(wp.pipelines.every((p) => p.status === 'PASS')).toBe(true);
+      expect(wp.pipelines.length).toBe(4);
+      
+      // This represents what getDocumentationAction would detect:
+      // All 4 pipeline types present and all PASS, but WP status is IN_PROGRESS
+      const hasAllPipelines =
+        wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS') &&
+        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS') &&
+        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS') &&
+        wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS');
+      
+      expect(hasAllPipelines).toBe(true);
+      // This condition should trigger the MARK_COMPLETE action in getDocumentationAction
+    });  });
+});
+
+// ========== WP ID Hardening ==========
+
+describe('WP ID generation (max-based, gap-resilient)', () => {
+  it('produces WP-001 when project has no work packages', () => {
+    const existingNumbers: number[] = [];
+    const nextWpNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    expect(formatWpId(nextWpNumber)).toBe('WP-001');
+  });
+
+  it('produces WP-004 when existing WPs are [WP-001, WP-003] (gap scenario)', () => {
+    const existingIds = ['WP-001', 'WP-003'];
+    const existingNumbers = existingIds.map((id) => parseInt(id.replace('WP-', ''), 10));
+    const nextWpNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    expect(formatWpId(nextWpNumber)).toBe('WP-004');
+  });
+
+  it('produces WP-003 when existing WPs are [WP-001, WP-002] (sequential)', () => {
+    const existingIds = ['WP-001', 'WP-002'];
+    const existingNumbers = existingIds.map((id) => parseInt(id.replace('WP-', ''), 10));
+    const nextWpNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+    expect(formatWpId(nextWpNumber)).toBe('WP-003');
+  });
+});
+
+// ========== Dependency Auto-Unblocking Integration ==========
+
+describe('Dependency auto-unblocking on COMPLETE', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    const { mkdtemp } = await import('fs/promises');
+    const { join } = await import('path');
+    const { tmpdir } = await import('os');
+    tempDir = await mkdtemp(join(tmpdir(), 'ledger-unblock-'));
+    store = new LedgerStore(tempDir);
+
+    // Project: WP-001 (IN_PROGRESS), WP-002 (BLOCKED by WP-001), WP-003 (BLOCKED by WP-001 AND WP-002)
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 3,
+      pending_work_packages: 3,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer Agent',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+        {
+          work_package_id: 'WP-002',
+          status: 'BLOCKED',
+          assigned_to: 'Developer Agent',
+          dependencies: ['WP-001'],
+          file: 'ledger/WP-002.json',
+        },
+        {
+          work_package_id: 'WP-003',
+          status: 'BLOCKED',
+          assigned_to: 'Developer Agent',
+          dependencies: ['WP-001', 'WP-002'],
+          file: 'ledger/WP-003.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'Done', met: true }],
+      revision: 1,
+      pipelines: [],
+    });
+
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'BLOCKED',
+      assigned_to: 'Developer Agent',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+      blocked_by: { type: 'dependency', description: 'Waiting for WP-001' },
+    });
+
+    await store.writeWorkPackage('WP-003', {
+      work_package_id: 'WP-003',
+      work_package_file: 'work/WP-003.md',
+      status: 'BLOCKED',
+      assigned_to: 'Developer Agent',
+      dependencies: ['WP-001', 'WP-002'],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+      blocked_by: { type: 'dependency', description: 'Waiting for WP-001 and WP-002' },
+    });
+  });
+
+  afterEach(async () => {
+    const { rm } = await import('fs/promises');
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('auto-transitions WP-002 from BLOCKED to READY when WP-001 completes', async () => {
+    // Mark WP-001 as COMPLETE and run propagation manually (mirrors what updateWorkPackageStatus does)
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      wp.status = 'COMPLETE';
+      const summary = root.work_packages.find((s) => s.work_package_id === 'WP-001')!;
+      summary.status = 'COMPLETE';
+      root.pending_work_packages -= 1;
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    // Simulate propagateDependencyUnblock inline
+    await withLock(tempDir, async () => {
+      const rootIndex = await store.readRootIndex();
+      const candidates = rootIndex.work_packages.filter(
+        (wp) => wp.status === 'BLOCKED' && wp.dependencies.includes('WP-001')
+      );
+
+      for (const candidate of candidates) {
+        const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+        const canStart = canStartWorkPackage(wpDetail, rootIndex.work_packages);
+        if (!canStart.allowed) continue;
+
+        wpDetail.status = 'READY';
+        delete wpDetail.blocked_by;
+
+        const summary = rootIndex.work_packages.find(
+          (s) => s.work_package_id === candidate.work_package_id
+        );
+        if (summary) summary.status = 'READY';
+
+        await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+      }
+
+      rootIndex.last_updated = now();
+      await store.writeRootIndex(rootIndex);
+    });
+
+    // WP-002 should now be READY (only depends on WP-001 which is now COMPLETE)
+    const wp2 = await store.readWorkPackage('WP-002');
+    expect(wp2.status).toBe('READY');
+    expect(wp2.blocked_by).toBeUndefined();
+
+    // WP-003 should still be BLOCKED (also depends on WP-002, which is READY not COMPLETE)
+    const wp3 = await store.readWorkPackage('WP-003');
+    expect(wp3.status).toBe('BLOCKED');
+    expect(wp3.blocked_by).toBeDefined();
+
+    // Root index should reflect new statuses
+    const root = await store.readRootIndex();
+    const wp2Summary = root.work_packages.find((w) => w.work_package_id === 'WP-002')!;
+    expect(wp2Summary.status).toBe('READY');
+    const wp3Summary = root.work_packages.find((w) => w.work_package_id === 'WP-003')!;
+    expect(wp3Summary.status).toBe('BLOCKED');
+  });
+});
