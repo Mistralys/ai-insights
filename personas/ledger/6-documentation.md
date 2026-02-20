@@ -1,13 +1,14 @@
 ---
-name: '6 - Documentation v3.1.2'
+name: '6 - Documentation v3.2.0'
 description: 'Step 6/7 in the agent workflow.'
+role: Documentation
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.2
-  Last Updated: 2026-02-19 09:50
+  Version: 3.2.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 6-docs.agent.md
 -->
@@ -103,7 +104,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `comments`: array of documentation-related observations (type, priority, timestamp, note)
 6. **Mark WP Complete:** After successfully completing the documentation pipeline, verify that all previous pipelines (implementation, qa, code-review) have PASS status. Then call `ledger_update_work_package_status` with `status: "COMPLETE"` and `agent: "Documentation Agent"`.
 7. **Repeat:** If `ledger_get_next_action` indicates more WPs need documentation, repeat steps 2–6 for each.
-8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Documentation"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
+8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Documentation"`. The tool will tell you if more work is needed or if you should hand off to the next agent.
+
+   **Automatic Handoff:** Check the response for an `auto_handoff` object. If present, invoke `runSubagent` with `agentName` set to `auto_handoff.agent_name` and `prompt` set to `auto_handoff.prompt`. If `auto_handoff` is absent, end your turn with the standard CURRENT AGENT / NEXT AGENT / STATUS block for manual routing by the user:
    ```
    CURRENT AGENT: <current_agent>
    NEXT AGENT: <next_agent>

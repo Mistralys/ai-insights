@@ -13,6 +13,7 @@ This is a structured multi-agent workflow for systematic software development. I
 - **Scalability**: Handle complex projects by breaking them into manageable work packages
 - **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP file doesn't affect others
 - **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and dual-file sync
+- **Automatic Handoffs**: Agents 2–7 can pass control to the next agent automatically via `runSubagent` when the MCP server returns an `auto_handoff` response — no manual copy-paste required
 
 ### Agents in the Workflow
 
@@ -23,6 +24,28 @@ This is a structured multi-agent workflow for systematic software development. I
 5. **Reviewer Agent**: Performs code quality and architecture review
 6. **Documentation Agent**: Updates project documentation
 7. **Synthesis Agent**: Consolidates results and generates project report
+
+### Persona File Format
+
+Each ledger persona file uses YAML frontmatter to declare its identity and capabilities:
+
+```yaml
+---
+name: '3 - Developer v3.1.x'
+description: 'Step 3/7 in the agent workflow.'
+role: Developer
+tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
+---
+```
+
+| Field | Purpose |
+|-------|----------|
+| `name` | Display name including version string, shown in agent pickers |
+| `description` | Short one-line description of the agents's role in the workflow |
+| `role` | Workflow role identifier — must exactly match a value in the `AGENT_ROLES` constant in `src/tools/workflow.ts`. Used by the Agent Registry to route automatic handoffs |
+| `tools` | Tool permissions granted to the agent by the AI IDE |
+
+> **Note:** The `role:` field is present only in `personas/ledger/` files. Files in `personas/vanilla/` and `personas/standalone/` do not include this field, as they operate outside the MCP-enabled workflow.
 
 ---
 

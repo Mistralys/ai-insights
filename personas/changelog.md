@@ -1,5 +1,19 @@
 # Personas Changelog
 
+## v3.1.1 - Automatic Handoffs in Ledger Personas
+- Ledger Personas: Added **Automatic Handoff** instruction paragraph to the Workflow section of all 6 active ledger personas (`2-project-manager.md` through `7-synthesis.md`).
+- When `ledger_get_handoff_status` returns an `auto_handoff` object, agents now invoke `runSubagent` with `auto_handoff.agent_name` and `auto_handoff.prompt` to pass control to the next agent automatically.
+- Falls back to the manual `CURRENT AGENT / NEXT AGENT / STATUS` block when `auto_handoff` is absent (e.g. registry not loaded, or no agent configured for the next role).
+- `1-planner.md` is deliberately excluded — no ledger exists at the Planner stage.
+- No hardcoded agent handles in any routing instruction; all routing is driven by the MCP server response.
+- `sync-personas.js`: Added `validateLedgerFrontmatter()` — after syncing, the script validates that every ledger persona file has both `role:` and `name:` fields in YAML frontmatter. Missing fields emit advisory warnings without blocking the sync.
+
+## v3.1.0 - Role Field in Persona Frontmatter
+- Ledger Personas: Added `role:` field to the YAML frontmatter of all 7 ledger persona files (`1-planner.md` through `7-synthesis.md`).
+- The `role:` value maps each persona to its canonical workflow identifier — values exactly match the `AGENT_ROLES` constant in `src/tools/workflow.ts`.
+- Enables the planned Agent Registry (WP-002) to build agent handle maps at runtime for automatic handoffs.
+- Only `personas/ledger/` files are affected; `vanilla/` and `standalone/` remain unchanged.
+
 ## v3.0.2 - Pre-Flight Optimization
 - Ledger Personas: Optimized pre-flight so agents know how to search for the ledger tools.
 
