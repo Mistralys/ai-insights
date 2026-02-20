@@ -83,6 +83,7 @@ The server manages two types of files:
    - Project status (READY, IN_PROGRESS, COMPLETE, BLOCKED)
    - Work package summaries (status, assigned agent, dependencies)
    - Project-level comments and incidents
+   - Auto-handoff loop-guard counter (`auto_handoff_depth`, server-managed, max 10 before fallback to manual routing)
 
 2. **Work Package Details** (`.ledger/WP-###.json`): Per-task implementation details
    - Acceptance criteria and completion status
@@ -126,12 +127,45 @@ Both files are kept in sync automatically — when an agent updates a work packa
 
    **Important**: Use the **absolute path** to the `src/index.ts` file on your system.
 
+   **Optional: Custom agents directory**
+
+   To enable auto-handoff, the server needs to locate your `*.agent.md` persona files. By default it auto-detects the VS Code User prompts folder for the current platform:
+
+   | Platform | Default path |
+   |---|---|
+   | macOS | `~/Library/Application Support/Code/User/prompts/` |
+   | Linux | `~/.config/Code/User/prompts/` |
+   | Windows | `%APPDATA%/Code/User/prompts/` |
+
+   If your persona files live elsewhere, pass `--agents-dir` explicitly:
+
+   ```json
+   {
+     "mcpServers": {
+       "project-ledger": {
+         "command": "npx",
+         "args": [
+           "tsx",
+           "/absolute/path/to/ai-insights/mcp-server/src/index.ts",
+           "--agents-dir",
+           "/absolute/path/to/your/prompts"
+         ]
+       }
+     }
+   }
+   ```
+
+   If the directory is missing or contains no `*.agent.md` files, the server logs a warning and starts normally — auto-handoff is disabled but all other tools continue to work.
+
 3. **Restart your AI IDE** to load the MCP server
 
 4. **Verify**:
    - The server starts automatically when Claude Code/Desktop launches
    - Agents will perform a pre-flight check (`ledger_get_project_status`) before starting work
    - If the server is unreachable, agents will report configuration errors
+   - On startup, the server logs agent discovery results to stderr:
+     - ✅ Success: `[project-ledger-mcp] Agent registry: 7 agents discovered from /path/to/prompts`
+     - ⚠️ Not found: `[project-ledger-mcp] agents_dir not found: /path. Auto-handoff disabled.`
 
 ---
 
@@ -153,6 +187,20 @@ The MCP server is designed to work with the [Ledger-Enabled Agent Workflow](../p
    - `ledger_update_work_package_status` — Marks tasks complete
 
 5. **Agent asks for next action** via `ledger_get_next_action` or `ledger_get_handoff_status`
+
+   `ledger_get_handoff_status` may return an `auto_handoff` object:
+   ```json
+   {
+     "current_agent": "Developer",
+     "next_agent": "QA",
+     "status": "HANDOFF",
+     "auto_handoff": {
+       "agent_name": "4-qa.agent.md",
+       "prompt": "Project path: /path/to/plan"
+     }
+   }
+   ```
+   When present, the IDE can invoke the next agent automatically without human routing. When absent, use the standard `CURRENT AGENT / NEXT AGENT / STATUS` block for manual routing.
 
 ### Example: Developer Agent Flow
 
@@ -263,6 +311,22 @@ Work package updates are atomic across both files:
 - Single lock protects both files during update
 - No possibility of split-brain state
 
+### ✅ Agent Auto-Discovery
+
+At startup the server scans the configured agents directory for `*.agent.md` files:
+- Reads each file's front-matter to extract the agent role name
+- Populates an in-process registry used by `ledger_get_handoff_status` to route automatic handoffs
+- Controlled via `--agents-dir <path>` or platform-specific defaults (see [Setup](#setup))
+- If discovery fails or the directory is missing, auto-handoff is silently disabled and all other tools continue to work normally
+
+### ✅ Infinite-Loop Protection
+
+`ledger_get_handoff_status` tracks how many consecutive automatic handoffs have been emitted:
+- `auto_handoff_depth` is stored in the root index and incremented on every `auto_handoff` emission
+- The ceiling is `MAX_HANDOFF_DEPTH = 10`; once reached, `auto_handoff` is omitted and the IDE falls back to manual routing
+- Reaching project `COMPLETE` resets the counter to `0` for the next planning cycle
+- The counter is server-managed — no agent needs to pass or track it
+
 ### ✅ Self-Healing Counters
 
 `ledger_get_project_status` automatically corrects counter drift:
@@ -338,6 +402,10 @@ The `sync-version` script runs automatically before `npm run dev` via the `prede
 npm test              # Run all tests once
 npm run test:watch   # Run tests in watch mode
 ```
+
+The test suite includes unit tests for all modules and **integration tests** for the auto-handoff chain. Integration tests use real `LedgerStore` instances against temp directories and a mock agents directory — no real VS Code installation or filesystem paths are required.
+
+Key integration test file: `tests/integration/auto-handoff.test.ts` (23 tests covering the full PM → Developer → QA → Reviewer → Documentation → Synthesis chain, depth limit enforcement, rework cycles, and graceful degradation without an agent registry).
 
 ### Development Mode
 

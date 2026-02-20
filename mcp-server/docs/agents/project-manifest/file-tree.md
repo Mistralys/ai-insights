@@ -30,6 +30,7 @@ mcp-server/
 │   │   └── workflow.ts          # ledger_get_next_action, ledger_get_next_actions, ledger_get_handoff_status
 │   │
 │   └── utils/                   # Utility functions
+│       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
 │       ├── path-validator.ts    # Project path validation (absolute path checks)
 │       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, AGENT_PIPELINE_MAP)
 │       ├── timestamp.ts         # Timestamp formatting — now() returns ISO 8601 T-separator (YYYY-MM-DDTHH:MM:SS); parseTimestamp() handles legacy space format
@@ -51,6 +52,7 @@ mcp-server/
     │   └── workflow-handoff.test.ts
     │
     └── utils/                   # Utility function tests
+        ├── agent-registry.test.ts
         ├── path-validator.test.ts
         ├── timestamp.test.ts
         └── wp-id.test.ts

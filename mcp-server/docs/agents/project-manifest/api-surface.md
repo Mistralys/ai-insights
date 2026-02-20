@@ -257,6 +257,32 @@ Batch version of `ledger_get_next_action`. Returns all currently actionable work
 
 Computes the correct `AGENT` and `STATUS` handoff block for the current agent. Examines all work package statuses and pipelines to determine project state.
 
+When the agent registry is loaded and all eligibility conditions are met, the response payload includes an optional `auto_handoff` object that the receiving IDE can use to automatically invoke the next agent without human intervention:
+
+```typescript
+interface HandoffStatusPayload {
+  // Always present
+  current_agent: string;
+  next_agent: string;
+  status: string;            // e.g. 'WAIT', 'COMPLETE', 'HANDOFF'
+  reason: string;
+
+  // Present only when automatic handoff is eligible
+  auto_handoff?: {
+    agent_name: string;      // The agent file name (e.g. "6-documentation.agent.md")
+    prompt: string;          // Prompt to pass to the next agent (contains project_path)
+  };
+}
+```
+
+**Auto-handoff eligibility** — `auto_handoff` is included only when **all** of the following are true:
+1. The agent registry is loaded (`isRegistryLoaded()` returns `true`)
+2. The next agent has a known handle in the registry
+3. Project status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
+4. `auto_handoff_depth` in the root index is `< MAX_HANDOFF_DEPTH` (10)
+
+Each successful emission increments `auto_handoff_depth` in the root index. Reaching `COMPLETE` status resets the counter to `0`.
+
 ---
 
 ## Storage API
@@ -342,6 +368,7 @@ interface RootIndex {
   pending_work_packages: number;
   work_packages: WorkPackageSummary[];
   project_comments: ProjectComment[];
+  auto_handoff_depth?: number; // Server-managed loop-guard counter; absent/undefined treated as 0
 }
 
 interface WorkPackageSummary {
@@ -457,6 +484,53 @@ function canCompleteWorkPackage(
 
 ---
 
+## Agent Registry
+
+Exported from `src/utils/agent-registry.ts`. Discovers VS Code agent handles by scanning `*.agent.md` files in a configurable directory.
+
+### `discoverAgents()`
+
+```typescript
+async function discoverAgents(agentsDir: string): Promise<Record<string, string>>;
+```
+
+Scans `agentsDir` for `*.agent.md` files, parses YAML frontmatter in each, and builds an in-memory map from workflow `role` names to VS Code agent `name` handles (e.g. `{ "Developer": "3 - Developer v3.1.2" }`). Overwrites the module-level cache on each call and returns a shallow copy.
+
+**Behaviour:**
+- Files without a `role:` field are silently skipped.
+- Files with `role:` but without `name:` write a warning to `stderr` and are skipped.
+- `role:` values that do not match a known agent role write a warning to `stderr` but are still added to the map (forward-compatible).
+- If `agentsDir` does not exist or is unreadable, a warning is written to `stderr` and an empty map is returned.
+- If two files share the same `role:` value, the last one wins.
+
+**Known limitation:** The internal YAML parser (`stripYamlQuotes`) only strips matching outer quote pairs. Escaped inner quotes (e.g. `name: 'It\'s a name'`) are not handled.
+
+### `getAgentHandle()`
+
+```typescript
+function getAgentHandle(role: string): string | null;
+```
+
+Looks up a role in the cached map. Returns the agent handle string (e.g. `"3 - Developer v3.1.2"`) or `null` if the role is not found. Does not trigger discovery.
+
+### `isRegistryLoaded()`
+
+```typescript
+function isRegistryLoaded(): boolean;
+```
+
+Returns `true` if the registry has been populated by a successful `discoverAgents()` call that resolved at least one agent file with a valid `role:` field. Returns `false` before discovery or after a failed/empty discovery.
+
+### `resetRegistry()`
+
+```typescript
+function resetRegistry(): void;
+```
+
+Clears the cached agent handle map and resets the loaded flag. **Intended for use in unit tests only.**
+
+---
+
 ## Utility Functions
 
 ```typescript
@@ -507,6 +581,9 @@ export const _internal: {
   getDocumentationHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
   getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 
+  // Developer-specific next-action computation (used inside ledger_get_next_action).
+  getDeveloperAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+
   STALE_PIPELINE_HOURS: number; // default 24
 
   // Returns the handoff notes in the WP addressed to agentName, or undefined if none.
@@ -518,6 +595,32 @@ export const _internal: {
   // Routing constants re-exported from pipeline-maps.ts for workflow-handoff tests.
   PIPELINE_AGENT_MAP: Record<PipelineType, string>;
   NEXT_AGENT_MAP: Record<PipelineType, string>;
+
+  // Maps a workflow status string and currentAgent to the next agent role name.
+  // Returns currentAgent for IN_PROGRESS, null for COMPLETE, and the target
+  // role for all READY_FOR_* and BLOCKED statuses.
+  nextAgentFromStatus(status: string, currentAgent: string): string | null;
+
+  // Builds the standard handoff response payload (current_agent, next_agent, status).
+  // When projectPath and store are provided, also appends auto_handoff when
+  // all eligibility conditions are met (see ledger_get_handoff_status).
+  buildHandoffResponse(
+    currentAgent: string,
+    status: string,
+    details: string,
+    nextAction?: string,
+    projectPath?: string,
+    store?: LedgerStore
+  ): Promise<Record<string, unknown>>;
+
+  // Returns the prompt string passed to the next agent during auto-handoff.
+  // Output format: "Project path: <projectPath>"
+  // Intentionally minimal — the receiving agent's persona file contains full workflow instructions.
+  buildHandoffPrompt(projectPath: string): string;
+
+  // Maximum number of consecutive automatic handoffs before falling back to manual routing.
+  // Value: 10. Stored as auto_handoff_depth in the root index.
+  MAX_HANDOFF_DEPTH: number;
 };
 ```
 

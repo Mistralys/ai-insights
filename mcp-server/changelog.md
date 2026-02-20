@@ -1,5 +1,24 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.4.0 - Automatic Handoffs (2026-02-20)
+
+### Added
+- **WP-001:** `role:` field added to YAML frontmatter of all 7 `personas/ledger/*.agent.md` files. Value matches the corresponding `AGENT_ROLES` constant in `workflow.ts` (e.g. `Developer`, `QA`). Required by the agent registry for runtime role-to-handle mapping.
+- **WP-002:** New module `src/utils/agent-registry.ts` — scans a directory of `*.agent.md` files at startup, parses YAML frontmatter for `name:` and `role:` fields, and builds an in-memory `AGENT_HANDLE_MAP` (role → VS Code agent handle). Exports `discoverAgents()`, `getAgentHandle()`, `isRegistryLoaded()`, and `resetRegistry()`.
+- **WP-003:** `--agents-dir <path>` CLI parameter accepted by `src/index.ts`. If omitted, the server auto-detects the VS Code User prompts folder for the current platform (macOS / Linux / Windows). If the directory is missing or contains no `*.agent.md` files, a warning is logged and auto-handoff is silently disabled.
+- **WP-004:** `auto_handoff_depth` field (integer, default `0`) added to the root index ledger schema. Incremented server-side on every `auto_handoff` emission; checked against `MAX_HANDOFF_DEPTH = 10` before each auto-handoff is allowed to fire. Reaching COMPLETE resets the counter to `0`. No agent cooperation required.
+- **WP-005:** `ledger_get_handoff_status` now returns an optional `auto_handoff` object `{ agent_name, prompt }` when the next agent is resolvable from the registry and the depth limit has not been reached. `buildHandoffResponse()` in `workflow.ts` manages the depth increment/check atomically. When `auto_handoff` is absent, agents fall back to the existing manual handoff block.
+- **WP-006:** Auto-handoff instruction paragraph added to personas 2–7 (`Project Manager` through `Synthesis`). Each persona now checks for `auto_handoff` in the `ledger_get_handoff_status` response and calls `runSubagent` if present, otherwise emits the standard `CURRENT AGENT / NEXT AGENT / STATUS` block for manual routing. The `Planner → Project Manager` transition remains manual by design (no ledger exists yet).
+- **WP-007:** `tests/utils/agent-registry.test.ts` — unit tests for the agent registry covering discovery, role lookup, error paths, and `resetRegistry` semantics.
+- **WP-008:** `tests/tools/workflow-handoff.test.ts` — unit tests for the auto-handoff block in `buildHandoffResponse` / `getHandoffStatus`, covering depth increment, depth limit enforcement, COMPLETE reset, and graceful degradation when the registry is unloaded.
+- **WP-009:** `tests/integration/auto-handoff.test.ts` — 23 integration tests (5 suites) exercising the full auto-handoff chain end-to-end against a real `LedgerStore` and a mock agents directory in a temp folder:
+  - **Full chain** (6 tests): PM → Developer → QA → Reviewer → Documentation → Synthesis; `auto_handoff` verified at each step; `auto_handoff_depth` increments 0 → 5.
+  - **Chain termination** (3 tests): Synthesis returns COMPLETE with no `auto_handoff`; depth resets to 0 from any starting value.
+  - **Depth limit enforcement** (4 tests): `auto_handoff` omitted once `MAX_HANDOFF_DEPTH` is reached; standard handoff block still present; counter not incremented beyond the limit; boundary crossing verified (MAX−1 eligible, MAX not eligible).
+  - **Rework cycle** (3 tests): QA FAIL → Developer rework → QA PASS with correct depth tracking through the rework loop.
+  - **Graceful degradation** (7 tests): All 5 agent paths omit `auto_handoff` when the registry is unloaded; standard handoff block always present; depth counter unchanged.
+- **WP-010:** `sync-personas.js` now validates `role:` field presence in persona frontmatter during sync, warning when a `*.agent.md` file in the `ledger/` personas set is missing the field.
+
 ## v1.3.2 - Micro Debt Followup (2026-02-18)
 
 ### Changed

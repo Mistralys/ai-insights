@@ -305,6 +305,34 @@ interface HandoffNote {
 
 ---
 
+### 19. Prefer Real Implementations Over `vi.mock` for Agent Registry and Ledger Tests
+
+**Rule:** When writing tests that involve the agent registry (`discoverAgents`, `isRegistryLoaded`, `getAgentHandle`) or `LedgerStore`, use the real implementations backed by a temporary directory rather than `vi.mock`.
+
+**Pattern:**
+```typescript
+import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
+
+beforeEach(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), 'test-'));
+  agentDir = join(tempDir, 'agents');
+  await mkdir(agentDir);
+  store = new LedgerStore(tempDir);
+});
+
+afterEach(async () => {
+  resetRegistry();
+  await rm(tempDir, { recursive: true, force: true });
+  await rm(agentDir, { recursive: true, force: true });
+});
+```
+
+**Rationale:** `vi.mock` creates module-level side-effects that can leak across test files, especially with ES module hoisting. Using real implementations with `resetRegistry()` cleanup eliminates mock side-effects, provides genuine end-to-end coverage, and is consistent with the approach in `tests/utils/agent-registry.test.ts`.
+
+**Reserve `vi.mock` for:** Code paths that touch the network, spawn child processes, or produce uncontrollable side-effects that cannot be isolated with a temp directory.
+
+---
+
 ## Module System Constraints
 
 ### 19. All Imports Must Use .js Extensions
