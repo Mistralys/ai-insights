@@ -186,9 +186,16 @@ describe('AC: discoverAgents() builds role→handle map', () => {
 // ─── AC: files without role: are silently skipped ────────────────────────────
 
 describe('AC: files without role: are silently skipped', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
   it('omits files that have no role: field', async () => {
     await writeAgentFile(tmpDir, 'standalone.agent.md', { name: 'Researcher v1.0.0' });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const map = await discoverAgents(tmpDir);
 
@@ -197,8 +204,6 @@ describe('AC: files without role: are silently skipped', () => {
     const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
     const roleWarning = calls.some((msg) => msg.includes('Researcher'));
     expect(roleWarning).toBe(false);
-
-    stderrSpy.mockRestore();
   });
 
   it('includes valid files while silently skipping no-role files', async () => {
@@ -213,9 +218,16 @@ describe('AC: files without role: are silently skipped', () => {
 // ─── AC: files with role: but no name: emit a stderr warning ─────────────────
 
 describe('AC: files with role: but no name: warn on stderr', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
   it('writes a warning to stderr for a file that has role: but not name:', async () => {
     await writeAgentFile(tmpDir, 'broken.agent.md', { role: 'QA' });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     await discoverAgents(tmpDir);
 
@@ -224,24 +236,27 @@ describe('AC: files with role: but no name: warn on stderr', () => {
       (msg) => msg.includes('broken.agent.md') && msg.includes('role:') && msg.includes('QA'),
     );
     expect(hasWarning).toBe(true);
-
-    stderrSpy.mockRestore();
   });
 
   it('does not add the broken file to the map', async () => {
     await writeAgentFile(tmpDir, 'broken.agent.md', { role: 'Developer' });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const map = await discoverAgents(tmpDir);
     expect(map['Developer']).toBeUndefined();
-
-    stderrSpy.mockRestore();
   });
 });
 
 // ─── AC: non-existent directory returns empty map without throwing ────────────
 
 describe('AC: non-existent directory', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
   it('does not throw when passed a non-existent directory', async () => {
     await expect(
       discoverAgents('/absolutely/non/existent/directory/12345'),
@@ -254,15 +269,11 @@ describe('AC: non-existent directory', () => {
   });
 
   it('writes a warning to stderr for a non-existent directory', async () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
     await discoverAgents('/absolutely/non/existent/directory/12345');
 
     const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
     const hasWarning = calls.some((msg) => msg.includes('agent-registry'));
     expect(hasWarning).toBe(true);
-
-    stderrSpy.mockRestore();
   });
 });
 
@@ -353,6 +364,14 @@ describe('Edge cases', () => {
 // ─── AC: strict mode (WP-007) ────────────────────────────────────────────────
 
 describe('AC: strict mode', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
   it('throws a RangeError for an unknown role when strict=true', async () => {
     await writeAgentFile(tmpDir, 'unknown.agent.md', {
       name: 'Unknown Agent v1.0.0',
@@ -390,19 +409,25 @@ describe('AC: strict mode', () => {
       name: 'Unknown Agent v1.0.0',
       role: 'UnknownRole',
     });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     const map = await discoverAgents(tmpDir);
 
     expect(map['UnknownRole']).toBe('Unknown Agent v1.0.0');
     // Should emit a warning (not throw) — but no RangeError
-    stderrSpy.mockRestore();
   });
 });
 
 // ─── AC: role collision warning (WP-007) ─────────────────────────────────────
 
 describe('AC: role collision warning', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+  afterEach(() => {
+    stderrSpy.mockRestore();
+  });
+
   it('emits a stderr warning naming both files when two files share the same role', async () => {
     await writeAgentFile(tmpDir, 'a-developer.agent.md', {
       name: 'Dev A',
@@ -413,21 +438,13 @@ describe('AC: role collision warning', () => {
       role: 'Developer',
     });
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
     await discoverAgents(tmpDir);
 
     const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
     const collisionWarning = calls.find((msg) => msg.includes('Role collision'));
     expect(collisionWarning).toBeDefined();
-    expect(collisionWarning).toMatch(/Dev A|Dev Z/);
-    expect(collisionWarning).toMatch(/Dev A|Dev Z/); // both names appear
-    // Verify both names are in the same message
-    expect(collisionWarning).toSatisfy(
-      (msg: string) => msg.includes('Dev A') || msg.includes('Dev Z'),
-    );
-
-    stderrSpy.mockRestore();
+    expect(collisionWarning).toMatch(/Dev A/);
+    expect(collisionWarning).toMatch(/Dev Z/);
   });
 
   it('preserves last-wins behaviour when a collision occurs', async () => {
@@ -440,9 +457,7 @@ describe('AC: role collision warning', () => {
       role: 'Developer',
     });
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const map = await discoverAgents(tmpDir);
-    stderrSpy.mockRestore();
 
     // One of the two names must win (last-wins per directory listing order)
     expect(['Dev A', 'Dev Z']).toContain(map['Developer']);
@@ -458,14 +473,10 @@ describe('AC: role collision warning', () => {
       role: 'QA',
     });
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
     await discoverAgents(tmpDir);
 
     const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
     const hasCollisionWarning = calls.some((msg) => msg.includes('Role collision'));
     expect(hasCollisionWarning).toBe(false);
-
-    stderrSpy.mockRestore();
   });
 });

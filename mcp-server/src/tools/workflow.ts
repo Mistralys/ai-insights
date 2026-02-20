@@ -14,49 +14,29 @@ import {
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp, now } from '../utils/timestamp.js';
 import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
-import { AGENT_ROLES } from '../utils/constants.js';
+import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 
 /**
  * Number of hours after which an IN_PROGRESS pipeline is considered stale.
  */
-const STALE_PIPELINE_HOURS = 24;
+export const STALE_PIPELINE_HOURS = 24;
 
 /** Maximum number of automatic handoff chain steps to prevent infinite loops. */
-const MAX_HANDOFF_DEPTH = 10;
+export const MAX_HANDOFF_DEPTH = 10;
 
 /**
  * Builds the prompt string passed to the next agent during auto-handoff.
  * Intentionally minimal — the receiving agent's persona contains full workflow instructions.
  */
-function buildHandoffPrompt(projectPath: string): string {
+export function buildHandoffPrompt(projectPath: string): string {
   return `Project path: ${projectPath}`;
 }
 
 /**
- * @internal — exported for unit testing only
+ * Re-export pipeline maps for test access via namespace import.
+ * @internal — for unit testing only
  */
-export const _internal = {
-  getQaHandoff,
-  getReviewerHandoff,
-  getDocumentationHandoff,
-  getDeveloperHandoff,
-  getProjectManagerHandoff,
-  getDeveloperAction,
-  isMostRecentPipelineFail,
-  isStalePipeline,
-  STALE_PIPELINE_HOURS,
-  getHandoffNotesForAgent,
-  extractStalePipelineAction,
-  extractReworkAction,
-  PIPELINE_AGENT_MAP,
-  NEXT_AGENT_MAP,
-  nextAgentFromStatus,
-  buildHandoffResponse,
-  buildHandoffPrompt,
-  MAX_HANDOFF_DEPTH,
-};
-
-type AgentRole = typeof AGENT_ROLES[number];
+export { PIPELINE_AGENT_MAP, NEXT_AGENT_MAP };
 
 /** Display-name maps used by getNextActions for human-readable output.
  * These deliberately exclude 'implementation' — only post-impl stages appear
@@ -81,7 +61,7 @@ const reworkActionMap: Record<PostImplPipelineType, string> = {
  * Helper: Returns true if the pipeline is IN_PROGRESS and was started more than
  * STALE_PIPELINE_HOURS hours ago.
  */
-function isStalePipeline(pipeline: Pipeline): boolean {
+export function isStalePipeline(pipeline: Pipeline): boolean {
   if (pipeline.status !== 'IN_PROGRESS' || !pipeline.started_at) return false;
   const startedAt = parseTimestamp(pipeline.started_at).getTime();
   const ageHours = (Date.now() - startedAt) / (1000 * 60 * 60);
@@ -95,7 +75,7 @@ type ToolActionResponse = { content: [{ type: 'text'; text: string }] };
  * Returns a RESUME_OR_CANCEL action response when the work package has a stale
  * IN_PROGRESS pipeline of the specified type, or null if none is found.
  */
-function extractStalePipelineAction(
+export function extractStalePipelineAction(
   wpDetail: WorkPackageDetail,
   pipelineType: string,
 ): ToolActionResponse | null {
@@ -132,7 +112,7 @@ function extractStalePipelineAction(
  * Returns a rework action response when the most recent pipeline of the specified
  * type for the work package has FAIL status, or null if no rework is needed.
  */
-function extractReworkAction(
+export function extractReworkAction(
   wpDetail: WorkPackageDetail,
   pipelineType: string,
   reworkActionName: string,
@@ -362,6 +342,13 @@ async function getProjectManagerAction(
   );
 
   if (blockedWps.length > 0) {
+    const [firstBlocked] = blockedWps;
+    if (firstBlocked === undefined) {
+      // Unreachable: guarded by blockedWps.length > 0 above, but satisfies noUncheckedIndexedAccess
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ action: 'WAIT', reason: 'No PM action needed.' }, null, 2) }],
+      };
+    }
     return {
       content: [
         {
@@ -369,8 +356,8 @@ async function getProjectManagerAction(
           text: JSON.stringify(
             {
               action: 'RESOLVE_BLOCKERS',
-              work_package_id: blockedWps[0].work_package_id,
-              reason: `Work package ${blockedWps[0].work_package_id} is BLOCKED. Investigate and resolve blocker.`,
+              work_package_id: firstBlocked.work_package_id,
+              reason: `Work package ${firstBlocked.work_package_id} is BLOCKED. Investigate and resolve blocker.`,
             },
             null,
             2
@@ -401,7 +388,7 @@ async function getProjectManagerAction(
 /**
  * Get next action for Developer
  */
-async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
+export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore) {
   // Load all WP details to examine pipeline states
   const wpDetails = await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
@@ -780,7 +767,7 @@ async function getDocumentationAction(
 /**
  * Helper: Returns handoff notes on the given WP addressed to agentName, or undefined.
  */
-function getHandoffNotesForAgent(
+export function getHandoffNotesForAgent(
   wpDetail: WorkPackageDetail,
   agentName: string
 ): string[] | undefined {
@@ -797,7 +784,7 @@ function getHandoffNotesForAgent(
  * Helper: Returns true only if the most recent pipeline of the given type has FAIL status.
  * A [FAIL, PASS] sequence correctly returns false — only historical FAILs preceding a PASS are ignored.
  */
-function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean {
+export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean {
   const mostRecent = pipelines.filter((p) => p.type === pipelineType).at(-1);
   return mostRecent?.status === 'FAIL';
 }
@@ -961,7 +948,7 @@ function isBlockedByDependencies(
  * For BLOCKED, the Project Manager triages.
  * For COMPLETE, no next agent is needed.
  */
-function nextAgentFromStatus(status: string, currentAgent: string): string | null {
+export function nextAgentFromStatus(status: string, currentAgent: string): string | null {
   const map: Record<string, string> = {
     READY_FOR_DEVELOPER: 'Developer',
     READY_FOR_QA: 'QA',
@@ -986,7 +973,7 @@ function nextAgentFromStatus(status: string, currentAgent: string): string | nul
  *
  * On COMPLETE status the depth counter is reset to 0 so the next project starts fresh.
  */
-async function buildHandoffResponse(
+export async function buildHandoffResponse(
   currentAgent: string,
   status: string,
   details: string,
@@ -1029,7 +1016,7 @@ async function buildHandoffResponse(
           };
         }
       } catch (err) {
-        process.stderr.write(`[buildHandoffResponse] storage error: ${String(err)}\n`);
+        process.stderr.write(`[buildHandoffResponse] storage error (auto-handoff depth update): ${String(err)}\n`);
       }
     }
   }
@@ -1046,7 +1033,7 @@ async function buildHandoffResponse(
         });
       }
     } catch (err) {
-      process.stderr.write(`[buildHandoffResponse] storage error: ${String(err)}\n`);
+      process.stderr.write(`[buildHandoffResponse] storage error (COMPLETE depth reset): ${String(err)}\n`);
     }
   }
 
@@ -1063,7 +1050,7 @@ async function buildHandoffResponse(
 /**
  * Get handoff status for Project Manager
  */
-async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // If any WP lacks implementation pipeline, Developer needs to work
   const needsImplementation = wpDetails.some(
     (wp) =>
@@ -1095,7 +1082,7 @@ async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectP
 /**
  * Get handoff status for Developer
  */
-async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs have PASS implementation pipelines
   const allImplemented = wpDetails.every((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
@@ -1156,7 +1143,7 @@ async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 /**
  * Get handoff status for QA
  */
-async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs with implementation pipelines have PASS QA pipelines
   const wpsWithImpl = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
@@ -1289,7 +1276,7 @@ async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string
 /**
  * Get handoff status for Reviewer
  */
-async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs with QA pipelines have PASS code-review pipelines
   const wpsWithQa = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
@@ -1422,7 +1409,7 @@ async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: 
 /**
  * Get handoff status for Documentation
  */
-async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs with code-review pipelines have PASS documentation pipelines
   const wpsWithReview = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
@@ -1635,7 +1622,7 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
     }
 
     // Prerequisite type for this agent's pipeline
-    const prerequisite = PIPELINE_PREREQUISITES[pipelineType as PipelineType]; // AGENT_PIPELINE_MAP values are PipelineType but typed as string
+    const prerequisite = PIPELINE_PREREQUISITES[pipelineType];
 
     for (const wpDetail of wpDetails) {
       if (actions.length >= limit) break;

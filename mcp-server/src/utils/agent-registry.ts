@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { AGENT_ROLES } from './constants.js';
+import { ifDefined } from './if-defined.js';
 
 /** Module-level cache: role → VS Code agent name */
 let agentHandleMap: Record<string, string> = {};
@@ -38,13 +39,15 @@ function parseFrontmatter(content: string): { name?: string; role?: string } {
 
     const nameMatch = line.match(/^name:\s*(.+)$/);
     if (nameMatch) {
-      name = stripYamlQuotes(nameMatch[1].trim());
+      // Unreachable: regex (.+) always captures when match succeeds; satisfies noUncheckedIndexedAccess
+      ifDefined(nameMatch[1], (v) => { name = stripYamlQuotes(v.trim()); });
       continue;
     }
 
     const roleMatch = line.match(/^role:\s*(.+)$/);
     if (roleMatch) {
-      role = stripYamlQuotes(roleMatch[1].trim());
+      // Unreachable: regex (.+) always captures when match succeeds; satisfies noUncheckedIndexedAccess
+      ifDefined(roleMatch[1], (v) => { role = stripYamlQuotes(v.trim()); });
       continue;
     }
   }
@@ -86,6 +89,11 @@ function stripYamlQuotes(value: string): string {
  *
  * @param agentsDir - Absolute path to the directory containing `*.agent.md`
  *   files (e.g. the VS Code User prompts folder).
+ * @param strict - When `true`, throws a `RangeError` for any `role:` value
+ *   that is not present in `AGENT_ROLES`. Intended for CI/validation tooling
+ *   and test harnesses that must assert exhaustive role coverage. Defaults to
+ *   `false`, in which case unknown roles emit a `stderr` warning but are still
+ *   added to the map.
  * @returns A `Record<role, agentName>` mapping.
  */
 export async function discoverAgents(agentsDir: string, strict = false): Promise<Record<string, string>> {
@@ -134,7 +142,7 @@ export async function discoverAgents(agentsDir: string, strict = false): Promise
 
     if (!(AGENT_ROLES as readonly string[]).includes(role)) {
       if (strict) {
-        throw new RangeError(`[discoverAgents] Unknown role "${role}" in ${filePath}`);
+        throw new RangeError(`[agent-registry] Unknown role "${role}" in ${filePath}`);
       }
       process.stderr.write(
         `[agent-registry] Warning: "${filename}" has unknown role: "${role}" — adding anyway.\n`,
@@ -143,7 +151,7 @@ export async function discoverAgents(agentsDir: string, strict = false): Promise
 
     if (newMap[role] !== undefined) {
       process.stderr.write(
-        `[discoverAgents] Role collision: "${role}" defined in both "${newMap[role]}" and "${name}". Last-wins.\n`,
+        `[agent-registry] Role collision: "${role}" defined in both "${newMap[role]}" and "${name}". Last-wins.\n`,
       );
     }
     newMap[role] = name;

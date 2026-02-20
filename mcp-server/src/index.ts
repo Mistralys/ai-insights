@@ -32,8 +32,11 @@ const VERSION = packageJson.version;
 function resolveAgentsDir(): string {
   // Check for --agents-dir <path> in process.argv
   const argIdx = process.argv.indexOf('--agents-dir');
-  if (argIdx !== -1 && process.argv[argIdx + 1]) {
-    return resolve(process.argv[argIdx + 1]);
+  if (argIdx !== -1) {
+    const agentsDir = process.argv[argIdx + 1];
+    if (agentsDir) {
+      return resolve(agentsDir);
+    }
   }
 
   // Platform-specific defaults

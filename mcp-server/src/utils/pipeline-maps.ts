@@ -74,8 +74,9 @@ export const NEXT_AGENT_MAP: Record<PipelineType, string> = {
 /**
  * Inverse of PIPELINE_AGENT_MAP: maps an agent role to the pipeline type it owns.
  * Derived at runtime from PIPELINE_AGENT_MAP so the two can never silently diverge.
- * Agent names are not a closed union, so the type annotation uses Record<string, string>.
+ * Constructed via PIPELINE_TYPES iteration with an explicit tuple return type so
+ * TypeScript infers PipelineType as the value type without needing downstream casts.
  */
-export const AGENT_PIPELINE_MAP: Record<string, string> = Object.fromEntries(
-  Object.entries(PIPELINE_AGENT_MAP).map(([k, v]) => [v, k])
+export const AGENT_PIPELINE_MAP: Record<string, PipelineType> = Object.fromEntries(
+  PIPELINE_TYPES.map((type): [string, PipelineType] => [PIPELINE_AGENT_MAP[type], type])
 );

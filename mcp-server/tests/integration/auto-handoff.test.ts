@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { _internal } from '../../src/tools/workflow.js';
+import * as _internal from '../../src/tools/workflow.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
 import { now } from '../../src/utils/timestamp.js';
