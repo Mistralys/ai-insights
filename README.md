@@ -29,6 +29,12 @@ The script automatically detects your operating system and uses the correct VS C
 
 Only persona files with a `VS File Name` metadata field will be copied.
 
+After syncing, the script validates frontmatter in all ledger personas (`personas/ledger/`) and warns if any file is missing the required `role:` or `name:` fields. Warnings are advisory and do not block the sync. A clean run prints:
+
+```
+✓ All 8 ledger persona file(s) passed frontmatter validation
+```
+
 ## Project Ledger MCP Server
 
 - [Ledger MCP](/mcp-server/README.md) - Agent workflow ledger storage.

@@ -86,6 +86,77 @@ function findMarkdownFiles(dir, fileList = []) {
 }
 
 /**
+ * Validate frontmatter in all persona files under the ledger/ subdirectory.
+ * Emits advisory warnings if a file is missing a `role:` field, or has `role:`
+ * but is missing a `name:` field. Does NOT block the sync process.
+ *
+ * @param {string} ledgerDir - Absolute path to the personas/ledger/ directory
+ */
+function validateLedgerFrontmatter(ledgerDir) {
+  if (!fs.existsSync(ledgerDir)) return;
+
+  const files = fs.readdirSync(ledgerDir).filter(f => f.endsWith('.md'));
+
+  console.log(`\n${colors.bright}${colors.cyan}=== Ledger Frontmatter Validation ===${colors.reset}`);
+
+  let warningCount = 0;
+
+  for (const file of files) {
+    const filePath = path.join(ledgerDir, file);
+    let content;
+    try {
+      content = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.warn(`${colors.yellow}⚠ ${file}: could not read file — ${err.message}${colors.reset}`);
+      warningCount++;
+      continue;
+    }
+
+    // Only validate files that start with YAML frontmatter
+    if (!content.startsWith('---')) continue;
+
+    const afterFirst = content.slice(3);
+    const closingIdx = afterFirst.indexOf('\n---');
+    if (closingIdx === -1) continue;
+
+    const frontmatter = afterFirst.slice(0, closingIdx);
+
+    let role = null;
+    let name = null;
+
+    for (const line of frontmatter.split('\n')) {
+      const trimmed = line.trim();
+      const roleMatch = trimmed.match(/^role:\s*(.+)$/);
+      if (roleMatch) {
+        role = roleMatch[1].trim().replace(/^['"]|['"]$/g, '');
+        continue;
+      }
+      const nameMatch = trimmed.match(/^name:\s*(.+)$/);
+      if (nameMatch) {
+        name = nameMatch[1].trim().replace(/^['"]|['"]$/g, '');
+        continue;
+      }
+    }
+
+    const relPath = path.join('ledger', file);
+
+    if (!role) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'role:' field in frontmatter${colors.reset}`);
+      warningCount++;
+    } else if (!name) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: has 'role: ${role}' but missing 'name:' field in frontmatter${colors.reset}`);
+      warningCount++;
+    }
+  }
+
+  if (warningCount === 0) {
+    console.log(`${colors.green}✓ All ${files.length} ledger persona file(s) passed frontmatter validation${colors.reset}`);
+  } else {
+    console.log(`${colors.yellow}${warningCount} frontmatter warning(s) found — sync was not blocked${colors.reset}`);
+  }
+}
+
+/**
  * Copy persona files to VS Code prompts directory
  * @param {string} targetDir - Target directory for copying
  * @param {boolean} dryRun - If true, only preview what would be copied
@@ -191,6 +262,7 @@ ${colors.bright}Examples:${colors.reset}
   try {
     const targetDir = customPath || getVSCodePromptsDir();
     syncPersonas(targetDir, dryRun);
+    validateLedgerFrontmatter(path.join(__dirname, 'personas', 'ledger'));
   } catch (error) {
     console.error(`${colors.red}Error:${colors.reset}`, error.message);
     process.exit(1);
