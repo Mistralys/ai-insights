@@ -1,5 +1,18 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.4.1 - Synthesis Next Steps (2026-02-20)
+
+### Added
+- **WP-002:** New module `src/utils/constants.ts` — canonical single source of truth for `AGENT_ROLES` (the seven-item `as const` array of valid agent role names) and the derived `AgentRole` string-literal type. Both `workflow.ts` and `agent-registry.ts` now import from this module; their local `AGENT_ROLES` / `KNOWN_AGENT_ROLES` duplicates have been removed.
+- **WP-007:** `discoverAgents()` in `src/utils/agent-registry.ts` gains an optional `strict?: boolean` second parameter (default `false`, non-breaking). When `true`, an unknown `role:` value causes `discoverAgents()` to throw `RangeError: [discoverAgents] Unknown role "<role>" in <filePath>` instead of the default warn-and-continue behaviour. Additionally, when two `.agent.md` files share the same `role:` value, a `process.stderr.write()` warning is now emitted naming both files before the last-wins assignment. 7 new unit tests added to `tests/utils/agent-registry.test.ts`; `src/index.ts` unchanged.
+- **WP-005:** `sync-personas.js` — `validateLedgerFrontmatter()` extended to cross-validate the `role:` value against a `KNOWN_ROLES` constant (mirrors the seven role names in `AGENT_ROLES`). When `role:` is present but not in `KNOWN_ROLES`, a `console.warn` names the file path and the unrecognised value. Exit code remains `0`; warnings are advisory only. `KNOWN_ROLES` is hardcoded inline with a comment to keep it in sync with `src/utils/constants.ts`.
+- **WP-006:** `docs/agents/project-manifest/data-flows.md` — new **Flow 13: Auto-Handoff Depth Counter Lifecycle** section documenting the `auto_handoff_depth` field: where the counter lives (root index), when it increments (`buildHandoffResponse`, gated by `depth < MAX_HANDOFF_DEPTH = 10`), when it resets (project reaches COMPLETE), and what happens when the limit is reached (auto-handoff suppressed; manual routing fallback; no error).
+
+### Fixed
+- **WP-001:** Replaced two silent `catch {}` blocks in `buildHandoffResponse` (`src/tools/workflow.ts`) with `catch (err)` blocks that call `process.stderr.write()`, emitting a structured `[buildHandoffResponse] storage error: <err>` message. Previously, storage failures during auto-handoff depth updates and COMPLETE resets were silently swallowed with no trace. Follows the stderr convention established in `agent-registry.ts`.
+- **WP-003:** Resolved three TS7053 (implicit-any element access) errors in `getNextActions` (`src/tools/workflow.ts`). The maps `agentNameMap`, `actionNameMap`, and `reworkActionMap` are typed as `Record<PostImplPipelineType, string>` but were indexed with a `string`-typed variable (`pipelineType`). Fixed by adding `pipelineType as PostImplPipelineType` at each of the three index sites (lines 1717, 1719, and 1731). `PostImplPipelineType` was already in scope via import — no new types or files introduced. Zero logic changes; zero test regressions.
+- **WP-004:** `validatePlanPath` in `src/utils/path-validator.ts` now normalises backslash separators (`\`) to forward slashes before calling `basename()`. Fixes a pre-existing test failure on macOS/Linux where Node's `path.basename` does not split on backslashes, causing Windows-style paths (e.g. `f:\\Webserver\\...\\2026-02-16-cleanup`) to fail the date-prefix format check. The raw path is still passed to filesystem calls since all platforms accept forward slashes.
+
 ## v1.4.0 - Automatic Handoffs (2026-02-20)
 
 ### Added

@@ -7,7 +7,9 @@ import { basename } from 'path';
  * @returns An object with `isValid` boolean and optional `error` message
  */
 export function validatePlanPath(projectPath: string): { isValid: boolean; error?: string } {
-  const folderName = basename(projectPath);
+  // Normalise Windows-style backslashes so basename works correctly on POSIX
+  const normalised = projectPath.replace(/\\/g, '/');
+  const folderName = basename(normalised);
   
   // Pattern: YYYY-MM-DD followed by a hyphen and at least one character
   // Example: 2026-02-16-technical-debt-cleanup

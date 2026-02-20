@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.1.2 - Role Value Cross-Validation (2026-02-20)
+- `sync-personas.js`: `validateLedgerFrontmatter()` now cross-validates the `role:` value against a `KNOWN_ROLES` constant. When `role:` is present but its value does not match any known agent role, a `console.warn` is emitted naming both the file path and the unrecognised value. Exit code remains `0`; warnings are advisory only.
+- `KNOWN_ROLES` is defined at the top of the file with a comment to keep it in sync with `src/utils/constants.ts` in the MCP server.
+
 ## v3.1.1 - Automatic Handoffs in Ledger Personas
 - Ledger Personas: Added **Automatic Handoff** instruction paragraph to the Workflow section of all 6 active ledger personas (`2-project-manager.md` through `7-synthesis.md`).
 - When `ledger_get_handoff_status` returns an `auto_handoff` object, agents now invoke `runSubagent` with `auto_handoff.agent_name` and `auto_handoff.prompt` to pass control to the next agent automatically.

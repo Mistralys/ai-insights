@@ -350,6 +350,7 @@ All types are inferred from Zod schemas using `z.infer<typeof Schema>`.
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
+type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis'; // Exported from src/utils/constants.ts; canonical string-literal union for all valid agent role names.
 type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
 type PostImplPipelineType = Exclude<PipelineType, 'implementation'>; // Subset type for maps that only apply to post-implementation stages (QA, code-review, documentation)
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
@@ -484,6 +485,28 @@ function canCompleteWorkPackage(
 
 ---
 
+## Constants
+
+Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase.
+
+```typescript
+// Canonical array of valid agent role names. Consumers should import from here
+// rather than defining local copies to avoid silent drift.
+const AGENT_ROLES: readonly [
+  'Planner', 'Project Manager', 'Developer',
+  'QA', 'Reviewer', 'Documentation', 'Synthesis'
+];
+
+// String-literal union type derived from AGENT_ROLES.
+type AgentRole = typeof AGENT_ROLES[number];
+```
+
+**Importers:**
+- `src/tools/workflow.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
+- `src/utils/agent-registry.ts` — imports `AGENT_ROLES` from `'./constants.js'`
+
+---
+
 ## Agent Registry
 
 Exported from `src/utils/agent-registry.ts`. Discovers VS Code agent handles by scanning `*.agent.md` files in a configurable directory.
@@ -491,17 +514,21 @@ Exported from `src/utils/agent-registry.ts`. Discovers VS Code agent handles by 
 ### `discoverAgents()`
 
 ```typescript
-async function discoverAgents(agentsDir: string): Promise<Record<string, string>>;
+async function discoverAgents(agentsDir: string, strict?: boolean): Promise<Record<string, string>>;
 ```
 
 Scans `agentsDir` for `*.agent.md` files, parses YAML frontmatter in each, and builds an in-memory map from workflow `role` names to VS Code agent `name` handles (e.g. `{ "Developer": "3 - Developer v3.1.2" }`). Overwrites the module-level cache on each call and returns a shallow copy.
 
+**Parameters:**
+- `agentsDir` — path to the directory containing `*.agent.md` files.
+- `strict` *(optional, default `false`)* — when `true`, throws a `RangeError` if any file contains a `role:` value not present in `AGENT_ROLES`. When `false` (default), unknown roles emit a `stderr` warning but are still added to the map (forward-compatible).
+
 **Behaviour:**
 - Files without a `role:` field are silently skipped.
 - Files with `role:` but without `name:` write a warning to `stderr` and are skipped.
-- `role:` values that do not match a known agent role write a warning to `stderr` but are still added to the map (forward-compatible).
+- `role:` values that do not match a known agent role: in non-strict mode, write a warning to `stderr` and add the entry; in strict mode, throw `RangeError: [discoverAgents] Unknown role "<role>" in <filePath>`.
 - If `agentsDir` does not exist or is unreadable, a warning is written to `stderr` and an empty map is returned.
-- If two files share the same `role:` value, the last one wins.
+- If two files share the same `role:` value, a warning is written to `stderr` naming both files, and the last one wins (last-wins behaviour preserved).
 
 **Known limitation:** The internal YAML parser (`stripYamlQuotes`) only strips matching outer quote pairs. Escaped inner quotes (e.g. `name: 'It\'s a name'`) are not handled.
 

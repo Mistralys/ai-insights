@@ -14,6 +14,7 @@ import {
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp, now } from '../utils/timestamp.js';
 import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
+import { AGENT_ROLES } from '../utils/constants.js';
 
 /**
  * Number of hours after which an IN_PROGRESS pipeline is considered stale.
@@ -54,19 +55,6 @@ export const _internal = {
   buildHandoffPrompt,
   MAX_HANDOFF_DEPTH,
 };
-
-/**
- * Agent role definitions for the 7-stage workflow
- */
-const AGENT_ROLES = [
-  'Planner',
-  'Project Manager',
-  'Developer',
-  'QA',
-  'Reviewer',
-  'Documentation',
-  'Synthesis',
-] as const;
 
 type AgentRole = typeof AGENT_ROLES[number];
 
@@ -1040,8 +1028,8 @@ async function buildHandoffResponse(
             prompt: buildHandoffPrompt(projectPath),
           };
         }
-      } catch {
-        // Auto-handoff silently disabled on storage error
+      } catch (err) {
+        process.stderr.write(`[buildHandoffResponse] storage error: ${String(err)}\n`);
       }
     }
   }
@@ -1057,8 +1045,8 @@ async function buildHandoffResponse(
           last_updated: now(),
         });
       }
-    } catch {
-      // silently skip
+    } catch (err) {
+      process.stderr.write(`[buildHandoffResponse] storage error: ${String(err)}\n`);
     }
   }
 
@@ -1726,9 +1714,9 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
       const hasPipelineAlready = wpDetail.pipelines.some((p) => p.type === pipelineType);
 
       if (hasPassPrerequisite && !hasPipelineAlready) {
-        const handoffNotes = getHandoffNotesForAgent(wpDetail, agentNameMap[pipelineType]);
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, agentNameMap[pipelineType as PostImplPipelineType]);
         actions.push({
-          action: actionNameMap[pipelineType],
+          action: actionNameMap[pipelineType as PostImplPipelineType],
           work_package_id: wpDetail.work_package_id,
           reason: `Work package ${wpDetail.work_package_id} is ready for ${pipelineType}.`,
           ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
@@ -1740,7 +1728,7 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
       // can retry — skip rework suggestion to avoid infinite-loop signals.
       if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) {
         actions.push({
-          action: reworkActionMap[pipelineType],
+          action: reworkActionMap[pipelineType as PostImplPipelineType],
           work_package_id: wpDetail.work_package_id,
           reason: `Work package ${wpDetail.work_package_id} has a FAIL ${pipelineType} pipeline.`,
         });

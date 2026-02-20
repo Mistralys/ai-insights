@@ -16,6 +16,19 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// NOTE: Keep in sync with AGENT_ROLES in src/utils/constants.ts whenever agent
+// roles are added or renamed. This file is plain JS and cannot import TypeScript
+// source directly.
+const KNOWN_ROLES = [
+  'Planner',
+  'Project Manager',
+  'Developer',
+  'QA',
+  'Reviewer',
+  'Documentation',
+  'Synthesis',
+];
+
 // ANSI color codes for console output
 const colors = {
   reset: '\x1b[0m',
@@ -142,6 +155,9 @@ function validateLedgerFrontmatter(ledgerDir) {
 
     if (!role) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'role:' field in frontmatter${colors.reset}`);
+      warningCount++;
+    } else if (!KNOWN_ROLES.includes(role)) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: unknown role "${role}" in frontmatter. Expected one of: ${KNOWN_ROLES.join(', ')}${colors.reset}`);
       warningCount++;
     } else if (!name) {
       console.warn(`${colors.yellow}⚠ ${relPath}: has 'role: ${role}' but missing 'name:' field in frontmatter${colors.reset}`);

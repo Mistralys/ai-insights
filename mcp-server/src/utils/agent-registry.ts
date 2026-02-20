@@ -1,19 +1,6 @@
 import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
-
-/**
- * Known agent roles for validation warnings.
- * Must match the AGENT_ROLES constant in workflow.ts.
- */
-const KNOWN_AGENT_ROLES = [
-  'Planner',
-  'Project Manager',
-  'Developer',
-  'QA',
-  'Reviewer',
-  'Documentation',
-  'Synthesis',
-] as const;
+import { AGENT_ROLES } from './constants.js';
 
 /** Module-level cache: role → VS Code agent name */
 let agentHandleMap: Record<string, string> = {};
@@ -101,7 +88,7 @@ function stripYamlQuotes(value: string): string {
  *   files (e.g. the VS Code User prompts folder).
  * @returns A `Record<role, agentName>` mapping.
  */
-export async function discoverAgents(agentsDir: string): Promise<Record<string, string>> {
+export async function discoverAgents(agentsDir: string, strict = false): Promise<Record<string, string>> {
   let entries: string[];
 
   try {
@@ -145,12 +132,20 @@ export async function discoverAgents(agentsDir: string): Promise<Record<string, 
       continue;
     }
 
-    if (!(KNOWN_AGENT_ROLES as readonly string[]).includes(role)) {
+    if (!(AGENT_ROLES as readonly string[]).includes(role)) {
+      if (strict) {
+        throw new RangeError(`[discoverAgents] Unknown role "${role}" in ${filePath}`);
+      }
       process.stderr.write(
         `[agent-registry] Warning: "${filename}" has unknown role: "${role}" — adding anyway.\n`,
       );
     }
 
+    if (newMap[role] !== undefined) {
+      process.stderr.write(
+        `[discoverAgents] Role collision: "${role}" defined in both "${newMap[role]}" and "${name}". Last-wins.\n`,
+      );
+    }
     newMap[role] = name;
   }
 

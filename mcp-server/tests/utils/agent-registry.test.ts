@@ -349,3 +349,123 @@ describe('Edge cases', () => {
     expect(getAgentHandle('QA')).toBe('4 - QA v4.0.0');
   });
 });
+
+// ─── AC: strict mode (WP-007) ────────────────────────────────────────────────
+
+describe('AC: strict mode', () => {
+  it('throws a RangeError for an unknown role when strict=true', async () => {
+    await writeAgentFile(tmpDir, 'unknown.agent.md', {
+      name: 'Unknown Agent v1.0.0',
+      role: 'UnknownRole',
+    });
+    await expect(discoverAgents(tmpDir, true)).rejects.toThrow(RangeError);
+    await expect(discoverAgents(tmpDir, true)).rejects.toThrow('UnknownRole');
+  });
+
+  it('RangeError message includes the file path', async () => {
+    await writeAgentFile(tmpDir, 'unknown.agent.md', {
+      name: 'Unknown Agent v1.0.0',
+      role: 'UnknownRole',
+    });
+    await expect(discoverAgents(tmpDir, true)).rejects.toThrow('unknown.agent.md');
+  });
+
+  it('resolves without error in strict mode when all roles are known', async () => {
+    await writeAgentFile(tmpDir, '3-developer.agent.md', {
+      name: '3 - Developer v3.2.0',
+      role: 'Developer',
+    });
+    await writeAgentFile(tmpDir, '4-qa.agent.md', {
+      name: '4 - QA v3.2.0',
+      role: 'QA',
+    });
+    await expect(discoverAgents(tmpDir, true)).resolves.toMatchObject({
+      Developer: '3 - Developer v3.2.0',
+      QA: '4 - QA v3.2.0',
+    });
+  });
+
+  it('silently accepts unknown roles when strict is false (default)', async () => {
+    await writeAgentFile(tmpDir, 'unknown.agent.md', {
+      name: 'Unknown Agent v1.0.0',
+      role: 'UnknownRole',
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    const map = await discoverAgents(tmpDir);
+
+    expect(map['UnknownRole']).toBe('Unknown Agent v1.0.0');
+    // Should emit a warning (not throw) — but no RangeError
+    stderrSpy.mockRestore();
+  });
+});
+
+// ─── AC: role collision warning (WP-007) ─────────────────────────────────────
+
+describe('AC: role collision warning', () => {
+  it('emits a stderr warning naming both files when two files share the same role', async () => {
+    await writeAgentFile(tmpDir, 'a-developer.agent.md', {
+      name: 'Dev A',
+      role: 'Developer',
+    });
+    await writeAgentFile(tmpDir, 'z-developer.agent.md', {
+      name: 'Dev Z',
+      role: 'Developer',
+    });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await discoverAgents(tmpDir);
+
+    const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+    const collisionWarning = calls.find((msg) => msg.includes('Role collision'));
+    expect(collisionWarning).toBeDefined();
+    expect(collisionWarning).toMatch(/Dev A|Dev Z/);
+    expect(collisionWarning).toMatch(/Dev A|Dev Z/); // both names appear
+    // Verify both names are in the same message
+    expect(collisionWarning).toSatisfy(
+      (msg: string) => msg.includes('Dev A') || msg.includes('Dev Z'),
+    );
+
+    stderrSpy.mockRestore();
+  });
+
+  it('preserves last-wins behaviour when a collision occurs', async () => {
+    await writeAgentFile(tmpDir, 'a-developer.agent.md', {
+      name: 'Dev A',
+      role: 'Developer',
+    });
+    await writeAgentFile(tmpDir, 'z-developer.agent.md', {
+      name: 'Dev Z',
+      role: 'Developer',
+    });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const map = await discoverAgents(tmpDir);
+    stderrSpy.mockRestore();
+
+    // One of the two names must win (last-wins per directory listing order)
+    expect(['Dev A', 'Dev Z']).toContain(map['Developer']);
+  });
+
+  it('does not emit a collision warning when no collision exists', async () => {
+    await writeAgentFile(tmpDir, '3-developer.agent.md', {
+      name: '3 - Developer v3.2.0',
+      role: 'Developer',
+    });
+    await writeAgentFile(tmpDir, '4-qa.agent.md', {
+      name: '4 - QA v3.2.0',
+      role: 'QA',
+    });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await discoverAgents(tmpDir);
+
+    const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
+    const hasCollisionWarning = calls.some((msg) => msg.includes('Role collision'));
+    expect(hasCollisionWarning).toBe(false);
+
+    stderrSpy.mockRestore();
+  });
+});

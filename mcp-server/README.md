@@ -448,3 +448,10 @@ For developers and curious users who want to understand the internals:
 ## License
 
 Same as the parent ai-insights project.
+
+---
+
+## TODO
+
+- UI for the ledger
+- Centralize the ledger files

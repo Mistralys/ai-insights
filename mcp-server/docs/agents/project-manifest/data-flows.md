@@ -441,6 +441,74 @@ Return corrected RootIndex to agent
 
 ---
 
+## Flow 13: Auto-Handoff Depth Counter Lifecycle
+
+**Context:** `auto_handoff_depth` is a safeguard against infinite agent-chain loops. `buildHandoffResponse` in `src/tools/workflow.ts` manages the counter on every handoff-status response.
+
+**Constant:** `MAX_HANDOFF_DEPTH = 10` (defined at the top of `src/tools/workflow.ts`).
+
+### 13a: Storage Location
+
+```
+root index (.ledger/project-ledger.json)
+  └── auto_handoff_depth: number   ← current chain depth (0 when absent)
+```
+
+The field is optional on the root index schema; a missing value is treated as `0` everywhere.
+
+### 13b: Increment Path (normal handoff)
+
+```
+Agent invokes ledger_get_handoff_status (or ledger_get_next_action)
+  ↓
+buildHandoffResponse() — src/tools/workflow.ts
+  ↓
+Registry check: isRegistryLoaded() === true
+  ↓
+Eligibility check:
+  - status not in { COMPLETE, BLOCKED, IN_PROGRESS }
+  - nextAgent resolves to a known VS Code agent handle
+  ↓
+store.readRootIndex()
+  ↓
+currentDepth = root.auto_handoff_depth ?? 0
+  ↓
+  [currentDepth < MAX_HANDOFF_DEPTH?]
+    YES → store.writeRootIndex({ ...root, auto_handoff_depth: currentDepth + 1 })
+          auto_handoff object is included in the response payload
+    NO  → auto_handoff is omitted from the response (depth exceeded — see 13d)
+```
+
+### 13c: Reset Path (project complete)
+
+```
+buildHandoffResponse() detects status === 'COMPLETE'
+  ↓
+store.readRootIndex()
+  ↓
+  [(root.auto_handoff_depth ?? 0) !== 0?]
+    YES → store.writeRootIndex({ ...root, auto_handoff_depth: 0 })
+    NO  → no-op (already reset)
+```
+
+The reset is performed by `buildHandoffResponse` in `src/tools/workflow.ts`, triggered whenever any workflow tool returns a COMPLETE status response.
+
+### 13d: Depth-Exceeded Path (chain terminated)
+
+```
+currentDepth >= MAX_HANDOFF_DEPTH (10)
+  ↓
+auto_handoff key is NOT included in the response payload
+  ↓
+No error thrown — no warning emitted
+  ↓
+Agent chain terminates; manual routing by the user is required
+```
+
+**Result:** The automatic handoff chain allows up to `MAX_HANDOFF_DEPTH` (10) consecutive agent invocations before requiring human intervention, preventing runaway loops while preserving normal multi-agent workflows.
+
+---
+
 ## Data Flow Patterns
 
 ### Pattern 1: Read-Validate-Process-Return
