@@ -39,5 +39,6 @@ export const RootIndexSchema = z.object({
   pending_work_packages: z.number().int().nonnegative(),
   work_packages: z.array(WorkPackageSummarySchema),
   project_comments: z.array(ProjectCommentSchema),
+  auto_handoff_depth: z.number().int().nonnegative().optional(),
 });
 export type RootIndex = z.infer<typeof RootIndexSchema>;

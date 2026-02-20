@@ -12,12 +12,24 @@ import {
   type PipelineType,
   type PostImplPipelineType,
 } from '../utils/pipeline-maps.js';
-import { parseTimestamp } from '../utils/timestamp.js';
+import { parseTimestamp, now } from '../utils/timestamp.js';
+import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
 
 /**
  * Number of hours after which an IN_PROGRESS pipeline is considered stale.
  */
 const STALE_PIPELINE_HOURS = 24;
+
+/** Maximum number of automatic handoff chain steps to prevent infinite loops. */
+const MAX_HANDOFF_DEPTH = 10;
+
+/**
+ * Builds the prompt string passed to the next agent during auto-handoff.
+ * Intentionally minimal — the receiving agent's persona contains full workflow instructions.
+ */
+function buildHandoffPrompt(projectPath: string): string {
+  return `Project path: ${projectPath}`;
+}
 
 /**
  * @internal — exported for unit testing only
@@ -39,6 +51,8 @@ export const _internal = {
   NEXT_AGENT_MAP,
   nextAgentFromStatus,
   buildHandoffResponse,
+  buildHandoffPrompt,
+  MAX_HANDOFF_DEPTH,
 };
 
 /**
@@ -883,7 +897,10 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
       return buildHandoffResponse(
         args.current_agent,
         'BLOCKED',
-        `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`
+        `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`,
+        undefined,
+        args.project_path,
+        store
       );
     }
 
@@ -898,19 +915,19 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // Agent-specific handoff logic
     switch (args.current_agent) {
       case 'Project Manager':
-        return getProjectManagerHandoff(wpDetails);
+        return getProjectManagerHandoff(wpDetails, args.project_path, store);
       case 'Developer':
-        return getDeveloperHandoff(wpDetails);
+        return getDeveloperHandoff(wpDetails, args.project_path, store);
       case 'QA':
-        return getQaHandoff(wpDetails);
+        return getQaHandoff(wpDetails, args.project_path, store);
       case 'Reviewer':
-        return getReviewerHandoff(wpDetails);
+        return getReviewerHandoff(wpDetails, args.project_path, store);
       case 'Documentation':
-        return getDocumentationHandoff(wpDetails);
+        return getDocumentationHandoff(wpDetails, args.project_path, store);
       case 'Synthesis':
-        return buildHandoffResponse(args.current_agent, 'COMPLETE', 'Synthesis complete.');
+        return buildHandoffResponse(args.current_agent, 'COMPLETE', 'Synthesis complete.', undefined, args.project_path, store);
       default:
-        return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.');
+        return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, args.project_path, store);
     }
   } catch (error) {
     return {
@@ -970,21 +987,81 @@ function nextAgentFromStatus(status: string, currentAgent: string): string | nul
   return map[status] ?? null;
 }
 
-/** Build a standard handoff response payload with current_agent, next_agent, and status. */
-function buildHandoffResponse(
+/** Build a standard handoff response payload with current_agent, next_agent, and status.
+ *
+ * When `projectPath` and `store` are provided, this function will also attempt to include
+ * an `auto_handoff` object in the payload if all eligibility conditions are met:
+ * - Registry is loaded (`isRegistryLoaded()` returns true)
+ * - Next agent has a known VS Code handle
+ * - Status is not COMPLETE, BLOCKED, or IN_PROGRESS
+ * - `auto_handoff_depth` in the ledger is below `MAX_HANDOFF_DEPTH`
+ *
+ * On COMPLETE status the depth counter is reset to 0 so the next project starts fresh.
+ */
+async function buildHandoffResponse(
   currentAgent: string,
   status: string,
   details: string,
-  nextAction?: string
+  nextAction?: string,
+  projectPath?: string,
+  store?: LedgerStore
 ) {
   const nextAgent = nextAgentFromStatus(status, currentAgent);
-  const payload: Record<string, string> = {
+  const payload: Record<string, unknown> = {
     current_agent: currentAgent,
     ...(nextAgent ? { next_agent: nextAgent } : {}),
     status,
     details,
   };
   if (nextAction) payload.next_action = nextAction;
+
+  // Auto-handoff eligibility check
+  if (
+    projectPath &&
+    store &&
+    status !== 'COMPLETE' &&
+    status !== 'BLOCKED' &&
+    status !== 'IN_PROGRESS' &&
+    isRegistryLoaded()
+  ) {
+    const agentName = nextAgent ? getAgentHandle(nextAgent) : null;
+    if (agentName !== null) {
+      try {
+        const root = await store.readRootIndex();
+        const currentDepth = root.auto_handoff_depth ?? 0;
+        if (currentDepth < MAX_HANDOFF_DEPTH) {
+          await store.writeRootIndex({
+            ...root,
+            auto_handoff_depth: currentDepth + 1,
+            last_updated: now(),
+          });
+          payload.auto_handoff = {
+            agent_name: agentName,
+            prompt: buildHandoffPrompt(projectPath),
+          };
+        }
+      } catch {
+        // Auto-handoff silently disabled on storage error
+      }
+    }
+  }
+
+  // Reset depth counter when project reaches COMPLETE
+  if (status === 'COMPLETE' && store && projectPath) {
+    try {
+      const root = await store.readRootIndex();
+      if ((root.auto_handoff_depth ?? 0) !== 0) {
+        await store.writeRootIndex({
+          ...root,
+          auto_handoff_depth: 0,
+          last_updated: now(),
+        });
+      }
+    } catch {
+      // silently skip
+    }
+  }
+
   return {
     content: [
       {
@@ -998,7 +1075,7 @@ function buildHandoffResponse(
 /**
  * Get handoff status for Project Manager
  */
-function getProjectManagerHandoff(wpDetails: WorkPackageDetail[]) {
+async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // If any WP lacks implementation pipeline, Developer needs to work
   const needsImplementation = wpDetails.some(
     (wp) =>
@@ -1010,21 +1087,27 @@ function getProjectManagerHandoff(wpDetails: WorkPackageDetail[]) {
     return buildHandoffResponse(
       'Project Manager',
       'READY_FOR_DEVELOPER',
-      'Work packages created and ready for implementation.'
+      'Work packages created and ready for implementation.',
+      undefined,
+      projectPath,
+      store
     );
   }
 
   return buildHandoffResponse(
     'Project Manager',
     'IN_PROGRESS',
-    'Work packages in progress.'
+    'Work packages in progress.',
+    undefined,
+    projectPath,
+    store
   );
 }
 
 /**
  * Get handoff status for Developer
  */
-function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
+async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs have PASS implementation pipelines
   const allImplemented = wpDetails.every((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
@@ -1034,7 +1117,10 @@ function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
     return buildHandoffResponse(
       'Developer',
       'READY_FOR_QA',
-      'All work packages have PASS implementation pipelines.'
+      'All work packages have PASS implementation pipelines.',
+      undefined,
+      projectPath,
+      store
     );
   }
 
@@ -1063,21 +1149,26 @@ function getDeveloperHandoff(wpDetails: WorkPackageDetail[]) {
       'Developer',
       'IN_PROGRESS',
       `Implementation work in progress. ${wpsNeedingWork.length} work package(s) still need implementation or rework.`,
-      `Call ledger_get_next_action with agent_role: "Developer" to find the next work package to implement. Continue working until all WPs have PASS implementation pipelines.`
+      `Call ledger_get_next_action with agent_role: "Developer" to find the next work package to implement. Continue working until all WPs have PASS implementation pipelines.`,
+      projectPath,
+      store
     );
   }
 
   return buildHandoffResponse(
     'Developer',
     'READY_FOR_QA',
-    'Implementation complete.'
+    'Implementation complete.',
+    undefined,
+    projectPath,
+    store
   );
 }
 
 /**
  * Get handoff status for QA
  */
-function getQaHandoff(wpDetails: WorkPackageDetail[]) {
+async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs with implementation pipelines have PASS QA pipelines
   const wpsWithImpl = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
@@ -1108,7 +1199,10 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
         return buildHandoffResponse(
           'QA',
           'READY_FOR_REVIEW',
-          `QA passed for ${wpsWithImpl.length} implemented work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`
+          `QA passed for ${wpsWithImpl.length} implemented work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`,
+          undefined,
+          projectPath,
+          store
         );
       }
 
@@ -1116,14 +1210,20 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
       return buildHandoffResponse(
         'QA',
         'READY_FOR_DEVELOPER',
-        `QA passed for ${wpsWithImpl.length} implemented work package(s). ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+        `QA passed for ${wpsWithImpl.length} implemented work package(s). ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
+        undefined,
+        projectPath,
+        store
       );
     }
 
     return buildHandoffResponse(
       'QA',
       'READY_FOR_REVIEW',
-      'All work packages have PASS QA pipelines.'
+      'All work packages have PASS QA pipelines.',
+      undefined,
+      projectPath,
+      store
     );
   }
 
@@ -1149,7 +1249,9 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
       'QA',
       'IN_PROGRESS',
       `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA or rework.`,
-      `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`
+      `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`,
+      projectPath,
+      store
     );
   }
 
@@ -1168,7 +1270,10 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
       return buildHandoffResponse(
         'QA',
         'READY_FOR_REVIEW',
-        `QA complete for all implemented work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`
+        `QA complete for all implemented work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Review to complete current WPs.`,
+        undefined,
+        projectPath,
+        store
       );
     }
 
@@ -1176,21 +1281,27 @@ function getQaHandoff(wpDetails: WorkPackageDetail[]) {
     return buildHandoffResponse(
       'QA',
       'READY_FOR_DEVELOPER',
-      `QA complete for all implemented work packages. ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+      `QA complete for all implemented work packages. ${readyWps.length} work package(s) ready for implementation: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
+      undefined,
+      projectPath,
+      store
     );
   }
 
   return buildHandoffResponse(
     'QA',
     'READY_FOR_REVIEW',
-    'QA complete.'
+    'QA complete.',
+    undefined,
+    projectPath,
+    store
   );
 }
 
 /**
  * Get handoff status for Reviewer
  */
-function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
+async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs with QA pipelines have PASS code-review pipelines
   const wpsWithQa = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
@@ -1221,7 +1332,10 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
         return buildHandoffResponse(
           'Reviewer',
           'READY_FOR_DOCUMENTATION',
-          `Review passed for ${wpsWithQa.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`
+          `Review passed for ${wpsWithQa.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`,
+          undefined,
+          projectPath,
+          store
         );
       }
 
@@ -1229,14 +1343,20 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
       return buildHandoffResponse(
         'Reviewer',
         'READY_FOR_DEVELOPER',
-        `Review passed for ${wpsWithQa.length} work package(s). ${readyWps.length} work package(s) ready for implementation/QA: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+        `Review passed for ${wpsWithQa.length} work package(s). ${readyWps.length} work package(s) ready for implementation/QA: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
+        undefined,
+        projectPath,
+        store
       );
     }
 
     return buildHandoffResponse(
       'Reviewer',
       'READY_FOR_DOCUMENTATION',
-      'All work packages have PASS code-review pipelines.'
+      'All work packages have PASS code-review pipelines.',
+      undefined,
+      projectPath,
+      store
     );
   }
 
@@ -1262,7 +1382,9 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
       'Reviewer',
       'IN_PROGRESS',
       `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review or rework.`,
-      `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`
+      `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`,
+      projectPath,
+      store
     );
   }
 
@@ -1281,7 +1403,10 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
       return buildHandoffResponse(
         'Reviewer',
         'READY_FOR_DOCUMENTATION',
-        `Review complete for all QA-passed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`
+        `Review complete for all QA-passed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Documentation to complete current WPs.`,
+        undefined,
+        projectPath,
+        store
       );
     }
 
@@ -1289,21 +1414,27 @@ function getReviewerHandoff(wpDetails: WorkPackageDetail[]) {
     return buildHandoffResponse(
       'Reviewer',
       'READY_FOR_DEVELOPER',
-      `Review complete for all QA-passed work packages. ${readyWps.length} work package(s) ready for earlier stages: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`
+      `Review complete for all QA-passed work packages. ${readyWps.length} work package(s) ready for earlier stages: ${readyWps.map((wp) => wp.work_package_id).join(', ')}${blockedWps.length > 0 ? `. ${blockedWps.length} blocked by dependencies.` : ''}`,
+      undefined,
+      projectPath,
+      store
     );
   }
 
   return buildHandoffResponse(
     'Reviewer',
     'READY_FOR_DOCUMENTATION',
-    'Code review complete.'
+    'Code review complete.',
+    undefined,
+    projectPath,
+    store
   );
 }
 
 /**
  * Get handoff status for Documentation
  */
-function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
+async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Check if all WPs with code-review pipelines have PASS documentation pipelines
   const wpsWithReview = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
@@ -1334,21 +1465,30 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
         return buildHandoffResponse(
           'Documentation',
           'READY_FOR_SYNTHESIS',
-          `Documentation passed for ${wpsWithReview.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`
+          `Documentation passed for ${wpsWithReview.length} work package(s). ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`,
+          undefined,
+          projectPath,
+          store
         );
       }
 
       return buildHandoffResponse(
         'Documentation',
         'READY_FOR_DEVELOPER',
-        `Documentation passed for ${wpsWithReview.length} work package(s), but ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`
+        `Documentation passed for ${wpsWithReview.length} work package(s), but ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+        undefined,
+        projectPath,
+        store
       );
     }
 
     return buildHandoffResponse(
       'Documentation',
       'READY_FOR_SYNTHESIS',
-      'All work packages have PASS documentation pipelines.'
+      'All work packages have PASS documentation pipelines.',
+      undefined,
+      projectPath,
+      store
     );
   }
 
@@ -1374,7 +1514,9 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
       'Documentation',
       'IN_PROGRESS',
       `Documentation work in progress. ${wpsNeedingWork.length} work package(s) still need documentation or rework.`,
-      `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`
+      `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`,
+      projectPath,
+      store
     );
   }
 
@@ -1393,21 +1535,30 @@ function getDocumentationHandoff(wpDetails: WorkPackageDetail[]) {
       return buildHandoffResponse(
         'Documentation',
         'READY_FOR_SYNTHESIS',
-        `Documentation complete for all reviewed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`
+        `Documentation complete for all reviewed work packages. ${blockedWps.length} work package(s) blocked by dependencies: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Proceed to Synthesis to complete current WPs.`,
+        undefined,
+        projectPath,
+        store
       );
     }
 
     return buildHandoffResponse(
       'Documentation',
       'READY_FOR_DEVELOPER',
-      `Documentation complete for all reviewed work packages. ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`
+      `Documentation complete for all reviewed work packages. ${wpsNotYetReviewed.length} work package(s) still need earlier stages: ${wpsNotYetReviewed.map((wp) => wp.work_package_id).join(', ')}. Hand back to Developer.`,
+      undefined,
+      projectPath,
+      store
     );
   }
 
   return buildHandoffResponse(
     'Documentation',
     'READY_FOR_SYNTHESIS',
-    'Documentation complete.'
+    'Documentation complete.',
+    undefined,
+    projectPath,
+    store
   );
 }
 
