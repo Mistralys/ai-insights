@@ -35,6 +35,24 @@ After syncing, the script validates frontmatter in all ledger personas (`persona
 ✓ All 8 ledger persona file(s) passed frontmatter validation
 ```
 
+### Validating Role Parity
+
+`sync-personas.js` maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts`. A drift check script is provided:
+
+```bash
+# From the workspace root (requires the MCP server to be built first)
+node scripts/check-known-roles.js
+
+# Or from inside mcp-server/
+npm run check:roles
+```
+
+Exits 0 when `KNOWN_ROLES` and `AGENT_ROLES` are identical; exits 1 with a labelled diff if they diverge. If the compiled output is missing, the script prints a clear error with build instructions. Build the server first with:
+
+```bash
+cd mcp-server && npm run build
+```
+
 ## Project Ledger MCP Server
 
 - [Ledger MCP](/mcp-server/README.md) - Agent workflow ledger storage.

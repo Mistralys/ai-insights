@@ -396,6 +396,48 @@ This project uses **`changelog.md` as the source of truth** for versioning:
 
 The `sync-version` script runs automatically before `npm run dev` via the `predev` hook.
 
+### npm Scripts
+
+| Script | Description |
+|---|---|
+| `npm run build` | Compile TypeScript source to `dist/` |
+| `npm run dev` | Run server with `tsx` (auto-reload) |
+| `npm test` | Run all tests once |
+| `npm run test:watch` | Run tests in watch mode |
+| `npm run sync-version` | Sync version from `changelog.md` to `package.json` |
+| `npm run check:roles` | Assert `KNOWN_ROLES` / `AGENT_ROLES` parity (see below) |
+
+### Checking Role Parity
+
+`sync-personas.js` (workspace root) maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `src/utils/constants.ts`. Run the parity check after adding or renaming any agent role:
+
+```bash
+# Build first (outputs to dist/)
+npm run build
+
+# Then check
+npm run check:roles
+```
+
+`check:roles` computes the symmetric difference between the two arrays. A clean run prints:
+
+```
+[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync.
+```
+
+If the arrays diverge it exits 1 with a labelled diff:
+
+```
+[check-known-roles] FAIL: KNOWN_ROLES / AGENT_ROLES are out of sync.
+
+  Missing from KNOWN_ROLES (present in AGENT_ROLES):
+    - "NewRole"
+  Extra in KNOWN_ROLES (not in AGENT_ROLES):
+    - "OldRole"
+```
+
+The script lives at `scripts/check-known-roles.js` in the workspace root and has no npm dependencies beyond Node.js built-ins.
+
 ### Running Tests
 
 ```bash
@@ -455,3 +497,12 @@ Same as the parent ai-insights project.
 
 - UI for the ledger
 - Centralize the ledger files
+
+- Review: 
+
+Yes — there was a gap in my execution. Here's what happened:
+
+My ledger_get_handoff_status returned an auto_handoff pointing to the Developer agent, which I correctly invoked.
+The Developer completed WP-001 and returned a manual routing block (NEXT AGENT: QA) instead of triggering its own auto-handoff to QA.
+At that point I should have re-called ledger_get_handoff_status (or directly invoked the QA subagent) based on the "NEXT AGENT: QA" signal — but I just relayed the block to you instead.
+The missing instruction on my end: after a subagent returns with a NEXT AGENT signal, I should continue the chain rather than surfacing the manual block to the user. The Developer agent also bears partial responsibility for not calling ledger_get_handoff_status itself before returning.

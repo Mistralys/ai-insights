@@ -269,107 +269,6 @@ Return recommendation:
 
 ---
 
-## Flow 12: Workflow Coordination (Get Next Actions — Batch)
-
-**Entry Point:** Agent invokes `ledger_get_next_actions` tool
-
-```
-Agent → ledger_get_next_actions(project_path, agent_role, max_results?)
-  ↓
-LedgerStore.readRootIndex()
-  ↓
-Check project state:
-  - No work packages? → Return empty array or single CREATE_WORK_PACKAGES recommendation
-  - All complete? → Return single GENERATE_SYNTHESIS (for Synthesis) or empty array
-  ↓
-Load all WorkPackageDetail files (Promise.all)
-  ↓
-Agent-specific logic (same as Flow 7, but collects ALL matches):
-  - Project Manager: Find all BLOCKED WPs needing unblock
-  - Developer: Find all WPs needing implementation or with stale/failed implementation pipelines
-  - QA: Find all WPs with PASS implementation needing QA or with stale/failed QA pipelines
-  - Reviewer: Find all WPs with PASS QA needing review or with stale/failed review pipelines
-  - Documentation: Find all WPs with PASS review needing docs or with stale/failed docs pipelines
-  - Synthesis: Wait until all complete
-  ↓
-Collect actions up to max_results limit (default: 5)
-  ↓
-Return array of recommendations:
-  [
-    {
-      action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | ...,
-      work_package_id: "WP-###",
-      reason: "...",
-      handoff_notes?: string[]  // If addressed to this agent
-    },
-    ...
-  ]
-```
-
-**Result:** Agent receives multiple actionable recommendations, enabling parallel work on independent work packages.
-
----
-
-## Flow 10: Pipeline Cancellation
-
-**Entry Point:** Agent invokes `ledger_cancel_pipeline` tool
-
-```
-Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
-  ↓
-LedgerStore.updateWorkPackageWithSync(wpId, updater)
-  ↓
-withLock(project_path)
-  ↓
-Read WorkPackageDetail and RootIndex
-  ↓
-updater function:
-  1. Find most recent IN_PROGRESS pipeline of given type
-  2. If not found → throw error
-  3. Set pipeline status to FAIL
-  4. Set completed_at to now()
-  5. Set summary to [reason]
-  6. Update root.last_updated
-  ↓
-Write both files atomically
-Release lock
-  ↓
-Return updated WorkPackageDetail to agent
-```
-
-**Result:** Stale or abandoned pipeline is closed as FAIL, allowing a fresh pipeline to be started.
-
----
-
-## Flow 11: Pipeline Progress Update
-
-**Entry Point:** Agent invokes `ledger_update_pipeline_progress` tool
-
-```
-Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, summary)
-  ↓
-LedgerStore.updateWorkPackageWithSync(wpId, updater)
-  ↓
-withLock(project_path)
-  ↓
-Read WorkPackageDetail and RootIndex
-  ↓
-updater function:
-  1. Find most recent IN_PROGRESS pipeline of given type
-  2. If not found → throw error
-  3. Append new summary strings to pipeline.summary array
-  4. Update root.last_updated
-  ↓
-Write both files atomically
-Release lock
-  ↓
-Return updated WorkPackageDetail to agent
-```
-
-**Result:** Pipeline summary updated with incremental progress notes without closing the pipeline.
-
----
-
 ## Flow 8: Workflow Coordination (Get Handoff Status)
 
 **Entry Point:** Agent invokes `ledger_get_handoff_status` tool
@@ -438,6 +337,107 @@ Return corrected RootIndex to agent
 ```
 
 **Result:** Root index counters and project status are automatically corrected if they drift out of sync.
+
+---
+
+## Flow 10: Pipeline Cancellation
+
+**Entry Point:** Agent invokes `ledger_cancel_pipeline` tool
+
+```
+Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(project_path)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Set pipeline status to FAIL
+  4. Set completed_at to now()
+  5. Set summary to [reason]
+  6. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Stale or abandoned pipeline is closed as FAIL, allowing a fresh pipeline to be started.
+
+---
+
+## Flow 11: Pipeline Progress Update
+
+**Entry Point:** Agent invokes `ledger_update_pipeline_progress` tool
+
+```
+Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, summary)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(project_path)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Append new summary strings to pipeline.summary array
+  4. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Pipeline summary updated with incremental progress notes without closing the pipeline.
+
+---
+
+## Flow 12: Workflow Coordination (Get Next Actions — Batch)
+
+**Entry Point:** Agent invokes `ledger_get_next_actions` tool
+
+```
+Agent → ledger_get_next_actions(project_path, agent_role, max_results?)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Check project state:
+  - No work packages? → Return empty array or single CREATE_WORK_PACKAGES recommendation
+  - All complete? → Return single GENERATE_SYNTHESIS (for Synthesis) or empty array
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific logic (same as Flow 7, but collects ALL matches):
+  - Project Manager: Find all BLOCKED WPs needing unblock
+  - Developer: Find all WPs needing implementation or with stale/failed implementation pipelines
+  - QA: Find all WPs with PASS implementation needing QA or with stale/failed QA pipelines
+  - Reviewer: Find all WPs with PASS QA needing review or with stale/failed review pipelines
+  - Documentation: Find all WPs with PASS review needing docs or with stale/failed docs pipelines
+  - Synthesis: Wait until all complete
+  ↓
+Collect actions up to max_results limit (default: 5)
+  ↓
+Return array of recommendations:
+  [
+    {
+      action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | ...,
+      work_package_id: "WP-###",
+      reason: "...",
+      handoff_notes?: string[]  // If addressed to this agent
+    },
+    ...
+  ]
+```
+
+**Result:** Agent receives multiple actionable recommendations, enabling parallel work on independent work packages.
 
 ---
 
