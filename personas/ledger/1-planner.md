@@ -1,13 +1,14 @@
 ---
-name: '1 - Planner v1.0.4'
+name: '1 - Planner v1.1.0'
 description: 'Step 1/7 in the agent workflow.'
+role: Planner
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
 <!--
   Agent Metadata
-  Version: 1.0.4
-  Last Updated: 2026-02-12 09:00
+  Version: 1.1.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 1-planner.agent.md
 -->
