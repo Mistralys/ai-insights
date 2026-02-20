@@ -75,3 +75,4 @@
 - Using agents to create a refactoring guide (framework v7 update).
 - Creating a custom project ledger MCP server.
 - Optimizing MCP tool descriptions and adding a `help` tool to guide weaker models.
+- Using auto-handoffs in VS Code through the MCP ledger.

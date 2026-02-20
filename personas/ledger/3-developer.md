@@ -1,13 +1,14 @@
 ---
-name: '3 - Developer v3.1.2'
+name: '3 - Developer v3.2.0'
 description: 'Step 3/7 in the agent workflow.'
+role: Developer
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.2
-  Last Updated: 2026-02-19 09:50
+  Version: 3.2.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 3-dev.agent.md
 -->
@@ -185,7 +186,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `artifacts`: `{ files_modified: [...], commit_hash: "...", pull_request: "..." }`
    - `comments`: array of your **Code Insight Observer observations** (see observation format above)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC you verified
-7. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
+7. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The tool will tell you if more work is needed or if you should hand off to the next agent.
+
+   **Automatic Handoff:** Check the response for an `auto_handoff` object. If present, invoke `runSubagent` with `agentName` set to `auto_handoff.agent_name` and `prompt` set to `auto_handoff.prompt`. If `auto_handoff` is absent, end your turn with the standard CURRENT AGENT / NEXT AGENT / STATUS block for manual routing by the user:
    ```
    CURRENT AGENT: <current_agent>
    NEXT AGENT: <next_agent>

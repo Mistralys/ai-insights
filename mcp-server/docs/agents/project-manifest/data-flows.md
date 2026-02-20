@@ -269,107 +269,6 @@ Return recommendation:
 
 ---
 
-## Flow 12: Workflow Coordination (Get Next Actions — Batch)
-
-**Entry Point:** Agent invokes `ledger_get_next_actions` tool
-
-```
-Agent → ledger_get_next_actions(project_path, agent_role, max_results?)
-  ↓
-LedgerStore.readRootIndex()
-  ↓
-Check project state:
-  - No work packages? → Return empty array or single CREATE_WORK_PACKAGES recommendation
-  - All complete? → Return single GENERATE_SYNTHESIS (for Synthesis) or empty array
-  ↓
-Load all WorkPackageDetail files (Promise.all)
-  ↓
-Agent-specific logic (same as Flow 7, but collects ALL matches):
-  - Project Manager: Find all BLOCKED WPs needing unblock
-  - Developer: Find all WPs needing implementation or with stale/failed implementation pipelines
-  - QA: Find all WPs with PASS implementation needing QA or with stale/failed QA pipelines
-  - Reviewer: Find all WPs with PASS QA needing review or with stale/failed review pipelines
-  - Documentation: Find all WPs with PASS review needing docs or with stale/failed docs pipelines
-  - Synthesis: Wait until all complete
-  ↓
-Collect actions up to max_results limit (default: 5)
-  ↓
-Return array of recommendations:
-  [
-    {
-      action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | ...,
-      work_package_id: "WP-###",
-      reason: "...",
-      handoff_notes?: string[]  // If addressed to this agent
-    },
-    ...
-  ]
-```
-
-**Result:** Agent receives multiple actionable recommendations, enabling parallel work on independent work packages.
-
----
-
-## Flow 10: Pipeline Cancellation
-
-**Entry Point:** Agent invokes `ledger_cancel_pipeline` tool
-
-```
-Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
-  ↓
-LedgerStore.updateWorkPackageWithSync(wpId, updater)
-  ↓
-withLock(project_path)
-  ↓
-Read WorkPackageDetail and RootIndex
-  ↓
-updater function:
-  1. Find most recent IN_PROGRESS pipeline of given type
-  2. If not found → throw error
-  3. Set pipeline status to FAIL
-  4. Set completed_at to now()
-  5. Set summary to [reason]
-  6. Update root.last_updated
-  ↓
-Write both files atomically
-Release lock
-  ↓
-Return updated WorkPackageDetail to agent
-```
-
-**Result:** Stale or abandoned pipeline is closed as FAIL, allowing a fresh pipeline to be started.
-
----
-
-## Flow 11: Pipeline Progress Update
-
-**Entry Point:** Agent invokes `ledger_update_pipeline_progress` tool
-
-```
-Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, summary)
-  ↓
-LedgerStore.updateWorkPackageWithSync(wpId, updater)
-  ↓
-withLock(project_path)
-  ↓
-Read WorkPackageDetail and RootIndex
-  ↓
-updater function:
-  1. Find most recent IN_PROGRESS pipeline of given type
-  2. If not found → throw error
-  3. Append new summary strings to pipeline.summary array
-  4. Update root.last_updated
-  ↓
-Write both files atomically
-Release lock
-  ↓
-Return updated WorkPackageDetail to agent
-```
-
-**Result:** Pipeline summary updated with incremental progress notes without closing the pipeline.
-
----
-
 ## Flow 8: Workflow Coordination (Get Handoff Status)
 
 **Entry Point:** Agent invokes `ledger_get_handoff_status` tool
@@ -438,6 +337,175 @@ Return corrected RootIndex to agent
 ```
 
 **Result:** Root index counters and project status are automatically corrected if they drift out of sync.
+
+---
+
+## Flow 10: Pipeline Cancellation
+
+**Entry Point:** Agent invokes `ledger_cancel_pipeline` tool
+
+```
+Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(project_path)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Set pipeline status to FAIL
+  4. Set completed_at to now()
+  5. Set summary to [reason]
+  6. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Stale or abandoned pipeline is closed as FAIL, allowing a fresh pipeline to be started.
+
+---
+
+## Flow 11: Pipeline Progress Update
+
+**Entry Point:** Agent invokes `ledger_update_pipeline_progress` tool
+
+```
+Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, summary)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(project_path)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Append new summary strings to pipeline.summary array
+  4. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Pipeline summary updated with incremental progress notes without closing the pipeline.
+
+---
+
+## Flow 12: Workflow Coordination (Get Next Actions — Batch)
+
+**Entry Point:** Agent invokes `ledger_get_next_actions` tool
+
+```
+Agent → ledger_get_next_actions(project_path, agent_role, max_results?)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Check project state:
+  - No work packages? → Return empty array or single CREATE_WORK_PACKAGES recommendation
+  - All complete? → Return single GENERATE_SYNTHESIS (for Synthesis) or empty array
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific logic (same as Flow 7, but collects ALL matches):
+  - Project Manager: Find all BLOCKED WPs needing unblock
+  - Developer: Find all WPs needing implementation or with stale/failed implementation pipelines
+  - QA: Find all WPs with PASS implementation needing QA or with stale/failed QA pipelines
+  - Reviewer: Find all WPs with PASS QA needing review or with stale/failed review pipelines
+  - Documentation: Find all WPs with PASS review needing docs or with stale/failed docs pipelines
+  - Synthesis: Wait until all complete
+  ↓
+Collect actions up to max_results limit (default: 5)
+  ↓
+Return array of recommendations:
+  [
+    {
+      action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | ...,
+      work_package_id: "WP-###",
+      reason: "...",
+      handoff_notes?: string[]  // If addressed to this agent
+    },
+    ...
+  ]
+```
+
+**Result:** Agent receives multiple actionable recommendations, enabling parallel work on independent work packages.
+
+---
+
+## Flow 13: Auto-Handoff Depth Counter Lifecycle
+
+**Context:** `auto_handoff_depth` is a safeguard against infinite agent-chain loops. `buildHandoffResponse` in `src/tools/workflow.ts` manages the counter on every handoff-status response.
+
+**Constant:** `MAX_HANDOFF_DEPTH = 10` (defined at the top of `src/tools/workflow.ts`).
+
+### 13a: Storage Location
+
+```
+root index (.ledger/project-ledger.json)
+  └── auto_handoff_depth: number   ← current chain depth (0 when absent)
+```
+
+The field is optional on the root index schema; a missing value is treated as `0` everywhere.
+
+### 13b: Increment Path (normal handoff)
+
+```
+Agent invokes ledger_get_handoff_status (or ledger_get_next_action)
+  ↓
+buildHandoffResponse() — src/tools/workflow.ts
+  ↓
+Registry check: isRegistryLoaded() === true
+  ↓
+Eligibility check:
+  - status not in { COMPLETE, BLOCKED, IN_PROGRESS }
+  - nextAgent resolves to a known VS Code agent handle
+  ↓
+store.readRootIndex()
+  ↓
+currentDepth = root.auto_handoff_depth ?? 0
+  ↓
+  [currentDepth < MAX_HANDOFF_DEPTH?]
+    YES → store.writeRootIndex({ ...root, auto_handoff_depth: currentDepth + 1 })
+          auto_handoff object is included in the response payload
+    NO  → auto_handoff is omitted from the response (depth exceeded — see 13d)
+```
+
+### 13c: Reset Path (project complete)
+
+```
+buildHandoffResponse() detects status === 'COMPLETE'
+  ↓
+store.readRootIndex()
+  ↓
+  [(root.auto_handoff_depth ?? 0) !== 0?]
+    YES → store.writeRootIndex({ ...root, auto_handoff_depth: 0 })
+    NO  → no-op (already reset)
+```
+
+The reset is performed by `buildHandoffResponse` in `src/tools/workflow.ts`, triggered whenever any workflow tool returns a COMPLETE status response.
+
+### 13d: Depth-Exceeded Path (chain terminated)
+
+```
+currentDepth >= MAX_HANDOFF_DEPTH (10)
+  ↓
+auto_handoff key is NOT included in the response payload
+  ↓
+No error thrown — no warning emitted
+  ↓
+Agent chain terminates; manual routing by the user is required
+```
+
+**Result:** The automatic handoff chain allows up to `MAX_HANDOFF_DEPTH` (10) consecutive agent invocations before requiring human intervention, preventing runaway loops while preserving normal multi-agent workflows.
 
 ---
 

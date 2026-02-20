@@ -1,15 +1,17 @@
 {
   "name": "project-ledger-mcp",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "type": "module",
   "description": "MCP server for Project Ledger workflow coordination",
   "main": "dist/index.js",
   "scripts": {
     "sync-version": "node scripts/sync-version.js",
     "predev": "npm run sync-version",
+    "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:roles": "node ../scripts/check-known-roles.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

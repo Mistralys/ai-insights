@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { _internal } from '../../src/tools/workflow.js';
+import * as _internal from '../../src/tools/workflow.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
@@ -23,10 +24,13 @@ const {
   NEXT_AGENT_MAP,
   nextAgentFromStatus,
   buildHandoffResponse,
+  buildHandoffPrompt,
+  MAX_HANDOFF_DEPTH,
 } = _internal;
 
-/** Helper to parse the JSON from a handoff result */
-function parseResult(result: any): any {
+/** Helper to parse the JSON from a handoff result (accepts plain objects or Promises) */
+async function parseResult(resultOrPromise: any): Promise<any> {
+  const result = await resultOrPromise;
   return JSON.parse(result.content[0].text);
 }
 
@@ -55,7 +59,7 @@ function makeWp(
 
 describe('Handoff logic: incomplete project detection', () => {
   describe('QA handoff', () => {
-    it('returns READY_FOR_REVIEW when remaining WPs are blocked by dependencies', () => {
+    it('returns READY_FOR_REVIEW when remaining WPs are blocked by dependencies', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -65,14 +69,14 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-003', 'BLOCKED', [], ['WP-001']),
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_REVIEW');
       expect(result.details).toContain('blocked by dependencies');
       expect(result.details).toContain('WP-002');
       expect(result.details).toContain('WP-003');
     });
 
-    it('returns READY_FOR_REVIEW when ALL WPs are implemented and QA passed', () => {
+    it('returns READY_FOR_REVIEW when ALL WPs are implemented and QA passed', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -84,11 +88,11 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_REVIEW');
     });
 
-    it('returns IN_PROGRESS when some implemented WPs still need QA', () => {
+    it('returns IN_PROGRESS when some implemented WPs still need QA', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -99,11 +103,11 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('IN_PROGRESS');
     });
 
-    it('returns IN_PROGRESS when a QA pipeline has FAIL status', () => {
+    it('returns IN_PROGRESS when a QA pipeline has FAIL status', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -111,11 +115,11 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('IN_PROGRESS');
     });
 
-    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', () => {
+    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -125,7 +129,7 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-003', 'BLOCKED', [], ['WP-001']), // Blocked by dependency
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DEVELOPER');
       expect(result.details).toContain('ready for implementation');
       expect(result.details).toContain('WP-002');
@@ -133,7 +137,7 @@ describe('Handoff logic: incomplete project detection', () => {
   });
 
   describe('Reviewer handoff', () => {
-    it('returns READY_FOR_DOCUMENTATION when remaining WPs are blocked by dependencies', () => {
+    it('returns READY_FOR_DOCUMENTATION when remaining WPs are blocked by dependencies', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -143,13 +147,13 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
       ];
 
-      const result = parseResult(getReviewerHandoff(wpDetails));
+      const result = await parseResult(getReviewerHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
       expect(result.details).toContain('blocked by dependencies');
       expect(result.details).toContain('WP-002');
     });
 
-    it('returns READY_FOR_DOCUMENTATION when ALL WPs have passed review', () => {
+    it('returns READY_FOR_DOCUMENTATION when ALL WPs have passed review', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -163,11 +167,11 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
       ];
 
-      const result = parseResult(getReviewerHandoff(wpDetails));
+      const result = await parseResult(getReviewerHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
     });
 
-    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', () => {
+    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -178,7 +182,7 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-003', 'BLOCKED', [], ['WP-001']), // Blocked by dependency
       ];
 
-      const result = parseResult(getReviewerHandoff(wpDetails));
+      const result = await parseResult(getReviewerHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DEVELOPER');
       expect(result.details).toContain('ready for');
       expect(result.details).toContain('WP-002');
@@ -186,7 +190,7 @@ describe('Handoff logic: incomplete project detection', () => {
   });
 
   describe('Documentation handoff', () => {
-    it('returns READY_FOR_SYNTHESIS when unreviewed WPs are all blocked by dependencies', () => {
+    it('returns READY_FOR_SYNTHESIS when unreviewed WPs are all blocked by dependencies', async () => {
       // WP-002 is blocked by WP-001 (IN_PROGRESS, not COMPLETE) — should go to Synthesis not loop back to Developer
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
@@ -198,13 +202,13 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
       ];
 
-      const result = parseResult(getDocumentationHandoff(wpDetails));
+      const result = await parseResult(getDocumentationHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_SYNTHESIS');
       expect(result.details).toContain('blocked by dependencies');
       expect(result.details).toContain('WP-002');
     });
 
-    it('returns READY_FOR_DEVELOPER when unreviewed WPs are genuinely ready (not dependency-blocked)', () => {
+    it('returns READY_FOR_DEVELOPER when unreviewed WPs are genuinely ready (not dependency-blocked)', async () => {
       // WP-002 has no dependencies — it is genuinely waiting for earlier pipeline stages
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
@@ -216,12 +220,12 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-002', 'READY', [], []),
       ];
 
-      const result = parseResult(getDocumentationHandoff(wpDetails));
+      const result = await parseResult(getDocumentationHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DEVELOPER');
       expect(result.details).toContain('WP-002');
     });
 
-    it('returns READY_FOR_SYNTHESIS when ALL WPs have documentation', () => {
+    it('returns READY_FOR_SYNTHESIS when ALL WPs have documentation', async () => {
       const wpDetails = [
         makeWp('WP-001', 'COMPLETE', [
           { type: 'implementation', status: 'PASS' },
@@ -237,13 +241,13 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
       ];
 
-      const result = parseResult(getDocumentationHandoff(wpDetails));
+      const result = await parseResult(getDocumentationHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_SYNTHESIS');
     });
   });
 
   describe('Developer handoff', () => {
-    it('returns IN_PROGRESS when some WPs lack implementation', () => {
+    it('returns IN_PROGRESS when some WPs lack implementation', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -251,11 +255,11 @@ describe('Handoff logic: incomplete project detection', () => {
         makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
       ];
 
-      const result = parseResult(getDeveloperHandoff(wpDetails));
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
       expect(result.status).toBe('IN_PROGRESS');
     });
 
-    it('returns READY_FOR_QA when ALL WPs have PASS implementation', () => {
+    it('returns READY_FOR_QA when ALL WPs have PASS implementation', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -265,7 +269,7 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
       ];
 
-      const result = parseResult(getDeveloperHandoff(wpDetails));
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_QA');
     });
   });
@@ -299,7 +303,7 @@ describe('FAIL pipeline detection correctness', () => {
     expect(isMostRecentPipelineFail(pipelines, 'implementation')).toBe(false);
   });
 
-  it('getDeveloperHandoff does not produce REWORK status for [FAIL, PASS] implementation sequence', () => {
+  it('getDeveloperHandoff does not produce REWORK status for [FAIL, PASS] implementation sequence', async () => {
     // A WP that previously failed but then passed should not trigger REWORK
     const wpDetails = [
       makeWp('WP-001', 'IN_PROGRESS', [
@@ -308,7 +312,7 @@ describe('FAIL pipeline detection correctness', () => {
       ]),
     ];
 
-    const result = JSON.parse(getDeveloperHandoff(wpDetails).content[0].text);
+    const result = JSON.parse((await getDeveloperHandoff(wpDetails)).content[0].text);
     expect(result.status).not.toBe('REWORK');
     expect(result.status).toBe('READY_FOR_QA');
   });
@@ -695,7 +699,7 @@ describe('BLOCKED WP handling — no rework loop', () => {
   });
 
   describe('QA handoff excludes BLOCKED WPs from needsWork', () => {
-    it('returns READY_FOR_REVIEW when only BLOCKED WPs have FAIL QA (exact stuck-loop scenario)', () => {
+    it('returns READY_FOR_REVIEW when only BLOCKED WPs have FAIL QA (exact stuck-loop scenario)', async () => {
       // This reproduces the exact QA stuck-loop: WP-005 BLOCKED + FAIL QA, WP-006 PASS QA
       const wpDetails = [
         makeWp('WP-005', 'BLOCKED', [
@@ -708,12 +712,12 @@ describe('BLOCKED WP handling — no rework loop', () => {
         ], ['WP-001']),
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       // QA's work is done — BLOCKED WP needs Developer, not QA retry
       expect(result.status).not.toBe('IN_PROGRESS');
     });
 
-    it('returns IN_PROGRESS when a non-BLOCKED WP has FAIL QA', () => {
+    it('returns IN_PROGRESS when a non-BLOCKED WP has FAIL QA', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -721,13 +725,13 @@ describe('BLOCKED WP handling — no rework loop', () => {
         ]),
       ];
 
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('IN_PROGRESS');
     });
   });
 
   describe('Reviewer handoff excludes BLOCKED WPs from needsWork', () => {
-    it('does not return IN_PROGRESS when only BLOCKED WPs have FAIL review', () => {
+    it('does not return IN_PROGRESS when only BLOCKED WPs have FAIL review', async () => {
       const wpDetails = [
         makeWp('WP-001', 'BLOCKED', [
           { type: 'implementation', status: 'PASS' },
@@ -741,13 +745,13 @@ describe('BLOCKED WP handling — no rework loop', () => {
         ]),
       ];
 
-      const result = parseResult(getReviewerHandoff(wpDetails));
+      const result = await parseResult(getReviewerHandoff(wpDetails));
       expect(result.status).not.toBe('IN_PROGRESS');
     });
   });
 
   describe('Documentation handoff excludes BLOCKED WPs from needsWork', () => {
-    it('does not return IN_PROGRESS when only BLOCKED WPs have FAIL docs', () => {
+    it('does not return IN_PROGRESS when only BLOCKED WPs have FAIL docs', async () => {
       const wpDetails = [
         makeWp('WP-001', 'BLOCKED', [
           { type: 'implementation', status: 'PASS' },
@@ -763,7 +767,7 @@ describe('BLOCKED WP handling — no rework loop', () => {
         ]),
       ];
 
-      const result = parseResult(getDocumentationHandoff(wpDetails));
+      const result = await parseResult(getDocumentationHandoff(wpDetails));
       expect(result.status).not.toBe('IN_PROGRESS');
     });
   });
@@ -843,7 +847,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     expect(parsed.action).toBe('REWORK');
     expect(parsed.work_package_id).toBe('WP-001');
     expect(parsed.pipeline_that_failed).toBe('qa');
@@ -863,7 +867,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     expect(parsed.action).toBe('REWORK');
     expect(parsed.work_package_id).toBe('WP-001');
     expect(parsed.pipeline_that_failed).toBe('code-review');
@@ -884,7 +888,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     expect(parsed.action).toBe('REWORK');
     expect(parsed.work_package_id).toBe('WP-005');
     expect(parsed.pipeline_that_failed).toBe('qa');
@@ -903,7 +907,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     expect(parsed.action).toBe('WAIT');
   });
 
@@ -926,7 +930,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     expect(parsed.action).toBe('REWORK');
     expect(parsed.work_package_id).toBe('WP-001');
     // WP-001 has a FAIL implementation — that takes priority
@@ -947,7 +951,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     // Should not suggest rework because impl isn't PASS
     expect(parsed.action).toBe('WAIT');
   });
@@ -965,7 +969,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     expect(parsed.action).toBe('REWORK');
     expect(parsed.pipeline_that_failed).toBe('qa');
   });
@@ -983,7 +987,7 @@ describe('Developer downstream pipeline failure detection', () => {
       },
     ]);
 
-    const parsed = parseResult(result);
+    const parsed = await parseResult(result);
     // QA most-recent is PASS, so no rework needed
     expect(parsed.action).toBe('WAIT');
   });
@@ -1018,53 +1022,53 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
   });
 
   describe('buildHandoffResponse', () => {
-    it('includes current_agent, next_agent, and status in payload', () => {
-      const result = parseResult(buildHandoffResponse('QA', 'READY_FOR_REVIEW', 'QA done.'));
+    it('includes current_agent, next_agent, and status in payload', async () => {
+      const result = await parseResult(buildHandoffResponse('QA', 'READY_FOR_REVIEW', 'QA done.'));
       expect(result.current_agent).toBe('QA');
       expect(result.next_agent).toBe('Reviewer');
       expect(result.status).toBe('READY_FOR_REVIEW');
       expect(result.details).toBe('QA done.');
     });
 
-    it('omits next_agent for COMPLETE status', () => {
-      const result = parseResult(buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.'));
+    it('omits next_agent for COMPLETE status', async () => {
+      const result = await parseResult(buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.'));
       expect(result.current_agent).toBe('Synthesis');
       expect(result.next_agent).toBeUndefined();
       expect(result.status).toBe('COMPLETE');
     });
 
-    it('sets next_agent to current agent for IN_PROGRESS', () => {
-      const result = parseResult(buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.'));
+    it('sets next_agent to current agent for IN_PROGRESS', async () => {
+      const result = await parseResult(buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.'));
       expect(result.current_agent).toBe('Developer');
       expect(result.next_agent).toBe('Developer');
     });
 
-    it('includes next_action when provided', () => {
-      const result = parseResult(buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.', 'Call get_next_action'));
+    it('includes next_action when provided', async () => {
+      const result = await parseResult(buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.', 'Call get_next_action'));
       expect(result.next_action).toBe('Call get_next_action');
     });
 
-    it('omits next_action when not provided', () => {
-      const result = parseResult(buildHandoffResponse('QA', 'READY_FOR_REVIEW', 'Done.'));
+    it('omits next_action when not provided', async () => {
+      const result = await parseResult(buildHandoffResponse('QA', 'READY_FOR_REVIEW', 'Done.'));
       expect(result.next_action).toBeUndefined();
     });
   });
 
   describe('handoff functions emit current_agent and next_agent', () => {
-    it('getQaHandoff includes current_agent: QA and next_agent: Reviewer', () => {
+    it('getQaHandoff includes current_agent: QA and next_agent: Reviewer', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
           { type: 'qa', status: 'PASS' },
         ]),
       ];
-      const result = parseResult(getQaHandoff(wpDetails));
+      const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.current_agent).toBe('QA');
       expect(result.next_agent).toBe('Reviewer');
       expect(result.status).toBe('READY_FOR_REVIEW');
     });
 
-    it('getReviewerHandoff includes current_agent: Reviewer and next_agent: Documentation', () => {
+    it('getReviewerHandoff includes current_agent: Reviewer and next_agent: Documentation', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -1072,13 +1076,13 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
           { type: 'code-review', status: 'PASS' },
         ]),
       ];
-      const result = parseResult(getReviewerHandoff(wpDetails));
+      const result = await parseResult(getReviewerHandoff(wpDetails));
       expect(result.current_agent).toBe('Reviewer');
       expect(result.next_agent).toBe('Documentation');
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
     });
 
-    it('getDocumentationHandoff includes current_agent: Documentation and next_agent: Synthesis', () => {
+    it('getDocumentationHandoff includes current_agent: Documentation and next_agent: Synthesis', async () => {
       const wpDetails = [
         makeWp('WP-001', 'COMPLETE', [
           { type: 'implementation', status: 'PASS' },
@@ -1087,36 +1091,36 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
           { type: 'documentation', status: 'PASS' },
         ]),
       ];
-      const result = parseResult(getDocumentationHandoff(wpDetails));
+      const result = await parseResult(getDocumentationHandoff(wpDetails));
       expect(result.current_agent).toBe('Documentation');
       expect(result.next_agent).toBe('Synthesis');
     });
 
-    it('getDeveloperHandoff IN_PROGRESS has next_agent: Developer (self)', () => {
+    it('getDeveloperHandoff IN_PROGRESS has next_agent: Developer (self)', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', []),
         makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
       ];
-      const result = parseResult(getDeveloperHandoff(wpDetails));
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
       expect(result.current_agent).toBe('Developer');
       expect(result.next_agent).toBe('Developer');
       expect(result.status).toBe('IN_PROGRESS');
     });
 
-    it('getDeveloperHandoff READY_FOR_QA has next_agent: QA', () => {
+    it('getDeveloperHandoff READY_FOR_QA has next_agent: QA', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
         ]),
       ];
-      const result = parseResult(getDeveloperHandoff(wpDetails));
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
       expect(result.current_agent).toBe('Developer');
       expect(result.next_agent).toBe('QA');
     });
 
-    it('no handoff response contains the old "agent" field', () => {
+    it('no handoff response contains the old "agent" field', async () => {
       // Verify QA handoff does not include "agent" key
-      const qaResult = parseResult(getQaHandoff([
+      const qaResult = await parseResult(getQaHandoff([
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
           { type: 'qa', status: 'PASS' },
@@ -1125,12 +1129,200 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
       expect(qaResult).not.toHaveProperty('agent');
 
       // Verify Developer handoff does not include "agent" key
-      const devResult = parseResult(getDeveloperHandoff([
+      const devResult = await parseResult(getDeveloperHandoff([
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
         ]),
       ]));
       expect(devResult).not.toHaveProperty('agent');
     });
+  });
+});
+
+// ─── Auto-handoff tests (WP-008) ────────────────────────────────────────────
+
+describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
+  let tempDir: string;
+  let agentDir: string;
+  let store: LedgerStore;
+
+  /** Write a minimal *.agent.md file with YAML frontmatter to agentDir. */
+  async function writeAgentFile(filename: string, name: string, role: string): Promise<void> {
+    const content = `---\nname: ${name}\nrole: ${role}\n---\n\n# Body`;
+    await writeFile(join(agentDir, filename), content, 'utf8');
+  }
+
+  /** Build a minimal RootIndex with optional field overrides. */
+  function makeAutoHandoffRoot(overrides: Partial<RootIndex> = {}): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [],
+      project_comments: [],
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    resetRegistry();
+    tempDir = await mkdtemp(join(tmpdir(), 'auto-handoff-test-'));
+    agentDir = await mkdtemp(join(tmpdir(), 'auto-handoff-agents-'));
+    store = new LedgerStore(tempDir);
+    await store.writeRootIndex(makeAutoHandoffRoot());
+  });
+
+  afterEach(async () => {
+    resetRegistry();
+    await rm(tempDir, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  it('includes auto_handoff when registry loaded, status READY_FOR_QA, path valid, depth < MAX', async () => {
+    await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('4 - QA v1.0');
+    expect(result.auto_handoff.prompt).toBe(`Project path: ${tempDir}`);
+  });
+
+  it('omits auto_handoff when status is COMPLETE (terminal status)', async () => {
+    await writeAgentFile('7-synthesis.agent.md', '7 - Synthesis v1.0', 'Synthesis');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.', undefined, tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('omits auto_handoff when status is BLOCKED', async () => {
+    await writeAgentFile('2-pm.agent.md', '2 - Project Manager v1.0', 'Project Manager');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'BLOCKED', 'Blocked.', undefined, tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('omits auto_handoff when status is IN_PROGRESS', async () => {
+    await writeAgentFile('3-dev.agent.md', '3 - Developer v1.0', 'Developer');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.', undefined, tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('omits auto_handoff when auto_handoff_depth >= MAX_HANDOFF_DEPTH', async () => {
+    await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await discoverAgents(agentDir);
+    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH }));
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('omits auto_handoff when registry is empty (no agents discovered)', async () => {
+    // Deliberately do NOT call discoverAgents — registry remains unloaded
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('omits auto_handoff when no projectPath provided', async () => {
+    await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await discoverAgents(agentDir);
+
+    // Called without projectPath or store — auto-handoff ineligible
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.'),
+    );
+
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('increments auto_handoff_depth in ledger when auto_handoff is emitted', async () => {
+    await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await discoverAgents(agentDir);
+    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: 2 }));
+
+    await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+    );
+
+    const root = await store.readRootIndex();
+    expect(root.auto_handoff_depth).toBe(3);
+  });
+
+  it('resets auto_handoff_depth to 0 when project reaches COMPLETE', async () => {
+    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: 5 }));
+
+    await parseResult(
+      buildHandoffResponse('Synthesis', 'COMPLETE', 'Project done.', undefined, tempDir, store),
+    );
+
+    const root = await store.readRootIndex();
+    expect(root.auto_handoff_depth).toBe(0);
+  });
+
+  it('rework loop: QA FAIL → auto_handoff targets Developer agent when depth permits', async () => {
+    await writeAgentFile('3-dev.agent.md', '3 - Developer v3.1.2', 'Developer');
+    await discoverAgents(agentDir);
+
+    // QA emits READY_FOR_DEVELOPER after a failing QA pipeline
+    const result = await parseResult(
+      buildHandoffResponse('QA', 'READY_FOR_DEVELOPER', 'QA failed — rework needed.', undefined, tempDir, store),
+    );
+
+    expect(result.next_agent).toBe('Developer');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('3 - Developer v3.1.2');
+  });
+
+  it('depth boundary: auto_handoff present at MAX-1, absent at MAX', async () => {
+    await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await discoverAgents(agentDir);
+
+    // At MAX-1 → eligible; depth increments to MAX
+    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH - 1 }));
+    const resultAtMaxMinus1 = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+    );
+    expect(resultAtMaxMinus1.auto_handoff).toBeDefined();
+
+    // Depth is now MAX → not eligible; no auto_handoff emitted
+    const resultAtMax = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+    );
+    expect(resultAtMax.auto_handoff).toBeUndefined();
+  });
+});
+
+describe('buildHandoffPrompt', () => {
+  it('returns "Project path: <path>" format', () => {
+    expect(buildHandoffPrompt('/some/project/path')).toBe('Project path: /some/project/path');
+  });
+
+  it('handles paths containing spaces', () => {
+    expect(buildHandoffPrompt('/users/me/my project')).toBe('Project path: /users/me/my project');
   });
 });

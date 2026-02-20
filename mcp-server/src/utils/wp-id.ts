@@ -18,5 +18,10 @@ export function parseWpId(id: string): number {
   if (!match) {
     throw new Error(`Invalid work package ID format: "${id}". Expected format: WP-###`);
   }
-  return parseInt(match[1], 10);
+  // Unreachable: regex (\d+) always captures when match succeeds; satisfies noUncheckedIndexedAccess
+  const wpNum = match[1];
+  if (wpNum === undefined) {
+    throw new Error(`Invalid work package ID format: "${id}". Expected format: WP-###`);
+  }
+  return parseInt(wpNum, 10);
 }

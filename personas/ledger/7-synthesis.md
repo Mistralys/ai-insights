@@ -1,13 +1,14 @@
 ---
-name: '7 - Synthesis v3.1.2'
+name: '7 - Synthesis v3.2.0'
 description: 'Step 7/7 in the agent workflow.'
+role: Synthesis
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.2
-  Last Updated: 2026-02-19 09:50
+  Version: 3.2.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 7-synthesis.agent.md
 -->
@@ -105,7 +106,9 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     ```
 5.  **Generate Report:** Write the `synthesis.md` file to the plan folder.
 6.  **Finalize:** Add any project-level synthesis observations via `ledger_add_project_comment` if you identified cross-cutting insights or patterns that span multiple work packages.
-7.  **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. End your response with the handoff block:
+7.  **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"`.
+
+    **Automatic Handoff:** Check the response for an `auto_handoff` object. If present, invoke `runSubagent` with `agentName` set to `auto_handoff.agent_name` and `prompt` set to `auto_handoff.prompt`. If `auto_handoff` is absent, end your turn with the standard CURRENT AGENT / NEXT AGENT / STATUS block for manual routing by the user:
     ```
     CURRENT AGENT: <current_agent>
     NEXT AGENT: <next_agent>

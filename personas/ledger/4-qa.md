@@ -1,13 +1,14 @@
 ---
-name: '4 - QA v3.1.2'
+name: '4 - QA v3.2.0'
 description: 'Step 4/7 in the agent workflow.'
+role: QA
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.2
-  Last Updated: 2026-02-19 09:50
+  Version: 3.2.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 4-qa.agent.md
 -->
@@ -116,7 +117,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `comments`: array of QA finding comments (type, priority, timestamp, note)
    - `acceptance_criteria_updates`: array of `{ criterion: "...", met: true/false }` for each AC verified
 6. **Repeat:** Call `ledger_get_next_action` again. If it indicates more WPs need validation (action: `RUN_QA` or `REWORK_QA`), repeat steps 2–5 for each work package. Continue until `get_next_action` returns `WAIT`.
-7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "QA"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
+7. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "QA"`. The tool will tell you if more work is needed or if you should hand off to the next agent.
+
+   **Automatic Handoff:** Check the response for an `auto_handoff` object. If present, invoke `runSubagent` with `agentName` set to `auto_handoff.agent_name` and `prompt` set to `auto_handoff.prompt`. If `auto_handoff` is absent, end your turn with the standard CURRENT AGENT / NEXT AGENT / STATUS block for manual routing by the user:
    ```
    CURRENT AGENT: <current_agent>
    NEXT AGENT: <next_agent>

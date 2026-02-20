@@ -1,13 +1,14 @@
 ---
-name: '2 - Project Manager v3.1.2'
+name: '2 - Project Manager v3.2.0'
 description: 'Step 2/7 in the agent workflow.'
+role: Project Manager
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.2
-  Last Updated: 2026-02-19 09:50
+  Version: 3.2.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 2-pm.agent.md
 -->
@@ -121,7 +122,9 @@ If the pre-flight check fails, **stop immediately** and inform the user:
    - `acceptance_criteria`: array of acceptance criteria strings from the WP spec
    - `work_package_file`: relative path to the WP spec (e.g., `work/WP-001.md`)
 10. Call `ledger_get_project_status` to verify the ledger was created correctly.
-11. Call `ledger_get_handoff_status` with `current_agent: "Project Manager"` and end the response with the returned handoff block, formatted as:
+11. Call `ledger_get_handoff_status` with `current_agent: "Project Manager"`.
+
+    **Automatic Handoff:** Check the response for an `auto_handoff` object. If present, invoke `runSubagent` with `agentName` set to `auto_handoff.agent_name` and `prompt` set to `auto_handoff.prompt`. If `auto_handoff` is absent, end your turn with the standard CURRENT AGENT / NEXT AGENT / STATUS block for manual routing by the user:
     ```
     CURRENT AGENT: <current_agent>
     NEXT AGENT: <next_agent>

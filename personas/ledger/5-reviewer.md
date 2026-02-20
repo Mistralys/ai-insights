@@ -1,13 +1,14 @@
 ---
-name: '5 - Reviewer v3.1.2'
+name: '5 - Reviewer v3.2.0'
 description: 'Step 5/7 in the agent workflow.'
+role: Reviewer
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
 
 <!--
   Agent Metadata
-  Version: 3.1.2
-  Last Updated: 2026-02-19 09:50
+  Version: 3.2.0
+  Last Updated: 2026-02-20 14:30
   Author: Sebastian Mordziol
   VS File Name: 5-reviewer.agent.md
 -->
@@ -111,7 +112,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
    - `comments`: array of review comments (type, priority, timestamp, note)
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns that span multiple work packages, call `ledger_add_project_comment` with `agent: "Reviewer Agent"` to record them at the project level.
 7. **Repeat:** Call `ledger_get_next_action` again. If it indicates more WPs need review (action: `RUN_REVIEW` or `REWORK_REVIEW`), repeat steps 2–6 for each work package. Continue until `get_next_action` returns `WAIT`.
-8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. The tool will tell you if more work is needed or if you should hand off to the next agent. End your response with the handoff block:
+8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. The tool will tell you if more work is needed or if you should hand off to the next agent.
+
+   **Automatic Handoff:** Check the response for an `auto_handoff` object. If present, invoke `runSubagent` with `agentName` set to `auto_handoff.agent_name` and `prompt` set to `auto_handoff.prompt`. If `auto_handoff` is absent, end your turn with the standard CURRENT AGENT / NEXT AGENT / STATUS block for manual routing by the user:
    ```
    CURRENT AGENT: <current_agent>
    NEXT AGENT: <next_agent>

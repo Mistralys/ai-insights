@@ -139,6 +139,6 @@ The server has **no stateful services**. All state is persisted to JSON files on
 ## Key Conventions
 
 - **ESM-only:** All imports use `.js` extensions (required for Node16 module resolution)
-- **Strict TypeScript:** `strict: true` in `tsconfig.json`
+- **Strict TypeScript:** `strict: true` and `noUncheckedIndexedAccess: true` in `tsconfig.json` — the latter widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors from unguarded `Record<string, T>` accesses
 - **Pretty JSON:** All JSON files written with 2-space indentation and trailing newline
 - **File Naming:** Work package IDs follow the pattern `WP-###` (zero-padded to 3 digits)
