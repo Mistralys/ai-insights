@@ -4,7 +4,7 @@ description: 'Produces a concise, human‑optimized README.md that communicates 
 author: Sebastian Mordziol
 version: 1.0.1
 last_updated: 2026-02-21 18:00
-vs_file_name: manifest-curator.agent.md
+vs_file_name: readme-curator.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 
