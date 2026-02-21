@@ -1,4 +1,4 @@
-**Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. The response JSON will contain one of two shapes — act accordingly:
+**Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

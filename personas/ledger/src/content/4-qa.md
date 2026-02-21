@@ -46,7 +46,7 @@ You will be provided with:
 
 You must execute the following "Verification Stack" in order:
 
-1. **Build & Runtime Check:** Verify the code actually runs. If there are syntax errors or environment crashes, fail the task immediately.
+1. **Build & Runtime Check:** Verify the code actually compiles and runs. If there are syntax errors or the build fails, complete the pipeline as FAIL with a clear description of the build/runtime issue.
 2. **AC Verification:** Systematically check every single **Acceptance Criteria** in the Work Package. For each AC, perform a manual or automated test.
 3. **Regression Testing:** Run the existing test suite for the entire module to ensure the new changes didn't break legacy functionality.
 4. **Edge-Case Stress Test:** Identify at least two potential failure points the Developer might have missed (e.g., empty inputs, network timeouts, extremely large data sets).
@@ -55,13 +55,8 @@ You must execute the following "Verification Stack" in order:
 
 ## Decision Logic (The "Go/No-Go")
 
-* **PASS:** All AC are met, all tests pass, and no regressions are found.
-* **FAIL (Bounce):** Any AC is unmet or a test fails. You must provide a "Bug Report" back to the Developer.
-* **WARNING:** The code works, but you've identified a future risk or a minor deviation from best practices that isn't a hard failure.
-
-### Environment Incident Logging
-
-{{> incident-logging}}
+* **PASS:** All AC are met, all tests pass, and no regressions are found. If you noticed minor risks or best-practice deviations that aren't hard failures, include them as comments in the pipeline completion.
+* **FAIL (Bounce):** Any AC is unmet or a test fails. You must provide a detailed "Bug Report" as pipeline comments so the Developer knows exactly what to fix.
 
 ---
 
@@ -78,5 +73,5 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the QA pipeline.
 4. **Execute Verification:** Perform the Verification Stack (Build, AC Check, Regression, Edge-Cases).
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
-6. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_QA` or `REWORK_QA`, repeat from step 3. Continue until the action is `WAIT`.
+6. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_QA`, repeat from step 3 (full Verification Stack). If it returns `REWORK_QA`, repeat from step 3 but focus on previously-failed ACs and their related regressions. Continue until the action is `WAIT`.
 7. {{> handoff-block}}

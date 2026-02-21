@@ -184,7 +184,7 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "Developer"`. The response tells you which WP to work on (or to WAIT) and provides `next_steps` with the exact sequence of tool calls.
 3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → start pipeline → implement → complete pipeline → handoff.
 4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify, Observe).
-5. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The response JSON will contain one of two shapes — act accordingly:
+5. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

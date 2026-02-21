@@ -118,7 +118,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments).
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
 7. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_REVIEW` or `REWORK_REVIEW`, repeat from step 3. Continue until the action is `WAIT`.
-8. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. The response JSON will contain one of two shapes — act accordingly:
+8. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

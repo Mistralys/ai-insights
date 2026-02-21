@@ -108,7 +108,7 @@ Call `ledger_get_project_status` with the target `project_path`. A "Project not 
 7. Call `ledger_initialize_project` with the absolute path to the plan folder and the relative path to `plan.md`.
 8. For each work package (in dependency order), call `ledger_create_work_package` — the tool's parameter descriptions document the required fields.
 9. Call `ledger_get_project_status` to verify the ledger was created correctly.
-10. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Project Manager"`. The response JSON will contain one of two shapes — act accordingly:
+10. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Project Manager"`. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

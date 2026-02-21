@@ -116,7 +116,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     ```
 6. **Generate Report:** Write the `synthesis.md` file to the plan folder.
 7. **Finalize:** Add any cross-cutting synthesis observations via `ledger_add_project_comment`.
-8. **Handoff:** After completing your pipeline, call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. The response JSON will contain one of two shapes — act accordingly:
+8. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

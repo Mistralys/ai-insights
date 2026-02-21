@@ -16,7 +16,7 @@ tools:
 has_mcp: true
 has_detect_project: true
 self_documenting_note: true
-has_incident_logging: true
+has_incident_logging: false
 
 mcp_tools:
   - tool: ledger_detect_project
@@ -31,9 +31,7 @@ mcp_tools:
     purpose: "Begin the `qa` pipeline for a WP."
   - tool: ledger_complete_pipeline
     purpose: Finalize pipeline with status, summary, metrics, comments, and AC updates.
-  - tool: ledger_update_work_package_status
-    purpose: "Transition WP status (e.g., to `BLOCKED` on environmental failure)."
   - tool: ledger_add_project_comment
-    purpose: "Add project-level comments (e.g., incident reports)."
+    purpose: "Add project-level comments (e.g., observations, notes)."
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
