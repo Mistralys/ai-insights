@@ -1,6 +1,9 @@
 ---
-name: '2 - Project Manager v1.0.2'
+name: '2 - Project Manager v1.0.3'
 description: 'Step 2/7 in the agent workflow.'
+author: Sebastian Mordziol
+version: 1.0.3
+last_updated: 2026-02-21 18:30
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
 

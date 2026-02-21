@@ -1,15 +1,11 @@
 ---
-name: '4 - QA v1.0.3'
+name: '4 - QA v1.0.4'
 description: 'Step 4/7 in the agent workflow.'
+author: Sebastian Mordziol
+version: 1.0.4
+last_updated: 2026-02-21 18:30
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
-
-<!--
-  Agent Metadata
-  Version: 1.0.3
-  Last Updated: 2026-02-12 09:00
-  Author: Sebastian Mordziol
--->
 
 # Lead QA & Validation Agent
 

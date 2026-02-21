@@ -1,16 +1,12 @@
 ---
-name: 'Unit Test Auditor v1.0.0'
+name: 'Unit Test Auditor v1.0.1'
 description: 'Audit specific codebase parts.'
+author: Sebastian Mordziol
+version: 1.0.1
+last_updated: 2026-02-21 18:00
+vs_file_name: unit-test-auditor.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
-
-<!--
-  Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-11 18:20:00
-  Author: Sebastian Mordziol
-  VS File Name: unit-test-auditor.agent.md
--->
 
 # Unit Test Auditor Agent
 

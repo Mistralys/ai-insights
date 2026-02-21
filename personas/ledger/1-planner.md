@@ -2,16 +2,12 @@
 name: '1 - Planner v1.3.0'
 description: 'Step 1/7 in the agent workflow.'
 role: Planner
+author: Sebastian Mordziol
+version: 1.3.0
+last_updated: 2026-02-21 18:30
+vs_file_name: 1-planner.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
-
-<!--
-  Agent Metadata
-  Version: 1.3.0
-  Last Updated: 2026-02-20 22:00
-  Author: Sebastian Mordziol
-  VS File Name: 1-planner.agent.md
--->
 
 # Chief Product Officer (Planning)
 
