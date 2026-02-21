@@ -1,5 +1,13 @@
 # Personas Changelog
 
+## v3.3.0 - Two-Phase Pre-flight Check with Auto-Detect (2026-02-21)
+- Ledger Personas (3–7): Replaced the single-step pre-flight check with a two-phase sequence.
+- **Phase 1 (Detect):** When `project_path` is not explicitly provided, agents now call `ledger_detect_project` with `cwd_path` to automatically resolve the active project path from the workspace root.
+- **Phase 2 (Verify):** Agents then call `ledger_get_project_status` to confirm the MCP server is reachable.
+- `ledger_detect_project` added to the Tools table in all five updated persona files.
+- `2-project-manager.md` is unchanged — it always receives an explicit path from the planner.
+- `sync-personas.js` run after changes to propagate all five personas to VS Code user prompts directory.
+
 ## v3.1.2 - Role Value Cross-Validation (2026-02-20)
 - `sync-personas.js`: `validateLedgerFrontmatter()` now cross-validates the `role:` value against a `KNOWN_ROLES` constant. When `role:` is present but its value does not match any known agent role, a `console.warn` is emitted naming both the file path and the unrecognised value. Exit code remains `0`; warnings are advisory only.
 - `KNOWN_ROLES` is defined at the top of the file with a comment to keep it in sync with `src/utils/constants.ts` in the MCP server.

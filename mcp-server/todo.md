@@ -1,12 +1,20 @@
-I realized that after creating the work packages, if I do not have the `work.md` file open when starting an agent, the QA agent, for example, the ledger alone is not enough to identify which project we're working on.
+I would like to add a simple GUI to the MCP server. It will be used for:
 
-I would like to investigate what options we have for the Ledger to infer what we're working on. I thought of an "Active project" logic, but that does not work when working on several projects in parallel.
+- Viewing a list  of active projects
+- Delete finished projects
+- View project details
 
-However, it would be possible to infer the project given a project path, even if it's not the exact plan folder: Agents are unlikely to work in parallel on the same codebase (by convention). The ledger can look at all the project paths it knows, and use this to detect the most likely project.
 
-If a project can not be uniquely identified, we can still stop the process.
+Workflow.ts monolith
 
-We will need a dedicated tool that agents can call to detect the active project given the path they were called from.
 
-What do you think?
 
+
+Because the ledger personas share a lot of boilerplate text, especially for the ledger aspects, I would like to create a build script and assemble the personas using a templating system. This will make maintenance easier, and allow me to concentrate on the actual persona content when editing it.
+
+What the templating should do:
+
+- YAML frontmatter generation.
+- Ledger documentation includes
+- Version handling
+- 

@@ -2,17 +2,17 @@
 
 ## Overview
 
-This is a structured multi-agent workflow for systematic software development. It uses a **split-file JSON ledger** to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
+This is a structured multi-agent workflow for systematic software development. It uses a **centralized ledger** managed by an MCP server to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
 
 ### Why Use This Workflow?
 
-- **State Persistence**: The JSON ledger preserves project state between chat sessions
+- **State Persistence**: The centralized ledger preserves project state between chat sessions
 - **Separation of Concerns**: Each agent focuses on a specific role (planning, implementation, QA, review)
 - **Traceability**: Track work packages, acceptance criteria, dependencies, and blockers
 - **Quality Assurance**: Built-in validation, review, and documentation stages
 - **Scalability**: Handle complex projects by breaking them into manageable work packages
-- **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP file doesn't affect others
-- **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and dual-file sync
+- **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP doesn't affect others
+- **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and centralized storage
 - **Automatic Handoffs**: Agents 2–7 can pass control to the next agent automatically via `runSubagent` when the MCP server returns an `auto_handoff` response — no manual copy-paste required
 
 ### Agents in the Workflow
@@ -127,13 +127,12 @@ Before starting the workflow, ensure your project has:
 5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
    - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
    - Individual WP specification files: `/docs/agents/plans/{plan-name}/work/WP-001.md`, etc.
-   - Root ledger index: `/docs/agents/plans/{plan-name}/.ledger/project-ledger.json`
-   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/.ledger/WP-001.json`, etc.
+   - The project ledger is stored centrally by the MCP server (not as files in the plan directory)
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
 - Ensure each package has clear acceptance criteria
-- Verify the ledger initializes with correct file paths and metadata
+- Verify the ledger initializes correctly via `ledger_get_project_status`
 
 ---
 
@@ -261,10 +260,10 @@ For **each work package**:
 
 ### Ledger Hygiene
 
-- **Commit regularly**: Version control the ledger files (root index + WP detail files) with your code
-- **MCP handles consistency**: The MCP server ensures atomic writes and dual-file sync — root index and WP detail files are always kept in sync automatically
+- **Commit regularly**: Version control your plan and work package Markdown files with your code
+- **MCP handles consistency**: The MCP server stores ledger data centrally and ensures atomic writes — all ledger state is managed automatically
 - **Monitor status**: Track work package statuses (`READY` → `IN_PROGRESS` → `COMPLETE` → `BLOCKED`)
-- **Never edit JSON manually**: Always let agents use MCP tools to modify ledger files
+- **Never edit the ledger manually**: Always let agents use MCP tools to modify ledger state
 
 ### Workflow Flexibility
 
@@ -350,7 +349,7 @@ Add custom validation or review steps by:
 ### Integration with CI/CD
 
 - Run the Validator agent in automated test pipelines
-- Parse the ledger JSON for build status and metrics
+- Parse the ledger data (via MCP tools) for build status and metrics
 - Generate reports from the Synthesis agent for dashboards
 
 ---
@@ -454,11 +453,6 @@ your-project/
 │   │           ├── work/                  # WP specification files
 │   │           │   ├── WP-001.md
 │   │           │   ├── WP-002.md
-│   │           │   └── ...
-│   │           ├── .ledger/               # Ledger files (private)
-│   │           │   ├── project-ledger.json  # Root index (lightweight)
-│   │           │   ├── WP-001.json
-│   │           │   ├── WP-002.json
 │   │           │   └── ...
 │   │           └── synthesis.md           # Final report
 │   └── [other project docs]
