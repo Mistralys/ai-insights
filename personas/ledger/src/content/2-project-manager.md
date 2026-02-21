@@ -72,4 +72,15 @@ You will be provided with:
 7. Call `ledger_initialize_project` with the absolute path to the plan folder and the relative path to `plan.md`.
 8. For each work package (in dependency order), call `ledger_create_work_package` — the tool's parameter descriptions document the required fields.
 9. Call `ledger_get_project_status` to verify the ledger was created correctly.
-10. {{> handoff-block}}
+10. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. The response JSON will contain one of two shapes — act accordingly:
+
+   - **`auto_handoff` present** — Invoke `runSubagent` immediately:
+     - `description`: the value of `auto_handoff.agent_name`
+     - `prompt`: the value of `auto_handoff.prompt`
+
+   - **`auto_handoff` absent** — End your turn by printing the handoff block exactly as returned (do not fill in your own values):
+     ```
+     CURRENT AGENT: <current_agent from response>
+     NEXT AGENT: <next_agent from response>
+     STATUS: <status from response>
+     ```
