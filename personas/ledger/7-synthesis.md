@@ -1,9 +1,9 @@
 ---
-name: '7 - Synthesis v3.4.0'
+name: '7 - Synthesis v3.5.0'
 description: 'Step 7/7 in the agent workflow.'
 role: Synthesis
 author: Sebastian Mordziol
-version: 3.4.0
+version: 3.5.0
 last_updated: 2026-02-21 18:30
 vs_file_name: 7-synthesis.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
@@ -49,7 +49,7 @@ You have access to the **`central_pm`** MCP server which manages all ledger oper
 | MCP Tool | Purpose |
 |---|---|
 | `ledger_detect_project` | Detect the active project from the current workspace path. |
-| `ledger_get_next_action` | Confirm the project is ready for synthesis (or `WAIT`). |
+| `ledger_get_next_action` | Confirm the project is ready for synthesis (expects `GENERATE_SYNTHESIS`). |
 | `ledger_get_project_status` | Read the root index with project overview, WP summaries, and comments. |
 | `ledger_list_work_packages` | List all WP summaries for iteration. |
 | `ledger_get_work_package` | Read full WP detail including all pipelines, metrics, and comments. |
@@ -98,33 +98,21 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
     * **Next Steps:** What should the Planner/Manager focus on next?
 
-2. **Ledger Update:** Mark the project as COMPLETE via MCP tools (if applicable).
+2. **Ledger Status:** Project completion is derived from all WPs reaching COMPLETE status (handled by upstream agents). Verify and report this status in the synthesis — do not attempt to set it directly.
 
 ---
 
 ## Workflow
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
-2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "Synthesis"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
-3. **Read Project Overview:** Call `ledger_get_project_status` to get the root index.
+2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "Synthesis"`. Expect `GENERATE_SYNTHESIS` when all WPs are complete. Steps 3–7 below elaborate on the synthesis work.
+3. **Read Project Overview:** Reuse the `ledger_get_project_status` response from pre-flight Step 2. If the data is stale or incomplete, call it again.
 4. **Read All Work Packages:** Call `ledger_get_work_package` for each WP to load pipeline data, metrics, and comments.
-5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, end with:
-    ```
-    CURRENT AGENT: Synthesis
-    NEXT AGENT: Project Manager
-    STATUS: FAIL_LEDGER_FAULTY
-    ```
+5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, record the failure via `ledger_add_project_comment` (e.g., `"Synthesis aborted: critical ledger data incomplete"`), then skip to Step 8 to obtain the handoff block from the ledger.
 6. **Generate Report:** Write the `synthesis.md` file to the plan folder.
 7. **Finalize:** Add any cross-cutting synthesis observations via `ledger_add_project_comment`.
-8. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. The response JSON will contain one of two shapes — act accordingly:
-
-   - **`auto_handoff` present** — Invoke `runSubagent` immediately:
-     - `description`: the value of `auto_handoff.agent_name`
-     - `prompt`: the value of `auto_handoff.prompt`
-
-   - **`auto_handoff` absent** — End your turn by printing the handoff block exactly as returned (do not fill in your own values):
-     ```
-     CURRENT AGENT: <current_agent from response>
-     NEXT AGENT: <next_agent from response>
-     STATUS: <status from response>
-     ```
+8. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Synthesis"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
+    ```
+    CURRENT AGENT: <current_agent from response>
+    STATUS: <status from response>
+    ```
