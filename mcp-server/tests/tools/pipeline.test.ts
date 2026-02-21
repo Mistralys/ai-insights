@@ -8,6 +8,8 @@ import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 import { _internal } from '../../src/tools/pipeline.js';
 
+const PLAN_PATH = join(tmpdir(), '2026-01-01-test-project');
+
 /**
  * Unit tests for pipeline ordering and assigned_to updates.
  *
@@ -19,12 +21,12 @@ import { _internal } from '../../src/tools/pipeline.js';
 const { PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP } = _internal;
 
 describe('Pipeline ordering enforcement', () => {
-  let tempDir: string;
+  let tempLedgerRoot: string;
   let store: LedgerStore;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'pipeline-test-'));
-    store = new LedgerStore(tempDir);
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'pipeline-test-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
 
     // Common root index
     const root: RootIndex = {
@@ -49,7 +51,7 @@ describe('Pipeline ordering enforcement', () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempLedgerRoot, { recursive: true, force: true });
   });
 
   async function writeWp(pipelines: Array<{ type: string; status: string }>) {
@@ -158,7 +160,7 @@ describe('assigned_to update on pipeline start', () => {
 
   it('assigned_to is updated in WP detail and root summary when pipeline starts', async () => {
     const tempDir2 = await mkdtemp(join(tmpdir(), 'pipeline-assigned-'));
-    const store2 = new LedgerStore(tempDir2);
+    const store2 = new LedgerStore(PLAN_PATH, tempDir2);
 
     try {
       const root: RootIndex = {
@@ -229,7 +231,7 @@ describe('cancelPipeline logic', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'cancel-pipeline-test-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
 
     const root: RootIndex = {
       plan_file: 'plan.md',
@@ -370,7 +372,7 @@ describe('rework_count tracking (WP-005)', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'rework-count-test-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
 
     const root: RootIndex = {
       plan_file: 'plan.md',
@@ -539,7 +541,7 @@ describe('updatePipelineProgress logic (WP-005)', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'progress-update-test-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
 
     const root: RootIndex = {
       plan_file: 'plan.md',

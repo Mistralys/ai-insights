@@ -2,7 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { readFileSync } from 'fs';
+import { readFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import os from 'os';
@@ -13,6 +13,7 @@ import * as observationTools from './tools/observations.js';
 import * as workflowTools from './tools/workflow.js';
 import * as helpTools from './tools/help.js';
 import { discoverAgents } from './utils/agent-registry.js';
+import { resolveLedgerRoot } from './utils/ledger-root.js';
 
 // Load version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -90,6 +91,12 @@ async function main(): Promise<void> {
   // Log startup to stderr (never stdout - that's for MCP protocol)
   console.error(`[project-ledger-mcp] Server v${VERSION} started successfully`);
   console.error('[project-ledger-mcp] Transport: STDIO');
+
+  // Initialise centralized ledger root
+  const ledgerRoot = resolveLedgerRoot();
+  mkdirSync(ledgerRoot, { recursive: true });
+  process.stderr.write(`[mcp-server] Ledger root: ${ledgerRoot}\n`);
+
   // NOTE: This list must be kept in sync manually when tools are added or
   // removed in src/tools/**. The MCP SDK does not expose a listTools() method
   // at startup, so dynamic generation is not currently possible.

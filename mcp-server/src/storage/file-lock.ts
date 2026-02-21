@@ -18,33 +18,33 @@ const LOCK_OPTIONS = {
 };
 
 /**
- * Acquires a file lock on the project's ledger directory, executes the callback,
- * and releases the lock in a finally block.
+ * Acquires a file lock on the project's centralized storage directory,
+ * executes the callback, and releases the lock in a finally block.
  *
- * The lock file is created at {projectPath}/.ledger.lock
+ * The lock file is created at {storageDir}/.lock
  *
- * @param projectPath - Absolute path to the project directory
+ * @param storageDir - Absolute path to the project's storage directory
  * @param fn - Async callback to execute while holding the lock
  * @returns The return value of the callback
  * @throws Error if lock cannot be acquired after retries
  */
 export async function withLock<T>(
-  projectPath: string,
+  storageDir: string,
   fn: () => Promise<T>
 ): Promise<T> {
-  const lockFilePath = join(projectPath, '.ledger.lock');
+  const lockFilePath = join(storageDir, '.lock');
 
-  // Ensure the project directory exists
-  await mkdir(projectPath, { recursive: true });
+  // Ensure the storage directory exists
+  await mkdir(storageDir, { recursive: true });
 
   // Acquire the lock
   let release: (() => Promise<void>) | null = null;
 
   try {
-    // proper-lockfile expects a file path, but we want to lock a directory
-    // We create a .ledger.lock file for this purpose
+    // proper-lockfile expects a file path, but we want to lock a directory.
+    // We create a .lock file inside storageDir for this purpose.
     // Note: proper-lockfile creates a lockfile, so we don't need to pre-create it
-    release = await lockfile.lock(projectPath, {
+    release = await lockfile.lock(storageDir, {
       ...LOCK_OPTIONS,
       lockfilePath: lockFilePath,
     });
@@ -54,7 +54,7 @@ export async function withLock<T>(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ELOCKED') {
       throw new Error(
-        `Failed to acquire lock on ${projectPath} after ${LOCK_OPTIONS.retries.retries} retries. ` +
+        `Failed to acquire lock on ${storageDir} after ${LOCK_OPTIONS.retries.retries} retries. ` +
           `Another process may be holding the lock.`
       );
     }
@@ -67,7 +67,7 @@ export async function withLock<T>(
       } catch (error) {
         // Log but don't throw - we don't want to mask the original error
         console.error(
-          `[file-lock] Warning: Failed to release lock on ${projectPath}:`,
+          `[file-lock] Warning: Failed to release lock on ${storageDir}:`,
           error
         );
       }

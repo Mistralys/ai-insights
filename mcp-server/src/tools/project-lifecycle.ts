@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
+import { WorkPackageStatus } from '../schema/enums.js';
 import { now } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
@@ -144,7 +145,7 @@ async function initializeProject(
       content: [
         {
           type: 'text' as const,
-          text: `Error: Project ledger already exists at ${args.project_path}/.ledger/project-ledger.json. Use MCP tools to update the existing ledger.`,
+          text: `Error: Project ledger already exists for ${args.project_path}. Use MCP tools to update the existing ledger.`,
         },
       ],
       isError: true,
@@ -165,8 +166,11 @@ async function initializeProject(
   };
 
   try {
-    // 4. Write root index (atomicWriteJson will create ledger/ directory via mkdir -p)
+    // 4. Write root index (atomicWriteJson will create storageDir via mkdir -p)
     await store.writeRootIndex(rootIndex);
+
+    // 5. Write .meta.json so the project is immediately visible via ledger_list_projects
+    await store.writeProjectMeta(args.plan_file);
 
     return {
       content: [
@@ -182,6 +186,43 @@ async function initializeProject(
         {
           type: 'text' as const,
           text: `Error initializing project: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Tool: list_projects
+ *
+ * Lists all projects tracked in the centralized ledger.
+ * Optionally filters by status.
+ */
+const ListProjectsSchema = z.object({
+  status: WorkPackageStatus.optional().describe('Optional filter: only return projects with this status'),
+});
+
+async function listProjects(args: z.infer<typeof ListProjectsSchema>) {
+  try {
+    const projects = await LedgerStore.listAllProjects();
+    const filtered = args.status
+      ? projects.filter((p) => p.status === args.status)
+      : projects;
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(filtered, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error listing projects: ${(error as Error).message}`,
         },
       ],
       isError: true,
@@ -209,5 +250,14 @@ export function register(server: McpServer): void {
       inputSchema: InitializeProjectSchema.passthrough(),
     },
     initializeProject as any
+  );
+
+  server.registerTool(
+    'ledger_list_projects',
+    {
+      description: 'List all projects tracked in the centralized ledger with their current status, dates, and plan paths. OPTIONAL params: status (filter by READY/IN_PROGRESS/COMPLETE/BLOCKED).',
+      inputSchema: ListProjectsSchema.passthrough(),
+    },
+    listProjects as any
   );
 }
