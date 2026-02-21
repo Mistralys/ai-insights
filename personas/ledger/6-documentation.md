@@ -97,6 +97,13 @@ If you encounter a system-level issue that is not caused by your own mistake (e.
 
 ---
 
+## Decision Logic
+
+* **PASS:** Documentation accurately reflects the current codebase after your updates. If no changes were needed (the existing docs already covered the implementation), PASS with a summary stating that.
+* **FAIL:** You identified documentation gaps but could not resolve them — e.g., ambiguous API behaviour you cannot verify from the code alone, or missing context that requires developer input. Provide detailed comments describing each unresolved gap.
+
+---
+
 ## Output Format
 
 Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with summary and comments — the tool's parameter descriptions document the required shapes and allowed values.
