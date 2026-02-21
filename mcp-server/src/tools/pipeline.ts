@@ -233,7 +233,7 @@ const CompletePipelineSchema = z.object({
       }).passthrough()
     )
     .optional()
-    .describe('Comments and observations from the pipeline'),
+    .describe('Observations and comments from the pipeline. Each object: { type, priority, timestamp (ISO 8601), note }. Types for implementation: "code-smell", "refactor", "improvement", "debt", "convention". Types for QA: "bug", "regression", "edge-case", "coverage-gap". Priority: "high" (likely bugs/security), "medium" (quality/DX degradation), "low" (nice-to-have). Be specific: reference file paths and function names. If no observations, include one { type: "improvement", note: "No observations — code is clean and consistent." } entry to confirm active review.'),
   acceptance_criteria_updates: z
     .array(
       z.object({
@@ -493,7 +493,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_complete_pipeline',
     {
-      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL: acceptance_criteria_updates (use this to mark criteria as met before marking WP COMPLETE), artifacts, metrics, comments. Must call ledger_start_pipeline first.',
+      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL but important: acceptance_criteria_updates (PRIMARY way to mark AC as met before COMPLETE), artifacts (files_modified, commit_hash), metrics (test_coverage, tests_passed/failed), comments (observations — REQUIRED for implementation pipelines). Must call ledger_start_pipeline first. On completion, response includes a NEXT STEP guidance block.',
       inputSchema: CompletePipelineSchema.passthrough(),
     },
     completePipeline as any

@@ -9,7 +9,7 @@ import {
 import { ProjectMetaSchema, type ProjectMeta } from '../schema/project-meta.js';
 import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
-import { resolveLedgerRoot, projectSlugFromPath } from '../utils/ledger-root.js';
+import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
 import { now } from '../utils/timestamp.js';
 
 /**
@@ -316,4 +316,64 @@ export class LedgerStore {
 
     return results;
   }
+
+  /**
+   * Scans all known projects and returns the one whose project root is an
+   * ancestor of (or equal to) `cwdPath`.
+   *
+   * Matching rules:
+   *   - The project root is derived by calling inferProjectRootFromPlanPath on
+   *     each project's plan_path (4 levels up from the plan folder).
+   *   - normalizedCwd starts with normalizedProjectRoot + '/' → project root is an ancestor
+   *   - normalizedCwd === normalizedProjectRoot → exact match at project root
+   *   - Parent paths of the project root do NOT match (no upward traversal).
+   *   - Path comparison is case-insensitive on Windows.
+   *
+   * @param cwdPath   - Absolute path the agent is working from
+   * @param ledgerRoot - Optional override; defaults to resolveLedgerRoot()
+   */
+  static async detectProjectByCwd(
+    cwdPath: string,
+    ledgerRoot?: string
+  ): Promise<DetectProjectResult> {
+    const projects = await LedgerStore.listAllProjects(ledgerRoot);
+
+    // Normalize a path: forward slashes, lowercase on Windows
+    function normalizePath(p: string): string {
+      const fwd = p.replace(/\\/g, '/');
+      return process.platform === 'win32' ? fwd.toLowerCase() : fwd;
+    }
+
+    const normalizedCwd = normalizePath(cwdPath);
+
+    const matches: ProjectMeta[] = [];
+    for (const meta of projects) {
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      const normalizedRoot = normalizePath(projectRoot);
+
+      if (
+        normalizedCwd === normalizedRoot ||
+        normalizedCwd.startsWith(normalizedRoot + '/')
+      ) {
+        matches.push(meta);
+      }
+    }
+
+    if (matches.length === 1) {
+      return { status: 'FOUND', meta: matches[0]! };
+    }
+
+    if (matches.length > 1) {
+      return { status: 'AMBIGUOUS', candidates: matches };
+    }
+
+    return { status: 'NOT_FOUND' };
+  }
 }
+
+// ==================== Result Types for detectProjectByCwd ====================
+
+export type DetectProjectResult =
+  | { status: 'FOUND'; meta: ProjectMeta }
+  | { status: 'NOT_FOUND' }
+  | { status: 'AMBIGUOUS'; candidates: ProjectMeta[] };

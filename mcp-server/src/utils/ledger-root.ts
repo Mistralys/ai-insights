@@ -1,4 +1,4 @@
-import { join, dirname } from 'path';
+import { join, dirname, posix } from 'path';
 import { fileURLToPath } from 'url';
 import { planFolderBasename } from './path-validator.js';
 
@@ -40,4 +40,29 @@ export function resolveLedgerRoot(): string {
  */
 export function projectSlugFromPath(projectPath: string): string {
   return planFolderBasename(projectPath);
+}
+
+/**
+ * Derives the project root from an absolute plan folder path by walking up
+ * exactly four directory levels.
+ *
+ * The established convention is:
+ *   {project-root}/docs/agents/plans/{slug}
+ *
+ * So calling dirname() four times on a normalized plan path returns the project root.
+ *
+ * This function is pure — it performs no filesystem access.
+ *
+ * @param planPath - Absolute path to the plan folder (e.g. "/home/user/project/docs/agents/plans/2026-02-01-feat")
+ * @returns The project root path (e.g. "/home/user/project")
+ */
+export function inferProjectRootFromPlanPath(planPath: string): string {
+  // Normalize backslashes to forward slashes for cross-platform correctness
+  const normalized = planPath.replace(/\\/g, '/');
+  // Walk up 4 levels: slug → plans → agents → docs → project-root
+  let current = normalized;
+  for (let i = 0; i < 4; i++) {
+    current = posix.dirname(current);
+  }
+  return current;
 }

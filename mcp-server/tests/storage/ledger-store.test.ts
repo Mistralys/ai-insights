@@ -203,3 +203,123 @@ describe('LedgerStore', () => {
     });
   });
 });
+
+// ==================== detectProjectByCwd ====================
+
+describe('LedgerStore.detectProjectByCwd', () => {
+  let tempLedgerRoot: string;
+
+  // Synthetic plan paths following the {project-root}/docs/agents/plans/{slug} convention.
+  // tmpdir() is used so the paths are valid absolute paths on the current platform.
+  const planPathA = join(tmpdir(), 'project-a', 'docs', 'agents', 'plans', '2026-02-15-alpha');
+  const planPathB = join(tmpdir(), 'project-b', 'docs', 'agents', 'plans', '2026-02-16-beta');
+
+  // Normalized project roots (forward slashes — the same normalization inferProjectRootFromPlanPath uses)
+  const projectRootA = join(tmpdir(), 'project-a').replace(/\\/g, '/');
+  const projectRootB = join(tmpdir(), 'project-b').replace(/\\/g, '/');
+
+  // Seed one project (A) into the shared temp ledger root
+  async function seedProjectA(): Promise<void> {
+    const storeA = new LedgerStore(planPathA, tempLedgerRoot);
+    await storeA.writeProjectMeta('plan.md', 'IN_PROGRESS');
+  }
+
+  // Seed both projects into the shared temp ledger root
+  async function seedBothProjects(): Promise<void> {
+    const storeA = new LedgerStore(planPathA, tempLedgerRoot);
+    await storeA.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    const storeB = new LedgerStore(planPathB, tempLedgerRoot);
+    await storeB.writeProjectMeta('plan.md', 'READY');
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'detect-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('returns FOUND when cwdPath is a subdirectory inside the project root', async () => {
+    await seedProjectA();
+    const cwdPath = join(tmpdir(), 'project-a', 'src', 'tools');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.plan_path).toBe(planPathA);
+    }
+  });
+
+  it('returns FOUND when cwdPath exactly equals the project root', async () => {
+    await seedProjectA();
+    const cwdPath = join(tmpdir(), 'project-a');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+  });
+
+  it('returns FOUND when cwdPath is the plan folder itself', async () => {
+    await seedProjectA();
+    const result = await LedgerStore.detectProjectByCwd(planPathA, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe('2026-02-15-alpha');
+    }
+  });
+
+  it('returns NOT_FOUND when no project root is an ancestor of cwdPath', async () => {
+    await seedProjectA();
+    const cwdPath = join(tmpdir(), 'completely-different-directory', 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('returns NOT_FOUND when the ledger has no projects', async () => {
+    // tempLedgerRoot is empty
+    const cwdPath = join(tmpdir(), 'project-a', 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('does NOT match when cwdPath is a parent (ancestor) of the project root', async () => {
+    await seedProjectA();
+    // Providing the parent of project-a (i.e. tmpdir()) should NOT match project-a
+    const cwdPath = tmpdir();
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    // tmpdir() is a parent of project-a's root, not a descendant — should not match
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('returns AMBIGUOUS with both candidates when two projects both match cwdPath', async () => {
+    // Plant both projects under the same artificial shared root so both match
+    // when cwdPath equals that shared root.
+    // We achieve this by using plan paths that share the same project root.
+    const sharedRoot = join(tmpdir(), 'shared-root');
+    const planPathC = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-15-proj-c');
+    const planPathD = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-d');
+
+    const storeC = new LedgerStore(planPathC, tempLedgerRoot);
+    await storeC.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    const storeD = new LedgerStore(planPathD, tempLedgerRoot);
+    await storeD.writeProjectMeta('plan.md', 'READY');
+
+    // Both C and D derive the same project root (sharedRoot), so both match
+    const cwdPath = join(sharedRoot, 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('AMBIGUOUS');
+    if (result.status === 'AMBIGUOUS') {
+      expect(result.candidates).toHaveLength(2);
+      const slugs = result.candidates.map((c) => c.slug).sort();
+      expect(slugs).toEqual(['2026-02-15-proj-c', '2026-02-16-proj-d']);
+    }
+  });
+
+  it('returns FOUND for the correct project and ignores the other when two distinct projects exist', async () => {
+    await seedBothProjects();
+    const cwdPath = join(tmpdir(), 'project-b', 'tests');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe('2026-02-16-beta');
+    }
+  });
+});

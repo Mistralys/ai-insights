@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
-import { resolveLedgerRoot, projectSlugFromPath } from '../../src/utils/ledger-root.js';
+import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../../src/utils/ledger-root.js';
 
 describe('resolveLedgerRoot', () => {
   let originalArgv: string[];
@@ -84,5 +84,32 @@ describe('projectSlugFromPath', () => {
   it('returns the full basename including multiple hyphens', () => {
     const path = join('/tmp', '2026-12-31-year-end-cleanup-final');
     expect(projectSlugFromPath(path)).toBe('2026-12-31-year-end-cleanup-final');
+  });
+});
+
+describe('inferProjectRootFromPlanPath', () => {
+  it('returns the project root from a Unix plan path (4 levels up)', () => {
+    const planPath = '/home/user/project/docs/agents/plans/2026-02-01-feat';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/home/user/project');
+  });
+
+  it('returns the project root from a Windows plan path with backslashes', () => {
+    const planPath = 'C:\\Users\\dev\\project\\docs\\agents\\plans\\2026-03-10-my-feature';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('C:/Users/dev/project');
+  });
+
+  it('returns the project root from a Windows plan path with forward slashes', () => {
+    const planPath = 'f:/Webserver/ai-insights/docs/agents/plans/2026-02-21-detect';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('f:/Webserver/ai-insights');
+  });
+
+  it('handles a deeply nested project root', () => {
+    const planPath = '/a/b/c/d/docs/agents/plans/2026-01-01-slug';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe('/a/b/c/d');
+  });
+
+  it('is a pure function — calling it twice with the same input returns the same result', () => {
+    const planPath = '/projects/xyz/docs/agents/plans/2026-06-15-cleanup';
+    expect(inferProjectRootFromPlanPath(planPath)).toBe(inferProjectRootFromPlanPath(planPath));
   });
 });
