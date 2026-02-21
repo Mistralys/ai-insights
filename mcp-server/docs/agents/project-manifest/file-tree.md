@@ -2,19 +2,30 @@
 
 ```
 mcp-server/
+├── .gitignore                   # Gitignore (excludes storage/ledger/ runtime data)
 ├── .npmrc                       # npm configuration
 ├── package.json                 # Project metadata and dependencies
 ├── tsconfig.json                # TypeScript compiler configuration
 ├── vitest.config.ts             # Vitest test framework configuration
+│
+├── storage/                     # Runtime-generated data (gitignored except .gitkeep)
+│   └── ledger/
+│       ├── .gitkeep             # Ensures directory is tracked in version control
+│       └── {slug}/              # Per-project subfolder — runtime-generated
+│           ├── .meta.json       # Project metadata (slug, status, timestamps)
+│           ├── .lock            # Lock file for concurrent-write protection
+│           ├── project-ledger.json  # Root index
+│           └── WP-001.json      # Work package detail files
 │
 ├── src/                         # Source code
 │   ├── index.ts                 # MCP server entry point and tool registration
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums (ProjectStatus, WorkPackageStatus, etc.)
-│   │   ├── root-index.ts        # RootIndex schema (.ledger/project-ledger.json structure)
+│   │   ├── project-meta.ts      # ProjectMetaSchema / ProjectMeta — per-project .meta.json
+│   │   ├── root-index.ts        # RootIndex schema (storage/ledger/{slug}/project-ledger.json structure)
 │   │   ├── validators.ts        # Business rule validators (status transitions, dependencies)
-│   │   └── work-package.ts      # WorkPackageDetail schema (.ledger/WP-###.json structure)
+│   │   └── work-package.ts      # WorkPackageDetail schema (storage/ledger/{slug}/WP-###.json structure)
 │   │
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename implementation
@@ -31,20 +42,28 @@ mcp-server/
 │   │
 │   └── utils/                   # Utility functions
 │       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
-│       ├── path-validator.ts    # Project path validation (absolute path checks)
+│       ├── constants.ts         # Shared string constants and AGENT_ROLES
+│       ├── if-defined.ts        # ifDefined() type guard helper
+│       ├── ledger-root.ts       # resolveLedgerRoot() and projectSlugFromPath() — central ledger location
+│       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), validatePlanPathOrError()
 │       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, AGENT_PIPELINE_MAP)
 │       ├── timestamp.ts         # Timestamp formatting — now() returns ISO 8601 T-separator (YYYY-MM-DDTHH:MM:SS); parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
+    ├── helpers/                 # Shared test utilities (NEVER write to production storage)
+    │   └── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
+    │
     ├── integration/             # End-to-end workflow tests
+    │   ├── auto-handoff.test.ts
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
     │   └── validators.test.ts
     │
     ├── storage/                 # Storage layer tests
-    │   └── ledger-store.test.ts
+    │   ├── ledger-store.test.ts
+    │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
     │   ├── pipeline.test.ts
@@ -53,6 +72,8 @@ mcp-server/
     │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
+        ├── if-defined.test.ts
+        ├── ledger-root.test.ts
         ├── path-validator.test.ts
         ├── timestamp.test.ts
         └── wp-id.test.ts
@@ -76,7 +97,9 @@ Each file exports a `register(server: McpServer)` function that registers one or
 
 ### `tests/`
 
-Vitest test suites organized by layer (integration, schema, storage, utils). Tests run with `npm test` or `npm run test:watch`.
+Vitest test suites organized by layer (helpers, integration, schema, storage, tools, utils). Tests run with `npm test` or `npm run test:watch`.
+
+`tests/helpers/create-temp-store.ts` provides `createTempStore(planPath)` and `cleanupTempStore(handle)` — a shared factory that always injects a `mkdtemp` ledger root, enforcing the test isolation contract (see Constraint 20).
 
 ---
 
@@ -86,3 +109,6 @@ The following directories are not version-controlled:
 
 - `node_modules/` — npm dependencies
 - `dist/` — TypeScript compilation output (when built)
+- `storage/ledger/{slug}/` — per-project ledger runtime data (excluded via `.gitignore`; only `storage/ledger/.gitkeep` is committed)
+
+> **Note:** Plan folders (e.g. `docs/agents/plans/2026-02-16-feature/`) contain only human-authored Markdown files. No machine-generated JSON is ever written inside a plan folder.
