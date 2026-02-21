@@ -24,7 +24,7 @@ export function resolveLedgerRoot(): string {
   const flagIndex = args.indexOf('--ledger-dir');
   if (flagIndex !== -1) {
     // Next token must exist and must not itself be a flag
-    if (flagIndex + 1 >= args.length || args[flagIndex + 1].startsWith('--')) {
+    if (flagIndex + 1 >= args.length || args[flagIndex + 1]!.startsWith('--')) {
       throw new Error(
         '--ledger-dir flag requires a path argument (e.g. --ledger-dir /data/ledger)'
       );
