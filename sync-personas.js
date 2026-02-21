@@ -4,7 +4,7 @@
  * sync-personas.js
  * 
  * Copies persona files to VS Code's User prompts folder.
- * Reads the "VS File Name" metadata from each persona file and uses it as the target filename.
+ * Reads the `vs_file_name` field from each persona file's YAML frontmatter and uses it as the target filename.
  * 
  * Usage:
  *   node sync-personas.js
@@ -60,15 +60,28 @@ function getVSCodePromptsDir() {
 }
 
 /**
- * Extract the VS File Name from a persona file's metadata
+ * Extract the VS File Name from a persona file's YAML frontmatter (vs_file_name field).
  * @param {string} filePath - Path to the persona file
  * @returns {string|null} - The VS File Name or null if not found
  */
 function extractVSFileName(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
-    const match = content.match(/VS File Name:\s*(.+)/);
-    return match ? match[1].trim() : null;
+
+    if (!content.startsWith('---')) return null;
+
+    const afterFirst = content.slice(3);
+    const closingIdx = afterFirst.indexOf('\n---');
+    if (closingIdx === -1) return null;
+
+    const frontmatter = afterFirst.slice(0, closingIdx);
+
+    for (const line of frontmatter.split('\n')) {
+      const match = line.trim().match(/^vs_file_name:\s*['"]?(.+?)['"]?\s*$/);
+      if (match) return match[1];
+    }
+
+    return null;
   } catch (error) {
     console.error(`${colors.red}Error reading file ${filePath}:${colors.reset}`, error.message);
     return null;
@@ -208,7 +221,7 @@ function syncPersonas(targetDir, dryRun = false) {
     const vsFileName = extractVSFileName(filePath);
 
     if (!vsFileName) {
-      console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${path.relative(personasDir, filePath)} ${colors.yellow}(no VS File Name metadata)${colors.reset}`);
+      console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${path.relative(personasDir, filePath)} ${colors.yellow}(no vs_file_name in frontmatter)${colors.reset}`);
       skippedCount++;
       return;
     }
