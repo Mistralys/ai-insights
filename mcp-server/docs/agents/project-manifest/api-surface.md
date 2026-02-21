@@ -4,7 +4,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (18 Total)
+## MCP Tools (19 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -38,6 +38,20 @@ Creates a new project ledger with root index and centralized storage directory. 
 ```
 
 Scans the central ledger root directory and returns metadata for all projects. Optionally filters by status. Projects with missing or invalid `.meta.json` are silently skipped.
+
+#### `ledger_detect_project`
+
+```typescript
+(args: { cwd_path: string }) => Promise<MCPResult>
+```
+
+Identifies the active project by cross-referencing the supplied working-directory path against all project roots stored in the centralized ledger. Returns `{ plan_path, slug, title?, status }` for the unique matching project.
+
+**Error cases:**
+- **`NOT_FOUND`** — no known project root is an ancestor of `cwd_path`. Returned when `cwd_path` is not inside any initialized project's codebase.
+- **`AMBIGUOUS`** — more than one project root is an ancestor of `cwd_path`. The error message lists all matching `plan_path` values. Pass an explicit `project_path` to the tool requiring it to disambiguate.
+
+Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
 ---
 
@@ -341,7 +355,17 @@ class LedgerStore {
 
   // Static
   static listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]>;
+  static detectProjectByCwd(
+    cwdPath: string,
+    ledgerRoot?: string
+  ): Promise<DetectProjectResult>;
 }
+
+// Discriminated union returned by LedgerStore.detectProjectByCwd()
+type DetectProjectResult =
+  | { status: 'FOUND'; meta: ProjectMeta }
+  | { status: 'NOT_FOUND' }
+  | { status: 'AMBIGUOUS'; candidates: ProjectMeta[] };
 ```
 
 ---
@@ -621,6 +645,12 @@ function resolveLedgerRoot(): string;
 // Extracts the project slug (plan folder basename) from an absolute project path.
 // Delegates to planFolderBasename(). Exported from src/utils/ledger-root.ts
 function projectSlugFromPath(projectPath: string): string;
+
+// Derives the project root from an absolute plan folder path by walking up 4 levels.
+// Normalizes backslashes to forward slashes. Pure — no filesystem access.
+// Convention: {project-root}/docs/agents/plans/{slug}
+// Exported from src/utils/ledger-root.ts
+function inferProjectRootFromPlanPath(planPath: string): string;
 
 // Extracts the plan folder basename and validates the YYYY-MM-DD naming convention.
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts

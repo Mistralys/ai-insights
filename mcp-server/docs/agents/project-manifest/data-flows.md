@@ -54,6 +54,45 @@ Return ProjectMeta[] to agent
 
 ---
 
+## Flow 1c: Detect Project by Working Directory
+
+**Entry Point:** Agent invokes `ledger_detect_project` tool (typically during pre-flight when `project_path` is not explicitly known)
+
+```
+Agent → ledger_detect_project(cwd_path)
+  ↓
+LedgerStore.detectProjectByCwd(cwd_path)
+  ↓
+LedgerStore.listAllProjects(ledgerRoot)  ← same scan as Flow 1b
+  ↓
+For each ProjectMeta:
+  inferProjectRootFromPlanPath(meta.plan_path)
+    → Replace \ with /
+    → posix.dirname() × 4  (walks up docs/agents/plans/{slug})
+    → returns normalized project root string
+  ↓
+  Normalize cwd_path (\ → /, lowercase on Windows)
+  Normalize project root (\ → /, lowercase on Windows)
+  ↓
+  Match if:
+    normalizedCwd === normalizedRoot           (exact project-root match)
+    OR normalizedCwd.startsWith(root + '/')   (cwd is inside project root)
+  ↓
+Collect all matching projects
+  ↓
+  matches.length === 1 → status: FOUND  (return meta)
+  matches.length  >  1 → status: AMBIGUOUS  (return all candidates)
+  matches.length === 0 → status: NOT_FOUND
+  ↓
+On FOUND:   Return { plan_path, slug, title?, status } to agent
+On AMBIGUOUS: Return error listing all candidate plan_path values
+On NOT_FOUND: Return error with guidance to initialize the project
+```
+
+**Result:** Pure path-string comparison — no lock, no writes, no state mutation. The derived project root is computed from each project's `plan_path` using the established `{root}/docs/agents/plans/{slug}` convention (4-level depth). A parent of the project root does NOT match (matching is downward-only).
+
+---
+
 ## Flow 2: Work Package Creation
 
 **Entry Point:** Agent invokes `ledger_create_work_package` tool

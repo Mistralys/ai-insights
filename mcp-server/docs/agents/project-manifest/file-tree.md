@@ -36,7 +36,7 @@ mcp-server/
 │   │   ├── help.ts              # ledger_help (inline documentation for all tools)
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
-│   │   ├── project-lifecycle.ts # ledger_get_project_status, ledger_initialize_project
+│   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
 │   │   └── workflow.ts          # ledger_get_next_action, ledger_get_next_actions, ledger_get_handoff_status
 │   │
@@ -44,7 +44,7 @@ mcp-server/
 │       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
-│       ├── ledger-root.ts       # resolveLedgerRoot() and projectSlugFromPath() — central ledger location
+│       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
 │       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), validatePlanPathOrError()
 │       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, AGENT_PIPELINE_MAP)
 │       ├── timestamp.ts         # Timestamp formatting — now() returns ISO 8601 T-separator (YYYY-MM-DDTHH:MM:SS); parseTimestamp() handles legacy space format
