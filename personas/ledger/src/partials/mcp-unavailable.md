@@ -1,0 +1,1 @@
+> **MCP server unavailable.** The `{{mcp_server_name}}` MCP server is a hard prerequisite for this workflow. Please ensure it is configured and running before retrying. Check `.mcp.json` for the server configuration.

@@ -1,0 +1,29 @@
+number: 2
+role: Project Manager
+vs_file_name: 2-pm.agent.md
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+  - central_pm/*
+
+has_mcp: true
+has_detect_project: false
+self_documenting_note: false
+has_incident_logging: false
+
+mcp_tools:
+  - tool: ledger_initialize_project
+    purpose: Create the root ledger for a new project.
+  - tool: ledger_create_work_package
+    purpose: Create a work package with auto-generated WP ID (validates dependency order).
+  - tool: ledger_get_project_status
+    purpose: Read the root index (self-heals incorrect counters). Use to verify the ledger after creation.
+  - tool: ledger_get_handoff_status
+    purpose: Compute the AGENT/STATUS handoff block at the end of your turn.

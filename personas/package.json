@@ -1,0 +1,14 @@
+{
+  "name": "ai-insights-personas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Persona build tooling for ai-insights",
+  "scripts": {
+    "build": "node build-personas.js",
+    "check": "node build-personas.js --check",
+    "dry-run": "node build-personas.js --dry-run"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

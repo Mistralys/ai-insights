@@ -1,0 +1,39 @@
+number: 4
+role: QA
+vs_file_name: 4-qa.agent.md
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+  - central_pm/*
+
+has_mcp: true
+has_detect_project: true
+self_documenting_note: true
+has_incident_logging: true
+
+mcp_tools:
+  - tool: ledger_detect_project
+    purpose: Detect the active project from the current workspace path.
+  - tool: ledger_get_project_status
+    purpose: "Retrieve project status summary (also used to verify MCP server reachability)."
+  - tool: ledger_get_next_action
+    purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, or `WAIT`)."
+  - tool: ledger_get_work_package
+    purpose: Read WP detail including implementation artifacts and AC.
+  - tool: ledger_start_pipeline
+    purpose: "Begin the `qa` pipeline for a WP."
+  - tool: ledger_complete_pipeline
+    purpose: Finalize pipeline with status, summary, metrics, comments, and AC updates.
+  - tool: ledger_update_work_package_status
+    purpose: "Transition WP status (e.g., to `BLOCKED` on environmental failure)."
+  - tool: ledger_add_project_comment
+    purpose: "Add project-level comments (e.g., incident reports)."
+  - tool: ledger_get_handoff_status
+    purpose: Compute the AGENT/STATUS handoff block at the end of your turn.

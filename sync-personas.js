@@ -15,6 +15,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 // NOTE: Keep in sync with AGENT_ROLES in src/utils/constants.ts whenever agent
 // roles are added or renamed. This file is plain JS and cannot import TypeScript
@@ -66,7 +67,9 @@ function getVSCodePromptsDir() {
  */
 function extractVSFileName(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
+    const rawContent = fs.readFileSync(filePath, 'utf8');
+    // Strip optional AUTO-GENERATED comment header produced by build-personas.js
+    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
 
     if (!content.startsWith('---')) return null;
 
@@ -92,9 +95,10 @@ function extractVSFileName(filePath) {
  * Recursively find all markdown files in a directory
  * @param {string} dir - Directory to search
  * @param {string[]} fileList - Accumulator for found files
+ * @param {string[]} excludeDirs - Absolute directory paths to skip
  * @returns {string[]} - Array of file paths
  */
-function findMarkdownFiles(dir, fileList = []) {
+function findMarkdownFiles(dir, fileList = [], excludeDirs = []) {
   const files = fs.readdirSync(dir);
 
   files.forEach(file => {
@@ -102,7 +106,8 @@ function findMarkdownFiles(dir, fileList = []) {
     const stat = fs.statSync(filePath);
 
     if (stat.isDirectory()) {
-      findMarkdownFiles(filePath, fileList);
+      if (excludeDirs.includes(filePath)) return;
+      findMarkdownFiles(filePath, fileList, excludeDirs);
     } else if (file.endsWith('.md')) {
       fileList.push(filePath);
     }
@@ -129,14 +134,17 @@ function validateLedgerFrontmatter(ledgerDir) {
 
   for (const file of files) {
     const filePath = path.join(ledgerDir, file);
-    let content;
+    let rawContent;
     try {
-      content = fs.readFileSync(filePath, 'utf8');
+      rawContent = fs.readFileSync(filePath, 'utf8');
     } catch (err) {
       console.warn(`${colors.yellow}⚠ ${file}: could not read file — ${err.message}${colors.reset}`);
       warningCount++;
       continue;
     }
+
+    // Strip optional AUTO-GENERATED comment header produced by build-personas.js
+    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
 
     // Only validate files that start with YAML frontmatter
     if (!content.startsWith('---')) continue;
@@ -199,8 +207,11 @@ function syncPersonas(targetDir, dryRun = false) {
     process.exit(1);
   }
 
-  // Find all markdown files in personas directory
-  const personaFiles = findMarkdownFiles(personasDir);
+  // Find all markdown files in personas directory (excluding source/build subdirs)
+  const excludeDirs = [
+    path.join(personasDir, 'ledger', 'src'),
+  ];
+  const personaFiles = findMarkdownFiles(personasDir, [], excludeDirs);
 
   console.log(`${colors.bright}${colors.cyan}=== VS Code Persona Sync ===${colors.reset}\n`);
   console.log(`${colors.blue}Source:${colors.reset} ${personasDir}`);
@@ -289,6 +300,13 @@ ${colors.bright}Examples:${colors.reset}
   }
 
   try {
+    // Build personas from source templates before copying
+    const buildScript = path.join(__dirname, 'personas', 'build-personas.js');
+    const buildArgs = dryRun ? ['--dry-run'] : [];
+    console.log(`${colors.bright}${colors.cyan}=== Building Personas ===${colors.reset}\n`);
+    execFileSync(process.execPath, [buildScript, ...buildArgs], { stdio: 'inherit' });
+    console.log();
+
     const targetDir = customPath || getVSCodePromptsDir();
     syncPersonas(targetDir, dryRun);
     validateLedgerFrontmatter(path.join(__dirname, 'personas', 'ledger'));

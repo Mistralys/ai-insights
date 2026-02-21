@@ -1,0 +1,41 @@
+number: 3
+role: Developer
+vs_file_name: 3-dev.agent.md
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+  - central_pm/*
+
+has_mcp: true
+has_detect_project: true
+self_documenting_note: true
+has_incident_logging: true
+
+mcp_tools:
+  - tool: ledger_detect_project
+    purpose: Resolve the active project from the current workspace path.
+  - tool: ledger_get_project_status
+    purpose: "Retrieve project status summary (also used to verify MCP server reachability)."
+  - tool: ledger_get_next_action
+    purpose: "Get the recommended action for your role (which WP to implement, or WAIT)."
+  - tool: ledger_claim_work_package
+    purpose: "Transition a READY WP to IN_PROGRESS (validates dependency completion)."
+  - tool: ledger_start_pipeline
+    purpose: "Begin the `implementation` pipeline for a WP."
+  - tool: ledger_complete_pipeline
+    purpose: "Finalize the pipeline with status, summary, artifacts, acceptance criteria updates, and Code Insight Observer comments. This is the **primary tool for updating acceptance criteria**."
+  - tool: ledger_add_observation
+    purpose: Add an observation to an existing pipeline after completion.
+  - tool: ledger_add_project_comment
+    purpose: "Add a project-level comment (e.g., incident reports)."
+  - tool: ledger_get_work_package
+    purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
+  - tool: ledger_get_handoff_status
+    purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
