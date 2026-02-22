@@ -29,9 +29,10 @@ personas/                          # Sub-project root (has own package.json)
 │       │
 │       ├── partials/              # Reusable Markdown fragments (shared across personas)
 │       │   ├── agent-roster.md             # Numbered agent list (uses {{roster_rendered}})
-│       │   ├── handoff-block.md            # Auto-handoff instructions (uses {{role}})
+│       │   ├── handoff-block.md            # Mandatory handoff instructions (uses {{role}})
 │       │   ├── incident-logging.md         # Environment incident logging instructions
 │       │   ├── mcp-intro.md                # MCP tools table header (uses {{mcp_server_name}}, {{mcp_tools_table}})
+│       │   ├── role-boundaries.md           # Role boundary constraints (tool scope + WP ownership)
 │       │   ├── mcp-preflight-detect.md     # Step 1: detect project via ledger_detect_project
 │       │   ├── mcp-preflight-header.md     # Pre-flight intro + tool_search_tool_regex instruction
 │       │   ├── mcp-preflight-verify-no-detect.md    # Step 1 (no detect): verify via ledger_get_project_status

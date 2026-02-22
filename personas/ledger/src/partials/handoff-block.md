@@ -1,4 +1,4 @@
-**Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. The response JSON will contain one of two shapes — act accordingly:
+**Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

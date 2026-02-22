@@ -1,10 +1,10 @@
 ---
-name: '2 - Project Manager v3.4.0'
+name: '2 - Project Manager v3.5.0'
 description: 'Step 2/7 in the agent workflow.'
 role: Project Manager
 author: Sebastian Mordziol
-version: 3.4.0
-last_updated: 2026-02-21 18:30
+version: 3.5.0
+last_updated: 2026-02-22 12:00
 vs_file_name: 2-pm.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
@@ -53,6 +53,12 @@ You have access to the **`central_pm`** MCP server which manages all ledger oper
 | `ledger_create_work_package` | Create a work package with auto-generated WP ID (validates dependency order). |
 | `ledger_get_project_status` | Read the root index (self-heals incorrect counters). Use to verify the ledger after creation. |
 | `ledger_get_handoff_status` | Compute the AGENT/STATUS handoff block at the end of your turn. |
+
+### Role Boundaries
+
+**Only use the MCP tools listed in the table above.** The `central_pm` server exposes additional tools intended for other agents in the workflow. Calling tools outside your listed set — even if they are technically accessible — violates the workflow contract and may corrupt the ledger state.
+
+**Only work on work packages assigned to your role.** Always use `ledger_get_next_action` (with your `agent_role`) to determine which WPs require your attention. Do not call `ledger_claim_work_package` on WPs assigned to a different agent. If `ledger_get_next_action` returns `WAIT`, your work is done — proceed to the Handoff step.
 
 ### Pre-flight check
 
@@ -108,7 +114,7 @@ Derive `project_path` from the plan document currently open in the editor — it
 7. Call `ledger_initialize_project` with the absolute path to the plan folder and the relative path to `plan.md`.
 8. For each work package (in dependency order), call `ledger_create_work_package` — the tool's parameter descriptions document the required fields.
 9. Call `ledger_get_project_status` to verify the ledger was created correctly.
-10. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "Project Manager"`. The response JSON will contain one of two shapes — act accordingly:
+10. **Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "Project Manager"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

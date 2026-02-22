@@ -4,7 +4,7 @@ description: 'Step 7/7 in the agent workflow.'
 role: Synthesis
 author: Sebastian Mordziol
 version: 3.5.0
-last_updated: 2026-02-21 18:30
+last_updated: 2026-02-22 12:00
 vs_file_name: 7-synthesis.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
@@ -55,6 +55,12 @@ You have access to the **`central_pm`** MCP server which manages all ledger oper
 | `ledger_get_work_package` | Read full WP detail including all pipelines, metrics, and comments. |
 | `ledger_add_project_comment` | Add project-level synthesis observations. |
 | `ledger_get_handoff_status` | Compute the final AGENT/STATUS handoff block. |
+
+### Role Boundaries
+
+**Only use the MCP tools listed in the table above.** The `central_pm` server exposes additional tools intended for other agents in the workflow. Calling tools outside your listed set — even if they are technically accessible — violates the workflow contract and may corrupt the ledger state.
+
+**Only work on work packages assigned to your role.** Always use `ledger_get_next_action` (with your `agent_role`) to determine which WPs require your attention. Do not call `ledger_claim_work_package` on WPs assigned to a different agent. If `ledger_get_next_action` returns `WAIT`, your work is done — proceed to the Handoff step.
 
 
 The ledger tools are self-documenting: each action response includes a `next_steps` array with the exact tool calls to make, each tool response includes `--- NEXT STEP ---` guidance, and parameter descriptions document required fields and allowed values. If you need detailed usage examples or parameter documentation for any tool, call `ledger_help` (with an optional `tool_name` for a specific tool).
