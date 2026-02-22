@@ -67,31 +67,41 @@ The server exposes **17 MCP tools** that agents invoke to manage project state:
          ┌───────────┴──────────┐
          │   JSON Files on Disk │
          ├──────────────────────┤
-         │ .ledger/             │
-         │   project-ledger.json│ ← Root index
-         │   WP-001.json        │ ← Work package 1
-         │   WP-002.json        │ ← Work package 2
-         │   ...                │
+         │ storage/ledger/      │
+         │   {slug}/             │ ← Per-project subfolder
+         │     .meta.json        │ ← Project metadata
+         │     project-ledger.json│ ← Root index
+         │     WP-001.json       │ ← Work package 1
+         │     WP-002.json       │ ← Work package 2
+         │     ...               │
          └──────────────────────┘
 ```
 
+> Ledger files are stored at `{mcp-server}/storage/ledger/{slug}/`, **not** inside plan folders.
+> Plan folders remain purely human-readable Markdown. Use `ledger_list_projects` to enumerate all tracked projects.
+
 ### Data Model
 
-The server manages two types of files:
+The server manages three types of files, all stored under the centralized ledger root:
 
-1. **Root Index** (`.ledger/project-ledger.json`): High-level project metadata
+1. **Project Metadata** (`storage/ledger/{slug}/.meta.json`): Lightweight per-project summary
+   - Slug, original plan path, current status, timestamps
+   - Written automatically whenever the root index is updated
+   - Used by `ledger_list_projects` to enumerate all projects without loading full root indexes
+
+2. **Root Index** (`storage/ledger/{slug}/project-ledger.json`): High-level project metadata
    - Project status (READY, IN_PROGRESS, COMPLETE, BLOCKED)
    - Work package summaries (status, assigned agent, dependencies)
    - Project-level comments and incidents
    - Auto-handoff loop-guard counter (`auto_handoff_depth`, server-managed, max 10 before fallback to manual routing)
 
-2. **Work Package Details** (`.ledger/WP-###.json`): Per-task implementation details
+3. **Work Package Details** (`storage/ledger/{slug}/WP-###.json`): Per-task implementation details
    - Acceptance criteria and completion status
    - Pipeline history (implementation, QA, review, documentation)
    - Artifacts (files modified, commit hashes, test results)
    - Observations and technical debt notes
 
-Both files are kept in sync automatically — when an agent updates a work package, the server updates both files in a single atomic operation.
+All three file types are kept in sync automatically — when an agent updates a work package, the server updates both JSON files and the `.meta.json` in a single atomic operation.
 
 ---
 
@@ -240,10 +250,13 @@ You can read the ledger files directly — they're human-readable JSON:
 
 ```bash
 # View project overview
-cat docs/agents/plans/2026-02-11-feature-name/.ledger/project-ledger.json
+cat storage/ledger/2026-02-11-feature-name/project-ledger.json
 
 # View work package details
-cat docs/agents/plans/2026-02-11-feature-name/.ledger/WP-001.json
+cat storage/ledger/2026-02-11-feature-name/WP-001.json
+
+# View project metadata
+cat storage/ledger/2026-02-11-feature-name/.meta.json
 ```
 
 **Warning**: Never edit ledger files manually. Always let agents use MCP tools to ensure consistency.
@@ -252,7 +265,7 @@ cat docs/agents/plans/2026-02-11-feature-name/.ledger/WP-001.json
 
 ## Available Tools
 
-The server exposes 17 MCP tools organized by category:
+The server exposes 18 MCP tools organized by category:
 
 ### Project Lifecycle
 - `ledger_get_project_status` — Read project overview
@@ -364,7 +377,7 @@ At startup the server scans the configured agents directory for `*.agent.md` fil
 
 **Solutions**:
 1. Another process may be holding the lock — wait and retry
-2. If a process crashed, manually delete `.ledger.lock` file
+2. If a process crashed, manually delete the `.lock` file inside `storage/ledger/{slug}/`
 3. Check that lock timeout (10s) hasn't been exceeded
 
 ---
@@ -409,7 +422,7 @@ The `sync-version` script runs automatically before `npm run dev` via the `prede
 
 ### Checking Role Parity
 
-`sync-personas.js` (workspace root) maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `src/utils/constants.ts`. Run the parity check after adding or renaming any agent role:
+`scripts/sync-personas.js` maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `src/utils/constants.ts`. Run the parity check after adding or renaming any agent role:
 
 ```bash
 # Build first (outputs to dist/)

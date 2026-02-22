@@ -34,6 +34,10 @@ async function parseResult(resultOrPromise: any): Promise<any> {
   return JSON.parse(result.content[0].text);
 }
 
+// Fixed plan path used as LedgerStore project path; tempDir is used only as the ledgerRoot.
+// Using YYYY-MM-DD format so planFolderBasename() accepts it.
+const PLAN_PATH = join(tmpdir(), '2026-01-01-ledger-test');
+
 /** Build a minimal WP detail stub */
 function makeWp(
   id: string,
@@ -404,7 +408,7 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'handoff-notes-test-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
 
     const root: RootIndex = {
       plan_file: 'plan.md',
@@ -538,7 +542,7 @@ describe('getNextActions batch tool (WP-006)', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'batch-actions-test-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
   });
 
   afterEach(async () => {
@@ -779,7 +783,7 @@ describe('Developer downstream pipeline failure detection', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'dev-downstream-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
   });
 
   afterEach(async () => {
@@ -1171,7 +1175,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     resetRegistry();
     tempDir = await mkdtemp(join(tmpdir(), 'auto-handoff-test-'));
     agentDir = await mkdtemp(join(tmpdir(), 'auto-handoff-agents-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
     await store.writeRootIndex(makeAutoHandoffRoot());
   });
 
@@ -1186,12 +1190,12 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await discoverAgents(agentDir);
 
     const result = await parseResult(
-      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
 
     expect(result.auto_handoff).toBeDefined();
     expect(result.auto_handoff.agent_name).toBe('4 - QA v1.0');
-    expect(result.auto_handoff.prompt).toBe(`Project path: ${tempDir}`);
+    expect(result.auto_handoff.prompt).toBe(`Project path: ${PLAN_PATH}`);
   });
 
   it('omits auto_handoff when status is COMPLETE (terminal status)', async () => {
@@ -1199,7 +1203,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await discoverAgents(agentDir);
 
     const result = await parseResult(
-      buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.', undefined, tempDir, store),
+      buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.', undefined, PLAN_PATH, store),
     );
 
     expect(result.auto_handoff).toBeUndefined();
@@ -1210,7 +1214,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await discoverAgents(agentDir);
 
     const result = await parseResult(
-      buildHandoffResponse('Developer', 'BLOCKED', 'Blocked.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'BLOCKED', 'Blocked.', undefined, PLAN_PATH, store),
     );
 
     expect(result.auto_handoff).toBeUndefined();
@@ -1221,7 +1225,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await discoverAgents(agentDir);
 
     const result = await parseResult(
-      buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'IN_PROGRESS', 'Working.', undefined, PLAN_PATH, store),
     );
 
     expect(result.auto_handoff).toBeUndefined();
@@ -1233,7 +1237,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH }));
 
     const result = await parseResult(
-      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
 
     expect(result.auto_handoff).toBeUndefined();
@@ -1242,7 +1246,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
   it('omits auto_handoff when registry is empty (no agents discovered)', async () => {
     // Deliberately do NOT call discoverAgents — registry remains unloaded
     const result = await parseResult(
-      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
 
     expect(result.auto_handoff).toBeUndefined();
@@ -1266,7 +1270,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: 2 }));
 
     await parseResult(
-      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
 
     const root = await store.readRootIndex();
@@ -1277,7 +1281,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: 5 }));
 
     await parseResult(
-      buildHandoffResponse('Synthesis', 'COMPLETE', 'Project done.', undefined, tempDir, store),
+      buildHandoffResponse('Synthesis', 'COMPLETE', 'Project done.', undefined, PLAN_PATH, store),
     );
 
     const root = await store.readRootIndex();
@@ -1290,7 +1294,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
 
     // QA emits READY_FOR_DEVELOPER after a failing QA pipeline
     const result = await parseResult(
-      buildHandoffResponse('QA', 'READY_FOR_DEVELOPER', 'QA failed — rework needed.', undefined, tempDir, store),
+      buildHandoffResponse('QA', 'READY_FOR_DEVELOPER', 'QA failed — rework needed.', undefined, PLAN_PATH, store),
     );
 
     expect(result.next_agent).toBe('Developer');
@@ -1305,13 +1309,13 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     // At MAX-1 → eligible; depth increments to MAX
     await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH - 1 }));
     const resultAtMaxMinus1 = await parseResult(
-      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
     expect(resultAtMaxMinus1.auto_handoff).toBeDefined();
 
     // Depth is now MAX → not eligible; no auto_handoff emitted
     const resultAtMax = await parseResult(
-      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, tempDir, store),
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
     expect(resultAtMax.auto_handoff).toBeUndefined();
   });

@@ -1,4 +1,4 @@
-import { readFile, access } from 'fs/promises';
+import { readFile, access, readdir } from 'fs/promises';
 import { join } from 'path';
 import { constants } from 'fs';
 import { RootIndexSchema, type RootIndex } from '../schema/root-index.js';
@@ -6,31 +6,50 @@ import {
   WorkPackageDetailSchema,
   type WorkPackageDetail,
 } from '../schema/work-package.js';
+import { ProjectMetaSchema, type ProjectMeta } from '../schema/project-meta.js';
 import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
-import { formatWpId } from '../utils/wp-id.js';
+import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
+import { now } from '../utils/timestamp.js';
 
 /**
  * Central storage abstraction for ledger file I/O.
  *
  * All reads validate with Zod schemas.
  * All writes use atomic operations and file locking.
+ *
+ * Files are stored in the centralized ledger root at `{ledgerRoot}/{slug}/`
+ * rather than inside the plan folder.
  */
 export class LedgerStore {
-  constructor(private readonly projectPath: string) {}
+  public readonly planPath: string;
+  public readonly slug: string;
+  public readonly ledgerRoot: string;
+  public readonly storageDir: string;
+
+  constructor(projectPath: string, ledgerRoot?: string) {
+    this.planPath = projectPath;
+    this.slug = projectSlugFromPath(projectPath);
+    this.ledgerRoot = ledgerRoot ?? resolveLedgerRoot();
+    this.storageDir = join(this.ledgerRoot, this.slug);
+  }
 
   // ==================== Path Helpers ====================
 
   private rootIndexPath(): string {
-    return join(this.projectPath, '.ledger', 'project-ledger.json');
+    return join(this.storageDir, 'project-ledger.json');
   }
 
   private wpDetailPath(wpId: string): string {
-    return join(this.projectPath, '.ledger', `${wpId}.json`);
+    return join(this.storageDir, `${wpId}.json`);
   }
 
   private ledgerDirPath(): string {
-    return join(this.projectPath, '.ledger');
+    return this.storageDir;
+  }
+
+  metaPath(): string {
+    return join(this.storageDir, '.meta.json');
   }
 
   // ==================== Existence Checks ====================
@@ -126,7 +145,7 @@ export class LedgerStore {
   // ==================== Write Methods ====================
 
   /**
-   * Writes the root index after validation.
+   * Writes the root index after validation and automatically syncs .meta.json.
    *
    * @param data - Root index data to write
    * @throws Error if validation fails or write fails
@@ -137,6 +156,8 @@ export class LedgerStore {
 
     const path = this.rootIndexPath();
     await atomicWriteJson(path, validated);
+    // Auto-sync .meta.json after every root index write
+    await this.writeProjectMeta('', validated.status);
   }
 
   /**
@@ -174,7 +195,7 @@ export class LedgerStore {
       root: RootIndex
     ) => { wp: WorkPackageDetail; root: RootIndex } | Promise<{ wp: WorkPackageDetail; root: RootIndex }>
   ): Promise<void> {
-    await withLock(this.projectPath, async () => {
+    await withLock(this.storageDir, async () => {
       // Read both files
       const wp = await this.readWorkPackage(wpId);
       const root = await this.readRootIndex();
@@ -189,6 +210,170 @@ export class LedgerStore {
       // Write both atomically (within the same lock)
       await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
       await atomicWriteJson(this.rootIndexPath(), validatedRoot);
+      // Auto-sync .meta.json inside the same lock scope
+      await this.writeProjectMeta('', validatedRoot.status);
     });
   }
+
+  // ==================== Meta Methods ====================
+
+  /**
+   * Creates or updates the project's .meta.json file.
+   * On first write: populates all fields. On subsequent writes: updates status and last_updated.
+   * Must be called within the project lock when triggered from a root-index write.
+   *
+   * @param planFile - Plan file name (used only on first write; ignored on updates)
+   * @param status - Optional status override; defaults to existing status or IN_PROGRESS
+   */
+  async writeProjectMeta(planFile: string, status?: string): Promise<void> {
+    const path = this.metaPath();
+    let existing: Partial<ProjectMeta> = {};
+
+    try {
+      const content = await readFile(path, 'utf-8');
+      existing = JSON.parse(content) as Partial<ProjectMeta>;
+    } catch {
+      // First write — all fields will be initialised below
+    }
+
+    const timestamp = now();
+    const meta = ProjectMetaSchema.parse({
+      slug: existing.slug ?? this.slug,
+      plan_path: existing.plan_path ?? this.planPath,
+      status: (status ?? existing.status ?? 'IN_PROGRESS') as ProjectMeta['status'],
+      date_created: existing.date_created ?? timestamp,
+      last_updated: timestamp,
+      ...(existing.title !== undefined ? { title: existing.title } : {}),
+    });
+
+    await atomicWriteJson(path, meta);
+  }
+
+  /**
+   * Reads and validates the project's .meta.json file.
+   *
+   * @throws Error if file does not exist, JSON is malformed, or validation fails
+   */
+  async readProjectMeta(): Promise<ProjectMeta> {
+    const path = this.metaPath();
+
+    try {
+      const content = await readFile(path, 'utf-8');
+      const data = JSON.parse(content);
+      return ProjectMetaSchema.parse(data);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`Project meta not found at ${path}`);
+      }
+      if (error instanceof SyntaxError) {
+        throw new Error(`Malformed JSON in .meta.json at ${path}: ${error.message}`);
+      }
+      throw new Error(
+        `Project meta validation failed at ${path}: ${(error as Error).message}`
+      );
+    }
+  }
+
+  /**
+   * Scans the central ledger root and returns metadata for all projects.
+   * Skips .archive/ and any entry where .meta.json is absent or invalid.
+   *
+   * @param ledgerRoot - Optional override; defaults to resolveLedgerRoot()
+   */
+  static async listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]> {
+    const root = ledgerRoot ?? resolveLedgerRoot();
+    let entries: string[];
+
+    try {
+      entries = await readdir(root);
+    } catch {
+      return [];
+    }
+
+    const results: ProjectMeta[] = [];
+
+    for (const entry of entries) {
+      // Skip the dedicated archive directory (dot-prefix convention keeps it out of
+      // normal enumeration).  Any directory whose name starts with '.' is treated
+      // as a control directory — NOT as a project slug — so this filter must
+      // remain a starts-with('.') check rather than an exact equality check.
+      // Changing it to include normal slugs that happen to start with a dot would
+      // break archive isolation.
+      if (entry.startsWith('.')) continue;
+
+      const metaFile = join(root, entry, '.meta.json');
+      try {
+        const content = await readFile(metaFile, 'utf-8');
+        const data = JSON.parse(content);
+        const meta = ProjectMetaSchema.parse(data);
+        results.push(meta);
+      } catch (err) {
+        process.stderr.write(
+          `[LedgerStore.listAllProjects] Skipping "${entry}": ${(err as Error).message}\n`
+        );
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Scans all known projects and returns the one whose project root is an
+   * ancestor of (or equal to) `cwdPath`.
+   *
+   * Matching rules:
+   *   - The project root is derived by calling inferProjectRootFromPlanPath on
+   *     each project's plan_path (4 levels up from the plan folder).
+   *   - normalizedCwd starts with normalizedProjectRoot + '/' → project root is an ancestor
+   *   - normalizedCwd === normalizedProjectRoot → exact match at project root
+   *   - Parent paths of the project root do NOT match (no upward traversal).
+   *   - Path comparison is case-insensitive on Windows.
+   *
+   * @param cwdPath   - Absolute path the agent is working from
+   * @param ledgerRoot - Optional override; defaults to resolveLedgerRoot()
+   */
+  static async detectProjectByCwd(
+    cwdPath: string,
+    ledgerRoot?: string
+  ): Promise<DetectProjectResult> {
+    const projects = await LedgerStore.listAllProjects(ledgerRoot);
+
+    // Normalize a path: forward slashes, lowercase on Windows
+    function normalizePath(p: string): string {
+      const fwd = p.replace(/\\/g, '/');
+      return process.platform === 'win32' ? fwd.toLowerCase() : fwd;
+    }
+
+    const normalizedCwd = normalizePath(cwdPath);
+
+    const matches: ProjectMeta[] = [];
+    for (const meta of projects) {
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      const normalizedRoot = normalizePath(projectRoot);
+
+      if (
+        normalizedCwd === normalizedRoot ||
+        normalizedCwd.startsWith(normalizedRoot + '/')
+      ) {
+        matches.push(meta);
+      }
+    }
+
+    if (matches.length === 1) {
+      return { status: 'FOUND', meta: matches[0]! };
+    }
+
+    if (matches.length > 1) {
+      return { status: 'AMBIGUOUS', candidates: matches };
+    }
+
+    return { status: 'NOT_FOUND' };
+  }
 }
+
+// ==================== Result Types for detectProjectByCwd ====================
+
+export type DetectProjectResult =
+  | { status: 'FOUND'; meta: ProjectMeta }
+  | { status: 'NOT_FOUND' }
+  | { status: 'AMBIGUOUS'; candidates: ProjectMeta[] };

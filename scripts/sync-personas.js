@@ -4,17 +4,18 @@
  * sync-personas.js
  * 
  * Copies persona files to VS Code's User prompts folder.
- * Reads the "VS File Name" metadata from each persona file and uses it as the target filename.
+ * Reads the `vs_file_name` field from each persona file's YAML frontmatter and uses it as the target filename.
  * 
  * Usage:
- *   node sync-personas.js
- *   node sync-personas.js --dry-run    # Preview what would be copied without actually copying
- *   node sync-personas.js --custom-path "C:\Custom\Path"  # Use custom target directory
+ *   node scripts/sync-personas.js
+ *   node scripts/sync-personas.js --dry-run    # Preview what would be copied without actually copying
+ *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Use custom target directory
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 // NOTE: Keep in sync with AGENT_ROLES in src/utils/constants.ts whenever agent
 // roles are added or renamed. This file is plain JS and cannot import TypeScript
@@ -60,15 +61,30 @@ function getVSCodePromptsDir() {
 }
 
 /**
- * Extract the VS File Name from a persona file's metadata
+ * Extract the VS File Name from a persona file's YAML frontmatter (vs_file_name field).
  * @param {string} filePath - Path to the persona file
  * @returns {string|null} - The VS File Name or null if not found
  */
 function extractVSFileName(filePath) {
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    const match = content.match(/VS File Name:\s*(.+)/);
-    return match ? match[1].trim() : null;
+    const rawContent = fs.readFileSync(filePath, 'utf8');
+    // Strip optional AUTO-GENERATED comment header produced by build-personas.js
+    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
+
+    if (!content.startsWith('---')) return null;
+
+    const afterFirst = content.slice(3);
+    const closingIdx = afterFirst.indexOf('\n---');
+    if (closingIdx === -1) return null;
+
+    const frontmatter = afterFirst.slice(0, closingIdx);
+
+    for (const line of frontmatter.split('\n')) {
+      const match = line.trim().match(/^vs_file_name:\s*['"]?(.+?)['"]?\s*$/);
+      if (match) return match[1];
+    }
+
+    return null;
   } catch (error) {
     console.error(`${colors.red}Error reading file ${filePath}:${colors.reset}`, error.message);
     return null;
@@ -79,9 +95,10 @@ function extractVSFileName(filePath) {
  * Recursively find all markdown files in a directory
  * @param {string} dir - Directory to search
  * @param {string[]} fileList - Accumulator for found files
+ * @param {string[]} excludeDirs - Absolute directory paths to skip
  * @returns {string[]} - Array of file paths
  */
-function findMarkdownFiles(dir, fileList = []) {
+function findMarkdownFiles(dir, fileList = [], excludeDirs = []) {
   const files = fs.readdirSync(dir);
 
   files.forEach(file => {
@@ -89,7 +106,8 @@ function findMarkdownFiles(dir, fileList = []) {
     const stat = fs.statSync(filePath);
 
     if (stat.isDirectory()) {
-      findMarkdownFiles(filePath, fileList);
+      if (excludeDirs.includes(filePath)) return;
+      findMarkdownFiles(filePath, fileList, excludeDirs);
     } else if (file.endsWith('.md')) {
       fileList.push(filePath);
     }
@@ -116,14 +134,17 @@ function validateLedgerFrontmatter(ledgerDir) {
 
   for (const file of files) {
     const filePath = path.join(ledgerDir, file);
-    let content;
+    let rawContent;
     try {
-      content = fs.readFileSync(filePath, 'utf8');
+      rawContent = fs.readFileSync(filePath, 'utf8');
     } catch (err) {
       console.warn(`${colors.yellow}⚠ ${file}: could not read file — ${err.message}${colors.reset}`);
       warningCount++;
       continue;
     }
+
+    // Strip optional AUTO-GENERATED comment header produced by build-personas.js
+    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
 
     // Only validate files that start with YAML frontmatter
     if (!content.startsWith('---')) continue;
@@ -178,7 +199,7 @@ function validateLedgerFrontmatter(ledgerDir) {
  * @param {boolean} dryRun - If true, only preview what would be copied
  */
 function syncPersonas(targetDir, dryRun = false) {
-  const personasDir = path.join(__dirname, 'personas');
+  const personasDir = path.join(__dirname, '..', 'personas');
 
   // Check if personas directory exists
   if (!fs.existsSync(personasDir)) {
@@ -186,8 +207,11 @@ function syncPersonas(targetDir, dryRun = false) {
     process.exit(1);
   }
 
-  // Find all markdown files in personas directory
-  const personaFiles = findMarkdownFiles(personasDir);
+  // Find all markdown files in personas directory (excluding source/build subdirs)
+  const excludeDirs = [
+    path.join(personasDir, 'ledger', 'src'),
+  ];
+  const personaFiles = findMarkdownFiles(personasDir, [], excludeDirs);
 
   console.log(`${colors.bright}${colors.cyan}=== VS Code Persona Sync ===${colors.reset}\n`);
   console.log(`${colors.blue}Source:${colors.reset} ${personasDir}`);
@@ -208,7 +232,7 @@ function syncPersonas(targetDir, dryRun = false) {
     const vsFileName = extractVSFileName(filePath);
 
     if (!vsFileName) {
-      console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${path.relative(personasDir, filePath)} ${colors.yellow}(no VS File Name metadata)${colors.reset}`);
+      console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${path.relative(personasDir, filePath)} ${colors.yellow}(no vs_file_name in frontmatter)${colors.reset}`);
       skippedCount++;
       return;
     }
@@ -259,7 +283,7 @@ function main() {
 ${colors.bright}${colors.cyan}VS Code Persona Sync Tool${colors.reset}
 
 ${colors.bright}Usage:${colors.reset}
-  node sync-personas.js [options]
+  node scripts/sync-personas.js [options]
 
 ${colors.bright}Options:${colors.reset}
   --dry-run              Preview what would be copied without actually copying
@@ -267,18 +291,25 @@ ${colors.bright}Options:${colors.reset}
   --help, -h             Show this help message
 
 ${colors.bright}Examples:${colors.reset}
-  node sync-personas.js
-  node sync-personas.js --dry-run
-  node sync-personas.js --custom-path "C:\\Custom\\Path"
+  node scripts/sync-personas.js
+  node scripts/sync-personas.js --dry-run
+  node scripts/sync-personas.js --custom-path "C:\\Custom\\Path"
 `);
       process.exit(0);
     }
   }
 
   try {
+    // Build personas from source templates before copying
+    const buildScript = path.join(__dirname, 'build-personas.js');
+    const buildArgs = dryRun ? ['--dry-run'] : [];
+    console.log(`${colors.bright}${colors.cyan}=== Building Personas ===${colors.reset}\n`);
+    execFileSync(process.execPath, [buildScript, ...buildArgs], { stdio: 'inherit' });
+    console.log();
+
     const targetDir = customPath || getVSCodePromptsDir();
     syncPersonas(targetDir, dryRun);
-    validateLedgerFrontmatter(path.join(__dirname, 'personas', 'ledger'));
+    validateLedgerFrontmatter(path.join(__dirname, '..', 'personas', 'ledger'));
   } catch (error) {
     console.error(`${colors.red}Error:${colors.reset}`, error.message);
     process.exit(1);

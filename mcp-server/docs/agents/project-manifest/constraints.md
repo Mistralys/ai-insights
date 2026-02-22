@@ -18,7 +18,7 @@ This document codifies established rules, conventions, and non-obvious gotchas.
 
 ### 2. Dual-File Updates Require Locking
 
-**Rule:** When updating both `.ledger/project-ledger.json` and `.ledger/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock()`.
+**Rule:** When updating both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock(store.storageDir, ...)`. Pass `store.storageDir`, not `project_path`.
 
 **Rationale:** Prevents race conditions and dual-file desync when multiple agents run concurrently.
 
@@ -45,6 +45,36 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 **Rule:** All MCP tool inputs require absolute paths for `project_path`.
 
 **Rationale:** The server has no concept of "current working directory" — it must be told explicitly where files live.
+
+---
+
+### 3a. Plan Folders Must Remain Human-Readable Markdown Only
+
+**Rule:** No machine-generated files (JSON, lock files, etc.) may be written inside plan folders.
+
+**Rationale:** Plan folders are the authoritative human source-of-truth. Machine output lives in the centralized ledger at `{mcp-server}/storage/ledger/{slug}/`.
+
+---
+
+### 3b. `.meta.json` Must Be Written Under the Project Lock
+
+**Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync).
+
+**Rationale:** Prevents `.meta.json` from lagging behind the root index in a concurrent environment.
+
+---
+
+### 3c. Central Ledger Root Is Resolved Once at Startup
+
+**Rule:** `resolveLedgerRoot()` is called once at server startup. The `--ledger-dir <path>` CLI argument overrides the default `{mcp-server}/storage/ledger/` location. The resolved path is logged to stderr.
+
+**Usage:**
+```bash
+# Override ledger root:
+node dist/index.js --ledger-dir /custom/path/to/ledger
+```
+
+**Default:** `{mcp-server}/storage/ledger/` (relative to the server package root).
 
 ---
 
@@ -333,6 +363,73 @@ afterEach(async () => {
 
 ---
 
+### 20. Always Supply an Isolated Ledger Root When Constructing `LedgerStore` in Tests
+
+**Rule:** Every test file that constructs a `LedgerStore` **must** pass a `mkdtemp`-based temporary directory as the second `ledgerRoot` argument. Omitting the argument (or passing the real `storage/ledger/` path) causes the store to write to production storage, accumulating stale artifact directories across CI and local runs.
+
+**Preferred pattern — use the shared helper:**
+```typescript
+import { createTempStore, cleanupTempStore } from '../helpers/create-temp-store.js';
+
+let handle: Awaited<ReturnType<typeof createTempStore>>;
+
+beforeEach(async () => {
+  handle = await createTempStore(join(tmpdir(), '2026-01-01-test-project'));
+});
+
+afterEach(async () => {
+  await cleanupTempStore(handle);
+});
+```
+
+**Why a helper?** `createTempStore(planPath)` in `tests/helpers/create-temp-store.ts` always injects a fresh `mkdtemp` root, making correct isolation the path of least resistance. Never construct `new LedgerStore(path)` with a single argument inside any test.
+
+**Anti-pattern (forbidden):**
+```typescript
+// ❌ WRONG — writes to production storage/ledger/
+const store = new LedgerStore('/absolute/path/to/my-plan');
+```
+
+---
+
+### 21. `afterEach` Teardown Variables Must Be Declared in the Same `describe` Scope
+
+**Rule:** Variables cleaned up in an `afterEach` block (e.g. a temp directory path) must be declared in the same `describe` block's scope, not in an outer scope. Referencing a variable from an outer scope is a silent bug — the inner `afterEach` compiles and runs but cleans up the *outer* variable, leaving the inner temp directory on disk.
+
+**Pattern:**
+```typescript
+describe('my feature', () => {
+  let tempDir: string;          // ← declared here
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'my-feature-'));
+    store = new LedgerStore(MY_PLAN_PATH, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true }); // ← same scope ✅
+  });
+});
+```
+
+**Anti-pattern:**
+```typescript
+let tempLedgerRoot: string; // ← outer scope
+
+describe('nested', () => {
+  let tempDir: string;      // ← different name / inner scope
+
+  beforeEach(async () => { tempDir = await mkdtemp(…); });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true }); // ❌ wrong variable
+  });
+});
+```
+
+---
+
 ## Module System Constraints
 
 ### 19. All Imports Must Use .js Extensions
@@ -473,9 +570,9 @@ The `revision` field only increments when a work package transitions from `COMPL
 
 ---
 
-### ⚠️ Gotcha 2: Lock File Is Not Cleaned Up
+### ⚠️ Gotcha 2: Lock File Persists After Server Exit
 
-The `.ledger.lock` file is not automatically deleted when the server exits. It will be left on disk and overwritten on the next lock acquisition.
+The `.lock` file inside `storage/ledger/{slug}/` is not automatically deleted when the server exits. It will be left on disk and overwritten on the next lock acquisition.
 
 **Implication:** Safe to ignore — the lock system handles stale locks automatically.
 

@@ -4,7 +4,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (17 Total)
+## MCP Tools (19 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -27,7 +27,31 @@ Reads the root index and returns project overview. Includes self-healing logic t
 }) => Promise<MCPResult>
 ```
 
-Creates a new project ledger with root index and `ledger/` subdirectory. Rejects if ledger already exists.
+Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists.
+
+#### `ledger_list_projects`
+
+```typescript
+(args: {
+  status?: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+}) => Promise<MCPResult>
+```
+
+Scans the central ledger root directory and returns metadata for all projects. Optionally filters by status. Projects with missing or invalid `.meta.json` are silently skipped.
+
+#### `ledger_detect_project`
+
+```typescript
+(args: { cwd_path: string }) => Promise<MCPResult>
+```
+
+Identifies the active project by cross-referencing the supplied working-directory path against all project roots stored in the centralized ledger. Returns `{ plan_path, slug, title?, status }` for the unique matching project.
+
+**Error cases:**
+- **`NOT_FOUND`** — no known project root is an ancestor of `cwd_path`. Returned when `cwd_path` is not inside any initialized project's codebase.
+- **`AMBIGUOUS`** — more than one project root is an ancestor of `cwd_path`. The error message lists all matching `plan_path` values. Pass an explicit `project_path` to the tool requiring it to disambiguate.
+
+Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
 ---
 
@@ -289,11 +313,20 @@ Each successful emission increments `auto_handoff_depth` in the root index. Reac
 
 ### `LedgerStore`
 
-Central storage abstraction for ledger file I/O.
+Central storage abstraction for ledger file I/O. Files are stored in the centralized ledger root at `{ledgerRoot}/{slug}/` — never inside plan folders.
 
 ```typescript
 class LedgerStore {
-  constructor(projectPath: string);
+  readonly planPath: string;
+  readonly slug: string;
+  readonly ledgerRoot: string;
+  readonly storageDir: string;   // {ledgerRoot}/{slug}/
+
+  // Optional ledgerRoot enables test isolation (pass a temp directory)
+  constructor(projectPath: string, ledgerRoot?: string);
+
+  // Path helpers
+  metaPath(): string;  // {storageDir}/.meta.json
 
   // Existence checks
   rootIndexExists(): Promise<boolean>;
@@ -303,19 +336,36 @@ class LedgerStore {
   // Read operations (validated with Zod)
   readRootIndex(): Promise<RootIndex>;
   readWorkPackage(wpId: string): Promise<WorkPackageDetail>;
+  readProjectMeta(): Promise<ProjectMeta>;
 
   // Write operations (validated before writing)
-  writeRootIndex(data: RootIndex): Promise<void>;
+  writeRootIndex(data: RootIndex): Promise<void>;          // auto-syncs .meta.json
   writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;
 
-  // Dual-file atomic update
+  // Dual-file atomic update (auto-syncs .meta.json inside lock)
   updateWorkPackageWithSync(
     wpId: string,
     updater: (wp: WorkPackageDetail, root: RootIndex) => 
       { wp: WorkPackageDetail; root: RootIndex } | 
       Promise<{ wp: WorkPackageDetail; root: RootIndex }>
   ): Promise<void>;
+
+  // Meta methods
+  writeProjectMeta(planFile: string, status?: string): Promise<void>;
+
+  // Static
+  static listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]>;
+  static detectProjectByCwd(
+    cwdPath: string,
+    ledgerRoot?: string
+  ): Promise<DetectProjectResult>;
 }
+
+// Discriminated union returned by LedgerStore.detectProjectByCwd()
+type DetectProjectResult =
+  | { status: 'FOUND'; meta: ProjectMeta }
+  | { status: 'NOT_FOUND' }
+  | { status: 'AMBIGUOUS'; candidates: ProjectMeta[] };
 ```
 
 ---
@@ -333,16 +383,33 @@ Writes JSON data to a file atomically using the write-to-temp-then-rename patter
 ### `withLock()`
 
 ```typescript
-function withLock<T>(projectPath: string, fn: () => Promise<T>): Promise<T>;
+function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
 ```
 
-Acquires a file lock on the project's ledger directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{projectPath}/.ledger.lock`.
+Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
 
 ---
 
 ## Schema Types
 
 All types are inferred from Zod schemas using `z.infer<typeof Schema>`.
+
+### `ProjectMeta`
+
+Exported from `src/schema/project-meta.ts`. Represents the per-project `.meta.json` file stored in the centralized ledger root.
+
+```typescript
+interface ProjectMeta {
+  slug: string;          // Plan folder basename, e.g. "2026-02-16-feature"
+  plan_path: string;     // Original absolute project_path
+  status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+  date_created: string;  // ISO timestamp
+  last_updated: string;  // ISO timestamp
+  title?: string;        // Optional, derived from plan_file content
+}
+```
+
+Schema: `ProjectMetaSchema` (Zod).
 
 ### Core Types
 
@@ -569,6 +636,25 @@ function now(): string;
 
 function formatWpId(n: number): string;  // Returns "WP-###"
 function parseWpId(id: string): number;  // Extracts numeric part
+
+// Returns the absolute path to the central ledger root directory.
+// Resolution: 1) --ledger-dir CLI arg, 2) {serverDir}/storage/ledger/
+// Exported from src/utils/ledger-root.ts
+function resolveLedgerRoot(): string;
+
+// Extracts the project slug (plan folder basename) from an absolute project path.
+// Delegates to planFolderBasename(). Exported from src/utils/ledger-root.ts
+function projectSlugFromPath(projectPath: string): string;
+
+// Derives the project root from an absolute plan folder path by walking up 4 levels.
+// Normalizes backslashes to forward slashes. Pure — no filesystem access.
+// Convention: {project-root}/docs/agents/plans/{slug}
+// Exported from src/utils/ledger-root.ts
+function inferProjectRootFromPlanPath(planPath: string): string;
+
+// Extracts the plan folder basename and validates the YYYY-MM-DD naming convention.
+// Throws if the basename does not match. Exported from src/utils/path-validator.ts
+function planFolderBasename(projectPath: string): string;
 ```
 
 ---

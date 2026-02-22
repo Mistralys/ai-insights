@@ -1,0 +1,3 @@
+# Centralized ledger runtime data — ignore all generated project subdirectories
+storage/ledger/
+!storage/ledger/.gitkeep

@@ -1,15 +1,11 @@
 ---
-name: '5 - Reviewer v1.0.2'
+name: '5 - Reviewer v1.0.3'
 description: 'Step 5/7 in the agent workflow.'
+author: Sebastian Mordziol
+version: 1.0.3
+last_updated: 2026-02-21 18:30
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
-
-<!--
-  Agent Metadata
-  Version: 1.0.2
-  Last Updated: 2026-02-12 09:00
-  Author: Sebastian Mordziol
--->
 
 # Senior Technical Reviewer Agent
 

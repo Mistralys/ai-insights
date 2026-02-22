@@ -13,16 +13,83 @@ Agent → ledger_initialize_project(project_path, plan_file)
   ↓
 LedgerStore.writeRootIndex()
   ↓
-atomicWriteJson(.ledger/project-ledger.json)
+atomicWriteJson(storage/ledger/{slug}/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
   2. Write to {file}.tmp.{pid}
-  3. Atomically rename to .ledger/project-ledger.json
+  3. Atomically rename to storage/ledger/{slug}/project-ledger.json
+  ↓
+store.writeProjectMeta() — auto-synced after root index write
+  ↓
+atomicWriteJson(storage/ledger/{slug}/.meta.json)
   ↓
 Return RootIndex to agent
 ```
 
-**Result:** New project ledger created with empty work packages array.
+**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory.
+
+---
+
+## Flow 1b: List All Projects
+
+**Entry Point:** Agent invokes `ledger_list_projects` tool
+
+```
+Agent → ledger_list_projects(status?)
+  ↓
+LedgerStore.listAllProjects(ledgerRoot)
+  ↓
+readdir(storage/ledger/)
+  ↓
+For each entry (excluding .archive/):
+  readFile(storage/ledger/{slug}/.meta.json)
+  ProjectMetaSchema.parse(data)   ← invalid entries skipped, logged to stderr
+  ↓
+Optional filter by status
+  ↓
+Return ProjectMeta[] to agent
+```
+
+**Result:** Array of project metadata for all valid projects in the central ledger, optionally filtered by status. Read-only — no lock acquired.
+
+---
+
+## Flow 1c: Detect Project by Working Directory
+
+**Entry Point:** Agent invokes `ledger_detect_project` tool (typically during pre-flight when `project_path` is not explicitly known)
+
+```
+Agent → ledger_detect_project(cwd_path)
+  ↓
+LedgerStore.detectProjectByCwd(cwd_path)
+  ↓
+LedgerStore.listAllProjects(ledgerRoot)  ← same scan as Flow 1b
+  ↓
+For each ProjectMeta:
+  inferProjectRootFromPlanPath(meta.plan_path)
+    → Replace \ with /
+    → posix.dirname() × 4  (walks up docs/agents/plans/{slug})
+    → returns normalized project root string
+  ↓
+  Normalize cwd_path (\ → /, lowercase on Windows)
+  Normalize project root (\ → /, lowercase on Windows)
+  ↓
+  Match if:
+    normalizedCwd === normalizedRoot           (exact project-root match)
+    OR normalizedCwd.startsWith(root + '/')   (cwd is inside project root)
+  ↓
+Collect all matching projects
+  ↓
+  matches.length === 1 → status: FOUND  (return meta)
+  matches.length  >  1 → status: AMBIGUOUS  (return all candidates)
+  matches.length === 0 → status: NOT_FOUND
+  ↓
+On FOUND:   Return { plan_path, slug, title?, status } to agent
+On AMBIGUOUS: Return error listing all candidate plan_path values
+On NOT_FOUND: Return error with guidance to initialize the project
+```
+
+**Result:** Pure path-string comparison — no lock, no writes, no state mutation. The derived project root is computed from each project's `plan_path` using the established `{root}/docs/agents/plans/{slug}` convention (4-level depth). A parent of the project root does NOT match (matching is downward-only).
 
 ---
 
@@ -33,7 +100,7 @@ Return RootIndex to agent
 ```
 Agent → ledger_create_work_package(project_path, assigned_to, dependencies, ...)
   ↓
-withLock(project_path) — acquire .ledger.lock
+withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
   ↓
 LedgerStore.readRootIndex()
   ↓
@@ -56,14 +123,14 @@ Update root index:
   - Set status to IN_PROGRESS (if was READY)
   ↓
 LedgerStore.writeWorkPackage(WP-###, detail)
-LedgerStore.writeRootIndex(root)
+LedgerStore.writeRootIndex(root)  ← auto-syncs .meta.json
   ↓ (both use atomicWriteJson)
 Release lock
   ↓
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `.ledger/WP-###.json` and `.ledger/project-ledger.json` are created/updated atomically within a single lock.
+**Result:** Both `storage/ledger/{slug}/WP-###.json` and `storage/ledger/{slug}/project-ledger.json` are created/updated atomically within a single lock. `.meta.json` is automatically synced.
 
 ---
 
@@ -76,10 +143,10 @@ Agent → ledger_claim_work_package(project_path, work_package_id, agent)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(project_path) — acquire .ledger.lock
+withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
   ↓
-Read WorkPackageDetail (.ledger/WP-###.json) — validated with Zod
-Read RootIndex (.ledger/project-ledger.json) — validated with Zod
+Read WorkPackageDetail (storage/ledger/{slug}/WP-###.json) — validated with Zod
+Read RootIndex (storage/ledger/{slug}/project-ledger.json) — validated with Zod
   ↓
 updater function:
   1. Validate current status is READY
@@ -90,8 +157,9 @@ updater function:
   ↓
 Validate updated WP and root with Zod
   ↓
-atomicWriteJson(.ledger/WP-###.json, updatedWP)
-atomicWriteJson(.ledger/project-ledger.json, updatedRoot)
+atomicWriteJson(storage/ledger/{slug}/WP-###.json, updatedWP)
+atomicWriteJson(storage/ledger/{slug}/project-ledger.json, updatedRoot)
+store.writeProjectMeta() — auto-synced inside same lock
   ↓
 Release lock
   ↓
@@ -111,7 +179,7 @@ Agent → ledger_start_pipeline(project_path, work_package_id, type)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(project_path) — acquire .ledger.lock
+withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -450,7 +518,7 @@ Return array of recommendations:
 ### 13a: Storage Location
 
 ```
-root index (.ledger/project-ledger.json)
+root index (storage/ledger/{slug}/project-ledger.json)
   └── auto_handoff_depth: number   ← current chain depth (0 when absent)
 ```
 

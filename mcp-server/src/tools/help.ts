@@ -19,6 +19,7 @@ const TOOL_HELP: Record<string, string> = {
 |------|----------------|---------|
 | ledger_get_project_status | project_path | Read project overview |
 | ledger_initialize_project | project_path, plan_file | Create new project ledger |
+| ledger_list_projects | None (status filter optional) | List all tracked projects with status, dates, and plan paths |
 | ledger_get_work_package | project_path, work_package_id | Read a work package's full detail |
 | ledger_list_work_packages | project_path | List work packages (optional: status, assigned_to filters) |
 | ledger_create_work_package | project_path, assigned_to, dependencies, acceptance_criteria, work_package_file | Create a new work package |
@@ -82,6 +83,18 @@ All three fields are returned by ledger_get_handoff_status — copy them verbati
 
 - **ledger_get_next_action** (singular): Returns the first actionable WP for your role. Best for simple projects or when you process one WP at a time.
 - **ledger_get_next_actions** (plural): Returns ALL actionable WPs up to max_results (default 5). Best for projects with many independent WPs.
+
+## Storage Architecture
+
+All ledger files are stored **centrally** at \`{mcp-server}/storage/ledger/{slug}/\` — not inside the plan folder.
+- Plan folders remain purely human-readable markdown (no \`.ledger/\` subdirectory).
+- The storage root can be overridden at server startup with \`--ledger-dir <path>\`.
+
+### Files per project
+- **\`project-ledger.json\`** — root index (WP summaries, counters, status)
+- **\`WP-###.json\`** — individual work package detail files
+- **\`.meta.json\`** — per-project metadata created automatically on \`ledger_initialize_project\`; contains: \`slug\`, \`plan_path\`, \`status\`, \`date_created\`, \`last_updated\`, optional \`title\`. Used by \`ledger_list_projects\` for cross-project discovery.
+- **\`.lock\`** — file lock (managed automatically; do not edit)
 `,
 
   ledger_get_project_status: `
@@ -107,6 +120,9 @@ The full root index including work package summaries, counters, and project stat
 # ledger_initialize_project
 
 Create a new project ledger. Call this once at project start.
+
+This also creates a \`.meta.json\` entry in the centralized ledger so the project
+is immediately discoverable via \`ledger_list_projects\`.
 
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
@@ -493,6 +509,37 @@ STATUS: <status>
 }
 \`\`\`
 `,
+
+  ledger_list_projects: `
+# ledger_list_projects
+
+List all projects tracked in the centralized ledger.
+Operates at the ledger-root level — no \`project_path\` required.
+
+## Optional Parameters
+- **status** (string): Filter by project status — "READY", "IN_PROGRESS", "COMPLETE", or "BLOCKED"
+
+## Examples
+\`\`\`json
+{}
+\`\`\`
+\`\`\`json
+{ "status": "IN_PROGRESS" }
+\`\`\`
+
+## Returns
+Array of \`.meta.json\` objects, each containing:
+- **slug**: Directory slug (e.g., \`2026-02-20-my-feature\`)
+- **plan_path**: Original project_path used during initialization
+- **status**: Current project status (synced from root index on every write)
+- **date_created**: ISO timestamp of project creation
+- **last_updated**: ISO timestamp of last ledger write
+- **title**: Optional human-readable title
+
+## Storage
+Ledger files are at \`{mcp-server}/storage/ledger/{slug}/\` by default.
+Override with \`--ledger-dir <path>\` at server startup.
+`,
 };
 
 const HelpSchema = z.object({
@@ -558,6 +605,9 @@ export function register(server: McpServer): void {
       description: 'Get usage documentation, examples, and required parameters for all ledger tools. Call with no arguments for a full overview, or pass tool_name to get detailed help for a specific tool (e.g., tool_name: "ledger_update_work_package_status"). START HERE if you are unsure how to use the ledger tools.',
       inputSchema: HelpSchema.passthrough(),
     },
+    // TODO: remove `as any` cast once the MCP SDK exposes compatible Zod
+    // passthrough types for registerTool's inputSchema parameter.
+    // Tracked: https://github.com/modelcontextprotocol/typescript-sdk (MCP SDK typing issue)
     help as any
   );
 }

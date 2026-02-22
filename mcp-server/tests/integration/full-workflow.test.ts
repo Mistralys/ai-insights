@@ -18,6 +18,9 @@ import type {
   Pipeline,
 } from '../../src/schema/work-package.js';
 
+// Fixed plan path so LedgerStore gets a valid YYYY-MM-DD slug; tempDir is used as ledgerRoot.
+const PLAN_PATH = join(tmpdir(), '2026-01-01-test-project');
+
 /**
  * Integration tests that simulate the full agent workflow through real file I/O.
  * These exercise the same logic as the MCP tool handlers without depending
@@ -29,7 +32,7 @@ describe('Full workflow integration', () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'ledger-workflow-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
   });
 
   afterEach(async () => {
@@ -57,6 +60,28 @@ describe('Full workflow integration', () => {
       const result = await store.readRootIndex();
       expect(result.status).toBe('READY');
       expect(result.work_packages).toHaveLength(0);
+    });
+
+    it('creates .meta.json on first writeRootIndex', async () => {
+      const timestamp = now();
+      const rootIndex: RootIndex = {
+        plan_file: 'plan.md',
+        date_created: timestamp,
+        last_updated: timestamp,
+        status: 'READY',
+        total_work_packages: 0,
+        pending_work_packages: 0,
+        work_packages: [],
+        project_comments: [],
+      };
+      await store.writeRootIndex(rootIndex);
+
+      const meta = await store.readProjectMeta();
+      expect(meta.slug).toBe('2026-01-01-test-project');
+      expect(meta.plan_path).toBe(PLAN_PATH);
+      expect(meta.status).toBe('READY');
+      expect(meta.date_created).toBeDefined();
+      expect(meta.last_updated).toBeDefined();
     });
 
     it('rejects re-initialization when ledger exists', async () => {
@@ -91,7 +116,7 @@ describe('Full workflow integration', () => {
       await store.writeRootIndex(rootIndex);
 
       // Create WP-001 (no dependencies) — simulates ledger_create_work_package
-      await withLock(tempDir, async () => {
+      await withLock(store.storageDir, async () => {
         const root = await store.readRootIndex();
         const wpId = formatWpId(root.work_packages.length + 1);
 
@@ -125,7 +150,7 @@ describe('Full workflow integration', () => {
       });
 
       // Create WP-002 (depends on WP-001) — should be BLOCKED
-      await withLock(tempDir, async () => {
+      await withLock(store.storageDir, async () => {
         const root = await store.readRootIndex();
         const wpId = formatWpId(root.work_packages.length + 1);
 
@@ -683,7 +708,7 @@ describe('Full workflow integration', () => {
     });
 
     it('adds project-level comment with incident context', async () => {
-      await withLock(tempDir, async () => {
+      await withLock(store.storageDir, async () => {
         const root = await store.readRootIndex();
         root.project_comments.push({
           type: 'incident',
@@ -933,7 +958,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
     const { join } = await import('path');
     const { tmpdir } = await import('os');
     tempDir = await mkdtemp(join(tmpdir(), 'ledger-unblock-'));
-    store = new LedgerStore(tempDir);
+    store = new LedgerStore(PLAN_PATH, tempDir);
 
     // Project: WP-001 (IN_PROGRESS), WP-002 (BLOCKED by WP-001), WP-003 (BLOCKED by WP-001 AND WP-002)
     const root: RootIndex = {
@@ -1023,7 +1048,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
     });
 
     // Simulate propagateDependencyUnblock inline
-    await withLock(tempDir, async () => {
+    await withLock(store.storageDir, async () => {
       const rootIndex = await store.readRootIndex();
       const candidates = rootIndex.work_packages.filter(
         (wp) => wp.status === 'BLOCKED' && wp.dependencies.includes('WP-001')

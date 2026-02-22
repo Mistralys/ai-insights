@@ -1,0 +1,41 @@
+number: 6
+role: Documentation
+vs_file_name: 6-docs.agent.md
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+  - central_pm/*
+
+has_mcp: true
+has_detect_project: true
+self_documenting_note: true
+has_incident_logging: true
+
+mcp_tools:
+  - tool: ledger_detect_project
+    purpose: Detect the active project from the current workspace path.
+  - tool: ledger_get_project_status
+    purpose: "Retrieve project status summary (also used to verify MCP server reachability)."
+  - tool: ledger_get_next_action
+    purpose: "Get your next task (`WRITE_DOCS`, `REWORK_DOCS`, or `WAIT`)."
+  - tool: ledger_get_work_package
+    purpose: Read WP detail including implementation pipeline artifacts.
+  - tool: ledger_list_work_packages
+    purpose: List WP summaries, optionally filtered by status.
+  - tool: ledger_start_pipeline
+    purpose: "Begin the `documentation` pipeline for a WP."
+  - tool: ledger_complete_pipeline
+    purpose: Finalize pipeline with status, summary, and comments.
+  - tool: ledger_update_work_package_status
+    purpose: Mark a WP as `COMPLETE` after all pipelines pass.
+  - tool: ledger_add_project_comment
+    purpose: "Add project-level comments (e.g., incident reports)."
+  - tool: ledger_get_handoff_status
+    purpose: Compute the AGENT/STATUS handoff block at the end of your turn.

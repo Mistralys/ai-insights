@@ -1,0 +1,27 @@
+author: Sebastian Mordziol
+last_updated: "2026-02-21 18:30"
+default_version: "3.4.0"
+mcp_server_name: "central_pm"
+
+roster:
+  - number: 1
+    title: Chief Product Officer
+    short: Planning & Strategy
+  - number: 2
+    title: Technical Program Manager
+    short: Task Decomposition & Project Management
+  - number: 3
+    title: Staff Software Engineer
+    short: Implementation & Verification
+  - number: 4
+    title: SDET
+    short: QA & Validation
+  - number: 5
+    title: Principal Systems Architect
+    short: Code Review & Quality Check
+  - number: 6
+    title: Technical Writing Manager
+    short: Documentation & README Curation
+  - number: 7
+    title: Head of Operations
+    short: Synthesis & Project Reporting

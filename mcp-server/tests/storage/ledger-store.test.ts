@@ -7,6 +7,8 @@ import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
+const PLAN_PATH = join(tmpdir(), '2026-01-01-test-project');
+
 function makeRootIndex(overrides: Partial<RootIndex> = {}): RootIndex {
   return {
     plan_file: 'plan.md',
@@ -36,16 +38,16 @@ function makeWpDetail(overrides: Partial<WorkPackageDetail> = {}): WorkPackageDe
 }
 
 describe('LedgerStore', () => {
-  let tempDir: string;
+  let tempLedgerRoot: string;
   let store: LedgerStore;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'ledger-test-'));
-    store = new LedgerStore(tempDir);
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'ledger-test-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempLedgerRoot, { recursive: true, force: true });
   });
 
   describe('existence checks', () => {
@@ -84,15 +86,14 @@ describe('LedgerStore', () => {
     });
 
     it('throws on malformed JSON', async () => {
-      const path = join(tempDir, '.ledger', 'project-ledger.json');
       const { writeFile, mkdir } = await import('fs/promises');
-      await mkdir(join(tempDir, '.ledger'), { recursive: true });
-      await writeFile(path, '{ invalid json !!!', 'utf-8');
+      await mkdir(store.storageDir, { recursive: true });
+      await writeFile(join(store.storageDir, 'project-ledger.json'), '{ invalid json !!!', 'utf-8');
       await expect(store.readRootIndex()).rejects.toThrow('Malformed JSON');
     });
 
     it('throws on schema validation failure', async () => {
-      const path = join(tempDir, '.ledger', 'project-ledger.json');
+      const path = join(store.storageDir, 'project-ledger.json');
       await atomicWriteJson(path, { status: 'INVALID', random: 'data' });
       await expect(store.readRootIndex()).rejects.toThrow('validation failed');
     });
@@ -120,7 +121,7 @@ describe('LedgerStore', () => {
       const data = makeRootIndex();
       await store.writeRootIndex(data);
 
-      const raw = await readFile(join(tempDir, '.ledger', 'project-ledger.json'), 'utf-8');
+      const raw = await readFile(join(store.storageDir, 'project-ledger.json'), 'utf-8');
       const parsed = JSON.parse(raw);
       expect(parsed.plan_file).toBe('plan.md');
       expect(raw.endsWith('\n')).toBe(true);
@@ -135,9 +136,9 @@ describe('LedgerStore', () => {
   });
 
   describe('writeWorkPackage', () => {
-    it('creates .ledger/ directory automatically', async () => {
+    it('creates storageDir automatically', async () => {
       await store.writeWorkPackage('WP-001', makeWpDetail());
-      const raw = await readFile(join(tempDir, '.ledger', 'WP-001.json'), 'utf-8');
+      const raw = await readFile(join(store.storageDir, 'WP-001.json'), 'utf-8');
       expect(JSON.parse(raw).work_package_id).toBe('WP-001');
     });
   });
@@ -200,5 +201,125 @@ describe('LedgerStore', () => {
         store.updateWorkPackageWithSync('WP-999', (wp, root) => ({ wp, root }))
       ).rejects.toThrow('Work package WP-999 not found');
     });
+  });
+});
+
+// ==================== detectProjectByCwd ====================
+
+describe('LedgerStore.detectProjectByCwd', () => {
+  let tempLedgerRoot: string;
+
+  // Synthetic plan paths following the {project-root}/docs/agents/plans/{slug} convention.
+  // tmpdir() is used so the paths are valid absolute paths on the current platform.
+  const planPathA = join(tmpdir(), 'project-a', 'docs', 'agents', 'plans', '2026-02-15-alpha');
+  const planPathB = join(tmpdir(), 'project-b', 'docs', 'agents', 'plans', '2026-02-16-beta');
+
+  // Normalized project roots (forward slashes — the same normalization inferProjectRootFromPlanPath uses)
+  const projectRootA = join(tmpdir(), 'project-a').replace(/\\/g, '/');
+  const projectRootB = join(tmpdir(), 'project-b').replace(/\\/g, '/');
+
+  // Seed one project (A) into the shared temp ledger root
+  async function seedProjectA(): Promise<void> {
+    const storeA = new LedgerStore(planPathA, tempLedgerRoot);
+    await storeA.writeProjectMeta('plan.md', 'IN_PROGRESS');
+  }
+
+  // Seed both projects into the shared temp ledger root
+  async function seedBothProjects(): Promise<void> {
+    const storeA = new LedgerStore(planPathA, tempLedgerRoot);
+    await storeA.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    const storeB = new LedgerStore(planPathB, tempLedgerRoot);
+    await storeB.writeProjectMeta('plan.md', 'READY');
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'detect-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('returns FOUND when cwdPath is a subdirectory inside the project root', async () => {
+    await seedProjectA();
+    const cwdPath = join(tmpdir(), 'project-a', 'src', 'tools');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.plan_path).toBe(planPathA);
+    }
+  });
+
+  it('returns FOUND when cwdPath exactly equals the project root', async () => {
+    await seedProjectA();
+    const cwdPath = join(tmpdir(), 'project-a');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+  });
+
+  it('returns FOUND when cwdPath is the plan folder itself', async () => {
+    await seedProjectA();
+    const result = await LedgerStore.detectProjectByCwd(planPathA, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe('2026-02-15-alpha');
+    }
+  });
+
+  it('returns NOT_FOUND when no project root is an ancestor of cwdPath', async () => {
+    await seedProjectA();
+    const cwdPath = join(tmpdir(), 'completely-different-directory', 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('returns NOT_FOUND when the ledger has no projects', async () => {
+    // tempLedgerRoot is empty
+    const cwdPath = join(tmpdir(), 'project-a', 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('does NOT match when cwdPath is a parent (ancestor) of the project root', async () => {
+    await seedProjectA();
+    // Providing the parent of project-a (i.e. tmpdir()) should NOT match project-a
+    const cwdPath = tmpdir();
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    // tmpdir() is a parent of project-a's root, not a descendant — should not match
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('returns AMBIGUOUS with both candidates when two projects both match cwdPath', async () => {
+    // Plant both projects under the same artificial shared root so both match
+    // when cwdPath equals that shared root.
+    // We achieve this by using plan paths that share the same project root.
+    const sharedRoot = join(tmpdir(), 'shared-root');
+    const planPathC = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-15-proj-c');
+    const planPathD = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-d');
+
+    const storeC = new LedgerStore(planPathC, tempLedgerRoot);
+    await storeC.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    const storeD = new LedgerStore(planPathD, tempLedgerRoot);
+    await storeD.writeProjectMeta('plan.md', 'READY');
+
+    // Both C and D derive the same project root (sharedRoot), so both match
+    const cwdPath = join(sharedRoot, 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('AMBIGUOUS');
+    if (result.status === 'AMBIGUOUS') {
+      expect(result.candidates).toHaveLength(2);
+      const slugs = result.candidates.map((c) => c.slug).sort();
+      expect(slugs).toEqual(['2026-02-15-proj-c', '2026-02-16-proj-d']);
+    }
+  });
+
+  it('returns FOUND for the correct project and ignores the other when two distinct projects exist', async () => {
+    await seedBothProjects();
+    const cwdPath = join(tmpdir(), 'project-b', 'tests');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe('2026-02-16-beta');
+    }
   });
 });

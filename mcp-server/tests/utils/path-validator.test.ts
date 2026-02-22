@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { validatePlanPath } from '../../src/utils/path-validator.js';
+import { join } from 'path';
+import { validatePlanPath, planFolderBasename } from '../../src/utils/path-validator.js';
 
 describe('validatePlanPath', () => {
   it('should accept valid plan paths with date prefix', () => {
@@ -87,5 +88,42 @@ describe('validatePlanPath', () => {
       const result = validatePlanPath(path);
       expect(result.isValid).toBe(true); // Pattern matches, which is our requirement
     }
+  });
+});
+
+describe('planFolderBasename', () => {
+  it('returns the basename for a valid YYYY-MM-DD-{name} path', () => {
+    const path = join('/some', 'project', 'docs', 'agents', 'plans', '2026-02-16-my-feature');
+    expect(planFolderBasename(path)).toBe('2026-02-16-my-feature');
+  });
+
+  it('returns basename on a minimal single-character project name', () => {
+    const path = join('/tmp', '2026-01-01-a');
+    expect(planFolderBasename(path)).toBe('2026-01-01-a');
+  });
+
+  it('handles Windows-style backslash paths', () => {
+    const winPath = 'C:\\Projects\\docs\\plans\\2026-03-15-feature-x';
+    expect(planFolderBasename(winPath)).toBe('2026-03-15-feature-x');
+  });
+
+  it('throws for a path whose basename does not match YYYY-MM-DD-{name}', () => {
+    const invalid = '/home/user/project/my-project';
+    expect(() => planFolderBasename(invalid)).toThrow('Invalid project path format');
+    expect(() => planFolderBasename(invalid)).toThrow('YYYY-MM-DD');
+  });
+
+  it('throws for a path with only a date and no project name suffix', () => {
+    const invalid = '/tmp/2026-02-16';
+    expect(() => planFolderBasename(invalid)).toThrow('Invalid project path format');
+  });
+
+  it('throws for a path with a 2-digit year', () => {
+    const invalid = '/tmp/26-02-16-project';
+    expect(() => planFolderBasename(invalid)).toThrow('Invalid project path format');
+  });
+
+  it('throws for a path with no date prefix at all', () => {
+    expect(() => planFolderBasename('/some/path/without/date')).toThrow('Invalid project path format');
   });
 });

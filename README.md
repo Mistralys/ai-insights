@@ -13,13 +13,13 @@ To automatically copy persona files to VS Code's User prompts folder, use the sy
 
 ```bash
 # Preview what would be copied (dry run)
-node sync-personas.js --dry-run
+node scripts/sync-personas.js --dry-run
 
 # Copy persona files to VS Code
-node sync-personas.js
+node scripts/sync-personas.js
 
 # Copy to a custom directory
-node sync-personas.js --custom-path "/path/to/custom/dir"
+node scripts/sync-personas.js --custom-path "/path/to/custom/dir"
 ```
 
 The script automatically detects your operating system and uses the correct VS Code User prompts directory:
@@ -37,7 +37,7 @@ After syncing, the script validates frontmatter in all ledger personas (`persona
 
 ### Validating Role Parity
 
-`sync-personas.js` maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts`. A drift check script is provided:
+`scripts/sync-personas.js` maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts`. A drift check script is provided:
 
 ```bash
 # From the workspace root (requires the MCP server to be built first)

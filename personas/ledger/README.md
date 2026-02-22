@@ -2,17 +2,17 @@
 
 ## Overview
 
-This is a structured multi-agent workflow for systematic software development. It uses a **split-file JSON ledger** to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
+This is a structured multi-agent workflow for systematic software development. It uses a **centralized ledger** managed by an MCP server to maintain state across chat sessions, enabling agents to collaborate on complex projects without losing context.
 
 ### Why Use This Workflow?
 
-- **State Persistence**: The JSON ledger preserves project state between chat sessions
+- **State Persistence**: The centralized ledger preserves project state between chat sessions
 - **Separation of Concerns**: Each agent focuses on a specific role (planning, implementation, QA, review)
 - **Traceability**: Track work packages, acceptance criteria, dependencies, and blockers
 - **Quality Assurance**: Built-in validation, review, and documentation stages
 - **Scalability**: Handle complex projects by breaking them into manageable work packages
-- **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP file doesn't affect others
-- **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and dual-file sync
+- **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP doesn't affect others
+- **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and centralized storage
 - **Automatic Handoffs**: Agents 2–7 can pass control to the next agent automatically via `runSubagent` when the MCP server returns an `auto_handoff` response — no manual copy-paste required
 
 ### Agents in the Workflow
@@ -24,28 +24,6 @@ This is a structured multi-agent workflow for systematic software development. I
 5. **Reviewer Agent**: Performs code quality and architecture review
 6. **Documentation Agent**: Updates project documentation
 7. **Synthesis Agent**: Consolidates results and generates project report
-
-### Persona File Format
-
-Each ledger persona file uses YAML frontmatter to declare its identity and capabilities:
-
-```yaml
----
-name: '3 - Developer v3.1.x'
-description: 'Step 3/7 in the agent workflow.'
-role: Developer
-tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
----
-```
-
-| Field | Purpose |
-|-------|----------|
-| `name` | Display name including version string, shown in agent pickers |
-| `description` | Short one-line description of the agents's role in the workflow |
-| `role` | Workflow role identifier — must exactly match a value in the `AGENT_ROLES` constant in `src/tools/workflow.ts`. Used by the Agent Registry to route automatic handoffs |
-| `tools` | Tool permissions granted to the agent by the AI IDE |
-
-> **Note:** The `role:` field is present only in `personas/ledger/` files. Files in `personas/vanilla/` and `personas/standalone/` do not include this field, as they operate outside the MCP-enabled workflow.
 
 ---
 
@@ -70,7 +48,9 @@ tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', '
 
 ### MCP Server (Required)
 
-Agents 2–7 depend on the **`project-ledger` MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
+Agents 2–7 depend on the **project-ledger MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
+
+> **Server name is configurable.** The personas reference the server by the name defined in `_shared.yaml` → `mcp_server_name` (default: `project-ledger`). If your `.mcp.json` uses a different key, update `mcp_server_name` in `personas/ledger/src/meta/_shared.yaml` and rebuild.
 
 **For setup instructions, see the [MCP Server Documentation](../../mcp-server/README.md).**
 
@@ -127,13 +107,12 @@ Before starting the workflow, ensure your project has:
 5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
    - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
    - Individual WP specification files: `/docs/agents/plans/{plan-name}/work/WP-001.md`, etc.
-   - Root ledger index: `/docs/agents/plans/{plan-name}/.ledger/project-ledger.json`
-   - Individual ledger WP files: `/docs/agents/plans/{plan-name}/.ledger/WP-001.json`, etc.
+   - The project ledger is stored centrally by the MCP server (not as files in the plan directory)
 
 **Tips**:
 - Check that dependencies between work packages are correctly identified
 - Ensure each package has clear acceptance criteria
-- Verify the ledger initializes with correct file paths and metadata
+- Verify the ledger initializes correctly via `ledger_get_project_status`
 
 ---
 
@@ -261,10 +240,10 @@ For **each work package**:
 
 ### Ledger Hygiene
 
-- **Commit regularly**: Version control the ledger files (root index + WP detail files) with your code
-- **MCP handles consistency**: The MCP server ensures atomic writes and dual-file sync — root index and WP detail files are always kept in sync automatically
+- **Commit regularly**: Version control your plan and work package Markdown files with your code
+- **MCP handles consistency**: The MCP server stores ledger data centrally and ensures atomic writes — all ledger state is managed automatically
 - **Monitor status**: Track work package statuses (`READY` → `IN_PROGRESS` → `COMPLETE` → `BLOCKED`)
-- **Never edit JSON manually**: Always let agents use MCP tools to modify ledger files
+- **Never edit the ledger manually**: Always let agents use MCP tools to modify ledger state
 
 ### Workflow Flexibility
 
@@ -350,7 +329,7 @@ Add custom validation or review steps by:
 ### Integration with CI/CD
 
 - Run the Validator agent in automated test pipelines
-- Parse the ledger JSON for build status and metrics
+- Parse the ledger data (via MCP tools) for build status and metrics
 - Generate reports from the Synthesis agent for dashboards
 
 ---
@@ -455,11 +434,6 @@ your-project/
 │   │           │   ├── WP-001.md
 │   │           │   ├── WP-002.md
 │   │           │   └── ...
-│   │           ├── .ledger/               # Ledger files (private)
-│   │           │   ├── project-ledger.json  # Root index (lightweight)
-│   │           │   ├── WP-001.json
-│   │           │   ├── WP-002.json
-│   │           │   └── ...
 │   │           └── synthesis.md           # Final report
 │   └── [other project docs]
 └── [your source code]
@@ -467,12 +441,34 @@ your-project/
 
 ---
 
+## Building Personas
+
+The ledger persona files (`1-planner.md` … `7-synthesis.md`) are **auto-generated** from source templates in `personas/ledger/src/`. Do not edit them directly — changes will be overwritten on the next build.
+
+**Quick commands:**
+
+```bash
+# Install build dependency (once)
+cd personas && npm install
+
+# Build all personas
+node scripts/build-personas.js
+
+# Build + sync to your AI IDE's prompts folder
+node scripts/sync-personas.js
+```
+
+For the full build system documentation — source layout, metadata schema, template syntax, and conventions — see the [Personas Project Manifest](docs/agents/project-manifest/README.md).
+
+---
+
 ## Next Steps
 
 1. **Try the workflow**: Start with a small feature to familiarize yourself
 2. **Customize personas**: Adapt the agent prompts to your team's conventions
-3. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)
-4. **Explore MCP tools**: The MCP server exposes tools for project lifecycle, work packages, pipelines, observations, and workflow coordination
-5. **Share feedback**: Document what works and what doesn't for your use cases
+3. **Build system details**: See the [Personas Project Manifest](docs/agents/project-manifest/README.md) for template syntax, metadata schema, and source layout
+4. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)
+5. **Explore MCP tools**: The MCP server exposes tools for project lifecycle, work packages, pipelines, observations, and workflow coordination
+6. **Share feedback**: Document what works and what doesn't for your use cases
 
 For questions or improvements, refer to the main project [README.md](../../README.md).

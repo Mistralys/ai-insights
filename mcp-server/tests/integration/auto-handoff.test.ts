@@ -79,6 +79,7 @@ async function writeAgentFile(
 describe('Auto-handoff chain integration', () => {
   let tempDir: string;
   let agentDir: string;
+  let tempLedgerRoot: string;
   let store: LedgerStore;
 
   beforeEach(async () => {
@@ -87,13 +88,15 @@ describe('Auto-handoff chain integration', () => {
     // validatePlanPath accepts it when the full getHandoffStatus path is exercised.
     tempDir = await mkdtemp(join(tmpdir(), '2026-02-20-auto-handoff-int-'));
     agentDir = await mkdtemp(join(tmpdir(), 'auto-handoff-agents-'));
-    store = new LedgerStore(tempDir);
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'ledger-root-'));
+    store = new LedgerStore(tempDir, tempLedgerRoot);
   });
 
   afterEach(async () => {
     resetRegistry();
     await rm(tempDir, { recursive: true, force: true });
     await rm(agentDir, { recursive: true, force: true });
+    await rm(tempLedgerRoot, { recursive: true, force: true });
   });
 
   // ── 1. Full chain: PM → Developer → QA → Reviewer → Documentation → Synthesis ──

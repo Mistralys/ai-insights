@@ -1,16 +1,12 @@
 ---
-name: 'Module Intent Architect v1.0.0'
+name: 'Module Intent Architect v1.0.1'
 description: 'Infers and documents the purpose, role, and dependencies of specific code modules by analyzing the source.'
+author: Sebastian Mordziol
+version: 1.0.1
+last_updated: 2026-02-21 18:00
+vs_file_name: module-intent-architect.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent']
 ---
-
-<!--
-  Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-18 20:50
-  Author: Sebastian Mordziol
-  VS File Name: module-intent.agent.md
--->
 
 # Module Intent Architect Agent
 

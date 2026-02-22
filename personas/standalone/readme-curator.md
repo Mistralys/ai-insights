@@ -1,16 +1,12 @@
 ---
-name: 'README Curator v1.0.0'
+name: 'README Curator v1.0.1'
 description: 'Produces a concise, human‑optimized README.md that communicates purpose, scope, and orientation at a glance.'
+author: Sebastian Mordziol
+version: 1.0.1
+last_updated: 2026-02-21 18:00
+vs_file_name: readme-curator.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
 ---
-
-<!--
-  Agent Metadata
-  Version: 1.0.0
-  Last Updated: 2026-02-18
-  Author: Sebastian Mordziol
-  VS File Name: readme-curator.agent.md
--->
 
 # Human‑Centric README Curator Agent
 
