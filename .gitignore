@@ -7,3 +7,4 @@
 /mcp-server/docs/agents/**/.ledger/
 /mcp-server/dist/
 /personas/node_modules/
+dist/notebooklm-bundle.md
