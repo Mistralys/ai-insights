@@ -301,10 +301,11 @@ interface HandoffStatusPayload {
 ```
 
 **Auto-handoff eligibility** — `auto_handoff` is included only when **all** of the following are true:
-1. The agent registry is loaded (`isRegistryLoaded()` returns `true`)
-2. The next agent has a known handle in the registry
-3. Project status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
-4. `auto_handoff_depth` in the root index is `< MAX_HANDOFF_DEPTH` (10)
+1. `auto_handoff_enabled` is `true` in the GUI config (`getConfig().auto_handoff_enabled`)
+2. The agent registry is loaded (`isRegistryLoaded()` returns `true`)
+3. The next agent has a known handle in the registry
+4. Project status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
+5. `auto_handoff_depth` in the root index is `< getMaxHandoffDepth()` (default 10, runtime-configurable via `gui-config.json`)
 
 Each successful emission increments `auto_handoff_depth` in the root index. Reaching `COMPLETE` status resets the counter to `0`.
 
@@ -687,13 +688,184 @@ export const _internal: {
 };
 ```
 
+---
+
+## GUI Config Module
+
+### `src/gui/config.ts` — runtime configuration
+
+Manages runtime settings for the MCP server and GUI dashboard. Uses a **module-level singleton cache** populated at startup and kept fresh via `fs.watch()`.
+
+```typescript
+// Zod schema and inferred type
+export const GuiConfigSchema: ZodObject<...>;
+export type GuiConfig = {
+  auto_handoff_enabled: boolean;  // When false, buildHandoffResponse() skips auto-handoff
+  max_handoff_depth: number;      // Maximum auto-handoff chain depth (default 10)
+  ledger_root: string;            // Resolved ledger root path (display-only in GUI)
+};
+
+export const DEFAULT_CONFIG: GuiConfig;  // { auto_handoff_enabled: true, max_handoff_depth: 10, ledger_root: '' }
+
+// Returns the current in-memory config. Never reads disk. Synchronous.
+export function getConfig(): GuiConfig;
+
+// Reads gui-config.json from disk; self-heals (writes defaults) if missing.
+// Updates the in-memory cache. Call once at MCP server startup.
+export async function readConfigFromDisk(configPath: string): Promise<GuiConfig>;
+
+// Merges data with current cache, validates, writes atomically, updates cache.
+// Throws ZodError on invalid input.
+export async function writeConfig(configPath: string, data: Partial<GuiConfig>): Promise<GuiConfig>;
+
+// Starts fs.watch() on configPath with 250ms debounce. On change: re-reads, re-validates, updates cache.
+// On error or ENOENT: logs to stderr, retains last known good cache.
+export function startConfigWatcher(configPath: string): void;
+
+// Closes the active FSWatcher. Safe to call multiple times (no-op if not watching).
+export function stopConfigWatcher(): void;
+```
+
+**Config file location:** `{ledgerRoot}/gui-config.json`
+
+**MCP server startup sequence:**
+```typescript
+// In src/index.ts:
+const configPath = path.join(ledgerRoot, 'gui-config.json');
+await readConfigFromDisk(configPath);   // populate cache
+startConfigWatcher(configPath);          // watch for GUI-driven changes
+```
+
+---
+
+## GUI API Module
+
+### `gui/api.ts` — REST API route handlers
+
+Pure async handler functions called by the HTTP server (`gui/server.ts`). All handlers accept parsed parameters and return typed result objects, or throw `ApiError`.
+
+```typescript
+// Error type used by all handlers
+export class ApiError extends Error {
+  code: string;       // 'NOT_FOUND' | 'FORBIDDEN' | 'VALIDATION_ERROR'
+  message: string;
+  details?: unknown;
+}
+
+// GET /api/projects — returns all project summaries from the centralized ledger
+export async function handleListProjects(ledgerRoot: string): Promise<ProjectMeta[]>;
+
+// GET /api/projects/:slug — returns combined root index + meta
+export async function handleGetProject(ledgerRoot: string, slug: string): Promise<ProjectDetail>;
+
+// GET /api/projects/:slug/work-packages — returns WP summary array
+export async function handleListWorkPackages(
+  ledgerRoot: string,
+  slug: string
+): Promise<RootIndex['work_packages']>;
+
+// GET /api/projects/:slug/work-packages/:wpId — returns full WP detail
+export async function handleGetWorkPackage(
+  ledgerRoot: string,
+  slug: string,
+  wpId: string
+): Promise<WorkPackageDetail>;
+
+// DELETE /api/projects/:slug — permanently removes a COMPLETE project; throws FORBIDDEN otherwise
+export async function handleDeleteProject(
+  ledgerRoot: string,
+  slug: string
+): Promise<{ deleted: true; slug: string }>;
+
+// GET /api/config — returns in-memory config (no disk read)
+export async function handleGetConfig(configPath: string): Promise<GuiConfig>;
+
+// PUT /api/config — validates body (strips ledger_root), writes atomically, returns updated config
+export async function handleUpdateConfig(configPath: string, body: unknown): Promise<GuiConfig>;
+```
+
+**HTTP status code mapping** (implemented in `gui/server.ts`):
+| `ApiError.code` | HTTP Status |
+|-----------------|-------------|
+| `NOT_FOUND` | 404 |
+| `FORBIDDEN` | 403 |
+| `VALIDATION_ERROR` | 400 |
+| (unhandled) | 500 |
+
+---
+
+## GUI HTTP Server
+
+### `gui/server.ts` — standalone HTTP server process
+
+A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). Runs as a **separate process** from the MCP server — has no STDIO restrictions and writes startup/info messages to `stdout`.
+
+**Start:** `npm run gui` (runs `tsx gui/server.ts`)
+
+**CLI arguments:**
+- `--port <n>` — listen port (default: `3420`)
+- `--ledger-dir <path>` — ledger root path; delegates to `resolveLedgerRoot()` which reads from `process.argv`
+
+**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `createServer()` → `listen(port)`
+
+**API route table:**
+
+| Method | Pattern | Handler |
+|--------|---------|--------|
+| GET | `/api/projects` | `handleListProjects` |
+| GET | `/api/projects/:slug` | `handleGetProject` |
+| GET | `/api/projects/:slug/work-packages` | `handleListWorkPackages` |
+| GET | `/api/projects/:slug/work-packages/:wpId` | `handleGetWorkPackage` |
+| DELETE | `/api/projects/:slug` | `handleDeleteProject` |
+| GET | `/api/config` | `handleGetConfig` |
+| PUT | `/api/config` | `handleUpdateConfig` (body parsed inline) |
+
+**Static file serving:** requests not starting with `/api/` are served from `gui/public/` (ESM path via `import.meta.url`). `/` → `index.html`. Unknown paths → 404.
+
+**CORS:** all responses include `Access-Control-Allow-Origin: http://localhost:{port}`, `Access-Control-Allow-Methods: GET, PUT, DELETE, OPTIONS`. OPTIONS preflight → 200 OK.
+
+**Error handling:**
+- `ApiError` codes map to HTTP status: `NOT_FOUND`→404, `FORBIDDEN`→403, `VALIDATION_ERROR`→400, other→500
+- Error response body: `{ "error": { "code": "...", "message": "..." } }`
+- `EADDRINUSE` → logs to stderr + `process.exit(1)`
+
+---
+
+## GUI Frontend
+
+### `gui/public/` — static single-page application
+
+Served as static assets by `gui/server.ts`. No ES modules, no framework, no build step.
+
+| File | Purpose |
+|------|---------|
+| `index.html` | HTML shell — nav (`#/` Projects, `#/config` Config), `<div id="app">` mount point |
+| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners |
+| `app.js` | Vanilla JS SPA: `API` client, `Router` (hash-based), utilities + 4 view render functions |
+
+**`app.js` structure:**
+- **`API`** — async fetch wrappers for all 7 REST endpoints (throws `{ code, message }` on non-2xx)
+- **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/wp/:wpId`, `#/config`); manages `setInterval` polling lifecycle
+- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`
+- **`renderProjectList(app)`** — table with filter dropdown (client-side), auto-refresh every 10 s, delete button (COMPLETE only, `confirm()` dialog)
+- **`renderProjectDetail(app, slug)`** — project header + WP summary table (clickable rows)
+- **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes
+- **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
+
+**XSS protection:** `escapeHtml()` wraps every piece of user-supplied data interpolated into HTML strings (20+ call sites).
+
+---
+
 ### `src/utils/workflow-helpers.ts` — shared constants and pure helpers
 
 Exported from `src/utils/workflow-helpers.ts`. Consumed by all three workflow tool sub-modules and re-exported via `workflow.ts`.
 
 ```typescript
 export const STALE_PIPELINE_HOURS: number; // default 24
-export const MAX_HANDOFF_DEPTH: number;    // default 10
+
+// Returns the current max auto-handoff chain depth from the in-memory GUI config cache.
+// Falls back to 10 if the config module has not yet been initialized.
+export function getMaxHandoffDepth(): number;
 
 // Returns true ONLY if the most recent pipeline of pipelineType has FAIL status.
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean;

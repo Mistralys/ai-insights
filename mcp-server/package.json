@@ -11,7 +11,8 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check:roles": "node ../scripts/check-known-roles.js"
+    "check:roles": "node ../scripts/check-known-roles.js",
+    "gui": "tsx gui/server.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

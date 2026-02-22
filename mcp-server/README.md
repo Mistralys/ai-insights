@@ -263,6 +263,31 @@ cat storage/ledger/2026-02-11-feature-name/.meta.json
 
 ---
 
+## GUI Dashboard
+
+A lightweight web dashboard for monitoring and managing projects tracked in the ledger.
+
+**Start the GUI server:**
+```sh
+npm run gui
+```
+Then open [http://localhost:3420](http://localhost:3420) in your browser.
+
+**Custom port or ledger directory:**
+```sh
+npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
+```
+
+**Features:**
+- View all projects and their current status
+- Drill down into project and work package details
+- Delete completed projects permanently
+- Toggle auto-handoff and adjust the max handoff depth at runtime (no restart required)
+
+> The GUI server is a **separate process** from the MCP server. Both can run simultaneously and share the same ledger directory. The MCP server monitors `gui-config.json` for configuration changes via `fs.watch()` — changes take effect immediately without restarting.
+
+---
+
 ## Available Tools
 
 The server exposes 18 MCP tools organized by category:

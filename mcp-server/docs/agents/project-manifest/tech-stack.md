@@ -122,6 +122,39 @@ Each tool category has its own module with:
 
 ---
 
+### 7. **GUI Dashboard Server**
+
+The GUI is implemented as a **separate HTTP server process** from the MCP server:
+- **Entry point:** `gui/server.ts`, started via `npm run gui`
+- **Port:** 3420 (default), configurable via `--port <n>`
+- **Transport:** Plain `node:http` — no Express or other HTTP framework dependency
+- **Static serving:** Files from `gui/public/` — vanilla HTML/CSS/JS, no build step required
+- **Process isolation:** The GUI server and the MCP server (STDIO) run as independent processes. Both share the same ledger root directory.
+- The GUI server resolves the ledger root the same way as the MCP server (`resolveLedgerRoot()` / `--ledger-dir`).
+
+**Key Files:**
+- `gui/server.ts` — HTTP server, route dispatch, static file serving
+- `gui/api.ts` — Pure async handler functions (one per REST endpoint)
+- `gui/public/` — Static dashboard assets (no build step)
+
+---
+
+### 8. **Runtime Config Monitoring**
+
+Runtime-adjustable settings are managed via a **module-level singleton cache** backed by `fs.watch()`:
+- **Config file:** `{ledgerRoot}/gui-config.json`
+- **Schema:** `GuiConfigSchema` in `src/gui/config.ts` (`auto_handoff_enabled`, `max_handoff_depth`, `ledger_root`)
+- **Cache:** Module-level `_cache` populated at startup by `readConfigFromDisk()` and kept live by `startConfigWatcher()`
+- **`getConfig()`** is always synchronous — reads from memory only, never disk
+- **Debounce:** 250ms on the `fs.watch()` callback to suppress Windows duplicate-event noise
+- **Fallback:** On watcher error or file parse failure, the cache retains its last known good values — the server continues operating rather than crashing
+- **`ledger_root` is read-only:** `writeConfig()` strips `ledger_root` from incoming data; only startup sets it
+
+**Key Files:**
+- `src/gui/config.ts` — `GuiConfigSchema`, `getConfig()`, `readConfigFromDisk()`, `writeConfig()`, `startConfigWatcher()`, `stopConfigWatcher()`
+
+---
+
 ## Build & Test
 
 | Script | Command | Purpose |

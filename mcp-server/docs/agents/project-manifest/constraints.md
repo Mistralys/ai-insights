@@ -665,3 +665,15 @@ When creating a work package:
 - If any dependency is not `COMPLETE` → Initial status is `BLOCKED`
 
 This logic is automatic and transparent to the caller.
+
+---
+
+## Runtime Config Monitoring
+
+- `gui-config.json` is the single source of truth for runtime-adjustable settings (`auto_handoff_enabled`, `max_handoff_depth`).
+- The MCP server (`index.ts`) and GUI server (`gui/server.ts`) **both** must call `readConfigFromDisk()` at startup and `startConfigWatcher()` to begin monitoring.
+- `getConfig()` **MUST NOT** read from disk — it returns from the in-memory singleton cache only.
+- The `FSWatcher` must be closed via `stopConfigWatcher()` during graceful shutdown and in test teardown.
+- The 250ms debounce is mandatory — do not reduce it. Windows `fs.watch()` commonly emits duplicate events within <100ms of a file write.
+- On watcher error or file parse failure, the cache retains its last known good values. The server continues operating with stale config rather than crashing.
+- `ledger_root` in `gui-config.json` is **read-only** from the GUI perspective. `writeConfig()` strips it from incoming data. API handlers **MUST NOT** allow callers to overwrite it via `PUT /api/config`.
