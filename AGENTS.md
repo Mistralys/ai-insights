@@ -13,9 +13,9 @@ This is a **monorepo-style workspace** containing two distinct sub-projects and 
 | **Project Ledger MCP Server** | `mcp-server/` | TypeScript (ESM) | MCP server that provides typed tools for managing project ledgers in AI agent workflows |
 | **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 7 ledger persona Markdown files from YAML/Markdown sources |
 
-Root-level scripts (`sync-personas.js`, `scripts/`) orchestrate cross-project tasks such as persona deployment and role-parity checks.
+The `scripts/` directory contains cross-project scripts that orchestrate persona deployment and role-parity checks.
 
-> **Key relationship:** The personas sub-project generates agent instructions that reference MCP tools exposed by the mcp-server sub-project. The `AGENT_ROLES` constant in `mcp-server/src/utils/constants.ts` must stay in sync with `KNOWN_ROLES` in `sync-personas.js` and the `role` values in persona YAML metadata.
+> **Key relationship:** The personas sub-project generates agent instructions that reference MCP tools exposed by the mcp-server sub-project. The `AGENT_ROLES` constant in `mcp-server/src/utils/constants.ts` must stay in sync with `KNOWN_ROLES` in `scripts/sync-personas.js` and the `role` values in persona YAML metadata.
 
 ---
 
@@ -147,9 +147,9 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Working in… | Consult… |
 |-------------|----------|
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
-| `personas/ledger/src/`, `personas/build-personas.js` | Personas manifest |
+| `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
 | `personas/ledger/*.md` (generated output) | Personas manifest — **never edit these directly** |
-| `sync-personas.js`, `scripts/` | Both manifests + root `README.md` |
+| `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
 
 ### Anti-Patterns
 
@@ -204,7 +204,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 | Dependency | Source of Truth | Must Stay In Sync With |
 |------------|----------------|------------------------|
-| Agent role names | `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` | `sync-personas.js` → `KNOWN_ROLES`; persona YAML → `role` field |
+| Agent role names | `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` | `scripts/sync-personas.js` → `KNOWN_ROLES`; persona YAML → `role` field |
 | MCP server name | `personas/ledger/src/meta/_shared.yaml` → `mcp_server_name` | `.mcp.json` → server key (default: `central_pm`) |
 | Persona `vs_file_name` | Per-persona YAML (`personas/ledger/src/meta/N-name.yaml`) | Agent Registry scan pattern (`*.agent.md`) in `mcp-server/src/utils/agent-registry.ts` |
 | Version (MCP server) | `mcp-server/changelog.md` | `mcp-server/package.json` (via `npm run sync-version`) |
@@ -215,7 +215,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Script | Purpose | Run From |
 |--------|---------|----------|
 | `node scripts/check-known-roles.js` | Verify `KNOWN_ROLES` ↔ `AGENT_ROLES` parity | Workspace root |
-| `node personas/build-personas.js --check` | Detect stale generated persona output | `personas/` or workspace root |
+| `node scripts/build-personas.js --check` | Detect stale generated persona output | Workspace root |
 
 ---
 
@@ -236,7 +236,8 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 | File | Purpose |
 |------|---------|
-| `sync-personas.js` | Build personas + copy to VS Code prompts directory + validate frontmatter |
+| `scripts/sync-personas.js` | Build personas + copy to VS Code prompts directory + validate frontmatter |
+| `scripts/build-personas.js` | Assemble 7 ledger persona files from `personas/ledger/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
 | `scripts/bundle-for-notebooklm.js` | Bundle workspace content for NotebookLM |
 | `context.yaml` | Context Hub configuration for documentation generation |

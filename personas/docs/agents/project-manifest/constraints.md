@@ -6,7 +6,7 @@
 
 2. **`README.md` is not generated.** The `personas/ledger/README.md` is hand-authored and serves as the user-facing workflow guide. It is excluded from the build process.
 
-3. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node build-personas.js` to regenerate output, then `node sync-personas.js` (from workspace root) to deploy to VS Code.
+3. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` to regenerate output, then `node scripts/sync-personas.js` to deploy to VS Code.
 
 ---
 
@@ -52,7 +52,7 @@
 
 17. **Frontmatter validation is advisory.** The `validateLedgerFrontmatter()` step checks that ledger personas have valid `role` and `name` fields but never blocks the sync. Warnings are printed to console.
 
-18. **Build is automatic during sync.** `sync-personas.js` spawns `build-personas.js` as a child process before copying files. There is no need to run build separately when syncing.
+18. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `scripts/build-personas.js` as a child process before copying files. There is no need to run build separately when syncing.
 
 ---
 

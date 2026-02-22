@@ -4,7 +4,6 @@
 personas/                          # Sub-project root (has own package.json)
 ├── package.json                   # {"name": "ai-insights-personas"} — declares js-yaml dependency
 ├── package-lock.json
-├── build-personas.js              # Core build script — assembles persona files from src/ templates
 ├── changelog.md                   # Release history for the persona system
 │
 ├── ledger/                        # Ledger-enabled personas (MCP-backed workflow)

@@ -452,10 +452,10 @@ The ledger persona files (`1-planner.md` … `7-synthesis.md`) are **auto-genera
 cd personas && npm install
 
 # Build all personas
-node personas/build-personas.js
+node scripts/build-personas.js
 
 # Build + sync to your AI IDE's prompts folder
-node sync-personas.js
+node scripts/sync-personas.js
 ```
 
 For the full build system documentation — source layout, metadata schema, template syntax, and conventions — see the [Personas Project Manifest](docs/agents/project-manifest/README.md).

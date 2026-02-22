@@ -30,7 +30,7 @@ const { execSync } = require('child_process');
 
 const WORKSPACE_ROOT  = path.resolve(__dirname, '..');
 const CONSTANTS_JS    = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'utils', 'constants.js');
-const SYNC_PERSONAS   = path.join(WORKSPACE_ROOT, 'sync-personas.js');
+const SYNC_PERSONAS   = path.join(WORKSPACE_ROOT, 'scripts', 'sync-personas.js');
 
 // ---------------------------------------------------------------------------
 // Pre-build: ensure dist is fresh before comparison

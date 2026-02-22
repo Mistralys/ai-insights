@@ -1,6 +1,6 @@
 # Key Data Flows
 
-## 1. Build Pipeline (`build-personas.js`)
+## 1. Build Pipeline (`scripts/build-personas.js`)
 
 The primary data flow: transform source templates into final persona Markdown files.
 
@@ -84,18 +84,18 @@ context = {
 
 ---
 
-## 2. Sync Pipeline (`sync-personas.js`)
+## 2. Sync Pipeline (`scripts/sync-personas.js`)
 
 Orchestrates a full build-and-deploy cycle to the AI IDE.
 
 ```
   ┌──────────────────────┐
-  │  sync-personas.js    │
+  │ scripts/sync-personas.js│
   └──────────┬───────────┘
              │
              ▼
   ┌──────────────────────┐
-  │ 1. Build             │  Spawns: node build-personas.js [--dry-run]
+  │ 1. Build             │  Spawns: node scripts/build-personas.js [--dry-run]
   │    (child process)   │  Generates all 7 persona files in ledger/
   └──────────┬───────────┘
              ▼
@@ -176,12 +176,12 @@ How generated personas reach end users and the MCP server:
 ```
   Source templates (src/)
        │
-       ▼  build-personas.js
+       ▼  scripts/build-personas.js
   Generated files (ledger/*.md)
        │
        ├──────────────────────────┐
        │                          │
-       ▼  sync-personas.js        ▼  Manual copy-paste
+       ▼  scripts/sync-personas.js  ▼  Manual copy-paste
   VS Code User/prompts/      AI IDE chat session
   (*.agent.md)                    │
        │                          │

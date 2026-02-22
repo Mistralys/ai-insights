@@ -32,22 +32,21 @@ Generated persona files are consumed in two ways:
 
 **Build all personas:**
 ```bash
-cd personas
-node build-personas.js
+node scripts/build-personas.js
 ```
 
 **Check for stale output (CI-friendly):**
 ```bash
-node build-personas.js --check
+node scripts/build-personas.js --check
 ```
 
 **Preview without writing:**
 ```bash
-node build-personas.js --dry-run
+node scripts/build-personas.js --dry-run
 ```
 
 **Build + sync to VS Code:**
 ```bash
 # From workspace root
-node sync-personas.js
+node scripts/sync-personas.js
 ```

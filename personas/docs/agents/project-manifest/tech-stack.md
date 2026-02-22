@@ -28,8 +28,8 @@ No dev dependencies. The build script is self-contained — plain Node.js + `js-
 
 | Tool | Invocation | Purpose |
 |------|-----------|---------|
-| `build-personas.js` | `node personas/build-personas.js` | Core build: assembles persona files from `src/` templates |
-| `sync-personas.js` | `node sync-personas.js` (workspace root) | Orchestrator: runs build, copies output to VS Code prompts dir, validates frontmatter |
+| `build-personas.js` | `node scripts/build-personas.js` | Core build: assembles persona files from `src/` templates |
+| `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs build, copies output to VS Code prompts dir, validates frontmatter |
 
 ### CLI Flags (`build-personas.js`)
 

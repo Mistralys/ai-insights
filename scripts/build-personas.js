@@ -9,17 +9,14 @@
  * personas/ledger/.
  *
  * Usage (from workspace root):
- *   node personas/build-personas.js              # build all personas
- *   node personas/build-personas.js --dry-run    # preview output, no writes
- *   node personas/build-personas.js --check      # exit 1 if any output is stale
- *
- * Usage (from personas/ directory):
- *   node build-personas.js [same flags]
+ *   node scripts/build-personas.js              # build all personas
+ *   node scripts/build-personas.js --dry-run    # preview output, no writes
+ *   node scripts/build-personas.js --check      # exit 1 if any output is stale
  */
 
 const fs   = require('fs');
 const path = require('path');
-const yaml = require(path.join(__dirname, 'node_modules', 'js-yaml'));
+const yaml = require(path.join(__dirname, '..', 'personas', 'node_modules', 'js-yaml'));
 
 // ---------------------------------------------------------------------------
 // CLI flags
@@ -32,11 +29,11 @@ const DRY_RUN = process.argv.includes('--dry-run');
 // Paths (all relative to this script's directory)
 // ---------------------------------------------------------------------------
 
-const SRC_DIR      = path.join(__dirname, 'ledger', 'src');
+const SRC_DIR      = path.join(__dirname, '..', 'personas', 'ledger', 'src');
 const META_DIR     = path.join(SRC_DIR, 'meta');
 const PARTIALS_DIR = path.join(SRC_DIR, 'partials');
 const CONTENT_DIR  = path.join(SRC_DIR, 'content');
-const OUTPUT_DIR   = path.join(__dirname, 'ledger');
+const OUTPUT_DIR   = path.join(__dirname, '..', 'personas', 'ledger');
 
 // ---------------------------------------------------------------------------
 // Auto-generated header

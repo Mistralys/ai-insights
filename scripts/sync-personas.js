@@ -7,9 +7,9 @@
  * Reads the `vs_file_name` field from each persona file's YAML frontmatter and uses it as the target filename.
  * 
  * Usage:
- *   node sync-personas.js
- *   node sync-personas.js --dry-run    # Preview what would be copied without actually copying
- *   node sync-personas.js --custom-path "C:\Custom\Path"  # Use custom target directory
+ *   node scripts/sync-personas.js
+ *   node scripts/sync-personas.js --dry-run    # Preview what would be copied without actually copying
+ *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Use custom target directory
  */
 
 const fs = require('fs');
@@ -199,7 +199,7 @@ function validateLedgerFrontmatter(ledgerDir) {
  * @param {boolean} dryRun - If true, only preview what would be copied
  */
 function syncPersonas(targetDir, dryRun = false) {
-  const personasDir = path.join(__dirname, 'personas');
+  const personasDir = path.join(__dirname, '..', 'personas');
 
   // Check if personas directory exists
   if (!fs.existsSync(personasDir)) {
@@ -283,7 +283,7 @@ function main() {
 ${colors.bright}${colors.cyan}VS Code Persona Sync Tool${colors.reset}
 
 ${colors.bright}Usage:${colors.reset}
-  node sync-personas.js [options]
+  node scripts/sync-personas.js [options]
 
 ${colors.bright}Options:${colors.reset}
   --dry-run              Preview what would be copied without actually copying
@@ -291,9 +291,9 @@ ${colors.bright}Options:${colors.reset}
   --help, -h             Show this help message
 
 ${colors.bright}Examples:${colors.reset}
-  node sync-personas.js
-  node sync-personas.js --dry-run
-  node sync-personas.js --custom-path "C:\\Custom\\Path"
+  node scripts/sync-personas.js
+  node scripts/sync-personas.js --dry-run
+  node scripts/sync-personas.js --custom-path "C:\\Custom\\Path"
 `);
       process.exit(0);
     }
@@ -301,7 +301,7 @@ ${colors.bright}Examples:${colors.reset}
 
   try {
     // Build personas from source templates before copying
-    const buildScript = path.join(__dirname, 'personas', 'build-personas.js');
+    const buildScript = path.join(__dirname, 'build-personas.js');
     const buildArgs = dryRun ? ['--dry-run'] : [];
     console.log(`${colors.bright}${colors.cyan}=== Building Personas ===${colors.reset}\n`);
     execFileSync(process.execPath, [buildScript, ...buildArgs], { stdio: 'inherit' });
@@ -309,7 +309,7 @@ ${colors.bright}Examples:${colors.reset}
 
     const targetDir = customPath || getVSCodePromptsDir();
     syncPersonas(targetDir, dryRun);
-    validateLedgerFrontmatter(path.join(__dirname, 'personas', 'ledger'));
+    validateLedgerFrontmatter(path.join(__dirname, '..', 'personas', 'ledger'));
   } catch (error) {
     console.error(`${colors.red}Error:${colors.reset}`, error.message);
     process.exit(1);

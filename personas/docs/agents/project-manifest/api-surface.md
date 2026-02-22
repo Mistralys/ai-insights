@@ -1,6 +1,6 @@
 # Public API Surface
 
-## Build Script (`build-personas.js`)
+## Build Script (`scripts/build-personas.js`)
 
 ### Template Functions
 
@@ -128,7 +128,7 @@ Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Sour
 
 ---
 
-## Sync Script (`sync-personas.js`)
+## Sync Script (`scripts/sync-personas.js`)
 
 ### Functions
 

@@ -422,7 +422,7 @@ The `sync-version` script runs automatically before `npm run dev` via the `prede
 
 ### Checking Role Parity
 
-`sync-personas.js` (workspace root) maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `src/utils/constants.ts`. Run the parity check after adding or renaming any agent role:
+`scripts/sync-personas.js` maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `src/utils/constants.ts`. Run the parity check after adding or renaming any agent role:
 
 ```bash
 # Build first (outputs to dist/)
