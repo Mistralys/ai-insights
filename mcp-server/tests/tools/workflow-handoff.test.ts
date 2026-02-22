@@ -2,31 +2,30 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import * as _internal from '../../src/tools/workflow.js';
-import { LedgerStore } from '../../src/storage/ledger-store.js';
-import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
-import { now } from '../../src/utils/timestamp.js';
-import type { RootIndex } from '../../src/schema/root-index.js';
-import type { WorkPackageDetail } from '../../src/schema/work-package.js';
-
-const {
+import {
   getQaHandoff,
   getReviewerHandoff,
   getDocumentationHandoff,
   getDeveloperHandoff,
-  getDeveloperAction,
+  nextAgentFromStatus,
+  buildHandoffResponse,
+} from '../../src/tools/workflow-handoff.js';
+import { getDeveloperAction } from '../../src/tools/workflow-next-action.js';
+import {
   isMostRecentPipelineFail,
   isStalePipeline,
   STALE_PIPELINE_HOURS,
   getHandoffNotesForAgent,
   extractReworkAction,
-  PIPELINE_AGENT_MAP,
-  NEXT_AGENT_MAP,
-  nextAgentFromStatus,
-  buildHandoffResponse,
   buildHandoffPrompt,
   MAX_HANDOFF_DEPTH,
-} = _internal;
+} from '../../src/utils/workflow-helpers.js';
+import { PIPELINE_AGENT_MAP, NEXT_AGENT_MAP } from '../../src/utils/pipeline-maps.js';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
+import { now } from '../../src/utils/timestamp.js';
+import type { RootIndex } from '../../src/schema/root-index.js';
+import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
 /** Helper to parse the JSON from a handoff result (accepts plain objects or Promises) */
 async function parseResult(resultOrPromise: any): Promise<any> {

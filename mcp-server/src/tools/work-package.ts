@@ -311,6 +311,10 @@ const ClaimWorkPackageSchema = z.object({
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID to claim, format: WP-001, WP-002, etc.'),
   agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
+  override: z
+    .boolean()
+    .optional()
+    .describe('Set to true to claim a WP assigned to a different agent. Without this flag, claiming a WP assigned to another agent will be rejected.'),
 });
 
 async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
@@ -328,7 +332,20 @@ async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
         );
       }
 
-      // 2. Check dependencies
+      // 2. Assignment guard: reject cross-agent claims unless override is set
+      if (
+        wp.assigned_to &&
+        wp.assigned_to !== args.agent &&
+        !args.override
+      ) {
+        throw new Error(
+          `Cannot claim work package ${args.work_package_id}: it is assigned to "${wp.assigned_to}" but you are "${args.agent}".\n\n` +
+          `If you need to re-assign this WP, pass override: true. ` +
+          `Otherwise, only claim work packages assigned to your role.`
+        );
+      }
+
+      // 3. Check dependencies
       const depCheck = canStartWorkPackage(wp, root.work_packages);
       if (!depCheck.allowed) {
         throw new Error(
@@ -336,18 +353,18 @@ async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
         );
       }
 
-      // 3. Validate status transition (should always be valid at this point)
+      // 4. Validate status transition (should always be valid at this point)
       if (!isValidStatusTransition(wp.status, 'IN_PROGRESS')) {
         throw new Error(
           `Invalid status transition: ${wp.status} -> IN_PROGRESS`
         );
       }
 
-      // 4. Update work package
+      // 5. Update work package
       wp.status = 'IN_PROGRESS';
       wp.assigned_to = args.agent;
 
-      // 5. Update root index summary
+      // 6. Update root index summary
       const summary = root.work_packages.find(
         (s) => s.work_package_id === args.work_package_id
       );
@@ -657,7 +674,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_claim_work_package',
     {
-      description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Validates that all dependencies are COMPLETE before allowing the claim.',
+      description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Rejects claims when the WP is assigned to a different agent unless override: true is passed. Validates that all dependencies are COMPLETE before allowing the claim.',
       inputSchema: ClaimWorkPackageSchema.passthrough(),
     },
     claimWorkPackage as any

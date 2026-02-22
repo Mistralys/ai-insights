@@ -143,7 +143,7 @@ const timestamp = now(); // "2026-02-16 18:00:00"
 |------|----|--------------------|
 | `READY` | `IN_PROGRESS` | Dependencies must be `COMPLETE` |
 | `READY` | `BLOCKED` | None |
-| `IN_PROGRESS` | `COMPLETE` | All acceptance criteria must be met |
+| `IN_PROGRESS` | `COMPLETE` | All acceptance criteria must be met; Documentation agent only |
 | `IN_PROGRESS` | `BLOCKED` | None |
 | `BLOCKED` | `IN_PROGRESS` | None (implicitly means blocker resolved) |
 | `COMPLETE` | `IN_PROGRESS` | Triggers revision increment |
@@ -164,6 +164,34 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
   - Criterion 1
   - Criterion 2
 ```
+
+---
+
+### 9a. Only Documentation Agent Can Set COMPLETE
+
+**Rule:** The `ledger_update_work_package_status` tool rejects transitions to `COMPLETE` from any agent other than `"Documentation"` or `"Documentation Agent"`.
+
+**Enforcement:** Hard guard in `updateWorkPackageStatus()`. The error message includes the full workflow reminder (Developer → QA → Reviewer → Documentation → COMPLETE).
+
+**Rationale:** Enforces the 7-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly.
+
+---
+
+### 9b. Claiming a WP Assigned to Another Agent Requires Override
+
+**Rule:** `ledger_claim_work_package` rejects the claim when the work package's `assigned_to` field differs from the calling `agent` parameter, unless `override: true` is explicitly passed.
+
+**Enforcement:** Hard guard in `claimWorkPackage()` before dependency and status-transition checks.
+
+**Error message format:**
+```
+Cannot claim work package WP-002: it is assigned to "Documentation" but you are "Developer".
+
+If you need to re-assign this WP, pass override: true.
+Otherwise, only claim work packages assigned to your role.
+```
+
+**Rationale:** Prevents agents from silently re-assigning WPs outside their remit — the root cause of the 2026-02-22 workflow failure where the Developer agent claimed and completed a Documentation WP.
 
 ---
 

@@ -33,14 +33,19 @@ mcp-server/
 │   │   └── ledger-store.ts      # Central storage abstraction (reads, writes, dual-file sync)
 │   │
 │   ├── tools/                   # MCP tool implementations
-│   │   ├── help.ts              # ledger_help (inline documentation for all tools)
+│   │   ├── help.ts              # ledger_help — thin handler (schema + register); static strings live in help-content.ts
+│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 19 MCP tools
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
-│   │   └── workflow.ts          # ledger_get_next_action, ledger_get_next_actions, ledger_get_handoff_status
+│   │   ├── workflow.ts          # Thin aggregator — delegates register() to the three sub-modules; re-exports backward-compat symbols
+│   │   ├── workflow-batch-actions.ts  # ledger_get_next_actions (batch variant)
+│   │   ├── workflow-handoff.ts        # ledger_get_handoff_status
+│   │   └── workflow-next-action.ts    # ledger_get_next_action
 │   │
 │   └── utils/                   # Utility functions
+│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules
 │       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
@@ -66,6 +71,7 @@ mcp-server/
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
+    │   ├── claim-guard.test.ts  # Assignment guard for ledger_claim_work_package
     │   ├── pipeline.test.ts
     │   ├── work-package.test.ts
     │   └── workflow-handoff.test.ts
@@ -94,6 +100,8 @@ File I/O layer with atomicity and locking guarantees. `LedgerStore` is the prima
 ### `src/tools/`
 
 Each file exports a `register(server: McpServer)` function that registers one or more MCP tools. Tools are grouped by functional category (lifecycle, work packages, pipelines, observations, workflow).
+
+The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (ledger_get_next_action), `workflow-handoff.ts` (ledger_get_handoff_status), and `workflow-batch-actions.ts` (ledger_get_next_actions). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
 
 ### `tests/`
 

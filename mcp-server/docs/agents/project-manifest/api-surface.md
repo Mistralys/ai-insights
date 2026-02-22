@@ -101,10 +101,11 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
   project_path: string;
   work_package_id: string;
   agent: string;
+  override?: boolean;
 }) => Promise<MCPResult>
 ```
 
-Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met.
+Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed (see constraint 9b).
 
 #### `ledger_update_work_package_status`
 
@@ -569,7 +570,9 @@ type AgentRole = typeof AGENT_ROLES[number];
 ```
 
 **Importers:**
-- `src/tools/workflow.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
+- `src/tools/workflow-next-action.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
+- `src/tools/workflow-handoff.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
+- `src/tools/workflow-batch-actions.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/utils/agent-registry.ts` — imports `AGENT_ROLES` from `'./constants.js'`
 
 ---
@@ -664,7 +667,7 @@ function planFolderBasename(projectPath: string): string;
 Tool modules expose internal helpers and constants to unit tests via one of two patterns:
 
 - **`pipeline.ts`**: uses a manual `export const _internal = { ... }` object. Tests import with `import { _internal } from pipeline.js`.
-- **`workflow.ts`**: each helper and constant is exported directly (no `_internal` wrapper). Tests import with `import * as _internal from workflow.js` — a namespace import that automatically includes any new exports without manual sync. Note: ESM prohibits circular self-re-export, so `export * as _internal` is not possible; the namespace import pattern is the idiomatic ESM alternative.
+- **Workflow sub-modules**: helpers and constants are exported directly as named exports. Tests use direct named imports from the defining module (e.g. `import { getDeveloperAction } from workflow-next-action.js`). `workflow.ts` re-exports all symbols for backward compatibility, but tests should prefer importing from the defining module.
 
 **These internal exports are not part of the public API — do not call them from production code.**
 
@@ -684,19 +687,52 @@ export const _internal: {
 };
 ```
 
-### `src/tools/workflow.ts` — helper functions and routing constants
+### `src/utils/workflow-helpers.ts` — shared constants and pure helpers
 
-All of the following are named module-level exports (accessed via `import * as _internal from workflow.js` in tests):
+Exported from `src/utils/workflow-helpers.ts`. Consumed by all three workflow tool sub-modules and re-exported via `workflow.ts`.
 
 ```typescript
+export const STALE_PIPELINE_HOURS: number; // default 24
+export const MAX_HANDOFF_DEPTH: number;    // default 10
+
 // Returns true ONLY if the most recent pipeline of pipelineType has FAIL status.
-// A [FAIL, PASS] sequence correctly returns false — only an unrecovered FAIL
-// (i.e., the most recent pipeline for that type is still FAIL) triggers REWORK.
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean;
 
 // Returns true if a pipeline is IN_PROGRESS and was started more than 24 hours ago.
 export function isStalePipeline(pipeline: Pipeline): boolean;
 
+// Returns true if any dependency WP is not COMPLETE.
+export function isBlockedByDependencies(wp: WorkPackageDetail, allWps: WorkPackageDetail[]): boolean;
+
+// Returns true if the WP has a dependency blocker recorded.
+export function hasDependencyBlocked(wp: WorkPackageDetail): boolean;
+
+export function extractStalePipelineAction(wps: WorkPackageDetail[]): ActionResult | null;
+export function extractReworkAction(wps: WorkPackageDetail[]): ActionResult | null;
+
+// Returns the handoff notes in the WP addressed to agentName, or undefined if none.
+export function getHandoffNotesForAgent(wpDetail: WorkPackageDetail, agentName: string): string[] | undefined;
+
+// Returns the prompt string passed to the next agent during auto-handoff.
+export function buildHandoffPrompt(projectPath: string): string;
+
+// Display name maps used by workflow tool responses.
+export const agentNameMap: Record<string, string>;
+export const actionNameMap: Record<string, string>;
+export const reworkActionMap: Record<string, string>;
+export const pipelineAgentRoleMap: Record<string, string>;
+```
+
+### `src/tools/workflow-next-action.ts` — ledger_get_next_action internals
+
+```typescript
+// Developer-specific next-action computation (used inside ledger_get_next_action).
+export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+```
+
+### `src/tools/workflow-handoff.ts` — ledger_get_handoff_status internals
+
+```typescript
 // Handoff computation functions (one per agent role)
 export function getDeveloperHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getQaHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
@@ -704,28 +740,10 @@ export function getReviewerHandoff(wps: WorkPackageDetail[], root: RootIndex): H
 export function getDocumentationHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 
-// Developer-specific next-action computation (used inside ledger_get_next_action).
-export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
-
-export const STALE_PIPELINE_HOURS: number; // default 24
-
-// Returns the handoff notes in the WP addressed to agentName, or undefined if none.
-export function getHandoffNotesForAgent(wpDetail: WorkPackageDetail, agentName: string): string[] | undefined;
-
-export function extractStalePipelineAction(wps: WorkPackageDetail[]): ActionResult | null;
-export function extractReworkAction(wps: WorkPackageDetail[]): ActionResult | null;
-
-// Routing constants re-exported from pipeline-maps.ts for workflow-handoff tests.
-export { PIPELINE_AGENT_MAP, NEXT_AGENT_MAP } from '../utils/pipeline-maps.js';
-
 // Maps a workflow status string and currentAgent to the next agent role name.
-// Returns currentAgent for IN_PROGRESS, null for COMPLETE, and the target
-// role for all READY_FOR_* and BLOCKED statuses.
 export function nextAgentFromStatus(status: string, currentAgent: string): string | null;
 
 // Builds the standard handoff response payload (current_agent, next_agent, status).
-// When projectPath and store are provided, also appends auto_handoff when
-// all eligibility conditions are met (see ledger_get_handoff_status).
 export function buildHandoffResponse(
   currentAgent: string,
   status: string,
@@ -734,16 +752,11 @@ export function buildHandoffResponse(
   projectPath?: string,
   store?: LedgerStore
 ): Promise<Record<string, unknown>>;
-
-// Returns the prompt string passed to the next agent during auto-handoff.
-// Output format: "Project path: <projectPath>"
-// Intentionally minimal — the receiving agent's persona file contains full workflow instructions.
-export function buildHandoffPrompt(projectPath: string): string;
-
-// Maximum number of consecutive automatic handoffs before falling back to manual routing.
-// Value: 10. Stored as auto_handoff_depth in the root index.
-export const MAX_HANDOFF_DEPTH: number;
 ```
+
+### `src/tools/workflow.ts` — backward-compat aggregator
+
+Re-exports all public symbols from the three sub-modules and from `workflow-helpers.ts` so that any code (or old imports) targeting `workflow.js` continues to compile. Also re-exports `PIPELINE_AGENT_MAP` and `NEXT_AGENT_MAP` from `pipeline-maps.ts`.
 
 **`isMostRecentPipelineFail` semantics:**
 
