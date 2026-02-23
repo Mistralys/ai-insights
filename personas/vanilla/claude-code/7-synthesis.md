@@ -46,16 +46,20 @@ You will be provided with:
 
 ---
 
+```markdown
 ## Operational Protocol
 
-Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via MCP tools.
+Review all agent output documents in the plan folder.
 
-1. **Aggregator:** Collect all `PASS`/`FAIL` metrics, test coverage data, and completed artifacts. Aggregate failed metrics (blockers, failures and security concerns) in a dedicated section for better visibility.
-2. **Insight Mining:** Extract all **strategic**, **refactoring**, and **architectural** comments from the ledger (added by Reviewers/Validators).
-3. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
+1. **Aggregator:** Collect all pass/fail results, test coverage data, and completed artifacts from the QA and review reports. Aggregate failures and blockers in a dedicated section for better visibility.
+2. **Insight Mining:** Extract all **strategic**, **refactoring**, and **architectural** insights from the review and QA reports.
+3. **Plan Status:** Determine if the overall plan is complete or if unfinished work packages remain.
+
+```
 
 ---
 
+```markdown
 ## Output Format
 
 1. **Report Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) summarizing:
@@ -64,7 +68,9 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
     * **Next Steps:** What should the Planner/Manager focus on next?
 
-2. **Ledger Status:** Project completion is derived from all WPs reaching COMPLETE status (handled by upstream agents). Verify and report this status in the synthesis — do not attempt to set it directly.
+2. **Plan Status:** Review all work package documents to determine if all packages are complete. Report the overall status in the synthesis.
+
+```
 
 ---
 

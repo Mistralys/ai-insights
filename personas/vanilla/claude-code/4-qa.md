@@ -54,9 +54,12 @@ You must execute the following "Verification Stack" in order:
 
 ---
 
+```markdown
 ## Output Format
 
-Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with metrics, comments, and acceptance criteria updates — the tool's parameter descriptions document the required shapes and allowed values.
+Add your QA findings, metrics, and acceptance criteria results directly to the **Work Package document** as described in the Workflow section below.
+
+```
 
 ---
 

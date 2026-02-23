@@ -56,9 +56,12 @@ If you encounter a system-level issue that is not caused by your own mistake (e.
 
 ---
 
+```markdown
 ## Output Format
 
-Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with summary and comments — the tool's parameter descriptions document the required shapes and allowed values.
+Add your documentation summary and comments directly to the **Work Package document** as described in the Workflow section below.
+
+```
 
 ---
 
