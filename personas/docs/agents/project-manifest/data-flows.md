@@ -2,20 +2,26 @@
 
 ## 1. Build Pipeline (`scripts/build-personas.js`)
 
-The primary data flow: transform source templates into final persona Markdown files. A single `build-personas.js` run may execute **one or two target passes** controlled by the `--target` CLI flag.
+The primary data flow: transform source templates into final persona Markdown files. A single `build-personas.js` run executes **one or more suite × target combinations** controlled by the `--suite` and `--target` CLI flags.
 
 ```
-CLI flag: --target (vscode | claude-code | all)  [default: all]
+CLI flags:
+  --suite  ledger | vanilla | standalone | all | comma-separated  [default: ledger]
+  --target vscode | claude-code | all                             [default: all]
          │
          ▼
-   buildForTarget() called once per active target
+   expandSuites() resolves SUITES_TO_BUILD (deduplicated list)
+         │
+   For each suite in SUITES_TO_BUILD AND each active target:
+         ▼
+   buildForTarget(suite, target) called once per suite + target pair
 
-For each target pass AND each per-persona YAML (1-planner.yaml … 7-synthesis.yaml):
+For each suite + target AND each per-persona YAML:
 
-  ┌──────────────────┐     ┌─────────────────────┐
-  │  _shared.yaml    │     │  N-name.yaml         │
-  │  (shared meta)   │     │  (per-persona meta)  │
-  └────────┬─────────┘     └──────────┬───────────┘
+  ┌──────────────────┐     ┌────────────────────────┐
+  │  _shared.yaml    │     │  N-name.yaml /         │
+  │  (shared meta)   │     │  slug.yaml             │
+  └────────┬─────────┘     └──────────┬─────────────┘
            │                          │
            └──────────┬───────────────┘
                       ▼
@@ -25,77 +31,90 @@ For each target pass AND each per-persona YAML (1-planner.yaml … 7-synthesis.y
               └───────┬───────┘
                       │
                       ▼
-              ┌───────────────┐
-              │ Select        │  FRONTMATTER_VSCODE  (--target vscode)
-              │ Frontmatter   │  FRONTMATTER_CLAUDE_CODE (--target claude-code)
-              └───────┬───────┘     ┌─────────────────┐
-                      │             │ src/content/     │
-                      │             │ N-name.md        │
-                      │             │ (body template)  │
-                      │             └────────┬──────────┘
-                      │                      │
-                      │                      ▼
-                      │             ┌───────────────────┐     ┌──────────────┐
-                      │             │ 1. resolvePartials│◄────│ src/partials/ │
-                      │             └────────┬──────────┘     │ *.md         │
-                      │                      ▼                └──────────────┘
-                      │             ┌───────────────────┐
-                      │             │ 2. resolveCondi-  │
-                      │             │    tionals        │
-                      │             └────────┬──────────┘
-                      │                      ▼
-                      │             ┌───────────────────┐
-                      │             │ 3. resolveVars    │
-                      │             └────────┬──────────┘
-                      │                      ▼
-                      │             ┌───────────────────┐
-                      │             │ 4. collapseBlank  │
-                      │             └────────┬──────────┘
-                      │                      │
-                      └──────────┬───────────┘
-                                 ▼
-                      ┌──────────────────────┐
-                      │ Assemble:            │
-                      │ frontmatter +        │
-                      │ AUTO-GENERATED hdr + │
-                      │ body                 │
-                      └──────────┬───────────┘
-                                 ▼
-                  ┌──────────────────────────────┐
-                  │ Write to target directory     │
-                  │  --target vscode:             │
-                  │    ledger/vs-code/N-name.md   │
-                  │  --target claude-code:        │
-                  │    ledger/claude-code/N-name.md│
-                  └──────────────────────────────┘
+              ┌───────────────┐   Based on suite + target:
+              │ Select        │   ledger   + vscode      → FRONTMATTER_LEDGER_VSCODE
+              │ Frontmatter   │   ledger   + claude-code → FRONTMATTER_LEDGER_CC
+              └───────┬───────┘   vanilla  + vscode      → FRONTMATTER_VANILLA_VSCODE
+                      │           vanilla  + claude-code → FRONTMATTER_VANILLA_CC
+                      │       ┌─────────────────┐   standalone + vscode → FRONTMATTER_STANDALONE_VSCODE
+                      │       │ src/content/    │   standalone + cc     → FRONTMATTER_STANDALONE_CC
+                      │       │ N-name.md /     │
+                      │       │ slug.md         │
+                      │       └────────┬────────┘
+                      │                │
+                      │                ▼
+                      │       ┌──────────────────┐    ┌──────────────────────────┐
+                      │       │ 1. resolvePartials│◄───│ loadPartials(suiteConfig)│
+                      │       └────────┬──────────┘    │ Base: shared/partials/  │
+                      │                ▼               │ Override: src/partials/ │
+                      │       ┌──────────────────┐    └──────────────────────────┘
+                      │       │ 2. resolveCondi- │
+                      │       │    tionals       │
+                      │       └────────┬──────────┘
+                      │                ▼
+                      │       ┌──────────────────┐
+                      │       │ 3. resolveVars   │
+                      │       └────────┬──────────┘
+                      │                ▼
+                      │       ┌──────────────────┐
+                      │       │ 4. collapseBlank │
+                      │       └────────┬──────────┘
+                      │                │
+                      └──────┬─────────┘
+                             ▼
+              ┌──────────────────────────┐
+              │ Assemble:                │
+              │ frontmatter +            │
+              │ AUTO-GENERATED header +  │
+              │ body                     │
+              └──────────────┬───────────┘
+                             ▼
+        ┌────────────────────────────────────────┐
+        │ Write to suite-specific output dir     │
+        │  ledger    + vscode:                   │
+        │    personas/ledger/vs-code/            │
+        │  ledger    + claude-code:              │
+        │    personas/ledger/claude-code/        │
+        │  vanilla   + vscode:                   │
+        │    personas/vanilla/vs-code/           │
+        │  vanilla   + claude-code:              │
+        │    personas/vanilla/claude-code/       │
+        │  standalone + vscode:                  │
+        │    personas/standalone/vs-code/        │
+        │  standalone + claude-code:             │
+        │    personas/standalone/claude-code/    │
+        └────────────────────────────────────────┘
 ```
 
 ### Merge Context Details
 
-The context object is assembled in this priority order (later overrides earlier):
+The context object is assembled in this priority order (later overrides earlier). Some fields are suite-specific.
 
 ```javascript
 context = {
-  // Layer 1: Shared metadata
+  // Layer 1: Shared metadata (from _shared.yaml)
   author:              _shared.author,
   last_updated:        _shared.last_updated,
-  mcp_server_name:     _shared.mcp_server_name,
+  mcp_server_name:     _shared.mcp_server_name,   // ledger only
   cc_permission_mode:  _shared.cc_permission_mode,
   cc_model:            _shared.cc_model,
   cc_memory:           _shared.cc_memory,
 
-  // Layer 2: Per-persona metadata (all fields from N-name.yaml)
+  // Layer 2: Per-persona metadata (all fields from N-name.yaml or slug.yaml)
   ...persona,
 
   // Layer 3: Computed values (cannot be overridden by YAML)
   version,             // persona.version ?? _shared.default_version
-  total,               // _shared.roster.length (always 7)
-  tools_json,          // serializeTools(persona.tools)
-  cc_tools_json,       // serializeTools(persona.cc_tools ?? _shared.default_cc_tools)
-  roster_rendered,     // renderRoster(_shared.roster, persona.number)
-  mcp_tools_table,     // renderMcpToolsTable(persona.mcp_tools) or ''
-  cc_name,             // persona.cc_file_name.replace(/\.md$/, '')
-  cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation")
+  total,               // _shared.roster.length (ledger/vanilla: 7; standalone: not used)
+  tools_json,          // serializeTools(persona.tools)         — ledger only
+  tools_list,          // serializeToolsList(persona.tools)     — vanilla + standalone
+  cc_tools_json,       // serializeTools(persona.cc_tools ?? _shared.default_cc_tools)  — ledger only
+  cc_tools_list,       // serializeToolsList(same)             — vanilla + standalone
+  roster_rendered,     // renderRoster(_shared.roster, persona.number) — ledger + vanilla
+  mcp_tools_table,     // renderMcpToolsTable(persona.mcp_tools) or '' — ledger only
+  cc_name,             // persona.cc_file_name.replace(/\.md$/, '') — all suites
+  cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation") — ledger + vanilla
+  role_title,          // roster entry title for this agent — vanilla only
 
   // Layer 4: Target-pass flags (set by buildForTarget)
   target_vscode,       // true when target = 'vscode'
@@ -116,8 +135,9 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
              │
              ▼
   ┌──────────────────────────┐
-  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js [--target] [--dry-run]
-  │                          │  Generates personas in ledger/vs-code/ and/or ledger/claude-code/
+  │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone [--target] [--dry-run]
+  │                          │  Always rebuilds both ledger and standalone output before syncing.
+  │                          │  Vanilla suite is intentionally excluded from this build step.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐

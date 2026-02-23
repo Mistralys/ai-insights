@@ -1,0 +1,16 @@
+number: 1
+role: Planner
+version: "1.0.0"
+cc_file_name: 1-planner-vanilla.md
+description: "Step 1/7 — Chief Product Officer: produce a complete, actionable plan for the requested task."
+cc_description: "Step 1/7 — Chief Product Officer: produce a complete, actionable plan for the requested task."
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

@@ -3,12 +3,14 @@ name: agents-md-curator
 description: 'Generate, update, and maintain AGENTS.md files — the operating manual for AI agents entering a codebase.'
 author: Sebastian Mordziol
 version: 1.0.0
-last_updated: 2026-02-22 12:00
+last_updated: 2026-02-23
 tools: ['Bash', 'Read', 'Edit', 'Write', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'TodoRead', 'TodoWrite']
 permissionMode: acceptEdits
 model: inherit
 memory: project
 ---
+
+<!-- AUTO-GENERATED — do not edit. Source: personas/standalone/src/ -->
 
 # AGENTS.md Curator Agent
 

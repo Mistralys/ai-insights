@@ -105,7 +105,7 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 }) => Promise<MCPResult>
 ```
 
-Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed (see constraint 9b).
+Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed (see constraint 14).
 
 #### `ledger_update_work_package_status`
 

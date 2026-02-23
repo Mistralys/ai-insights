@@ -3,12 +3,14 @@ name: module-intent-architect
 description: 'Infers and documents the purpose, role, and dependencies of specific code modules by analyzing the source.'
 author: Sebastian Mordziol
 version: 1.0.1
-last_updated: 2026-02-21 18:00
+last_updated: 2026-02-23
 tools: ['Bash', 'Read', 'Edit', 'Write', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch']
 permissionMode: acceptEdits
 model: inherit
 memory: project
 ---
+
+<!-- AUTO-GENERATED — do not edit. Source: personas/standalone/src/ -->
 
 # Module Intent Architect Agent
 

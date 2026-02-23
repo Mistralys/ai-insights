@@ -359,6 +359,60 @@ function syncVSCode(dryRun = false, customPath = null) {
 }
 
 /**
+ * Validate VS Code frontmatter for standalone personas: requires name and
+ * vs_file_name. Standalone personas do not require a 'role' field.
+ * @param {string} dir - Absolute path to personas/standalone/vs-code/
+ */
+function validateStandaloneVSCodeFrontmatter(dir) {
+  if (!fs.existsSync(dir)) return;
+
+  const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+  console.log(`\n${colors.bright}${colors.cyan}=== Standalone VS Code Frontmatter Validation ===${colors.reset}`);
+
+  let warningCount = 0;
+
+  for (const file of files) {
+    const filePath = path.join(dir, file);
+    const fields = parseFrontmatter(filePath);
+    const relPath = path.join('standalone', 'vs-code', file);
+
+    if (!fields) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: could not parse frontmatter${colors.reset}`);
+      warningCount++;
+      continue;
+    }
+
+    if (!fields.name) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'name:' field${colors.reset}`);
+      warningCount++;
+    }
+
+    if (!fields.vs_file_name) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'vs_file_name:' field${colors.reset}`);
+      warningCount++;
+    }
+  }
+
+  if (warningCount === 0) {
+    console.log(`${colors.green}✓ All ${files.length} standalone VS Code persona file(s) passed frontmatter validation${colors.reset}`);
+  } else {
+    console.log(`${colors.yellow}${warningCount} frontmatter warning(s) found — sync was not blocked${colors.reset}`);
+  }
+}
+
+/**
+ * Sync standalone VS Code personas: personas/standalone/vs-code/ → VS Code prompts directory.
+ * @param {boolean} dryRun
+ * @param {string|null} customPath - Override the default VS Code prompts directory
+ */
+function syncStandaloneVSCode(dryRun = false, customPath = null) {
+  const sourceDir = path.join(__dirname, '..', 'personas', 'standalone', 'vs-code');
+  const targetDir = customPath || getVSCodePromptsDir();
+  syncFromDir(sourceDir, targetDir, extractVSFileName, 'Standalone VS Code', dryRun);
+  validateStandaloneVSCodeFrontmatter(sourceDir);
+}
+
+/**
  * Sync Claude Code personas: personas/ledger/claude-code/ → ~/.claude/agents/.
  * @param {boolean} dryRun
  */
@@ -431,7 +485,7 @@ ${colors.bright}Examples:${colors.reset}
   try {
     // Build personas from source templates, forwarding --target and --dry-run
     const buildScript = path.join(__dirname, 'build-personas.js');
-    const buildArgs = [];
+    const buildArgs = ['--suite', 'ledger,standalone'];
     // NOTE: --dry-run is forwarded to build-personas.js, which previews but
     // does not regenerate output files. syncFromDir() then reads from the
     // existing output directories. On a clean checkout where output dirs
@@ -446,6 +500,8 @@ ${colors.bright}Examples:${colors.reset}
     // Sync to the requested target(s)
     if (target === 'vscode' || target === 'all') {
       syncVSCode(dryRun, customPath);
+      console.log();
+      syncStandaloneVSCode(dryRun, customPath);
       console.log();
     }
     if (target === 'claude-code' || target === 'all') {

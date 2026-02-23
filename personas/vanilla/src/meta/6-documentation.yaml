@@ -1,0 +1,16 @@
+number: 6
+role: Documentation
+version: "1.0.0"
+cc_file_name: 6-documentation-vanilla.md
+description: "Step 6/7 — Technical Writing Manager: update documentation to reflect completed changes."
+cc_description: "Step 6/7 — Technical Writing Manager: update documentation to reflect completed changes."
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

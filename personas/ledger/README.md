@@ -458,6 +458,9 @@ node scripts/build-personas.js
 node scripts/build-personas.js --target vscode
 node scripts/build-personas.js --target claude-code
 
+# Verify no unresolved {{…}} tokens remain in any generated file
+node scripts/build-personas.js --strict --suite all
+
 # Build + sync to both IDEs (VS Code prompts folder + ~/.claude/agents/)
 node scripts/sync-personas.js
 
@@ -466,7 +469,9 @@ node scripts/sync-personas.js --target vscode
 node scripts/sync-personas.js --target claude-code
 ```
 
-For the full build system documentation — source layout, metadata schema, template syntax, and conventions — see the [Personas Project Manifest](docs/agents/project-manifest/README.md).
+> `--strict` exits with code 1 if any unresolved `{{…}}` markers remain after the build. Use it in CI or pre-commit hooks. Full flag documentation is in the [Personas Project Manifest](../docs/agents/project-manifest/README.md).
+
+For the full build system documentation — source layout, metadata schema, template syntax, and conventions — see the [Personas Project Manifest](../docs/agents/project-manifest/README.md).
 
 ---
 
@@ -474,7 +479,7 @@ For the full build system documentation — source layout, metadata schema, temp
 
 1. **Try the workflow**: Start with a small feature to familiarize yourself
 2. **Customize personas**: Adapt the agent prompts to your team's conventions
-3. **Build system details**: See the [Personas Project Manifest](docs/agents/project-manifest/README.md) for template syntax, metadata schema, and source layout
+3. **Build system details**: See the [Personas Project Manifest](../docs/agents/project-manifest/README.md) for template syntax, metadata schema, and source layout
 4. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)
 5. **Explore MCP tools**: The MCP server exposes tools for project lifecycle, work packages, pipelines, observations, and workflow coordination
 6. **Share feedback**: Document what works and what doesn't for your use cases

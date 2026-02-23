@@ -1,0 +1,17 @@
+slug: manifest-curator
+name: "Manifest Curator v1.0.3"
+description: "Create, update, and audit project manifests — the source of truth for AI agent sessions."
+vs_file_name: manifest-curator.agent.md
+cc_file_name: manifest-curator.md
+version: "1.0.3"
+last_updated: "2026-02-23"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

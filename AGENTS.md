@@ -148,7 +148,11 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 |-------------|----------|
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
 | `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
+| `personas/vanilla/src/` | Personas manifest |
+| `personas/standalone/src/` | Personas manifest |
 | `personas/ledger/vs-code/*.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/vanilla/vs-code/*.md`, `personas/vanilla/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/standalone/vs-code/*.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
 
 ### Anti-Patterns
@@ -172,7 +176,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | **Untested code path** | Proceed with caution. Add test recommendation. | SHOULD |
 | **Cross-project role mismatch** | Verify `AGENT_ROLES`, `KNOWN_ROLES`, and persona YAML are aligned. Flag any divergence. | MUST |
 | **Unclear which manifest applies** | If change touches both sub-projects, consult both. When in doubt, default to the MCP server manifest. | SHOULD |
-| **Generated file needs change** | Never edit generated persona files. Trace back to `personas/ledger/src/` and change the template source. | MUST |
+| **Generated file needs change** | Never edit generated persona files. Trace back to the relevant suite source (`personas/ledger/src/`, `personas/vanilla/src/`, or `personas/standalone/src/`) and change the template source. | MUST |
 | **Breaking change proposed** | Document in work package. Flag for review. Never implement silently. | MUST |
 | **Dependency not in tech stack** | Justify before adding. Update relevant `tech-stack.md`. | SHOULD |
 

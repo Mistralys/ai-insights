@@ -48,7 +48,7 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 
 ---
 
-### 3a. Plan Folders Must Remain Human-Readable Markdown Only
+### 4. Plan Folders Must Remain Human-Readable Markdown Only
 
 **Rule:** No machine-generated files (JSON, lock files, etc.) may be written inside plan folders.
 
@@ -56,7 +56,7 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 
 ---
 
-### 3b. `.meta.json` Must Be Written Under the Project Lock
+### 5. `.meta.json` Must Be Written Under the Project Lock
 
 **Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync).
 
@@ -64,7 +64,7 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 
 ---
 
-### 3c. Central Ledger Root Is Resolved Once at Startup
+### 6. Central Ledger Root Is Resolved Once at Startup
 
 **Rule:** `resolveLedgerRoot()` is called once at server startup. The `--ledger-dir <path>` CLI argument overrides the default `{mcp-server}/storage/ledger/` location. The resolved path is logged to stderr.
 
@@ -78,7 +78,7 @@ node dist/index.js --ledger-dir /custom/path/to/ledger
 
 ---
 
-### 4. STDIO Logging Discipline
+### 7. STDIO Logging Discipline
 
 **Rule:** Never log to `stdout`. All logs must go to `stderr`.
 
@@ -97,7 +97,7 @@ console.log('[project-ledger-mcp] Server started');
 
 ## Schema Constraints
 
-### 5. Work Package IDs Must Follow WP-### Format
+### 8. Work Package IDs Must Follow WP-### Format
 
 **Rule:** All work package IDs must match the regex `/^WP-\d{3}$/` (e.g., `WP-001`, `WP-042`, `WP-123`).
 
@@ -105,7 +105,7 @@ console.log('[project-ledger-mcp] Server started');
 
 ---
 
-### 6. Timestamps Must Use YYYY-MM-DD HH:MM:SS Format
+### 9. Timestamps Must Use YYYY-MM-DD HH:MM:SS Format
 
 **Rule:** All timestamp fields use this exact format. Always use the `now()` utility function.
 
@@ -123,7 +123,7 @@ const timestamp = now(); // "2026-02-16 18:00:00"
 
 ---
 
-### 7. JSON Must Be Pretty-Printed
+### 10. JSON Must Be Pretty-Printed
 
 **Rule:** All JSON files written by the server must use 2-space indentation and include a trailing newline.
 
@@ -135,7 +135,7 @@ const timestamp = now(); // "2026-02-16 18:00:00"
 
 ## Business Rule Constraints
 
-### 8. Status Transitions Are Enforced
+### 11. Status Transitions Are Enforced
 
 **Rule:** Work package status transitions must follow the legal transition table:
 
@@ -152,7 +152,7 @@ const timestamp = now(); // "2026-02-16 18:00:00"
 
 ---
 
-### 9. COMPLETE Requires All Acceptance Criteria Met
+### 12. COMPLETE Requires All Acceptance Criteria Met
 
 **Rule:** A work package cannot be marked `COMPLETE` unless all acceptance criteria have `met: true`.
 
@@ -167,7 +167,7 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 
 ---
 
-### 9a. Only Documentation Agent Can Set COMPLETE
+### 13. Only Documentation Agent Can Set COMPLETE
 
 **Rule:** The `ledger_update_work_package_status` tool rejects transitions to `COMPLETE` from any agent other than `"Documentation"` or `"Documentation Agent"`.
 
@@ -177,7 +177,7 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 
 ---
 
-### 9b. Claiming a WP Assigned to Another Agent Requires Override
+### 14. Claiming a WP Assigned to Another Agent Requires Override
 
 **Rule:** `ledger_claim_work_package` rejects the claim when the work package's `assigned_to` field differs from the calling `agent` parameter, unless `override: true` is explicitly passed.
 
@@ -195,7 +195,7 @@ Otherwise, only claim work packages assigned to your role.
 
 ---
 
-### 10. Dependencies Must Exist Before Creation
+### 15. Dependencies Must Exist Before Creation
 
 **Rule:** When creating a work package, all dependency IDs must already exist in the root index.
 
@@ -205,7 +205,7 @@ Otherwise, only claim work packages assigned to your role.
 
 ---
 
-### 11. BLOCKED Status Requires Blocker Object
+### 16. BLOCKED Status Requires Blocker Object
 
 **Rule:** When transitioning a work package to `BLOCKED`, the `blocked_by` field must be provided.
 
@@ -213,7 +213,7 @@ Otherwise, only claim work packages assigned to your role.
 
 ---
 
-### 12. Pipelines Require IN_PROGRESS Work Package
+### 17. Pipelines Require IN_PROGRESS Work Package
 
 **Rule:** A pipeline can only be started on a work package with status `IN_PROGRESS`.
 
@@ -223,7 +223,7 @@ Otherwise, only claim work packages assigned to your role.
 
 ---
 
-### 13. No Duplicate IN_PROGRESS Pipelines
+### 18. No Duplicate IN_PROGRESS Pipelines
 
 **Rule:** Only one pipeline of a given type can be `IN_PROGRESS` at a time for a work package.
 
@@ -233,7 +233,7 @@ Otherwise, only claim work packages assigned to your role.
 
 ---
 
-### 13a. Pipelines Must Follow the Required Ordering
+### 19. Pipelines Must Follow the Required Ordering
 
 **Rule:** Pipelines must be started in order: `implementation` → `qa` → `code-review` → `documentation`. Attempting to start a pipeline without the prerequisite having a `PASS` status throws a descriptive error.
 
@@ -249,7 +249,7 @@ Pipeline order: implementation → qa → code-review → documentation.
 
 ---
 
-### 13b. Pipeline Start Auto-Updates `assigned_to`
+### 20. Pipeline Start Auto-Updates `assigned_to`
 
 **Rule:** When a pipeline starts, the work package's `assigned_to` field is automatically updated to the responsible agent according to the `PIPELINE_AGENT_MAP`:
 
@@ -264,7 +264,7 @@ Pipeline order: implementation → qa → code-review → documentation.
 
 ---
 
-### 13c. Rework Count Increments on Pipeline Retry
+### 21. Rework Count Increments on Pipeline Retry
 
 **Rule:** When `ledger_start_pipeline` is called for a pipeline type that already has a previous `FAIL` pipeline, the work package's `rework_count` field is automatically incremented.
 
@@ -279,7 +279,7 @@ Pipeline order: implementation → qa → code-review → documentation.
 
 ---
 
-### 13d. Handoff Notes Are Routed via NEXT_AGENT_MAP
+### 22. Handoff Notes Are Routed via NEXT_AGENT_MAP
 
 **Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined automatically by `NEXT_AGENT_MAP`:
 
@@ -304,7 +304,7 @@ interface HandoffNote {
 
 ---
 
-### 14. Pipeline Comments Have No Agent Field
+### 23. Pipeline Comments Have No Agent Field
 
 **Rule:** Pipeline-level comments do not include an `agent` field. The agent is inferred from the pipeline type.
 
@@ -318,7 +318,7 @@ interface HandoffNote {
 
 ---
 
-### 15. Incident Comments Require Context
+### 24. Incident Comments Require Context
 
 **Rule:** When adding a project comment with `type: 'incident'`, the `context` field is required.
 
@@ -335,7 +335,7 @@ interface HandoffNote {
 
 ## Concurrency Constraints
 
-### 16. Lock Timeout Is 10 Seconds
+### 25. Lock Timeout Is 10 Seconds
 
 **Rule:** File locks have a stale timeout of 10 seconds. Locks older than this are considered abandoned and can be forcibly acquired.
 
@@ -343,7 +343,7 @@ interface HandoffNote {
 
 ---
 
-### 17. Lock Retry Count Is 5
+### 26. Lock Retry Count Is 5
 
 **Rule:** Lock acquisition is retried up to 5 times with 200ms intervals before failing.
 
@@ -353,7 +353,7 @@ interface HandoffNote {
 
 ## Testing Constraints
 
-### 18. Test Timeout Is 10 Seconds
+### 27. Test Timeout Is 10 Seconds
 
 **Rule:** All Vitest tests have a default timeout of 10 seconds.
 
@@ -363,7 +363,7 @@ interface HandoffNote {
 
 ---
 
-### 19. Prefer Real Implementations Over `vi.mock` for Agent Registry and Ledger Tests
+### 28. Prefer Real Implementations Over `vi.mock` for Agent Registry and Ledger Tests
 
 **Rule:** When writing tests that involve the agent registry (`discoverAgents`, `isRegistryLoaded`, `getAgentHandle`) or `LedgerStore`, use the real implementations backed by a temporary directory rather than `vi.mock`.
 
@@ -391,7 +391,7 @@ afterEach(async () => {
 
 ---
 
-### 20. Always Supply an Isolated Ledger Root When Constructing `LedgerStore` in Tests
+### 29. Always Supply an Isolated Ledger Root When Constructing `LedgerStore` in Tests
 
 **Rule:** Every test file that constructs a `LedgerStore` **must** pass a `mkdtemp`-based temporary directory as the second `ledgerRoot` argument. Omitting the argument (or passing the real `storage/ledger/` path) causes the store to write to production storage, accumulating stale artifact directories across CI and local runs.
 
@@ -420,7 +420,7 @@ const store = new LedgerStore('/absolute/path/to/my-plan');
 
 ---
 
-### 21. `afterEach` Teardown Variables Must Be Declared in the Same `describe` Scope
+### 30. `afterEach` Teardown Variables Must Be Declared in the Same `describe` Scope
 
 **Rule:** Variables cleaned up in an `afterEach` block (e.g. a temp directory path) must be declared in the same `describe` block's scope, not in an outer scope. Referencing a variable from an outer scope is a silent bug — the inner `afterEach` compiles and runs but cleans up the *outer* variable, leaving the inner temp directory on disk.
 
@@ -460,7 +460,7 @@ describe('nested', () => {
 
 ## Module System Constraints
 
-### 19. All Imports Must Use .js Extensions
+### 31. All Imports Must Use .js Extensions
 
 **Rule:** Even when importing TypeScript files, use `.js` extensions.
 
@@ -477,7 +477,7 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ---
 
-### 20. No Default Exports
+### 32. No Default Exports
 
 **Convention:** All exports are named exports. No default exports are used.
 
@@ -487,7 +487,7 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ## Validation Constraints
 
-### 21. All Reads Are Validated
+### 33. All Reads Are Validated
 
 **Rule:** Every file read operation validates the JSON against a Zod schema before returning data.
 
@@ -500,7 +500,7 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ---
 
-### 22. All Writes Are Validated
+### 34. All Writes Are Validated
 
 **Rule:** Every file write operation validates data against a Zod schema before writing.
 
@@ -512,7 +512,7 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ## Counter Self-Healing
 
-### 23. Project Status Tool Auto-Corrects Counters and Project Status
+### 35. Project Status Tool Auto-Corrects Counters and Project Status
 
 **Rule:** `ledger_get_project_status` recomputes `total_work_packages`, `pending_work_packages`, and the project `status` from the `work_packages` array on every invocation.
 
@@ -529,7 +529,7 @@ import { LedgerStore } from '../storage/ledger-store';
 
 ## Development & Build Constraints
 
-### 16. Changelog Is the Source of Truth for Versioning
+### 36. Changelog Is the Source of Truth for Versioning
 
 **Rule:** All version changes must be made in `changelog.md` first, then synced to `package.json`.
 
@@ -561,7 +561,7 @@ npm run sync-version
 
 ---
 
-### 17. Version Sync Runs Automatically Before Dev
+### 37. Version Sync Runs Automatically Before Dev
 
 **Rule:** The `predev` hook ensures version is synced before running the development server.
 
@@ -575,7 +575,7 @@ npm run sync-version
 
 ---
 
-### 18. Server Version Displays at Startup
+### 38. Server Version Displays at Startup
 
 **Rule:** The MCP server logs its version to STDERR on startup.
 

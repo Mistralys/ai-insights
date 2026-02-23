@@ -1,0 +1,17 @@
+slug: agents-md-curator
+name: "AGENTS.md Curator v1.0.0"
+description: "Generate, update, and maintain AGENTS.md files — the operating manual for AI agents entering a codebase."
+vs_file_name: agents-md-curator.agent.md
+cc_file_name: agents-md-curator.md
+version: "1.0.0"
+last_updated: "2026-02-23"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

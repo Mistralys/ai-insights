@@ -17,11 +17,41 @@ This is a structured multi-agent workflow for systematic software development. U
 
 1. **Planner Agent**: Creates high-level strategy and implementation plan
 2. **Project Manager Agent**: Breaks plan into work packages
-3. **Developer Agent**: Implements work packages and creates implementation summaries
-4. **Validator Agent**: Verifies acceptance criteria and runs tests
+3. **Staff Software Engineer**: Implements work packages and creates implementation summaries
+4. **SDET**: Verifies acceptance criteria and runs tests
 5. **Reviewer Agent**: Performs code quality and architecture review
 6. **Documentation Agent**: Updates project documentation
 7. **Synthesis Agent**: Consolidates all reports into final project status
+
+---
+
+## Canonical Output Directories
+
+> **The numbered flat persona files (`1-planner.md` … `7-synthesis.md`) no longer exist in this directory.**
+> They have been superseded by the build system. Use the output directories below as your source of truth:
+>
+> | IDE | Directory | Description |
+> |-----|-----------|-------------|
+> | VS Code | [`vs-code/`](vs-code/) | Persona files with VS Code–compatible frontmatter |
+> | Claude Code | [`claude-code/`](claude-code/) | Persona files with Claude Code frontmatter (`name`, `tools`, `permissionMode`) |
+
+**Quick commands:**
+
+```bash
+# Install build dependency (once)
+cd personas && npm install
+
+# Build all personas (both VS Code and Claude Code targets)
+node scripts/build-personas.js --suite vanilla
+
+# Verify no unresolved {{…}} tokens remain in any generated file
+node scripts/build-personas.js --strict --suite vanilla
+
+# Build + sync to both IDEs (VS Code prompts folder + ~/.claude/agents/)
+node scripts/sync-personas.js --suite vanilla
+```
+
+> `--strict` exits with code 1 if any unresolved `{{…}}` markers remain after the build. Full flag documentation is in the [Personas Project Manifest](../docs/agents/project-manifest/README.md).
 
 ---
 
@@ -29,14 +59,16 @@ This is a structured multi-agent workflow for systematic software development. U
 
 **For experienced users** - follow these steps (expand sections below for detailed instructions):
 
+> **Choose your IDE:** [`vs-code/`](vs-code/) for VS Code · [`claude-code/`](claude-code/) for Claude Code
+
 1. **[Setup](#prerequisites)**: Create `/docs/agents/plans/` directory in your project
-2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](1-planner.md) → Describe feature → Review plan
-3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](2-project-manager.md) → Review work packages
-4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work packages → Paste [3-developer.md](3-developer.md) → Specify work package → Review code & implementation summary
-5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Open work packages & impl summary → Paste [4-qa.md](4-qa.md) → Review QA report
-6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Open QA report & code → Paste [5-reviewer.md](5-reviewer.md) → Review findings
-7. **[Documentation](#stage-6-documentation-update)**: New chat → Open all reports → Paste [6-documentation.md](6-documentation.md) → Review updates
-8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Open all documents → Paste [7-synthesis.md](7-synthesis.md) → Review final report
+2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste the Stage 1 persona → Describe feature → Review plan
+3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste the Stage 2 persona → Review work packages
+4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work packages → Paste the Stage 3 persona → Specify work package → Review code & implementation summary
+5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Open work packages & impl summary → Paste the Stage 4 persona → Review QA report
+6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Open QA report & code → Paste the Stage 5 persona → Review findings
+7. **[Documentation](#stage-6-documentation-update)**: New chat → Open all reports → Paste the Stage 6 persona → Review updates
+8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Open all documents → Paste the Stage 7 persona → Review final report
 
 **Repeat steps 4-6** for each work package. See detailed instructions below for tips, troubleshooting, and best practices.
 
@@ -68,7 +100,7 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** in your AI IDE
 2. **Open relevant context files**: Project manifest, existing docs, related code
-3. **Copy and send** the contents of [1-planner.md](1-planner.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Describe your feature or task** when prompted
 5. **Review and refine** the plan with the agent
 6. **Verify output**: Plan saved to `/docs/agents/plans/YYYY-MM-DD-feature-name.md`
@@ -87,7 +119,7 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** (fresh context)
 2. **Open the plan document** created in Stage 1
-3. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Review the work packages** for logical sequencing and dependencies
 5. **Verify output**: Work packages document saved to `/docs/agents/plans/{plan-name}-work.md`
 
@@ -116,7 +148,7 @@ For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
 2. **Open the work packages document** (`{plan-name}-work.md`)
-3. **Copy and send** the contents of [3-developer.md](3-developer.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Specify which work package** to implement (e.g., "Implement WP-1")
 5. **Review the code changes** as they're made
 6. **Verify outputs**:
@@ -149,7 +181,7 @@ For **each work package**:
    - Work packages document (for acceptance criteria)
    - Implementation summary (to see what was implemented)
    - Implemented code files
-3. **Copy and send** the contents of [4-qa.md](4-qa.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Specify the work package** to validate
 5. **Review validation results** in the QA report
 6. **Verify output**: QA report saved to `/docs/agents/plans/{plan-name}-qa.md`
@@ -182,7 +214,7 @@ For **each work package**:
    - Implementation summary
    - QA report
    - Implemented code
-3. **Copy and send** the contents of [5-reviewer.md](5-reviewer.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Review the analysis** covering:
    - Maintainability assessment
    - Best practices compliance
@@ -218,7 +250,7 @@ For **each work package**:
    - Work packages document
    - All implementation summaries, QA reports, and review reports
    - Current project documentation (README, API docs)
-3. **Copy and send** the contents of [6-documentation.md](6-documentation.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Review documentation updates**:
    - Updated API references
    - New configuration instructions
@@ -256,7 +288,7 @@ For **each work package**:
    - QA reports
    - Code review reports
    - Documentation summary
-3. **Copy and send** the contents of [7-synthesis.md](7-synthesis.md)
+3. **Copy and send** the persona file for this stage from your chosen IDE directory — see Quick Reference for directory links.
 4. **Review the generated report** covering:
    - Executive summary of what was built
    - Metrics (tests passed, coverage, issues found)
@@ -294,8 +326,8 @@ All agent outputs follow a consistent naming pattern based on the plan file name
 |-------|-------------|---------|
 | Planner | `YYYY-MM-DD-feature-name.md` | `2026-02-11-user-auth.md` |
 | Project Manager | `{plan-name}-work.md` | `2026-02-11-user-auth-work.md` |
-| Developer | `{plan-name}-impl.md` | `2026-02-11-user-auth-impl.md` |
-| Validator | `{plan-name}-qa.md` | `2026-02-11-user-auth-qa.md` |
+| Staff Software Engineer | `{plan-name}-impl.md` | `2026-02-11-user-auth-impl.md` |
+| SDET | `{plan-name}-qa.md` | `2026-02-11-user-auth-qa.md` |
 | Reviewer | `{plan-name}-review.md` | `2026-02-11-user-auth-review.md` |
 | Documentation | `{plan-name}-docs.md` | `2026-02-11-user-auth-docs.md` |
 | Synthesis | `{plan-name}-report.md` | `2026-02-11-user-auth-report.md` |
@@ -492,13 +524,13 @@ Modify the synthesis agent to generate custom reports:
         ║    ITERATIVE LOOP (for Each Work Package)   ║
         ║                                             ║
         ║  ┌─────────────────┐                        ║
-        ║  │  3. Developer   │◄───────────┐           ║
-        ║  │     Agent       │            │           ║
+        ║  │  3. Staff SW    │◄───────────┐           ║
+        ║  │     Engineer    │            │           ║
         ║  └────────┬────────┘            │           ║
         ║           │ Implemented Code    │           ║
         ║           ▼                     │           ║
         ║  ┌─────────────────┐            │           ║
-        ║  │  4. Validator   │            │           ║
+        ║  │  4. SDET        │            │           ║
         ║  │     Agent       │            │           ║
         ║  └────────┬────────┘            │           ║
         ║           │                     │           ║

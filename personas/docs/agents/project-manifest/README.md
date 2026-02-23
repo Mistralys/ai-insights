@@ -30,9 +30,21 @@ Generated persona files are consumed in two ways:
 
 ## Quick Reference
 
-**Build all personas (VS Code + Claude Code):**
+**Build ledger suite (default — backward compat):**
 ```bash
 node scripts/build-personas.js
+```
+
+**Build a specific suite:**
+```bash
+node scripts/build-personas.js --suite vanilla
+node scripts/build-personas.js --suite standalone
+```
+
+**Build multiple suites (comma-separated or shorthand):**
+```bash
+node scripts/build-personas.js --suite ledger,standalone
+node scripts/build-personas.js --suite all       # ledger + vanilla + standalone
 ```
 
 **Build for a specific target only:**
@@ -41,15 +53,29 @@ node scripts/build-personas.js --target vscode
 node scripts/build-personas.js --target claude-code
 ```
 
+**Flags can be combined:**
+```bash
+node scripts/build-personas.js --suite vanilla --target vscode
+```
+
 **Check for stale output (CI-friendly):**
 ```bash
 node scripts/build-personas.js --check
+node scripts/build-personas.js --suite all --check
 ```
 
 **Preview without writing:**
 ```bash
 node scripts/build-personas.js --dry-run
 ```
+
+**Validate generated output for unresolved markers (strict mode):**
+```bash
+node scripts/build-personas.js --strict
+node scripts/build-personas.js --strict --suite all
+```
+
+Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers. Safe to combine with `--suite` and `--target`.
 
 **Build + sync to both IDEs (VS Code + Claude Code):**
 ```bash

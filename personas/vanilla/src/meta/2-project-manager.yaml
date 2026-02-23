@@ -1,0 +1,16 @@
+number: 2
+role: Project Manager
+version: "1.0.0"
+cc_file_name: 2-project-manager-vanilla.md
+description: "Step 2/7 — Technical Program Manager: decompose the plan into work packages."
+cc_description: "Step 2/7 — Technical Program Manager: decompose the plan into work packages."
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

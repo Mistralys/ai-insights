@@ -1,0 +1,16 @@
+number: 3
+role: Developer
+version: "1.0.0"
+cc_file_name: 3-developer-vanilla.md
+description: "Step 3/7 — Staff Software Engineer: implement work packages to production quality."
+cc_description: "Step 3/7 — Staff Software Engineer: implement work packages to production quality."
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

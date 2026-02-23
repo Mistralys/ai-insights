@@ -47,15 +47,7 @@ You will be provided with:
 
 ---
 
-## Operational Protocol
-
-1. **Change Analysis:** Specifically look at the **Implementation** pipeline entries retrieved via `ledger_get_work_package`.
-2. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes.
-3. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
-
-### Environment Incident Logging
-
-{{> incident-logging}}
+{{> docs-operational-protocol}}
 
 ---
 
@@ -66,9 +58,7 @@ You will be provided with:
 
 ---
 
-## Output Format
-
-Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with summary and comments — the tool's parameter descriptions document the required shapes and allowed values.
+{{> docs-output-format}}
 
 ---
 

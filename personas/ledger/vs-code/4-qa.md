@@ -117,7 +117,8 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 7. **Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "QA"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
-     - `description`: the value of `auto_handoff.agent_name`
+     - `agentName`: the value of `auto_handoff.agent_name`
+     - `description`: a short task label (e.g., "Agent handoff")
      - `prompt`: the value of `auto_handoff.prompt`
 
    - **`auto_handoff` absent** — End your turn by printing the handoff block exactly as returned (do not fill in your own values):

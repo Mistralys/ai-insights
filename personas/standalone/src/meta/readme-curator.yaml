@@ -1,0 +1,17 @@
+slug: readme-curator
+name: "README Curator v1.0.1"
+description: "Produces a concise, human‑optimized README.md that communicates purpose, scope, and orientation at a glance."
+vs_file_name: readme-curator.agent.md
+cc_file_name: readme-curator.md
+version: "1.0.1"
+last_updated: "2026-02-23"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

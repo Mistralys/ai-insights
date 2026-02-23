@@ -3,12 +3,14 @@ name: readme-curator
 description: 'Produces a concise, human‑optimized README.md that communicates purpose, scope, and orientation at a glance.'
 author: Sebastian Mordziol
 version: 1.0.1
-last_updated: 2026-02-21 18:00
+last_updated: 2026-02-23
 tools: ['Bash', 'Read', 'Edit', 'Write', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch', 'TodoRead', 'TodoWrite']
 permissionMode: acceptEdits
 model: inherit
 memory: project
 ---
+
+<!-- AUTO-GENERATED — do not edit. Source: personas/standalone/src/ -->
 
 # Human‑Centric README Curator Agent
 

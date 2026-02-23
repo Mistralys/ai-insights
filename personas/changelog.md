@@ -1,5 +1,22 @@
 # Personas Changelog
 
+## v3.6.3 - Strict Mode Limitations Documentation (2026-02-23)
+- **GN-4 documented in `constraints.md`:** Added sub-note to constraint 9 describing the `--strict` regex code-fence false-positive risk — the scan would flag literal `{{…}}` inside fenced code blocks. No current persona triggers this; mitigation path noted.
+- **GN-5 documented in `constraints.md`:** Added sub-note to constraint 9 describing the `--check` + `--strict` exit ordering — when `--check` fires first and exits 1, the `[STRICT]` scan output is skipped. CI guidance: run `--check` as a separate step if strict failure details are needed.
+- **GN-6: Quick commands sections added:** `personas/ledger/README.md` and `personas/vanilla/README.md` both now include a `--strict` entry with a one-line description in their quick-command blocks. The vanilla README received a new Quick commands section (it had none before).
+- **`api-surface.md` updated:** `--strict` CLI flag description now cross-references constraint 9 GN-4 and GN-5 for the known limitations.
+- **Inline comment in `scripts/build-personas.js`:** The `--strict` scan block now has an inline comment documenting the code-fence false-positive risk.
+
+## v3.6.2 - cc_file_name Validation Guard (2026-02-23)
+- **Fail-fast guard for `cc_file_name`:** `scripts/build-personas.js` now emits `[ERROR] cc_file_name is required for persona '…' in suite '…'` and calls `process.exit(1)` when any per-persona YAML is processed without a `cc_file_name` field. Applies to both `numbered` and `standalone` persona modes.
+- **Removed silent fallback:** The defensive ternary (`persona.cc_file_name ? … : ''`) at both usage sites in `buildForTarget()` has been replaced with a direct `.replace()` call after the guard, eliminating the "empty string" silent-failure mode.
+- **Updated `api-surface.md`:** All three `cc_file_name` schema rows (ledger, vanilla, standalone) now document the required-field behavior and `[ERROR]` + `process.exit(1)` exit, consistent with `default_version`.
+
+## v3.6.1 - Remove Vanilla Flat Files (2026-02-23)
+- **Deleted legacy flat persona files:** Removed `personas/vanilla/1-planner.md` through `personas/vanilla/7-synthesis.md` — seven hand-authored copies that pre-dated the template system and contained stale role names. The canonical outputs are `personas/vanilla/vs-code/` and `personas/vanilla/claude-code/`.
+- **Updated `personas/vanilla/README.md`:** Added a prominent "Canonical Output Directories" redirect section near the top making the new source-of-truth directories explicit. Updated all 14 inline links in Quick Reference and stage-detail sections to point to `vs-code/` equivalents.
+- **No template sources changed:** All `personas/vanilla/src/` files are untouched; the build pipeline and generated outputs are unaffected.
+
 ## v3.6.0 - Multi-IDE Persona Support (2026-02-23)
 - **Multi-IDE output directories:** Build system now generates two separate output directories: `personas/ledger/vs-code/` (VS Code frontmatter with `tools`, `vs_file_name`) and `personas/ledger/claude-code/` (Claude Code frontmatter with `name`, `permissionMode`, `model`, `memory`, `mcpServers`). The old flat `ledger/*.md` output is replaced entirely.
 - **`--target` CLI flag:** Both `build-personas.js` and `sync-personas.js` now accept `--target vscode`, `--target claude-code`, or `--target all` (default) to build/sync a single IDE or both simultaneously.

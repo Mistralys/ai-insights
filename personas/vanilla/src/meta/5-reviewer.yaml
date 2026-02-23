@@ -1,0 +1,16 @@
+number: 5
+role: Reviewer
+version: "1.0.0"
+cc_file_name: 5-reviewer-vanilla.md
+description: "Step 5/7 — Principal Systems Architect: code review for quality and architecture."
+cc_description: "Step 5/7 — Principal Systems Architect: code review for quality and architecture."
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
