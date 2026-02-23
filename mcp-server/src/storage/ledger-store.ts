@@ -282,17 +282,22 @@ export class LedgerStore {
    */
   static async listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]> {
     const root = ledgerRoot ?? resolveLedgerRoot();
-    let entries: string[];
+    let dirents: import('fs').Dirent[];
 
     try {
-      entries = await readdir(root);
+      dirents = await readdir(root, { withFileTypes: true });
     } catch {
       return [];
     }
 
     const results: ProjectMeta[] = [];
 
-    for (const entry of entries) {
+    for (const dirent of dirents) {
+      const entry = dirent.name;
+
+      // Skip non-directory entries (e.g. gui-config.json sitting at the ledger root).
+      if (!dirent.isDirectory()) continue;
+
       // Skip the dedicated archive directory (dot-prefix convention keeps it out of
       // normal enumeration).  Any directory whose name starts with '.' is treated
       // as a control directory — NOT as a project slug — so this filter must
