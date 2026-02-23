@@ -1,12 +1,16 @@
 ---
-name: '1 - Planner v1.3.0'
-description: 'Step 1/7 in the agent workflow.'
+name: 1-planner
+description: 'Chief Product Officer — Planning & Strategy'
 role: Planner
 author: Sebastian Mordziol
 version: 1.3.0
-last_updated: 2026-02-21 18:30
-vs_file_name: 1-planner.agent.md
-tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
+last_updated: 2026-02-22 12:00
+tools: ['Bash', 'Read', 'Edit', 'Write', 'Grep', 'Glob', 'Task', 'WebFetch', 'WebSearch']
+permissionMode: acceptEdits
+model: inherit
+memory: project
+mcpServers:
+  - central_pm
 ---
 
 <!-- AUTO-GENERATED — do not edit. Source: personas/ledger/src/ -->

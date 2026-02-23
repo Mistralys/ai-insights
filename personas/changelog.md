@@ -1,5 +1,16 @@
 # Personas Changelog
 
+## v3.6.0 - Multi-IDE Persona Support (2026-02-23)
+- **Multi-IDE output directories:** Build system now generates two separate output directories: `personas/ledger/vs-code/` (VS Code frontmatter with `tools`, `vs_file_name`) and `personas/ledger/claude-code/` (Claude Code frontmatter with `name`, `permissionMode`, `model`, `memory`, `mcpServers`). The old flat `ledger/*.md` output is replaced entirely.
+- **`--target` CLI flag:** Both `build-personas.js` and `sync-personas.js` now accept `--target vscode`, `--target claude-code`, or `--target all` (default) to build/sync a single IDE or both simultaneously.
+- **`{{else}}` template engine support:** Conditionals now support an optional `{{else}}` branch: `{{#if flag}}…{{else}}…{{/if}}`. Used by all agent content templates to select platform-specific partials.
+- **Platform-specific partials:** Split `handoff-block.md` into `handoff-block-vscode.md` and `handoff-block-claude-code.md`; split `mcp-preflight-header.md` into `mcp-preflight-header-vscode.md` and `mcp-preflight-header-claude-code.md`. Content templates select the correct partial via `{{#if target_vscode}}…{{else}}…{{/if}}`.
+- **Claude Code frontmatter template (`FRONTMATTER_CLAUDE_CODE`):** New template emits `name` (kebab slug), `permissionMode`, `model`, `memory`, and `mcpServers` fields required by Claude Code agent definitions.
+- **New metadata fields:** `cc_file_name` and `cc_tools` added to all 7 per-persona YAML files; `cc_permission_mode`, `cc_model`, and `cc_memory` added to `_shared.yaml`.
+- **Computed variables:** `cc_name`, `cc_description`, and `cc_tools_json` added to the build context for Claude Code frontmatter rendering.
+- **Standalone Claude Code personas:** New `personas/standalone/claude-code/` directory with CC variants of all 6 standalone personas. `sync-personas.js` now calls `syncStandaloneClaudeCode()` when the Claude Code target is active.
+- **`sync-personas.js` improvements:** Added `syncClaudeCode()`, `syncStandaloneClaudeCode()`, `getClaudeCodeAgentsDir()`, `extractCCFileName()`, `validateCCFrontmatter()`, and `validateStandaloneCCFrontmatter()` functions. Reads from explicit subdirectories rather than walking the full `ledger/` tree.
+
 ## v3.5.0 - Role Boundaries & Mandatory Handoffs (2026-02-22)
 - **New partial `role-boundaries.md`:** Shared fragment instructing agents to (1) only use MCP tools listed in their table and (2) only work on WPs assigned to their role via `ledger_get_next_action`. Included in all 6 MCP-enabled personas (2–7).
 - **Updated `handoff-block.md`:** Changed heading from "Handoff:" to "Handoff (mandatory):" and added explicit instruction that the handoff call must happen before ending the turn. Applies to agents 3–6.

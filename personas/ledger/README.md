@@ -32,13 +32,13 @@ This is a structured multi-agent workflow for systematic software development. I
 **For experienced users** - follow these steps (expand sections below for detailed instructions):
 
 1. **[Setup](#prerequisites)**: Configure the MCP server via `.mcp.json`
-2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](1-planner.md) → Describe feature → Review plan
-3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](2-project-manager.md) → Review work packages & ledger
-4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work package spec → Paste [3-developer.md](3-developer.md) → Agent reads ledger via MCP → Review code
-5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-qa.md](4-qa.md) → Agent reads ledger via MCP → Review test results
-6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Paste [5-reviewer.md](5-reviewer.md) → Agent reads ledger via MCP → Address findings
-7. **[Documentation](#stage-6-documentation-update)**: New chat → Paste [6-documentation.md](6-documentation.md) → Agent reads ledger via MCP → Review updates
-8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Paste [7-synthesis.md](7-synthesis.md) → Agent reads ledger via MCP → Review final report
+2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](vs-code/1-planner.md) → Describe feature → Review plan
+3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](vs-code/2-project-manager.md) → Review work packages & ledger
+4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work package spec → Paste [3-developer.md](vs-code/3-developer.md) → Agent reads ledger via MCP → Review code
+5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-qa.md](vs-code/4-qa.md) → Agent reads ledger via MCP → Review test results
+6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Paste [5-reviewer.md](vs-code/5-reviewer.md) → Agent reads ledger via MCP → Address findings
+7. **[Documentation](#stage-6-documentation-update)**: New chat → Paste [6-documentation.md](vs-code/6-documentation.md) → Agent reads ledger via MCP → Review updates
+8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Paste [7-synthesis.md](vs-code/7-synthesis.md) → Agent reads ledger via MCP → Review final report
 
 **Repeat steps 4-6** for each work package. See detailed instructions below for tips, troubleshooting, and best practices.
 
@@ -84,7 +84,7 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** in your AI IDE
 2. **Open relevant context files**: Project manifest, existing docs, related code
-3. **Copy and send** the contents of [1-planner.md](1-planner.md)
+3. **Copy and send** the contents of [1-planner.md](vs-code/1-planner.md)
 4. **Describe your feature or task** when prompted
 5. **Review and refine** the plan with the agent
 6. **Verify output**: Plan saved to `/docs/agents/plans/YYYY-MM-DD-feature-name.md`
@@ -102,7 +102,7 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** (fresh context)
 2. **Open the plan document** created in Stage 1
-3. **Copy and send** the contents of [2-project-manager.md](2-project-manager.md)
+3. **Copy and send** the contents of [2-project-manager.md](vs-code/2-project-manager.md)
 4. **Review the work packages** for logical sequencing and dependencies
 5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
    - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
@@ -124,7 +124,7 @@ For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
 2. **Open** the work package specification (`work/WP-###.md`) and relevant source files for context
-3. **Copy and send** the contents of [3-developer.md](3-developer.md)
+3. **Copy and send** the contents of [3-developer.md](vs-code/3-developer.md)
 4. **Specify which work package** to implement (e.g., "Implement WP-1")
 5. **Monitor progress**: The agent reads and updates the ledger via MCP tools automatically
 6. **Verify outputs**:
@@ -145,7 +145,7 @@ For **each work package**:
 
 1. **Start a new chat session** or continue from implementation
 2. **Open** the work package specification (`work/WP-###.md`) and relevant source files
-3. **Copy and send** the contents of [4-qa.md](4-qa.md)
+3. **Copy and send** the contents of [4-qa.md](vs-code/4-qa.md)
 4. **Specify the work package** to validate (the agent reads implementation artifacts from the ledger via MCP)
 5. **Review validation results**:
    - **PASS**: All acceptance criteria met, tests pass
@@ -166,7 +166,7 @@ For **each work package**:
 
 1. **Start a new chat session** or continue from validation
 2. **Open** relevant source files modified by the developer
-3. **Copy and send** the contents of [5-reviewer.md](5-reviewer.md)
+3. **Copy and send** the contents of [5-reviewer.md](vs-code/5-reviewer.md)
 4. **The agent reads** WP details and implementation artifacts from the ledger via MCP
 5. **Review the analysis**:
    - Maintainability assessment
@@ -190,7 +190,7 @@ For **each work package**:
 
 1. **Start a new chat session**
 2. **Open** current project documentation (README, API docs) for context
-3. **Copy and send** the contents of [6-documentation.md](6-documentation.md)
+3. **Copy and send** the contents of [6-documentation.md](vs-code/6-documentation.md)
 4. **The agent reads** completed WP details and artifacts from the ledger via MCP
 5. **Review documentation updates**:
    - Updated API references
@@ -211,7 +211,7 @@ For **each work package**:
 **Goal**: Generate comprehensive project status report
 
 1. **Start a new chat session**
-2. **Copy and send** the contents of [7-synthesis.md](7-synthesis.md)
+2. **Copy and send** the contents of [7-synthesis.md](vs-code/7-synthesis.md)
 3. **The agent reads** the full project status, all WP details, and pipeline data from the ledger via MCP
 4. **Review the generated report**:
    - Executive summary of what was built
@@ -451,11 +451,19 @@ The ledger persona files (`1-planner.md` … `7-synthesis.md`) are **auto-genera
 # Install build dependency (once)
 cd personas && npm install
 
-# Build all personas
+# Build all personas (both VS Code and Claude Code targets)
 node scripts/build-personas.js
 
-# Build + sync to your AI IDE's prompts folder
+# Build for a specific IDE only
+node scripts/build-personas.js --target vscode
+node scripts/build-personas.js --target claude-code
+
+# Build + sync to both IDEs (VS Code prompts folder + ~/.claude/agents/)
 node scripts/sync-personas.js
+
+# Build + sync to a specific IDE only
+node scripts/sync-personas.js --target vscode
+node scripts/sync-personas.js --target claude-code
 ```
 
 For the full build system documentation — source layout, metadata schema, template syntax, and conventions — see the [Personas Project Manifest](docs/agents/project-manifest/README.md).

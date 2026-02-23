@@ -148,7 +148,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 |-------------|----------|
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
 | `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
-| `personas/ledger/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/ledger/vs-code/*.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
 
 ### Anti-Patterns
@@ -236,7 +236,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 | File | Purpose |
 |------|---------|
-| `scripts/sync-personas.js` | Build personas + copy to VS Code prompts directory + validate frontmatter |
+| `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
 | `scripts/build-personas.js` | Assemble 7 ledger persona files from `personas/ledger/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
 | `scripts/bundle-for-notebooklm.js` | Bundle workspace content for NotebookLM |

@@ -7,32 +7,39 @@ Workflows for agentic coding using custom prompts.
 - [Ledger-Enabled](/personas/ledger/README.md) - For keeping state between sessions.
 - [Vanilla](/personas/vanilla/README.md) - Dependency-less Markdown-based flow
 
-### Syncing Personas to VS Code
+### Deploying Personas to AI IDEs
 
-To automatically copy persona files to VS Code's User prompts folder, use the sync script:
+To automatically build and copy persona files to your AI IDE, use the sync script:
 
 ```bash
-# Preview what would be copied (dry run)
-node scripts/sync-personas.js --dry-run
-
-# Copy persona files to VS Code
+# Deploy to both VS Code and Claude Code (default)
 node scripts/sync-personas.js
 
-# Copy to a custom directory
+# Deploy to VS Code only
+node scripts/sync-personas.js --target vscode
+
+# Deploy to Claude Code only
+node scripts/sync-personas.js --target claude-code
+
+# Preview what would be copied without making changes (dry run)
+node scripts/sync-personas.js --dry-run
+
+# Copy VS Code personas to a custom directory
 node scripts/sync-personas.js --custom-path "/path/to/custom/dir"
 ```
 
-The script automatically detects your operating system and uses the correct VS Code User prompts directory:
+**VS Code** — The script automatically detects your operating system and uses the correct User prompts directory:
 - **Windows**: `%APPDATA%\Code\User\prompts`
 - **macOS**: `~/Library/Application Support/Code/User/prompts`
 - **Linux**: `~/.config/Code/User/prompts`
 
-Only persona files with a `VS File Name` metadata field will be copied.
+**Claude Code** — Personas are always deployed to `~/.claude/agents/` (cross-platform standard).
 
-After syncing, the script validates frontmatter in all ledger personas (`personas/ledger/`) and warns if any file is missing the required `role:` or `name:` fields. Warnings are advisory and do not block the sync. A clean run prints:
+After syncing, the script validates frontmatter in the deployed personas. A clean run prints:
 
 ```
-✓ All 8 ledger persona file(s) passed frontmatter validation
+✓ All 7 VS Code persona file(s) passed frontmatter validation
+✓ All 7 Claude Code persona file(s) passed frontmatter validation
 ```
 
 ### Validating Role Parity

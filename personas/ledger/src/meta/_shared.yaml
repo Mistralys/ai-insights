@@ -2,6 +2,9 @@ author: Sebastian Mordziol
 last_updated: "2026-02-22 12:00"
 default_version: "3.5.0"
 mcp_server_name: "central_pm"
+cc_permission_mode: "acceptEdits"    # Autonomous workflow default
+cc_model: "inherit"                  # Defer to user's configured model
+cc_memory: "project"                 # Project-scoped memory
 
 roster:
   - number: 1

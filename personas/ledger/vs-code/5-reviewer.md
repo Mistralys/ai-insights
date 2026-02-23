@@ -64,27 +64,19 @@ You have access to the **`central_pm`** MCP server which manages all ledger oper
 **Only use the MCP tools listed in the table above.** The `central_pm` server exposes additional tools intended for other agents in the workflow. Calling tools outside your listed set — even if they are technically accessible — violates the workflow contract and may corrupt the ledger state.
 
 **Only work on work packages assigned to your role.** Always use `ledger_get_next_action` (with your `agent_role`) to determine which WPs require your attention. Do not call `ledger_claim_work_package` on WPs assigned to a different agent. If `ledger_get_next_action` returns `WAIT`, your work is done — proceed to the Handoff step.
-
-
 The ledger tools are self-documenting: each action response includes a `next_steps` array with the exact tool calls to make, each tool response includes `--- NEXT STEP ---` guidance, and parameter descriptions document required fields and allowed values. If you need detailed usage examples or parameter documentation for any tool, call `ledger_help` (with an optional `tool_name` for a specific tool).
-
 
 ### Pre-flight check
 
 The ledger MCP tools are deferred tools. Before using them, load them using `tool_search_tool_regex` with the pattern `ledger_` as an unanchored substring search. The runtime prefixes all MCP tools with the server name (e.g. `mcp_central_pm_ledger_*`), so a substring pattern ensures the match works regardless of prefix.
 
-
 **Step 1 — Detect the active project**
 
 If `project_path` is not explicitly provided, call `ledger_detect_project` with `cwd_path` set to the workspace root. Use the returned `plan_path` as `project_path` for all subsequent calls.
 
-
-
 **Step 2 — Verify MCP server reachability**
 
 Call `ledger_get_project_status` with the resolved `project_path`. Any successful response (status data or "not initialized" message) confirms the server is running. On failure, stop immediately:
-
-
 > **MCP server unavailable.** The `central_pm` MCP server is a hard prerequisite for this workflow. Please ensure it is configured and running before retrying. Check `.mcp.json` for the server configuration.
 
 ---

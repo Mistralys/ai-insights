@@ -29,7 +29,11 @@ You will be provided with:
 {{> mcp-tools-note}}
 {{/if}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{#if has_detect_project}}
 {{> mcp-preflight-detect}}
@@ -85,7 +89,11 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments).
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
 7. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_REVIEW`, repeat from step 3 (full review). If it returns `REWORK_REVIEW`, repeat from step 3 but focus on the blocking issues from your previous review and verify they have been addressed. Continue until the action is `WAIT`.
-8. {{> handoff-block}}
+{{#if target_vscode}}
+8. {{> handoff-block-vscode}}
+{{else}}
+8. {{> handoff-block-claude-code}}
+{{/if}}
 
 
 

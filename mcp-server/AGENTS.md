@@ -218,18 +218,18 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 
 If you are operating in a **specific agent role**, consult the relevant persona document:
 
-| Agent Role | Persona Document | Focus |
-|------------|------------------|-------|
-| Planner | `/personas/ledger/1-planner.md` | Breaking user requests into work packages |
-| Project Manager | `/personas/ledger/2-project-manager.md` | Creating work packages + dependency management |
-| Developer | `/personas/ledger/3-developer.md` | Implementation + pipeline execution |
-| Validator (QA) | `/personas/ledger/4-qa.md` | Testing + quality assurance |
-| Reviewer | `/personas/ledger/5-reviewer.md` | Code review + security audit |
-| Documentation | `/personas/ledger/6-documentation.md` | Manifest maintenance + README updates |
-| Synthesis | `/personas/ledger/7-synthesis.md` | Cross-session coordination + handoff |
+| Agent Role | VS Code Persona | Claude Code Persona | Focus |
+|------------|-----------------|---------------------|-------|
+| Planner | `/personas/ledger/vs-code/1-planner.md` | `/personas/ledger/claude-code/1-planner.md` | Breaking user requests into work packages |
+| Project Manager | `/personas/ledger/vs-code/2-project-manager.md` | `/personas/ledger/claude-code/2-project-manager.md` | Creating work packages + dependency management |
+| Developer | `/personas/ledger/vs-code/3-developer.md` | `/personas/ledger/claude-code/3-developer.md` | Implementation + pipeline execution |
+| Validator (QA) | `/personas/ledger/vs-code/4-qa.md` | `/personas/ledger/claude-code/4-qa.md` | Testing + quality assurance |
+| Reviewer | `/personas/ledger/vs-code/5-reviewer.md` | `/personas/ledger/claude-code/5-reviewer.md` | Code review + security audit |
+| Documentation | `/personas/ledger/vs-code/6-documentation.md` | `/personas/ledger/claude-code/6-documentation.md` | Manifest maintenance + README updates |
+| Synthesis | `/personas/ledger/vs-code/7-synthesis.md` | `/personas/ledger/claude-code/7-synthesis.md` | Cross-session coordination + handoff |
 
 ---
 
 **Version:** 1.0.0  
-**Last Updated:** 2026-02-16  
+**Last Updated:** 2026-02-23  
 **Maintained By:** Manifest Curator Agent

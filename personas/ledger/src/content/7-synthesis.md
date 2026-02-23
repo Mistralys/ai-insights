@@ -27,7 +27,11 @@ You will be provided with:
 {{> mcp-tools-note}}
 {{/if}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{#if has_detect_project}}
 {{> mcp-preflight-detect}}

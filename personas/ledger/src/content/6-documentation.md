@@ -29,7 +29,11 @@ You will be provided with:
 {{> mcp-tools-note}}
 {{/if}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{#if has_detect_project}}
 {{> mcp-preflight-detect}}
@@ -76,4 +80,8 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 4. **Update Docs:** Edit the markdown files in the workspace (README, API references, architecture guides).
 5. **Complete Pipeline & Mark Complete:** Call `ledger_complete_pipeline`, then follow the `--- NEXT STEP ---` guidance in the response — it will instruct you to mark the WP as `COMPLETE` via `ledger_update_work_package_status`.
 6. **Repeat:** Call `ledger_get_next_action` again. If it returns `WRITE_DOCS` or `REWORK_DOCS`, repeat from step 3. Continue until the action is `WAIT`.
-7. {{> handoff-block}}
+{{#if target_vscode}}
+7. {{> handoff-block-vscode}}
+{{else}}
+7. {{> handoff-block-claude-code}}
+{{/if}}
