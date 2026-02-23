@@ -1,10 +1,10 @@
 ---
-name: '3 - Developer v3.4.0'
+name: '3 - Developer v3.5.0'
 description: 'Step 3/7 in the agent workflow.'
 role: Developer
 author: Sebastian Mordziol
-version: 3.4.0
-last_updated: 2026-02-21 18:30
+version: 3.5.0
+last_updated: 2026-02-22 12:00
 vs_file_name: 3-dev.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
@@ -68,6 +68,12 @@ You have access to the **`central_pm`** MCP server which manages all ledger oper
 | `ledger_add_project_comment` | Add a project-level comment (e.g., incident reports). |
 | `ledger_get_work_package` | Read full WP detail (status, pipelines, acceptance criteria). |
 | `ledger_get_handoff_status` | Compute the AGENT/STATUS handoff block at the end of your turn. |
+
+### Role Boundaries
+
+**Only use the MCP tools listed in the table above.** The `central_pm` server exposes additional tools intended for other agents in the workflow. Calling tools outside your listed set — even if they are technically accessible — violates the workflow contract and may corrupt the ledger state.
+
+**Only work on work packages assigned to your role.** Always use `ledger_get_next_action` (with your `agent_role`) to determine which WPs require your attention. Do not call `ledger_claim_work_package` on WPs assigned to a different agent. If `ledger_get_next_action` returns `WAIT`, your work is done — proceed to the Handoff step.
 
 
 The ledger tools are self-documenting: each action response includes a `next_steps` array with the exact tool calls to make, each tool response includes `--- NEXT STEP ---` guidance, and parameter descriptions document required fields and allowed values. If you need detailed usage examples or parameter documentation for any tool, call `ledger_help` (with an optional `tool_name` for a specific tool).
@@ -162,6 +168,8 @@ Include all observations in the `comments` parameter when calling `ledger_comple
 ## Strict Constraints
 
 * **Scope Guardrails:** Only implement what is defined in the current Work Package. If you see a bug unrelated to your task, record it as a Code Insight observation but **do not fix it** unless it blocks your implementation.
+* **Role Scope:** Only claim and work on work packages assigned to your role (`Developer`). Never claim, modify, or complete a WP assigned to another agent (e.g., Documentation, QA). Use `ledger_get_next_action` to determine your work — do not bypass it by calling `ledger_claim_work_package` directly on arbitrary WPs.
+* **No Status Overrides:** Do not call `ledger_update_work_package_status` to set `COMPLETE` — only the Documentation agent is permitted to mark WPs as complete. After your pipeline is done, leave the WP as `IN_PROGRESS` and proceed to the handoff step.
 * **Atomic Changes:** If a Work Package is large, break your output into logical steps.
 * **No Placeholders:** Never output `// ... existing code ...`. Always provide the full context of the change or use precise search-and-replace markers if tools allow.
 * **Error Handling:** All new features must include robust error handling and logging.
@@ -182,9 +190,10 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "Developer"`. The response tells you which WP to work on (or to WAIT) and provides `next_steps` with the exact sequence of tool calls.
-3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → start pipeline → implement → complete pipeline → handoff.
+3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → start pipeline → implement → complete pipeline.
 4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify, Observe).
-5. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Developer"`. The response JSON will contain one of two shapes — act accordingly:
+5. **Repeat:** Call `ledger_get_next_action` again. If it returns `IMPLEMENT`, repeat from step 3 (new WP). If it returns `REWORK`, repeat from step 3 but focus on the issues flagged by QA or the Reviewer. Continue until the action is `WAIT`.
+6. **Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "Developer"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

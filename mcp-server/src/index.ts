@@ -14,6 +14,7 @@ import * as workflowTools from './tools/workflow.js';
 import * as helpTools from './tools/help.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
+import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 
 // Load version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -96,6 +97,12 @@ async function main(): Promise<void> {
   const ledgerRoot = resolveLedgerRoot();
   mkdirSync(ledgerRoot, { recursive: true });
   process.stderr.write(`[mcp-server] Ledger root: ${ledgerRoot}\n`);
+
+  // Initialise runtime config from gui-config.json
+  const configPath = join(ledgerRoot, 'gui-config.json');
+  await readConfigFromDisk(configPath);
+  startConfigWatcher(configPath);
+  process.stderr.write(`[config] Watching ${configPath}\n`);
 
   // NOTE: This list must be kept in sync manually when tools are added or
   // removed in src/tools/**. The MCP SDK does not expose a listTools() method

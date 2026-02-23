@@ -11,14 +11,26 @@ mcp-server/
 ├── storage/                     # Runtime-generated data (gitignored except .gitkeep)
 │   └── ledger/
 │       ├── .gitkeep             # Ensures directory is tracked in version control
+│       ├── gui-config.json      # Runtime-generated GUI config (auto_handoff_enabled, max_handoff_depth, ledger_root) — created on first GUI or MCP server start
 │       └── {slug}/              # Per-project subfolder — runtime-generated
 │           ├── .meta.json       # Project metadata (slug, status, timestamps)
 │           ├── .lock            # Lock file for concurrent-write protection
 │           ├── project-ledger.json  # Root index
 │           └── WP-001.json      # Work package detail files
 │
+├── gui/                         # GUI server process code (separate STDIO-safe HTTP server)
+│   ├── api.ts               # REST API route handlers (handleListProjects, handleGetProject, handleGetWorkPackage, handleDeleteProject, handleGetConfig, handleUpdateConfig)
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); routes /api/* to api.ts handlers, serves static files from gui/public/; started via `npm run gui`
+│   └── public/              # Static assets served by gui/server.ts
+│       ├── index.html       # Dashboard SPA shell — nav header, main#app, loads styles.css + app.js
+│       ├── styles.css       # Full CSS: custom properties, status badges, tables, cards, forms, loading/error states
+│       └── app.js           # Vanilla JS SPA: API client, hash-based Router, 4 views (project list, project detail, WP detail, config)
+│
 ├── src/                         # Source code
 │   ├── index.ts                 # MCP server entry point and tool registration
+│   │
+│   ├── gui/                     # Shared GUI/config module (also used by the HTTP GUI server process)
+│   │   └── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig(), startConfigWatcher(), stopConfigWatcher()
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums (ProjectStatus, WorkPackageStatus, etc.)
@@ -45,7 +57,7 @@ mcp-server/
 │   │   └── workflow-next-action.ts    # ledger_get_next_action
 │   │
 │   └── utils/                   # Utility functions
-│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules
+        ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache)
 │       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
@@ -58,6 +70,11 @@ mcp-server/
 └── tests/                       # Test suites
     ├── helpers/                 # Shared test utilities (NEVER write to production storage)
     │   └── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
+    │
+    ├── gui/                     # GUI and config module tests
+    │   ├── config.test.ts       # Unit tests for src/gui/config.ts (cache, read, write, watcher lifecycle)
+    │   ├── api.test.ts          # Unit tests for gui/api.ts (all handlers, NOT_FOUND / FORBIDDEN / VALIDATION_ERROR guards)
+    │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse at runtime
     │
     ├── integration/             # End-to-end workflow tests
     │   ├── auto-handoff.test.ts

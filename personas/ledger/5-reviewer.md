@@ -1,10 +1,10 @@
 ---
-name: '5 - Reviewer v3.4.0'
+name: '5 - Reviewer v3.5.0'
 description: 'Step 5/7 in the agent workflow.'
 role: Reviewer
 author: Sebastian Mordziol
-version: 3.4.0
-last_updated: 2026-02-21 18:30
+version: 3.5.0
+last_updated: 2026-02-22 12:00
 vs_file_name: 5-reviewer.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo', 'central_pm/*']
 ---
@@ -58,6 +58,12 @@ You have access to the **`central_pm`** MCP server which manages all ledger oper
 | `ledger_complete_pipeline` | Finalize pipeline with status, summary, metrics, and comments. |
 | `ledger_add_project_comment` | Add project-level comments for cross-cutting architectural insights. |
 | `ledger_get_handoff_status` | Compute the AGENT/STATUS handoff block at the end of your turn. |
+
+### Role Boundaries
+
+**Only use the MCP tools listed in the table above.** The `central_pm` server exposes additional tools intended for other agents in the workflow. Calling tools outside your listed set — even if they are technically accessible — violates the workflow contract and may corrupt the ledger state.
+
+**Only work on work packages assigned to your role.** Always use `ledger_get_next_action` (with your `agent_role`) to determine which WPs require your attention. Do not call `ledger_claim_work_package` on WPs assigned to a different agent. If `ledger_get_next_action` returns `WAIT`, your work is done — proceed to the Handoff step.
 
 
 The ledger tools are self-documenting: each action response includes a `next_steps` array with the exact tool calls to make, each tool response includes `--- NEXT STEP ---` guidance, and parameter descriptions document required fields and allowed values. If you need detailed usage examples or parameter documentation for any tool, call `ledger_help` (with an optional `tool_name` for a specific tool).
@@ -125,7 +131,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments).
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
 7. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_REVIEW`, repeat from step 3 (full review). If it returns `REWORK_REVIEW`, repeat from step 3 but focus on the blocking issues from your previous review and verify they have been addressed. Continue until the action is `WAIT`.
-8. **Handoff:** Once `ledger_get_next_action` returns `WAIT`, call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. The response JSON will contain one of two shapes — act accordingly:
+8. **Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "Reviewer"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

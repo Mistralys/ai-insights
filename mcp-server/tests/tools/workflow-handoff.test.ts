@@ -18,12 +18,13 @@ import {
   getHandoffNotesForAgent,
   extractReworkAction,
   buildHandoffPrompt,
-  MAX_HANDOFF_DEPTH,
+  getMaxHandoffDepth,
 } from '../../src/utils/workflow-helpers.js';
 import { PIPELINE_AGENT_MAP, NEXT_AGENT_MAP } from '../../src/utils/pipeline-maps.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
 import { now } from '../../src/utils/timestamp.js';
+import { readConfigFromDisk, writeConfig, stopConfigWatcher, DEFAULT_CONFIG } from '../../src/gui/config.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
@@ -1233,7 +1234,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
   it('omits auto_handoff when auto_handoff_depth >= MAX_HANDOFF_DEPTH', async () => {
     await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
     await discoverAgents(agentDir);
-    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH }));
+    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: getMaxHandoffDepth() }));
 
     const result = await parseResult(
       buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
@@ -1306,7 +1307,7 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await discoverAgents(agentDir);
 
     // At MAX-1 → eligible; depth increments to MAX
-    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH - 1 }));
+    await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: getMaxHandoffDepth() - 1 }));
     const resultAtMaxMinus1 = await parseResult(
       buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
@@ -1317,6 +1318,33 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
       buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
     );
     expect(resultAtMax.auto_handoff).toBeUndefined();
+  });
+
+  describe('auto_handoff_enabled: false (config flag)', () => {
+    let configPath: string;
+
+    beforeEach(async () => {
+      configPath = join(tempDir, 'gui-config.json');
+      await readConfigFromDisk(configPath); // creates file with defaults
+      await writeConfig(configPath, { auto_handoff_enabled: false });
+    });
+
+    afterEach(async () => {
+      stopConfigWatcher();
+      await writeConfig(configPath, { auto_handoff_enabled: DEFAULT_CONFIG.auto_handoff_enabled });
+    });
+
+    it('omits auto_handoff when auto_handoff_enabled is false', async () => {
+      await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+      await discoverAgents(agentDir);
+
+      const result = await parseResult(
+        buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
+      );
+
+      expect(result.status).toBe('READY_FOR_QA');
+      expect(result.auto_handoff).toBeUndefined();
+    });
   });
 });
 

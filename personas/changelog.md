@@ -1,5 +1,13 @@
 # Personas Changelog
 
+## v3.5.0 - Role Boundaries & Mandatory Handoffs (2026-02-22)
+- **New partial `role-boundaries.md`:** Shared fragment instructing agents to (1) only use MCP tools listed in their table and (2) only work on WPs assigned to their role via `ledger_get_next_action`. Included in all 6 MCP-enabled personas (2–7).
+- **Updated `handoff-block.md`:** Changed heading from "Handoff:" to "Handoff (mandatory):" and added explicit instruction that the handoff call must happen before ending the turn. Applies to agents 3–6.
+- **Project Manager (2):** Updated inline handoff step to use "(mandatory)" language matching the shared partial.
+- **Developer (3):** Added explicit "Repeat" loop step in workflow (check next action → implement → repeat). Added "Role Scope" and "No Status Overrides" strict constraints.
+- **All MCP personas (2–7):** Now include `{{> role-boundaries}}` after `{{> mcp-intro}}`.
+- Addresses workflow failure root cause from `2026-02-22-workflow-file-split` project where Developer agent batch-processed all WPs, claimed cross-role WPs, and called tools outside its listed set.
+
 ## v3.3.0 - Two-Phase Pre-flight Check with Auto-Detect (2026-02-21)
 - Ledger Personas (3–7): Replaced the single-step pre-flight check with a two-phase sequence.
 - **Phase 1 (Detect):** When `project_path` is not explicitly provided, agents now call `ledger_detect_project` with `cwd_path` to automatically resolve the active project path from the workspace root.

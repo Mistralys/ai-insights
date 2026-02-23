@@ -22,6 +22,8 @@ You will be provided with:
 
 {{> mcp-intro}}
 
+{{> role-boundaries}}
+
 {{> mcp-preflight-header}}
 
 {{> mcp-preflight-verify-no-detect}}
@@ -72,7 +74,7 @@ You will be provided with:
 7. Call `ledger_initialize_project` with the absolute path to the plan folder and the relative path to `plan.md`.
 8. For each work package (in dependency order), call `ledger_create_work_package` — the tool's parameter descriptions document the required fields.
 9. Call `ledger_get_project_status` to verify the ledger was created correctly.
-10. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. The response JSON will contain one of two shapes — act accordingly:
+10. **Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
 
    - **`auto_handoff` present** — Invoke `runSubagent` immediately:
      - `description`: the value of `auto_handoff.agent_name`

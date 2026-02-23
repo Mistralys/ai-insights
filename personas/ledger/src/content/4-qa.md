@@ -24,6 +24,8 @@ You will be provided with:
 
 {{> mcp-intro}}
 
+{{> role-boundaries}}
+
 {{#if self_documenting_note}}
 {{> mcp-tools-note}}
 {{/if}}

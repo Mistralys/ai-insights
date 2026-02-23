@@ -1,0 +1,515 @@
+/* ============================================================
+   MCP Server Dashboard — styles.css
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   CSS Custom Properties
+   ---------------------------------------------------------- */
+:root {
+  /* Status colors */
+  --color-ready:       #2563eb;
+  --color-in-progress: #d97706;
+  --color-complete:    #16a34a;
+  --color-blocked:     #dc2626;
+
+  /* Neutral palette */
+  --color-bg:          #f8fafc;
+  --color-surface:     #ffffff;
+  --color-border:      #e2e8f0;
+  --color-text:        #1e293b;
+  --color-text-muted:  #64748b;
+  --color-header-bg:   #1e293b;
+  --color-header-text: #f1f5f9;
+
+  /* Spacing */
+  --radius:            6px;
+  --radius-pill:       9999px;
+  --shadow:            0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* ----------------------------------------------------------
+   Reset & Base
+   ---------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--color-ready);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* ----------------------------------------------------------
+   Layout
+   ---------------------------------------------------------- */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+header {
+  background: var(--color-header-bg);
+  color: var(--color-header-text);
+  padding: 12px 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+header nav {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+header nav a {
+  color: var(--color-header-text);
+  opacity: 0.85;
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  transition: opacity 0.15s;
+}
+
+header nav a:hover {
+  opacity: 1;
+  text-decoration: none;
+}
+
+main {
+  padding: 32px 0 64px;
+  min-height: calc(100vh - 56px);
+}
+
+#app {
+  /* main content area */
+}
+
+/* ----------------------------------------------------------
+   Status Badges
+   ---------------------------------------------------------- */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge-ready {
+  background: #dbeafe;
+  color: var(--color-ready);
+}
+
+.badge-in-progress,
+.badge-in_progress {
+  background: #fef3c7;
+  color: var(--color-in-progress);
+}
+
+.badge-complete {
+  background: #dcfce7;
+  color: var(--color-complete);
+}
+
+.badge-blocked {
+  background: #fee2e2;
+  color: var(--color-blocked);
+}
+
+/* ----------------------------------------------------------
+   Tables
+   ---------------------------------------------------------- */
+.table-wrapper {
+  overflow-x: auto;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface);
+}
+
+th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: 10px 14px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:nth-child(even) {
+  background: var(--color-bg);
+}
+
+tbody tr:hover {
+  background: #f1f5f9;
+}
+
+tbody tr.clickable {
+  cursor: pointer;
+}
+
+/* ----------------------------------------------------------
+   Cards / Panels
+   ---------------------------------------------------------- */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--color-text);
+}
+
+/* ----------------------------------------------------------
+   Buttons
+   ---------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  opacity: 0.85;
+}
+
+.btn-primary {
+  background: var(--color-ready);
+  color: #fff;
+  border-color: var(--color-ready);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.btn-danger {
+  background: var(--color-blocked);
+  color: #fff;
+  border-color: var(--color-blocked);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* ----------------------------------------------------------
+   Forms
+   ---------------------------------------------------------- */
+.form-group {
+  margin-bottom: 18px;
+}
+
+.form-label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.form-note {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.15s;
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--color-ready);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.form-control[readonly] {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+input[type="checkbox"].form-check {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-ready);
+}
+
+input[type="number"].form-control {
+  width: 120px;
+}
+
+/* ----------------------------------------------------------
+   Page headers
+   ---------------------------------------------------------- */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.page-header h1 {
+  font-size: 22px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.breadcrumb {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+.breadcrumb a {
+  color: var(--color-text-muted);
+}
+
+.breadcrumb a:hover {
+  color: var(--color-text);
+}
+
+/* ----------------------------------------------------------
+   Acceptance Criteria list
+   ---------------------------------------------------------- */
+.ac-list {
+  list-style: none;
+}
+
+.ac-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+}
+
+.ac-list li:last-child {
+  border-bottom: none;
+}
+
+.ac-icon {
+  font-size: 16px;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.ac-met {
+  color: var(--color-complete);
+}
+
+.ac-unmet {
+  color: var(--color-text-muted);
+}
+
+/* ----------------------------------------------------------
+   Pipeline list
+   ---------------------------------------------------------- */
+.pipeline-item {
+  border-left: 3px solid var(--color-border);
+  padding-left: 16px;
+  margin-bottom: 16px;
+}
+
+.pipeline-item.pass {
+  border-left-color: var(--color-complete);
+}
+
+.pipeline-item.fail {
+  border-left-color: var(--color-blocked);
+}
+
+.pipeline-item.in_progress {
+  border-left-color: var(--color-in-progress);
+}
+
+.pipeline-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.pipeline-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.pipeline-summary {
+  font-size: 13px;
+}
+
+.pipeline-summary ul {
+  padding-left: 18px;
+}
+
+.pipeline-summary li {
+  margin-bottom: 4px;
+}
+
+.pipeline-comments {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+/* ----------------------------------------------------------
+   Filter bar
+   ---------------------------------------------------------- */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.filter-bar label {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.filter-bar select {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.filter-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* ----------------------------------------------------------
+   Loading state
+   ---------------------------------------------------------- */
+.loading {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.loading::before {
+  content: '';
+  display: block;
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 12px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-ready);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ----------------------------------------------------------
+   Error state
+   ---------------------------------------------------------- */
+.error-banner {
+  background: #fff1f2;
+  color: var(--color-blocked);
+  border: 1px solid #fecdd3;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+/* ----------------------------------------------------------
+   Success message
+   ---------------------------------------------------------- */
+.success-banner {
+  background: #f0fdf4;
+  color: var(--color-complete);
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 14px;
+  margin-top: 12px;
+}
+
+/* ----------------------------------------------------------
+   Misc helpers
+   ---------------------------------------------------------- */
+.mt-8  { margin-top:  8px; }
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
+.mb-8  { margin-bottom:  8px; }
+.mb-16 { margin-bottom: 16px; }
+.monospace { font-family: 'Courier New', monospace; font-size: 13px; }
+.text-muted { color: var(--color-text-muted); }

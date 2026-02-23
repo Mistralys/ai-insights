@@ -16,7 +16,7 @@ const {
   getReviewerHandoff,
   getDocumentationHandoff,
   buildHandoffResponse,
-  MAX_HANDOFF_DEPTH,
+  getMaxHandoffDepth,
 } = _internal;
 
 // ─── Shared Helpers ───────────────────────────────────────────────────────────
@@ -325,7 +325,7 @@ describe('Auto-handoff chain integration', () => {
     beforeEach(async () => {
       await writeAgentFile(agentDir, '4-qa.agent.md', '4 - QA v1.0', 'QA');
       await discoverAgents(agentDir);
-      await store.writeRootIndex(makeRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH }));
+      await store.writeRootIndex(makeRoot({ auto_handoff_depth: getMaxHandoffDepth() }));
     });
 
     it('omits auto_handoff when depth equals MAX_HANDOFF_DEPTH', async () => {
@@ -367,7 +367,7 @@ describe('Auto-handoff chain integration', () => {
       );
 
       const root = await store.readRootIndex();
-      expect(root.auto_handoff_depth).toBe(MAX_HANDOFF_DEPTH);
+      expect(root.auto_handoff_depth).toBe(getMaxHandoffDepth());
     });
 
     it('depth boundary: auto_handoff present at MAX-1, absent at MAX', async () => {
@@ -375,7 +375,7 @@ describe('Auto-handoff chain integration', () => {
       await discoverAgents(agentDir);
 
       // At MAX-1 → eligible; depth increments to MAX
-      await store.writeRootIndex(makeRoot({ auto_handoff_depth: MAX_HANDOFF_DEPTH - 1 }));
+      await store.writeRootIndex(makeRoot({ auto_handoff_depth: getMaxHandoffDepth() - 1 }));
       const resultAtMaxMinus1 = await parseResult(
         getQaHandoff(
           [makeWp('WP-001', [

@@ -3,14 +3,16 @@
  * all three workflow tool modules (workflow-next-action, workflow-handoff,
  * workflow-batch-actions).
  *
- * Nothing in this file registers MCP tools or imports from `tools/`. It only
- * imports from `schema/`, `storage/`, and sibling `utils/` modules.
+ * Nothing in this file registers MCP tools or imports tool modules. It imports
+ * from `schema/`, `storage/`, sibling `utils/` modules, and `gui/config.ts`
+ * for runtime configuration access.
  */
 
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { parseTimestamp } from './timestamp.js';
 import type { PostImplPipelineType } from './pipeline-maps.js';
+import { getConfig } from '../gui/config.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,8 +23,18 @@ import type { PostImplPipelineType } from './pipeline-maps.js';
  */
 export const STALE_PIPELINE_HOURS = 24;
 
-/** Maximum number of automatic handoff chain steps to prevent infinite loops. */
-export const MAX_HANDOFF_DEPTH = 10;
+/**
+ * Returns the maximum auto-handoff chain depth from the in-memory config cache.
+ * Falls back to 10 if the config module has not yet been initialized (e.g. during
+ * early startup or in test environments that don't call readConfigFromDisk()).
+ */
+export function getMaxHandoffDepth(): number {
+  try {
+    return getConfig().max_handoff_depth;
+  } catch {
+    return 10;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Prompt builder

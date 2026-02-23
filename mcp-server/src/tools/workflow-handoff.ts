@@ -7,10 +7,11 @@ import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
 import {
-  MAX_HANDOFF_DEPTH,
+  getMaxHandoffDepth,
   buildHandoffPrompt,
   isBlockedByDependencies,
 } from '../utils/workflow-helpers.js';
+import { getConfig } from '../gui/config.js';
 
 /**
  * Tool: get_handoff_status
@@ -164,6 +165,7 @@ export async function buildHandoffResponse(
     status !== 'COMPLETE' &&
     status !== 'BLOCKED' &&
     status !== 'IN_PROGRESS' &&
+    getConfig().auto_handoff_enabled &&
     isRegistryLoaded()
   ) {
     const agentName = nextAgent ? getAgentHandle(nextAgent) : null;
@@ -171,7 +173,7 @@ export async function buildHandoffResponse(
       try {
         const root = await store.readRootIndex();
         const currentDepth = root.auto_handoff_depth ?? 0;
-        if (currentDepth < MAX_HANDOFF_DEPTH) {
+        if (currentDepth < getMaxHandoffDepth()) {
           await store.writeRootIndex({
             ...root,
             auto_handoff_depth: currentDepth + 1,
