@@ -77,29 +77,8 @@ function getClaudeCodeAgentsDir() {
  * @returns {string|null} - The VS File Name or null if not found
  */
 function extractVSFileName(filePath) {
-  try {
-    const rawContent = fs.readFileSync(filePath, 'utf8');
-    // Strip optional AUTO-GENERATED comment header produced by build-personas.js
-    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
-
-    if (!content.startsWith('---')) return null;
-
-    const afterFirst = content.slice(3);
-    const closingIdx = afterFirst.indexOf('\n---');
-    if (closingIdx === -1) return null;
-
-    const frontmatter = afterFirst.slice(0, closingIdx);
-
-    for (const line of frontmatter.split('\n')) {
-      const match = line.trim().match(/^vs_file_name:\s*['"]?(.+?)['"]?\s*$/);
-      if (match) return match[1];
-    }
-
-    return null;
-  } catch (error) {
-    console.error(`${colors.red}Error reading file ${filePath}:${colors.reset}`, error.message);
-    return null;
-  }
+  const fields = parseFrontmatter(filePath);
+  return fields?.vs_file_name || null;
 }
 
 /**
@@ -109,53 +88,8 @@ function extractVSFileName(filePath) {
  * @returns {string|null} - e.g. "1-planner.md" or null if not found
  */
 function extractCCFileName(filePath) {
-  try {
-    const rawContent = fs.readFileSync(filePath, 'utf8');
-    const content = rawContent.startsWith('<!--') ? rawContent.slice(rawContent.indexOf('\n') + 1) : rawContent;
-
-    if (!content.startsWith('---')) return null;
-
-    const afterFirst = content.slice(3);
-    const closingIdx = afterFirst.indexOf('\n---');
-    if (closingIdx === -1) return null;
-
-    const frontmatter = afterFirst.slice(0, closingIdx);
-
-    for (const line of frontmatter.split('\n')) {
-      const match = line.trim().match(/^name:\s*['"]?(.+?)['"]?\s*$/);
-      if (match) return match[1].trim() + '.md';
-    }
-
-    return null;
-  } catch (error) {
-    console.error(`${colors.red}Error reading file ${filePath}:${colors.reset}`, error.message);
-    return null;
-  }
-}
-
-/**
- * Recursively find all markdown files in a directory
- * @param {string} dir - Directory to search
- * @param {string[]} fileList - Accumulator for found files
- * @param {string[]} excludeDirs - Absolute directory paths to skip
- * @returns {string[]} - Array of file paths
- */
-function findMarkdownFiles(dir, fileList = [], excludeDirs = []) {
-  const files = fs.readdirSync(dir);
-
-  files.forEach(file => {
-    const filePath = path.join(dir, file);
-    const stat = fs.statSync(filePath);
-
-    if (stat.isDirectory()) {
-      if (excludeDirs.includes(filePath)) return;
-      findMarkdownFiles(filePath, fileList, excludeDirs);
-    } else if (file.endsWith('.md')) {
-      fileList.push(filePath);
-    }
-  });
-
-  return fileList;
+  const fields = parseFrontmatter(filePath);
+  return fields?.name ? fields.name.trim() + '.md' : null;
 }
 
 /**
@@ -498,6 +432,10 @@ ${colors.bright}Examples:${colors.reset}
     // Build personas from source templates, forwarding --target and --dry-run
     const buildScript = path.join(__dirname, 'build-personas.js');
     const buildArgs = [];
+    // NOTE: --dry-run is forwarded to build-personas.js, which previews but
+    // does not regenerate output files. syncFromDir() then reads from the
+    // existing output directories. On a clean checkout where output dirs
+    // don't exist yet, a dry-run will report stale or empty content.
     if (dryRun) buildArgs.push('--dry-run');
     if (target !== 'all') buildArgs.push('--target', target);
 

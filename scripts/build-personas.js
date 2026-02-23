@@ -316,11 +316,12 @@ function buildForTarget(target) {
 
     // Computed CC variables
     const rosterEntry   = sharedMeta.roster.find(r => r.number === persona.number);
-    const cc_name       = `${persona.number}-${persona.role.toLowerCase().replace(/\s+/g, '-')}`;
+    const cc_name       = persona.cc_file_name.replace(/\.md$/, '');
     const cc_description = rosterEntry
       ? `${rosterEntry.title} \u2014 ${rosterEntry.short}`
       : `Step ${persona.number}/${total} in the ledger workflow`;
-    const cc_tools_json = persona.cc_tools ? serializeTools(persona.cc_tools) : '[]';
+    const ccTools       = persona.cc_tools || sharedMeta.default_cc_tools || [];
+    const cc_tools_json = serializeTools(ccTools);
 
     const context = {
       // Shared fields

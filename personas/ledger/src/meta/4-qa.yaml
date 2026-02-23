@@ -2,16 +2,6 @@ number: 4
 role: QA
 vs_file_name: 4-qa.agent.md
 cc_file_name: 4-qa.md
-cc_tools:
-  - Bash
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-  - Task
-  - WebFetch
-  - WebSearch
 
 tools:
   - vscode

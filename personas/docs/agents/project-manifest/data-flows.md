@@ -91,10 +91,10 @@ context = {
   version,             // persona.version ?? _shared.default_version
   total,               // _shared.roster.length (always 7)
   tools_json,          // serializeTools(persona.tools)
-  cc_tools_json,       // serializeTools(persona.cc_tools)
+  cc_tools_json,       // serializeTools(persona.cc_tools ?? _shared.default_cc_tools)
   roster_rendered,     // renderRoster(_shared.roster, persona.number)
   mcp_tools_table,     // renderMcpToolsTable(persona.mcp_tools) or ''
-  cc_name,             // `${persona.number}-${persona.role.toLowerCase().replace(/\s+/g, '-')}`
+  cc_name,             // persona.cc_file_name.replace(/\.md$/, '')
   cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation")
 
   // Layer 4: Target-pass flags (set by buildForTarget)
