@@ -123,12 +123,23 @@ function formatDate(isoString) {
   if (!isoString) return '—';
   try {
     var d = new Date(isoString);
+    if (isNaN(d.getTime())) return escapeHtml(isoString);
     var pad = function (n) { return String(n).padStart(2, '0'); };
-    return d.getFullYear() + '-' +
-      pad(d.getMonth() + 1) + '-' +
-      pad(d.getDate()) + ' ' +
-      pad(d.getHours()) + ':' +
-      pad(d.getMinutes());
+    var timeStr = pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+    var now = new Date();
+    // Strip times for day-boundary comparisons
+    var today    = new Date(now.getFullYear(),    now.getMonth(),    now.getDate());
+    var itemDay  = new Date(d.getFullYear(),      d.getMonth(),      d.getDate());
+    var diffDays = Math.round((today - itemDay) / 86400000);
+
+    if (diffDays === 0) return 'Today, ' + timeStr;
+    if (diffDays === 1) return 'Yesterday, ' + timeStr;
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    if (diffDays < 7)  return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()] + ', ' + timeStr;
+
+    // Older: show short date like "12 Feb 2026, 16:41"
+    return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ', ' + timeStr;
   } catch (_) {
     return escapeHtml(isoString);
   }
@@ -178,8 +189,8 @@ function renderProjectList(app) {
       return '<tr data-status="' + escapeHtml(p.status) + '">' +
         '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '">' + escapeHtml(p.slug) + '</a></td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
-        '<td class="text-muted">' + escapeHtml(formatDate(p.created_at)) + '</td>' +
-        '<td class="text-muted">' + escapeHtml(formatDate(p.updated_at)) + '</td>' +
+        '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
+        '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +
           '<a href="#/projects/' + encodeURIComponent(p.slug) + '" class="btn btn-secondary btn-sm">View</a> ' +
           deleteBtn +
@@ -281,7 +292,7 @@ function renderProjectDetail(app, slug) {
 
     var wpRows = wps.map(function (wp) {
       return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
-        '<td class="monospace">' + escapeHtml(wp.work_package_id) + '</td>' +
+        '<td class="monospace"><a href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
         '<td>' + escapeHtml(wp.work_package_id) + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td>' + statusBadge(wp.status) + '</td>' +
@@ -297,8 +308,8 @@ function renderProjectDetail(app, slug) {
       '<div class="card">' +
         '<div class="text-muted" style="font-size:13px">' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
-          '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.created_at)) + ' &nbsp; ' +
-          '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.updated_at)) +
+          '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
+          '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
         '</div>' +
       '</div>' +
       '<div class="card-title">Work Packages</div>' +
