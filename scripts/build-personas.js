@@ -148,8 +148,8 @@ function loadPartials(suiteConfig) {
   // 1. Base layer: shared partials (suite-agnostic)
   if (fs.existsSync(SHARED_PARTIALS_DIR)) {
     for (const f of fs.readdirSync(SHARED_PARTIALS_DIR).filter(f => f.endsWith('.md'))) {
-      partialsMap[f.replace(/\.md$/, '')] = fs.readFileSync(
-        path.join(SHARED_PARTIALS_DIR, f), 'utf8'
+      partialsMap[f.replace(/\.md$/, '')] = normalizeNewlines(
+        fs.readFileSync(path.join(SHARED_PARTIALS_DIR, f), 'utf8')
       );
     }
   } else {
@@ -161,8 +161,8 @@ function loadPartials(suiteConfig) {
   const suitePartialsDir = path.join(suiteConfig.srcDir, 'partials');
   if (fs.existsSync(suitePartialsDir)) {
     for (const f of fs.readdirSync(suitePartialsDir).filter(f => f.endsWith('.md'))) {
-      partialsMap[f.replace(/\.md$/, '')] = fs.readFileSync(
-        path.join(suitePartialsDir, f), 'utf8'
+      partialsMap[f.replace(/\.md$/, '')] = normalizeNewlines(
+        fs.readFileSync(path.join(suitePartialsDir, f), 'utf8')
       );
     }
   }
@@ -272,6 +272,17 @@ function resolveVariables(text, context, filename) {
  */
 function collapseBlankLines(text) {
   return text.replace(/\n{4,}/g, '\n\n\n');
+}
+
+/**
+ * Normalize line endings to LF (\n) for OS-agnostic output.
+ * Converts CRLF (\r\n) first, then strips any remaining stray CR (\r).
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeNewlines(text) {
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -601,7 +612,7 @@ function buildForTarget(suite, target) {
     // Render body: partials → conditionals → variables → post-process
     // ------------------------------------------------------------------
 
-    const bodyTemplate = fs.readFileSync(contentFile, 'utf8');
+    const bodyTemplate = normalizeNewlines(fs.readFileSync(contentFile, 'utf8'));
 
     let body = resolvePartials(bodyTemplate, partialsMap);
     body = resolveConditionals(body, context);
@@ -613,7 +624,7 @@ function buildForTarget(suite, target) {
     // Assemble final output
     // ------------------------------------------------------------------
 
-    const output = `${frontmatter}\n\n${autoHeader}\n\n${body}\n`;
+    const output = normalizeNewlines(`${frontmatter}\n\n${autoHeader}\n\n${body}\n`);
 
     // ------------------------------------------------------------------
     // Strict mode: scan for unresolved markers in final output
