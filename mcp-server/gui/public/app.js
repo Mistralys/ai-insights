@@ -182,7 +182,12 @@ function renderProjectList(app) {
     if (!projects.length) {
       return '<p class="text-muted mt-16">No projects found.</p>';
     }
-    var rows = projects.map(function (p) {
+    var sorted = projects.slice().sort(function (a, b) {
+      var ta = a.last_updated ? new Date(a.last_updated).getTime() : 0;
+      var tb = b.last_updated ? new Date(b.last_updated).getTime() : 0;
+      return tb - ta;
+    });
+    var rows = sorted.map(function (p) {
       var deleteBtn = p.status === 'COMPLETE'
         ? '<button class="btn btn-danger btn-sm" data-action="delete" data-slug="' + escapeHtml(p.slug) + '">Delete</button>'
         : '';
