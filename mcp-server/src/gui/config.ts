@@ -148,7 +148,7 @@ export function startConfigWatcher(configPath: string): void {
   stopConfigWatcher();
 
   try {
-    _watcher = watch(configPath, { persistent: false }, (_eventType) => {
+    _watcher = watch(configPath, { persistent: false }, (eventType) => {
       // Debounce: clear any pending timer and set a new one
       if (_debounceTimer !== null) {
         clearTimeout(_debounceTimer);
@@ -178,6 +178,14 @@ export function startConfigWatcher(configPath: string): void {
             process.stderr.write(
               `[config] File watcher: cache updated from ${configPath}\n`
             );
+
+            // On macOS, fs.watch stops tracking a file after an atomic rename
+            // (the inode changes). Re-start the watcher so subsequent writes
+            // are picked up. This is a no-op on Linux where watching the path
+            // survives rename.
+            if (eventType === 'rename') {
+              startConfigWatcher(configPath);
+            }
           })
           .catch((err: unknown) => {
             if (isNodeError(err) && err.code === 'ENOENT') {
