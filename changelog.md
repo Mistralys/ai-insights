@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v1.2.0 - Ledger GUI & Handoff Consolidation
+- Ledger: Added a GUI to see projects and work package statuses (`node scripts/run-gui.js`).
+- Personas: Consolidated handoffs to avoid agents going off script.
+
 ## v1.1.0 — Central Ledger & Refined Personas
 
 - Personas: The planner now cross-references the codebase and asks pertinent questions.
