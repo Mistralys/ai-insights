@@ -1,9 +1,9 @@
 ---
-name: '1 - Planner v1.3.0'
+name: '1 - Planner v1.3.1'
 description: 'Step 1/7 in the agent workflow.'
 role: Planner
 author: Sebastian Mordziol
-version: 1.3.0
+version: 1.3.1
 last_updated: 2026-02-22 12:00
 vs_file_name: 1-planner.agent.md
 tools: ['vscode', 'execute', 'read', 'edit', 'search', 'web', 'agent', 'todo']
@@ -35,6 +35,7 @@ You operate within a larger agentic workflow:
 - User request or feature description
 - **Codebase context** (actively gathered — see Workflow step 2)
 - Optional: Constraints (performance, security, architecture)
+- Optional: The synthesis document of an executed plan for post-rework
 
 ---
 
@@ -55,6 +56,8 @@ A structured plan containing:
 ### Output Location
 
 Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save the plan as `plan.md` inside this folder.
+
+**Synthesis rework:** If you have been given a synthesis document to implement strategic recommendations or do some general post-rework on, use the same name as the original plan, but append `-rework-{COUNTER}` to visualize it as a rework. If the file name is alread used, increase the counter.
 
 ---
 

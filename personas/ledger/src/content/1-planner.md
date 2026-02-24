@@ -14,6 +14,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 - User request or feature description
 - **Codebase context** (actively gathered — see Workflow step 2)
 - Optional: Constraints (performance, security, architecture)
+- Optional: The synthesis document of an executed plan for post-rework
 
 ---
 
@@ -34,6 +35,8 @@ A structured plan containing:
 ### Output Location
 
 Create a plan folder under `/docs/agents/plans/` using the current date and a descriptive name (e.g., `2026-02-06-feature-name/`). Save the plan as `plan.md` inside this folder.
+
+**Synthesis rework:** If you have been given a synthesis document to implement strategic recommendations or do some general post-rework on, use the same name as the original plan, but append `-rework-{COUNTER}` to visualize it as a rework. If the file name is alread used, increase the counter.
 
 ---
 
