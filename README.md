@@ -5,7 +5,7 @@
 Workflows for agentic coding using custom prompts.
 
 - [Ledger-Enabled](/personas/ledger/README.md) - For keeping state between sessions.
-- [Vanilla](/personas/vanilla/README.md) - Dependency-less Markdown-based flow
+- [Standalone](/personas/standalone/) - Independent single-purpose agents (no MCP dependency).
 
 ### Deploying Personas to AI IDEs
 

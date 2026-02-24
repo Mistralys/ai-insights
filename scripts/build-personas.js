@@ -10,9 +10,8 @@
  *
  * Usage (from workspace root):
  *   node scripts/build-personas.js                              # build ledger (default)
- *   node scripts/build-personas.js --suite vanilla              # vanilla suite only
  *   node scripts/build-personas.js --suite standalone           # standalone suite only
- *   node scripts/build-personas.js --suite all                  # all three suites
+ *   node scripts/build-personas.js --suite all                  # both suites (ledger + standalone)
  *   node scripts/build-personas.js --suite ledger,standalone    # comma-separated list
  *   node scripts/build-personas.js --target vscode              # VS Code only
  *   node scripts/build-personas.js --target claude-code         # Claude Code only
@@ -53,16 +52,16 @@ if (targetArgIdx !== -1) {
   TARGET = targetVal;
 }
 
-// --suite flag: ledger | vanilla | standalone | all (default: ledger)
+// --suite flag: ledger | standalone | all (default: ledger)
 // Supports comma-separated values, e.g. --suite ledger,standalone
-const VALID_SUITES = ['ledger', 'vanilla', 'standalone', 'all'];
+const VALID_SUITES = ['ledger', 'standalone', 'all'];
 const suiteArgIdx  = process.argv.indexOf('--suite');
 let SUITE_ARG = 'ledger';
 if (suiteArgIdx !== -1) {
   const suiteVal = process.argv[suiteArgIdx + 1];
   if (!suiteVal) {
     console.error(
-      '[ERROR] --suite requires a value. Valid values: ledger, vanilla, standalone, all (comma-separated allowed).'
+      '[ERROR] --suite requires a value. Valid values: ledger, standalone, all (comma-separated allowed).'
     );
     process.exit(1);
   }
@@ -89,7 +88,7 @@ function expandSuites(suiteArg) {
   const result = [];
   for (const p of parts) {
     if (p === 'all') {
-      for (const s of ['ledger', 'vanilla', 'standalone']) {
+      for (const s of ['ledger', 'standalone']) {
         if (!result.includes(s)) result.push(s);
       }
     } else if (!result.includes(p)) {
@@ -112,12 +111,6 @@ const SUITE_CONFIGS = {
     srcDir:      path.join(ROOT, 'personas', 'ledger', 'src'),
     outVscode:   path.join(ROOT, 'personas', 'ledger', 'vs-code'),
     outCC:       path.join(ROOT, 'personas', 'ledger', 'claude-code'),
-    personaMode: 'numbered',
-  },
-  vanilla: {
-    srcDir:      path.join(ROOT, 'personas', 'vanilla', 'src'),
-    outVscode:   path.join(ROOT, 'personas', 'vanilla', 'vs-code'),
-    outCC:       path.join(ROOT, 'personas', 'vanilla', 'claude-code'),
     personaMode: 'numbered',
   },
   standalone: {
@@ -333,7 +326,7 @@ function serializeTools(tools) {
 
 // ---------------------------------------------------------------------------
 // Helper: serialize tools list WITHOUT outer brackets.
-// Used inside vanilla/standalone frontmatter templates (which supply [ ]).
+// Used inside standalone frontmatter templates (which supply [ ]).
 // ---------------------------------------------------------------------------
 
 /**
@@ -393,30 +386,6 @@ mcpServers:
   - {{mcp_server_name}}
 ---`;
 
-// VANILLA — no vs_file_name, no mcpServers; name uses role_title from roster
-const FRONTMATTER_VANILLA_VSCODE = `---
-name: '{{number}} - {{role_title}} v{{version}}'
-description: '{{description}}'
-role: {{role}}
-author: {{author}}
-version: {{version}}
-last_updated: {{last_updated}}
-tools: [{{tools_list}}]
----`;
-
-const FRONTMATTER_VANILLA_CC = `---
-name: {{cc_name}}
-description: '{{cc_description}}'
-role: {{role}}
-author: {{author}}
-version: {{version}}
-last_updated: {{last_updated}}
-tools: [{{cc_tools_list}}]
-permissionMode: {{cc_permission_mode}}
-model: {{cc_model}}
-memory: {{cc_memory}}
----`;
-
 // STANDALONE — no role, no mcpServers; uses slug-based identification
 const FRONTMATTER_STANDALONE_VSCODE = `---
 name: '{{name}}'
@@ -452,7 +421,7 @@ let builtCount     = 0;   // files processed
 /**
  * Build all personas for a single suite + target platform combination.
  *
- * @param {string}                 suite   'ledger' | 'vanilla' | 'standalone'
+ * @param {string}                 suite   'ledger' | 'standalone'
  * @param {'vscode'|'claude-code'} target
  */
 function buildForTarget(suite, target) {
@@ -487,8 +456,6 @@ function buildForTarget(suite, target) {
   let fmTemplate;
   if (suite === 'ledger') {
     fmTemplate = isVscode ? FRONTMATTER_LEDGER_VSCODE : FRONTMATTER_LEDGER_CC;
-  } else if (suite === 'vanilla') {
-    fmTemplate = isVscode ? FRONTMATTER_VANILLA_VSCODE : FRONTMATTER_VANILLA_CC;
   } else {
     // standalone
     fmTemplate = isVscode ? FRONTMATTER_STANDALONE_VSCODE : FRONTMATTER_STANDALONE_CC;
@@ -525,7 +492,7 @@ function buildForTarget(suite, target) {
       ? persona.version
       : sharedMeta.default_version;
 
-    // Numbered-mode computed fields (ledger + vanilla)
+    // Numbered-mode computed fields (ledger)
     let total           = undefined;
     let roster_rendered = '';
     let mcp_tools_table = '';
@@ -533,7 +500,6 @@ function buildForTarget(suite, target) {
     let cc_tools_json   = '';
     let cc_name         = '';
     let cc_description  = '';
-    let role_title      = '';
 
     if (personaMode === 'numbered') {
       const roster     = sharedMeta.roster || [];
@@ -558,12 +524,9 @@ function buildForTarget(suite, target) {
       } else {
         cc_description = `Step ${persona.number}/${total} in the ${suite} workflow`;
       }
-
-      // role_title: derived from roster (used by vanilla VS Code frontmatter)
-      role_title = rosterEntry ? rosterEntry.title : (persona.role || '');
     }
 
-    // Tools-list variants (without outer brackets) — used by vanilla + standalone
+    // Tools-list variants (without outer brackets) — used by standalone
     const tools_list    = serializeToolsList(persona.tools    || []);
     const cc_tools_list = serializeToolsList(
       persona.cc_tools || sharedMeta.default_cc_tools || []
@@ -596,7 +559,6 @@ function buildForTarget(suite, target) {
       mcp_tools_table,
       cc_name,
       cc_description,
-      role_title,
       // Platform feature flags
       target_vscode:      isVscode,
       target_claude_code: !isVscode,

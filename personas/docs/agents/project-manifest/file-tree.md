@@ -80,50 +80,6 @@ personas/                          # Sub-project root (has own package.json)
 │       ├── synthesis-operational-protocol.md   # Synthesis operational protocol
 │       └── synthesis-output-format.md          # Synthesis output format
 │
-├── vanilla/                       # Non-ledger personas (7-stage workflow, no MCP dependency)
-│   ├── README.md                  # User-facing guide for vanilla suite
-│   │
-│   ├── vs-code/                   # ← GENERATED — VS Code target output (--suite vanilla --target vscode)
-│   │   ├── 1-planner.md
-│   │   ├── 2-project-manager.md
-│   │   ├── 3-developer.md
-│   │   ├── 4-qa.md
-│   │   ├── 5-reviewer.md
-│   │   ├── 6-documentation.md
-│   │   └── 7-synthesis.md
-│   │
-│   ├── claude-code/               # ← GENERATED — Claude Code target output (--suite vanilla --target claude-code)
-│   │   ├── 1-planner.md           #   Uses FRONTMATTER_VANILLA_CC (name ends in -vanilla, cc_tools, permissionMode, …)
-│   │   ├── 2-project-manager.md
-│   │   ├── 3-developer.md
-│   │   ├── 4-qa.md
-│   │   ├── 5-reviewer.md
-│   │   ├── 6-documentation.md
-│   │   └── 7-synthesis.md
-│   │
-│   └── src/                       # Template sources — edit THESE, then build
-│       ├── meta/                  # YAML metadata
-│       │   ├── _shared.yaml       # Shared: author, version, roster, CC defaults (no mcp_server_name)
-│       │   ├── 1-planner.yaml     # Per-persona: number, role, cc_file_name (*-vanilla.md), tools
-│       │   ├── 2-project-manager.yaml
-│       │   ├── 3-developer.yaml
-│       │   ├── 4-qa.yaml
-│       │   ├── 5-reviewer.yaml
-│       │   ├── 6-documentation.yaml
-│       │   └── 7-synthesis.yaml
-│       │
-│       ├── partials/              # Suite-local partials (empty; stub .gitkeep present)
-│       │   └── .gitkeep
-│       │
-│       └── content/               # Per-persona body templates (one per agent)
-│           ├── 1-planner.md       # No MCP content — references only shared partials
-│           ├── 2-project-manager.md
-│           ├── 3-developer.md
-│           ├── 4-qa.md
-│           ├── 5-reviewer.md
-│           ├── 6-documentation.md
-│           └── 7-synthesis.md
-│
 ├── standalone/                    # Special-purpose personas (not part of the 7-stage workflow)
 │   ├── vs-code/                   # ← GENERATED — VS Code target output (--suite standalone --target vscode)
 │   │   ├── agents-md-curator.md   #   Uses FRONTMATTER_STANDALONE_VSCODE (no role, includes vs_file_name)
@@ -172,15 +128,9 @@ personas/                          # Sub-project root (has own package.json)
 | `personas/ledger/vs-code/` | Yes | VS Code target output: standard frontmatter, `tools` = IDE tool slugs, `vs_file_name` used for sync |
 | `personas/ledger/claude-code/` | Yes | Claude Code target output: CC frontmatter (`name`, `cc_tools`, `permissionMode`, `model`, `memory`, `mcpServers`) |
 | `personas/ledger/src/meta/` | No | YAML metadata defining each persona's identity and feature flags |
-| `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments — **base layer**, loaded first. Available to all suites (ledger, vanilla, standalone). Never include MCP-specific content. |  
+| `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments — **base layer**, loaded first. Available to all suites (ledger, standalone). Never include MCP-specific content. |  
 | `personas/ledger/src/partials/` | No | Ledger-suite-specific Markdown fragments — **override layer**, loaded after shared. Partials here shadow same-named entries in `shared/partials/`. Contains MCP-specific partials (`mcp-*`, `role-boundaries`, `handoff-block-*`, `incident-logging`). |
 | `personas/ledger/src/content/` | No | Per-persona body templates — the "main" content for each agent |
-| `personas/vanilla/` | Output files: YES (vs-code/ + claude-code/); `README.md` and `src/`: NO | Non-ledger 7-stage workflow suite output + template sources |
-| `personas/vanilla/vs-code/` | Yes | VS Code target output: vanilla frontmatter with `role` field, no `vs_file_name`, no `mcpServers` |
-| `personas/vanilla/claude-code/` | Yes | Claude Code target output: vanilla CC frontmatter (`name` ends in `-vanilla`, no `mcpServers`) |
-| `personas/vanilla/src/meta/` | No | YAML metadata for vanilla suite; no `mcp_server_name`, no `vs_file_name`, `cc_file_name` ends in `-vanilla.md` |
-| `personas/vanilla/src/content/` | No | Per-persona body templates — no MCP content, references shared partials only |
-| `personas/vanilla/src/partials/` | No | Suite-local partials directory (empty; `.gitkeep` stub present) |
 | `personas/standalone/` | Output files: YES (vs-code/ + claude-code/); `src/`: NO | Special-purpose non-workflow personas |
 | `personas/standalone/vs-code/` | Yes | VS Code target output: standalone frontmatter (`name`, `vs_file_name`, no `role`) |
 | `personas/standalone/claude-code/` | Yes | Claude Code target output: standalone CC frontmatter (plain kebab `name`, no `role`, no `mcpServers`) |

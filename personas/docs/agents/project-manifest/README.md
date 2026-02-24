@@ -37,14 +37,13 @@ node scripts/build-personas.js
 
 **Build a specific suite:**
 ```bash
-node scripts/build-personas.js --suite vanilla
 node scripts/build-personas.js --suite standalone
 ```
 
 **Build multiple suites (comma-separated or shorthand):**
 ```bash
 node scripts/build-personas.js --suite ledger,standalone
-node scripts/build-personas.js --suite all       # ledger + vanilla + standalone
+node scripts/build-personas.js --suite all       # ledger + standalone
 ```
 
 **Build for a specific target only:**
@@ -55,7 +54,7 @@ node scripts/build-personas.js --target claude-code
 
 **Flags can be combined:**
 ```bash
-node scripts/build-personas.js --suite vanilla --target vscode
+node scripts/build-personas.js --suite standalone --target vscode
 ```
 
 **Check for stale output (CI-friendly):**

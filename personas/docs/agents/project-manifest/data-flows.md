@@ -6,7 +6,7 @@ The primary data flow: transform source templates into final persona Markdown fi
 
 ```
 CLI flags:
-  --suite  ledger | vanilla | standalone | all | comma-separated  [default: ledger]
+  --suite  ledger | standalone | all | comma-separated  [default: ledger]
   --target vscode | claude-code | all                             [default: all]
          │
          ▼
@@ -34,8 +34,8 @@ For each suite + target AND each per-persona YAML:
               ┌───────────────┐   Based on suite + target:
               │ Select        │   ledger   + vscode      → FRONTMATTER_LEDGER_VSCODE
               │ Frontmatter   │   ledger   + claude-code → FRONTMATTER_LEDGER_CC
-              └───────┬───────┘   vanilla  + vscode      → FRONTMATTER_VANILLA_VSCODE
-                      │           vanilla  + claude-code → FRONTMATTER_VANILLA_CC
+              └───────┬───────┘
+                      │
                       │       ┌─────────────────┐   standalone + vscode → FRONTMATTER_STANDALONE_VSCODE
                       │       │ src/content/    │   standalone + cc     → FRONTMATTER_STANDALONE_CC
                       │       │ N-name.md /     │
@@ -75,10 +75,6 @@ For each suite + target AND each per-persona YAML:
         │    personas/ledger/vs-code/            │
         │  ledger    + claude-code:              │
         │    personas/ledger/claude-code/        │
-        │  vanilla   + vscode:                   │
-        │    personas/vanilla/vs-code/           │
-        │  vanilla   + claude-code:              │
-        │    personas/vanilla/claude-code/       │
         │  standalone + vscode:                  │
         │    personas/standalone/vs-code/        │
         │  standalone + claude-code:             │
@@ -105,16 +101,15 @@ context = {
 
   // Layer 3: Computed values (cannot be overridden by YAML)
   version,             // persona.version ?? _shared.default_version
-  total,               // _shared.roster.length (ledger/vanilla: 7; standalone: not used)
+  total,               // _shared.roster.length (ledger: 7; standalone: not used)
   tools_json,          // serializeTools(persona.tools)         — ledger only
-  tools_list,          // serializeToolsList(persona.tools)     — vanilla + standalone
+  tools_list,          // serializeToolsList(persona.tools)     — standalone
   cc_tools_json,       // serializeTools(persona.cc_tools ?? _shared.default_cc_tools)  — ledger only
-  cc_tools_list,       // serializeToolsList(same)             — vanilla + standalone
-  roster_rendered,     // renderRoster(_shared.roster, persona.number) — ledger + vanilla
+  cc_tools_list,       // serializeToolsList(same)             — standalone
+  roster_rendered,     // renderRoster(_shared.roster, persona.number) — ledger
   mcp_tools_table,     // renderMcpToolsTable(persona.mcp_tools) or '' — ledger only
   cc_name,             // persona.cc_file_name.replace(/\.md$/, '') — all suites
-  cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation") — ledger + vanilla
-  role_title,          // roster entry title for this agent — vanilla only
+  cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation") — ledger
 
   // Layer 4: Target-pass flags (set by buildForTarget)
   target_vscode,       // true when target = 'vscode'
@@ -137,7 +132,6 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
   ┌──────────────────────────┐
   │ 1. Build (child process) │  Spawns: node scripts/build-personas.js --suite ledger,standalone [--target] [--dry-run]
   │                          │  Always rebuilds both ledger and standalone output before syncing.
-  │                          │  Vanilla suite is intentionally excluded from this build step.
   └──────────┬───────────────┘
              │
      ┌───────┴──────────────────────┐

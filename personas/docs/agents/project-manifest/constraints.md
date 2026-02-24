@@ -4,14 +4,13 @@
 
 1. **Never edit generated files directly.** All persona files in the following directories are auto-generated and must not be hand-edited:
    - `personas/ledger/vs-code/` and `personas/ledger/claude-code/`
-   - `personas/vanilla/vs-code/` and `personas/vanilla/claude-code/`
    - `personas/standalone/vs-code/` and `personas/standalone/claude-code/`
 
    All changes must be made in the corresponding `src/` directory and rebuilt. Generated files carry an `<!-- AUTO-GENERATED — do not edit. Source: personas/<suite>/src/ -->` header as a guard.
 
 2. **`README.md` is not generated.** The `personas/ledger/README.md` is hand-authored and serves as the user-facing workflow guide. It is excluded from the build process.
 
-3. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` for a single IDE target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild all three suites in one pass.
+3. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` for a single IDE target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild both suites in one pass.
 
 ---
 
@@ -39,8 +38,6 @@
 
 10. **Persona files follow the `N-name.md` pattern** (e.g., `3-developer.md`). The number prefix matches the agent's `number` field (1–7) and determines pipeline ordering. This pattern applies to both output directories (`ledger/vs-code/`, `ledger/claude-code/`).
 
-11. **Vanilla `cc_file_name` must end in `-vanilla.md`** (e.g. `3-developer-vanilla.md`). This suffix distinguishes vanilla Claude Code output from the ledger suite output and prevents filename collisions when both suites are deployed to the same `~/.claude/agents/` directory.
-
 12. **Standalone YAML files are slug-based, not number-prefixed.** Standalone persona filenames match their `slug` field (e.g. `researcher.yaml`, `manifest-curator.yaml`). The `slug` must be a valid kebab-case identifier with no numeric prefix.
 
 13. **Standalone `vs_file_name` uses the `.agent.md` extension** (e.g. `researcher.agent.md`). This convention was established in WP-004 and is now the authoritative standard for all standalone VS Code personas. The output file on disk is named by the `vs_file_name` value (e.g. `researcher.agent.md`), not by the slug. Standalone Claude Code output uses plain `.md` (e.g. `researcher.md`), derived from `cc_file_name`.
@@ -54,14 +51,10 @@
 17. **Partials use kebab-case filenames** without number prefixes (e.g., `mcp-preflight-detect.md`). The partial name in templates matches the filename without the `.md` extension.
 
 18. **Shared vs. suite-local partials.** The build system loads partials in two layers:
-  - **Base layer** (`personas/shared/partials/`): suite-agnostic fragments reusable by all suites (ledger, vanilla, standalone). Never include MCP-specific content here.
+  - **Base layer** (`personas/shared/partials/`): suite-agnostic fragments reusable by all suites (ledger, standalone). Never include MCP-specific content here.
   - **Override layer** (`personas/<suite>/src/partials/`): suite-specific fragments. Same-named entries silently shadow their shared counterpart. All MCP-workflow partials (`mcp-*`, `role-boundaries`, `handoff-block-*`, `incident-logging`) live here.
   
-  When building non-ledger suites (vanilla, standalone), a partial referenced by a shared partial but only defined in the ledger override layer (e.g., `{{> incident-logging}}`) will produce a `[WARN]` and be left as-is unless a stub is added to `shared/partials/`.
-
-19. **Vanilla content templates must not reference MCP-specific partials.** The vanilla suite (`personas/vanilla/src/content/`) is intended for users without an MCP server. Templates must not reference `mcp-*`, `role-boundaries`, `handoff-block-*`, `incident-logging`, or any other ledger-specific partial. Only shared partials from `personas/shared/partials/` are appropriate.
-
-20. **Vanilla `_shared.yaml` must not contain `mcp_server_name`.** This field is ledger-only. Its absence from vanilla metadata is a hard constraint, not an omission.
+  When building the standalone suite, a partial referenced by a shared partial but only defined in the ledger override layer (e.g., `{{> incident-logging}}`) will produce a `[WARN]` and be left as-is unless a stub is added to `shared/partials/`.
 
 21. **Standalone `_shared.yaml` must not contain `mcp_server_name` or `roster`.** Standalone personas are independent tools — they have no workflow roster and no MCP server dependency. Do not add these fields when extending the standalone suite.
 
@@ -79,7 +72,7 @@
 
 26. **`default_version` in `_shared.yaml` applies to all personas** unless overridden per-persona. Currently only Agent 1 (Planner) overrides the version (uses `1.3.0` while others use `3.4.0`).
 
-27. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — `buildForTarget()` emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to all three suites (ledger, vanilla, standalone).
+27. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — `buildForTarget()` emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to both suites (ledger, standalone).
 
 28. **`mcp_server_name` in `_shared.yaml`** controls the MCP server reference everywhere in generated output. If the `.mcp.json` key changes, update this single field and rebuild.
 
@@ -91,23 +84,19 @@
 
 30. **Sync reads from explicit source directories.** `syncVSCode()` reads from `ledger/vs-code/`; `syncStandaloneVSCode()` reads from `standalone/vs-code/`; `syncClaudeCode()` reads from `ledger/claude-code/`; `syncStandaloneClaudeCode()` reads from `standalone/claude-code/`. All four copy to their respective target directories without recursively walking the whole `personas/` tree. When `--target vscode` (or `--target all`) is used, both `syncVSCode()` and `syncStandaloneVSCode()` are called. When `--target claude-code` (or `--target all`) is used, both `syncClaudeCode()` and `syncStandaloneClaudeCode()` are called.
 
-31. **Vanilla deployment is manual-only (product decision).** The vanilla suite is intentionally excluded from automated sync in `scripts/sync-personas.js`. Deployment of vanilla personas to an IDE is a manual copy-paste operation from `personas/vanilla/vs-code/` or `personas/vanilla/claude-code/`. Do not add vanilla sync functions (`syncVanillaVSCode`, `syncVanillaClaudeCode`, etc.) to `scripts/sync-personas.js`. The build step inside `sync-personas.js` explicitly excludes the vanilla suite (`--suite ledger,standalone`).
+31. **Frontmatter validation is advisory.** checks `role`, `name`, and `vs_file_name` in ledger VS Code personas. `validateStandaloneVSCodeFrontmatter()` checks `name` and `vs_file_name` in standalone VS Code personas (no `role` required). `validateCCFrontmatter()` checks `name` (must match `\d-kebab-case` pattern with numeric prefix), `role`, `permissionMode`, `model`, and `memory` in ledger Claude Code personas. `validateStandaloneCCFrontmatter()` checks `name` (plain kebab-case — **no** numeric prefix, e.g. `agents-md-curator`), `permissionMode`, `model`, and `memory` in standalone Claude Code personas. None of these functions block the sync — warnings are printed to console.
 
-   If automated vanilla sync is ever desired, it must be implemented as explicit opt-in `--target` values (e.g., `--target vanilla-vscode`, `--target vanilla-claude`). It must **never** be silently included in the default `buildArgs` suite list. Adding vanilla sync without following this opt-in pattern would create automatic deployment paths that are not sanctioned by the workflow contract.
-
-32. **Frontmatter validation is advisory.** `validateVSCodeFrontmatter()` checks `role`, `name`, and `vs_file_name` in ledger VS Code personas. `validateStandaloneVSCodeFrontmatter()` checks `name` and `vs_file_name` in standalone VS Code personas (no `role` required). `validateCCFrontmatter()` checks `name` (must match `\d-kebab-case` pattern with numeric prefix), `role`, `permissionMode`, `model`, and `memory` in ledger Claude Code personas. `validateStandaloneCCFrontmatter()` checks `name` (plain kebab-case — **no** numeric prefix, e.g. `agents-md-curator`), `permissionMode`, `model`, and `memory` in standalone Claude Code personas. None of these functions block the sync — warnings are printed to console.
-
-33. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `scripts/build-personas.js` as a child process before copying files, and forwards the `--target` flag so the build step generates only the required output. There is no need to run build separately when syncing.
+32. **Build is automatic during sync.** `scripts/sync-personas.js` spawns `scripts/build-personas.js` as a child process before copying files, and forwards the `--target` flag so the build step generates only the required output. There is no need to run build separately when syncing.
 
 ---
 
 ## Cross-System Dependencies
 
-34. **`KNOWN_ROLES` ↔ `AGENT_ROLES`**: The sync script's `KNOWN_ROLES` constant must match `mcp-server/src/utils/constants.ts` → `AGENT_ROLES`. There is no automated validation between these two — it's a manual sync contract.
+33. **`KNOWN_ROLES` ↔ `AGENT_ROLES`**: The sync script's `KNOWN_ROLES` constant must match `mcp-server/src/utils/constants.ts` → `AGENT_ROLES`. There is no automated validation between these two — it's a manual sync contract.
 
-35. **`role` field ↔ Agent Registry**: The `role` value in persona frontmatter is used by the MCP server's Agent Registry (`mcp-server/src/utils/agent-registry.ts`) to discover agent handles for automatic handoffs. The registry scans `*.agent.md` files in the VS Code prompts directory and matches the `role` field.
+34. **`role` field ↔ Agent Registry**: The `role` value in persona frontmatter is used by the MCP server's Agent Registry (`mcp-server/src/utils/agent-registry.ts`) to discover agent handles for automatic handoffs. The registry scans `*.agent.md` files in the VS Code prompts directory and matches the `role` field.
 
-36. **`mcp_server_name` ↔ `.mcp.json`**: The `mcp_server_name` value in `_shared.yaml` must match the server key in the target project's `.mcp.json` file. Default is `central_pm`.
+35. **`mcp_server_name` ↔ `.mcp.json`**: The `mcp_server_name` value in `_shared.yaml` must match the server key in the target project's `.mcp.json` file. Default is `central_pm`.
 
 ---
 
@@ -115,9 +104,9 @@
 
 When the build system was introduced, the generated output differs from the original hand-authored files in these **intentional** ways:
 
-37. **AUTO-GENERATED header** added to every generated file.
+36. **AUTO-GENERATED header** added to every generated file.
 
-38. **Code fence indentation normalized.** Handoff block code fences are at column 0; originals had 3–4 space indent (numbered list continuation style).
+37. **Code fence indentation normalized.** Handoff block code fences are at column 0; originals had 3–4 space indent (numbered list continuation style).
 
 39. **`mcp-tools-note` placement unified.** For Agent 3 (Developer), the self-documenting note was moved from the Workflow section to the MCP Tools section for consistency with agents 4–7.
 
