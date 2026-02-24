@@ -1,5 +1,5 @@
 slug: composer-curator
-name: "Composer Curator v1.0.0"
+name: "Composer Curator"
 description: "Verify that the project's composer.json file is set up correctly for agentic coding."
 vs_file_name: composer-curator.agent.md
 cc_file_name: composer-curator.md

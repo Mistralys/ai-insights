@@ -1,5 +1,5 @@
 slug: module-intent-architect
-name: "Module Intent Architect v1.0.2"
+name: "Module Intent Architect"
 description: "Infers and documents the purpose, role, and dependencies of specific code modules by analyzing the source."
 vs_file_name: module-intent-architect.agent.md
 cc_file_name: module-intent-architect.md

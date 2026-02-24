@@ -1,5 +1,5 @@
 slug: researcher
-name: "Researcher v1.0.1"
+name: "Researcher"
 description: "Research solutions to complex problems through known patterns or creative thinking."
 vs_file_name: researcher.agent.md
 cc_file_name: researcher.md

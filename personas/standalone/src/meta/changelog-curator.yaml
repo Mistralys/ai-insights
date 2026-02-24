@@ -1,5 +1,5 @@
 slug: changelog-curator
-name: "Changelog Curator v1.0.0"
+name: "Changelog Curator"
 description: "Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style."
 vs_file_name: changelog-curator.agent.md
 cc_file_name: changelog-curator.md

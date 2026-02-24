@@ -550,6 +550,11 @@ function buildForTarget(suite, target) {
       ...persona,
       // Computed / derived
       version,
+      // For standalone personas: auto-append version to base name so the YAML
+      // only needs to carry the display name without a version suffix.
+      ...(personaMode === 'standalone' && persona.name
+        ? { name: `${persona.name} v${version}` }
+        : {}),
       total,
       tools_json,
       cc_tools_json,
