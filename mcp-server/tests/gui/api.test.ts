@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, access } from 'fs/promises';
+import { mkdtemp, rm, access, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -19,6 +19,7 @@ import {
   handleDeleteProject,
   handleGetConfig,
   handleUpdateConfig,
+  handleGetInsights,
   ApiError,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
@@ -234,6 +235,128 @@ describe('gui/api.ts', () => {
       await expect(
         handleDeleteProject(ledgerRoot, '2026-01-01-phantom-project')
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  // ─── handleGetInsights ───────────────────────────────────────────────────
+
+  describe('handleGetInsights', () => {
+    it('returns an empty array when no projects exist', async () => {
+      const result = await handleGetInsights(ledgerRoot);
+      expect(result).toEqual([]);
+    });
+
+    it('returns an empty array when projects exist but have no comments', async () => {
+      await createProject(ledgerRoot, '2026-01-01-silent', { project_comments: [] });
+      const result = await handleGetInsights(ledgerRoot);
+      expect(result).toEqual([]);
+    });
+
+    it('returns InsightEntry objects with all required fields', async () => {
+      await createProject(ledgerRoot, '2026-01-01-annotated', {
+        status: 'IN_PROGRESS',
+        project_comments: [
+          {
+            type: 'note',
+            priority: 'medium',
+            timestamp: '2026-01-01T10:00:00',
+            agent: 'Developer',
+            note: 'Test note',
+          },
+        ],
+      });
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      expect(result).toHaveLength(1);
+      const entry = result[0]!;
+      expect(entry.project_slug).toBe('2026-01-01-annotated');
+      expect(entry.project_status).toBe('IN_PROGRESS');
+      expect(entry.type).toBe('note');
+      expect(entry.priority).toBe('medium');
+      expect(entry.timestamp).toBe('2026-01-01T10:00:00');
+      expect(entry.agent).toBe('Developer');
+      expect(entry.note).toBe('Test note');
+      expect(entry.context).toBeUndefined();
+    });
+
+    it('includes optional context when present on a comment', async () => {
+      await createProject(ledgerRoot, '2026-01-01-incident', {
+        project_comments: [
+          {
+            type: 'incident',
+            priority: 'high',
+            timestamp: '2026-01-01T12:00:00',
+            agent: 'QA',
+            note: 'Tool crashed',
+            context: { os: 'macOS', tool: 'vitest', resolved: true },
+          },
+        ],
+      });
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.context).toEqual({ os: 'macOS', tool: 'vitest', resolved: true });
+    });
+
+    it('sorts entries by timestamp descending (newest first)', async () => {
+      await createProject(ledgerRoot, '2026-01-01-multi', {
+        project_comments: [
+          { type: 'note', priority: 'low', timestamp: '2026-01-01T08:00:00', agent: 'Developer', note: 'older' },
+          { type: 'note', priority: 'high', timestamp: '2026-01-03T08:00:00', agent: 'Developer', note: 'newest' },
+          { type: 'note', priority: 'medium', timestamp: '2026-01-02T08:00:00', agent: 'Developer', note: 'middle' },
+        ],
+      });
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      expect(result).toHaveLength(3);
+      expect(result[0]!.note).toBe('newest');
+      expect(result[1]!.note).toBe('middle');
+      expect(result[2]!.note).toBe('older');
+    });
+
+    it('aggregates comments from multiple projects into one sorted array', async () => {
+      await createProject(ledgerRoot, '2026-01-01-proj-a', {
+        project_comments: [
+          { type: 'note', priority: 'low', timestamp: '2026-01-01T09:00:00', agent: 'Developer', note: 'from A' },
+        ],
+      });
+      await createProject(ledgerRoot, '2026-01-02-proj-b', {
+        project_comments: [
+          { type: 'note', priority: 'high', timestamp: '2026-01-02T09:00:00', agent: 'QA', note: 'from B' },
+        ],
+      });
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      expect(result).toHaveLength(2);
+      // Sorted newest-first: B then A
+      expect(result[0]!.project_slug).toBe('2026-01-02-proj-b');
+      expect(result[0]!.note).toBe('from B');
+      expect(result[1]!.project_slug).toBe('2026-01-01-proj-a');
+      expect(result[1]!.note).toBe('from A');
+    });
+
+    it('skips a project whose project-ledger.json is corrupted and returns others unchanged', async () => {
+      // Good project with a comment
+      await createProject(ledgerRoot, '2026-01-01-good', {
+        project_comments: [
+          { type: 'note', priority: 'low', timestamp: '2026-01-01T10:00:00', agent: 'Developer', note: 'ok' },
+        ],
+      });
+
+      // Corrupt project: write valid .meta.json (via createProject) then overwrite the ledger file
+      await createProject(ledgerRoot, '2026-01-01-bad');
+      const badLedgerPath = join(ledgerRoot, '2026-01-01-bad', 'project-ledger.json');
+      await writeFile(badLedgerPath, 'not-valid-json', 'utf-8');
+
+      const result = await handleGetInsights(ledgerRoot);
+
+      // The corrupted project must be skipped; the good project's comment is returned
+      expect(result).toHaveLength(1);
+      expect(result[0]!.project_slug).toBe('2026-01-01-good');
     });
   });
 

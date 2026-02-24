@@ -36,6 +36,7 @@ var API = (function () {
     deleteProject:            function (slug)         { return request('DELETE', '/projects/' + encodeURIComponent(slug)); },
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
+    getInsights:              function ()             { return request('GET',    '/insights'); },
   };
 })();
 
@@ -57,11 +58,22 @@ var Router = (function () {
     _activeInterval = setInterval(intervalFn, delayMs);
   }
 
+  function updateNavActive(path) {
+    var navLinks = document.querySelectorAll('header nav a');
+    navLinks.forEach(function (link) {
+      var href = link.getAttribute('href') || '';
+      var linkPath = href.replace(/^#/, '') || '/';
+      link.classList.toggle('active', linkPath === path || (path === '' && linkPath === '/'));
+    });
+  }
+
   function dispatch(hash) {
     clearPolling();
     var path = (hash || '').replace(/^#/, '') || '/';
     var app = document.getElementById('app');
     if (!app) return;
+
+    updateNavActive(path);
 
     if (path === '/' || path === '') {
       renderProjectList(app);
@@ -82,6 +94,11 @@ var Router = (function () {
 
     if (path === '/config') {
       renderConfig(app);
+      return;
+    }
+
+    if (path === '/insights') {
+      renderInsights(app);
       return;
     }
 
@@ -304,6 +321,36 @@ function renderProjectDetail(app, slug) {
       '</tr>';
     }).join('');
 
+    // Sort project comments newest-first
+    var comments = (project.project_comments || []).slice().sort(function (a, b) {
+      return (b.timestamp || '').localeCompare(a.timestamp || '');
+    });
+
+    var commentCards = comments.length
+      ? comments.map(function (c) {
+          var priorityClass = c.priority ? ' priority-' + c.priority : '';
+          var contextHtml = '';
+          if (c.context && typeof c.context === 'object') {
+            var ctxItems = Object.entries(c.context).map(function (pair) {
+              return '<span><strong>' + escapeHtml(pair[0]) + ':</strong> ' + escapeHtml(String(pair[1])) + '</span>';
+            }).join('<br>');
+            contextHtml =
+              '<div style="margin-top:8px;padding:8px 10px;background:var(--color-bg);border-radius:var(--radius);font-size:12px;line-height:1.6">' +
+                ctxItems +
+              '</div>';
+          }
+          return '<div class="comment-card' + priorityClass + '">' +
+            '<div class="comment-meta">' +
+              escapeHtml(c.agent || '—') +
+              ' <span class="comment-type">' + escapeHtml(c.type || '') + '</span>' +
+              ' <span>' + escapeHtml(formatDate(c.timestamp)) + '</span>' +
+            '</div>' +
+            '<div style="margin-top:6px">' + escapeHtml(c.note || '') + '</div>' +
+            contextHtml +
+          '</div>';
+        }).join('')
+      : '<p class="text-muted">No comments yet.</p>';
+
     app.innerHTML =
       '<p class="breadcrumb"><a href="#/">Projects</a> / ' + escapeHtml(slug) + '</p>' +
       '<div class="page-header">' +
@@ -323,7 +370,9 @@ function renderProjectDetail(app, slug) {
             '<thead><tr><th>WP ID</th><th>Title</th><th>Assigned To</th><th>Status</th></tr></thead>' +
             '<tbody>' + wpRows + '</tbody>' +
           '</table></div>'
-        : '<p class="text-muted">No work packages.</p>');
+        : '<p class="text-muted">No work packages.</p>') +
+      '<div class="card-title" style="margin-top:24px">Project Comments</div>' +
+      commentCards;
 
     // Clickable rows
     app.querySelectorAll('tr.clickable').forEach(function (row) {
@@ -472,6 +521,128 @@ function renderConfig(app) {
   }).catch(function (err) {
     showError(app, 'Failed to load configuration: ' + (err.message || String(err)));
   });
+}
+
+/* ----------------------------------------------------------
+   4e. View: Insights
+   ---------------------------------------------------------- */
+function renderInsights(app) {
+  showLoading(app);
+
+  var allEntries = [];
+  var filterType = 'ALL';
+  var filterPriority = 'ALL';
+  var filterProject = 'ALL';
+
+  function buildCards() {
+    var filtered = allEntries.filter(function (e) {
+      if (filterType !== 'ALL' && e.type !== filterType) return false;
+      if (filterPriority !== 'ALL' && e.priority !== filterPriority) return false;
+      if (filterProject !== 'ALL' && e.project_slug !== filterProject) return false;
+      return true;
+    });
+
+    if (!filtered.length) {
+      return '<p class="text-muted mt-16">No insights found.</p>';
+    }
+
+    return filtered.map(function (e) {
+      var priorityClass = e.priority ? ' priority-' + e.priority : '';
+      var contextHtml = '';
+      if (e.context && typeof e.context === 'object') {
+        var ctxItems = Object.entries(e.context).map(function (pair) {
+          return '<span><strong>' + escapeHtml(pair[0]) + ':</strong> ' + escapeHtml(String(pair[1])) + '</span>';
+        }).join('<br>');
+        contextHtml =
+          '<div class="comment-context">' +
+            ctxItems +
+          '</div>';
+      }
+      return '<div class="comment-card' + priorityClass + '">' +
+        '<div class="comment-meta">' +
+          '<a href="#/projects/' + encodeURIComponent(e.project_slug) + '">' + escapeHtml(e.project_slug) + '</a>' +
+          ' &mdash; ' +
+          escapeHtml(e.agent || '\u2014') +
+          ' <span class="comment-type">' + escapeHtml(e.type || '') + '</span>' +
+          ' <span>' + escapeHtml(formatDate(e.timestamp)) + '</span>' +
+        '</div>' +
+        '<div class="comment-body">' + escapeHtml(e.note || '') + '</div>' +
+        contextHtml +
+      '</div>';
+    }).join('');
+  }
+
+  function renderCards() {
+    var container = document.getElementById('insights-list');
+    if (container) {
+      container.innerHTML = buildCards();
+    }
+  }
+
+  function render(entries) {
+    allEntries = entries;
+
+    // Collect distinct types and project slugs
+    var types = [];
+    var projects = [];
+    entries.forEach(function (e) {
+      if (e.type && types.indexOf(e.type) === -1) types.push(e.type);
+      if (e.project_slug && projects.indexOf(e.project_slug) === -1) projects.push(e.project_slug);
+    });
+    types.sort();
+    projects.sort();
+
+    var typeOptions = types.map(function (t) {
+      return '<option value="' + escapeHtml(t) + '">' + escapeHtml(t) + '</option>';
+    }).join('');
+    var projectOptions = projects.map(function (p) {
+      return '<option value="' + escapeHtml(p) + '">' + escapeHtml(p) + '</option>';
+    }).join('');
+
+    app.innerHTML =
+      '<div class="page-header"><h1>Insights</h1></div>' +
+      '<div class="insights-filters">' +
+        '<label for="insights-type">Type:</label>' +
+        '<select id="insights-type"><option value="ALL">All types</option>' + typeOptions + '</select>' +
+        '<label for="insights-priority">Priority:</label>' +
+        '<select id="insights-priority"><option value="ALL">All priorities</option>' +
+          '<option value="high">high</option>' +
+          '<option value="medium">medium</option>' +
+          '<option value="low">low</option>' +
+        '</select>' +
+        '<label for="insights-project">Project:</label>' +
+        '<select id="insights-project"><option value="ALL">All projects</option>' + projectOptions + '</select>' +
+      '</div>' +
+      '<div id="insights-list">' + buildCards() + '</div>';
+
+    // Restore saved filter values and wire change listeners
+    var typeEl = document.getElementById('insights-type');
+    var priorEl = document.getElementById('insights-priority');
+    var projEl = document.getElementById('insights-project');
+    if (typeEl) {
+      typeEl.value = filterType;
+      typeEl.addEventListener('change', function () { filterType = this.value; renderCards(); });
+    }
+    if (priorEl) {
+      priorEl.value = filterPriority;
+      priorEl.addEventListener('change', function () { filterPriority = this.value; renderCards(); });
+    }
+    if (projEl) {
+      projEl.value = filterProject;
+      projEl.addEventListener('change', function () { filterProject = this.value; renderCards(); });
+    }
+  }
+
+  function load() {
+    API.getInsights().then(function (entries) {
+      render(entries || []);
+    }).catch(function (err) {
+      showError(app, 'Failed to load insights: ' + (err.message || String(err)));
+    });
+  }
+
+  load();
+  Router._setPolling(load, 15000);
 }
 
 /* ----------------------------------------------------------

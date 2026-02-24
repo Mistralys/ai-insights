@@ -20,8 +20,9 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore } from '../src/storage/ledger-store.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
+import type { ProjectStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
-import type { WorkPackageDetail } from '../src/schema/work-package.js';
+import type { IncidentContext, WorkPackageDetail } from '../src/schema/work-package.js';
 import { getConfig, writeConfig } from '../src/gui/config.js';
 import type { GuiConfig } from '../src/gui/config.js';
 
@@ -51,6 +52,64 @@ function forbidden(message: string): never {
 
 function validationError(message: string, details?: unknown): never {
   throw new ApiError('VALIDATION_ERROR', message, details);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/insights
+// ---------------------------------------------------------------------------
+
+export interface InsightEntry {
+  project_slug: string;
+  project_status: ProjectStatus;
+  type: string;
+  priority: 'low' | 'medium' | 'high';
+  timestamp: string;
+  agent: string;
+  note: string;
+  context?: IncidentContext;
+}
+
+/**
+ * Aggregates all project_comments from every project ledger into a single
+ * flat array, sorted by timestamp descending (newest first).
+ * Per-project read failures are logged to stderr and skipped gracefully.
+ * Returns an empty array when no projects exist or no comments are found.
+ */
+export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]> {
+  const projects = await LedgerStore.listAllProjects(ledgerRoot);
+
+  const entries: InsightEntry[] = [];
+
+  await Promise.all(
+    projects.map(async (meta) => {
+      const store = new LedgerStore(meta.slug, ledgerRoot);
+      let rootIndex;
+      try {
+        rootIndex = await store.readRootIndex();
+      } catch (err) {
+        process.stderr.write(
+          `[handleGetInsights] Skipping project "${meta.slug}": ${String(err)}\n`
+        );
+        return;
+      }
+
+      const comments = rootIndex.project_comments;
+      if (!comments || comments.length === 0) return;
+
+      for (const comment of comments) {
+        entries.push({
+          project_slug: meta.slug,
+          project_status: meta.status,
+          ...comment,
+        });
+      }
+    })
+  );
+
+  // Sort by timestamp descending (newest first)
+  entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+  return entries;
 }
 
 // ---------------------------------------------------------------------------

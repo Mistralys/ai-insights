@@ -24,6 +24,7 @@ import {
   handleListWorkPackages,
   handleGetWorkPackage,
   handleDeleteProject,
+  handleGetInsights,
   handleGetConfig,
   handleUpdateConfig,
   ApiError,
@@ -151,6 +152,11 @@ function matchRoute(
   if (segments[0] !== 'api') return null;
 
   const rest = segments.slice(1);
+
+  // GET /api/insights
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'insights') {
+    return () => handleGetInsights(ledgerRoot);
+  }
 
   // GET /api/projects
   if (method === 'GET' && rest.length === 1 && rest[0] === 'projects') {
