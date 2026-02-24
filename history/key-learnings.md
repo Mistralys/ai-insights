@@ -76,3 +76,4 @@
 - Creating a custom project ledger MCP server.
 - Optimizing MCP tool descriptions and adding a `help` tool to guide weaker models.
 - Using auto-handoffs in VS Code through the MCP ledger.
+- Documenting large codebases through module-centric context files, by documenting dependencies and documentation sources, generating module overviews in a build process and using CTX to compile it all.
