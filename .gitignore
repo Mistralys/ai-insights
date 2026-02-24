@@ -7,4 +7,6 @@
 /docs/agents/**/.ledger/
 /mcp-server/dist/
 /personas/node_modules/
-dist/notebooklm-bundle.md
+/dist/notebooklm-bundle.md
+/personas/standalone/claude-code/*.md
+/personas/standalone/vs-code/*.md
