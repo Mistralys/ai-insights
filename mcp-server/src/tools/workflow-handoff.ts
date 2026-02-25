@@ -252,8 +252,13 @@ export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], p
  * Get handoff status for Developer
  */
 export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  // Check if all WPs have PASS implementation pipelines
-  const allImplemented = wpDetails.every((wp) =>
+  // Only consider non-BLOCKED WPs for implementation progress.
+  // BLOCKED WPs have no implementation pipeline yet (they're waiting on dependencies)
+  // and must not be counted as "needing work" by the Developer right now.
+  const nonBlockedWps = wpDetails.filter((wp) => wp.status !== 'BLOCKED');
+
+  // Check if all non-BLOCKED WPs have PASS implementation pipelines
+  const allImplemented = nonBlockedWps.length > 0 && nonBlockedWps.every((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
   );
 
@@ -268,22 +273,26 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
     );
   }
 
-  // Check if any WP needs implementation or has FAIL pipeline.
+  // Check if any non-BLOCKED WP needs implementation or has FAIL pipeline.
   //
   // NOTE: isMostRecentPipelineFail is intentionally NOT used here. That helper
   // only checks the most recent pipeline, which would miss a WP that has an
   // older FAIL pipeline followed by a currently IN_PROGRESS one. getDeveloperHandoff
   // needs a conservative signal: if any implementation attempt has ever FAIL-ed
   // and no PASS pipeline exists yet, the WP is still considered in-progress.
-  const needsWork = wpDetails.some(
+  //
+  // BLOCKED WPs are excluded: they are gated on dependencies and cannot be
+  // claimed by the Developer right now. Including them caused a false IN_PROGRESS
+  // that contradicted the WAIT returned by ledger_get_next_action.
+  const needsWork = nonBlockedWps.some(
     (wp) =>
       !wp.pipelines.some((p) => p.type === 'implementation') ||
       wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'FAIL')
   );
 
   if (needsWork) {
-    // Count how many work packages still need implementation
-    const wpsNeedingWork = wpDetails.filter(
+    // Count how many non-BLOCKED work packages still need implementation
+    const wpsNeedingWork = nonBlockedWps.filter(
       (wp) =>
         !wp.pipelines.some((p) => p.type === 'implementation') ||
         wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'FAIL')

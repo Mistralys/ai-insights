@@ -1,35 +1,42 @@
-{
-  "current_agent": "Developer",
-  "project_path": "/Users/smordziol/Webserver/tools/ai-insights/docs/agents/plans/2026-02-23-multi-ide-persona-support"
-}
+# Workflow Issue Report
 
+Project Manager agent had handed off to Developer, and developer requested user install prerequisites for the next work package.
+
+---
+
+## INPUT
+
+`ledger_get_handoff_status` request:
+
+```
 {
-  "current_agent": "Developer",
-  "next_agent": "Developer",
+  "project_path": "f:\\Webserver\\www\\htdocs\\tools\\ai-insights\\docs\\agents\\plans\\2026-02-24-langgraph-orchestrator",
+  "current_agent": "Project Manager"
+}
+```
+
+---
+
+## OUTPUT
+
+```
+{
+  "current_agent": "Project Manager",
+  "next_agent": "Project Manager",
   "status": "IN_PROGRESS",
-  "details": "Implementation work in progress. 6 work package(s) still need implementation or rework.",
-  "next_action": "Call ledger_get_next_action with agent_role: \"Developer\" to find the next work package to implement. Continue working until all WPs have PASS implementation pipelines."
+  "details": "Work packages in progress."
 }
+```
 
-The auto_handoff field was absent, which means I should end my turn by printing the handoff block as returned. The ledger determined next_agent: Developer because six work packages (WP-003 through WP-008) still need implementation and are currently blocked waiting for WP-001 and WP-002 to reach COMPLETE status. The system won't hand off to QA until all Developer work is done, even though those blocked packages can't progress until the earlier ones complete their full pipeline cycle.
+---
 
+## Agent Analysis
 
------
+The handoff status says the next agent is "Project Manager" which doesn't make sense. The WP-002 is still IN_PROGRESS in the ledger. The developer completed implementation but the QA agent hasn't validated it yet, and the status wasn't updated. Let me check what's the current state more carefully.
 
+Actually, looking at the workflow, WP-002 implementation pipeline is done (PASS). The next step is QA. But the work package status is still IN_PROGRESS. The handoff says "next agent: Project Manager" which means the PM should wait.
 
-The ledger_get_handoff_status response did not contain an auto_handoff field — it returned next_agent: Developer, not QA. This is the signal that decides behavior:
+Actually, this is correct - the Project Manager's job is done. The next agent in the workflow is the Developer for WP-002 QA... no wait. Looking at the workflow again:
 
-Per my operating instructions:
-
-auto_handoff present → invoke runSubagent immediately
-auto_handoff absent → print the handoff block and stop
-The ledger returned Developer as the next agent because 6 WPs (WP-003 through WP-008) still need Developer implementation. They're currently BLOCKED on WP-001/WP-002 reaching COMPLETE status — but a WP can only reach COMPLETE after the full QA → Reviewer → Documentation pipeline runs. So the ledger sees pending Developer work remaining and holds the handoff.
-
-In short: the system won't auto-handoff to QA until ALL Developer WPs have passing implementation pipelines. Since WP-003–008 are blocked and unimplemented, the ledger correctly says "Developer isn't done yet."
-
-To break the cycle, WP-001 and WP-002 need to go through QA now so they can reach COMPLETE, which will unblock WP-003 for Developer. You can trigger that by invoking the QA agent manually.
-
------
-
-Ledger should have said > Auto_handoff to QA.
+The workflow shows Project Manager handles decomposition, then Developer does implementation, then QA runs testing. WP-002's implementation passed, so the next logical step is QA, but the handoff is pointing back to the Project Manager and I need to figure out if there's an auto-handoff rule I'm missing.
 

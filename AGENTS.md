@@ -12,6 +12,7 @@ This is a **monorepo-style workspace** containing two distinct sub-projects and 
 |-------------|------|----------|---------|
 | **Project Ledger MCP Server** | `mcp-server/` | TypeScript (ESM) | MCP server that provides typed tools for managing project ledgers in AI agent workflows |
 | **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 7 ledger persona Markdown files from YAML/Markdown sources |
+| **Orchestrator** | `orchestrator/` | Python (3.11+) | LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows |
 
 The `scripts/` directory contains cross-project scripts that orchestrate persona deployment and role-parity checks.
 
@@ -69,6 +70,7 @@ The MCP server sub-project has its own detailed `AGENTS.md`:
 Am I working on…
   ├─ The MCP server?        → Read mcp-server manifest (start with its README.md)
   ├─ The persona system?    → Read personas manifest (start with its README.md)
+  ├─ The orchestrator?      → Read orchestrator/README.md
   ├─ Cross-project work?    → Read BOTH manifests + this file's cross-project rules
   └─ Root-level scripts?    → Read this file + the root README.md
 ```
@@ -152,6 +154,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | `personas/ledger/vs-code/*.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `personas/standalone/vs-code/*.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
+| `orchestrator/src/`, `orchestrator/tests/` | [orchestrator/README.md](orchestrator/README.md) |
 
 ### Anti-Patterns
 
@@ -211,6 +214,8 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Persona `vs_file_name` | Per-persona YAML (`personas/ledger/src/meta/N-name.yaml`) | Agent Registry scan pattern (`*.agent.md`) in `mcp-server/src/utils/agent-registry.ts` |
 | Version (MCP server) | `mcp-server/changelog.md` | `mcp-server/package.json` (via `npm run sync-version`) |
 | Version (Personas) | `personas/changelog.md` | `personas/ledger/src/meta/_shared.yaml` → `default_version` |
+| Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
+| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/vs-code/` generated output filenames |
 
 ### Validation Scripts
 
@@ -223,16 +228,16 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 ## 📊 Project Statistics
 
-| Property | MCP Server | Personas |
-|----------|-----------|----------|
-| **Language** | TypeScript 5.7.2 (ES2022) | JavaScript (ES2020+, CJS) |
-| **Runtime** | Node.js (ESM) | Node.js (CommonJS) |
-| **Architecture** | MCP Server + Repository Pattern | Template Engine (3-Phase Pipeline) |
-| **Package Manager** | npm | npm |
-| **Test Framework** | Vitest | — (manual `--check` flag) |
-| **Build Tool** | `tsc` | `build-personas.js` (self-contained) |
-| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) |
-| **Dev Dependencies** | 4 (`tsx`, `vitest`, `typescript`, `@types/node`) | 0 |
+| Property | MCP Server | Personas | Orchestrator |
+|----------|-----------|----------|--------------|
+| **Language** | TypeScript 5.7.2 (ES2022) | JavaScript (ES2020+, CJS) | Python 3.11+ |
+| **Runtime** | Node.js (ESM) | Node.js (CommonJS) | CPython |
+| **Architecture** | MCP Server + Repository Pattern | Template Engine (3-Phase Pipeline) | LangGraph StateGraph + Deep Agents |
+| **Package Manager** | npm | npm | pip |
+| **Test Framework** | Vitest | — (manual `--check` flag) | pytest |
+| **Build Tool** | `tsc` | `build-personas.js` (self-contained) | — (source install) |
+| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) | 6+ (`langgraph`, `langchain`, `python-dotenv`, provider extras) |
+| **Dev Dependencies** | 4 (`tsx`, `vitest`, `typescript`, `@types/node`) | 0 | 1 (`pytest`) |
 
 ### Root-Level Tooling
 
@@ -254,6 +259,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Understand the whole workspace | [README.md](README.md) |
 | Work on the MCP server | [mcp-server/AGENTS.md](mcp-server/AGENTS.md) → then its manifest |
 | Work on persona templates | [personas/docs/agents/project-manifest/](personas/docs/agents/project-manifest/) |
+| Work on the orchestrator | [orchestrator/README.md](orchestrator/README.md) |
 | Look up an MCP tool signature | [mcp-server/…/api-surface.md](mcp-server/docs/agents/project-manifest/api-surface.md) |
 | Look up template syntax | [personas/…/api-surface.md](personas/docs/agents/project-manifest/api-surface.md) |
 | Find a file in mcp-server | [mcp-server/…/file-tree.md](mcp-server/docs/agents/project-manifest/file-tree.md) |

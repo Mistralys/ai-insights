@@ -1,0 +1,2 @@
+[console_scripts]
+orchestrate = src.cli:main

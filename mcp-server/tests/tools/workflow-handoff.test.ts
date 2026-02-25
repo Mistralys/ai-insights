@@ -251,16 +251,31 @@ describe('Handoff logic: incomplete project detection', () => {
   });
 
   describe('Developer handoff', () => {
-    it('returns IN_PROGRESS when some WPs lack implementation', async () => {
+    it('returns IN_PROGRESS when some non-BLOCKED WPs lack implementation', async () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+        ]),
+        makeWp('WP-002', 'IN_PROGRESS', []), // READY/IN_PROGRESS but no implementation pipeline yet
+      ];
+
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
+      expect(result.status).toBe('IN_PROGRESS');
+    });
+
+    it('returns READY_FOR_QA when all non-BLOCKED WPs have PASS implementation (remaining WPs are BLOCKED)', async () => {
+      // This was the reported deadlock scenario: WP-001 done, WP-002..N are BLOCKED on dependencies.
+      // The Developer should hand off to QA rather than report IN_PROGRESS for blocked WPs.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
         ]),
         makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
+        makeWp('WP-003', 'BLOCKED', [], ['WP-001']),
       ];
 
       const result = await parseResult(getDeveloperHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_QA');
     });
 
     it('returns READY_FOR_QA when ALL WPs have PASS implementation', async () => {

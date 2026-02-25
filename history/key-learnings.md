@@ -44,6 +44,7 @@
 - MCP Server tool names are prefixed internally by the name of the server, typically as defined in the MCP server config. E.g. `server_name` = `mcp_server_name_tool_name`.
 - Avoid repeating tool prefix in server names, e.g. `project-ledger` server name = `mcp_project-ledge_ledger_add_observation` full tool name for `ledger_add_observation`.
 - To trigger personas, use `**Identity: Senior Software Architect.**`. The `Identity:` syntax acts as a permanent attribute, rather than a conversational instruction ("You are xxx").
+- LLM API Keys: Use during development, then rotate when done.
 
 ## My AI Journey Milestones
 
@@ -77,3 +78,4 @@
 - Optimizing MCP tool descriptions and adding a `help` tool to guide weaker models.
 - Using auto-handoffs in VS Code through the MCP ledger.
 - Documenting large codebases through module-centric context files, by documenting dependencies and documentation sources, generating module overviews in a build process and using CTX to compile it all.
+- Implementing the development workflow in LangGraph @Python.
