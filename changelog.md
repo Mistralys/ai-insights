@@ -1,5 +1,17 @@
 # AI Insights Changelog
 
+## v1.3.0 - Multi-IDE Persona Builds
+- Personas: Added a build process and templating.
+- Personas: Now generating Markdown files for VS Code and Claude Code.
+- Personas: Files now have to be built locally (`node scripts/sync-personas.js`).
+- Personas: Rewrote the README curator to produce better human-centered documents.
+- Personas: Improved the Module Intent Architect to create more relevant files.
+- Personas: Added the Changelog Curator.
+- Personas: Added the Composer Curator.
+- Personas: Retired the unused "Vanilla" personas.
+- Ledger: Fixed a logic exception in the Developer persona flow.
+- Ledger: GUI: Added the "Insights" tab with a comments overview.
+
 ## v1.2.0 - Ledger GUI & Handoff Consolidation
 - Ledger: Added a GUI to see projects and work package statuses (`node scripts/run-gui.js`).
 - Personas: Consolidated handoffs to avoid agents going off script.
