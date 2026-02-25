@@ -1,0 +1,31 @@
+slug: module-intent-architect
+name: "Module Intent Architect"
+description: "Infers and documents the purpose, role, and dependencies of specific code modules by analyzing the source."
+vs_file_name: module-intent-architect.agent.md
+cc_file_name: module-intent-architect.md
+version: "1.0.2"
+last_updated: "2026-02-24"
+changelog:
+  - "1.0.2 Better described the possibility to generate additional documentation."
+  - "1.0.1 Initital pre-changelog release."
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+
+# cc_tools differs from default: module-intent-architect has no TodoRead/TodoWrite
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch

@@ -24,7 +24,11 @@ You will be provided with:
 
 {{> role-boundaries}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{> mcp-preflight-verify-no-detect}}
 
@@ -38,28 +42,7 @@ You will be provided with:
 
 ---
 
-## Output Format
-
-1. **Work Package Specifications (Markdown):**
-   - Create the `work/` subfolder inside the plan folder.
-   - Create one **detail file** per work package in the `work/` subfolder (e.g., `work/WP-001.md`, `work/WP-002.md`, ...). Each file contains the full work package specification: description, requirements, technical constraints, acceptance criteria, and dependencies.
-   - Create a **summary index** `work.md` in the plan folder with a table-based overview of all work packages (ID, title, dependencies, status) and a link to each detail file.
-
-2. **Project Ledger (via MCP tools):**
-   - Call `ledger_initialize_project` to create the project in the centralized ledger.
-   - Call `ledger_create_work_package` once per work package (in dependency order).
-   - Call `ledger_get_project_status` to verify the ledger is correct.
-
-3. **File layout** (after completion):
-   ```
-   /docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/
-   ├── plan.md
-   ├── work.md                        ← Summary index with overview table
-   ├── work/
-   │   ├── WP-001.md                  ← Full WP specification
-   │   ├── WP-002.md
-   │   └── ...
-   ```
+{{> pm-output-format}}
 
 ---
 
@@ -74,15 +57,8 @@ You will be provided with:
 7. Call `ledger_initialize_project` with the absolute path to the plan folder and the relative path to `plan.md`.
 8. For each work package (in dependency order), call `ledger_create_work_package` — the tool's parameter descriptions document the required fields.
 9. Call `ledger_get_project_status` to verify the ledger was created correctly.
-10. **Handoff (mandatory):** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. **You must call this tool before ending your turn** — it is the only mechanism that triggers the next agent in the workflow. The response JSON will contain one of two shapes — act accordingly:
-
-   - **`auto_handoff` present** — Invoke `runSubagent` immediately:
-     - `description`: the value of `auto_handoff.agent_name`
-     - `prompt`: the value of `auto_handoff.prompt`
-
-   - **`auto_handoff` absent** — End your turn by printing the handoff block exactly as returned (do not fill in your own values):
-     ```
-     CURRENT AGENT: <current_agent from response>
-     NEXT AGENT: <next_agent from response>
-     STATUS: <status from response>
-     ```
+{{#if target_vscode}}
+10. {{> handoff-block-vscode}}
+{{else}}
+10. {{> handoff-block-claude-code}}
+{{/if}}

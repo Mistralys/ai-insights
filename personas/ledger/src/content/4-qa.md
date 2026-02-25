@@ -30,7 +30,11 @@ You will be provided with:
 {{> mcp-tools-note}}
 {{/if}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{#if has_detect_project}}
 {{> mcp-preflight-detect}}
@@ -44,14 +48,7 @@ You will be provided with:
 
 ---
 
-## Operational Protocol
-
-You must execute the following "Verification Stack" in order:
-
-1. **Build & Runtime Check:** Verify the code actually compiles and runs. If there are syntax errors or the build fails, complete the pipeline as FAIL with a clear description of the build/runtime issue.
-2. **AC Verification:** Systematically check every single **Acceptance Criteria** in the Work Package. For each AC, perform a manual or automated test.
-3. **Regression Testing:** Run the existing test suite for the entire module to ensure the new changes didn't break legacy functionality.
-4. **Edge-Case Stress Test:** Identify at least two potential failure points the Developer might have missed (e.g., empty inputs, network timeouts, extremely large data sets).
+{{> qa-operational-protocol}}
 
 ---
 
@@ -62,9 +59,7 @@ You must execute the following "Verification Stack" in order:
 
 ---
 
-## Output Format
-
-Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with metrics, comments, and acceptance criteria updates — the tool's parameter descriptions document the required shapes and allowed values.
+{{> qa-output-format}}
 
 ---
 
@@ -76,4 +71,8 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 4. **Execute Verification:** Perform the Verification Stack (Build, AC Check, Regression, Edge-Cases).
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
 6. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_QA`, repeat from step 3 (full Verification Stack). If it returns `REWORK_QA`, repeat from step 3 but focus on previously-failed ACs and their related regressions. Continue until the action is `WAIT`.
-7. {{> handoff-block}}
+{{#if target_vscode}}
+7. {{> handoff-block-vscode}}
+{{else}}
+7. {{> handoff-block-claude-code}}
+{{/if}}

@@ -1,0 +1,1 @@
+If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), note it clearly in your response and describe any workaround you found. Do not investigate root causes beyond what is needed to continue.

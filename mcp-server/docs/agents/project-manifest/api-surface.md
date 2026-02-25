@@ -105,7 +105,7 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 }) => Promise<MCPResult>
 ```
 
-Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed (see constraint 9b).
+Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed (see constraint 14).
 
 #### `ledger_update_work_package_status`
 
@@ -752,6 +752,22 @@ export class ApiError extends Error {
   details?: unknown;
 }
 
+// Shape returned by GET /api/insights — one entry per project_comment
+export interface InsightEntry {
+  project_slug: string;          // slug of the source project
+  project_status: ProjectStatus; // current status of the source project
+  type: string;                  // e.g. 'note' | 'decision' | 'incident'
+  priority: 'low' | 'medium' | 'high';
+  timestamp: string;             // ISO 8601
+  agent: string;                 // agent who added the comment
+  note: string;
+  context?: IncidentContext;     // present on 'incident' type comments only
+}
+
+// GET /api/insights — aggregates all project_comments across every project, sorted by timestamp descending
+// Per-project read failures are logged to stderr and skipped gracefully; returns [] when no comments exist.
+export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]>;
+
 // GET /api/projects — returns all project summaries from the centralized ledger
 export async function handleListProjects(ledgerRoot: string): Promise<ProjectMeta[]>;
 
@@ -819,6 +835,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | DELETE | `/api/projects/:slug` | `handleDeleteProject` |
 | GET | `/api/config` | `handleGetConfig` |
 | PUT | `/api/config` | `handleUpdateConfig` (body parsed inline) |
+| GET | `/api/insights` | `handleGetInsights` |
 
 **Static file serving:** requests not starting with `/api/` are served from `gui/public/` (ESM path via `import.meta.url`). `/` → `index.html`. Unknown paths → 404.
 
@@ -839,18 +856,40 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 | File | Purpose |
 |------|---------|
-| `index.html` | HTML shell — nav (`#/` Projects, `#/config` Config), `<div id="app">` mount point |
-| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners |
+| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
+| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards |
 | `app.js` | Vanilla JS SPA: `API` client, `Router` (hash-based), utilities + 4 view render functions |
 
+**`styles.css` — Insights comment card classes** (added for the Insights page):
+
+| Class | Role |
+|-------|------|
+| `.comment-card` | Comment card with 4 px solid left-border accent; combine with a `.priority-*` modifier |
+| `.priority-high` | Red left-border accent (`var(--color-priority-high)`) |
+| `.priority-medium` | Amber left-border accent (`var(--color-priority-medium)`) |
+| `.priority-low` | Grey left-border accent (`var(--color-priority-low)`) |
+| `.comment-meta` | Secondary line (agent / type / timestamp) inside a `.comment-card` |
+| `.comment-type` | Pill badge — blue-grey background (`var(--color-border)`); used for the comment `type` label |
+| `.insights-filters` | Flex filter bar for the Insights page (semantically distinct counterpart to `.filter-bar`) |
+| `.comment-body` | Block container for the comment note text inside `.comment-card` (replaces former inline `style="margin-top:6px"`) |
+| `.comment-context` | Block container for incident context key/value pairs inside `.comment-card` (replaces former inline style block) |
+| `header nav a.active` | Highlights the nav link matching the current hash route (added for Insights nav state) |
+
+> **Resolved (WP-003):** `.priority-high/medium/low` hardcoded hex values have been promoted to `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background was updated from `#e2e8f0` to `var(--color-border)`.
+
+> **Resolved (WP-005):** `.comment-type` hardcoded `color: #475569` replaced with `var(--color-text-muted)`, keeping the full colour palette centralized in `:root`.
+
+> **Known debt (low):** `.insights-filters` duplicates `.filter-bar` layout properties. The Reviewer approved retaining `.insights-filters` as a semantic distinction for now. A future cleanup WP should consolidate them into a single utility class.
+
 **`app.js` structure:**
-- **`API`** — async fetch wrappers for all 7 REST endpoints (throws `{ code, message }` on non-2xx)
-- **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/wp/:wpId`, `#/config`); manages `setInterval` polling lifecycle
-- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`
+- **`API`** — async fetch wrappers for all 8 REST endpoints (throws `{ code, message }` on non-2xx)
+- **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
+- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`
 - **`renderProjectList(app)`** — table with filter dropdown (client-side), auto-refresh every 10 s, delete button (COMPLETE only, `confirm()` dialog)
-- **`renderProjectDetail(app, slug)`** — project header + WP summary table (clickable rows)
+- **`renderProjectDetail(app, slug)`** — project header + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
 - **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
+- **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
 
 **XSS protection:** `escapeHtml()` wraps every piece of user-supplied data interpolated into HTML strings (20+ call sites).
 

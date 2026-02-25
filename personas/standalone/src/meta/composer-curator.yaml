@@ -1,0 +1,16 @@
+slug: composer-curator
+name: "Composer Curator"
+description: "Verify that the project's composer.json file is set up correctly for agentic coding."
+vs_file_name: composer-curator.agent.md
+cc_file_name: composer-curator.md
+version: "1.0.0"
+last_updated: "2026-02-24"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - agent
+  - todo

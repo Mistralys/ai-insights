@@ -2,9 +2,13 @@
 /mcp-server/node_modules/
 /.mcp.json
 /.context/
-/mcp-server/docs/agents/**/work.md
-/mcp-server/docs/agents/**/work/
-/mcp-server/docs/agents/**/.ledger/
+/docs/agents/**/work.md
+/docs/agents/**/work/
+/docs/agents/**/.ledger/
 /mcp-server/dist/
 /personas/node_modules/
-dist/notebooklm-bundle.md
+/dist/notebooklm-bundle.md
+/personas/standalone/claude-code/*.md
+/personas/standalone/vs-code/*.md
+/personas/ledger/claude-code/*.md
+/personas/ledger/vs-code/*.md

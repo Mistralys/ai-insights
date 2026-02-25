@@ -1,6 +1,7 @@
 number: 6
 role: Documentation
 vs_file_name: 6-docs.agent.md
+cc_file_name: 6-documentation.md
 
 tools:
   - vscode

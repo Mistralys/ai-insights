@@ -21,6 +21,11 @@
   --color-header-bg:   #1e293b;
   --color-header-text: #f1f5f9;
 
+  /* Priority accent colors */
+  --color-priority-high:   #e74c3c;
+  --color-priority-medium: #f39c12;
+  --color-priority-low:    #95a5a6;
+
   /* Spacing */
   --radius:            6px;
   --radius-pill:       9999px;
@@ -89,6 +94,12 @@ header nav a {
 header nav a:hover {
   opacity: 1;
   text-decoration: none;
+}
+
+header nav a.active {
+  opacity: 1;
+  border-bottom: 2px solid var(--color-header-text);
+  padding-bottom: 2px;
 }
 
 main {
@@ -513,3 +524,92 @@ input[type="number"].form-control {
 .mb-16 { margin-bottom: 16px; }
 .monospace { font-family: 'Courier New', monospace; font-size: 13px; }
 .text-muted { color: var(--color-text-muted); }
+
+/* ----------------------------------------------------------
+   Insights — Comment Cards
+   ---------------------------------------------------------- */
+
+/* Base card variant for a single project comment entry.
+   Left-border color is controlled by .priority-* modifier classes. */
+.comment-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 18px;
+  margin-bottom: 12px;
+}
+
+/* Priority accent — overrides the left-border color of .comment-card */
+.priority-high   { border-left-color: var(--color-priority-high); }
+.priority-medium { border-left-color: var(--color-priority-medium); }
+.priority-low    { border-left-color: var(--color-priority-low); }
+
+/* Secondary meta line: agent, type badge, timestamp */
+.comment-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Inline pill badge for the comment type string (e.g. "note", "incident") */
+.comment-type {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+/* Comment body text */
+.comment-body {
+  margin-top: 6px;
+}
+
+/* Incident context sub-section */
+.comment-context {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* ----------------------------------------------------------
+   Insights — Filter Bar
+   ---------------------------------------------------------- */
+
+/* Horizontal filter bar for the Insights page.
+   Reuses .filter-bar layout patterns. */
+.insights-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.insights-filters label {
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.insights-filters select {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  background: var(--color-surface);
+  cursor: pointer;
+}

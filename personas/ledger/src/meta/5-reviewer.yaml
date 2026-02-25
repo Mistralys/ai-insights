@@ -1,6 +1,7 @@
 number: 5
 role: Reviewer
 vs_file_name: 5-reviewer.agent.md
+cc_file_name: 5-reviewer.md
 
 tools:
   - vscode

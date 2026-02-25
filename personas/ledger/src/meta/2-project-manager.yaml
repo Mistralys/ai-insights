@@ -1,6 +1,7 @@
 number: 2
 role: Project Manager
 vs_file_name: 2-pm.agent.md
+cc_file_name: 2-project-manager.md
 
 tools:
   - vscode

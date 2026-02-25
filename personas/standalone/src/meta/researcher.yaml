@@ -1,0 +1,17 @@
+slug: researcher
+name: "Researcher"
+description: "Research solutions to complex problems through known patterns or creative thinking."
+vs_file_name: researcher.agent.md
+cc_file_name: researcher.md
+version: "1.0.1"
+last_updated: "2026-02-23"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

@@ -29,7 +29,11 @@ You will be provided with:
 {{> mcp-tools-note}}
 {{/if}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{#if has_detect_project}}
 {{> mcp-preflight-detect}}
@@ -54,12 +58,7 @@ Evaluate the submission based on these four criteria:
 
 ---
 
-## Operational Protocol
-
-1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
-2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions.
-3. **Capture Insights:** Identify "Gold Nuggets" — valuable patterns or suggestions the Developer surfaced that are outside the current scope. Record WP-scoped insights as comments in `ledger_complete_pipeline`; record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6).
-4. **Categorize Feedback:** Distinguish between **Blocking Issues** (must be fixed now) and **Non-Blocking Suggestions** (future improvements). This distinction drives the pipeline status — see **Decision Logic** below.
+{{> reviewer-operational-protocol}}
 
 ---
 
@@ -70,9 +69,7 @@ Evaluate the submission based on these four criteria:
 
 ---
 
-## Output Format
-
-Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with metrics, and comments — the tool's parameter descriptions document the required shapes and allowed values.
+{{> reviewer-output-format}}
 
 ---
 
@@ -85,7 +82,11 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments).
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
 7. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_REVIEW`, repeat from step 3 (full review). If it returns `REWORK_REVIEW`, repeat from step 3 but focus on the blocking issues from your previous review and verify they have been addressed. Continue until the action is `WAIT`.
-8. {{> handoff-block}}
+{{#if target_vscode}}
+8. {{> handoff-block-vscode}}
+{{else}}
+8. {{> handoff-block-claude-code}}
+{{/if}}
 
 
 

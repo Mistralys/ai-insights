@@ -27,7 +27,11 @@ You will be provided with:
 {{> mcp-tools-note}}
 {{/if}}
 
-{{> mcp-preflight-header}}
+{{#if target_vscode}}
+{{> mcp-preflight-header-vscode}}
+{{else}}
+{{> mcp-preflight-header-claude-code}}
+{{/if}}
 
 {{#if has_detect_project}}
 {{> mcp-preflight-detect}}
@@ -41,25 +45,11 @@ You will be provided with:
 
 ---
 
-## Operational Protocol
-
-Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via MCP tools.
-
-1. **Aggregator:** Collect all `PASS`/`FAIL` metrics, test coverage data, and completed artifacts. Aggregate failed metrics (blockers, failures and security concerns) in a dedicated section for better visibility.
-2. **Insight Mining:** Extract all **strategic**, **refactoring**, and **architectural** comments from the ledger (added by Reviewers/Validators).
-3. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
+{{> synthesis-operational-protocol}}
 
 ---
 
-## Output Format
-
-1. **Report Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) summarizing:
-    * **Executive Summary:** What was built.
-    * **Metrics:** Tests passed, coverage, clean code scores.
-    * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
-    * **Next Steps:** What should the Planner/Manager focus on next?
-
-2. **Ledger Status:** Project completion is derived from all WPs reaching COMPLETE status (handled by upstream agents). Verify and report this status in the synthesis — do not attempt to set it directly.
+{{> synthesis-output-format}}
 
 ---
 

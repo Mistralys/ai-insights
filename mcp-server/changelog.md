@@ -1,5 +1,11 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.5.1 - Constraint Numbering Cleanup (2026-02-23)
+
+### Changed
+- `mcp-server/docs/agents/project-manifest/constraints.md`: renumbered all constraints from a mixed alphabetic-suffix scheme (3a/3b/3c, 9a/9b, 13a–13d, duplicate section numbers) to a clean sequential 1–38 global sequence. Constraint text is unchanged.
+- `mcp-server/docs/agents/project-manifest/api-surface.md`: updated cross-reference from `constraint 9b` to `constraint 14` to match the new numbering.
+
 ## v1.5.0 - Centralized Ledger Storage (2026-02-20)
 
 ### Added

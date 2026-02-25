@@ -281,6 +281,8 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 **Features:**
 - View all projects and their current status
 - Drill down into project and work package details
+- View project-level comments and incidents (sorted newest-first) on the Project Detail page
+- Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - Delete completed projects permanently
 - Toggle auto-handoff and adjust the max handoff depth at runtime (no restart required)
 

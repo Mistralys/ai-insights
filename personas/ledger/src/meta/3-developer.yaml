@@ -1,6 +1,7 @@
 number: 3
 role: Developer
 vs_file_name: 3-dev.agent.md
+cc_file_name: 3-developer.md
 
 tools:
   - vscode
