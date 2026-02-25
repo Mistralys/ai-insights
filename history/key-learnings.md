@@ -45,6 +45,7 @@
 - Avoid repeating tool prefix in server names, e.g. `project-ledger` server name = `mcp_project-ledge_ledger_add_observation` full tool name for `ledger_add_observation`.
 - To trigger personas, use `**Identity: Senior Software Architect.**`. The `Identity:` syntax acts as a permanent attribute, rather than a conversational instruction ("You are xxx").
 - LLM API Keys: Use during development, then rotate when done.
+- Reviewing application logic: Let an agent create a full, language-agnostic specification, then review this by multiple agents and web LLMs. Ask your agent to synthesize the findings, then create a plan to fix the issues. Repeat this process with a new specification when done, until the logic is solid.
 
 ## My AI Journey Milestones
 
@@ -77,5 +78,9 @@
 - Creating a custom project ledger MCP server.
 - Optimizing MCP tool descriptions and adding a `help` tool to guide weaker models.
 - Using auto-handoffs in VS Code through the MCP ledger.
+- Refining agents into specialized roles, adding more personas.
 - Documenting large codebases through module-centric context files, by documenting dependencies and documentation sources, generating module overviews in a build process and using CTX to compile it all.
+- Module Intent Architect (MIA) > Module Context Architect (MCA) combo.
+- MIA capable of documenting module including submodules. 
 - Implementing the development workflow in LangGraph @Python.
+- Solidifying the ledger workflow with cyclic specification & audit cycles.
