@@ -3,9 +3,10 @@ name: "Changelog Curator"
 description: "Produce clean, scannable changelogs from Git history or rewrite verbose agent-generated entries into a concise house style."
 vs_file_name: changelog-curator.agent.md
 cc_file_name: changelog-curator.md
-version: "1.0.0"
-last_updated: "2026-02-24"
+version: "1.1.0"
+last_updated: "2026-02-25"
 changelog:
+  - "1.1.0: Tweaked verbosity of entries with refined rationales."
   - "1.0.0: Initial release."
 
 tools:
