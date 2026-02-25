@@ -12,3 +12,7 @@
 /personas/standalone/vs-code/*.md
 /personas/ledger/claude-code/*.md
 /personas/ledger/vs-code/*.md
+/orchestrator/.env
+/orchestrator/.venv/
+/orchestrator/checkpoints/
+/orchestrator/logs/
