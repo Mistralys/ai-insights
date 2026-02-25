@@ -12,6 +12,7 @@ import type { WorkPackageSummary } from './root-index.js';
  * - IN_PROGRESS -> COMPLETE (if all acceptance criteria met)
  * - IN_PROGRESS -> BLOCKED
  * - BLOCKED -> IN_PROGRESS
+ * - BLOCKED -> READY (auto-unblock by propagateDependencyUnblock)
  * - COMPLETE -> IN_PROGRESS (triggers revision increment)
  */
 export function isValidStatusTransition(
@@ -31,7 +32,7 @@ export function isValidStatusTransition(
       return to === 'COMPLETE' || to === 'BLOCKED';
 
     case 'BLOCKED':
-      return to === 'IN_PROGRESS';
+      return to === 'IN_PROGRESS' || to === 'READY';
 
     case 'COMPLETE':
       return to === 'IN_PROGRESS';

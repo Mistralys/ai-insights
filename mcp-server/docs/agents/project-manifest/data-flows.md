@@ -268,8 +268,9 @@ updater function:
   4. Update WP status
   5. Handle special transitions:
      - BLOCKED → IN_PROGRESS: clear blocker
+     - BLOCKED → READY: clear blocker
      - Any → BLOCKED: set blocker
-     - COMPLETE → IN_PROGRESS: increment revision
+     - COMPLETE → IN_PROGRESS: increment revision (Project Manager or Documentation agent only)
   6. Update root index summary status
   7. Update pending_work_packages counter if transitioning to/from COMPLETE
   ↓
@@ -394,7 +395,9 @@ If counters are incorrect:
   Update root index counters
   Set last_updated timestamp
   ↓
-Auto-heal project status:
+Auto-heal project status (rules applied in order; first match wins):
+  - If status === 'READY' and any WP is IN_PROGRESS → set status to IN_PROGRESS
+  - If status === 'BLOCKED' and no WP is BLOCKED → set status to IN_PROGRESS (pending > 0) or READY (pending = 0)
   - If status === 'IN_PROGRESS' and pending === 0 and WPs exist → set status to COMPLETE
   - If status === 'COMPLETE' and pending > 0 → set status back to IN_PROGRESS
   - Empty project (no WPs) is never marked COMPLETE

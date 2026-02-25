@@ -9,6 +9,7 @@ import {
   isMostRecentPipelineFail,
   hasDependencyBlocked,
   getHandoffNotesForAgent,
+  hasNewUpstreamPassSince,
 } from '../utils/workflow-helpers.js';
 /**
  * Tool: get_next_action
@@ -406,7 +407,7 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
 /**
  * Get next action for QA
  */
-async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
+export async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
   // Load all WP details to examine pipeline states
   const wpDetails = await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
@@ -418,14 +419,11 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
     if (staleAction) return staleAction;
   }
 
-  // Look for WPs with PASS implementation pipeline but no QA pipeline
+  // Look for WPs with a new upstream implementation PASS not yet covered by a QA pipeline.
+  // Uses temporal comparison to re-trigger QA after Developer rework cycles (Finding #2).
+  // BLOCKED WPs are excluded from new-work suggestions (Finding #7).
   for (const wpDetail of wpDetails) {
-    const hasPassImplPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'implementation' && p.status === 'PASS'
-    );
-    const hasQaPipeline = wpDetail.pipelines.some((p) => p.type === 'qa');
-
-    if (hasPassImplPipeline && !hasQaPipeline) {
+    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'implementation', 'qa') && wpDetail.status !== 'BLOCKED') {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
       return {
         content: [
@@ -504,7 +502,7 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
 /**
  * Get next action for Reviewer
  */
-async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
+export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
   // Load all WP details to examine pipeline states
   const wpDetails = await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
@@ -516,16 +514,11 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
     if (staleAction) return staleAction;
   }
 
-  // Look for WPs with PASS QA pipeline but no code-review pipeline
+  // Look for WPs with a new upstream QA PASS not yet covered by a code-review pipeline.
+  // Uses temporal comparison to re-trigger Review after Developer rework cycles (Finding #2).
+  // BLOCKED WPs are excluded from new-work suggestions (Finding #7).
   for (const wpDetail of wpDetails) {
-    const hasPassQaPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'qa' && p.status === 'PASS'
-    );
-    const hasReviewPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'code-review'
-    );
-
-    if (hasPassQaPipeline && !hasReviewPipeline) {
+    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'qa', 'code-review') && wpDetail.status !== 'BLOCKED') {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
       return {
         content: [
@@ -604,7 +597,7 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
 /**
  * Get next action for Documentation
  */
-async function getDocumentationAction(
+export async function getDocumentationAction(
   rootIndex: RootIndex,
   store: LedgerStore
 ) {
@@ -662,16 +655,11 @@ async function getDocumentationAction(
     }
   }
 
-  // Look for WPs with PASS code-review pipeline but no documentation pipeline
+  // Look for WPs with a new upstream code-review PASS not yet covered by a documentation pipeline.
+  // Uses temporal comparison to re-trigger Documentation after rework cycles (Finding #2).
+  // BLOCKED WPs are excluded from new-work suggestions (Finding #7).
   for (const wpDetail of wpDetails) {
-    const hasPassReviewPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'code-review' && p.status === 'PASS'
-    );
-    const hasDocsPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'documentation'
-    );
-
-    if (hasPassReviewPipeline && !hasDocsPipeline) {
+    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'code-review', 'documentation') && wpDetail.status !== 'BLOCKED') {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Documentation');
       return {
         content: [

@@ -45,21 +45,18 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // Read root index
     const rootIndex = await store.readRootIndex();
 
-    // Check for BLOCKED work packages, but only report BLOCKED if there's truly nothing that can be worked on
+    // Check for BLOCKED work packages. Report BLOCKED whenever blocked WPs exist
+    // and nothing is actionable (no READY or IN_PROGRESS WPs), regardless of
+    // whether some WPs are already COMPLETE. A mixed BLOCKED + COMPLETE state
+    // with no forward progress indicates a genuine stall that needs PM resolution.
     const blockedWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'BLOCKED'
-    );
-    const completeWps = rootIndex.work_packages.filter(
-      (wp) => wp.status === 'COMPLETE'
     );
     const readyOrInProgressWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
     );
 
-    // Only report BLOCKED if ALL WPs are blocked (no READY/IN_PROGRESS, no COMPLETE).
-    // If any WPs are COMPLETE, downstream agents (QA, Reviewer, Documentation) can still process them,
-    // so let agent-specific logic determine the appropriate handoff.
-    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0 && completeWps.length === 0) {
+    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0) {
       return buildHandoffResponse(
         args.current_agent,
         'BLOCKED',
@@ -80,6 +77,8 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
 
     // Agent-specific handoff logic
     switch (args.current_agent) {
+      case 'Planner':
+        return getPlannerHandoff(wpDetails, args.project_path, store);
       case 'Project Manager':
         return getProjectManagerHandoff(wpDetails, args.project_path, store);
       case 'Developer':
@@ -91,7 +90,14 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
       case 'Documentation':
         return getDocumentationHandoff(wpDetails, args.project_path, store);
       case 'Synthesis':
-        return buildHandoffResponse(args.current_agent, 'COMPLETE', 'Synthesis complete.', undefined, args.project_path, store);
+        return buildHandoffResponse(
+          args.current_agent,
+          'COMPLETE',
+          'Synthesis complete.',
+          'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
+          args.project_path,
+          store
+        );
       default:
         return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, args.project_path, store);
     }
@@ -190,21 +196,9 @@ export async function buildHandoffResponse(
     }
   }
 
-  // Reset depth counter when project reaches COMPLETE
-  if (status === 'COMPLETE' && store && projectPath) {
-    try {
-      const root = await store.readRootIndex();
-      if ((root.auto_handoff_depth ?? 0) !== 0) {
-        await store.writeRootIndex({
-          ...root,
-          auto_handoff_depth: 0,
-          last_updated: now(),
-        });
-      }
-    } catch (err) {
-      process.stderr.write(`[buildHandoffResponse] storage error (COMPLETE depth reset): ${String(err)}\n`);
-    }
-  }
+  // (auto_handoff_depth is reset at WP-completion time inside updateWorkPackageStatus,
+  //  not here, so that any single WP reaching COMPLETE resets the counter rather than
+  //  only resetting when the entire project completes.)
 
   return {
     content: [
@@ -214,6 +208,49 @@ export async function buildHandoffResponse(
       },
     ],
   };
+}
+
+/**
+ * Get handoff status for Planner
+ *
+ * Planner has completed the project plan. If work packages exist and are
+ * READY/IN_PROGRESS, hand off to Developer. Otherwise return WAIT.
+ */
+export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+  if (wpDetails.length === 0) {
+    return buildHandoffResponse(
+      'Planner',
+      'WAIT',
+      'Planning complete. No work packages exist yet. Wait for Project Manager to decompose the plan into work packages.',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  const readyOrInProgressWps = wpDetails.filter(
+    (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
+  );
+
+  if (readyOrInProgressWps.length > 0) {
+    return buildHandoffResponse(
+      'Planner',
+      'READY_FOR_DEVELOPER',
+      `Planning complete. ${readyOrInProgressWps.length} work package(s) are READY or IN_PROGRESS for implementation.`,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  return buildHandoffResponse(
+    'Planner',
+    'WAIT',
+    'Planning complete. All work packages are either COMPLETE or BLOCKED. No further planner action needed.',
+    undefined,
+    projectPath,
+    store
+  );
 }
 
 /**

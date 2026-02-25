@@ -43,8 +43,8 @@ describe('isValidStatusTransition', () => {
     it('allows BLOCKED -> IN_PROGRESS', () => {
       expect(isValidStatusTransition('BLOCKED', 'IN_PROGRESS')).toBe(true);
     });
-    it('rejects BLOCKED -> READY', () => {
-      expect(isValidStatusTransition('BLOCKED', 'READY')).toBe(false);
+    it('allows BLOCKED -> READY (auto-unblock)', () => {
+      expect(isValidStatusTransition('BLOCKED', 'READY')).toBe(true);
     });
     it('rejects BLOCKED -> COMPLETE', () => {
       expect(isValidStatusTransition('BLOCKED', 'COMPLETE')).toBe(false);

@@ -694,3 +694,60 @@ describe('Pipeline completion guidance (buildCompletionGuidance)', () => {
     expect(guidance).toContain('rework');
   });
 });
+
+describe('Pipeline start agent_role guard', () => {
+  /**
+   * Inline replica of the agent_role validation added to startPipeline.
+   * Tests the guard logic without requiring a full store — mirrors the
+   * same approach used by claim-guard.test.ts.
+   */
+  function checkAgentRoleGuard(
+    type: string,
+    agent_role: string | undefined,
+  ): string | null {
+    if (agent_role === undefined) return null;
+    const expectedAgent = PIPELINE_AGENT_MAP[type as keyof typeof PIPELINE_AGENT_MAP];
+    if (expectedAgent !== agent_role) {
+      return `Pipeline type '${type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${agent_role}'.`;
+    }
+    return null;
+  }
+
+  it('rejects when agent_role does not match pipeline type owner', () => {
+    const error = checkAgentRoleGuard('qa', 'Developer');
+    expect(error).not.toBeNull();
+    expect(error).toContain("Pipeline type 'qa' can only be started by the QA agent");
+    expect(error).toContain("You provided agent_role: 'Developer'");
+  });
+
+  it('rejects Developer starting a code-review pipeline', () => {
+    const error = checkAgentRoleGuard('code-review', 'Developer');
+    expect(error).not.toBeNull();
+    expect(error).toContain("Reviewer agent");
+  });
+
+  it('accepts when agent_role matches the pipeline type owner', () => {
+    const error = checkAgentRoleGuard('implementation', 'Developer');
+    expect(error).toBeNull();
+  });
+
+  it('accepts when agent_role is omitted (backward compatibility)', () => {
+    const error = checkAgentRoleGuard('qa', undefined);
+    expect(error).toBeNull();
+  });
+
+  it('accepts QA starting a qa pipeline', () => {
+    const error = checkAgentRoleGuard('qa', 'QA');
+    expect(error).toBeNull();
+  });
+
+  it('accepts Reviewer starting a code-review pipeline', () => {
+    const error = checkAgentRoleGuard('code-review', 'Reviewer');
+    expect(error).toBeNull();
+  });
+
+  it('accepts Documentation starting a documentation pipeline', () => {
+    const error = checkAgentRoleGuard('documentation', 'Documentation');
+    expect(error).toBeNull();
+  });
+});

@@ -145,8 +145,9 @@ const timestamp = now(); // "2026-02-16 18:00:00"
 | `READY` | `BLOCKED` | None |
 | `IN_PROGRESS` | `COMPLETE` | All acceptance criteria must be met; Documentation agent only |
 | `IN_PROGRESS` | `BLOCKED` | None |
-| `BLOCKED` | `IN_PROGRESS` | None (implicitly means blocker resolved) |
-| `COMPLETE` | `IN_PROGRESS` | Triggers revision increment |
+| `BLOCKED` | `IN_PROGRESS` | None (implicitly means blocker resolved); clears `blocked_by` |
+| `BLOCKED` | `READY` | All dependencies COMPLETE (auto-unblock); clears `blocked_by` |
+| `COMPLETE` | `IN_PROGRESS` | Triggers revision increment; Project Manager or Documentation agent only |
 
 **Enforcement:** `isValidStatusTransition()` validator. Illegal transitions throw errors.
 
@@ -518,9 +519,12 @@ import { LedgerStore } from '../storage/ledger-store';
 
 **Behavior:**
 - If counters are incorrect, they are silently corrected.
+- If `status === 'READY'` and any WP is `IN_PROGRESS`, status is healed to `IN_PROGRESS`.
+- If `status === 'BLOCKED'` and no WP is actually `BLOCKED`, status is healed to `IN_PROGRESS` (pending WPs exist) or `READY` (no pending WPs).
 - If `status === 'IN_PROGRESS'` and all WPs are complete (pending = 0, WPs exist), status is healed to `COMPLETE`.
 - If `status === 'COMPLETE'` and pending WPs exist, status is healed back to `IN_PROGRESS`.
 - An empty project (no WPs) is never auto-healed to `COMPLETE`.
+- Healing rules are mutually exclusive and applied in order; only the first matching rule fires.
 - The root index is rewritten only when a correction is made.
 
 **Rationale:** Provides fault tolerance against bugs that might cause counter or status drift.
@@ -587,6 +591,22 @@ npm run sync-version
 ```
 
 **Purpose:** Allows users and CI systems to verify which version is running in their project.
+
+---
+
+### 39. Reopening a COMPLETE Work Package Requires Project Manager or Documentation Agent
+
+**Rule:** When transitioning a work package from `COMPLETE` back to `IN_PROGRESS`, the calling `agent` MUST be `"Project Manager"` (or `"Project Manager Agent"`) or `"Documentation"` (or `"Documentation Agent"`). All other agents are rejected.
+
+**Enforcement:** Hard guard in `updateWorkPackageStatus()` in `src/tools/work-package.ts`, applied before the status mutation.
+
+**Error message format:**
+```
+Cannot reopen work package WP-XXX: only the Project Manager or Documentation agent may transition COMPLETE → IN_PROGRESS.
+Hand off to the Project Manager or Documentation agent to formally reopen this work package.
+```
+
+**Rationale:** Prevents developer or QA agents from silently reopening completed work, bypassing the formal re-planning and documentation steps.
 
 ---
 

@@ -88,6 +88,10 @@ const StartPipelineSchema = z.object({
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  agent_role: z
+    .string()
+    .optional()
+    .describe('Agent role starting the pipeline. If provided, validated against the pipeline type owner.'),
 });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
@@ -98,14 +102,24 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
-      // 1. Validate WP is IN_PROGRESS
+      // 1. Validate agent role if provided
+      if (args.agent_role !== undefined) {
+        const expectedAgent = PIPELINE_AGENT_MAP[args.type];
+        if (expectedAgent !== args.agent_role) {
+          throw new Error(
+            `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
+          );
+        }
+      }
+
+      // 2. Validate WP is IN_PROGRESS
       if (wp.status !== 'IN_PROGRESS') {
         throw new Error(
           `Cannot start pipeline for work package ${args.work_package_id}: work package status is ${wp.status}. Only IN_PROGRESS work packages can have pipelines started.`
         );
       }
 
-      // 2. Check for duplicate in-progress pipeline of same type
+      // 3. Check for duplicate in-progress pipeline of same type
       const existingInProgress = wp.pipelines.find(
         (p) => p.type === args.type && p.status === 'IN_PROGRESS'
       );
@@ -116,7 +130,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
-      // 3. Enforce pipeline ordering: check prerequisite
+      // 4. Enforce pipeline ordering: check prerequisite
       const prerequisite = PIPELINE_PREREQUISITES[args.type];
       if (prerequisite !== undefined && prerequisite !== null) {
         const hasPassPrerequisite = wp.pipelines.some(
@@ -129,7 +143,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         }
       }
 
-      // 4. Create new pipeline entry
+      // 5. Create new pipeline entry
       const newPipeline: Pipeline = {
         type: args.type,
         status: 'IN_PROGRESS',
@@ -137,7 +151,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         summary: [],
       };
 
-      // 5. Increment rework_count if restarting a previously-failed pipeline of the same type
+      // 6. Increment rework_count if restarting a previously-failed pipeline of the same type
       const hasPreviousFail = wp.pipelines.some(
         (p) => p.type === args.type && p.status === 'FAIL'
       );
@@ -145,7 +159,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         wp.rework_count = (wp.rework_count ?? 0) + 1;
       }
 
-      // 6. Append to pipelines array
+      // 7. Append to pipelines array
       wp.pipelines.push(newPipeline);
 
       // 7. Update assigned_to to reflect the agent now working on this WP

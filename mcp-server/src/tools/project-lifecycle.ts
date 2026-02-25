@@ -121,6 +121,28 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
     } else if (rootIndex.status === 'COMPLETE' && pendingWps > 0) {
       // Work was reopened — project should be back to IN_PROGRESS
       healedStatus = 'IN_PROGRESS';
+    } else if (rootIndex.status === 'READY') {
+      // If any WP is IN_PROGRESS, the project should already be IN_PROGRESS
+      const hasInProgressWp = rootIndex.work_packages.some(
+        (wp) => wp.status === 'IN_PROGRESS'
+      );
+      if (hasInProgressWp) {
+        healedStatus = 'IN_PROGRESS';
+      }
+    } else if (rootIndex.status === 'BLOCKED') {
+      // If no WPs are actually BLOCKED, the project status is stale
+      const hasBlockedWp = rootIndex.work_packages.some(
+        (wp) => wp.status === 'BLOCKED'
+      );
+      if (!hasBlockedWp) {
+        const hasInProgressWp = rootIndex.work_packages.some(
+          (wp) => wp.status === 'IN_PROGRESS'
+        );
+        const hasReadyWp = rootIndex.work_packages.some(
+          (wp) => wp.status === 'READY'
+        );
+        healedStatus = hasInProgressWp ? 'IN_PROGRESS' : hasReadyWp ? 'READY' : healedStatus;
+      }
     }
 
     // If counts or status are incorrect, update them

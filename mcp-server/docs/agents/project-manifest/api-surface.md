@@ -123,7 +123,12 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
 }) => Promise<MCPResult>
 ```
 
-Updates work package status with validation. Enforces legal status transitions and special rules (e.g., `COMPLETE` requires all acceptance criteria met). The `agent` field is required because the server checks which persona is attempting the transition (e.g., only the Documentation Agent can mark a work package `COMPLETE`).
+Updates work package status with validation. Enforces legal status transitions and special rules:
+- `IN_PROGRESS → COMPLETE`: requires all acceptance criteria met; only `"Documentation"` (or `"Documentation Agent"`)
+- `COMPLETE → IN_PROGRESS`: only `"Project Manager"` (or `"Project Manager Agent"`) or `"Documentation"` (or `"Documentation Agent"`) — triggers `revision` increment and `pending_work_packages` increment
+- `BLOCKED → IN_PROGRESS` / `BLOCKED → READY`: both automatically clear the `blocked_by` field
+
+The `agent` field is required because the server checks which persona is attempting the transition.
 
 ---
 
@@ -136,10 +141,13 @@ Updates work package status with validation. Enforces legal status transitions a
   project_path: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  agent_role?: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult>
 ```
 
 Starts a new pipeline for a work package. The `type` field is validated by a Zod enum — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
+
+If `agent_role` is provided, it must match the pipeline type's owner role (per the `PIPELINE_AGENT_MAP`). For example, passing `agent_role: 'QA'` when starting an `implementation` pipeline is rejected with a descriptive error. If `agent_role` is omitted, no role check is performed (backward compatible).
 
 #### `ledger_complete_pipeline`
 
@@ -918,6 +926,16 @@ export function isBlockedByDependencies(wp: WorkPackageDetail, allWps: WorkPacka
 // Returns true if the WP has a dependency blocker recorded.
 export function hasDependencyBlocked(wp: WorkPackageDetail): boolean;
 
+// Returns true if the most recent upstream PASS pipeline completed_at is AFTER the most recent
+// downstream pipeline's started_at. Handles first-run (no downstream → true), up-to-date
+// (downstream started after upstream → false), and rework re-engagement (upstream PASS
+// post-dates downstream start → true). Uses strict > so same-second timestamps → false.
+export function hasNewUpstreamPassSince(
+  pipelines: Pipeline[],
+  upstreamType: PipelineType,
+  downstreamType: PipelineType
+): boolean;
+
 export function extractStalePipelineAction(wps: WorkPackageDetail[]): ActionResult | null;
 export function extractReworkAction(wps: WorkPackageDetail[]): ActionResult | null;
 
@@ -939,12 +957,25 @@ export const pipelineAgentRoleMap: Record<string, string>;
 ```typescript
 // Developer-specific next-action computation (used inside ledger_get_next_action).
 export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+
+// QA-specific next-action computation. Uses hasNewUpstreamPassSince() to detect
+// rework re-engagement after a Developer rework cycle. BLOCKED WPs are excluded.
+export function getQaAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+
+// Reviewer-specific next-action computation. Uses hasNewUpstreamPassSince() to detect
+// rework re-engagement after QA re-passes. BLOCKED WPs are excluded.
+export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+
+// Documentation-specific next-action computation. Uses hasNewUpstreamPassSince() to detect
+// rework re-engagement after Reviewer re-passes. BLOCKED WPs are excluded.
+export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
 ```
 
 ### `src/tools/workflow-handoff.ts` — ledger_get_handoff_status internals
 
 ```typescript
 // Handoff computation functions (one per agent role)
+export function getPlannerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getDeveloperHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getQaHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getReviewerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;

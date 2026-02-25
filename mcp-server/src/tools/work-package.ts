@@ -415,7 +415,7 @@ const UpdateWorkPackageStatusSchema = z.object({
     .describe('Work package ID to update, format: WP-001, WP-002, etc.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
-    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, BLOCKED→IN_PROGRESS, COMPLETE→IN_PROGRESS'),
+    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, BLOCKED→IN_PROGRESS, BLOCKED→READY, COMPLETE→IN_PROGRESS'),
   agent: z
     .string()
     .describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation"). Note: only "Documentation" or "Documentation Agent" can set status to COMPLETE.'),
@@ -487,20 +487,39 @@ async function updateWorkPackageStatus(
         );
       }
 
-      // 5. Update work package status
+      // 5. Agent guard for COMPLETE -> IN_PROGRESS (validated before status mutation so the
+      //    WP is never partially mutated when the guard rejects the transition)
+      if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
+        const allowedReopenAgents = [
+          'Project Manager',
+          'Project Manager Agent',
+          'Documentation',
+          'Documentation Agent',
+        ];
+        if (!allowedReopenAgents.includes(args.agent)) {
+          throw new Error(
+            `Only the Project Manager or Documentation agent may reopen a COMPLETE work package (COMPLETE → IN_PROGRESS). You are: ${args.agent}\n\n` +
+              `If you believe this work package needs rework, hand off to the Project Manager or Documentation agent so they can formally reopen it.`
+          );
+        }
+      }
+
+      // 6. Update work package status
       wp.status = newStatus;
 
-      // 6. Handle BLOCKED -> IN_PROGRESS (clear blocker)
-      if (oldStatus === 'BLOCKED' && newStatus === 'IN_PROGRESS') {
+      // 7. Handle any exit from BLOCKED (clear blocker)
+      // Covers both BLOCKED -> IN_PROGRESS and BLOCKED -> READY so the field is
+      // never left stale regardless of which unblock path is taken.
+      if (oldStatus === 'BLOCKED' && newStatus !== 'BLOCKED') {
         delete wp.blocked_by;
       }
 
-      // 7. Handle BLOCKED status (set blocker)
+      // 8. Handle BLOCKED status (set blocker)
       if (newStatus === 'BLOCKED' && args.blocked_by) {
         wp.blocked_by = args.blocked_by as Blocker;
       }
 
-      // 8. Handle COMPLETE -> IN_PROGRESS (increment revision)
+      // 9. Handle COMPLETE -> IN_PROGRESS (increment revision)
       if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
         wp.revision += 1;
       }
@@ -521,6 +540,14 @@ async function updateWorkPackageStatus(
       // Increment when transitioning from COMPLETE to something else
       if (oldStatus === 'COMPLETE' && newStatus !== 'COMPLETE') {
         root.pending_work_packages += 1;
+      }
+
+      // 11. Reset auto_handoff_depth when any WP reaches COMPLETE.
+      // This prevents the depth counter from stalling mid-project when
+      // multiple partial handoff chains are used across several WPs.
+      // (Replaces the project-COMPLETE-only reset that was in buildHandoffResponse.)
+      if (newStatus === 'COMPLETE' && (root.auto_handoff_depth ?? 0) !== 0) {
+        root.auto_handoff_depth = 0;
       }
 
       root.last_updated = now();
@@ -632,7 +659,7 @@ function getLegalTransitions(status: string): string {
     case 'IN_PROGRESS':
       return 'COMPLETE, BLOCKED';
     case 'BLOCKED':
-      return 'IN_PROGRESS';
+      return 'IN_PROGRESS, READY';
     case 'COMPLETE':
       return 'IN_PROGRESS';
     default:
