@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.4.0 - LangGraph Orchestrator Tool
+- Personas: Added the WHATSNEW curator.
+- Personas: Tweaked the sensibility of the changelog curator.
+- Orchestrator: Added the CLI orchestrator tool.
+- Docs: Added orchestrator troubleshooting entries.
+
 ## v1.3.0 - Multi-IDE Persona Builds
 - Personas: Added a build process and templating.
 - Personas: Now generating Markdown files for VS Code and Claude Code.
