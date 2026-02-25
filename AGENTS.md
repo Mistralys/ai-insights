@@ -236,8 +236,8 @@ These are the critical synchronization points between sub-projects. Breaking any
 | **Package Manager** | npm | npm | pip |
 | **Test Framework** | Vitest | — (manual `--check` flag) | pytest |
 | **Build Tool** | `tsc` | `build-personas.js` (self-contained) | — (source install) |
-| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) | 6+ (`langgraph`, `langchain`, `python-dotenv`, provider extras) |
-| **Dev Dependencies** | 4 (`tsx`, `vitest`, `typescript`, `@types/node`) | 0 | 1 (`pytest`) |
+| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) | 5 core (`langgraph`, `deepagents`, `langchain-mcp-adapters`, `langchain-core`, `python-dotenv`); optional extras: `anthropic`, `google`, `checkpoint` |
+| **Dev Dependencies** | 4 (`tsx`, `vitest`, `typescript`, `@types/node`) | 0 | 3 (`pytest`, `pytest-asyncio`, `ruff`) |
 
 ### Root-Level Tooling
 

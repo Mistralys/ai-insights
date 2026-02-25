@@ -1,3 +1,25 @@
-# This file is generated from pyproject.toml.
-# Run: pip install -e . (and extras) to install pinned dependencies.
-# Placeholder — pinned versions will be added after initial install.
+# This file mirrors the version pins from pyproject.toml.
+# Run: pip install -e '.[anthropic,dev]' to install all dependencies.
+# Last updated: 2026-02-25
+
+# Core dependencies
+langchain-core>=0.3.45
+langchain-mcp-adapters>=0.2
+langgraph>=0.4
+deepagents>=0.3
+python-dotenv>=1.0
+
+# Optional: Anthropic provider
+langchain-anthropic>=0.3.10
+
+# Optional: Google provider
+# langchain-google-genai>=2.0
+
+# Optional: required for --resume support (persistent checkpoints across restarts).
+# Install with: pip install -e '.[checkpoint]'
+# langgraph-checkpoint-sqlite
+
+# Dev dependencies
+pytest>=8.0
+pytest-asyncio>=0.24
+ruff>=0.8

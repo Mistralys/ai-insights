@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 import uuid
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
@@ -91,7 +91,7 @@ class ScriptedLedger:
         if self._index < len(self._steps) - 1:
             self._index += 1
 
-    def make_mcp_tools(self) -> list[MagicMock]:
+    def make_mcp_tools(self) -> list[Any]:
         """Return a list of mock LangChain ``Tool`` objects backed by this ledger."""
 
         def _project_status(kwargs: dict) -> str:
@@ -109,6 +109,7 @@ class ScriptedLedger:
             tool = MagicMock()
             tool.name = name
             tool.invoke = MagicMock(side_effect=fn)
+            tool.ainvoke = AsyncMock(side_effect=fn)
             return tool
 
         return [
@@ -212,6 +213,8 @@ def _initial_state(
         "project_status": "{}",
         "wp_summaries": [],
         "pending_wp_count": 0,
+        "consecutive_failures": {},
+        "wps_completed_this_run": 0,
         "run_log": [],
         "errors": [],
     }
@@ -247,7 +250,7 @@ def _wp(
 
 
 @pytest.mark.integration
-def test_happy_path_full_pipeline():
+async def test_happy_path_full_pipeline():
     """
     The supervisor routes through pm → developer → qa → reviewer → docs →
     synthesis in the correct order for a single-WP project.
@@ -341,10 +344,10 @@ def test_happy_path_full_pipeline():
     ]
 
     ledger = ScriptedLedger(steps)
-    graph, _ = _build_integration_graph(ledger, max_iterations=20)
+    graph, _ = _build_integration_graph(ledger)
     thread_cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-    result = graph.invoke(_initial_state(max_iterations=20), thread_cfg)
+    result = await graph.ainvoke(_initial_state(max_iterations=20), thread_cfg)
 
     # Verify the complete stage execution sequence.
     expected_sequence = ["pm", "developer", "qa", "reviewer", "docs", "synthesis"]
@@ -367,7 +370,7 @@ def test_happy_path_full_pipeline():
 
 
 @pytest.mark.integration
-def test_rework_loop_qa_fail_then_pass():
+async def test_rework_loop_qa_fail_then_pass():
     """
     After a QA FAIL, the supervisor routes back to developer for rework,
     then returns to QA on the next pass.
@@ -452,10 +455,10 @@ def test_rework_loop_qa_fail_then_pass():
     ]
 
     ledger = ScriptedLedger(steps)
-    graph, _ = _build_integration_graph(ledger, max_iterations=20)
+    graph, _ = _build_integration_graph(ledger)
     thread_cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-    result = graph.invoke(_initial_state(max_iterations=20), thread_cfg)
+    result = await graph.ainvoke(_initial_state(max_iterations=20), thread_cfg)
 
     # Expected sequence:
     #   developer (first pass) → qa (FAIL) → developer (rework) → reviewer → ...
@@ -486,7 +489,7 @@ def test_rework_loop_qa_fail_then_pass():
 
 
 @pytest.mark.integration
-def test_safety_limit_terminates_at_configured_limit():
+async def test_safety_limit_terminates_at_configured_limit():
     """
     When max_iterations is reached, the supervisor routes to END immediately
     and records an error in the state.
@@ -527,7 +530,7 @@ def test_safety_limit_terminates_at_configured_limit():
 
     # max_iterations=1: supervisor runs once (iteration=1, routes to developer),
     # developer runs, supervisor runs again (iteration=2 > 1 → safety limit → END).
-    result = graph.invoke(_initial_state(max_iterations=1), thread_cfg)
+    result = await graph.ainvoke(_initial_state(max_iterations=1), thread_cfg)
 
     errors = result.get("errors", [])
     assert errors, "Expected at least one safety-limit error in state"
@@ -544,7 +547,7 @@ def test_safety_limit_terminates_at_configured_limit():
 
 
 @pytest.mark.integration
-def test_multi_wp_dependency_ordering():
+async def test_multi_wp_dependency_ordering():
     """
     When WP-001 is COMPLETE and WP-002 was previously BLOCKED/READY,
     the supervisor routes to developer for WP-002 (the remaining WP).
@@ -589,10 +592,10 @@ def test_multi_wp_dependency_ordering():
     ]
 
     ledger = ScriptedLedger(steps)
-    graph, _ = _build_integration_graph(ledger, max_iterations=20)
+    graph, _ = _build_integration_graph(ledger)
     thread_cfg = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-    result = graph.invoke(_initial_state(max_iterations=20), thread_cfg)
+    result = await graph.ainvoke(_initial_state(max_iterations=20), thread_cfg)
 
     # Step 0: WP-001 IN_PROGRESS, no pipelines → developer executes (WP-001)
     # Step 1: WP-001 COMPLETE, WP-002 READY → developer executes (WP-002)
@@ -610,7 +613,7 @@ def test_multi_wp_dependency_ordering():
 
 
 @pytest.mark.integration
-def test_checkpoint_resume():
+async def test_checkpoint_resume():
     """
     A graph interrupted at ``pm`` can be resumed from the same thread ID
     and continues through the remaining stages.
@@ -664,7 +667,7 @@ def test_checkpoint_resume():
 
     # ── First invocation: graph starts, supervisor routes to pm, BUT
     #    interrupt_before=["pm"] means it pauses BEFORE pm executes.
-    graph.invoke(_initial_state(max_iterations=20), thread_cfg)
+    await graph.ainvoke(_initial_state(max_iterations=20), thread_cfg)
 
     # pm has NOT executed yet (interrupted before it).
     assert "pm" not in ledger.execution_log, (
@@ -672,7 +675,7 @@ def test_checkpoint_resume():
     )
 
     # ── Resume: pass None as input to continue from checkpoint.
-    result = graph.invoke(None, thread_cfg)
+    result = await graph.ainvoke(None, thread_cfg)
 
     # After resuming, pm executes.
     assert "pm" in ledger.execution_log, (
@@ -717,7 +720,7 @@ def test_integration_marker_applied():
 
 
 @pytest.mark.integration
-def test_in_memory_state_isolated_between_runs():
+async def test_in_memory_state_isolated_between_runs():
     """
     Each test run uses a fresh MemorySaver and a new ScriptedLedger instance.
     State from one run does not bleed into another.
@@ -736,13 +739,13 @@ def test_in_memory_state_isolated_between_runs():
     ledger_a = ScriptedLedger([FINAL_STEP])
     graph_a, checkpointer_a = _build_integration_graph(ledger_a)
     thread_a = {"configurable": {"thread_id": str(uuid.uuid4())}}
-    result_a = graph_a.invoke(_initial_state(), thread_a)
+    result_a = await graph_a.ainvoke(_initial_state(), thread_a)
 
     # Run 2 — independently built
     ledger_b = ScriptedLedger([FINAL_STEP])
     graph_b, checkpointer_b = _build_integration_graph(ledger_b)
     thread_b = {"configurable": {"thread_id": str(uuid.uuid4())}}
-    result_b = graph_b.invoke(_initial_state(), thread_b)
+    result_b = await graph_b.ainvoke(_initial_state(), thread_b)
 
     # Both runs complete; checkpointers are independent MemorySaver instances.
     assert checkpointer_a is not checkpointer_b, "Checkpointers must be independent."

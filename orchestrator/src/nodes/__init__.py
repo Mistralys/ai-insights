@@ -53,7 +53,7 @@ def create_stage_node(
         returns a state-update dict.
     """
 
-    def node_fn(state: "WorkflowState") -> dict:
+    async def node_fn(state: "WorkflowState") -> dict:
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
@@ -73,8 +73,13 @@ def create_stage_node(
                 tools=mcp_tools,
             )
 
-            result = agent.invoke({"messages": [{"role": "user", "content": user_prompt}]})
-            final_content: str = result["messages"][-1].content  # type: ignore[index]
+            # Use ainvoke so LangGraph's inner ToolNode takes the async path
+            # (a_run) for MCP StructuredTools, which don't implement sync _run.
+            result = await agent.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
+            _msgs = result.get("messages") or []
+            last_msg = _msgs[-1] if _msgs else None
+            final_content: str = last_msg.content if last_msg is not None else ""  # type: ignore[union-attr]
+            tokens_used = getattr(last_msg, "usage_metadata", None)
 
             log.info("Stage %s completed successfully.", stage)
             return {
@@ -87,6 +92,8 @@ def create_stage_node(
                         "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
                         "action": "stage_complete",
                         "result": "PASS",
+                        "level": "INFO",
+                        "tokens_used": tokens_used,
                     }
                 ],
             }
@@ -113,6 +120,7 @@ def create_stage_node(
                         "action": "stage_error",
                         "result": "FAIL",
                         "error": str(exc),
+                        "level": "ERROR",
                     }
                 ],
             }

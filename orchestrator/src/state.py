@@ -93,6 +93,12 @@ class WorkflowState(TypedDict):
     wp_summaries: list
     pending_wp_count: int
 
+    # --- Circuit-breaker tracking ---
+    consecutive_failures: dict  # wp_id → consecutive failure count; plain dict (no reducer)
+
+    # --- Delta counters ---
+    wps_completed_this_run: int  # WPs fully done during this execution (resets to 0 on fresh run)
+
     # --- Observability (append-only) ---
     run_log: Annotated[list, add]
     errors: Annotated[list, add]

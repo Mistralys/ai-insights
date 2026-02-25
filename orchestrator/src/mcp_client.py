@@ -64,6 +64,7 @@ class MCPToolkit:
     def __init__(self, mcp_server_cmd: list[str]) -> None:
         self._cmd = mcp_server_cmd
         self._client: Any = None
+        self._session_ctx: Any = None  # langchain-mcp-adapters 0.1.0 session context
         self._tools: list | None = None
 
     # ------------------------------------------------------------------
@@ -81,6 +82,7 @@ class MCPToolkit:
 
     async def __aenter__(self) -> "MCPToolkit":
         from langchain_mcp_adapters.client import MultiServerMCPClient  # type: ignore[import]
+        from langchain_mcp_adapters.tools import load_mcp_tools  # type: ignore[import]
 
         cmd0, *args = self._cmd
         self._client = MultiServerMCPClient(
@@ -92,10 +94,12 @@ class MCPToolkit:
                 }
             }
         )
-        await self._client.__aenter__()
-
-        # Cache tools immediately so get_tools() is synchronous.
-        self._tools = self._client.get_tools()
+        # langchain-mcp-adapters 0.1.0: use session() to keep the MCP server
+        # subprocess alive for the duration of this context manager.
+        # get_tools() is one-shot and tears down the server; session() persists it.
+        self._session_ctx = self._client.session(_SERVER_KEY)
+        session = await self._session_ctx.__aenter__()
+        self._tools = await load_mcp_tools(session)
         log.info("MCP server started; %d tools loaded.", len(self._tools))
 
         # Register atexit cleanup so the subprocess is killed even on crashes.
@@ -108,12 +112,13 @@ class MCPToolkit:
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         atexit.unregister(self._sync_cleanup)
-        if self._client is not None:
+        if self._session_ctx is not None:
             try:
-                await self._client.__aexit__(exc_type, exc, tb)
+                await self._session_ctx.__aexit__(exc_type, exc, tb)
             except Exception:  # noqa: BLE001
-                log.warning("Error shutting down MCP client.", exc_info=True)
+                log.warning("Error shutting down MCP session.", exc_info=True)
         self._client = None
+        self._session_ctx = None
         self._tools = None
 
     # ------------------------------------------------------------------
@@ -169,18 +174,18 @@ class MCPToolkit:
         if self._client is None:
             return
         try:
-            # TODO(WP-007): Replace asyncio.get_event_loop() with
-            # asyncio.get_running_loop() / asyncio.new_event_loop() fallback
-            # to silence DeprecationWarning in Python 3.12+ when no loop is
-            # running at atexit time.  Low-risk; errors are suppressed below.
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Schedule cleanup as a fire-and-forget task.
-                loop.create_task(self._client.__aexit__(None, None, None))
-            else:
-                loop.run_until_complete(
-                    self._client.__aexit__(None, None, None)
-                )
+            if self._session_ctx is not None:
+                aclose = getattr(self._session_ctx, "aclose", None)
+                if aclose is not None:
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                    if loop.is_running():
+                        loop.create_task(aclose())
+                    else:
+                        loop.run_until_complete(aclose())
+                        loop.close()
         except Exception:  # noqa: BLE001
             pass  # Best-effort; suppress all errors in atexit handlers.
 

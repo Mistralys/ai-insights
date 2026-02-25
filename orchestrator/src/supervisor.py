@@ -37,6 +37,12 @@ _DEST_REVIEWER = "reviewer"
 _DEST_DOCS = "docs"
 _DEST_SYNTHESIS = "synthesis"
 
+# Sentinel returned by _route_for_wp when a pipeline is actively IN_PROGRESS.
+# Distinct from None ("WP is fully done") so the supervisor can distinguish
+# between "skip this WP because it is finished" and "skip this WP because
+# something is already running on it".
+_SKIP_IN_FLIGHT = "__in_flight__"
+
 # LangGraph END sentinel.
 try:
     from langgraph.constants import END  # type: ignore[import]
@@ -72,7 +78,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _call_tool(name: str, **kwargs: Any) -> Any:
+    async def _call_tool(name: str, **kwargs: Any) -> Any:
         """Invoke an MCP tool by name and return the parsed JSON response."""
         tool = tools_by_name.get(name)
         if tool is None:
@@ -80,7 +86,20 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 f"MCP tool {name!r} not found. "
                 f"Available: {sorted(tools_by_name)}"
             )
-        raw = tool.invoke(kwargs)
+        raw = await tool.ainvoke(kwargs)
+        # langchain-mcp-adapters 0.1.0 returns a list of content objects:
+        # [{"type": "text", "text": "<json-string>"}]
+        # Extract and parse the text from the first text-type content block.
+        if isinstance(raw, list):
+            for block in raw:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block["text"]
+                    try:
+                        return json.loads(text)
+                    except json.JSONDecodeError:
+                        return text
+            # No text block found; return the raw list (caller handles it).
+            return raw
         if isinstance(raw, str):
             return json.loads(raw)
         return raw
@@ -94,6 +113,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             "wp_id": wp_id,
             "action": action,
             "destination": destination,
+            "level": "INFO",  # default; callers may override via **extra
             **extra,
         }
 
@@ -106,9 +126,15 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
     def _route_for_wp(wp_detail: dict) -> str | None:
         """
-        Return which stage should handle *wp_detail* next, or ``None`` if done.
+        Return which stage should handle *wp_detail* next.
 
-        Implements the pipeline-state decision tree from the WP-003 spec.
+        Return values:
+        - A destination string (e.g. ``_DEST_DEVELOPER``) — dispatch to that stage.
+        - ``_SKIP_IN_FLIGHT`` — a pipeline is currently IN_PROGRESS; caller should
+          skip this WP and NOT route to synthesis until the pipeline completes.
+        - ``None`` — all pipelines are PASS; this WP is fully done.
+
+        Implements the pipeline-state decision tree from the WP-001 spec.
         """
 
         def latest_status(ptype: str) -> str | None:
@@ -123,18 +149,27 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         if not pipelines or impl_status is None:
             return _DEST_DEVELOPER
+        if impl_status == "IN_PROGRESS":
+            # Implementation pipeline is still running — do not re-dispatch.
+            return _SKIP_IN_FLIGHT
         if impl_status == "FAIL":
             return _DEST_DEVELOPER
         if impl_status == "PASS" and qa_status is None:
             return _DEST_QA
+        if qa_status == "IN_PROGRESS":
+            return _SKIP_IN_FLIGHT
         if qa_status == "FAIL":
             return _DEST_DEVELOPER
         if qa_status == "PASS" and cr_status is None:
             return _DEST_REVIEWER
+        if cr_status == "IN_PROGRESS":
+            return _SKIP_IN_FLIGHT
         if cr_status == "FAIL":
             return _DEST_DEVELOPER
         if cr_status == "PASS" and doc_status is None:
             return _DEST_DOCS
+        if doc_status == "IN_PROGRESS":
+            return _SKIP_IN_FLIGHT
         if doc_status == "FAIL":
             return _DEST_DOCS
         # All pipelines PASS — WP is complete.
@@ -144,11 +179,29 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # The node function itself
     # ------------------------------------------------------------------
 
-    def supervisor_node(state: WorkflowState) -> Command:
+    async def supervisor_node(state: WorkflowState) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         project_path: str = state["project_path"]
         new_iteration: int = state.get("iteration", 0) + 1  # type: ignore[call-overload]
         max_iterations: int = state.get("max_iterations", 100)  # type: ignore[call-overload]
+
+        # ── Update consecutive-failure circuit breaker ────────────────
+        # Each supervisor iteration checks the result of the previous stage.
+        # If the same WP failed, increment its counter; reset it on success.
+        prev_wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
+        prev_success: bool = state.get("stage_success", True)  # type: ignore[call-overload]
+        cf: dict = dict(state.get("consecutive_failures", {}))  # type: ignore[call-overload]
+        if prev_wp_id:
+            if not prev_success:
+                cf[prev_wp_id] = cf.get(prev_wp_id, 0) + 1
+                log.debug(
+                    "Consecutive failure counter for WP %s: %d",
+                    prev_wp_id,
+                    cf[prev_wp_id],
+                )
+            else:
+                # Reset counter when the WP completes a stage successfully.
+                cf.pop(prev_wp_id, None)
 
         log.debug(
             "Supervisor iteration %d/%d for project %s",
@@ -166,6 +219,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 action="safety_limit",
                 destination=str(END),
                 iteration=new_iteration,
+                level="WARNING",
             )
             return Command(
                 goto=END,
@@ -187,7 +241,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         # ── Read ledger state ─────────────────────────────────────────
         try:
-            status_data = _call_tool("ledger_get_project_status", project_path=project_path)
+            status_data = await _call_tool("ledger_get_project_status", project_path=project_path)
         except Exception as exc:
             log.error("Failed to read project status: %s", exc)
             ts = datetime.now(timezone.utc).isoformat()
@@ -197,6 +251,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 action="mcp_error",
                 destination=str(END),
                 error=str(exc),
+                level="ERROR",
             )
             return Command(
                 goto=END,
@@ -209,7 +264,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             )
 
         try:
-            wp_list_data = _call_tool("ledger_list_work_packages", project_path=project_path)
+            wp_list_data = await _call_tool("ledger_list_work_packages", project_path=project_path)
         except Exception as exc:
             log.error("Failed to list work packages: %s", exc)
             wp_list_data = []
@@ -232,6 +287,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             "project_status": json.dumps(status_data),
             "wp_summaries": wp_summaries,
             "pending_wp_count": pending_count,
+            "consecutive_failures": cf,
         }
 
         # ── No WPs → PM needs to create them ─────────────────────────
@@ -315,10 +371,47 @@ def make_supervisor_node(mcp_tools: list[Any]):
             )
 
         # ── Inspect each actionable WP ────────────────────────────────
+        # Tracks WPs that were skipped because a pipeline is in-flight or
+        # because the circuit breaker tripped.  If ALL actionable WPs end up
+        # in this bucket the run should stop rather than route to synthesis.
+        skip_count: int = 0
+        wps_done_count: int = 0  # WPs confirmed fully done in this supervisor pass
+        extra_log_entries: list = []
+        extra_errors: list = []
+
         for wp_summary in actionable:
             wp_id: str = wp_summary.get("work_package_id", "")
+
+            # ── Circuit breaker ──────────────────────────────────────────
+            consecutive = cf.get(wp_id, 0)
+            if consecutive >= 3:
+                ts = datetime.now(timezone.utc).isoformat()
+                log.warning(
+                    "WP %s halted: %d consecutive failures — skipping to prevent loop.",
+                    wp_id,
+                    consecutive,
+                )
+                entry = _log_entry(
+                    stage="supervisor",
+                    wp_id=wp_id,
+                    action="halted_repeated_failure",
+                    destination=str(END),
+                    consecutive_failures=consecutive,
+                    level="WARNING",
+                )
+                extra_log_entries.append(entry)
+                extra_errors.append({
+                    "timestamp": ts,
+                    "message": (
+                        f"WP {wp_id} halted after {consecutive} consecutive failures — "
+                        "it will not be re-dispatched in this run."
+                    ),
+                })
+                skip_count += 1
+                continue
+
             try:
-                wp_detail = _call_tool(
+                wp_detail = await _call_tool(
                     "ledger_get_work_package",
                     project_path=project_path,
                     work_package_id=wp_id,
@@ -328,8 +421,16 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 continue
 
             destination = _route_for_wp(wp_detail)
+
             if destination is None:
-                # WP is done — continue to the next one.
+                # WP is fully done (all pipelines PASS) — continue to the next.
+                wps_done_count += 1
+                continue
+
+            if destination == _SKIP_IN_FLIGHT:
+                # A pipeline is currently running — don't re-dispatch.
+                log.debug("WP %s has an in-flight pipeline; skipping this iteration.", wp_id)
+                skip_count += 1
                 continue
 
             log_entry = _log_entry(
@@ -346,7 +447,38 @@ def make_supervisor_node(mcp_tools: list[Any]):
                     **base_update,
                     "current_wp_id": wp_id,
                     "current_stage": destination,
-                    "run_log": [log_entry],
+                    "wps_completed_this_run": state.get("wps_completed_this_run", 0) + wps_done_count,  # type: ignore[call-overload]
+                    "run_log": extra_log_entries + [log_entry],
+                    "errors": extra_errors,
+                },
+            )
+
+        # ── End of actionable WP loop ─────────────────────────────────
+        # If every actionable WP was skipped (all in-flight or circuit-broken),
+        # route to __end__ instead of synthesis so the run ends cleanly rather
+        # than producing a misleading synthesis report.
+        if skip_count == len(actionable) and skip_count > 0:
+            ts = datetime.now(timezone.utc).isoformat()
+            reason = "all actionable WPs have in-flight pipelines or repeated failures"
+            log.info("Supervisor halting: %s", reason)
+            halt_entry = _log_entry(
+                stage="supervisor",
+                wp_id="",
+                action="halt",
+                destination=str(END),
+                reason=reason,
+                level="WARNING",
+            )
+            return Command(
+                goto=END,
+                update={
+                    **base_update,
+                    "wps_completed_this_run": state.get("wps_completed_this_run", 0) + wps_done_count,  # type: ignore[call-overload]
+                    "run_log": extra_log_entries + [halt_entry],
+                    "errors": extra_errors + [{
+                        "timestamp": ts,
+                        "message": f"Run halted: {reason}.",
+                    }],
                 },
             )
 
@@ -363,7 +495,9 @@ def make_supervisor_node(mcp_tools: list[Any]):
             update={
                 **base_update,
                 "current_stage": _DEST_SYNTHESIS,
-                "run_log": [log_entry],
+                "wps_completed_this_run": state.get("wps_completed_this_run", 0) + wps_done_count,  # type: ignore[call-overload]
+                "run_log": extra_log_entries + [log_entry],
+                "errors": extra_errors,
             },
         )
 

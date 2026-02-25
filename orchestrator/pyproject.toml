@@ -7,16 +7,19 @@ dependencies = [
     "langgraph>=0.4",
     "deepagents>=0.3",
     "langchain-mcp-adapters>=0.2",
-    "langchain-core>=0.3",
+    "langchain-core>=0.3.45",
     "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
 anthropic = [
-    "langchain-anthropic>=0.3",
+    "langchain-anthropic>=0.3.10",
 ]
 google = [
     "langchain-google-genai>=2.0",
+]
+checkpoint = [
+    "langgraph-checkpoint-sqlite",
 ]
 dev = [
     "pytest>=8.0",

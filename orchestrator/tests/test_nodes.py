@@ -15,7 +15,7 @@ import importlib
 import textwrap
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -72,7 +72,7 @@ def _make_agent_mock(response: str = "Done.") -> MagicMock:
     msg = MagicMock()
     msg.content = response
     agent = MagicMock()
-    agent.invoke = MagicMock(return_value={"messages": [msg]})
+    agent.ainvoke = AsyncMock(return_value={"messages": [msg]})
     return agent
 
 
@@ -143,14 +143,14 @@ class TestModuleStructure:
 # ---------------------------------------------------------------------------
 
 class TestNodeSuccessPath:
-    def _invoke_node(self, module_name: str, factory_name: str, **state_kwargs) -> dict:
+    async def _invoke_node(self, module_name: str, factory_name: str, **state_kwargs) -> dict:
         mod = importlib.import_module(module_name)
         factory = getattr(mod, factory_name)
         node_fn = factory(FAKE_CONFIG, FAKE_TOOLS)
 
         create_p, backend_p = _patch_deep_agent("Agent completed successfully.")
         with _patch_persona(), create_p, backend_p:
-            return node_fn(base_state(**state_kwargs))
+            return await node_fn(base_state(**state_kwargs))
 
     @pytest.mark.parametrize("module_name,factory_name", [
         ("src.nodes.pm", "make_pm_node"),
@@ -160,8 +160,8 @@ class TestNodeSuccessPath:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_success_sets_stage_success_true(self, module_name, factory_name):
-        result = self._invoke_node(module_name, factory_name)
+    async def test_success_sets_stage_success_true(self, module_name, factory_name):
+        result = await self._invoke_node(module_name, factory_name)
         assert result["stage_success"] is True
 
     @pytest.mark.parametrize("module_name,factory_name", [
@@ -172,8 +172,8 @@ class TestNodeSuccessPath:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_success_sets_stage_result(self, module_name, factory_name):
-        result = self._invoke_node(module_name, factory_name)
+    async def test_success_sets_stage_result(self, module_name, factory_name):
+        result = await self._invoke_node(module_name, factory_name)
         assert result["stage_result"] == "Agent completed successfully."
 
     @pytest.mark.parametrize("module_name,factory_name", [
@@ -184,8 +184,8 @@ class TestNodeSuccessPath:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_success_appends_run_log_entry(self, module_name, factory_name):
-        result = self._invoke_node(module_name, factory_name)
+    async def test_success_appends_run_log_entry(self, module_name, factory_name):
+        result = await self._invoke_node(module_name, factory_name)
         assert result.get("run_log"), "run_log must be non-empty on success"
         entry = result["run_log"][0]
         assert entry["result"] == "PASS"
@@ -198,7 +198,7 @@ class TestNodeSuccessPath:
 # ---------------------------------------------------------------------------
 
 class TestNodeErrorHandling:
-    def _invoke_with_error(self, module_name: str, factory_name: str) -> dict:
+    async def _invoke_with_error(self, module_name: str, factory_name: str) -> dict:
         mod = importlib.import_module(module_name)
         factory = getattr(mod, factory_name)
         node_fn = factory(FAKE_CONFIG, FAKE_TOOLS)
@@ -207,7 +207,7 @@ class TestNodeErrorHandling:
             "deepagents.create_deep_agent",
             side_effect=RuntimeError("Simulated agent crash"),
         ), patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
-            return node_fn(base_state())
+            return await node_fn(base_state())
 
     @pytest.mark.parametrize("module_name,factory_name", [
         ("src.nodes.pm", "make_pm_node"),
@@ -217,9 +217,9 @@ class TestNodeErrorHandling:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_exception_sets_stage_success_false(self, module_name, factory_name):
+    async def test_exception_sets_stage_success_false(self, module_name, factory_name):
         """Any exception in the node must set stage_success=False, not crash."""
-        result = self._invoke_with_error(module_name, factory_name)
+        result = await self._invoke_with_error(module_name, factory_name)
         assert result["stage_success"] is False
 
     @pytest.mark.parametrize("module_name,factory_name", [
@@ -230,8 +230,8 @@ class TestNodeErrorHandling:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_exception_appends_to_errors(self, module_name, factory_name):
-        result = self._invoke_with_error(module_name, factory_name)
+    async def test_exception_appends_to_errors(self, module_name, factory_name):
+        result = await self._invoke_with_error(module_name, factory_name)
         assert result.get("errors"), "errors must be non-empty on exception"
         error = result["errors"][0]
         assert "Simulated agent crash" in error["message"]
@@ -244,10 +244,10 @@ class TestNodeErrorHandling:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_exception_does_not_propagate(self, module_name, factory_name):
+    async def test_exception_does_not_propagate(self, module_name, factory_name):
         """Stage exceptions must be caught; the graph must not crash."""
         # Calling _invoke_with_error should complete without raising.
-        result = self._invoke_with_error(module_name, factory_name)
+        result = await self._invoke_with_error(module_name, factory_name)
         assert result is not None
 
 
@@ -256,7 +256,7 @@ class TestNodeErrorHandling:
 # ---------------------------------------------------------------------------
 
 class TestPMNodePromptIncludesPlanContent:
-    def test_pm_prompt_contains_plan_content(self, tmp_path):
+    async def test_pm_prompt_contains_plan_content(self, tmp_path):
         """PM node must include plan document content in the user prompt."""
         # Create a minimal plan file.
         plan_text = "# Test Plan\n\nThis is the plan content."
@@ -267,18 +267,17 @@ class TestPMNodePromptIncludesPlanContent:
 
         captured_prompt: list[str] = []
 
-        def fake_agent(*args, **kwargs):
+        async def async_fake_invoke(inputs):
             """Capture the prompt from the first message."""
+            captured_prompt.append(inputs["messages"][0]["content"])
+            msg = MagicMock()
+            msg.content = "PM done."
+            return {"messages": [msg]}
+
+        def fake_agent(*args, **kwargs):
+            """Return a mock agent that captures prompt via ainvoke."""
             agent = MagicMock()
-
-            def fake_invoke(inputs):
-                # Extract the user message content.
-                captured_prompt.append(inputs["messages"][0]["content"])
-                msg = MagicMock()
-                msg.content = "PM done."
-                return {"messages": [msg]}
-
-            agent.invoke = fake_invoke
+            agent.ainvoke = AsyncMock(side_effect=async_fake_invoke)
             return agent
 
         node_fn = make_pm_node(FAKE_CONFIG, FAKE_TOOLS)
@@ -286,7 +285,7 @@ class TestPMNodePromptIncludesPlanContent:
         with _patch_persona("PM Persona"), patch(
             "deepagents.create_deep_agent", side_effect=fake_agent
         ), patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
-            result = node_fn(
+            result = await node_fn(
                 base_state(
                     project_path=str(tmp_path),
                     plan_file="plan.md",
@@ -315,7 +314,7 @@ class TestSynthesisNodeNoWPRequired:
             "Synthesis prompt must not require or reference a specific WP ID"
         )
 
-    def test_synthesis_node_works_without_wp_id(self):
+    async def test_synthesis_node_works_without_wp_id(self):
         """Synthesis node must succeed even when current_wp_id is empty."""
         from src.nodes.synthesis import make_synthesis_node
 
@@ -324,7 +323,7 @@ class TestSynthesisNodeNoWPRequired:
 
         create_p, backend_p = _patch_deep_agent("Synthesis complete.")
         with _patch_persona(), create_p, backend_p:
-            result = node_fn(state)
+            result = await node_fn(state)
 
         assert result["stage_success"] is True
 
@@ -342,7 +341,7 @@ class TestPersonaLoaded:
         ("src.nodes.docs", "make_docs_node", "docs"),
         ("src.nodes.synthesis", "make_synthesis_node", "synthesis"),
     ])
-    def test_correct_stage_persona_is_loaded(
+    async def test_correct_stage_persona_is_loaded(
         self, module_name, factory_name, expected_stage
     ):
         """Each node must call load_persona with its own stage name."""
@@ -359,7 +358,7 @@ class TestPersonaLoaded:
         create_p, backend_p = _patch_deep_agent()
         with patch("src.utils.persona.load_persona", side_effect=track_persona), \
              create_p, backend_p:
-            node_fn(base_state())
+            await node_fn(base_state())
 
         assert called_stages == [expected_stage], (
             f"{module_name} loaded persona for {called_stages!r}, "
@@ -389,7 +388,7 @@ class TestStateUpdateSchema:
         ("src.nodes.docs", "make_docs_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
-    def test_success_update_keys_are_subset_of_allowed(
+    async def test_success_update_keys_are_subset_of_allowed(
         self, module_name, factory_name
     ):
         """Successful node return must only include allowed WorkflowState keys."""
@@ -399,7 +398,7 @@ class TestStateUpdateSchema:
 
         create_p, backend_p = _patch_deep_agent()
         with _patch_persona(), create_p, backend_p:
-            result = node_fn(base_state())
+            result = await node_fn(base_state())
 
         unexpected = set(result) - self.ALLOWED_UPDATE_KEYS
         assert not unexpected, (

@@ -23,30 +23,29 @@ class TestWorkflowStateFields:
     MUTABLE_FIELDS = {"current_stage", "current_wp_id", "iteration", "max_iterations"}
     STAGE_OUTPUT_FIELDS = {"stage_result", "stage_success"}
     LEDGER_FIELDS = {"project_status", "wp_summaries", "pending_wp_count"}
+    CIRCUIT_BREAKER_FIELDS = {"consecutive_failures"}
+    DELTA_COUNTER_FIELDS = {"wps_completed_this_run"}
     APPEND_ONLY_FIELDS = {"run_log", "errors"}
 
-    def test_all_required_fields_present(self):
-        hints = get_type_hints(WorkflowState, include_extras=True)
-        all_expected = (
+    def _all_expected(self) -> set:
+        return (
             self.IMMUTABLE_FIELDS
             | self.MUTABLE_FIELDS
             | self.STAGE_OUTPUT_FIELDS
             | self.LEDGER_FIELDS
+            | self.CIRCUIT_BREAKER_FIELDS
+            | self.DELTA_COUNTER_FIELDS
             | self.APPEND_ONLY_FIELDS
         )
-        for field in all_expected:
+
+    def test_all_required_fields_present(self):
+        hints = get_type_hints(WorkflowState, include_extras=True)
+        for field in self._all_expected():
             assert field in hints, f"Missing field: {field!r}"
 
     def test_no_unexpected_fields(self):
         hints = get_type_hints(WorkflowState, include_extras=True)
-        all_expected = (
-            self.IMMUTABLE_FIELDS
-            | self.MUTABLE_FIELDS
-            | self.STAGE_OUTPUT_FIELDS
-            | self.LEDGER_FIELDS
-            | self.APPEND_ONLY_FIELDS
-        )
-        unexpected = set(hints) - all_expected
+        unexpected = set(hints) - self._all_expected()
         assert not unexpected, f"Unexpected fields: {unexpected}"
 
 

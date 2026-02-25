@@ -348,6 +348,8 @@ def _print_run_summary(
 
     print(f"  Stages run : {', '.join(sorted(stages_executed)) or '—'}")
     print(f"  WPs done   : {wps_complete}/{total_wps}")
+    wps_this_run: int = final_state.get("wps_completed_this_run", 0)
+    print(f"  This run   : {wps_this_run} WP(s) completed this run")
     print(f"  Errors     : {error_count}")
 
     iteration: int = final_state.get("iteration", 0)
@@ -403,13 +405,28 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
 
     project_path = Path(args.project_path).resolve() if args.project_path else config.workspace_root
 
+    # ── Set up JSONL run logger ──────────────────────────────────────────────
+    from src.utils.logging import WorkflowLogger
+    run_logger = WorkflowLogger.create(label=plan_dir.name)
+    log.info("JSONL log: %s", run_logger._path)
+
     # ── Generate or reuse thread ID ─────────────────────────────────────────
     thread_id: str = args.resume if args.resume else str(uuid.uuid4())
     if args.resume:
         log.info("Resuming run: thread_id=%s", thread_id)
     else:
         log.info("Starting new run: thread_id=%s", thread_id)
-
+    # Write a run_start sentinel immediately so the JSONL file is never empty
+    # even if the graph crashes before producing any state output.
+    run_logger.log(
+        stage="cli",
+        action="run_start",
+        result="",
+        thread_id=thread_id,
+        level="INFO",
+        dry_run=args.dry_run,
+        plan=str(plan_path),
+    )
     # ── Parse --interrupt-on ────────────────────────────────────────────────
     interrupt_before: list[str] = []
     if args.interrupt_on:
@@ -430,6 +447,8 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         "project_status": "",
         "wp_summaries": [],
         "pending_wp_count": 0,
+        "consecutive_failures": {},
+        "wps_completed_this_run": 0,
         "run_log": [],
         "errors": [],
     }
@@ -464,13 +483,9 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 if args.resume:
                     # For resume: invoke without an initial state so the
                     # graph continues from the last checkpoint.
-                    result = await asyncio.to_thread(
-                        graph.invoke, None, run_config
-                    )
+                    result = await graph.ainvoke(None, run_config)
                 else:
-                    result = await asyncio.to_thread(
-                        graph.invoke, initial_state, run_config
-                    )
+                    result = await graph.ainvoke(initial_state, run_config)
                 final_state = result
             except KeyboardInterrupt:
                 log.info("Interrupted by user. Run can be resumed with --resume %s.", thread_id)
@@ -486,7 +501,50 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         log.error("MCP server startup failed: %s", exc, exc_info=True)
         outside_errors.append(f"MCP server error: {exc}")
 
+    # ── Flush run_log to JSONL ──────────────────────────────────────────────
+    try:
+        run_log_entries: list = (final_state or {}).get("run_log", [])
+        for entry in run_log_entries:
+            # Map LangGraph state run_log fields to WorkflowLogger schema.
+            stage = entry.get("stage", "")
+            wp_id = entry.get("wp_id", "")
+            action = entry.get("action", "unknown")
+            result_val = entry.get("result", "")
+            # Remaining fields forwarded as **extra.
+            extra = {
+                k: v for k, v in entry.items()
+                if k not in {"stage", "wp_id", "action", "result", "timestamp"}
+            }
+            run_logger.log(
+                stage=stage,
+                wp_id=wp_id,
+                action=action,
+                result=result_val,
+                **extra,
+            )
+        # Write a run_error entry for each outside error captured before run_end.
+        for err_msg in outside_errors:
+            run_logger.log(
+                stage="cli",
+                action="run_error",
+                result="ERROR",
+                error=err_msg,
+                level="ERROR",
+                thread_id=thread_id,
+            )
+        # Always write a run-end sentinel entry.
+        run_logger.log(
+            stage="cli",
+            action="run_end",
+            result="COMPLETE" if not outside_errors else "ERROR",
+            level="ERROR" if outside_errors else "INFO",
+            thread_id=thread_id,
+        )
+    finally:
+        run_logger.close()
+
     duration = time.monotonic() - start_time
+    print(f"\n  Log file   : {run_logger._path}")
     return _print_run_summary(
         final_state,
         duration,
