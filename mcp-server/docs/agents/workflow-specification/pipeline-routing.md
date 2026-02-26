@@ -137,7 +137,7 @@ Maps pipeline type to the agent responsible for fixing failures. Used for handof
 
 ### 9.4 AGENT_PIPELINE_MAP (Inverse)
 
-Maps agent role to the pipeline type it owns. Derived from PIPELINE_AGENT_MAP by inversion.
+Maps agent role to the pipeline type it owns. Derived from PIPELINE_AGENT_MAP by inversion. This is a convenience lookup for implementations — no algorithm in this specification references it by name, but it is useful for dynamically resolving an agent's pipeline type (e.g., when determining which pipeline to check in `getNextAction`).
 
 | Agent | Pipeline Type |
 |-------|--------------|

@@ -81,7 +81,7 @@ return WAIT                      (no actionable work for Reviewer)
 
 ```
 // WPs ready for documentation (PASS code-review, no doc pipeline yet or new upstream pass)
-readyForDocs = WPs where hasPassCodeReview AND (
+readyForDocs = non-terminal WPs where hasPassCodeReview AND (
   no documentation pipeline yet OR hasNewUpstreamPassSince("code-review", "documentation")
 )
 if readyForDocs is not empty:
@@ -91,7 +91,7 @@ if readyForDocs is not empty:
     return IN_PROGRESS             (Documentation continues documenting)
 
 // Documentation FAIL → self-rework (not forwarded to Developer)
-if any WP has FAIL documentation pipeline (most recent):
+if any non-terminal, non-dependency-blocked WP has FAIL documentation pipeline (most recent):
   return IN_PROGRESS               (Documentation self-reworks)
 
 // WPs still in earlier pipeline stages (no PASS code-review yet)
@@ -153,6 +153,8 @@ A critical invariant across Developer, QA, Reviewer, and Documentation handoff f
 function nextAgentFromStatus(status, currentAgent):
   if isTerminalStatus(status):
     return null                     // No next agent for terminal states
+  if status == "WAIT":
+    return null                     // No next agent when no actionable work
   if status == "IN_PROGRESS":
     return currentAgent             // Stay with current agent
   
@@ -234,7 +236,10 @@ function getPMAction(root, store):
   // Use the WP detail's last status-change timestamp or, as a fallback,
   // compare root.last_updated against the staleness threshold.
   for each IN_PROGRESS WP with no IN_PROGRESS pipeline:
-    if wp.pipelines is empty OR mostRecentPipeline(wp).completed_at < (now() - STALE_PIPELINE_HOURS):
+    // Use mostRecentEffectivePipeline (§14.11) to exclude auto-cancelled pipelines,
+    // whose completed_at reflects cascade reblock time, not real work activity.
+    effectivePipeline = mostRecentEffectivePipeline(wp)
+    if wp.pipelines is empty OR effectivePipeline is null OR effectivePipeline.completed_at < (now() - STALE_PIPELINE_HOURS):
       if wpClaimedDuration(wp) < STALE_PIPELINE_HOURS:
         continue    // Grace period — WP was recently claimed
       return REVIEW_ABANDONED with wp.id, wp.assigned_to
@@ -439,3 +444,17 @@ function getHandoffNotesForAgent(wp, agentName):
   if relevant is empty: return null
   return relevant.flatMap(n => n.notes)
 ```
+
+### 14.11 `mostRecentEffectivePipeline` Algorithm
+
+Returns the most recent pipeline on a WP, excluding auto-cancelled pipelines. Used by the PM's `REVIEW_ABANDONED` detection (§14.1.2) to avoid masking abandonment behind system-generated pipeline closures.
+
+```
+function mostRecentEffectivePipeline(wp):
+  effective = wp.pipelines.filter(p => NOT p.auto_cancelled)
+  if effective is empty:
+    return null
+  return effective.last()
+```
+
+> **Why exclude auto-cancelled:** An auto-cancelled pipeline's `completed_at` is set at the time of cascade reblock (§15.5) or manual BLOCKED transition — not when real work was last performed. Without this exclusion, a WP that was cascade-reblocked, unblocked, and re-claimed but never worked on would not be flagged as abandoned until the auto-cancelled pipeline's `completed_at` ages past `STALE_PIPELINE_HOURS`. This is consistent with the §21.27 principle that auto-cancelled pipelines are excluded from quality-related decisions.

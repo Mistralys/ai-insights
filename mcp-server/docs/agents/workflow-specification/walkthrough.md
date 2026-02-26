@@ -153,6 +153,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | Claim WP | Wrong status | WP must be READY |
 | Claim WP | Dependencies not met | All deps must be terminal |
 | Claim WP | Assigned to other | Override required (PM or assignee only) |
+| Claim WP | Non-pipeline agent | Only pipeline-owning agents and PM may claim (see [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
 | Start Pipeline | WP not IN_PROGRESS | Pipeline requires active WP |
 | Start Pipeline | Duplicate IN_PROGRESS | Same type already active |
 | Start Pipeline | Prerequisite not met | Previous stage must be PASS |

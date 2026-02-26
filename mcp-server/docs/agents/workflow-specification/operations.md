@@ -16,6 +16,12 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
   if wp.status != "READY":
     ERROR("Cannot claim: status is {wp.status}, expected READY")
   
+  // Guard: Only pipeline-owning agents or PM can claim (see §21.49)
+  CLAIMABLE_ROLES = ["Developer", "QA", "Reviewer", "Documentation", "Project Manager"]
+  if agentName not in CLAIMABLE_ROLES:
+    ERROR("Agent role {agentName} cannot claim work packages. "
+          + "Only pipeline-owning agents and Project Manager may claim.")
+  
   // Guard: WP assignment check
   if wp.assigned_to is set AND wp.assigned_to != agentName:
     if overrideFlag is false:
@@ -186,7 +192,9 @@ The guard includes an **upstream activity check** to prevent false positives dur
 
 > **Note on the `lastSame.status` check:** The guard intentionally does **not** restrict on `lastSame.status == "PASS"`. When `lastSame` is FAIL (as in review-1 above), the prerequisite temporal check is equally critical — the stale PASS of the prerequisite (qa-1) must not be accepted just because the current pipeline type previously FAILed.
 
-> **Interaction with recommendation engine:** The `hasNewUpstreamPassSince` function (§14.6) advises agents to re-engage after upstream rework. The re-validation guard is the **hard enforcement** counterpart — it prevents direct tool calls from bypassing the recommended flow.
+> **Known limitation — WP reopen scenario:** After a COMPLETE → IN_PROGRESS reopen (§6.2), all prior pipelines are PASS (the WP completed successfully in its previous revision). Since no downstream FAIL exists, `hasDownstreamFail` returns `false` and the re-validation guard never fires. This means a stale prerequisite PASS (e.g., qa-1 from the previous revision) can satisfy the prerequisite check for a later pipeline type (e.g., code-review), even after a new implementation pipeline has started. The **recommendation engine** correctly advises QA/Reviewer/Documentation to re-engage via `hasNewUpstreamPassSince` (§14.6), but the re-validation guard — positioned as the *hard enforcement counterpart* — does not catch this case. Implementations that require stronger guarantees MAY add a supplementary guard: "if `wp.revision > 0` and the most recent effective pipeline of the current type completed before the COMPLETE → IN_PROGRESS transition, require the prerequisite to re-PASS." See also [§21.48](edge-cases.md#2148-consolidated-reopen-workflow-guidance) for the expected PM workflow after reopening a WP.
+
+> **Interaction with recommendation engine:** The `hasNewUpstreamPassSince` function (§14.6) advises agents to re-engage after upstream rework. The re-validation guard is the **hard enforcement** counterpart — it prevents direct tool calls from bypassing the recommended flow. Note that the guard has a known gap in the WP reopen scenario (see preceding note).
 
 ### 11.1.2 Agent Role Validation
 

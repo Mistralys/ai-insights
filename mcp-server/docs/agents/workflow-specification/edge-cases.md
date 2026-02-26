@@ -316,6 +316,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - **Example:** WP-001 → WP-002 → WP-003 (dependency chain). If WP-001 is reopened: WP-002 (depends on WP-001) is reblocked, but WP-003 (depends on WP-002, not WP-001) continues executing — even though its transitive dependency chain is now broken
 - **State-machine integrity is preserved:** WP-003 cannot reach COMPLETE because WP-002 (its dependency) is now BLOCKED (non-terminal), so the dependency check in `claimWorkPackage` (§10.1) and the general terminal-dependency invariant prevent WP-003 from progressing past its current state. However, any in-flight pipelines on WP-003 continue executing against potentially invalidated assumptions, which may result in wasted work and produce misleading pipeline PASS results (e.g., a QA PASS on WP-003 while WP-001 is being reworked)
 - **Mitigation:** The wasted work is bounded — WP-003 cannot claim new WPs or mark itself COMPLETE while WP-002 is non-terminal. When WP-002 is eventually unblocked and re-completed, WP-003's work may still be valid (or the Reviewer/QA will catch inconsistencies in their pipeline passes)
+- **Stale prerequisite interaction:** Beyond wasted work, the continued execution produces pipeline PASS results that persist after WP-002 eventually re-completes and unblocks WP-003. These stale PASSes may satisfy prerequisite checks for later pipeline types — e.g., a QA PASS on WP-003 (validating the pre-reopen state of WP-001) could allow `startPipeline(type=code-review)` to proceed without re-running QA. The re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) does not catch this because no downstream FAIL exists (see "Known limitation — WP reopen scenario" in §11.1.1). The recommendation engine's `hasNewUpstreamPassSince` check mitigates this at the advisory level, but no hard enforcement exists for the transitive case
 - Implementations that need stronger guarantees MAY extend `propagateDependencyReblock` with recursive traversal of the dependency graph, applying the same auto-cancelled pipeline closure pattern and dependency blocker to all transitive dependents. This is an optional enhancement beyond the core specification
 
 ### 21.43 Post-Technical-Blocker Unblock Routing
@@ -351,3 +352,32 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - This prevents arbitrary agents from modifying blockers on WPs they do not own, consistent with the agent guard philosophy applied to `BLOCKED → IN_PROGRESS` (PM/assignee/system) and other guarded transitions
 - Without this guard, any agent could overwrite a PM-managed blocker (e.g., `decision`, `technical`), undermining the PM's blocker-management responsibility
 - The current assignee is permitted because they may have additional context about the blocking condition (e.g., a Developer discovering that a `technical` blocker also has a `decision` component)
+
+### 21.48 Consolidated Reopen Workflow Guidance
+
+When a COMPLETE WP is reopened (COMPLETE → IN_PROGRESS), the state machine enforces structural invariants (revision increment, rework count reset, synthesis invalidation, cascade reblock — see [§6.2](state-machines.md#62-transition-table) and [§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock)), but does **not** enforce that meaningful rework is performed before the WP re-completes. This is documented in §21.45 and §21.34.
+
+The following describes the expected PM/agent workflow after a COMPLETE → IN_PROGRESS reopen:
+
+1. **PM sets up rework context:** After reopening, the PM should perform one or more of:
+   - Modify acceptance criteria to reflect the new requirements (e.g., mark criteria as `met: false`, add new criteria)
+   - Start a new `implementation` pipeline on behalf of Developer via PM override ([§11.1.2](operations.md#1112-agent-role-validation))
+   - Add handoff notes or project comments describing the required changes
+   - Add or update the WP's `blocked_by` if the rework depends on external factors
+2. **Pipeline agents re-engage:** Once the PM has set up the rework context:
+   - The Developer should be routed to the WP (via handoff or recommendation engine) to start a new implementation pipeline
+   - QA, Reviewer, and Documentation should re-engage in sequence after implementation re-PASSes. The recommendation engine's `hasNewUpstreamPassSince` ([§14.6](handoff-and-recommendations.md#146-hasnewupstreampasssince-algorithm)) correctly detects the new upstream PASS and advises re-engagement, but the re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) does not provide hard enforcement for the WP reopen case (see "Known limitation — WP reopen scenario" in §11.1.1)
+3. **Without PM intervention:** If the PM (or Documentation agent who initiated the reopen) does not set up rework context:
+   - All prior pipelines remain PASS — no agent receives rework/implement recommendations
+   - The Documentation agent receives `FINALIZE_WP` (§14.5) because all acceptance criteria are still met and the old documentation PASS satisfies the freshness check against the old implementation start
+   - The WP can be immediately re-completed without any new pipeline work — a "no-op reopen"
+
+- **Mitigation for no-op reopens:** Implementations that want to prevent this MAY add a guard requiring at least one pipeline started after the COMPLETE → IN_PROGRESS transition before allowing the WP to transition back to COMPLETE. This is an optional enhancement beyond the core specification (see §21.45)
+- **Related edge cases:** §21.34 (FINALIZE_WP gap), §21.44 (rework count reset), §21.45 (re-completion without new work), [§11.1.1](operations.md#1111-re-validation-guard) (re-validation guard WP reopen limitation)
+
+### 21.49 Agent Role Guard on Work Package Claiming
+
+- The `claimWorkPackage` function ([§10.1](operations.md#101-algorithm)) restricts claiming to **pipeline-owning agents** (Developer, QA, Reviewer, Documentation) and the **Project Manager**
+- Non-pipeline agents (Planner, Synthesis) cannot claim WPs — they have no pipeline types to start (§4.1), so a WP claimed by them would be stranded in IN_PROGRESS with no pipeline activity until the PM notices via `REVIEW_ABANDONED` ([§14.1.2](handoff-and-recommendations.md#1412-project-manager-action-logic))
+- This guard is consistent with the spec's enforcement philosophy: pipeline agent guards exist on `startPipeline` ([§11.1.2](operations.md#1112-agent-role-validation)) and `completePipeline` ([§12.4](operations.md#124-agent-role-validation-on-completion)), and the claiming guard extends this to the entry point of the WP lifecycle
+- The PM is permitted to claim on behalf of any pipeline-owning agent (e.g., re-claiming an abandoned WP), consistent with the PM override pattern used throughout the spec

@@ -45,6 +45,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
   - A previously-blocked WP is unblocked (auto or manual) AND at least one WP is now `IN_PROGRESS` → project becomes `IN_PROGRESS`
   - A previously-blocked WP is unblocked AND at least one WP is `READY` (none `IN_PROGRESS`) → project becomes `READY`
   - All WPs reach terminal status → project follows the completion path below
+- Project remains (or transitions to) `IN_PROGRESS` when all WPs reach terminal status but `synthesis_generated` is still `false` — this "awaiting synthesis" sub-state means no WP is actively being worked on, but the project cannot be `COMPLETE` until the Synthesis agent runs. See self-healing rules 1b/1c/5b in [§17.2](auxiliary-systems.md#172-healing-rules-applied-in-order--first-match-wins) for the formal conditions
 - Project transitions to `COMPLETE` when synthesis is marked complete AND all WPs are terminal
 - Project status is also governed by self-healing rules (see [§17](auxiliary-systems.md#17-self-healing))
 
@@ -171,6 +172,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 
 | Transition | Allowed Agents |
 |------------|---------------|
+| READY → IN_PROGRESS (claim) | Pipeline-owning agents (Developer, QA, Reviewer, Documentation), "Project Manager" (see [§10.1](operations.md#101-algorithm), [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
 | → COMPLETE | "Documentation" (or "Documentation Agent") |
 | → CANCELLED | "Project Manager" (or "Project Manager Agent") |
 | BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
