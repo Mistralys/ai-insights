@@ -18,8 +18,8 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
       ERROR("Cannot claim: assigned to {wp.assigned_to}, not {agentName}")
     
     if overrideFlag is true:
-      if agentName != "Project Manager" AND agentName != wp.assigned_to:
-        ERROR("override restricted to Project Manager or current assignee")
+      if agentName != "Project Manager":
+        ERROR("override restricted to Project Manager")
   
   // Guard: Status must be READY
   if wp.status != "READY":
@@ -44,11 +44,12 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
 
 ### 10.2 Override Rules
 
+The override flag is only relevant when `wp.assigned_to` is set to a *different* agent than the caller. In that case:
+
 | Caller | Override Allowed? |
 |--------|------------------|
-| Current assignee (`wp.assigned_to`) | Yes |
 | Project Manager | Yes |
-| Any other agent | No — hard rejection |
+| Any other agent (including current assignee — but the outer guard already passed for current assignee) | No — hard rejection |
 
 ---
 
@@ -81,11 +82,16 @@ function startPipeline(wp, root, pipelineType, agentRole):
     prereqPass = prereqPipelines.last()   // Already confirmed PASS above
     if samePipelines is not empty:
       lastSame = samePipelines.last()
-      if lastSame.status == "PASS" AND prereqPass.completed_at is not null
+      if prereqPass.completed_at is not null
          AND lastSame.completed_at is not null
          AND prereqPass.completed_at < lastSame.completed_at:
-        // Prerequisite passed BEFORE the current pipeline type last ran.
-        // A downstream FAIL means the prerequisite must re-run first.
+        // Prerequisite passed BEFORE the current pipeline type last ran
+        // (regardless of whether lastSame is PASS or FAIL).
+        // Check for a FAIL at or downstream of the prerequisite — this includes
+        // the current pipeline type itself, since it is downstream of its own
+        // prerequisite. Using `prerequisite` (not `pipelineType`) is intentional:
+        // getDownstreamTypes(prerequisite) includes the current type, so a FAIL
+        // of the current type (e.g., review-1 FAIL) is correctly detected.
         if hasDownstreamFail(wp.pipelines, prerequisite):
           ERROR("Prerequisite {prerequisite} must re-PASS after upstream rework. "
                 + "Most recent {prerequisite} PASS predates the last {pipelineType} run.")
@@ -141,7 +147,9 @@ The re-validation guard (added after the prerequisite check) prevents a subtle s
 3. Without the guard, `startPipeline(type=code-review)` would succeed — qa-1 is PASS
 4. But qa-1 validated impl-1, not impl-2. QA has been **bypassed**.
 
-The guard detects that the prerequisite (QA) PASSed *before* the last run of the current pipeline type (implementation), and that a downstream FAIL exists, requiring QA to re-PASS first.
+The guard detects that the prerequisite (QA) PASSed *before* the last run of the current pipeline type (code-review, which FAILed as review-1), and that a downstream FAIL exists for `code-review` itself (review-1 FAIL), requiring QA to re-PASS first.
+
+> **Note on the `lastSame.status` check:** The guard intentionally does **not** restrict on `lastSame.status == "PASS"`. When `lastSame` is FAIL (as in review-1 above), the prerequisite temporal check is equally critical — the stale PASS of the prerequisite (qa-1) must not be accepted just because the current pipeline type previously FAILed.
 
 > **Interaction with recommendation engine:** The `hasNewUpstreamPassSince` function (§14.6) advises agents to re-engage after upstream rework. The re-validation guard is the **hard enforcement** counterpart — it prevents direct tool calls from bypassing the recommended flow.
 
@@ -164,6 +172,8 @@ The `agentRole` parameter is mandatory. The agent must match the pipeline owner 
 The `rework_counts` map is absent (`null`/`undefined`) until the first rework on any pipeline type. It is initialized with all-zero entries on first coalesce, then the specific pipeline type's counter is incremented.
 
 > **Per-pipeline isolation:** Documentation self-rework cycles (Documentation FAIL → Documentation re-runs) increment only `rework_counts.documentation`, not `rework_counts.implementation`. This prevents trivial documentation fixes from exhausting the implementation rework budget. Conversely, repeated QA/Review failures that trigger Developer rework increment `rework_counts.implementation` via downstream-fail detection.
+
+> **Parallel counter increments during rework chains:** In a typical QA-fail rework cycle, *both* `rework_counts.implementation` and `rework_counts.qa` increment: the Developer restarts implementation (downstream QA FAIL detected → `implementation++`), and QA restarts qa (direct rework of previous FAIL → `qa++`). After 5 such cycles, both counters reach the circuit breaker limit simultaneously. This is by design — each counter tracks how many times *that specific pipeline type* has been retried, regardless of the root cause. The circuit breaker engages on whichever pipeline type reaches the limit first.
 
 ### 11.3 Downstream Fail Detection
 

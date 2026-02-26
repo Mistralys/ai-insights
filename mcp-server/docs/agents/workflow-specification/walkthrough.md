@@ -60,19 +60,20 @@ A typical project follows this sequence:
 ```
 Example: QA fails
   
-7b. QA completes QA (ledger_complete_pipeline type=qa status=FAIL)
+8b. QA completes QA (ledger_complete_pipeline type=qa status=FAIL)
     - Handoff note created: QA → Developer
     
-8b. Developer starts new implementation pipeline (ledger_start_pipeline type=implementation)
-    - rework_count incremented (downstream QA FAIL detected via hasDownstreamFail)
+8c. Developer starts new implementation pipeline (ledger_start_pipeline type=implementation)
+    - rework_counts.implementation incremented (downstream QA FAIL detected via hasDownstreamFail)
     
-9b. Developer completes fix (ledger_complete_pipeline type=implementation status=PASS)
+8d. Developer completes fix (ledger_complete_pipeline type=implementation status=PASS)
     - Handoff note created: Developer → QA
     
-10b. QA starts new QA pipeline (ledger_start_pipeline type=qa)
-     - hasNewUpstreamPassSince("implementation", "qa") = true
+8e. QA starts new QA pipeline (ledger_start_pipeline type=qa)
+    - rework_counts.qa incremented (direct rework of qa FAIL)
+    - hasNewUpstreamPassSince("implementation", "qa") = true
      
-11b. Flow continues from step 8...
+8f. Flow continues from step 8...
 ```
 
 ### Phase 3: Synthesis

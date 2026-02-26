@@ -64,11 +64,11 @@
 
 ### 21.10 Documentation-Only COMPLETE Guard
 
-Only the Documentation agent can mark a WP as COMPLETE. Additionally, the most recent `documentation` pipeline must have PASS status. This enforces the full pipeline chain:
+Only the Documentation agent can mark a WP as COMPLETE. Additionally, the most recent `documentation` pipeline must have PASS status, **and** that PASS must post-date the most recent `implementation` pipeline's `started_at` timestamp. This freshness check prevents a stale documentation PASS (from before a WP reopen) from satisfying the COMPLETE guard. Together these enforce the full pipeline chain:
 ```
 Developer → QA → Reviewer → Documentation → COMPLETE
 ```
-No agent can skip stages, and Documentation cannot mark COMPLETE without having completed its own pipeline successfully.
+No agent can skip stages, Documentation cannot mark COMPLETE without having completed its own pipeline successfully, and a WP reopen invalidates any prior documentation PASS.
 
 ### 21.11 Transition to BLOCKED Requires Blocker
 
@@ -105,6 +105,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - The `rework_counts` map tracks rework cycles independently per pipeline type
 - Documentation self-rework does not consume the implementation rework budget
 - Downstream-triggered rework (e.g., QA fails → Developer restarts implementation) increments the **pipeline type being started** (implementation), not the pipeline that failed (qa)
+- In a QA-fail rework chain, both `rework_counts.implementation` and `rework_counts.qa` increment per cycle — each counter independently tracks how many times that pipeline type has been retried (see [§11.2](operations.md#112-rework-count-semantics))
 - Legacy `rework_count` scalar is migrated to `rework_counts.implementation` on first write
 
 ### 21.17 BLOCKED → BLOCKED Blocker Replacement
@@ -142,9 +143,9 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 ### 21.22 Re-Validation Guard on Pipeline Start
 
-- When starting a pipeline, the system verifies that the prerequisite pipeline PASSed **after** the most recent run of the current pipeline type (if any)
-- This prevents skipping intermediate validation stages after upstream rework (e.g., starting `code-review` with a stale QA PASS that validated an older implementation)
-- The guard uses `hasDownstreamFail` to detect whether re-validation is actually needed — if no downstream pipeline has FAILed, the existing prerequisite PASS is considered valid
+- When starting a pipeline, the system verifies that the prerequisite pipeline PASSed **after** the most recent run of the current pipeline type (if any), regardless of whether that most recent run was PASS or FAIL
+- This prevents skipping intermediate validation stages after upstream rework (e.g., starting `code-review` with a stale QA PASS that validated an older implementation — even when the last `code-review` itself FAILed)
+- The guard uses `hasDownstreamFail(pipelines, prerequisite)` — checking downstream of the *prerequisite* type — to detect whether re-validation is actually needed. The argument is `prerequisite` (not `pipelineType`) because `getDownstreamTypes(prerequisite)` includes the current pipeline type itself, allowing the guard to detect a FAIL of the current type (e.g., review-1 FAIL when starting code-review with prerequisite qa). If no pipeline downstream of the prerequisite has FAILed, the existing prerequisite PASS is considered valid
 - Complements the recommendation engine's `hasNewUpstreamPassSince` logic (§14.6) with a hard enforcement gate
 
 ### 21.23 Mandatory Agent Role on Pipeline Start

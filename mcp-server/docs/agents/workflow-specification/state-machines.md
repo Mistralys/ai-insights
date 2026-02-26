@@ -39,7 +39,7 @@ Error: Reject if ledger already exists
 
 Project status updates are **implicit** — they happen as side effects of WP operations:
 
-- Project transitions to `IN_PROGRESS` when first WP is created (if it was `READY`)
+- Project transitions to `IN_PROGRESS` when first WP is claimed (`READY → IN_PROGRESS`) by an agent
 - Project transitions to `BLOCKED` when a WP transitions to `BLOCKED` AND no other WP is `IN_PROGRESS` or `READY`
 - Project transitions **out of** `BLOCKED` when:
   - A previously-blocked WP is unblocked (auto or manual) AND at least one WP is now `IN_PROGRESS` → project becomes `IN_PROGRESS`
@@ -74,6 +74,8 @@ Project status updates are **implicit** — they happen as side effects of WP op
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
 │               │                │ Most recent `documentation` pipeline is PASS     │
+│               │                │ Doc PASS must post-date most recent `impl`       │
+│               │                │ pipeline start (freshness check)                 │
 │               │                │ Agent must be "Documentation"                    │
 │ IN_PROGRESS   → READY          │ No IN_PROGRESS pipelines on the WP              │
 │               │                │ Agent must be "Project Manager" or current       │
@@ -85,7 +87,8 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ BLOCKED       → IN_PROGRESS    │ Agent must be "Project Manager", current         │
 │               │                │ assignee (wp.assigned_to), or system              │
 │               │                │ Clears blocked_by field                          │
-│ BLOCKED       → READY          │ Clears blocked_by field (auto-unblock path)      │
+│ BLOCKED       → READY          │ System-only (auto-unblock path from §15.4)       │
+│               │                │ Clears blocked_by field                          │
 │ BLOCKED       → CANCELLED      │ Agent must be "Project Manager"                  │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ COMPLETE      → IN_PROGRESS    │ Agent must be "Project Manager" or               │
@@ -154,6 +157,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | → COMPLETE | "Documentation" (or "Documentation Agent") |
 | → CANCELLED | "Project Manager" (or "Project Manager Agent") |
 | BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
+| BLOCKED → READY | System only (auto-unblock via §15.4 — no manual agent guard) |
 | IN_PROGRESS → READY | "Project Manager" (or "Project Manager Agent"), current assignee |
 | COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), "Documentation" (or "Documentation Agent") |
 
