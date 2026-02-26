@@ -21,7 +21,7 @@ The project status tool auto-corrects counters and project status on every read.
 | # | Condition | Healed Status |
 |---|-----------|---------------|
 | 1 | (`IN_PROGRESS` or `READY`) AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
-| 1b | `READY` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis) |
+| 1b | `READY` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis — see note below) |
 | 1c | `IN_PROGRESS` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | Preserve `IN_PROGRESS` (no change — awaiting synthesis) |
 | 2 | `COMPLETE` AND `pending > 0` | `IN_PROGRESS` (reopen/drift repair) |
 | 2b | `COMPLETE` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (synthesis not yet run — project completion requires synthesis) |
@@ -34,6 +34,8 @@ The project status tool auto-corrects counters and project status on every read.
 | 5b | `BLOCKED` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis) |
 | 6 | Empty project (no WPs) | Never auto-healed to `COMPLETE` |
 | 6b | (`IN_PROGRESS` or `BLOCKED`) AND `total == 0` | `READY` (drift repair: no WPs exist to process) |
+
+> **Rule 1b/1c/5b semantic note:** In the "all WPs terminal, awaiting synthesis" state, no WP is actively being worked on, yet the project is healed to `IN_PROGRESS`. This extends the §5.2 definition of `IN_PROGRESS` beyond its literal meaning ("at least one WP is being worked on") to also cover the post-completion, pre-synthesis phase. `IN_PROGRESS` is the best available status — the project is neither `READY` (work has been done), `BLOCKED` (synthesis can proceed), nor `COMPLETE` (synthesis hasn't run). Implementations should treat `IN_PROGRESS` with `pending == 0` and `synthesis_generated == false` as the "awaiting synthesis" sub-state.
 
 > **Rule 6b rationale:** If data corruption or an interrupted operation leaves a project `IN_PROGRESS` or `BLOCKED` with zero work packages, no agent can make progress and no other healing rule matches. Healing to `READY` is the most conservative repair — the Project Manager can then re-create work packages.
 
@@ -140,14 +142,16 @@ function buildHandoffResponse(currentAgent, status, ..., store):
 
 ### 18.4 Reset Path
 
+The depth counter is reset to `0` **atomically inside `completeSynthesis`** (§19.1) when the project status transitions to `COMPLETE`. This ensures no window exists where the project is COMPLETE but the counter is stale.
+
 ```
-When project status == "COMPLETE":
-  if (root.auto_handoff_depth ?? 0) != 0:
-    root.auto_handoff_depth = 0
-    store.writeRootIndex(root)
+// Inside completeSynthesis, after setting root.status = "COMPLETE":
+if (root.auto_handoff_depth ?? 0) != 0:
+  root.auto_handoff_depth = 0
+// Written as part of the same writeRootIndex(root) call
 ```
 
-The depth counter resets only when the **project** reaches COMPLETE status (via `completeSynthesis`). Individual WP completions do **not** reset the counter. This prevents the counter from being reset N times in a project with N work packages, which would allow `MAX_HANDOFF_DEPTH × N` total handoffs and undermine the loop guard.
+Individual WP completions do **not** reset the counter. This prevents the counter from being reset N times in a project with N work packages, which would allow `MAX_HANDOFF_DEPTH × N` total handoffs and undermine the loop guard.
 
 ### 18.5 Depth-Exceeded Behavior
 
@@ -201,6 +205,10 @@ function completeSynthesis(projectPath, agentRole):
   root.synthesis_generated = true
   root.status = "COMPLETE"
   root.last_updated = now()
+  
+  // Reset auto-handoff depth counter atomically with project completion (§18.4)
+  if (root.auto_handoff_depth ?? 0) != 0:
+    root.auto_handoff_depth = 0
   
   writeRootIndex(root)
   release lock

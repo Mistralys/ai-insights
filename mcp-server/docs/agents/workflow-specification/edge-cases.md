@@ -153,8 +153,9 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 ### 21.22 Re-Validation Guard on Pipeline Start
 
-- When starting a pipeline, the system verifies that the prerequisite pipeline PASSed **after** the most recent run of the current pipeline type (if any), regardless of whether that most recent run was PASS or FAIL
+- When starting a pipeline, the system verifies that the prerequisite pipeline PASSed **after** the most recent effective run of the current pipeline type (if any — excluding auto-cancelled pipelines per §21.27), regardless of whether that most recent run was PASS or FAIL
 - This prevents skipping intermediate validation stages after upstream rework (e.g., starting `code-review` with a stale QA PASS that validated an older implementation — even when the last `code-review` itself FAILed)
+- The temporal baseline uses `effectiveSamePipelines` (filtered to exclude auto-cancelled) rather than all pipelines of the same type. This ensures an auto-cancelled pipeline's timestamp does not shift the comparison, consistent with the §21.27 invariant that auto-cancelled pipelines are excluded from quality-related decisions
 - The guard uses `hasDownstreamFail(pipelines, prerequisite)` — checking downstream of the *prerequisite* type — to detect whether re-validation is actually needed. The argument is `prerequisite` (not `pipelineType`) because `getDownstreamTypes(prerequisite)` includes the current pipeline type itself, allowing the guard to detect a FAIL of the current type (e.g., review-1 FAIL when starting code-review with prerequisite qa). If no pipeline downstream of the prerequisite has FAILed, the existing prerequisite PASS is considered valid
 - **Upstream activity check:** After detecting a temporal gap and a downstream FAIL, the guard additionally verifies that at least one pipeline upstream of the current type (via `getUpstreamTypes` §8.5) was started after the prerequisite PASSed. If no upstream activity occurred, the prerequisite is still valid and the guard does not fire. This prevents false positives during self-rework — e.g., documentation retrying after its own FAIL would otherwise be blocked because `hasDownstreamFail("code-review")` returns true for the documentation FAIL itself, even though no upstream rework invalidated the code-review PASS
 - Complements the recommendation engine's `hasNewUpstreamPassSince` logic (§14.6) with a hard enforcement gate
@@ -171,6 +172,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - When a documentation pipeline FAILs due to underlying code issues (not documentation quality), the Documentation agent should set the WP to BLOCKED with a `technical` blocker
 - This surfaces the issue to the Project Manager via the UNBLOCK_WP action (§14.1.2)
 - The `FAIL_ROUTING_MAP` routes documentation failures to Documentation (self-rework) by design — the blocker mechanism handles the exceptional case of code-caused documentation failures
+- After the PM unblocks the WP, manual coordination is required to route work to the Developer — see [§21.43](#2143-post-technical-blocker-unblock-routing) for the expected PM workflow
 - See [§9.3](pipeline-routing.md#93-fail_routing_map) for the routing map and escalation path
 
 ### 21.25 Recommendation Engine Priority Semantics
@@ -195,6 +197,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
   - `isMostRecentPipelineFail` (§14.7): filters out auto-cancelled pipelines
   - `hasNewUpstreamPassSince` (§14.6): filters out auto-cancelled pipelines from downstream history
   - Rework detection in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
+  - Re-validation guard in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` for the temporal baseline, ensuring auto-cancelled pipelines do not shift the comparison timestamp
 - Auto-cancelled pipelines are **not** excluded from prerequisite checks — an auto-cancelled prerequisite still blocks the next stage (but the WP will typically be BLOCKED anyway after cascade reblock)
 - This prevents external interruptions (dependency reopening, manual blocking) from consuming the per-pipeline rework budget (§16.2) intended for quality failures
 - The `auto_cancelled` field is `false` or absent for all pipelines created by normal `startPipeline` flow; it is only set to `true` by system automation
@@ -301,3 +304,18 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - This ensures the audit trail accurately reflects who took the action, which is especially important for operational recovery scenarios (e.g., PM force-failing a stale pipeline)
 - The `to_agent` field still uses the standard routing maps (`NEXT_AGENT_MAP` for PASS, `FAIL_ROUTING_MAP` for FAIL), preserving correct routing semantics
 - In non-override scenarios, `from_agent` remains the pipeline owner per `PIPELINE_AGENT_MAP`, which is the expected behavior
+
+### 21.42 Transitive Cascade Reblock Limitation
+
+- `propagateDependencyReblock` (§15.5) only reblocks **direct** dependents of the reopened WP. Transitive dependents (WPs that depend on a direct dependent, not on the reopened WP itself) are **not** automatically reblocked
+- **Example:** WP-001 → WP-002 → WP-003 (dependency chain). If WP-001 is reopened: WP-002 (depends on WP-001) is reblocked, but WP-003 (depends on WP-002, not WP-001) continues executing — even though its transitive dependency chain is now broken
+- **Correctness is preserved at the state-machine level:** WP-003 cannot reach COMPLETE because WP-002 (its dependency) is now BLOCKED (non-terminal), so the dependency check in `claimWorkPackage` (§10.1) and the general terminal-dependency invariant prevent WP-003 from progressing past its current state. However, any in-flight pipelines on WP-003 continue executing against potentially invalidated assumptions, which may result in wasted work
+- **Mitigation:** The wasted work is bounded — WP-003 cannot claim new WPs or mark itself COMPLETE while WP-002 is non-terminal. When WP-002 is eventually unblocked and re-completed, WP-003's work may still be valid (or the Reviewer/QA will catch inconsistencies in their pipeline passes)
+- Implementations that need stronger guarantees MAY extend `propagateDependencyReblock` with recursive traversal of the dependency graph, applying the same auto-cancelled pipeline closure pattern and dependency blocker to all transitive dependents. This is an optional enhancement beyond the core specification
+
+### 21.43 Post-Technical-Blocker Unblock Routing
+
+- When a Documentation agent sets a WP to BLOCKED with a `technical` blocker (§21.24) and the PM subsequently unblocks it (BLOCKED → IN_PROGRESS per §6.2), the WP returns to IN_PROGRESS with `assigned_to` still set to "Documentation" (the last pipeline agent)
+- The recommendation engine for Developer will **not** automatically surface this WP for code rework: no implementation FAIL exists (§14.2 priority 4), no downstream FAIL routed to Developer exists because documentation FAIL is self-rework per FAIL_ROUTING_MAP (§14.2 priority 5), and the WP already has an implementation pipeline (§14.2 priority 6)
+- **Expected PM workflow after unblocking:** The PM must manually coordinate the code rework. Options include: (a) unclaim the WP (IN_PROGRESS → READY, which clears `assigned_to`, requires no IN_PROGRESS pipelines — see §21.13), then have the Developer re-claim it; (b) start an implementation pipeline on behalf of the Developer via PM override (§11.1.2); (c) use a project comment to notify the Developer of the required rework
+- This dead zone is a consequence of the `FAIL_ROUTING_MAP` deliberately routing documentation failures to Documentation (self-rework) rather than Developer. The blocker mechanism (not the pipeline routing system) is the escalation path for code-caused documentation failures, and the PM is responsible for the subsequent coordination

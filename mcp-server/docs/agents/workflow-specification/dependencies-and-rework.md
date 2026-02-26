@@ -138,6 +138,20 @@ function propagateDependencyReblock(projectPath, reopenedWpId):
     
     write wpDetail
   
+  // Warn about transitive dependents that may be working on stale assumptions.
+  // Cascade reblock only targets DIRECT dependents of the reopened WP.
+  // Transitive dependents (WPs that depend on a direct dependent) are NOT
+  // automatically reblocked. Their in-flight pipelines continue executing
+  // against potentially invalidated assumptions. This is a known limitation:
+  // - Correctness is preserved at the state-machine level: transitive
+  //   dependents cannot reach COMPLETE because their direct dependency
+  //   (now BLOCKED) is non-terminal, failing the freshness/dependency checks.
+  // - However, in-flight work on transitive dependents may be wasted.
+  // - Implementations MAY extend this function with recursive traversal to
+  //   reblock transitive dependents. If so, use the same auto_cancelled
+  //   pipeline closure pattern and dependency blocker as direct dependents.
+  // See §21.42 for the full discussion of this limitation.
+
   // Warn about COMPLETE dependents that may now be stale
   completeDependents = root.work_packages.filter(
     wp => wp.status == "COMPLETE"

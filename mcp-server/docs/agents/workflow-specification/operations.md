@@ -77,11 +77,15 @@ function startPipeline(wp, root, pipelineType, agentRole):
   // Guard: Re-validation after upstream rework (prevents skipping stages)
   // If a downstream pipeline previously FAILed, verify the prerequisite
   // PASSed AFTER the most recent pipeline of the current type completed.
+  // Use filtered list (excluding auto-cancelled) for temporal baseline,
+  // consistent with the §21.27 invariant that auto-cancelled pipelines are
+  // excluded from quality-related decisions.
   samePipelines = wp.pipelines.filter(p => p.type == pipelineType)
+  effectiveSamePipelines = samePipelines.filter(p => NOT p.auto_cancelled)
   if prerequisite is not null:
     prereqPass = prereqPipelines.last()   // Already confirmed PASS above
-    if samePipelines is not empty:
-      lastSame = samePipelines.last()
+    if effectiveSamePipelines is not empty:
+      lastSame = effectiveSamePipelines.last()
       if prereqPass.completed_at is not null
          AND lastSame.completed_at is not null
          AND prereqPass.completed_at < lastSame.completed_at:
@@ -124,10 +128,8 @@ function startPipeline(wp, root, pipelineType, agentRole):
             + "(owned by {expectedRole})")
   
   // Rework detection: Check if retrying after FAIL (same-type or downstream)
-  // (samePipelines already computed above in re-validation guard)
-  // Exclude auto-cancelled pipelines — external interruptions (cascade reblock,
-  // manual BLOCKED) should not consume rework budget (see §21.27)
-  effectiveSamePipelines = samePipelines.filter(p => NOT p.auto_cancelled)
+  // (effectiveSamePipelines already computed above in re-validation guard —
+  // auto-cancelled pipelines excluded per §21.27)
   isDirectRework = effectiveSamePipelines is not empty AND effectiveSamePipelines.last().status == "FAIL"
   isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType)
   

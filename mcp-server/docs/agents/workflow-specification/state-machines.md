@@ -31,7 +31,7 @@ Error: Reject if ledger already exists
 | Status | Meaning |
 |--------|---------|
 | `READY` | Project initialized, no work started |
-| `IN_PROGRESS` | At least one WP is being worked on |
+| `IN_PROGRESS` | At least one WP is being worked on, OR all WPs are terminal but synthesis has not yet been generated (see §17.2 rules 1b/1c/5b) |
 | `COMPLETE` | All WPs terminal AND synthesis generated |
 | `BLOCKED` | All non-terminal WPs are `BLOCKED` (equivalently: no WP is `IN_PROGRESS` or `READY`) |
 
@@ -70,6 +70,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ READY         → IN_PROGRESS    │ All dependencies must be COMPLETE or CANCELLED   │
 │ READY         → BLOCKED        │ Must provide blocked_by object                   │
+│               │                │ Preserves assigned_to                            │
 │ READY         → CANCELLED      │ Agent must be "Project Manager"                  │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
@@ -84,6 +85,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ IN_PROGRESS   → BLOCKED        │ Must provide blocked_by object                   │
 │               │                │ All IN_PROGRESS pipelines set to FAIL            │
 │               │                │ (with auto_cancelled = true; see §21.27)         │
+│               │                │ Preserves assigned_to                            │
 │ IN_PROGRESS   → CANCELLED      │ Agent must be "Project Manager"                  │
 │               │                │ All IN_PROGRESS pipelines set to FAIL            │
 │               │                │ (with auto_cancelled = true; see §21.27)         │
