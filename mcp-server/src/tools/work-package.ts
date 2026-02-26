@@ -61,6 +61,7 @@ function buildStatusTransitionGuidance(
  */
 export const _internal = {
   buildStatusTransitionGuidance,
+  propagateDependencyUnblock,
 };
 
 /**
@@ -644,11 +645,13 @@ async function updateWorkPackageStatus(
  */
 async function propagateDependencyUnblock(
   projectPath: string,
-  completedWpId: string
+  completedWpId: string,
+  ledgerRoot?: string
 ): Promise<void> {
-  const store = new LedgerStore(projectPath);
+  const store = new LedgerStore(projectPath, ledgerRoot);
+  const lockDir = ledgerRoot ?? projectPath;
 
-  await withLock(projectPath, async () => {
+  await withLock(lockDir, async () => {
     const rootIndex = await store.readRootIndex();
 
     // Find BLOCKED WPs whose dependency list includes the just-completed WP
@@ -665,6 +668,11 @@ async function propagateDependencyUnblock(
       // Check if all dependencies are now COMPLETE
       const canStart = canStartWorkPackage(wpDetail, rootIndex.work_packages);
       if (!canStart.allowed) continue;
+
+      // Skip WPs that are blocked for non-dependency reasons (e.g., external, decision, technical)
+      if (wpDetail.blocked_by && wpDetail.blocked_by.type !== 'dependency') {
+        continue;
+      }
 
       // Transition BLOCKED -> READY and clear blocked_by
       wpDetail.status = 'READY';

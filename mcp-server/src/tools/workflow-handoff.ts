@@ -131,6 +131,7 @@ export function nextAgentFromStatus(status: string, currentAgent: string): strin
     READY_FOR_REVIEW: 'Reviewer',
     READY_FOR_DOCUMENTATION: 'Documentation',
     READY_FOR_SYNTHESIS: 'Synthesis',
+    READY_FOR_PM: 'Project Manager',
     BLOCKED: 'Project Manager',
   };
   if (status === 'IN_PROGRESS') return currentAgent;
@@ -166,7 +167,11 @@ export async function buildHandoffResponse(
   };
   if (nextAction) payload.next_action = nextAction;
 
-  // Auto-handoff eligibility check
+  // Auto-handoff eligibility check.
+  // NOTE: `status` here is the handoff status value (e.g., READY_FOR_DEVELOPER, READY_FOR_PM),
+  // NOT the ProjectStatus (e.g., IN_PROGRESS). Auto-handoff triggers only for
+  // READY_FOR_* statuses — non-READY_FOR_* values (COMPLETE, BLOCKED, IN_PROGRESS, WAIT)
+  // are explicitly excluded by the conditions below.
   if (
     projectPath &&
     store &&
@@ -222,8 +227,8 @@ export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectP
   if (wpDetails.length === 0) {
     return buildHandoffResponse(
       'Planner',
-      'WAIT',
-      'Planning complete. No work packages exist yet. Wait for Project Manager to decompose the plan into work packages.',
+      'READY_FOR_PM',
+      'Planning complete. No work packages exist yet — ready for Project Manager to decompose the plan.',
       undefined,
       projectPath,
       store

@@ -688,6 +688,17 @@ function parseWpId(id: string): number;  // Extracts numeric part
 
 // Pure function: computes healed counters and status without I/O.
 // Exported from src/tools/project-lifecycle.ts
+//
+// Healing rules (applied in order):
+//  1. IN_PROGRESS or READY + pendingWps === 0 + totalWps > 0:
+//       → synthesis_generated ? COMPLETE : (preserve original status)
+//  2. COMPLETE + pendingWps > 0:
+//       → IN_PROGRESS  (reopen)
+//  3. READY + any WP is IN_PROGRESS:
+//       → IN_PROGRESS
+//  4. BLOCKED + no WP is BLOCKED:
+//       a. pendingWps === 0 && totalWps > 0 && synthesis_generated → COMPLETE
+//       b. otherwise → IN_PROGRESS (if any WP is IN_PROGRESS), else READY (if any READY)
 function computeHealedStatus(rootIndex: RootIndex): {
   totalWps: number;
   pendingWps: number;
@@ -1022,6 +1033,7 @@ export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore)
 
 ```typescript
 // Handoff computation functions (one per agent role)
+// getPlannerHandoff: returns READY_FOR_PM when no WPs exist (signals PM to begin task decomposition).
 export function getPlannerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getDeveloperHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 export function getQaHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
@@ -1032,6 +1044,8 @@ export function getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootInd
 // Maps a workflow status string and currentAgent to the next agent role name.
 // Returns null for any terminal status (COMPLETE or CANCELLED) via isTerminalStatus(),
 // returns currentAgent for IN_PROGRESS, and looks up the next agent role for all other statuses.
+// Known READY_FOR_* mappings include: READY_FOR_PM → 'Project Manager', READY_FOR_DEVELOPER,
+// READY_FOR_QA, READY_FOR_REVIEW (→ 'Reviewer'), READY_FOR_SYNTHESIS (→ 'Synthesis').
 export function nextAgentFromStatus(status: string, currentAgent: string): string | null;
 
 // Builds the standard handoff response payload (current_agent, next_agent, status).

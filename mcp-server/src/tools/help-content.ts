@@ -500,7 +500,7 @@ Check handoff status to determine if your work is done.
 The response JSON includes:
 - **current_agent**: The agent that just finished working (you)
 - **next_agent**: The agent that should pick up next (derived from status; omitted for COMPLETE)
-- **status**: Workflow status (READY_FOR_DEVELOPER, READY_FOR_QA, READY_FOR_REVIEW, READY_FOR_DOCUMENTATION, READY_FOR_SYNTHESIS, IN_PROGRESS, BLOCKED, COMPLETE)
+- **status**: Workflow status (READY_FOR_DEVELOPER, READY_FOR_QA, READY_FOR_REVIEW, READY_FOR_DOCUMENTATION, READY_FOR_SYNTHESIS, READY_FOR_PM, IN_PROGRESS, BLOCKED, COMPLETE)
 - **details**: Human-readable description of the current state
 
 Copy the current_agent, next_agent, and status into your handoff block:

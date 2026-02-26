@@ -84,6 +84,10 @@ def create_stage_node(
             log.info("Stage %s completed successfully.", stage)
             return {
                 "stage_result": final_content,
+                # True = agent ran to completion without error. At this level the best
+                # proxy for "at least one PASS pipeline was produced" is that the agent
+                # finished without raising an exception. The supervisor's circuit breaker
+                # treats this as a successful stage turn.
                 "stage_success": True,
                 "run_log": [
                     {

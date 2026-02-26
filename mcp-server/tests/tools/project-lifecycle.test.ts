@@ -295,4 +295,75 @@ describe('computeHealedStatus (exported pure function)', () => {
     expect(result.healedStatus).toBe('COMPLETE');
     expect(result.needsWrite).toBe(true);
   });
+
+  it('heals READY project to COMPLETE when all WPs terminal and synthesis_generated', () => {
+    const root = makeRootIndex({
+      status: 'READY',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('COMPLETE');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('heals BLOCKED project to COMPLETE when no WPs are blocked, all terminal, synthesis generated', () => {
+    const root = makeRootIndex({
+      status: 'BLOCKED',
+      total_work_packages: 2,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+        {
+          work_package_id: 'WP-002',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: ['WP-001'],
+          file: 'ledger/WP-002.json',
+        },
+      ],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('COMPLETE');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('does NOT heal READY project to COMPLETE when synthesis not yet generated', () => {
+    const root = makeRootIndex({
+      status: 'READY',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: false,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('READY');
+    // pending_work_packages stored as 0 in override but root fixture stores 1 — needsWrite just for counter
+    expect(result.healedStatus).not.toBe('COMPLETE');
+  });
 });

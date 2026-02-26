@@ -290,6 +290,34 @@ class TestRouteToSynthesis:
 
         assert cmd.goto == "synthesis"
 
+    async def test_routes_to_synthesis_when_all_wps_mix_of_complete_and_cancelled(self):
+        """WPs that are a mix of COMPLETE and CANCELLED should route to synthesis."""
+        tools = make_mcp_tools(
+            wp_list=[
+                wp_summary("WP-001", "COMPLETE"),
+                wp_summary("WP-002", "CANCELLED"),
+                wp_summary("WP-003", "COMPLETE"),
+            ]
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "synthesis"
+
+    async def test_pending_count_excludes_cancelled_wps(self):
+        """CANCELLED WPs must not be counted as pending (pending_count should be 0)."""
+        tools = make_mcp_tools(
+            wp_list=[
+                wp_summary("WP-001", "COMPLETE"),
+                wp_summary("WP-002", "CANCELLED"),
+            ]
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "synthesis"
+        assert cmd.update["pending_wp_count"] == 0
+
     async def test_all_pipelines_pass_routes_to_synthesis(self):
         """All four pipelines PASS → WP considered done → synthesis."""
         tools = make_mcp_tools(

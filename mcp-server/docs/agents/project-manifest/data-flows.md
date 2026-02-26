@@ -287,9 +287,9 @@ If new status is COMPLETE or CANCELLED:
   For each BLOCKED WP that lists completedWpId as a dependency:
     Read WP detail
     Run canStartWorkPackage() — checks ALL dependencies are COMPLETE or CANCELLED
-    If eligible:
-      Update WP detail status BLOCKED → READY
-      Clear blocked_by field
+    If not eligible: skip
+    If blocked_by.type is external, decision, or technical: skip (non-dependency blocker; not cleared automatically)
+    Transition BLOCKED → READY and clear blocked_by field
       Update root index summary status
       Write both files atomically
   Release lock
@@ -366,6 +366,8 @@ LedgerStore.readRootIndex()
 Load all WorkPackageDetail files (Promise.all)
   ↓
 Agent-specific handoff logic:
+  - Planner: If no WPs have been created → READY_FOR_PM (signal PM to begin task decomposition)
+             Otherwise → READY_FOR_PM or WAIT based on overall completion state
   - Developer: If any WP needs QA → READY_FOR_QA
                If all WPs are terminal (COMPLETE or CANCELLED) → READY_FOR_SYNTHESIS
                Otherwise → continue or wait
@@ -380,7 +382,7 @@ Agent-specific handoff logic:
                      Check if all such WPs are dependency-blocked
                      If yes → READY_FOR_SYNTHESIS
                      If no → READY_FOR_DEVELOPER
-                   Documentation handles its own FAIL (stays IN_PROGRESS)
+                   Documentation FAIL stays IN_PROGRESS (handled internally, not forwarded to Developer)
   - Others: Synthesize based on overall completion state
   ↓
 Return handoff block:
@@ -412,12 +414,15 @@ computeHealedStatus(rootIndex)  [pure function — no I/O]
     - pendingWps = count where status is not terminal (not COMPLETE and not CANCELLED)
   ↓
   Auto-heal project status (rules applied in order; first match wins):
-    - If status === 'READY' and any WP is IN_PROGRESS → healedStatus = IN_PROGRESS
-    - If status === 'BLOCKED' and no WP is BLOCKED → healedStatus = IN_PROGRESS or READY
-    - If status === 'IN_PROGRESS' and pending === 0 and WPs exist and synthesis_generated === true → healedStatus = COMPLETE
-    - If status === 'IN_PROGRESS' and pending === 0 and WPs exist and synthesis_generated absent/false → stays IN_PROGRESS
-    - If status === 'COMPLETE' and pending > 0 → healedStatus = IN_PROGRESS
-    - Empty project (no WPs) is never marked COMPLETE
+    1. (IN_PROGRESS or READY) + pendingWps === 0 + totalWps > 0:
+         synthesis_generated === true  → COMPLETE
+         synthesis_generated absent/false → preserve original status (READY stays READY, IN_PROGRESS stays IN_PROGRESS)
+    2. COMPLETE + pendingWps > 0 → IN_PROGRESS  (reopen / drift repair)
+    3. READY + any WP is IN_PROGRESS → IN_PROGRESS
+    4. BLOCKED + no WP is BLOCKED:
+         pendingWps === 0 && totalWps > 0 && synthesis_generated === true → COMPLETE
+         otherwise → IN_PROGRESS (if any WP in-progress) or READY (if any WP ready)
+    5. Empty project (no WPs) is never marked COMPLETE
   ↓
   Return { totalWps, pendingWps, healedStatus, needsWrite }
   ↓

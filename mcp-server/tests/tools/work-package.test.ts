@@ -1,8 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { z } from 'zod';
 import { _internal } from '../../src/tools/work-package.js';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { now } from '../../src/utils/timestamp.js';
+import type { RootIndex, WorkPackageSummary } from '../../src/schema/root-index.js';
+import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
-const { buildStatusTransitionGuidance } = _internal;
+const { buildStatusTransitionGuidance, propagateDependencyUnblock } = _internal;
 
 describe('WP status transition guidance (buildStatusTransitionGuidance)', () => {
   it('BLOCKED guidance mentions Developer rework via get_next_action', () => {
@@ -334,3 +341,150 @@ describe('WP ID regex — 2-digit ID WP-10 rejected (GN-3)', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// propagateDependencyUnblock — non-dependency blocker guard (WP-002)
+// ---------------------------------------------------------------------------
+
+const UNBLOCK_PLAN_PATH = join(tmpdir(), '2026-01-01-unblock-test');
+
+function makeWpSummary(
+  id: string,
+  status: string,
+  deps: string[] = [],
+): WorkPackageSummary {
+  return {
+    work_package_id: id,
+    file: `work/${id}.md`,
+    status: status as any,
+    assigned_to: 'Developer',
+    dependencies: deps,
+  };
+}
+
+function makeWpDetail(
+  id: string,
+  status: string,
+  deps: string[] = [],
+): WorkPackageDetail {
+  return {
+    work_package_id: id,
+    work_package_file: `work/${id}.md`,
+    status: status as any,
+    assigned_to: 'Developer',
+    dependencies: deps,
+    acceptance_criteria: [],
+    revision: 1,
+    pipelines: [],
+  };
+}
+
+function makeRootIndexForUnblock(
+  summaries: Array<{ id: string; status: string; deps?: string[] }>,
+): RootIndex {
+  const wps = summaries.map((s) => makeWpSummary(s.id, s.status, s.deps ?? []));
+  return {
+    plan_file: 'plan.md',
+    date_created: now(),
+    last_updated: now(),
+    status: 'IN_PROGRESS',
+    total_work_packages: wps.length,
+    pending_work_packages: wps.filter(
+      (w) => w.status !== 'COMPLETE' && w.status !== 'CANCELLED',
+    ).length,
+    work_packages: wps,
+    project_comments: [],
+  };
+}
+
+describe('propagateDependencyUnblock — non-dependency blocker guard', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'unblock-test-'));
+    store = new LedgerStore(UNBLOCK_PLAN_PATH, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('propagateDependencyUnblock skips WPs with external blocked_by even when deps satisfied', async () => {
+    const root = makeRootIndexForUnblock([
+      { id: 'WP-001', status: 'COMPLETE' },
+      { id: 'WP-002', status: 'BLOCKED', deps: ['WP-001'] },
+    ]);
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWpDetail('WP-001', 'COMPLETE'));
+    await store.writeWorkPackage('WP-002', {
+      ...makeWpDetail('WP-002', 'BLOCKED', ['WP-001']),
+      blocked_by: { type: 'external', description: 'Waiting on external team' },
+    });
+
+    await propagateDependencyUnblock(UNBLOCK_PLAN_PATH, 'WP-001', tempDir);
+
+    const wp002 = await store.readWorkPackage('WP-002');
+    expect(wp002.status).toBe('BLOCKED');
+    expect(wp002.blocked_by).toBeDefined();
+    expect(wp002.blocked_by?.type).toBe('external');
+  });
+
+  it('propagateDependencyUnblock skips WPs with decision blocked_by even when deps satisfied', async () => {
+    const root = makeRootIndexForUnblock([
+      { id: 'WP-001', status: 'COMPLETE' },
+      { id: 'WP-002', status: 'BLOCKED', deps: ['WP-001'] },
+    ]);
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWpDetail('WP-001', 'COMPLETE'));
+    await store.writeWorkPackage('WP-002', {
+      ...makeWpDetail('WP-002', 'BLOCKED', ['WP-001']),
+      blocked_by: { type: 'decision', description: 'Pending architecture decision' },
+    });
+
+    await propagateDependencyUnblock(UNBLOCK_PLAN_PATH, 'WP-001', tempDir);
+
+    const wp002 = await store.readWorkPackage('WP-002');
+    expect(wp002.status).toBe('BLOCKED');
+    expect(wp002.blocked_by?.type).toBe('decision');
+  });
+
+  it('propagateDependencyUnblock correctly unblocks WPs with dependency blocked_by', async () => {
+    const root = makeRootIndexForUnblock([
+      { id: 'WP-001', status: 'COMPLETE' },
+      { id: 'WP-002', status: 'BLOCKED', deps: ['WP-001'] },
+    ]);
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWpDetail('WP-001', 'COMPLETE'));
+    await store.writeWorkPackage('WP-002', {
+      ...makeWpDetail('WP-002', 'BLOCKED', ['WP-001']),
+      blocked_by: {
+        type: 'dependency',
+        description: 'Waiting for WP-001',
+        blocking_work_package: 'WP-001',
+      },
+    });
+
+    await propagateDependencyUnblock(UNBLOCK_PLAN_PATH, 'WP-001', tempDir);
+
+    const wp002 = await store.readWorkPackage('WP-002');
+    expect(wp002.status).toBe('READY');
+    expect(wp002.blocked_by).toBeUndefined();
+  });
+
+  it('propagateDependencyUnblock correctly unblocks WPs with no blocked_by field', async () => {
+    const root = makeRootIndexForUnblock([
+      { id: 'WP-001', status: 'COMPLETE' },
+      { id: 'WP-002', status: 'BLOCKED', deps: ['WP-001'] },
+    ]);
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWpDetail('WP-001', 'COMPLETE'));
+    // WP-002 is BLOCKED but has no blocked_by (dependency-only block with no metadata)
+    await store.writeWorkPackage('WP-002', makeWpDetail('WP-002', 'BLOCKED', ['WP-001']));
+
+    await propagateDependencyUnblock(UNBLOCK_PLAN_PATH, 'WP-001', tempDir);
+
+    const wp002 = await store.readWorkPackage('WP-002');
+    expect(wp002.status).toBe('READY');
+    expect(wp002.blocked_by).toBeUndefined();
+  });
+});

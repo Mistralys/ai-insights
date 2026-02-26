@@ -109,11 +109,11 @@ export function computeHealedStatus(rootIndex: RootIndex): {
 
   let healedStatus = rootIndex.status;
   if (
-    rootIndex.status === 'IN_PROGRESS' &&
+    (rootIndex.status === 'IN_PROGRESS' || rootIndex.status === 'READY') &&
     pendingWps === 0 &&
     totalWps > 0
   ) {
-    healedStatus = rootIndex.synthesis_generated ? 'COMPLETE' : 'IN_PROGRESS';
+    healedStatus = rootIndex.synthesis_generated ? 'COMPLETE' : rootIndex.status;
   } else if (rootIndex.status === 'COMPLETE' && pendingWps > 0) {
     healedStatus = 'IN_PROGRESS';
   } else if (rootIndex.status === 'READY') {
@@ -128,13 +128,17 @@ export function computeHealedStatus(rootIndex: RootIndex): {
       (wp) => wp.status === 'BLOCKED'
     );
     if (!hasBlockedWp) {
-      const hasInProgressWp = rootIndex.work_packages.some(
-        (wp) => wp.status === 'IN_PROGRESS'
-      );
-      const hasReadyWp = rootIndex.work_packages.some(
-        (wp) => wp.status === 'READY'
-      );
-      healedStatus = hasInProgressWp ? 'IN_PROGRESS' : hasReadyWp ? 'READY' : healedStatus;
+      if (pendingWps === 0 && totalWps > 0 && rootIndex.synthesis_generated) {
+        healedStatus = 'COMPLETE';
+      } else {
+        const hasInProgressWp = rootIndex.work_packages.some(
+          (wp) => wp.status === 'IN_PROGRESS'
+        );
+        const hasReadyWp = rootIndex.work_packages.some(
+          (wp) => wp.status === 'READY'
+        );
+        healedStatus = hasInProgressWp ? 'IN_PROGRESS' : hasReadyWp ? 'READY' : healedStatus;
+      }
     }
   }
 

@@ -1021,6 +1021,7 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
       expect(nextAgentFromStatus('READY_FOR_REVIEW', 'QA')).toBe('Reviewer');
       expect(nextAgentFromStatus('READY_FOR_DOCUMENTATION', 'Reviewer')).toBe('Documentation');
       expect(nextAgentFromStatus('READY_FOR_SYNTHESIS', 'Documentation')).toBe('Synthesis');
+      expect(nextAgentFromStatus('READY_FOR_PM', 'Planner')).toBe('Project Manager');
     });
 
     it('returns current agent for IN_PROGRESS', () => {
@@ -1400,11 +1401,12 @@ describe('getPlannerHandoff — Finding #6: Planner returns a defined, non-gener
     expect(result.details).toContain('Planning complete');
   });
 
-  it('returns WAIT when no work packages exist', async () => {
+  it('returns READY_FOR_PM when no work packages exist', async () => {
     const result = await parseResult(getPlannerHandoff([]));
-    expect(result.status).toBe('WAIT');
+    expect(result.status).toBe('READY_FOR_PM');
+    expect(result.current_agent).toBe('Planner');
+    expect(result.next_agent).toBe('Project Manager');
     expect(result.details).toContain('Planning complete');
-    expect(result.details).not.toContain('IN_PROGRESS');
   });
 
   it('returns WAIT when all WPs are COMPLETE or BLOCKED', async () => {
@@ -1500,3 +1502,44 @@ describe('Global BLOCKED precheck — Finding #9: mixed BLOCKED + COMPLETE retur
   });
 });
 
+// ---------------------------------------------------------------------------
+// WP-003: Handoff Routing Fixes — regression & new tests
+// ---------------------------------------------------------------------------
+
+describe('getDocumentationHandoff \u2014 FAIL routing regression (audit issue #2)', () => {
+  it('returns IN_PROGRESS (not READY_FOR_DEVELOPER) when WPs have FAIL documentation pipelines', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.status).not.toBe('READY_FOR_DEVELOPER');
+    expect(result.current_agent).toBe('Documentation');
+    expect(result.details).toContain('rework');
+  });
+});
+
+describe('getPlannerHandoff \u2014 READY_FOR_PM when no WPs exist (audit issue #6)', () => {
+  it('returns READY_FOR_PM when no work packages exist', async () => {
+    const result = await parseResult(getPlannerHandoff([]));
+    expect(result.status).toBe('READY_FOR_PM');
+    expect(result.current_agent).toBe('Planner');
+    expect(result.next_agent).toBe('Project Manager');
+  });
+});
+
+describe('buildHandoffResponse \u2014 auto-handoff absent for non-READY_FOR_* statuses', () => {
+  it('auto_handoff is absent for WAIT, IN_PROGRESS, BLOCKED, COMPLETE statuses', async () => {
+    for (const status of ['WAIT', 'IN_PROGRESS', 'BLOCKED', 'COMPLETE']) {
+      const result = await parseResult(
+        buildHandoffResponse('Developer', status, 'Testing status: ' + status)
+      );
+      expect(result.auto_handoff).toBeUndefined();
+    }
+  });
+});

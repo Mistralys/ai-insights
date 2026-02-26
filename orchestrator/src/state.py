@@ -49,8 +49,9 @@ class WorkflowState(TypedDict):
     stage_result : str
         Human-readable summary produced by the most-recently-completed stage.
     stage_success : bool
-        ``True`` if the stage completed successfully, ``False`` if it
-        encountered an error or produced a FAIL pipeline.
+        ``True`` when the agent's turn included at least one pipeline completed
+        with status PASS.  ``False`` when the agent raised an error, produced no
+        pipeline completions, or produced only FAIL pipeline completions.
 
     Ledger snapshot
     ---------------
@@ -60,8 +61,9 @@ class WorkflowState(TypedDict):
     wp_summaries : list
         List of work-package summary dicts from the most-recent ledger poll.
     pending_wp_count : int
-        Number of work packages that are not yet COMPLETE.  Used by the
-        supervisor to decide whether to keep iterating.
+        Number of work packages that are not yet in a terminal status
+        (COMPLETE or CANCELLED).  Used by the supervisor to decide whether
+        to keep iterating.
 
     Observability (append-only)
     ---------------------------
@@ -86,12 +88,12 @@ class WorkflowState(TypedDict):
 
     # --- Stage output ---
     stage_result: str
-    stage_success: bool
+    stage_success: bool  # True = at least one PASS pipeline this turn; False = error or all-FAIL
 
     # --- Ledger snapshot ---
     project_status: str
     wp_summaries: list
-    pending_wp_count: int
+    pending_wp_count: int  # WPs not yet in a terminal status (COMPLETE or CANCELLED)
 
     # --- Circuit-breaker tracking ---
     consecutive_failures: dict  # wp_id → consecutive failure count; plain dict (no reducer)

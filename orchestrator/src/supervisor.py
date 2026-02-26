@@ -37,6 +37,9 @@ _DEST_REVIEWER = "reviewer"
 _DEST_DOCS = "docs"
 _DEST_SYNTHESIS = "synthesis"
 
+# Work-package statuses considered terminal (no further agent action needed).
+_TERMINAL_STATUSES: frozenset[str] = frozenset({"COMPLETE", "CANCELLED"})
+
 # Sentinel returned by _route_for_wp when a pipeline is actively IN_PROGRESS.
 # Distinct from None ("WP is fully done") so the supervisor can distinguish
 # between "skip this WP because it is finished" and "skip this WP because
@@ -278,7 +281,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             wp_summaries = []
 
         pending_count = sum(
-            1 for wp in wp_summaries if wp.get("status") != "COMPLETE"
+            1 for wp in wp_summaries if wp.get("status") not in _TERMINAL_STATUSES
         )
 
         base_update: dict[str, Any] = {
@@ -304,14 +307,14 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 update={**base_update, "current_stage": _DEST_PM, "run_log": [log_entry]},
             )
 
-        # ── All WPs COMPLETE → synthesis ──────────────────────────────
-        if all(wp.get("status") == "COMPLETE" for wp in wp_summaries):
+        # ── All WPs terminal (COMPLETE or CANCELLED) → synthesis ───────────────────
+        if all(wp.get("status") in _TERMINAL_STATUSES for wp in wp_summaries):
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",
                 action="route",
                 destination=_DEST_SYNTHESIS,
-                reason="all work packages COMPLETE",
+                reason="all work packages terminal (COMPLETE or CANCELLED)",
             )
             return Command(
                 goto=_DEST_SYNTHESIS,

@@ -231,6 +231,8 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 | `consecutive_failures` | `dict` | Per-WP consecutive failure counter (`{wp_id: count}`). Reset to `{}` on success. The supervisor halts a WP after ≥ 3 consecutive failures. |
 | `run_log` | `list` (append-only) | JSONL-style log entries. Each entry carries a `level` field: `"INFO"` for normal routing, `"WARNING"` for safety/circuit-breaker halts, `"ERROR"` for MCP or stage errors. |
 | `wps_completed_this_run` | `int` | Running total of work packages completed during the current run. Incremented by the supervisor each pass when a WP transitions to COMPLETE. Printed in the run summary as "This run : N WP(s) completed this run". |
+| `stage_success` | `bool` | Set by each stage node after execution. `True` means the agent finished without raising an exception (the best available proxy for “at least one PASS pipeline produced” at node level). `False` means the stage raised an error. Read by the supervisor circuit-breaker. |
+| `pending_wp_count` | `int` | Count of WPs in a non-terminal status (i.e. not COMPLETE and not CANCELLED). Used by the supervisor to determine whether all work is done and synthesis routing is appropriate. |
 
 All other `WorkflowState` fields are documented in `orchestrator/src/state.py`.
 
@@ -262,7 +264,7 @@ The supervisor is a pure-Python deterministic router — no LLM calls are made h
 ```
 supervisor_node
   ├─ iteration > max_iterations        → __end__   (safety limit; level=WARNING)
-  ├─ All WPs COMPLETE                  → synthesis
+  ├─ All WPs terminal (COMPLETE or CANCELLED) → synthesis
   └─ All actionable WPs skipped        → __end__   (all in-flight or circuit-broken; level=WARNING)
 ```
 
