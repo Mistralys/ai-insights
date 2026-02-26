@@ -25,6 +25,7 @@ The project status tool auto-corrects counters and project status on every read.
 | 2b | `COMPLETE` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (synthesis not yet run — project completion requires synthesis) |
 | 3 | `READY` AND any WP is `IN_PROGRESS` | `IN_PROGRESS` |
 | 3b | `READY` AND `pending > 0` AND no WP is `READY` or `IN_PROGRESS` | `BLOCKED` (all remaining WPs are blocked) |
+| 3c | `IN_PROGRESS` AND `pending > 0` AND no WP is `READY` or `IN_PROGRESS` | `BLOCKED` (drift repair: all remaining WPs are blocked) |
 | 4 | `BLOCKED` AND any WP is `IN_PROGRESS` | `IN_PROGRESS` (progress possible despite some WPs still blocked) |
 | 5a | `BLOCKED` AND no WP is `BLOCKED` AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
 | 5b | `BLOCKED` AND no WP is `BLOCKED` AND any WP is `READY` (none `IN_PROGRESS`) | `READY` |
@@ -128,6 +129,8 @@ function buildHandoffResponse(currentAgent, status, ..., store):
     store.writeRootIndex(root)
 ```
 
+> **Concurrency note:** The depth-increment read-modify-write cycle (`readRootIndex` → increment → `writeRootIndex`) must be protected by the storage directory lock ([§20](#20-concurrency-model)) to prevent parallel handoff chains from racing past the depth limit. Implementations should acquire the lock before reading the depth counter.
+
 ### 18.4 Reset Path
 
 ```
@@ -165,7 +168,11 @@ The depth counter resets only when the **project** reaches COMPLETE status (via 
 ### 19.1 Algorithm
 
 ```
-function completeSynthesis(projectPath):
+function completeSynthesis(projectPath, agentRole):
+  // Guard: Only Synthesis agent (or PM override) can complete synthesis
+  if agentRole != "Synthesis" AND agentRole != "Project Manager":
+    ERROR("Only Synthesis agent can complete synthesis (PM override allowed)")
+  
   acquire lock
   root = readRootIndex()
   
@@ -224,6 +231,7 @@ Dual-file updates (WP detail + root index) are protected by file locks:
 |-----------|---------------|------------|
 | Read-only (get status, list WPs) | No | — |
 | Single-file write (synthesis completion) | Yes | Root index |
+| Auto-handoff depth increment | Yes | Root index |
 | Dual-file write (WP + root) | Yes | Storage directory |
 | Dependency cascade (unblock/reblock) | Yes (separate) | Storage directory |
 

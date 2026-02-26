@@ -106,6 +106,8 @@ Check for BLOCKED work packages that need intervention
 
 > **Important:** All per-agent handoff functions evaluate conditions **top-to-bottom with short-circuit semantics**. The first matching condition wins. This means FAIL conditions always take priority over PASS conditions: if any WP has a FAIL pipeline requiring Developer rework, that status is returned even if other WPs simultaneously have PASS pipelines ready for the next stage.
 
+> **Auto-cancelled pipeline exclusion:** Throughout all handoff and recommendation functions, auto-cancelled pipelines (`auto_cancelled = true`) are excluded from FAIL detection. An auto-cancelled FAIL represents an external interruption (cascade reblock or manual BLOCKED transition), not a quality failure. Functions that filter pipeline history — `isMostRecentPipelineFail` (§14.7), `hasDownstreamFail` (§11.3), and `hasNewUpstreamPassSince` (§14.6) — all exclude auto-cancelled pipelines. See [§21.27](edge-cases.md#2127-auto-cancelled-pipelines) for the full invariant.
+
 ### 13.3 Dependency-Blocked WP Exclusion
 
 A critical invariant across Developer, QA, Reviewer, and Documentation handoff functions:
@@ -275,6 +277,8 @@ Same pattern, applied to `documentation` pipelines:
 3. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
 4. **WRITE_DOCS**: WP with PASS code-review and no docs yet, OR `hasNewUpstreamPassSince("code-review", "documentation")`
 
+> **Note on handoff vs. recommendation priority:** The Documentation handoff function (§13.1) checks ready-for-docs WPs before FAIL self-rework, while this recommendation engine checks FAIL self-rework (priority 3) before WRITE_DOCS (priority 4). This is intentional: handoff answers "who should act next?" (new-work-first bias to avoid idle agents), while the recommendation engine answers "what should I do?" (fix-failures-first bias to prevent broken WPs from accumulating). Implementations should not attempt to unify these orderings.
+
 ### 14.6 `hasNewUpstreamPassSince` Algorithm
 
 Determines whether a downstream agent should (re-)engage after an upstream rework cycle.
@@ -289,9 +293,10 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
   if upstreamPass is null:
     return false              // Upstream not yet passed
   
-  // Find most recent downstream pipeline (any status)
+  // Find most recent downstream pipeline (any status), excluding auto-cancelled
+  // (auto-cancelled pipelines are external interruptions, not quality signals)
   downstreamLatest = pipelines
-    .filter(p => p.type == downstreamType)
+    .filter(p => p.type == downstreamType AND NOT p.auto_cancelled)
     .last()
   
   if downstreamLatest is null:
@@ -314,7 +319,8 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
 
 ```
 function isMostRecentPipelineFail(pipelines, pipelineType):
-  matching = pipelines.filter(p => p.type == pipelineType)
+  // Exclude auto-cancelled pipelines — external interruptions are not quality failures
+  matching = pipelines.filter(p => p.type == pipelineType AND NOT p.auto_cancelled)
   if matching is empty:
     return false
   return matching.last().status == "FAIL"
@@ -327,6 +333,8 @@ function isMostRecentPipelineFail(pipelines, pipelineType):
 | `[PASS]` | false |
 | `[FAIL, PASS]` | false (resolved) |
 | `[PASS, FAIL]` | true (needs rework) |
+| `[FAIL(auto_cancelled)]` | false (external interruption, filtered out) |
+| `[PASS, FAIL(auto_cancelled)]` | false (auto-cancelled filtered; effective last is PASS) |
 
 ### 14.8 Stale Pipeline Detection
 

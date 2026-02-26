@@ -78,14 +78,15 @@ WorkPackageDetail {
 
 ```
 Pipeline {
-  type:          PipelineType
-  status:        PipelineStatus
-  started_at:    timestamp?
-  completed_at:  timestamp?
-  summary:       string[]
-  artifacts:     Artifacts?
-  metrics:       Metrics?      // Extensible key-value map
-  comments:      PipelineComment[]?
+  type:            PipelineType
+  status:          PipelineStatus
+  started_at:      timestamp?
+  completed_at:    timestamp?
+  summary:         string[]
+  artifacts:       Artifacts?
+  metrics:         Metrics?        // Extensible key-value map
+  comments:        PipelineComment[]?
+  auto_cancelled:  boolean?        // True when cancelled by cascade reblock or manual → BLOCKED
 }
 ```
 

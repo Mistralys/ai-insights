@@ -82,7 +82,8 @@ Example: QA fails
 14. (After all WPs reach COMPLETE or CANCELLED)
     Synthesis agent generates project report
     
-15. Synthesis completes (ledger_complete_synthesis)
+15. Synthesis completes (ledger_complete_synthesis agentRole="Synthesis")
+    - Agent guard: only Synthesis agent (or PM override)
     - synthesis_generated = true
     - If pending_work_packages == 0: project status → COMPLETE
 ```
@@ -95,7 +96,9 @@ PM or Documentation decides WP needs more work:
 1. ledger_update_work_package_status(WP-001, status=IN_PROGRESS, agent="Project Manager")
    - revision incremented
    - pending_work_packages incremented
+   - synthesis_generated reset to false (stale synthesis invalidated)
    - Dependent WPs cascade-reblocked (READY/IN_PROGRESS → BLOCKED)
+   - IN_PROGRESS pipelines on dependents auto-cancelled (auto_cancelled = true)
    
 2. Pipeline cycle restarts from implementation (or any applicable pipeline)
 ```
@@ -163,3 +166,4 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | Detect Project | Ambiguous | Multiple projects match |
 | Complete Synthesis | WPs pending | Cannot complete synthesis while work packages are still pending |
 | Complete Synthesis | No WPs | Cannot complete synthesis with zero work packages |
+| Complete Synthesis | Wrong agent | Only Synthesis agent (or PM override) can complete synthesis |

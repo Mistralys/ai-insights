@@ -111,7 +111,8 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.17 BLOCKED → BLOCKED Blocker Replacement
 
 - When transitioning BLOCKED → BLOCKED, the new `blocked_by` replaces the existing one
-- A `dependency` blocker **cannot** be overwritten with a non-dependency type — this preserves auto-unblock eligibility
+- A `dependency` blocker **cannot** be overwritten with a non-dependency type **unless the agent is the Project Manager** — this preserves auto-unblock eligibility for non-PM transitions while giving the PM an escape hatch for recording additional blockers discovered after initial blocking
+- When a PM overwrites a `dependency` blocker with a non-dependency type, the `dependency` auto-unblock will no longer fire for that WP — the PM accepts responsibility for managing this
 - All other blocker-type changes are allowed
 - Use case: PM re-classifies a blocker (e.g., `technical` → `decision`) without unblocking first
 
@@ -167,3 +168,50 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - In QA (§14.3) and Reviewer (§14.4) action logic, the `hasNewUpstreamPassSince` check (re-engagement after rework) is evaluated **before** the WAIT_FOR_REWORK check — this prevents short-circuiting on a stale FAIL when the upstream agent has already completed rework
 - In Developer action logic (§14.2), downstream-triggered rework (QA/review FAIL where implementation is still PASS) is a separate priority from direct rework (most recent implementation is FAIL) — this ensures the Developer is told to rework even when the most recent implementation pipeline PASSed but a downstream pipeline FAILed
 - In Developer handoff logic (§13.1), FAIL conditions for rework are checked before PASS conditions for next-stage handoff, consistent with the §13.2 short-circuit semantics invariant
+
+### 21.26 Synthesis Generated Reset on WP Reopen
+
+- When a COMPLETE WP is reopened (COMPLETE → IN_PROGRESS), the project-level `synthesis_generated` flag is reset to `false`
+- This prevents a stale synthesis report from satisfying the project completion condition after rework
+- Without this reset, self-healing rule 1 (§17.2) would auto-complete the project once the reworked WP re-completes — without the Synthesis agent re-running to incorporate the changes
+- `propagateDependencyReblock` (§15.5) also resets `synthesis_generated` as a crash-recovery safety net
+- After rework completes and all WPs are terminal, self-healing rule 1c preserves `IN_PROGRESS` (pending=0 but synthesis_generated=false), correctly requiring Synthesis to re-run
+
+### 21.27 Auto-Cancelled Pipelines
+
+- When a pipeline is cancelled by system automation (cascade reblock via §15.5, or manual IN_PROGRESS → BLOCKED transition via §6.2), the `auto_cancelled` flag is set to `true`
+- Auto-cancelled pipelines are **excluded** from rework detection and circuit breaker calculations:
+  - `hasDownstreamFail` (§11.3): filters out auto-cancelled pipelines
+  - `isMostRecentPipelineFail` (§14.7): filters out auto-cancelled pipelines
+  - `hasNewUpstreamPassSince` (§14.6): filters out auto-cancelled pipelines from downstream history
+  - Rework detection in `startPipeline` (§11.1): uses filtered `effectiveSamePipelines` that excludes auto-cancelled
+- Auto-cancelled pipelines are **not** excluded from prerequisite checks — an auto-cancelled prerequisite still blocks the next stage (but the WP will typically be BLOCKED anyway after cascade reblock)
+- This prevents external interruptions (dependency reopening, manual blocking) from consuming the per-pipeline rework budget (§16.2) intended for quality failures
+- The `auto_cancelled` field is `false` or absent for all pipelines created by normal `startPipeline` flow; it is only set to `true` by system automation
+
+### 21.28 All-Cancelled Project Synthesis
+
+- A project where **all** WPs are CANCELLED (none COMPLETE) still proceeds through Synthesis and can reach COMPLETE
+- This is intentional: the Synthesis agent’s role is to generate a final project report documenting outcomes, including documenting why all work was cancelled
+- If this behavior is undesirable for a given implementation, it can be guarded by checking `root.work_packages.some(wp => wp.status == "COMPLETE")` before calling `completeSynthesis`. This guard is **not** part of the core specification to keep the state machine simple
+
+### 21.29 Documentation FAIL Self-Referential Handoff
+
+- When a documentation pipeline FAILs, the `FAIL_ROUTING_MAP` routes to Documentation (self-rework), producing a handoff note where `from_agent == to_agent == "Documentation"`
+- This self-referential handoff note is intentional and serves as an audit trail:
+  - It records the failure context (via `notes`) even when the same agent handles the rework
+  - In multi-session workflows, a new Documentation agent instance benefits from the handoff notes left by the prior instance
+  - The `getHandoffNotesForAgent` function (§14.10) will return these notes, giving the Documentation agent its own failure context when re-engaging
+- Implementations that find self-referential notes noisy may optionally suppress them in UI display, but SHOULD preserve them in storage for auditability
+
+### 21.30 Planner Handoff vs. Recommendation Disconnect
+
+- The Planner handoff function (§13.1) returns `READY_FOR_PM` when no WPs exist, while `getNextAction` for the Planner role (§14.1.1) always returns `WAIT`
+- This is intentional: the Planner operates **before** the ledger exists (it creates the plan document that the PM uses to initialize the ledger). The handoff function reflects the Planner’s view of project readiness ("PM should act next"), while `getNextAction` reflects available ledger-based actions (none for Planner)
+- Implementations should not attempt to reconcile these two systems for the Planner role — the disconnect is a consequence of the Planner’s unique pre-ledger position in the workflow
+
+### 21.31 Mandatory Agent Guard on Synthesis Completion
+
+- The `completeSynthesis` function requires an `agentRole` parameter (added for parity with all other guarded transitions)
+- Only the **Synthesis** agent (or **Project Manager** as override) can complete synthesis
+- This prevents arbitrary agents from marking synthesis as complete, consistent with the enforcement philosophy applied to `→ COMPLETE` (Documentation only) and `→ CANCELLED` (PM only) WP transitions

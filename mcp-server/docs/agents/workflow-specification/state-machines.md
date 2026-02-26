@@ -82,6 +82,8 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │               │                │ assignee (wp.assigned_to)                        │
 │               │                │ Clears assigned_to                               │
 │ IN_PROGRESS   → BLOCKED        │ Must provide blocked_by object                   │
+│               │                │ All IN_PROGRESS pipelines set to FAIL            │
+│               │                │ (with auto_cancelled = true; see §21.27)         │
 │ IN_PROGRESS   → CANCELLED      │ Agent must be "Project Manager"                  │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ BLOCKED       → IN_PROGRESS    │ Agent must be "Project Manager", current         │
@@ -94,6 +96,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ COMPLETE      → IN_PROGRESS    │ Agent must be "Project Manager" or               │
 │               │                │ "Documentation"                                  │
 │               │                │ Increments revision counter                      │
+│               │                │ Resets project synthesis_generated to false       │
 │               │                │ Triggers cascade reblock of dependents           │
 │ COMPLETE      → CANCELLED      │ Agent must be "Project Manager"                  │
 │               │                │ No counter change (terminal → terminal)          │
@@ -108,7 +111,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 - `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
 - All other same-state transitions are pure no-ops that skip validation
 
-> **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`). This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
+> **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`) **unless the agent is the Project Manager**. This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. The PM exception allows recording non-dependency blockers discovered after the initial dependency block; the PM accepts responsibility for managing the auto-unblock implications (the `dependency` auto-unblock will no longer fire for this WP). All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
 
 ### 6.3 State Diagram
 
@@ -189,3 +192,5 @@ PASS and FAIL are terminal — no further transitions.
 ### 7.3 Cancellation
 
 A pipeline can be cancelled by setting its status to FAIL with a reason string as the summary. This is the mechanism for closing stale pipelines.
+
+When a pipeline is cancelled by system automation (cascade reblock via [§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock) or manual IN_PROGRESS → BLOCKED transition), the `auto_cancelled` flag is set to `true`. This flag excludes the pipeline from rework detection and circuit breaker calculations (see [§21.27](edge-cases.md#2127-auto-cancelled-pipelines)).

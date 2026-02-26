@@ -126,6 +126,7 @@ function propagateDependencyReblock(projectPath, reopenedWpId):
         pipeline.status = "FAIL"
         pipeline.completed_at = now()
         pipeline.summary = ["Auto-cancelled: dependency {reopenedWpId} was reopened"]
+        pipeline.auto_cancelled = true    // Excludes from rework budget (§21.27)
     
     wpDetail.status = "BLOCKED"
     wpDetail.blocked_by = {
@@ -156,6 +157,13 @@ function propagateDependencyReblock(projectPath, reopenedWpId):
   
   // Recompute pending counter
   root.pending_work_packages = count(wp in root.work_packages where not isTerminalStatus(wp.status))
+  
+  // Safety net: ensure synthesis_generated is reset when a WP is reopened.
+  // Primary reset happens during the COMPLETE → IN_PROGRESS transition (§6.2);
+  // this catches the case where that reset was missed due to a crash.
+  if root.synthesis_generated:
+    root.synthesis_generated = false
+  
   root.last_updated = now()
   write root index
   release lock

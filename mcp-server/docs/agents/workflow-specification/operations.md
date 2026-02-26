@@ -12,6 +12,10 @@ Claiming transitions a WP from READY to IN_PROGRESS and assigns an agent.
 
 ```
 function claimWorkPackage(wp, root, agentName, overrideFlag):
+  // Guard: Status must be READY (checked first for clearer error messages)
+  if wp.status != "READY":
+    ERROR("Cannot claim: status is {wp.status}, expected READY")
+  
   // Guard: WP assignment check
   if wp.assigned_to is set AND wp.assigned_to != agentName:
     if overrideFlag is false:
@@ -20,10 +24,6 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
     if overrideFlag is true:
       if agentName != "Project Manager":
         ERROR("override restricted to Project Manager")
-  
-  // Guard: Status must be READY
-  if wp.status != "READY":
-    ERROR("Cannot claim: status is {wp.status}, expected READY")
   
   // Guard: Dependencies must be met
   result = canStartWorkPackage(wp, root.work_packages)
@@ -111,7 +111,10 @@ function startPipeline(wp, root, pipelineType, agentRole):
   
   // Rework detection: Check if retrying after FAIL (same-type or downstream)
   // (samePipelines already computed above in re-validation guard)
-  isDirectRework = samePipelines is not empty AND samePipelines.last().status == "FAIL"
+  // Exclude auto-cancelled pipelines — external interruptions (cascade reblock,
+  // manual BLOCKED) should not consume rework budget (see §21.27)
+  effectiveSamePipelines = samePipelines.filter(p => NOT p.auto_cancelled)
+  isDirectRework = effectiveSamePipelines is not empty AND effectiveSamePipelines.last().status == "FAIL"
   isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType)
   
   if isDirectRework OR isDownstreamRework:
@@ -175,6 +178,8 @@ The `rework_counts` map is absent (`null`/`undefined`) until the first rework on
 
 > **Parallel counter increments during rework chains:** In a typical QA-fail rework cycle, *both* `rework_counts.implementation` and `rework_counts.qa` increment: the Developer restarts implementation (downstream QA FAIL detected → `implementation++`), and QA restarts qa (direct rework of previous FAIL → `qa++`). After 5 such cycles, both counters reach the circuit breaker limit simultaneously. This is by design — each counter tracks how many times *that specific pipeline type* has been retried, regardless of the root cause. The circuit breaker engages on whichever pipeline type reaches the limit first.
 
+> **Auto-cancelled pipeline exclusion:** When determining the "most recent pipeline of same type" for rework detection, auto-cancelled pipelines (`auto_cancelled = true`) are filtered out. An auto-cancelled FAIL — from cascade reblock ([§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock)) or manual IN_PROGRESS → BLOCKED transition — does not trigger rework count increments. See [§21.27](edge-cases.md#2127-auto-cancelled-pipelines).
+
 ### 11.3 Downstream Fail Detection
 
 ```
@@ -184,7 +189,9 @@ function hasDownstreamFail(pipelines, pipelineType):
   // e.g., for "implementation": ["qa", "code-review", "documentation"]
   
   for each dsType in downstreamTypes:
-    dsPipelines = pipelines.filter(p => p.type == dsType)
+    // Exclude auto-cancelled pipelines — they represent external interruptions
+    // (cascade reblock, manual BLOCKED), not quality failures (see §21.27)
+    dsPipelines = pipelines.filter(p => p.type == dsType AND NOT p.auto_cancelled)
     if dsPipelines is not empty AND dsPipelines.last().status == "FAIL":
       return true
   
