@@ -85,6 +85,8 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │               │                │ All IN_PROGRESS pipelines set to FAIL            │
 │               │                │ (with auto_cancelled = true; see §21.27)         │
 │ IN_PROGRESS   → CANCELLED      │ Agent must be "Project Manager"                  │
+│               │                │ All IN_PROGRESS pipelines set to FAIL            │
+│               │                │ (with auto_cancelled = true; see §21.27)         │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ BLOCKED       → IN_PROGRESS    │ Agent must be "Project Manager", current         │
 │               │                │ assignee (wp.assigned_to), or system              │

@@ -16,6 +16,8 @@ The project status tool auto-corrects counters and project status on every read.
 
 ### 17.2 Healing Rules (Applied in Order — First Match Wins)
 
+> **Numbering convention:** Rules are grouped by the project status they match against. Sub-rules (e.g., 1b, 1c) share the same status condition as their parent but differ in secondary conditions. Rules 1/1b/1c all match `pending == 0 AND total > 0` but diverge on `synthesis_generated` and the current project status.
+
 | # | Condition | Healed Status |
 |---|-----------|---------------|
 | 1 | (`IN_PROGRESS` or `READY`) AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
@@ -180,6 +182,11 @@ function completeSynthesis(projectPath, agentRole):
   
   acquire lock
   root = readRootIndex()
+  
+  // Heal counters before checking (guard against stale pending count from
+  // a prior crash or interrupted write — see §17)
+  root.total_work_packages = root.work_packages.length
+  root.pending_work_packages = count(wp in root.work_packages where not isTerminalStatus(wp.status))
   
   // Guard: All WPs must be terminal before synthesis can complete
   if root.pending_work_packages > 0:

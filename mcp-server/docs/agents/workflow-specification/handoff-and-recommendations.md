@@ -195,6 +195,7 @@ Priority order:
 1. **UNBLOCK_WP**: Any WP is BLOCKED with a non-dependency blocker (`decision`, `external`, `technical`) — PM should investigate and resolve
 2. **REVIEW_REWORK_LIMIT**: Any WP has `rework_counts[*] >= MAX_REWORK_COUNT` — PM must cancel or restructure
 3. **REVIEW_STALE**: Any WP has a stale IN_PROGRESS pipeline (>24h) — PM should coordinate with the assigned agent
+3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
 4. **CREATE_WORK_PACKAGES**: No WPs exist yet (also covered by §14.1 common pre-check)
 5. **WAIT**: No actionable items
 
@@ -214,6 +215,11 @@ function getPMAction(root, store):
   // Priority 3: Stale pipelines
   for each IN_PROGRESS WP with any stale pipeline:
     return REVIEW_STALE with wp.id, pipeline type, age
+  
+  // Priority 3b: Abandoned WPs (claimed but no pipeline activity)
+  for each IN_PROGRESS WP with no IN_PROGRESS pipeline:
+    if wp.pipelines is empty OR mostRecentPipeline(wp).completed_at < (now() - STALE_PIPELINE_HOURS):
+      return REVIEW_ABANDONED with wp.id, wp.assigned_to
   
   // Priority 4: No WPs yet (redundant with §14.1, included for completeness)
   if root.work_packages is empty:
@@ -316,7 +322,7 @@ Same pattern, applied to `documentation` pipelines:
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `documentation` pipeline
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
 5. **FINALIZE_WP**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, all acceptance criteria are met, and the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check). The Documentation agent should mark the WP as COMPLETE.
-5b. **UPDATE_CRITERIA**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check passed), but NOT all acceptance criteria are `met: true`. The Documentation agent should update criteria (mark as met) or rework documentation to address remaining criteria.
+5b. **UPDATE_CRITERIA**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check passed), but NOT all acceptance criteria are `met: true`. The Documentation agent should update criteria (mark as met), rework documentation to address remaining criteria, or — if the unmet criteria are caused by underlying code issues rather than documentation gaps — set the WP to BLOCKED with a `technical` blocker to escalate to the Project Manager (see §21.24).
 6. **WRITE_DOCS**: WP with PASS code-review and no docs yet, OR `hasNewUpstreamPassSince("code-review", "documentation")`
 7. **CLAIM_WP**: READY WP assigned to "Documentation" with all dependencies satisfied (post auto-unblock scenario)
 

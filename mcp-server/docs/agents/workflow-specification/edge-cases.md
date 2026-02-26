@@ -70,6 +70,8 @@ Developer → QA → Reviewer → Documentation → COMPLETE
 ```
 No agent can skip stages, Documentation cannot mark COMPLETE without having completed its own pipeline successfully, and a WP reopen invalidates any prior documentation PASS.
 
+> **Absent implementation pipeline:** If no `implementation` pipeline exists on the WP (which would require bypassing the normal pipeline ordering — see §8.1), the freshness check passes vacuously. The guard's purpose is to detect stale documentation after a WP reopen; without an implementation pipeline, there is no reopen reference point to compare against. Implementations MAY treat this as an invariant violation and reject the transition, but the core specification does not require it.
+
 ### 21.11 Transition to BLOCKED Requires Blocker
 
 Any transition to `BLOCKED` must provide a `blocked_by` object. Transitions to BLOCKED without a reason are rejected.
@@ -92,6 +94,13 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - This is a terminal-to-terminal transition: no counter change, no revision increment, no cascade reblock
 - CANCELLED satisfies dependencies identically to COMPLETE, so downstream WPs remain unaffected
 - Use case: feature rollback, or WP output determined to be unnecessary after completion
+
+### 21.14b Pipeline Cancellation on WP Cancellation
+
+- When a WP transitions `IN_PROGRESS → CANCELLED`, any IN_PROGRESS pipelines on the WP are set to FAIL with `auto_cancelled = true`, mirroring the `IN_PROGRESS → BLOCKED` behavior (§6.2)
+- Without this, a cancelled WP could retain orphaned IN_PROGRESS pipelines that can never be completed (the WP is terminal)
+- The `auto_cancelled` flag ensures these pipeline closures do not consume the rework budget (§21.27)
+- `READY → CANCELLED` does not require this step — a READY WP cannot have IN_PROGRESS pipelines (pipeline creation requires WP status IN_PROGRESS per §11.1)
 
 ### 21.15 Cascade Reblock Warning for COMPLETE Dependents
 
@@ -147,6 +156,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - When starting a pipeline, the system verifies that the prerequisite pipeline PASSed **after** the most recent run of the current pipeline type (if any), regardless of whether that most recent run was PASS or FAIL
 - This prevents skipping intermediate validation stages after upstream rework (e.g., starting `code-review` with a stale QA PASS that validated an older implementation — even when the last `code-review` itself FAILed)
 - The guard uses `hasDownstreamFail(pipelines, prerequisite)` — checking downstream of the *prerequisite* type — to detect whether re-validation is actually needed. The argument is `prerequisite` (not `pipelineType`) because `getDownstreamTypes(prerequisite)` includes the current pipeline type itself, allowing the guard to detect a FAIL of the current type (e.g., review-1 FAIL when starting code-review with prerequisite qa). If no pipeline downstream of the prerequisite has FAILed, the existing prerequisite PASS is considered valid
+- **Upstream activity check:** After detecting a temporal gap and a downstream FAIL, the guard additionally verifies that at least one pipeline upstream of the current type (via `getUpstreamTypes` §8.5) was started after the prerequisite PASSed. If no upstream activity occurred, the prerequisite is still valid and the guard does not fire. This prevents false positives during self-rework — e.g., documentation retrying after its own FAIL would otherwise be blocked because `hasDownstreamFail("code-review")` returns true for the documentation FAIL itself, even though no upstream rework invalidated the code-review PASS
 - Complements the recommendation engine's `hasNewUpstreamPassSince` logic (§14.6) with a hard enforcement gate
 
 ### 21.23 Mandatory Agent Role on Pipeline Start
@@ -275,4 +285,19 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - The WP is not fully orphaned: `startPipeline` (§11.1) auto-updates `assigned_to` to the pipeline owner, so the WP becomes visible to the correct agent once a pipeline is started
 - However, if no pipeline is active (e.g., the WP was claimed and the agent crashed before starting a pipeline), the WP has no owning agent and no recommendation will surface it
 - Self-healing (§17) does not cover WP-level field integrity — it only repairs project-level counters and status
-- **Mitigation:** Implementations SHOULD detect `IN_PROGRESS` WPs with null `assigned_to` and no `IN_PROGRESS` pipeline during `getNextAction` for the Project Manager role, surfacing them as a `REVIEW_STALE`-like action. The PM can then either re-claim on behalf of the correct agent or unclaim the WP (which requires no `IN_PROGRESS` pipelines — already satisfied in this scenario)
+- **Mitigation:** The PM action logic `REVIEW_ABANDONED` (§14.1.2, priority 3b) detects IN_PROGRESS WPs with no active pipeline and no recent pipeline activity, which subsumes this null-`assigned_to` case. The PM can then either re-claim on behalf of the correct agent or unclaim the WP (which requires no `IN_PROGRESS` pipelines — already satisfied in this scenario)
+
+### 21.40 Abandoned WP Detection (Claimed but No Pipeline)
+
+- An IN_PROGRESS WP with no IN_PROGRESS pipeline and no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) is considered "abandoned" — the claiming agent likely crashed or disconnected before starting work
+- Unlike stale pipeline detection (§21.19), which requires an IN_PROGRESS pipeline to exist, abandoned WP detection catches the gap where the WP was claimed but no pipeline was ever created
+- The PM's `REVIEW_ABANDONED` action (§14.1.2, priority 3b) surfaces these WPs, positioned after `REVIEW_STALE` because stale pipelines represent more urgent in-flight work
+- The PM can: (a) unclaim the WP (IN_PROGRESS → READY, which clears `assigned_to`), (b) override-claim on behalf of a different agent, or (c) cancel the WP if appropriate
+- This also covers the null-`assigned_to` edge case (§21.39), since the check is based on pipeline activity, not assignment state
+
+### 21.41 PM Override Handoff Note Attribution
+
+- When the Project Manager uses the override to complete a pipeline (§12.1, §12.4), the handoff note's `from_agent` is set to `"Project Manager"` (the actual acting agent), not the pipeline owner
+- This ensures the audit trail accurately reflects who took the action, which is especially important for operational recovery scenarios (e.g., PM force-failing a stale pipeline)
+- The `to_agent` field still uses the standard routing maps (`NEXT_AGENT_MAP` for PASS, `FAIL_ROUTING_MAP` for FAIL), preserving correct routing semantics
+- In non-override scenarios, `from_agent` remains the pipeline owner per `PIPELINE_AGENT_MAP`, which is the expected behavior

@@ -93,8 +93,22 @@ function startPipeline(wp, root, pipelineType, agentRole):
         // getDownstreamTypes(prerequisite) includes the current type, so a FAIL
         // of the current type (e.g., review-1 FAIL) is correctly detected.
         if hasDownstreamFail(wp.pipelines, prerequisite):
-          ERROR("Prerequisite {prerequisite} must re-PASS after upstream rework. "
-                + "Most recent {prerequisite} PASS predates the last {pipelineType} run.")
+          // Upstream activity check: Only block if actual upstream rework occurred.
+          // Without this, self-rework of a pipeline type (e.g., documentation
+          // retrying after its own FAIL) would be incorrectly blocked — the
+          // downstream fail is the current type itself, not evidence of stale
+          // upstream work. See §8.5 for getUpstreamTypes.
+          upstreamTypes = getUpstreamTypes(pipelineType)
+          hasUpstreamRework = upstreamTypes.any(type =>
+            wp.pipelines.any(p => p.type == type
+              AND p.started_at > prereqPass.completed_at))
+          if NOT hasUpstreamRework:
+            // No upstream pipeline was started after the prerequisite PASSed.
+            // The prerequisite is still valid — allow the pipeline to start.
+            pass    // skip guard
+          else:
+            ERROR("Prerequisite {prerequisite} must re-PASS after upstream rework. "
+                  + "Most recent {prerequisite} PASS predates the last {pipelineType} run.")
   
   // Guard: Agent role validation
   expectedRole = PIPELINE_AGENT_MAP[pipelineType]
@@ -151,6 +165,22 @@ The re-validation guard (added after the prerequisite check) prevents a subtle s
 4. But qa-1 validated impl-1, not impl-2. QA has been **bypassed**.
 
 The guard detects that the prerequisite (QA) PASSed *before* the last run of the current pipeline type (code-review, which FAILed as review-1), and that a downstream FAIL exists for `code-review` itself (review-1 FAIL), requiring QA to re-PASS first.
+
+The guard includes an **upstream activity check** to prevent false positives during self-rework. After detecting a temporal gap and a downstream FAIL, the guard verifies that at least one pipeline *upstream* of the current type (via `getUpstreamTypes` §8.5) was started after the prerequisite PASSed. If no upstream activity occurred, the prerequisite is still valid — the downstream FAIL is the current type's own failure, not evidence of stale upstream work.
+
+**Self-rework example (documentation):**
+1. impl-1 PASS → qa-1 PASS → review-1 PASS → doc-1 **FAIL**
+2. Documentation retries: `startPipeline(type=documentation)`
+3. Temporal check fires (review-1 PASS predates doc-1 completion)
+4. `hasDownstreamFail("code-review")` returns true (doc-1 is FAIL)
+5. Upstream activity check: `getUpstreamTypes("documentation")` = `[impl, qa, code-review]` — none started after review-1 PASSed → **no upstream rework** → guard does **not** fire ✓
+
+**Stage-skipping example (code-review after upstream rework):**
+1. impl-1 PASS → qa-1 PASS → review-1 **FAIL** → impl-2 **PASS**
+2. `startPipeline(type=code-review)` attempted
+3. Temporal check fires (qa-1 PASS predates review-1 completion)
+4. `hasDownstreamFail("qa")` returns true (review-1 is FAIL)
+5. Upstream activity check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
 
 > **Note on the `lastSame.status` check:** The guard intentionally does **not** restrict on `lastSame.status == "PASS"`. When `lastSame` is FAIL (as in review-1 above), the prerequisite temporal check is equally critical — the stale PASS of the prerequisite (qa-1) must not be accepted just because the current pipeline type previously FAILed.
 
@@ -251,7 +281,12 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
   
   // Handoff notes
   if opts.handoff_notes is provided:
-    fromAgent = PIPELINE_AGENT_MAP[pipelineType]
+    // Use actual agent when PM override is active for accurate audit trail.
+    // Routing (to_agent) still uses the standard routing maps.
+    if agentRole != expectedRole:
+      fromAgent = agentRole
+    else:
+      fromAgent = PIPELINE_AGENT_MAP[pipelineType]
     if status == "PASS":
       toAgent = NEXT_AGENT_MAP[pipelineType]
     else:  // FAIL

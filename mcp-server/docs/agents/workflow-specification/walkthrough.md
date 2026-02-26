@@ -125,6 +125,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `UNBLOCK_WP` | PM | WP blocked by non-dependency blocker; PM should investigate |
 | `REVIEW_REWORK_LIMIT` | PM | WP hit per-pipeline rework limit; PM must cancel or restructure |
 | `REVIEW_STALE` | PM | Stale pipeline detected; PM should coordinate with assigned agent |
+| `REVIEW_ABANDONED` | PM | IN_PROGRESS WP with no pipeline activity within staleness threshold; claimed but abandoned. PM should re-claim or unclaim |
 | `GENERATE_SYNTHESIS` | Synthesis | All WPs terminal; generate report |
 | `IMPLEMENT` | Developer | WP needs implementation |
 | `RUN_QA` | QA | WP needs QA validation |
@@ -138,7 +139,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `CONTINUE_PIPELINE` | Any pipeline owner | Active (non-stale) IN_PROGRESS pipeline exists for this agent's pipeline type; continue current work |
 | `CLAIM_WP` | Any pipeline owner | READY WP available to claim (dependencies satisfied, unassigned or assigned to this agent) |
 | `FINALIZE_WP` | Documentation | Documentation pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE |
-| `UPDATE_CRITERIA` | Documentation | Documentation pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria or rework documentation |
+| `UPDATE_CRITERIA` | Documentation | Documentation pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria, rework documentation, or escalate via BLOCKED with `technical` blocker (§21.24) |
 
 ## Appendix C: Error Conditions Summary
 

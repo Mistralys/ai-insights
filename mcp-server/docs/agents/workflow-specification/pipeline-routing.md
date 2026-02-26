@@ -70,6 +70,28 @@ function getDownstreamTypes(pipelineType):
 
 > Used by `hasDownstreamFail` ([§11.3](operations.md#113-downstream-fail-detection)) and the re-validation guard ([§11.1](operations.md#111-algorithm)).
 
+### 8.5 Upstream Types
+
+Returns all pipeline types that precede a given type in the pipeline ordering (§8.1). Counterpart of `getDownstreamTypes` (§8.4).
+
+```
+function getUpstreamTypes(pipelineType):
+  ordering = ["implementation", "qa", "code-review", "documentation"]
+  index = ordering.indexOf(pipelineType)
+  if index <= 0:
+    return []
+  return ordering.slice(0, index)
+```
+
+| Input | Output |
+|-------|--------|
+| `implementation` | `[]` |
+| `qa` | `["implementation"]` |
+| `code-review` | `["implementation", "qa"]` |
+| `documentation` | `["implementation", "qa", "code-review"]` |
+
+> Used by the re-validation guard's upstream activity check ([§11.1](operations.md#111-algorithm)) to distinguish stale prerequisites from self-rework scenarios.
+
 ---
 
 ## 9. Pipeline Routing Maps
