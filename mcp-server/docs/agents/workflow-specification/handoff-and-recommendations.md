@@ -259,8 +259,8 @@ Priority order:
 2. **RESUME_OR_CANCEL**: WP has stale IN_PROGRESS `implementation` pipeline (>24h)
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `implementation` pipeline — the Developer has work in progress
 4. **REWORK** (direct): WP where most recent `implementation` pipeline is FAIL
-5. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa` or `code-review` pipeline is FAIL — **AND** `hasDownstreamReengagedSince("implementation")` is false (§14.13) — the downstream agent has not yet re-engaged since the Developer's fix. Documentation FAIL is excluded (routes to Documentation self-rework).
-5b. **WAIT_FOR_DOWNSTREAM**: WP where most recent `implementation` is PASS, a downstream pipeline whose FAIL routes to Developer has FAILed, but `hasDownstreamReengagedSince("implementation")` is true — the Developer's rework has been delivered and the downstream agent should re-engage next. The Developer should wait rather than starting redundant rework.
+5. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa` or `code-review` pipeline is FAIL — **AND** the downstream failure reflects the current implementation (`hasDownstreamReengagedSince("implementation")` is true, §14.13 — the downstream agent validated the latest implementation PASS and still FAILed). Documentation FAIL is excluded (routes to Documentation self-rework).
+5b. **WAIT_FOR_DOWNSTREAM**: WP where most recent `implementation` is PASS, a downstream pipeline whose FAIL routes to Developer has FAILed, but the downstream failure is stale (`hasDownstreamReengagedSince("implementation")` is false) — the Developer has delivered a new implementation PASS that the downstream agent has not yet validated. The Developer should wait rather than starting redundant rework.
 6. **IMPLEMENT**: WP that is IN_PROGRESS, has no implementation pipeline yet
 7. **CLAIM_WP**: WP that is READY, all dependencies satisfied, and either unassigned or assigned to "Developer"
 
@@ -288,13 +288,14 @@ function getDeveloperAction(root, store):
   // Priority 5: Downstream-triggered rework (impl PASS, but QA or review FAIL)
   // Only check types whose FAIL routes to Developer per FAIL_ROUTING_MAP (§9.3).
   // Documentation FAIL routes to Documentation (self-rework) and is excluded.
-  // Temporal guard: skip if the Developer has already completed rework and the
-  // downstream agent has not yet re-engaged (see §14.13, §21.52).
+  // Temporal guard: skip if the Developer has already delivered a fix (new
+  // implementation PASS) but the downstream agent has not yet re-engaged
+  // to validate it (see §14.13, §21.52).
   developerReworkTypes = ["qa", "code-review"]
   for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
     if WP is dependency-blocked: skip
-    if hasDownstreamReengagedSince(wp.pipelines, "implementation"):
-      continue    // Developer's fix delivered; waiting for downstream re-engagement
+    if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
+      continue    // Developer's fix delivered; downstream hasn't re-engaged yet
     return REWORK with downstream_triggered = true
   
   // Priority 5b: Delivered rework awaiting downstream re-engagement
@@ -303,7 +304,7 @@ function getDeveloperAction(root, store):
   // implementation cycles.
   for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
     if WP is dependency-blocked: skip
-    if hasDownstreamReengagedSince(wp.pipelines, "implementation"):
+    if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
       return WAIT_FOR_DOWNSTREAM with wp.id
   
   // Priority 6: Fresh implementation needed
@@ -496,6 +497,8 @@ function wpClaimedDuration(wp):
 ```
 
 > **Implementation note:** The `status_changed_at` field is not part of the core `WorkPackageDetail` schema (§3.3). Implementations that need precise claimed-duration tracking SHOULD add this field and update it on every WP status transition. The fallback heuristics above provide reasonable approximations when the field is absent.
+>
+> **⚠ Fallback accuracy warning:** When `status_changed_at` is absent and no pipelines exist — the exact scenario `REVIEW_ABANDONED` is designed to detect — the final fallback `now() - root.last_updated` is used. Since `root.last_updated` is updated by *any* project operation (e.g., completing a pipeline on an unrelated WP), a project with ongoing activity on other WPs will continuously refresh `root.last_updated`, making the abandoned WP's claimed duration appear short. This can suppress `REVIEW_ABANDONED` detection indefinitely on active projects. Implementations that rely on abandoned-WP detection SHOULD add the `status_changed_at` field to the `WorkPackageDetail` schema rather than depending on the fallback heuristic.
 
 ### 14.13 `hasDownstreamReengagedSince` Algorithm
 
@@ -529,11 +532,11 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
 
 | Scenario | Result |
 |----------|--------|
-| impl-1 PASS → qa-1 FAIL (no further activity) | `false` — Developer should rework |
-| impl-1 PASS → qa-1 FAIL → impl-2 PASS (no QA re-engagement) | `true` — Developer's fix delivered; wait for QA |
-| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 started | `true` — QA already re-engaged |
-| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 FAIL | `true` — but `isMostRecentPipelineFail("qa")` still true AND `hasDownstreamReengagedSince` detects qa-2 started after impl-2 PASS → however, since qa-2 FAIL post-dates impl-2 PASS, this means the fix didn't work; see note below |
+| impl-1 PASS → qa-1 FAIL (no further activity) | `true` — QA validated the current implementation and FAILed; priority 5 routes to REWORK |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS (no QA re-engagement) | `false` — Developer's fix delivered but downstream hasn't re-engaged; priority 5 negated guard fires → WAIT_FOR_DOWNSTREAM |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 started | `true` — QA re-engaged after the fix (if qa-2 is still IN_PROGRESS, priority 5's outer `isMostRecentPipelineFail` check is false → priority 5 does not fire) |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 FAIL | `true` — QA re-engaged and failed again; priority 5 routes to REWORK |
 
-> **Interaction with re-engagement that fails again:** When the downstream agent re-engages and FAILs again (e.g., qa-2 FAIL after impl-2 PASS), `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS). At first glance this seems wrong — the Developer should rework again. However, at this point `isMostRecentPipelineFail("qa")` is still `true` AND `isMostRecentPipelineFail("implementation")` is `false` (impl-2 is PASS), so priority 5's outer condition fires. The temporal guard then checks: has a downstream pipeline started since impl-2 PASS? Yes — qa-2. But qa-2 also *completed* as FAIL after impl-2 PASS. To distinguish "re-engaged but not yet completed" from "re-engaged and failed again", the function checks `started_at` only, not completion status. When qa-2 has completed as FAIL, the Developer's next `getNextAction` call sees that `hasDownstreamReengagedSince` returns `true` — but this is the *previous* re-engagement. A new implementation PASS (impl-3) would reset the comparison point: `hasDownstreamReengagedSince` would return `false` again (no downstream pipeline started since impl-3 PASS), re-entering the REWORK path. The net effect: the Developer receives one WAIT_FOR_DOWNSTREAM per implementation PASS, then resumes REWORK if the downstream agent FAILs again. This prevents the pathological loop identified in §21.52 while preserving correct rework signaling after repeated failures.
+> **Interaction with re-engagement that fails again:** When the downstream agent re-engages and FAILs again (e.g., qa-2 FAIL after impl-2 PASS), `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS). The negated guard in priority 5 evaluates `NOT true` → does not fire, so the code falls through to REWORK — correctly routing the Developer to fix the code again. After a new implementation PASS (impl-3), `hasDownstreamReengagedSince` returns `false` (no downstream pipeline started since impl-3 PASS), and the negated guard fires, routing the Developer to WAIT_FOR_DOWNSTREAM until QA re-engages. The net effect: REWORK fires immediately when the downstream agent validates and FAILs, WAIT_FOR_DOWNSTREAM fires when the Developer has delivered a fix that hasn't been validated yet. This prevents the pathological loop identified in §21.52 while preserving immediate rework signaling after repeated failures.
 
 > **Auto-cancelled pipeline exclusion:** Consistent with §21.27, auto-cancelled pipelines are excluded from both the upstream PASS lookup and the downstream re-engagement check.

@@ -184,6 +184,8 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), "Documentation" (or "Documentation Agent") |
 
 > Implementations should accept both short-form ("Documentation") and long-form ("Documentation Agent") variants.
+>
+> **"System" agent identity:** Several agent guard entries reference "system" as an allowed agent (e.g., `BLOCKED → IN_PROGRESS`). "System" is not one of the seven canonical agent roles (§4) — it represents automated operations performed by the implementation itself, not by an external AI agent. System-initiated transitions occur in two contexts: (1) `propagateDependencyUnblock` (§15.4), which transitions WPs from `BLOCKED → READY`; and (2) implementation-specific auto-repair logic (e.g., `REPAIR_ORPHAN_BLOCKED` in §21.20), which may transition WPs from `BLOCKED → IN_PROGRESS`. Implementations should use a reserved agent identifier (e.g., `"system"`) for audit trail purposes when performing these automated transitions, and MUST NOT allow external callers to claim the "system" identity to bypass agent guards.
 
 ---
 
