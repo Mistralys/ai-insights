@@ -31,6 +31,9 @@ The project status tool auto-corrects counters and project status on every read.
 | 5b | `BLOCKED` AND no WP is `BLOCKED` AND any WP is `READY` (none `IN_PROGRESS`) | `READY` |
 | 5c | `BLOCKED` AND no WP is `BLOCKED` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis) |
 | 6 | Empty project (no WPs) | Never auto-healed to `COMPLETE` |
+| 6b | (`IN_PROGRESS` or `BLOCKED`) AND `total == 0` | `READY` (drift repair: no WPs exist to process) |
+
+> **Rule 6b rationale:** If data corruption or an interrupted operation leaves a project `IN_PROGRESS` or `BLOCKED` with zero work packages, no agent can make progress and no other healing rule matches. Healing to `READY` is the most conservative repair — the Project Manager can then re-create work packages.
 
 > **Rule 4 rationale:** A project should not stay `BLOCKED` when some WPs can make progress. Even if other WPs remain `BLOCKED`, the presence of an `IN_PROGRESS` WP means at least one agent can advance. This mirrors rule 3 (which handles the `READY` → `IN_PROGRESS` case) for the `BLOCKED` → `IN_PROGRESS` case. Note that former rule 5b (`BLOCKED` AND no WP is `BLOCKED` AND any WP is `IN_PROGRESS`) was removed as unreachable — rule 4 already matches the broader condition (`BLOCKED` AND any WP is `IN_PROGRESS`) regardless of whether other WPs are blocked.
 

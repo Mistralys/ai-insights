@@ -207,7 +207,7 @@ This ensures the circuit breaker engages for the common pattern: QA/review fails
 ### 12.1 Algorithm
 
 ```
-function completePipeline(wp, root, pipelineType, status, summary, opts):
+function completePipeline(wp, root, pipelineType, status, summary, agentRole, opts):
   // Find the most recent IN_PROGRESS pipeline of the given type
   pipeline = wp.pipelines
     .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
@@ -215,6 +215,19 @@ function completePipeline(wp, root, pipelineType, status, summary, opts):
   
   if pipeline is null:
     ERROR("No in-progress {pipelineType} pipeline found")
+  
+  // Guard: Agent role validation
+  expectedRole = PIPELINE_AGENT_MAP[pipelineType]
+  if agentRole is not provided:
+    ERROR("agentRole is required")
+  if agentRole != expectedRole:
+    if agentRole == "Project Manager":
+      // PM override: allowed (e.g., cancelling a stale pipeline with FAIL)
+      log info: "PM override: {agentRole} completing {pipelineType} pipeline "
+                + "(normally owned by {expectedRole})"
+    else:
+      ERROR("Agent role {agentRole} cannot complete {pipelineType} pipeline "
+            + "(owned by {expectedRole})")
   
   // Update pipeline
   pipeline.status = status       // "PASS" or "FAIL"
@@ -276,3 +289,11 @@ On FAIL:
 - Match by **exact** criterion text
 - Found → update the `met` flag
 - Not found → **append** as a new entry `{ criterion, met }`
+
+### 12.4 Agent Role Validation on Completion
+
+The `agentRole` parameter is mandatory. The agent must match the pipeline owner defined in `PIPELINE_AGENT_MAP` (§9.1), with one exception:
+
+- **PM override:** The Project Manager may complete any pipeline type to handle operational scenarios (e.g., cancelling a stale pipeline by completing it with FAIL). A log entry is emitted for auditability.
+
+This guard is the completion counterpart of §11.1.2 (Agent Role Validation on start). Together they ensure that only the owning agent (or PM) can start and complete a given pipeline type.

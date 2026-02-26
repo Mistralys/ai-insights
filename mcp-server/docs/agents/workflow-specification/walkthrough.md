@@ -135,6 +135,9 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `WAIT` | Any | No actionable work available |
 | `RESUME_OR_CANCEL` | Any | Stale pipeline detected; decide whether to resume or cancel |
 | `BLOCK_FOR_REWORK_LIMIT` | Any pipeline owner | Per-pipeline rework limit reached; requires human intervention |
+| `CONTINUE_PIPELINE` | Any pipeline owner | Active (non-stale) IN_PROGRESS pipeline exists for this agent's pipeline type; continue current work |
+| `CLAIM_WP` | Any pipeline owner | READY WP available to claim (dependencies satisfied, unassigned or assigned to this agent) |
+| `FINALIZE_WP` | Documentation | Documentation pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE |
 
 ## Appendix C: Error Conditions Summary
 
@@ -155,6 +158,8 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | Start Pipeline | Re-validation needed | Prerequisite must re-PASS after upstream rework |
 | Start Pipeline | Rework limit | Circuit breaker engaged |
 | Complete Pipeline | No IN_PROGRESS pipeline | Nothing to complete |
+| Complete Pipeline | Missing agent role | `agentRole` parameter is required |
+| Complete Pipeline | Wrong agent role | Agent doesn't own this pipeline type (PM override allowed) |
 | Unclaim WP | Active pipelines | Cannot unclaim WP with IN_PROGRESS pipelines |
 | Unclaim WP | Wrong agent | Only PM or current assignee can unclaim |
 | Update Status | Invalid transition | State machine violation |

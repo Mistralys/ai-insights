@@ -106,7 +106,8 @@ Project status updates are **implicit** — they happen as side effects of WP op
 └───────────────┴────────────────┴──────────────────────────────────────────────────┘
 ```
 
-Same-state transitions (e.g., READY → READY) are always valid (no-op) **except for transitions to guarded states**. Specifically:
+Same-state transitions (e.g., READY → READY) are always valid (no-op) **except for transitions to guarded or terminal states**. Specifically:
+- `CANCELLED → CANCELLED` is **not valid** — CANCELLED is strictly terminal with no outward transitions, including self-transitions (see [§21.32](edge-cases.md#2132-cancelled-self-transition-prohibition))
 - `COMPLETE → COMPLETE` still requires the Documentation agent guard (agent identity check only — the full completion guards of acceptance criteria, documentation pipeline PASS, and freshness check are **not** re-evaluated for same-state no-ops)
 - `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
 - All other same-state transitions are pure no-ops that skip validation
@@ -116,32 +117,38 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 ### 6.3 State Diagram
 
 ```
-                  ┌─────────┐
-                  │  READY  │◄──────────────────┐
-                  └────┬────┘                    │
-                       │                         │ (auto-unblock)
-          ┌────────────┼──────────┐              │
-          ▼            ▼          ▼              │
-   ┌─────────────┐ ┌────────┐ ┌───────────┐     │
-   │ IN_PROGRESS │ │BLOCKED │─┤           │─────┘
-   └──────┬──────┘ └────────┘ │           │
-          │         ▲    │     │ CANCELLED │
-          │         │    └────►│ (terminal)│
-          ├─────────┘          └───────────┘
-          │                          ▲
-          ▼                          │
-   ┌──────────┐          ◄────────────┘
-   │ COMPLETE ├─────────────────────────► CANCELLED (PM only: cancel)
-   │(normally │
-   │terminal) │
-   └──────┬───┘
-          │
-          ├───► IN_PROGRESS (reopen: PM or Documentation only)
-          │
-   ┌──────┘
-   │
-   IN_PROGRESS ──► READY (unclaim: PM or current assignee, no active pipelines)
+                     ┌─────────┐
+             ┌──────►│  READY  │◄────────────────────────┐
+             │       └─┬──┬──┬─┘                          │
+             │         │  │  │                            │ (auto-unblock §15.4)
+ (unclaim)   │         │  │  └──► BLOCKED ────────────────┤
+             │         │  │         ├──► IN_PROGRESS      │
+             │         │  │         │    (PM/assignee/    │
+             │         │  │         │     system)         │
+             │         │  │         └──► CANCELLED (PM)   │
+             │         │  └────────► CANCELLED (PM only)  │
+             │         ▼                                   │
+        ┌────┴─────────────┐                               │
+        │   IN_PROGRESS    ├──► BLOCKED ───────────────────┘
+        │                  ├──► CANCELLED (PM only)
+        └────────┬─────────┘
+                 ▼
+        ┌────────────────┐
+        │    COMPLETE     ├──► IN_PROGRESS (reopen: PM or Doc)
+        │  (normally      ├──► CANCELLED (PM only; no cascade)
+        │   terminal)     │
+        └─────────────────┘
+
+        CANCELLED: strictly terminal — no outward transitions
+                   (including self-transitions).
 ```
+
+> **Complete transition list** (all transitions from §6.2, for verification):
+> - **READY →** IN_PROGRESS (claim), BLOCKED, CANCELLED (PM only)
+> - **IN_PROGRESS →** COMPLETE (Doc only), READY (unclaim), BLOCKED, CANCELLED (PM only)
+> - **BLOCKED →** IN_PROGRESS (PM/assignee/system), READY (auto-unblock only), CANCELLED (PM only)
+> - **COMPLETE →** IN_PROGRESS (reopen: PM or Doc), CANCELLED (PM only; no cascade)
+> - **CANCELLED →** *(none; strictly terminal)*
 
 ### 6.4 Counter Updates on Transitions
 

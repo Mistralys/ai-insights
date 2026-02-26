@@ -215,3 +215,48 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - The `completeSynthesis` function requires an `agentRole` parameter (added for parity with all other guarded transitions)
 - Only the **Synthesis** agent (or **Project Manager** as override) can complete synthesis
 - This prevents arbitrary agents from marking synthesis as complete, consistent with the enforcement philosophy applied to `→ COMPLETE` (Documentation only) and `→ CANCELLED` (PM only) WP transitions
+
+### 21.32 CANCELLED Self-Transition Prohibition
+
+- `CANCELLED → CANCELLED` is **not** a valid transition, even as a same-state no-op (see [§6.2](state-machines.md#62-transition-table))
+- CANCELLED is strictly terminal with no outward transitions, including self-transitions
+- This resolves the potential ambiguity between the general same-state rule ("always valid no-op") and the transition table ("Terminal — no outward transitions") in favor of the transition table
+- Implementations should reject any `updateWorkPackageStatus` call that targets a CANCELLED WP, regardless of the requested target status
+
+### 21.33 Active Pipeline Continuation
+
+- When an agent calls `getNextAction` and has an active (non-stale) IN_PROGRESS pipeline of their owned type, the recommendation engine returns `CONTINUE_PIPELINE` (see §14.2–§14.5)
+- `CONTINUE_PIPELINE` takes priority over rework and new-work recommendations (but not over rework-limit checks or stale-pipeline checks) — the agent should finish current work before context-switching
+- In multi-session workflows where a new agent instance inherits an active pipeline from a prior instance, `CONTINUE_PIPELINE` provides explicit acknowledgment of the in-progress work
+- The batch action system (§14.9) may return `CONTINUE_PIPELINE` for one WP alongside rework/new-work actions for other WPs, enabling the agent to see the full picture
+- If upstream rework has occurred while the pipeline is active (detectable via `hasNewUpstreamPassSince`), the active pipeline may be validating stale results. The recommendation engine does not prescribe cancellation — the agent should evaluate whether to complete with FAIL and restart, or finish and re-validate
+
+### 21.34 Documentation PASS to COMPLETE Finalization Gap
+
+- After a documentation pipeline PASSes, the WP remains IN_PROGRESS until the Documentation agent explicitly calls `updateWorkPackageStatus(COMPLETE)`
+- The `FINALIZE_WP` recommendation (§14.5) bridges this gap by advising the Documentation agent to mark the WP as COMPLETE when all conditions are satisfied (documentation PASS, all acceptance criteria met, freshness check passed)
+- Without `FINALIZE_WP`, a Documentation agent that completes the documentation pipeline but forgets to update the WP status would leave the WP stranded in IN_PROGRESS with no further recommendations
+- Self-healing (§17) does not catch this case because the WP is legitimately IN_PROGRESS — the gap is at the recommendation level, not the state level
+
+### 21.35 Single Blocker Metadata Limitation
+
+- The `blocked_by` field on WorkPackageDetail (§3.3) is a single `Blocker?` object, not an array
+- When cascade reblock (§15.5) fires for multiple dependencies simultaneously, only the last-written blocker is preserved — earlier blockers are overwritten
+- This does **not** affect correctness: `propagateDependencyUnblock` (§15.4) checks **all** dependencies regardless of the `blocked_by` text; a WP is only unblocked when every dependency is terminal
+- However, the `blocked_by` metadata may not reflect the complete set of blocking dependencies, which reduces diagnostic visibility for the Project Manager
+- Implementations that need full multi-blocker visibility may extend `blocked_by` to an array or maintain a separate blocker history log — this is an optional enhancement beyond the core specification
+
+### 21.36 Agent Role Validation on Pipeline Completion
+
+- The `completePipeline` function requires an `agentRole` parameter (§12.4), mirroring the existing guard on `startPipeline` (§11.1.2)
+- Only the pipeline owner (per `PIPELINE_AGENT_MAP` §9.1) or the Project Manager (override) may complete a pipeline
+- This prevents agents from completing pipelines they do not own, which could bypass the workflow's separation of concerns (e.g., a Developer completing a QA pipeline)
+- The PM override enables operational recovery scenarios such as force-failing a stale pipeline on behalf of an absent agent
+
+### 21.37 CLAIM_WP Recommendation for READY Work Packages
+
+- All pipeline-owning agents (Developer, QA, Reviewer, Documentation) include `CLAIM_WP` as a final-priority recommendation for READY WPs (§14.2–§14.5)
+- **Developer** sees `CLAIM_WP` for READY WPs that are either unassigned or assigned to "Developer" — this is the primary path for freshly created WPs
+- **QA, Reviewer, Documentation** see `CLAIM_WP` only for READY WPs assigned to them — this covers the post auto-unblock scenario (§15.4), where a WP returns to READY with `assigned_to` preserved
+- `CLAIM_WP` is always the lowest priority — rework, active pipelines, and new pipeline starts all take precedence
+- The claiming operation (`claimWorkPackage` §10.1) still enforces all its own guards (status check, assignment check, dependency check), so the recommendation is advisory
