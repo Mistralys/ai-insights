@@ -246,7 +246,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
 | `scripts/build-personas.js` | Assemble 7 ledger persona files from `personas/ledger/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
-| `scripts/bundle-for-notebooklm.js` | Bundle workspace content for NotebookLM |
+| `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
 | `context.yaml` | Context Hub configuration for documentation generation |
 | `.mcp.dist.json` | Template MCP server configuration (copy to `.mcp.json` and update paths) |
 
