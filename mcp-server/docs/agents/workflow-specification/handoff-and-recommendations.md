@@ -26,7 +26,13 @@ else:
 #### Developer Handoff
 
 ```
-if any WP needs QA (has PASS implementation, no QA started):
+// FAIL conditions first (§13.2 short-circuit semantics)
+if any non-terminal, non-dependency-blocked WP has a FAIL routed to Developer:
+  // Includes: most recent implementation is FAIL (direct rework),
+  // OR most recent implementation is PASS but QA or review FAIL
+  // (per FAIL_ROUTING_MAP §9.3 — excludes documentation FAIL, which is self-rework)
+  return IN_PROGRESS               (Developer must rework)
+if any non-terminal, non-dependency-blocked WP needs QA (has PASS implementation, no QA started):
   return READY_FOR_QA
 if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
@@ -102,7 +108,7 @@ Check for BLOCKED work packages that need intervention
 
 ### 13.3 Dependency-Blocked WP Exclusion
 
-A critical invariant across QA, Reviewer, and Documentation handoff functions:
+A critical invariant across Developer, QA, Reviewer, and Documentation handoff functions:
 
 **WPs blocked by incomplete dependencies are excluded from the "work remaining" count.** A WP is considered unblocked only when all its dependencies are COMPLETE or CANCELLED. If all unprocessed WPs are dependency-blocked, the handoff returns `WAIT` — not the next stage — because no agent can make progress until dependencies resolve.
 
@@ -197,30 +203,39 @@ function getPMAction(root, store):
 
 Priority order:
 
-1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_count >= MAX_REWORK_COUNT`
+1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[implementation] >= MAX_REWORK_COUNT`
 2. **RESUME_OR_CANCEL**: WP has stale IN_PROGRESS `implementation` pipeline (>24h)
-3. **REWORK**: WP where most recent `implementation` pipeline is FAIL
-4. **IMPLEMENT**: WP that is IN_PROGRESS, assigned to Developer, has no implementation pipeline yet or needs fresh implementation
+3. **REWORK** (direct): WP where most recent `implementation` pipeline is FAIL
+4. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa` or `code-review` pipeline is FAIL. Documentation FAIL is excluded (routes to Documentation self-rework).
+5. **IMPLEMENT**: WP that is IN_PROGRESS, has no implementation pipeline yet
 
 ```
 function getDeveloperAction(root, store):
   load all WP details
   
   // Priority 1: Rework limit hit
-  for each WP with rework_count >= MAX_REWORK_COUNT:
+  for each WP with rework_counts[implementation] >= MAX_REWORK_COUNT:
     return BLOCK_FOR_REWORK_LIMIT
   
   // Priority 2: Stale pipeline
   for each IN_PROGRESS WP with stale implementation pipeline:
     return RESUME_OR_CANCEL with age info
   
-  // Priority 3: Rework needed (most recent implementation is FAIL)
+  // Priority 3: Direct rework (most recent implementation is FAIL)
   for each IN_PROGRESS WP where isMostRecentPipelineFail("implementation"):
     if WP is dependency-blocked: skip
     return REWORK
   
-  // Priority 4: Fresh implementation needed
-  for each WP that needs implementation:
+  // Priority 4: Downstream-triggered rework (impl PASS, but QA or review FAIL)
+  // Only check types whose FAIL routes to Developer per FAIL_ROUTING_MAP (§9.3).
+  // Documentation FAIL routes to Documentation (self-rework) and is excluded.
+  developerReworkTypes = ["qa", "code-review"]
+  for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
+    if WP is dependency-blocked: skip
+    return REWORK with downstream_triggered = true
+  
+  // Priority 5: Fresh implementation needed
+  for each IN_PROGRESS WP with no implementation pipeline yet:
     if WP is dependency-blocked: skip
     return IMPLEMENT
   
@@ -233,8 +248,11 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: check for WP rework limit
 2. **RESUME_OR_CANCEL**: stale QA pipeline
-3. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL — QA cannot act; Developer must fix and re-pass implementation first
-4. **RUN_QA**: WP with PASS implementation and no QA yet, OR `hasNewUpstreamPassSince("implementation", "qa")` — Developer re-passed after previous QA
+3. **RUN_QA** (re-engagement after rework): `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
+4. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL AND NOT `hasNewUpstreamPassSince("implementation", "qa")` — QA cannot act; Developer must fix and re-pass implementation first
+5. **RUN_QA** (first run): WP with PASS implementation and no QA pipeline yet
+
+> **Priority 3 before 4 rationale:** After a QA FAIL → Developer rework → implementation re-PASS cycle, the most recent QA pipeline is still FAIL. Without priority 3, the WAIT_FOR_REWORK check at priority 4 would short-circuit and QA would be told to wait — even though the Developer has already fixed the issue. By checking `hasNewUpstreamPassSince` first, the engine correctly detects that upstream work has been redone and QA should re-engage.
 
 ### 14.4 Reviewer Action Logic
 
@@ -242,8 +260,11 @@ Same pattern, applied to `code-review` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
-3. **WAIT_FOR_REWORK**: most recent code-review is FAIL — Reviewer cannot act; Developer must fix and re-pass implementation + QA first
-4. **RUN_REVIEW**: WP with PASS QA and no review yet, OR `hasNewUpstreamPassSince("qa", "code-review")`
+3. **RUN_REVIEW** (re-engagement after rework): `hasNewUpstreamPassSince("qa", "code-review")` is true — QA re-passed after previous review; Reviewer should re-engage regardless of previous review result
+4. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince("qa", "code-review")` — Reviewer cannot act; Developer must fix and re-pass implementation + QA first
+5. **RUN_REVIEW** (first run): WP with PASS QA and no review pipeline yet
+
+> **Priority 3 before 4 rationale:** Same as QA (§14.3) — `hasNewUpstreamPassSince` must be checked before WAIT_FOR_REWORK to avoid short-circuiting on a stale FAIL when upstream rework has already completed.
 
 ### 14.5 Documentation Action Logic
 

@@ -146,6 +146,14 @@ PipelineComment {
   timestamp: timestamp
   note:      string
 }
+
+IncidentContext {
+  os:             string         // Operating system where incident occurred
+  tool:           string         // Tool/command that triggered the incident
+  resolved:       boolean        // Whether the incident has been resolved
+  work_package:   string?        // Related WP ID (optional)
+  workaround:     string?        // Description of workaround (optional)
+}
 ```
 
 ### 3.6 WP ID Format

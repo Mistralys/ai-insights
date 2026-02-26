@@ -127,8 +127,8 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `RUN_QA` | QA | WP needs QA validation |
 | `RUN_REVIEW` | Reviewer | WP needs code review |
 | `WRITE_DOCS` | Documentation | WP needs documentation |
-| `REWORK` | Developer/Documentation | Most recent pipeline FAIL; this agent must fix (self-rework) |
-| `WAIT_FOR_REWORK` | QA/Reviewer | Most recent pipeline FAIL but another agent (Developer) must fix first; wait |
+| `REWORK` | Developer/Documentation | Most recent pipeline FAIL (direct self-rework), or downstream pipeline FAIL routed to this agent (downstream-triggered rework — Developer only, see §14.2) |
+| `WAIT_FOR_REWORK` | QA/Reviewer | Most recent pipeline FAIL AND no upstream re-pass detected (`hasNewUpstreamPassSince` is false); another agent must fix first |
 | `WAIT` | Any | No actionable work available |
 | `RESUME_OR_CANCEL` | Any | Stale pipeline detected; decide whether to resume or cancel |
 | `BLOCK_FOR_REWORK_LIMIT` | Any pipeline owner | Per-pipeline rework limit reached; requires human intervention |

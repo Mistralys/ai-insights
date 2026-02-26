@@ -33,7 +33,7 @@ Error: Reject if ledger already exists
 | `READY` | Project initialized, no work started |
 | `IN_PROGRESS` | At least one WP is being worked on |
 | `COMPLETE` | All WPs terminal AND synthesis generated |
-| `BLOCKED` | One or more WPs blocked |
+| `BLOCKED` | All non-terminal WPs are blocked or cancelled (no WP is `IN_PROGRESS` or `READY`) |
 
 ### 5.3 Automatic Project Status Transitions
 
@@ -74,8 +74,8 @@ Project status updates are **implicit** — they happen as side effects of WP op
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
 │               │                │ Most recent `documentation` pipeline is PASS     │
-│               │                │ Doc PASS must post-date most recent `impl`       │
-│               │                │ pipeline start (freshness check)                 │
+│               │                │ Doc PASS must post-date most recent              │
+│               │                │ `implementation` pipeline start (freshness check)│
 │               │                │ Agent must be "Documentation"                    │
 │ IN_PROGRESS   → READY          │ No IN_PROGRESS pipelines on the WP              │
 │               │                │ Agent must be "Project Manager" or current       │
@@ -104,7 +104,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 ```
 
 Same-state transitions (e.g., READY → READY) are always valid (no-op) **except for transitions to guarded states**. Specifically:
-- `COMPLETE → COMPLETE` still requires the Documentation agent guard
+- `COMPLETE → COMPLETE` still requires the Documentation agent guard (agent identity check only — the full completion guards of acceptance criteria, documentation pipeline PASS, and freshness check are **not** re-evaluated for same-state no-ops)
 - `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
 - All other same-state transitions are pure no-ops that skip validation
 

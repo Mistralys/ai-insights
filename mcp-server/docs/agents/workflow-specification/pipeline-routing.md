@@ -48,6 +48,28 @@ function hasDuplicateInProgress(wp, pipelineType):
   return wp.pipelines.any(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
 ```
 
+### 8.4 Downstream Types
+
+Returns all pipeline types that follow a given type in the pipeline ordering (§8.1).
+
+```
+function getDownstreamTypes(pipelineType):
+  ordering = ["implementation", "qa", "code-review", "documentation"]
+  index = ordering.indexOf(pipelineType)
+  if index == -1 OR index == ordering.length - 1:
+    return []
+  return ordering.slice(index + 1)
+```
+
+| Input | Output |
+|-------|--------|
+| `implementation` | `["qa", "code-review", "documentation"]` |
+| `qa` | `["code-review", "documentation"]` |
+| `code-review` | `["documentation"]` |
+| `documentation` | `[]` |
+
+> Used by `hasDownstreamFail` ([§11.3](operations.md#113-downstream-fail-detection)) and the re-validation guard ([§11.1](operations.md#111-algorithm)).
+
 ---
 
 ## 9. Pipeline Routing Maps
@@ -88,6 +110,8 @@ Maps pipeline type to the agent responsible for fixing failures. Used for handof
 | `documentation` | Documentation (self-rework) |
 
 > Key insight: Documentation is the only pipeline type with self-rework on FAIL. All other FAIL paths route back to the Developer.
+>
+> **Escalation path:** If a documentation pipeline FAIL is caused by underlying code issues (not documentation quality), the Documentation agent should set the WP to BLOCKED with a `technical` blocker describing the code issue. This surfaces the problem to the Project Manager (via §14.1.2 UNBLOCK_WP), who can coordinate with the Developer. The `FAIL_ROUTING_MAP` deliberately does not route documentation failures to Developer because most documentation issues are self-correctable; the blocker mechanism handles the exceptional case.
 
 ### 9.4 AGENT_PIPELINE_MAP (Inverse)
 

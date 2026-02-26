@@ -154,3 +154,16 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - The agent must match the pipeline owner defined in `PIPELINE_AGENT_MAP` (§9.1)
 - **PM override:** The Project Manager may start any pipeline type (e.g., restarting a stale pipeline on behalf of an absent agent)
 - This ensures pipeline ownership (§4.1) is enforced at the tool level, not just advised by the recommendation engine
+
+### 21.24 Documentation FAIL Escalation
+
+- When a documentation pipeline FAILs due to underlying code issues (not documentation quality), the Documentation agent should set the WP to BLOCKED with a `technical` blocker
+- This surfaces the issue to the Project Manager via the UNBLOCK_WP action (§14.1.2)
+- The `FAIL_ROUTING_MAP` routes documentation failures to Documentation (self-rework) by design — the blocker mechanism handles the exceptional case of code-caused documentation failures
+- See [§9.3](pipeline-routing.md#93-fail_routing_map) for the routing map and escalation path
+
+### 21.25 Recommendation Engine Priority Semantics
+
+- In QA (§14.3) and Reviewer (§14.4) action logic, the `hasNewUpstreamPassSince` check (re-engagement after rework) is evaluated **before** the WAIT_FOR_REWORK check — this prevents short-circuiting on a stale FAIL when the upstream agent has already completed rework
+- In Developer action logic (§14.2), downstream-triggered rework (QA/review FAIL where implementation is still PASS) is a separate priority from direct rework (most recent implementation is FAIL) — this ensures the Developer is told to rework even when the most recent implementation pipeline PASSed but a downstream pipeline FAILed
+- In Developer handoff logic (§13.1), FAIL conditions for rework are checked before PASS conditions for next-stage handoff, consistent with the §13.2 short-circuit semantics invariant
