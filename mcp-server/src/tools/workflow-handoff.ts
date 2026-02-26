@@ -10,8 +10,10 @@ import {
   getMaxHandoffDepth,
   buildHandoffPrompt,
   isBlockedByDependencies,
+  isMostRecentPipelineFail,
 } from '../utils/workflow-helpers.js';
 import { getConfig } from '../gui/config.js';
+import { isTerminalStatus } from '../schema/validators.js';
 
 /**
  * Tool: get_handoff_status
@@ -132,7 +134,7 @@ export function nextAgentFromStatus(status: string, currentAgent: string): strin
     BLOCKED: 'Project Manager',
   };
   if (status === 'IN_PROGRESS') return currentAgent;
-  if (status === 'COMPLETE') return null;
+  if (isTerminalStatus(status)) return null;
   return map[status] ?? null;
 }
 
@@ -419,27 +421,45 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 
   // Check if any non-BLOCKED WP needs QA or has FAIL pipeline.
   // BLOCKED WPs need Developer rework before QA can retry — exclude them.
-  const needsWork = wpsWithImpl.some(
+  // Distinguish between "needs new QA" / "QA IN_PROGRESS" (→ IN_PROGRESS)
+  // and "only FAILs remain" (→ READY_FOR_DEVELOPER, Developer must rework first).
+  const wpsNeedingNewQa = wpsWithImpl.filter(
     (wp) =>
       wp.status !== 'BLOCKED' &&
-      (!wp.pipelines.some((p) => p.type === 'qa') ||
-      wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
+      !wp.pipelines.some((p) => p.type === 'qa')
+  );
+  const wpsWithQaInProgress = wpsWithImpl.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      wp.pipelines.some((p) => p.type === 'qa' && p.status === 'IN_PROGRESS')
+  );
+  const wpsWithQaFail = wpsWithImpl.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      isMostRecentPipelineFail(wp.pipelines, 'qa')
   );
 
-  if (needsWork) {
-    // Count how many work packages still need QA
-    const wpsNeedingWork = wpsWithImpl.filter(
-      (wp) =>
-        wp.status !== 'BLOCKED' &&
-        (!wp.pipelines.some((p) => p.type === 'qa') ||
-        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
-    );
+  if (wpsNeedingNewQa.length > 0 || wpsWithQaInProgress.length > 0) {
+    // QA agent still has actionable work (new QA or in-progress QA)
+    const wpsNeedingWork = [...wpsNeedingNewQa, ...wpsWithQaInProgress];
 
     return buildHandoffResponse(
       'QA',
       'IN_PROGRESS',
-      `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA or rework.`,
+      `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA.`,
       `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`,
+      projectPath,
+      store
+    );
+  }
+
+  if (wpsWithQaFail.length > 0) {
+    // All QA work is done but some FAILed — Developer must rework before QA can retry
+    return buildHandoffResponse(
+      'QA',
+      'READY_FOR_DEVELOPER',
+      `QA complete but ${wpsWithQaFail.length} work package(s) have FAIL QA pipelines: ${wpsWithQaFail.map((wp) => wp.work_package_id).join(', ')}. Developer must rework before QA can retry.`,
+      undefined,
       projectPath,
       store
     );
@@ -552,27 +572,45 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 
   // Check if any non-BLOCKED WP needs review or has FAIL pipeline.
   // BLOCKED WPs need upstream rework before Reviewer can retry — exclude them.
-  const needsWork = wpsWithQa.some(
+  // Distinguish between "needs new review" / "review IN_PROGRESS" (→ IN_PROGRESS)
+  // and "only FAILs remain" (→ READY_FOR_DEVELOPER, Developer must rework first).
+  const wpsNeedingNewReview = wpsWithQa.filter(
     (wp) =>
       wp.status !== 'BLOCKED' &&
-      (!wp.pipelines.some((p) => p.type === 'code-review') ||
-      wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
+      !wp.pipelines.some((p) => p.type === 'code-review')
+  );
+  const wpsWithReviewInProgress = wpsWithQa.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'IN_PROGRESS')
+  );
+  const wpsWithReviewFail = wpsWithQa.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      isMostRecentPipelineFail(wp.pipelines, 'code-review')
   );
 
-  if (needsWork) {
-    // Count how many work packages still need review
-    const wpsNeedingWork = wpsWithQa.filter(
-      (wp) =>
-        wp.status !== 'BLOCKED' &&
-        (!wp.pipelines.some((p) => p.type === 'code-review') ||
-        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
-    );
+  if (wpsNeedingNewReview.length > 0 || wpsWithReviewInProgress.length > 0) {
+    // Reviewer still has actionable work
+    const wpsNeedingWork = [...wpsNeedingNewReview, ...wpsWithReviewInProgress];
 
     return buildHandoffResponse(
       'Reviewer',
       'IN_PROGRESS',
-      `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review or rework.`,
+      `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review.`,
       `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`,
+      projectPath,
+      store
+    );
+  }
+
+  if (wpsWithReviewFail.length > 0) {
+    // All review work is done but some FAILed — Developer must rework before Reviewer can retry
+    return buildHandoffResponse(
+      'Reviewer',
+      'READY_FOR_DEVELOPER',
+      `Review complete but ${wpsWithReviewFail.length} work package(s) have FAIL code-review pipelines: ${wpsWithReviewFail.map((wp) => wp.work_package_id).join(', ')}. Developer must rework before Reviewer can retry.`,
+      undefined,
       projectPath,
       store
     );

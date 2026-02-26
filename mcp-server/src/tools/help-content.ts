@@ -13,6 +13,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_get_project_status | project_path | Read project overview |
 | ledger_initialize_project | project_path, plan_file | Create new project ledger |
 | ledger_list_projects | None (status filter optional) | List all tracked projects with status, dates, and plan paths |
+| ledger_complete_synthesis | project_path | Mark synthesis as generated; transitions project to COMPLETE |
 | ledger_get_work_package | project_path, work_package_id | Read a work package's full detail |
 | ledger_list_work_packages | project_path | List work packages (optional: status, assigned_to filters) |
 | ledger_create_work_package | project_path, assigned_to, dependencies, acceptance_criteria, work_package_file | Create a new work package |
@@ -178,7 +179,7 @@ Create a new work package. WP ID is auto-generated.
 - **project_path** (string): Absolute path to the plan directory
 - **assigned_to** (string): Agent name (e.g., "Developer")
 - **dependencies** (array): Array of WP IDs this depends on. Use [] for no dependencies.
-- **acceptance_criteria** (array): Array of criteria strings
+- **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
 - **work_package_file** (string): Relative path to the WP spec file
 
 ## Example
@@ -207,7 +208,7 @@ If the work package is already assigned to a different agent, the claim will be 
 - **agent** (string): ⚠️ REQUIRED — Your agent name (e.g., "Developer", "QA")
 
 ## Optional Parameters
-- **override** (boolean): Set to \`true\` to claim a WP assigned to a different agent. Omit or set \`false\` otherwise.
+- **override** (boolean): Set to \`true\` to claim a WP assigned to a different agent. Only the **Project Manager** and the **current assignee** may use \`override: true\`. Omit or set \`false\` otherwise.
 
 ## Example
 \`\`\`json
@@ -245,7 +246,10 @@ Update a work package's status.
 
 ## Rules
 - Only the Documentation agent can set status to "COMPLETE"
-- Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, BLOCKED→IN_PROGRESS, COMPLETE→IN_PROGRESS
+- Only the Project Manager can set status to "CANCELLED"
+- Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, READY→CANCELLED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, IN_PROGRESS→CANCELLED, BLOCKED→IN_PROGRESS, BLOCKED→READY, BLOCKED→CANCELLED, COMPLETE→IN_PROGRESS
+- CANCELLED is a terminal status — no outward transitions from CANCELLED are permitted
+- CANCELLED WPs satisfy dependency requirements (treated like COMPLETE for dependency checks)
 
 ## Example: Mark COMPLETE (Documentation agent only)
 \`\`\`json
@@ -312,7 +316,7 @@ Complete the most recent IN_PROGRESS pipeline of the specified type.
 - **summary** (array): Array of summary strings
 
 ## Optional Parameters
-- **acceptance_criteria_updates** (array): Mark acceptance criteria as met. Each item: { "criterion": "...", "met": true }
+- **acceptance_criteria_updates** (array): Mark acceptance criteria as met. Each item: { "criterion": "...", "met": true }. If the criterion text matches an existing entry, its \`met\` flag is updated. If the text is **not found**, a new criterion entry is appended to the WP's acceptance criteria list.
 - **artifacts** (object): { files_modified, commit_hash, pull_request }
 - **metrics** (object): { test_coverage, tests_passed, tests_failed, security_issues }
 - **comments** (array): Observations from the pipeline
@@ -548,6 +552,29 @@ Array of \`.meta.json\` objects, each containing:
 ## Storage
 Ledger files are at \`{mcp-server}/storage/ledger/{slug}/\` by default.
 Override with \`--ledger-dir <path>\` at server startup.
+`,
+
+  ledger_complete_synthesis: `
+# ledger_complete_synthesis
+
+Mark the project synthesis as generated. Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
+
+Call this after the Synthesis agent has finished generating its synthesis report. Subsequent calls to \`ledger_get_next_action(Synthesis)\` will return WAIT once this flag is set.
+
+## Required Parameters
+- **project_path** (string): Absolute path to the plan directory
+
+## When to Call
+- All WPs must be COMPLETE before calling this tool
+- The Synthesis agent calls this at the end of its report generation
+- Only the Synthesis agent should call this tool
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature"
+}
+\`\`\`
 `,
 };
 

@@ -62,13 +62,25 @@ export const PIPELINE_AGENT_MAP: Record<PipelineType, string> = {
 
 /**
  * Map of pipeline type to the next agent in the pipeline chain.
- * Used to route handoff notes to the correct recipient agent.
+ * Used to route handoff notes to the correct recipient agent on PASS.
  */
 export const NEXT_AGENT_MAP: Record<PipelineType, string> = {
   'implementation': 'QA',
   'qa': 'Reviewer',
   'code-review': 'Documentation',
   'documentation': 'Synthesis',
+};
+
+/**
+ * Map of pipeline type to the agent that should handle rework on FAIL.
+ * QA/code-review/implementation failures route back to Developer;
+ * documentation failures stay with Documentation (self-rework).
+ */
+export const FAIL_ROUTING_MAP: Record<PipelineType, string> = {
+  'implementation': 'Developer',
+  'qa': 'Developer',
+  'code-review': 'Developer',
+  'documentation': 'Documentation',
 };
 
 /**

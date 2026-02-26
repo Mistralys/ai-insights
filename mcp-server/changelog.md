@@ -1,5 +1,29 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.6.0 - Workflow Specification Audit Fixes (2026-02-26)
+
+### Fixed
+- `tsconfig.json` — Added `noEmitOnError: true` to prevent the compiler from emitting JS output when type errors are present (GN-2).
+- `workflow-handoff.ts` — Replaced inline `=== 'COMPLETE'` terminal check in `nextAgentFromStatus()` with `isTerminalStatus()`, ensuring `CANCELLED` is treated as a terminal status (GN-1).
+- `workflow-batch-actions.ts` — Replaced `allComplete` / `=== 'COMPLETE'` with `allTerminal` / `isTerminalStatus()`; updated reason string to `'All work packages are in a terminal status (COMPLETE or CANCELLED).'` (GN-1).
+- `work-package.ts` — Added override authorization guard in `claimWorkPackage`: `override: true` is now rejected for any caller who is neither `"Project Manager"` nor the current `wp.assigned_to`, with a hard error message (GN-5).
+- `work-package.ts` — Updated three WP ID Zod schemas (`GetWorkPackageSchema`, `CreateWorkPackageSchema` dependencies, `ClaimWorkPackageSchema`) from `/^WP-\d{3}$/` to `/^WP-\d{3,}$/` to accept IDs beyond `WP-999` (GN-3).
+- `project-lifecycle.ts` — Wrapped `completeSynthesis` read-modify-write sequence in `withLock(store.storageDir, ...)` for race-condition compliance (GN-4).
+
+### Added
+- 16 new tests across 3 test files (505 total, up from 489):
+  - `workflow-handoff.test.ts`: `CANCELLED` pipeline status returns `null` from `nextAgentFromStatus`.
+  - `workflow-batch-actions.test.ts` (**new file**): 4 tests for all-CANCELLED terminal short-circuit and updated reason string.
+  - `work-package.test.ts`: 5 override authorization guard tests (PM allowed, assignee allowed, third-party rejected); 6 WP ID regex schema tests (`WP-1000` accepted, `WP-10` rejected across all three updated schemas).
+
+### Documentation
+- `tech-stack.md` — Added `npm run build` to the Build & Test command table; documented `noEmitOnError: true` under Key Conventions.
+- `api-surface.md` — Updated `nextAgentFromStatus()` return-value semantics; extended `ledger_claim_work_package` description with override authorization enforcement.
+- `constraints.md` — Fixed constraint #8 WP ID regex to `/^WP-\d{3,}$/`; updated constraint #14 override Authorization to reflect code enforcement; added Extension to constraint #2 covering single-file read-modify-write locking; added Gotcha 12 (`updateWorkPackageWithSync` outer-scope `let` hoisting pattern).
+- `data-flows.md` — Updated Flow 12 (Synthesis Completion) to show the `withLock` wrapper and `let result!` hoisting pattern.
+- `AGENTS.md` — Added Critical Constraints row #11 for the `updateWorkPackageWithSync` hoisting convention.
+- `file-tree.md` — Added `workflow-batch-actions.test.ts` to the `tests/tools/` listing.
+
 ## v1.5.1 - Constraint Numbering Cleanup (2026-02-23)
 
 ### Changed

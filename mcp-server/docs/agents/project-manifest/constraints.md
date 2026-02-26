@@ -20,6 +20,8 @@ This document codifies established rules, conventions, and non-obvious gotchas.
 
 **Rule:** When updating both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock(store.storageDir, ...)`. Pass `store.storageDir`, not `project_path`.
 
+**Extension — Single-File Read-Modify-Write:** Even when updating only the root index, any read-modify-write sequence must also be wrapped in `withLock(store.storageDir, ...)` to prevent TOCTOU races. Example: `completeSynthesis` reads the root index, mutates `synthesis_generated` and project status, then writes it back — this entire sequence must occur inside a single lock scope.
+
 **Rationale:** Prevents race conditions and dual-file desync when multiple agents run concurrently.
 
 **Anti-pattern:**
@@ -99,27 +101,29 @@ console.log('[project-ledger-mcp] Server started');
 
 ### 8. Work Package IDs Must Follow WP-### Format
 
-**Rule:** All work package IDs must match the regex `/^WP-\d{3}$/` (e.g., `WP-001`, `WP-042`, `WP-123`).
+**Rule:** All work package IDs must match the regex `/^WP-\d{3,}$/` (e.g., `WP-001`, `WP-042`, `WP-999`, `WP-1000`). The minimum is three digits; there is no upper bound to future-proof projects beyond WP-999.
 
-**Enforcement:** Validated by Zod schemas and utility functions (`formatWpId()`, `parseWpId()`).
+**Enforcement:** Validated by Zod schemas in `GetWorkPackageSchema`, `CreateWorkPackageSchema` (dependencies array), and `ClaimWorkPackageSchema`, as well as utility functions (`formatWpId()`, `parseWpId()`).
 
 ---
 
-### 9. Timestamps Must Use YYYY-MM-DD HH:MM:SS Format
+### 9. Timestamps Must Use UTC ISO 8601 Format (YYYY-MM-DDTHH:MM:SSZ)
 
-**Rule:** All timestamp fields use this exact format. Always use the `now()` utility function.
+**Rule:** All timestamp fields use UTC ISO 8601 format with a trailing `Z`. Always use the `now()` utility function.
 
 **Anti-pattern:**
 ```typescript
-// ❌ WRONG — inconsistent format
-const timestamp = new Date().toISOString(); // "2026-02-16T18:00:00.000Z"
+// ❌ WRONG — local time, inconsistent format
+const timestamp = new Date().toLocaleString();
 ```
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — consistent format
-const timestamp = now(); // "2026-02-16 18:00:00"
+// ✅ CORRECT — UTC with trailing Z
+const timestamp = now(); // "2026-02-16T18:00:00Z"
 ```
+
+**Backward compatibility:** `parseTimestamp()` accepts legacy formats (`YYYY-MM-DD HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS` without Z) for ledger files written by earlier versions.
 
 ---
 
@@ -141,13 +145,18 @@ const timestamp = now(); // "2026-02-16 18:00:00"
 
 | From | To | Special Conditions |
 |------|----|--------------------|
-| `READY` | `IN_PROGRESS` | Dependencies must be `COMPLETE` |
+| `READY` | `IN_PROGRESS` | Dependencies must be `COMPLETE` or `CANCELLED` |
 | `READY` | `BLOCKED` | None |
+| `READY` | `CANCELLED` | PM-only agent guard |
 | `IN_PROGRESS` | `COMPLETE` | All acceptance criteria must be met; Documentation agent only |
 | `IN_PROGRESS` | `BLOCKED` | None |
+| `IN_PROGRESS` | `CANCELLED` | PM-only agent guard |
 | `BLOCKED` | `IN_PROGRESS` | None (implicitly means blocker resolved); clears `blocked_by` |
 | `BLOCKED` | `READY` | All dependencies COMPLETE (auto-unblock); clears `blocked_by` |
+| `BLOCKED` | `CANCELLED` | PM-only agent guard |
 | `COMPLETE` | `IN_PROGRESS` | Triggers revision increment; Project Manager or Documentation agent only |
+
+`CANCELLED` is a **terminal status** — no outward transitions allowed (same as `COMPLETE`).
 
 **Enforcement:** `isValidStatusTransition()` validator. Illegal transitions throw errors.
 
@@ -181,6 +190,13 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 ### 14. Claiming a WP Assigned to Another Agent Requires Override
 
 **Rule:** `ledger_claim_work_package` rejects the claim when the work package's `assigned_to` field differs from the calling `agent` parameter, unless `override: true` is explicitly passed.
+
+**Authorization:** Only the **Project Manager** (`"Project Manager"`) and the **current assignee** (`wp.assigned_to`) are permitted to use `override: true`. Any other agent passing `override: true` will receive a hard rejection error. The guard is conditional on `wp.assigned_to` being set — unassigned WPs bypass the identity check.
+
+**Error message (unauthorized override):**
+```
+override is restricted to "Project Manager" or the current assignee ("Developer"). You are "Reviewer".
+```
 
 **Enforcement:** Hard guard in `claimWorkPackage()` before dependency and status-transition checks.
 
@@ -267,35 +283,42 @@ Pipeline order: implementation → qa → code-review → documentation.
 
 ### 21. Rework Count Increments on Pipeline Retry
 
-**Rule:** When `ledger_start_pipeline` is called for a pipeline type that already has a previous `FAIL` pipeline, the work package's `rework_count` field is automatically incremented.
+**Rule:** When `ledger_start_pipeline` is called for a pipeline type whose **most recent** completed pipeline has `FAIL` status, the work package's `rework_count` field is automatically incremented.
 
-**Enforcement:** `ledger_start_pipeline` checks for any previous FAIL pipeline of the same type before creating the new pipeline entry; if found, `rework_count` is incremented atomically.
+**Enforcement:** `ledger_start_pipeline` filters pipelines by the same type, checks the last entry (`at(-1)`), and increments `rework_count` only if its status is `FAIL`. A history of `[FAIL, PASS]` does **not** trigger an increment because the most recent is `PASS`.
 
 **Initial value:** The field is absent (`undefined`) until the first rework; it is never initialised to `0` on creation.
 
-| Previous pipelines for type | rework_count change |
+| Most recent pipeline of same type | rework_count change |
 |---|---|
-| None or only PASS | No increment |
-| At least one FAIL | +1 |
+| None or PASS | No increment |
+| FAIL | +1 |
+
+**Circuit breaker:** After incrementing, if `rework_count >= MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), `ledger_start_pipeline` rejects with an error guiding the caller to cancel or restructure. The `getDeveloperAction` function also surfaces `BLOCK_FOR_REWORK_LIMIT` as the highest-priority action for affected WPs.
 
 ---
 
-### 22. Handoff Notes Are Routed via NEXT_AGENT_MAP
+### 22. Handoff Notes Are Routed via NEXT_AGENT_MAP / FAIL_ROUTING_MAP
 
-**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined automatically by `NEXT_AGENT_MAP`:
+**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined automatically based on pipeline status:
 
-| Pipeline type | Next agent (to_agent) |
-|---|---|
-| `implementation` | `QA` |
-| `qa` | `Reviewer` |
-| `code-review` | `Documentation` |
-| `documentation` | `Synthesis` |
+- **On PASS:** `NEXT_AGENT_MAP` routes to the next agent in the chain.
+- **On FAIL:** `FAIL_ROUTING_MAP` routes to the agent responsible for fixing the failure.
+
+| Pipeline type | PASS → to_agent (NEXT_AGENT_MAP) | FAIL → to_agent (FAIL_ROUTING_MAP) |
+|---|---|---|
+| `implementation` | `QA` | `Developer` |
+| `qa` | `Reviewer` | `Developer` |
+| `code-review` | `Documentation` | `Developer` |
+| `documentation` | `Synthesis` | `Documentation` |
+
+> Documentation is the only pipeline type with self-rework on FAIL. All other FAIL paths route back to the Developer.
 
 **Schema:**
 ```typescript
 interface HandoffNote {
   from_agent: string; // Inferred from PIPELINE_AGENT_MAP
-  to_agent: string;   // Inferred from NEXT_AGENT_MAP
+  to_agent: string;   // NEXT_AGENT_MAP (PASS) or FAIL_ROUTING_MAP (FAIL)
   timestamp: string;
   notes: string[];    // The strings passed in handoff_notes
 }
@@ -344,11 +367,11 @@ interface HandoffNote {
 
 ---
 
-### 26. Lock Retry Count Is 5
+### 26. Lock Retry Count Is 50
 
-**Rule:** Lock acquisition is retried up to 5 times with 200ms intervals before failing.
+**Rule:** Lock acquisition is retried up to 50 times with 200ms–1000ms exponential backoff before failing.
 
-**Total wait time:** ~5 × 200ms = ~1 second (plus stale timeout consideration).
+**Total retry window:** ~10–50 seconds, ensuring coverage of the 10s stale timeout.
 
 ---
 
@@ -675,6 +698,7 @@ When a work package transitions to `COMPLETE`, `propagateDependencyUnblock` auto
 Work package IDs are generated by scanning the highest existing numeric suffix and adding 1. This means:
 - Deleting a WP does not cause ID collisions (unlike a length+1 approach)
 - IDs are monotonically increasing but may have gaps (e.g., WP-001, WP-003 if WP-002 was removed)
+- IDs can be 3+ digits: the schema regex `/^WP-\d{3,}$/` supports WP-001 through WP-9999+
 
 ---
 
@@ -685,6 +709,52 @@ When creating a work package:
 - If any dependency is not `COMPLETE` → Initial status is `BLOCKED`
 
 This logic is automatic and transparent to the caller.
+
+---
+
+### ⚠️ Gotcha 10: `acceptance_criteria` Must Have At Least One Entry
+
+The `ledger_create_work_package` tool rejects requests with an empty `acceptance_criteria` array. Zod validation enforces `.min(1)` — at least one criterion string is required. This prevents the degenerate case of a WP that auto-passes all criterion checks.
+
+---
+
+### ⚠️ Gotcha 11: Unknown Criteria Text in `acceptance_criteria_updates` Is Appended
+
+When `ledger_complete_pipeline` is called with `acceptance_criteria_updates`, each update item is matched by exact criterion text:
+- **Matched:** updates the `met` flag on the existing entry.
+- **Not matched (unknown text):** appends a new `AcceptanceCriterion` entry `{ criterion, met }` to the WP's `acceptance_criteria` array.
+
+---
+
+### ⚠️ Gotcha 12: Pre-mutation State Capture in `updateWorkPackageWithSync` Callbacks
+
+**Rule:** Any variable holding pre-mutation WP or root-index state that is needed **after** the `updateWorkPackageWithSync` callback must be declared with `let` in the **outer scope** and assigned inside the callback. Variables declared with `const` inside the callback are lexically scoped to that callback and are invisible at the call site.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — const inside callback is NOT visible at the call site
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  const previousStatus = wp.status; // const → invisible outside callback
+  wp.status = 'IN_PROGRESS';
+  return { wp, root };
+});
+// TS2304: Cannot find name 'previousStatus'  ← compile error
+console.log(previousStatus); // ReferenceError at runtime if somehow not caught by TS
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — let declared in outer scope, assigned inside callback
+let previousStatus = '';
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  previousStatus = wp.status; // assigns to outer-scope let
+  wp.status = 'IN_PROGRESS';
+  return { wp, root };
+});
+console.log(previousStatus); // ✅ 'READY' — visible after lock completes
+```
+
+**Rationale:** `updateWorkPackageWithSync` (and `withLock`) discard the callback's return value for the state-capture use case. Any data produced inside the callback that is needed after it completes must be captured via closure by assigning to an outer-scope `let` variable before the callback runs. This pattern appears throughout `work-package.ts` (e.g., `let createdWpId = ''` in `createWorkPackage`). Failure to follow it produces a TS2304 compile error or, if TypeScript somehow does not catch it, a `ReferenceError` at the call site.
 
 ---
 

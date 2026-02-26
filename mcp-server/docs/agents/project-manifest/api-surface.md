@@ -4,7 +4,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (19 Total)
+## MCP Tools (20 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -16,7 +16,7 @@ The primary public API is the set of **MCP tools** registered by the server. Age
 (args: { project_path: string }) => Promise<MCPResult>
 ```
 
-Reads the root index and returns project overview. Includes self-healing logic that recomputes counters from actual work package data.
+Reads the root index and returns project overview. Includes self-healing logic that recomputes counters from actual work package data. Self-healing separates computation (`computeHealedStatus` — pure function) from persistence (conditional write under lock). No disk write occurs if counters and status are already correct.
 
 #### `ledger_initialize_project`
 
@@ -38,6 +38,14 @@ Creates a new project ledger with root index and centralized storage directory. 
 ```
 
 Scans the central ledger root directory and returns metadata for all projects. Optionally filters by status. Projects with missing or invalid `.meta.json` are silently skipped.
+
+#### `ledger_complete_synthesis`
+
+```typescript
+(args: { project_path: string }) => Promise<MCPResult>
+```
+
+Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and transitions the project to `COMPLETE` if all WPs are done. Idempotent — calling multiple times is safe. Called by the Synthesis agent after generating the final report.
 
 #### `ledger_detect_project`
 
@@ -87,7 +95,7 @@ Lists work package summaries from the root index with optional filters.
   project_path: string;
   assigned_to: string;
   dependencies: string[]; // Array of WP IDs
-  acceptance_criteria: string[];
+  acceptance_criteria: string[]; // min(1) — at least one criterion required; empty array is rejected
   work_package_file: string;
 }) => Promise<MCPResult>
 ```
@@ -105,7 +113,7 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 }) => Promise<MCPResult>
 ```
 
-Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed (see constraint 14).
+Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates dependencies are met. **Rejects claims when the WP is assigned to a different agent** unless `override: true` is passed. `override: true` is itself restricted to the `"Project Manager"` or the current `wp.assigned_to` — any other caller using it receives a hard rejection (see constraint 14).
 
 #### `ledger_update_work_package_status`
 
@@ -113,7 +121,7 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
 (args: { 
   project_path: string;
   work_package_id: string;
-  status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+  status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'CANCELLED';
   agent: string;
   blocked_by?: {
     type: 'dependency' | 'decision' | 'external' | 'technical';
@@ -125,7 +133,8 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
 
 Updates work package status with validation. Enforces legal status transitions and special rules:
 - `IN_PROGRESS → COMPLETE`: requires all acceptance criteria met; only `"Documentation"` (or `"Documentation Agent"`)
-- `COMPLETE → IN_PROGRESS`: only `"Project Manager"` (or `"Project Manager Agent"`) or `"Documentation"` (or `"Documentation Agent"`) — triggers `revision` increment and `pending_work_packages` increment
+- `COMPLETE → IN_PROGRESS`: only `"Project Manager"` (or `"Project Manager Agent"`) or `"Documentation"` (or `"Documentation Agent"`) — triggers `revision` increment, `pending_work_packages` increment, and cascade-reblock of non-COMPLETE, non-BLOCKED dependents (see `propagateDependencyReblock`)
+- `→ CANCELLED`: only `"Project Manager"` (or `"Project Manager Agent"`). CANCELLED is terminal — no outward transitions. Valid from READY, IN_PROGRESS, or BLOCKED. Decrements `pending_work_packages` and triggers `propagateDependencyUnblock` (CANCELLED satisfies dependencies like COMPLETE).
 - `BLOCKED → IN_PROGRESS` / `BLOCKED → READY`: both automatically clear the `blocked_by` field
 
 The `agent` field is required because the server checks which persona is attempting the transition.
@@ -146,6 +155,8 @@ The `agent` field is required because the server checks which persona is attempt
 ```
 
 Starts a new pipeline for a work package. The `type` field is validated by a Zod enum — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
+
+**Rework circuit breaker:** After incrementing `rework_count` (when the most recent same-type pipeline is FAIL), if `rework_count >= MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), the call is rejected with an error guiding the caller to cancel or restructure the WP.
 
 If `agent_role` is provided, it must match the pipeline type's owner role (per the `PIPELINE_AGENT_MAP`). For example, passing `agent_role: 'QA'` when starting an `implementation` pipeline is rejected with a descriptive error. If `agent_role` is omitted, no role check is performed (backward compatible).
 
@@ -184,7 +195,9 @@ If `agent_role` is provided, it must match the pipeline type's owner role (per t
 }) => Promise<MCPResult>
 ```
 
-Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package, addressed to the next agent in the pipeline chain (determined by `NEXT_AGENT_MAP`). Sets status, completion timestamp, summary, and optional fields.
+Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (next agent in chain). On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (routes QA/code-review/implementation failures to Developer; documentation failures to Documentation for self-rework). Sets status, completion timestamp, summary, and optional fields.
+
+**`acceptance_criteria_updates` merge semantics:** Each item is matched by exact `criterion` string. If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array.
 
 #### `ledger_cancel_pipeline`
 
@@ -319,6 +332,24 @@ Each successful emission increments `auto_handoff_depth` in the root index. Reac
 
 ---
 
+### Help & Documentation Tools
+
+#### `ledger_help`
+
+```typescript
+(args: { tool_name?: string }) => Promise<MCPResult>
+```
+
+Returns usage documentation, examples, and required parameters for all ledger tools. Designed to help agents — especially weaker models — understand correct tool invocation.
+
+- **No arguments** — returns a full overview with all tools listed, workflow guidance, and quick-start instructions.
+- **`tool_name` provided** — returns detailed documentation for that specific tool (e.g., `"ledger_update_work_package_status"`), including required parameters, examples, and common pitfalls.
+- **Unknown `tool_name`** — returns a list of all available tool names.
+
+Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The tool is stateless and has no side effects.
+
+---
+
 ## Storage API
 
 ### `LedgerStore`
@@ -447,6 +478,7 @@ interface RootIndex {
   work_packages: WorkPackageSummary[];
   project_comments: ProjectComment[];
   auto_handoff_depth?: number; // Server-managed loop-guard counter; absent/undefined treated as 0
+  synthesis_generated?: boolean; // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
 }
 
 interface WorkPackageSummary {
@@ -545,6 +577,10 @@ interface Metrics {
 ## Validation Functions
 
 ```typescript
+function isTerminalStatus(status: string): boolean;
+// Returns true for COMPLETE and CANCELLED.
+// Use this everywhere instead of inline status checks.
+
 function isValidStatusTransition(
   from: WorkPackageStatus, 
   to: WorkPackageStatus
@@ -640,14 +676,24 @@ Clears the cached agent handle map and resets the loaded flag. **Intended for us
 ## Utility Functions
 
 ```typescript
-// Returns "YYYY-MM-DDTHH:MM:SS" using local time.
-// NOTE: toISOString() is intentionally NOT used — it converts to UTC, which would
-// corrupt timestamps for users in non-UTC timezones. This manual construction is
-// deliberate. Do not replace with toISOString().
+// Returns "YYYY-MM-DDTHH:MM:SSZ" using UTC time.
 function now(): string;
 
-function formatWpId(n: number): string;  // Returns "WP-###"
+// Parses legacy and current timestamp formats into Date objects.
+// Handles: "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DDTHH:MM:SS", "YYYY-MM-DDTHH:MM:SSZ"
+function parseTimestamp(ts: string): Date;
+
+function formatWpId(n: number): string;  // Returns "WP-###" (3+ digits)
 function parseWpId(id: string): number;  // Extracts numeric part
+
+// Pure function: computes healed counters and status without I/O.
+// Exported from src/tools/project-lifecycle.ts
+function computeHealedStatus(rootIndex: RootIndex): {
+  totalWps: number;
+  pendingWps: number;
+  healedStatus: ProjectStatus;
+  needsWrite: boolean;
+};
 
 // Returns the absolute path to the central ledger root directory.
 // Resolution: 1) --ledger-dir CLI arg, 2) {serverDir}/storage/ledger/
@@ -689,6 +735,7 @@ export const _internal: {
   PIPELINE_PREREQUISITES: Record<PipelineType, PipelineType | null>;
   PIPELINE_AGENT_MAP: Record<PipelineType, string>;
   NEXT_AGENT_MAP: Record<PipelineType, string>;
+  FAIL_ROUTING_MAP: Record<PipelineType, string>;
   // Inverse of PIPELINE_AGENT_MAP. Derived automatically via
   // Object.fromEntries(PIPELINE_TYPES.map((type): [string, PipelineType] => ...))
   // so new pipeline types propagate without manual updates.
@@ -983,6 +1030,8 @@ export function getDocumentationHandoff(wps: WorkPackageDetail[], root: RootInde
 export function getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
 
 // Maps a workflow status string and currentAgent to the next agent role name.
+// Returns null for any terminal status (COMPLETE or CANCELLED) via isTerminalStatus(),
+// returns currentAgent for IN_PROGRESS, and looks up the next agent role for all other statuses.
 export function nextAgentFromStatus(status: string, currentAgent: string): string | null;
 
 // Builds the standard handoff response payload (current_agent, next_agent, status).
@@ -998,7 +1047,7 @@ export function buildHandoffResponse(
 
 ### `src/tools/workflow.ts` — backward-compat aggregator
 
-Re-exports all public symbols from the three sub-modules and from `workflow-helpers.ts` so that any code (or old imports) targeting `workflow.js` continues to compile. Also re-exports `PIPELINE_AGENT_MAP` and `NEXT_AGENT_MAP` from `pipeline-maps.ts`.
+Re-exports all public symbols from the three sub-modules and from `workflow-helpers.ts` so that any code (or old imports) targeting `workflow.js` continues to compile. Also re-exports `PIPELINE_AGENT_MAP`, `NEXT_AGENT_MAP`, and `FAIL_ROUTING_MAP` from `pipeline-maps.ts`.
 
 **`isMostRecentPipelineFail` semantics:**
 

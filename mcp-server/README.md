@@ -43,7 +43,7 @@ The MCP server solves these problems by:
 
 ### Architecture
 
-The server exposes **17 MCP tools** that agents invoke to manage project state:
+The server exposes **20 MCP tools** that agents invoke to manage project state:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -94,6 +94,7 @@ The server manages three types of files, all stored under the centralized ledger
    - Work package summaries (status, assigned agent, dependencies)
    - Project-level comments and incidents
    - Auto-handoff loop-guard counter (`auto_handoff_depth`, server-managed, max 10 before fallback to manual routing)
+   - Synthesis completion flag (`synthesis_generated`, set by `ledger_complete_synthesis`)
 
 3. **Work Package Details** (`storage/ledger/{slug}/WP-###.json`): Per-task implementation details
    - Acceptance criteria and completion status
@@ -292,11 +293,14 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 
 ## Available Tools
 
-The server exposes 18 MCP tools organized by category:
+The server exposes 20 MCP tools organized by category:
 
 ### Project Lifecycle
 - `ledger_get_project_status` — Read project overview
 - `ledger_initialize_project` — Create new ledger
+- `ledger_list_projects` — List all tracked projects (optionally filter by status)
+- `ledger_detect_project` — Auto-detect project from a workspace path
+- `ledger_complete_synthesis` — Mark synthesis as generated; transitions project to COMPLETE if all WPs are done
 
 ### Work Packages
 - `ledger_get_work_package` — Read full WP details
@@ -316,7 +320,12 @@ The server exposes 18 MCP tools organized by category:
 - `ledger_add_project_comment` — Add project-level comment
 
 ### Workflow Coordination
-- `ledger_get_next_action` — Ask “what should I do next?” (includes stale pipeline detection)- `ledger_get_next_actions` — Batch version returning all actionable WPs for an agent role- `ledger_get_handoff_status` — Compute handoff status for current agent
+- `ledger_get_next_action` — Ask "what should I do next?" (includes stale pipeline detection)
+- `ledger_get_next_actions` — Batch version returning all actionable WPs for an agent role
+- `ledger_get_handoff_status` — Compute handoff status for current agent
+
+### Help & Documentation
+- `ledger_help` — Get usage documentation, examples, and required parameters for all tools (pass no args for overview, or `tool_name` for a specific tool)
 
 For detailed API signatures and parameters, see the [API Surface](docs/agents/project-manifest/api-surface.md).
 
@@ -400,7 +409,7 @@ At startup the server scans the configured agents directory for `*.agent.md` fil
 
 ### Lock Acquisition Timeout
 
-**Symptoms**: "Failed to acquire lock after 5 retries"
+**Symptoms**: "Failed to acquire lock after 50 retries"
 
 **Solutions**:
 1. Another process may be holding the lock — wait and retry

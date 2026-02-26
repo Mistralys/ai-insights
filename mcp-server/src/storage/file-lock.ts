@@ -5,13 +5,13 @@ import { mkdir } from 'fs/promises';
 /**
  * Lock configuration for the ledger directory.
  * - 10 second stale timeout: locks older than this are considered stale
- * - 5 retries: attempt to acquire lock up to 5 times
- * - 200ms retry interval: wait 200ms between retry attempts
+ * - 50 retries with 200ms–1000ms backoff: retry window of 10–50s,
+ *   ensuring the window always covers the stale timeout duration
  */
 const LOCK_OPTIONS = {
   stale: 10000, // 10 seconds
   retries: {
-    retries: 5,
+    retries: 50,
     minTimeout: 200,
     maxTimeout: 1000,
   },

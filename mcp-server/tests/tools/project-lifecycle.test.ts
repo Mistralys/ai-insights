@@ -8,6 +8,7 @@ import {
 } from '../helpers/create-temp-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
+import { computeHealedStatus } from '../../src/tools/project-lifecycle.js';
 
 const PLAN_PATH = join(tmpdir(), '2026-01-01-lifecycle-heal-test');
 
@@ -33,9 +34,10 @@ function applyStatusHealing(
   wpStatuses: WpStatus[],
   pendingWps: number,
   totalWps: number,
+  synthesisGenerated?: boolean,
 ): ProjectStatus {
   if (currentStatus === 'IN_PROGRESS' && pendingWps === 0 && totalWps > 0) {
-    return 'COMPLETE';
+    return synthesisGenerated ? 'COMPLETE' : 'IN_PROGRESS';
   }
   if (currentStatus === 'COMPLETE' && pendingWps > 0) {
     return 'IN_PROGRESS';
@@ -112,9 +114,19 @@ describe('Project status self-healing: BLOCKED → IN_PROGRESS/READY', () => {
 });
 
 describe('Project status self-healing: existing rules still work', () => {
-  it('heals IN_PROGRESS to COMPLETE when all WPs done', () => {
-    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2);
+  it('heals IN_PROGRESS to COMPLETE when all WPs done and synthesis generated', () => {
+    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2, true);
     expect(healed).toBe('COMPLETE');
+  });
+
+  it('stays IN_PROGRESS when all WPs done but synthesis NOT generated', () => {
+    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2, false);
+    expect(healed).toBe('IN_PROGRESS');
+  });
+
+  it('stays IN_PROGRESS when all WPs done and synthesis_generated is undefined', () => {
+    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2);
+    expect(healed).toBe('IN_PROGRESS');
   });
 
   it('heals COMPLETE to IN_PROGRESS when pending WPs exist', () => {
@@ -196,5 +208,91 @@ describe('Project status self-healing: store integration', () => {
       readBack.total_work_packages,
     );
     expect(healed).toBe('READY');
+  });
+});
+
+describe('computeHealedStatus (exported pure function)', () => {
+  function makeRootIndex(overrides: Partial<RootIndex> = {}): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      ...overrides,
+    };
+  }
+
+  it('returns needsWrite: false when counters and status are correct', () => {
+    const root = makeRootIndex();
+    const result = computeHealedStatus(root);
+    expect(result.needsWrite).toBe(false);
+    expect(result.totalWps).toBe(1);
+    expect(result.pendingWps).toBe(1);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+  });
+
+  it('returns needsWrite: true when total_work_packages is wrong', () => {
+    const root = makeRootIndex({ total_work_packages: 99 });
+    const result = computeHealedStatus(root);
+    expect(result.needsWrite).toBe(true);
+    expect(result.totalWps).toBe(1);
+  });
+
+  it('returns needsWrite: true when pending_work_packages is wrong', () => {
+    const root = makeRootIndex({ pending_work_packages: 0 });
+    const result = computeHealedStatus(root);
+    expect(result.needsWrite).toBe(true);
+    expect(result.pendingWps).toBe(1);
+  });
+
+  it('returns needsWrite: true when status needs healing', () => {
+    const root = makeRootIndex({
+      status: 'READY',
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.needsWrite).toBe(true);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+  });
+
+  it('heals IN_PROGRESS to COMPLETE when all WPs done and synthesis_generated', () => {
+    const root = makeRootIndex({
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('COMPLETE');
+    expect(result.needsWrite).toBe(true);
   });
 });

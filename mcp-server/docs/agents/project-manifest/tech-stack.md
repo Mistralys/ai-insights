@@ -158,12 +158,14 @@ Runtime-adjustable settings are managed via a **module-level singleton cache** b
 ## Build & Test
 
 | Script | Command | Purpose |
-|--------|---------|---------|
+|--------|---------|----------|
+| **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
 | **dev** | `npm run dev` | Run server in development mode with tsx |
 | **test** | `npm test` | Run all tests once |
 | **test:watch** | `npm run test:watch` | Run tests in watch mode |
 
 No explicit build step is required for development (tsx handles TypeScript on-the-fly).
+For production or CI, run `npm run build` — compilation fails immediately on any type error (`noEmitOnError: true`) and no output is written to `dist/`.
 
 ---
 
@@ -176,6 +178,6 @@ The server has **no stateful services**. All state is persisted to JSON files on
 ## Key Conventions
 
 - **ESM-only:** All imports use `.js` extensions (required for Node16 module resolution)
-- **Strict TypeScript:** `strict: true` and `noUncheckedIndexedAccess: true` in `tsconfig.json` — the latter widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors from unguarded `Record<string, T>` accesses
+- **Strict TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`, and `noEmitOnError: true` in `tsconfig.json` — `noUncheckedIndexedAccess` widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors; `noEmitOnError` prevents any JS from being emitted to `dist/` when type errors are present, ensuring the build fails fast rather than producing a partially compiled output
 - **Pretty JSON:** All JSON files written with 2-space indentation and trailing newline
 - **File Naming:** Work package IDs follow the pattern `WP-###` (zero-padded to 3 digits)

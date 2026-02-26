@@ -112,7 +112,7 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('IN_PROGRESS');
     });
 
-    it('returns IN_PROGRESS when a QA pipeline has FAIL status', async () => {
+    it('returns READY_FOR_DEVELOPER when a QA pipeline has FAIL status', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -121,7 +121,7 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = await parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
     });
 
     it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', async () => {
@@ -737,7 +737,7 @@ describe('BLOCKED WP handling — no rework loop', () => {
       expect(result.status).not.toBe('IN_PROGRESS');
     });
 
-    it('returns IN_PROGRESS when a non-BLOCKED WP has FAIL QA', async () => {
+    it('returns READY_FOR_DEVELOPER when a non-BLOCKED WP has FAIL QA', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -746,7 +746,7 @@ describe('BLOCKED WP handling — no rework loop', () => {
       ];
 
       const result = await parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
     });
   });
 
@@ -1034,6 +1034,12 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
 
     it('returns null for COMPLETE', () => {
       expect(nextAgentFromStatus('COMPLETE', 'Synthesis')).toBeNull();
+    });
+
+    it('returns null for CANCELLED (terminal status — GN-1)', () => {
+      // CANCELLED is a terminal status just like COMPLETE; no next agent should be returned.
+      expect(nextAgentFromStatus('CANCELLED', 'Developer')).toBeNull();
+      expect(nextAgentFromStatus('CANCELLED', 'QA')).toBeNull();
     });
 
     it('returns null for unknown status', () => {

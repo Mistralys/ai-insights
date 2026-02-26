@@ -402,10 +402,9 @@ describe('rework_count tracking (WP-005)', () => {
   /** Simulate the rework_count logic from startPipeline */
   async function simulateStartPipeline(pipelineType: string) {
     await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
-      const hasPreviousFail = wp.pipelines.some(
-        (p) => p.type === pipelineType && p.status === 'FAIL'
-      );
-      if (hasPreviousFail) {
+      const sameTypePipelines = wp.pipelines.filter((p) => p.type === pipelineType);
+      const mostRecent = sameTypePipelines.at(-1);
+      if (mostRecent?.status === 'FAIL') {
         wp.rework_count = (wp.rework_count ?? 0) + 1;
       }
       wp.pipelines.push({ type: pipelineType, status: 'IN_PROGRESS', started_at: now(), summary: [] });
@@ -504,6 +503,32 @@ describe('rework_count tracking (WP-005)', () => {
 
     const wp = await store.readWorkPackage('WP-001');
     expect(wp.rework_count).toBe(2);
+  });
+
+  it('starting implementation after FAIL then PASS does NOT increment rework_count', async () => {
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer Agent',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 1,
+      pipelines: [],
+    });
+
+    // First attempt → FAIL → rework → PASS
+    await simulateStartPipeline('implementation');
+    await simulateCompletePipeline('implementation', 'FAIL');
+    await simulateStartPipeline('implementation');  // rework_count → 1
+    await simulateCompletePipeline('implementation', 'PASS');
+
+    // Third start — most recent is PASS, should NOT increment
+    await simulateStartPipeline('implementation');
+
+    const wp = await store.readWorkPackage('WP-001');
+    // rework_count stays at 1 because most recent implementation pipeline was PASS
+    expect(wp.rework_count).toBe(1);
   });
 
   it('starting a qa pipeline after a FAIL implementation pipeline does NOT increment rework_count', async () => {

@@ -8,9 +8,11 @@ import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
   PipelineTypeEnum,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
+import { MAX_REWORK_COUNT } from '../utils/workflow-helpers.js';
 
 /**
  * Build a next-step guidance string for the agent after completing a pipeline.
@@ -72,6 +74,7 @@ export const _internal = {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
   buildCompletionGuidance,
 };
 
@@ -151,12 +154,19 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         summary: [],
       };
 
-      // 6. Increment rework_count if restarting a previously-failed pipeline of the same type
-      const hasPreviousFail = wp.pipelines.some(
-        (p) => p.type === args.type && p.status === 'FAIL'
-      );
-      if (hasPreviousFail) {
+      // 6. Increment rework_count if the most recent pipeline of the same type has FAIL status
+      const sameTypePipelines = wp.pipelines.filter((p) => p.type === args.type);
+      const mostRecent = sameTypePipelines.at(-1);
+      if (mostRecent?.status === 'FAIL') {
         wp.rework_count = (wp.rework_count ?? 0) + 1;
+      }
+
+      // 6b. Circuit breaker — reject if rework_count has reached the limit
+      if ((wp.rework_count ?? 0) >= MAX_REWORK_COUNT) {
+        throw new Error(
+          `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
+          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`
+        );
       }
 
       // 7. Append to pipelines array
@@ -309,6 +319,8 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
           if (criterion) {
             criterion.met = update.met;
+          } else {
+            wp.acceptance_criteria.push({ criterion: update.criterion, met: update.met });
           }
         }
       }
@@ -316,7 +328,9 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
       // 5. Append handoff note if provided
       if (args.handoff_notes && args.handoff_notes.length > 0) {
         const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
-        const toAgent = NEXT_AGENT_MAP[args.type] ?? 'Unknown';
+        const toAgent = args.status === 'FAIL'
+          ? (FAIL_ROUTING_MAP[args.type] ?? 'Developer')
+          : (NEXT_AGENT_MAP[args.type] ?? 'Unknown');
         const note: HandoffNote = {
           from_agent: fromAgent,
           to_agent: toAgent,

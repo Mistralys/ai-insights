@@ -189,12 +189,13 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | 2 | Dual-file updates require `withLock()` | Race conditions + dual-file desync |
 | 3 | `project_path` must be absolute | Server cannot resolve relative paths |
 | 4 | Never log to `stdout` (use `stderr` only) | Breaks MCP protocol communication |
-| 5 | Work package IDs match `/^WP-\d{3}$/` | Schema validation fails |
+| 5 | Work package IDs match `/^WP-\d{3,}$/` | Schema validation fails |
 | 6 | Timestamps use `now()` utility (YYYY-MM-DD HH:MM:SS) | Inconsistent format + parsing errors |
 | 7 | JSON must be pretty-printed (2-space indent + newline) | Ugly diffs + manual editing pain |
 | 8 | Status transitions follow legal transition table | Business rule violation + data corruption |
 | 9 | `COMPLETE` requires all acceptance criteria met | Premature completion + false positives |
 | 10 | Pipelines require `IN_PROGRESS` work package | Starting work before claiming |
+| 11 | Pre-mutation state passed out of `updateWorkPackageWithSync` must use outer-scope `let` | TS2304 compile error + runtime ReferenceError at call site |
 
 **Memorize these constraints.** Reference [constraints.md](docs/agents/project-manifest/constraints.md) for full details.
 
