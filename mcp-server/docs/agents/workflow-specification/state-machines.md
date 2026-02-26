@@ -100,6 +100,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ COMPLETE      → IN_PROGRESS    │ Agent must be "Project Manager" or               │
 │               │                │ "Documentation"                                  │
 │               │                │ Increments revision counter                      │
+│               │                │ Resets rework_counts to absent (see §21.44)      │
 │               │                │ Resets project synthesis_generated to false       │
 │               │                │ Triggers cascade reblock of dependents           │
 │ COMPLETE      → CANCELLED      │ Agent must be "Project Manager"                  │
@@ -116,6 +117,8 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 - `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
 - All other same-state transitions are pure no-ops that skip validation
 
+> **BLOCKED → BLOCKED agent guard:** The `BLOCKED → BLOCKED` same-state transition requires the agent to be the **Project Manager** or the **current assignee** (`wp.assigned_to`). This prevents arbitrary agents from modifying blockers on WPs they do not own, consistent with the agent guard philosophy applied to other transitions.
+>
 > **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`) **unless the agent is the Project Manager**. This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. The PM exception allows recording non-dependency blockers discovered after the initial dependency block; the PM accepts responsibility for managing the auto-unblock implications (the `dependency` auto-unblock will no longer fire for this WP). All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
 
 ### 6.3 State Diagram
@@ -172,6 +175,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | → CANCELLED | "Project Manager" (or "Project Manager Agent") |
 | BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
 | BLOCKED → READY | System only (auto-unblock via §15.4 — no manual agent guard) |
+| BLOCKED → BLOCKED | "Project Manager" (or "Project Manager Agent"), current assignee |
 | IN_PROGRESS → READY | "Project Manager" (or "Project Manager Agent"), current assignee |
 | COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), "Documentation" (or "Documentation Agent") |
 

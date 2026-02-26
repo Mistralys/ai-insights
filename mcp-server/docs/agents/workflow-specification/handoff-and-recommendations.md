@@ -44,26 +44,37 @@ return WAIT                        (no actionable work for Developer)
 #### QA Handoff
 
 ```
-if only FAIL QA pipelines remain (no new/in-progress QA):
-  return READY_FOR_DEVELOPER
+// FAIL conditions first (§13.2 short-circuit semantics)
+if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline routed to Developer:
+  return READY_FOR_DEVELOPER     (Developer must rework)
 if WPs with PASS QA but no review started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
     return READY_FOR_REVIEW      (unblocked WPs ready for next stage)
-if all WPs are terminal:
+if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "QA":
+  return IN_PROGRESS             (QA has active work)
+return WAIT                      (no actionable work for QA)
 ```
 
 #### Reviewer Handoff
 
 ```
-Same pattern as QA handoff, shifted one stage:
-  FAIL code-review → READY_FOR_DEVELOPER
-  PASS code-review, no docs → check dependency-blocked
-    All blocked: WAIT            (nothing actionable)
-    Not all blocked: READY_FOR_DOCS
-  All WPs terminal: READY_FOR_SYNTHESIS
+// FAIL conditions first (§13.2 short-circuit semantics)
+if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline routed to Developer:
+  return READY_FOR_DEVELOPER     (Developer must rework)
+if WPs with PASS code-review but no docs started:
+  if all such WPs are dependency-blocked:
+    return WAIT                  (nothing actionable until dependencies resolve)
+  else:
+    return READY_FOR_DOCS        (unblocked WPs ready for next stage)
+if all WPs are terminal (COMPLETE or CANCELLED):
+  return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "Reviewer":
+  return IN_PROGRESS             (Reviewer has active work)
+return WAIT                      (no actionable work for Reviewer)
 ```
 
 #### Documentation Handoff
@@ -196,7 +207,7 @@ Priority order:
 1. **UNBLOCK_WP**: Any WP is BLOCKED with a non-dependency blocker (`decision`, `external`, `technical`) — PM should investigate and resolve
 2. **REVIEW_REWORK_LIMIT**: Any WP has `rework_counts[*] >= MAX_REWORK_COUNT` — PM must cancel or restructure
 3. **REVIEW_STALE**: Any WP has a stale IN_PROGRESS pipeline (>24h) — PM should coordinate with the assigned agent
-3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
+3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) AND the WP has been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` (measured via `root.last_updated` for the WP's claiming transition or, if available, the WP detail's most recent status-change timestamp) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
 4. **CREATE_WORK_PACKAGES**: No WPs exist yet (also covered by §14.1 common pre-check)
 5. **WAIT**: No actionable items
 
@@ -218,8 +229,14 @@ function getPMAction(root, store):
     return REVIEW_STALE with wp.id, pipeline type, age
   
   // Priority 3b: Abandoned WPs (claimed but no pipeline activity)
+  // Grace period: only flag if the WP has been IN_PROGRESS for at least
+  // STALE_PIPELINE_HOURS, to avoid false positives on freshly claimed WPs.
+  // Use the WP detail's last status-change timestamp or, as a fallback,
+  // compare root.last_updated against the staleness threshold.
   for each IN_PROGRESS WP with no IN_PROGRESS pipeline:
     if wp.pipelines is empty OR mostRecentPipeline(wp).completed_at < (now() - STALE_PIPELINE_HOURS):
+      if wpClaimedDuration(wp) < STALE_PIPELINE_HOURS:
+        continue    // Grace period — WP was recently claimed
       return REVIEW_ABANDONED with wp.id, wp.assigned_to
   
   // Priority 4: No WPs yet (redundant with §14.1, included for completeness)
@@ -360,6 +377,10 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
                  + "defaulting to false (no rework trigger). "
                  + "This indicates a data integrity issue."
     return false              // Conservative: don't trigger without timestamps
+    // NOTE: This conservative default may cause the downstream agent to
+    // permanently receive WAIT_FOR_REWORK instead of RUN_* (re-engagement),
+    // effectively blocking progress until timestamps are repaired.
+    // See §21.18 for the full implications and recommended mitigations.
   
   // Upstream completed AT or AFTER downstream started → rework cycle
   return upstreamPass.completed_at >= downstreamLatest.started_at

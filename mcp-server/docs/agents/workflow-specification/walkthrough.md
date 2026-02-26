@@ -95,6 +95,7 @@ PM or Documentation decides WP needs more work:
 
 1. ledger_update_work_package_status(WP-001, status=IN_PROGRESS, agent="Project Manager")
    - revision incremented
+   - rework_counts reset to absent (fresh rework budget for new revision)
    - pending_work_packages incremented
    - synthesis_generated reset to false (stale synthesis invalidated)
    - Dependent WPs cascade-reblocked (READY/IN_PROGRESS → BLOCKED)
@@ -125,7 +126,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `UNBLOCK_WP` | PM | WP blocked by non-dependency blocker; PM should investigate |
 | `REVIEW_REWORK_LIMIT` | PM | WP hit per-pipeline rework limit; PM must cancel or restructure |
 | `REVIEW_STALE` | PM | Stale pipeline detected; PM should coordinate with assigned agent |
-| `REVIEW_ABANDONED` | PM | IN_PROGRESS WP with no pipeline activity within staleness threshold; claimed but abandoned. PM should re-claim or unclaim |
+| `REVIEW_ABANDONED` | PM | IN_PROGRESS WP with no pipeline activity within staleness threshold and claimed longer than staleness threshold; claimed but abandoned. PM should re-claim or unclaim |
 | `GENERATE_SYNTHESIS` | Synthesis | All WPs terminal; generate report |
 | `IMPLEMENT` | Developer | WP needs implementation |
 | `RUN_QA` | QA | WP needs QA validation |
@@ -169,6 +170,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | Update Status | Pipeline not passed | COMPLETE requires most recent documentation pipeline PASS |
 | Update Status | Wrong agent | Only specific agents for specific transitions |
 | Update Status | Missing blocker | BLOCKED requires blocked_by object |
+| Update Status | Wrong agent (BLOCKED→BLOCKED) | Only PM or current assignee can modify blockers |
 | Detect Project | Not found | No project matches the given path |
 | Detect Project | Ambiguous | Multiple projects match |
 | Complete Synthesis | WPs pending | Cannot complete synthesis while work packages are still pending |

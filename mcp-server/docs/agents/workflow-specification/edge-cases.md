@@ -30,6 +30,7 @@
 - Starts at 0 (or default initial value)
 - Incremented **only** on `COMPLETE → IN_PROGRESS` transition
 - Not incremented on any other transition
+- On `COMPLETE → IN_PROGRESS`, `rework_counts` is also reset to absent (cleared) — see [§21.44](#2144-rework-count-reset-on-wp-reopen) for rationale
 
 ### 21.5 Pipeline Comment Agent Inference
 
@@ -120,6 +121,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.17 BLOCKED → BLOCKED Blocker Replacement
 
 - When transitioning BLOCKED → BLOCKED, the new `blocked_by` replaces the existing one
+- The transition requires the agent to be the **Project Manager** or the **current assignee** (`wp.assigned_to`) — see [§21.47](#2147-blocked--blocked-agent-guard) for the rationale
 - A `dependency` blocker **cannot** be overwritten with a non-dependency type **unless the agent is the Project Manager** — this preserves auto-unblock eligibility for non-PM transitions while giving the PM an escape hatch for recording additional blockers discovered after initial blocking
 - When a PM overwrites a `dependency` blocker with a non-dependency type, the `dependency` auto-unblock will no longer fire for that WP — the PM accepts responsibility for managing this
 - All other blocker-type changes are allowed
@@ -131,6 +133,8 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - If either is null in a context where it should be present (e.g., `hasNewUpstreamPassSince`), this indicates a data integrity issue
 - Implementations SHOULD emit a project comment of type `"warning"` when a null timestamp is encountered
 - The system fails safe (returns `false` / does not trigger rework), but the anomaly must be surfaced for investigation
+- **Progress-blocking risk:** The `false` default in `hasNewUpstreamPassSince` (§14.6) means a null timestamp causes the downstream agent (QA, Reviewer, Documentation) to receive `WAIT_FOR_REWORK` indefinitely — even if the upstream agent has already completed rework. This is the safer direction for data integrity (avoiding premature re-engagement on stale data) but it blocks progress until the timestamp is repaired
+- **Recommended mitigation:** The PM's `REVIEW_STALE` / `REVIEW_ABANDONED` actions (§14.1.2) will eventually surface the idle WP. Implementations SHOULD additionally detect the null-timestamp condition during `getNextAction` and emit a specific `REPAIR_TIMESTAMPS` PM action so the anomaly is addressed promptly rather than waiting for the staleness threshold
 
 ### 21.19 Stale Pipeline Detection Limitations
 
@@ -293,6 +297,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.40 Abandoned WP Detection (Claimed but No Pipeline)
 
 - An IN_PROGRESS WP with no IN_PROGRESS pipeline and no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) is considered "abandoned" — the claiming agent likely crashed or disconnected before starting work
+- **Grace period:** The WP must have been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` before it is flagged as abandoned. This prevents false positives on freshly claimed WPs where the agent has not yet had time to start a pipeline. Implementations should track the time-of-claim via the WP detail's last status-change timestamp or, as a fallback, the root index's `last_updated` field for the claiming operation
 - Unlike stale pipeline detection (§21.19), which requires an IN_PROGRESS pipeline to exist, abandoned WP detection catches the gap where the WP was claimed but no pipeline was ever created
 - The PM's `REVIEW_ABANDONED` action (§14.1.2, priority 3b) surfaces these WPs, positioned after `REVIEW_STALE` because stale pipelines represent more urgent in-flight work
 - The PM can: (a) unclaim the WP (IN_PROGRESS → READY, which clears `assigned_to`), (b) override-claim on behalf of a different agent, or (c) cancel the WP if appropriate
@@ -309,7 +314,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 - `propagateDependencyReblock` (§15.5) only reblocks **direct** dependents of the reopened WP. Transitive dependents (WPs that depend on a direct dependent, not on the reopened WP itself) are **not** automatically reblocked
 - **Example:** WP-001 → WP-002 → WP-003 (dependency chain). If WP-001 is reopened: WP-002 (depends on WP-001) is reblocked, but WP-003 (depends on WP-002, not WP-001) continues executing — even though its transitive dependency chain is now broken
-- **Correctness is preserved at the state-machine level:** WP-003 cannot reach COMPLETE because WP-002 (its dependency) is now BLOCKED (non-terminal), so the dependency check in `claimWorkPackage` (§10.1) and the general terminal-dependency invariant prevent WP-003 from progressing past its current state. However, any in-flight pipelines on WP-003 continue executing against potentially invalidated assumptions, which may result in wasted work
+- **State-machine integrity is preserved:** WP-003 cannot reach COMPLETE because WP-002 (its dependency) is now BLOCKED (non-terminal), so the dependency check in `claimWorkPackage` (§10.1) and the general terminal-dependency invariant prevent WP-003 from progressing past its current state. However, any in-flight pipelines on WP-003 continue executing against potentially invalidated assumptions, which may result in wasted work and produce misleading pipeline PASS results (e.g., a QA PASS on WP-003 while WP-001 is being reworked)
 - **Mitigation:** The wasted work is bounded — WP-003 cannot claim new WPs or mark itself COMPLETE while WP-002 is non-terminal. When WP-002 is eventually unblocked and re-completed, WP-003's work may still be valid (or the Reviewer/QA will catch inconsistencies in their pipeline passes)
 - Implementations that need stronger guarantees MAY extend `propagateDependencyReblock` with recursive traversal of the dependency graph, applying the same auto-cancelled pipeline closure pattern and dependency blocker to all transitive dependents. This is an optional enhancement beyond the core specification
 
@@ -319,3 +324,30 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - The recommendation engine for Developer will **not** automatically surface this WP for code rework: no implementation FAIL exists (§14.2 priority 4), no downstream FAIL routed to Developer exists because documentation FAIL is self-rework per FAIL_ROUTING_MAP (§14.2 priority 5), and the WP already has an implementation pipeline (§14.2 priority 6)
 - **Expected PM workflow after unblocking:** The PM must manually coordinate the code rework. Options include: (a) unclaim the WP (IN_PROGRESS → READY, which clears `assigned_to`, requires no IN_PROGRESS pipelines — see §21.13), then have the Developer re-claim it; (b) start an implementation pipeline on behalf of the Developer via PM override (§11.1.2); (c) use a project comment to notify the Developer of the required rework
 - This dead zone is a consequence of the `FAIL_ROUTING_MAP` deliberately routing documentation failures to Documentation (self-rework) rather than Developer. The blocker mechanism (not the pipeline routing system) is the escalation path for code-caused documentation failures, and the PM is responsible for the subsequent coordination
+
+### 21.44 Rework Count Reset on WP Reopen
+
+- When a COMPLETE WP is reopened (COMPLETE → IN_PROGRESS), the `rework_counts` map is **reset to absent** (cleared), restoring the full rework budget for the new revision cycle
+- Without this reset, rework iterations accumulated in a prior revision would carry over, causing the circuit breaker (§16.3) to trip prematurely — potentially on the first rework attempt of the new cycle. A PM encountering `REVIEW_REWORK_LIMIT` on a freshly reopened WP would have no actionable path forward other than cancellation
+- The reset is intentional: the `revision` counter (§21.4) already tracks how many times a WP has been reopened, providing the project-level signal that a WP is churning. Per-pipeline rework counts measure iteration intensity *within* a single revision, and should start fresh when the PM or Documentation makes a deliberate decision to reopen
+- Implementations MUST clear `rework_counts` as part of the COMPLETE → IN_PROGRESS transition, alongside the existing `revision` increment and `synthesis_generated` reset
+
+### 21.45 Reopened WP Can Re-Complete Without New Pipeline Work
+
+- After COMPLETE → IN_PROGRESS, if no new `implementation` pipeline starts, the old documentation PASS may still satisfy the freshness check (it post-dates the old implementation start). If all acceptance criteria remain `met: true`, the Documentation agent can immediately call `updateWorkPackageStatus(COMPLETE)` without any substantive rework
+- This is **by design**: the PM or Documentation agent who reopened the WP is responsible for setting up meaningful rework — e.g., by modifying acceptance criteria, starting a new pipeline, or adding handoff notes describing the required changes. The state machine enforces structural integrity (pipeline ordering, agent guards, freshness) but does not enforce that "useful work was done"
+- **Mitigation:** If implementations want to prevent no-op re-completions, they MAY add a guard requiring at least one pipeline started after the COMPLETE → IN_PROGRESS transition. This is an optional enhancement beyond the core specification
+
+### 21.46 PM Handoff Single-Return for Multiple READY WPs
+
+- The Project Manager handoff function (§13.1) iterates READY WPs and returns on the first match (per §13.2 short-circuit semantics). If multiple READY WPs exist with different `assigned_to` values, only the first WP's assigned agent determines the handoff status
+- This is a known limitation of the single-return handoff model: the PM handoff gives a single-agent picture when multiple agents should potentially be engaged simultaneously
+- **Mitigation:** The batch action system (§14.9) compensates at the recommendation level — `getNextActions` returns all actionable WPs, enabling parallel engagement. The handoff limitation affects only the auto-handoff routing (§18), which can only target one agent per cycle. In practice, the auto-handoff chain will process READY WPs sequentially across multiple handoff cycles, eventually engaging all required agents
+- Implementations that need parallel agent activation should use the batch action system rather than relying on the single-return handoff status
+
+### 21.47 BLOCKED → BLOCKED Agent Guard
+
+- The `BLOCKED → BLOCKED` same-state transition requires the agent to be the **Project Manager** or the **current assignee** (`wp.assigned_to`) — see §6.2 and §6.5
+- This prevents arbitrary agents from modifying blockers on WPs they do not own, consistent with the agent guard philosophy applied to `BLOCKED → IN_PROGRESS` (PM/assignee/system) and other guarded transitions
+- Without this guard, any agent could overwrite a PM-managed blocker (e.g., `decision`, `technical`), undermining the PM's blocker-management responsibility
+- The current assignee is permitted because they may have additional context about the blocking condition (e.g., a Developer discovering that a `technical` blocker also has a `decision` component)

@@ -13,9 +13,18 @@ When creating a WP:
 ```
 if dependencies is empty OR all dependencies have terminal status:
   initial_status = READY
+  blocked_by = null
 else:
   initial_status = BLOCKED
+  unresolvedDeps = dependencies.filter(d => NOT isTerminalStatus(d.status))
+  blocked_by = {
+    type: "dependency",
+    description: "Depends on " + unresolvedDeps.map(d => d.work_package_id).join(", "),
+    blocking_work_package: unresolvedDeps[0].work_package_id
+  }
 ```
+
+> **Single-blocker limitation:** The `blocking_work_package` field references only the first unresolved dependency. The `description` field lists all unresolved dependencies for diagnostic visibility, but `blocked_by` is a single object (see [§21.35](edge-cases.md#2135-single-blocker-metadata-limitation)). This does not affect auto-unblock correctness — `propagateDependencyUnblock` (§15.4) checks **all** dependencies regardless of the `blocked_by` content.
 
 ### 15.2 Dependency Validation on Creation
 
@@ -143,9 +152,9 @@ function propagateDependencyReblock(projectPath, reopenedWpId):
   // Transitive dependents (WPs that depend on a direct dependent) are NOT
   // automatically reblocked. Their in-flight pipelines continue executing
   // against potentially invalidated assumptions. This is a known limitation:
-  // - Correctness is preserved at the state-machine level: transitive
-  //   dependents cannot reach COMPLETE because their direct dependency
-  //   (now BLOCKED) is non-terminal, failing the freshness/dependency checks.
+  // State-machine integrity is preserved: transitive dependents cannot
+  //   reach COMPLETE because their direct dependency (now BLOCKED) is
+  //   non-terminal, failing the freshness/dependency checks.
   // - However, in-flight work on transitive dependents may be wasted.
   // - Implementations MAY extend this function with recursive traversal to
   //   reblock transitive dependents. If so, use the same auto_cancelled

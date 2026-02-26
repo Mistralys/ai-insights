@@ -34,10 +34,13 @@ The project status tool auto-corrects counters and project status on every read.
 | 5b | `BLOCKED` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis) |
 | 6 | Empty project (no WPs) | Never auto-healed to `COMPLETE` |
 | 6b | (`IN_PROGRESS` or `BLOCKED`) AND `total == 0` | `READY` (drift repair: no WPs exist to process) |
+| 6c | `COMPLETE` AND `total == 0` | `READY` (drift repair: project marked complete with no WPs — see note below) |
 
 > **Rule 1b/1c/5b semantic note:** In the "all WPs terminal, awaiting synthesis" state, no WP is actively being worked on, yet the project is healed to `IN_PROGRESS`. This extends the §5.2 definition of `IN_PROGRESS` beyond its literal meaning ("at least one WP is being worked on") to also cover the post-completion, pre-synthesis phase. `IN_PROGRESS` is the best available status — the project is neither `READY` (work has been done), `BLOCKED` (synthesis can proceed), nor `COMPLETE` (synthesis hasn't run). Implementations should treat `IN_PROGRESS` with `pending == 0` and `synthesis_generated == false` as the "awaiting synthesis" sub-state.
 
 > **Rule 6b rationale:** If data corruption or an interrupted operation leaves a project `IN_PROGRESS` or `BLOCKED` with zero work packages, no agent can make progress and no other healing rule matches. Healing to `READY` is the most conservative repair — the Project Manager can then re-create work packages.
+
+> **Rule 6c rationale:** A `COMPLETE` project with zero work packages is contradictory — `completeSynthesis` (§19.1) explicitly requires at least one WP. This state can only arise from data corruption (e.g., WP files deleted after synthesis). Healing to `READY` allows the Project Manager to re-create work packages. Without this rule, a COMPLETE-but-empty project would persist in an inconsistent state with no self-repair path.
 
 > **Rule 4 rationale:** A project should not stay `BLOCKED` when some WPs can make progress. Even if other WPs remain `BLOCKED`, the presence of an `IN_PROGRESS` WP means at least one agent can advance. This mirrors rule 3 (which handles the `READY` → `IN_PROGRESS` case) for the `BLOCKED` → `IN_PROGRESS` case.
 
