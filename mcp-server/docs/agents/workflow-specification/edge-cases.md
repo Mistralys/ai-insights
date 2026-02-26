@@ -260,3 +260,19 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - **QA, Reviewer, Documentation** see `CLAIM_WP` only for READY WPs assigned to them — this covers the post auto-unblock scenario (§15.4), where a WP returns to READY with `assigned_to` preserved
 - `CLAIM_WP` is always the lowest priority — rework, active pipelines, and new pipeline starts all take precedence
 - The claiming operation (`claimWorkPackage` §10.1) still enforces all its own guards (status check, assignment check, dependency check), so the recommendation is advisory
+
+### 21.38 Synthesis Staleness After COMPLETE → CANCELLED
+
+- When a WP transitions `COMPLETE → CANCELLED` (§6.2, §21.14), `synthesis_generated` is **not** reset
+- The project remains `COMPLETE` (all WPs still terminal, synthesis done) but the synthesis report now inaccurately describes the cancelled WP as `COMPLETE`
+- This is a known limitation: the PM made a deliberate choice to cancel, and the synthesis captured outcomes at the time of generation
+- Implementations that require an up-to-date synthesis after cancellation should either (a) have the PM reopen the project via a non-cancelled WP's `COMPLETE → IN_PROGRESS` transition (which resets `synthesis_generated`), or (b) add an optional `COMPLETE → CANCELLED resets synthesis_generated` rule as an implementation-specific extension
+- This behavior is consistent with the principle that `COMPLETE → CANCELLED` is a lightweight terminal-to-terminal transition with minimal side effects (no counter change, no cascade reblock, no revision increment)
+
+### 21.39 Orphaned IN_PROGRESS WP with Null `assigned_to`
+
+- If data corruption or an interrupted operation leaves an `IN_PROGRESS` WP with `assigned_to` set to `null`, no agent's recommendation engine will match it via assignment-based checks
+- The WP is not fully orphaned: `startPipeline` (§11.1) auto-updates `assigned_to` to the pipeline owner, so the WP becomes visible to the correct agent once a pipeline is started
+- However, if no pipeline is active (e.g., the WP was claimed and the agent crashed before starting a pipeline), the WP has no owning agent and no recommendation will surface it
+- Self-healing (§17) does not cover WP-level field integrity — it only repairs project-level counters and status
+- **Mitigation:** Implementations SHOULD detect `IN_PROGRESS` WPs with null `assigned_to` and no `IN_PROGRESS` pipeline during `getNextAction` for the Project Manager role, surfacing them as a `REVIEW_STALE`-like action. The PM can then either re-claim on behalf of the correct agent or unclaim the WP (which requires no `IN_PROGRESS` pipelines — already satisfied in this scenario)

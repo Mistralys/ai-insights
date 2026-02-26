@@ -138,6 +138,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `CONTINUE_PIPELINE` | Any pipeline owner | Active (non-stale) IN_PROGRESS pipeline exists for this agent's pipeline type; continue current work |
 | `CLAIM_WP` | Any pipeline owner | READY WP available to claim (dependencies satisfied, unassigned or assigned to this agent) |
 | `FINALIZE_WP` | Documentation | Documentation pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE |
+| `UPDATE_CRITERIA` | Documentation | Documentation pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria or rework documentation |
 
 ## Appendix C: Error Conditions Summary
 

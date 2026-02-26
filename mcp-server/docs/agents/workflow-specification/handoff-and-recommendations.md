@@ -284,12 +284,14 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 1. **BLOCK_FOR_REWORK_LIMIT**: check for WP rework limit
 2. **RESUME_OR_CANCEL**: stale QA pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `qa` pipeline
-4. **RUN_QA** (re-engagement after rework): `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
+4. **RUN_QA** (re-engagement after rework): WP has at least one prior `qa` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
 5. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL AND NOT `hasNewUpstreamPassSince("implementation", "qa")` — QA cannot act; Developer must fix and re-pass implementation first
 6. **RUN_QA** (first run): WP with PASS implementation and no QA pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "QA" with all dependencies satisfied (post auto-unblock scenario)
 
 > **Priority 4 before 5 rationale:** After a QA FAIL → Developer rework → implementation re-PASS cycle, the most recent QA pipeline is still FAIL. Without priority 4, the WAIT_FOR_REWORK check at priority 5 would short-circuit and QA would be told to wait — even though the Developer has already fixed the issue. By checking `hasNewUpstreamPassSince` first, the engine correctly detects that upstream work has been redone and QA should re-engage.
+>
+> The "at least one prior `qa` pipeline" guard ensures that first-run scenarios (no QA pipeline exists yet) fall through to Priority 6 (`RUN_QA` first run), which is semantically more accurate. Without the guard, `hasNewUpstreamPassSince` returns `true` when no downstream pipeline exists (§14.6), making Priority 6 unreachable dead code.
 
 ### 14.4 Reviewer Action Logic
 
@@ -298,12 +300,12 @@ Same pattern, applied to `code-review` pipelines:
 1. **BLOCK_FOR_REWORK_LIMIT**
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `code-review` pipeline
-4. **RUN_REVIEW** (re-engagement after rework): `hasNewUpstreamPassSince("qa", "code-review")` is true — QA re-passed after previous review; Reviewer should re-engage regardless of previous review result
+4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("qa", "code-review")` is true — QA re-passed after previous review; Reviewer should re-engage regardless of previous review result
 5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince("qa", "code-review")` — Reviewer cannot act; Developer must fix and re-pass implementation + QA first
 6. **RUN_REVIEW** (first run): WP with PASS QA and no review pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Reviewer" with all dependencies satisfied (post auto-unblock scenario)
 
-> **Priority 4 before 5 rationale:** Same as QA (§14.3) — `hasNewUpstreamPassSince` must be checked before WAIT_FOR_REWORK to avoid short-circuiting on a stale FAIL when upstream rework has already completed.
+> **Priority 4 before 5 rationale:** Same as QA (§14.3) — `hasNewUpstreamPassSince` must be checked before WAIT_FOR_REWORK to avoid short-circuiting on a stale FAIL when upstream rework has already completed. The "at least one prior pipeline" guard ensures first-run scenarios fall through to Priority 6 (see §14.3 rationale for details).
 
 ### 14.5 Documentation Action Logic
 
@@ -314,10 +316,13 @@ Same pattern, applied to `documentation` pipelines:
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `documentation` pipeline
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
 5. **FINALIZE_WP**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, all acceptance criteria are met, and the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check). The Documentation agent should mark the WP as COMPLETE.
+5b. **UPDATE_CRITERIA**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check passed), but NOT all acceptance criteria are `met: true`. The Documentation agent should update criteria (mark as met) or rework documentation to address remaining criteria.
 6. **WRITE_DOCS**: WP with PASS code-review and no docs yet, OR `hasNewUpstreamPassSince("code-review", "documentation")`
 7. **CLAIM_WP**: READY WP assigned to "Documentation" with all dependencies satisfied (post auto-unblock scenario)
 
 > **Note on handoff vs. recommendation priority:** The Documentation handoff function (§13.1) checks ready-for-docs WPs before FAIL self-rework, while this recommendation engine checks FAIL self-rework (priority 4) before WRITE_DOCS (priority 6). This is intentional: handoff answers "who should act next?" (new-work-first bias to avoid idle agents), while the recommendation engine answers "what should I do?" (fix-failures-first bias to prevent broken WPs from accumulating). Implementations should not attempt to unify these orderings.
+>
+> **Auto-handoff implication:** Because auto-handoff (§18) uses handoff status, the Documentation agent may be invoked via auto-handoff for a new-docs WP while it has a FAIL documentation pipeline on another WP. The receiving agent's `getNextAction` will then recommend REWORK (priority 4) instead of the work the handoff intended. This may cause a wasted handoff cycle — the agent resolves the FAIL rather than the new-docs WP. This is acceptable: the REWORK takes priority regardless of how the agent was invoked, and the new-docs WP will be picked up in the next cycle. Implementations should not special-case the recommendation engine based on handoff context.
 
 ### 14.6 `hasNewUpstreamPassSince` Algorithm
 

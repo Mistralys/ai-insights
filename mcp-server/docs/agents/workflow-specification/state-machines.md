@@ -33,7 +33,7 @@ Error: Reject if ledger already exists
 | `READY` | Project initialized, no work started |
 | `IN_PROGRESS` | At least one WP is being worked on |
 | `COMPLETE` | All WPs terminal AND synthesis generated |
-| `BLOCKED` | All non-terminal WPs are blocked or cancelled (no WP is `IN_PROGRESS` or `READY`) |
+| `BLOCKED` | All non-terminal WPs are `BLOCKED` (equivalently: no WP is `IN_PROGRESS` or `READY`) |
 
 ### 5.3 Automatic Project Status Transitions
 
