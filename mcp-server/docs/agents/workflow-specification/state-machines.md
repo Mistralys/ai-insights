@@ -30,7 +30,7 @@ Error: Reject if ledger already exists
 
 | Status | Meaning |
 |--------|---------|
-| `READY` | Project initialized, no work started |
+| `READY` | No WP is `IN_PROGRESS`; at least one WP is `READY` or no WPs exist yet. Also the initial status after project initialization. May be reached after work has started (e.g., via auto-unblock §15.4 or self-healing §17.2 rule 4b/6b). |
 | `IN_PROGRESS` | At least one WP is being worked on, OR all WPs are terminal but synthesis has not yet been generated (see §17.2 rules 1b/1c/5b) |
 | `COMPLETE` | All WPs terminal AND synthesis generated |
 | `BLOCKED` | All non-terminal WPs are `BLOCKED` (equivalently: no WP is `IN_PROGRESS` or `READY`) |
@@ -118,6 +118,8 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 - `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
 - All other same-state transitions are pure no-ops that skip validation
 
+> **Same-state behavioral asymmetry:** `BLOCKED → BLOCKED` and `COMPLETE → COMPLETE` are both listed as same-state transitions, but they differ fundamentally in semantics. `BLOCKED → BLOCKED` is a **substantive operation** — it replaces the `blocked_by` payload, requires agent guards (PM or assignee), and enforces blocker-type transition rules (see §6.2 replacement rule). `COMPLETE → COMPLETE` is a **pure no-op** — only the agent identity is checked; no data is modified. The asymmetry arises because BLOCKED carries mutable metadata (`blocked_by`) that same-state transitions can validly update, whereas COMPLETE has no analogous mutable field that a same-state call would change.
+
 > **BLOCKED → BLOCKED agent guard:** The `BLOCKED → BLOCKED` same-state transition requires the agent to be the **Project Manager** or the **current assignee** (`wp.assigned_to`). This prevents arbitrary agents from modifying blockers on WPs they do not own, consistent with the agent guard philosophy applied to other transitions.
 >
 > **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`) **unless the agent is the Project Manager**. This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. The PM exception allows recording non-dependency blockers discovered after the initial dependency block; the PM accepts responsibility for managing the auto-unblock implications (the `dependency` auto-unblock will no longer fire for this WP). All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
@@ -173,7 +175,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | Transition | Allowed Agents |
 |------------|---------------|
 | READY → IN_PROGRESS (claim) | Pipeline-owning agents (Developer, QA, Reviewer, Documentation), "Project Manager" (see [§10.1](operations.md#101-algorithm), [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
-| → COMPLETE | "Documentation" (or "Documentation Agent") |
+| → COMPLETE | "Documentation" (or "Documentation Agent") — for same-state `COMPLETE → COMPLETE`, only the agent identity check is enforced; the full completion guards (acceptance criteria, documentation pipeline PASS, freshness check) are **not** re-evaluated (see §6.2 same-state transition rules) |
 | → CANCELLED | "Project Manager" (or "Project Manager Agent") |
 | BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
 | BLOCKED → READY | System only (auto-unblock via §15.4 — no manual agent guard) |

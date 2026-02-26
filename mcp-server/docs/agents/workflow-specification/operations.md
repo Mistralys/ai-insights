@@ -57,6 +57,8 @@ The override flag is only relevant when `wp.assigned_to` is set to a *different*
 | Project Manager | Yes |
 | Any other agent (including current assignee — but the outer guard already passed for current assignee) | No — hard rejection |
 
+> **Design principle — point-in-time dependency validation:** Dependency checks (`canStartWorkPackage`) are enforced at claim time (§10.1) only. Once a WP is IN_PROGRESS, `startPipeline` (§11.1) does **not** re-check dependencies. If a dependency is reopened (COMPLETE → IN_PROGRESS) after a dependent WP has already been claimed, the cascade reblock mechanism (§15.5) is the sole line of defense for direct dependents, and transitive dependents are not reblocked at all (§21.42). This is a conscious trade-off: continuous dependency validation would add complexity and performance cost to every pipeline operation, whereas the cascade reblock mechanism handles the common case (direct dependents). The recommendation engine’s `hasNewUpstreamPassSince` (§14.6) provides soft enforcement for the remaining cases.
+
 ---
 
 ## 11. Starting a Pipeline
@@ -97,11 +99,15 @@ function startPipeline(wp, root, pipelineType, agentRole):
          AND prereqPass.completed_at < lastSame.completed_at:
         // Prerequisite passed BEFORE the current pipeline type last ran
         // (regardless of whether lastSame is PASS or FAIL).
-        // Check for a FAIL at or downstream of the prerequisite — this includes
+        // Check for a FAIL downstream of the prerequisite — this includes
         // the current pipeline type itself, since it is downstream of its own
         // prerequisite. Using `prerequisite` (not `pipelineType`) is intentional:
         // getDownstreamTypes(prerequisite) includes the current type, so a FAIL
         // of the current type (e.g., review-1 FAIL) is correctly detected.
+        // Note: hasDownstreamFail checks types *downstream* of position, not
+        // the position itself (see §8.4). The prerequisite type is included in
+        // the result only when the current type == prerequisite, which cannot
+        // happen (a pipeline cannot be its own prerequisite per §8.1).
         if hasDownstreamFail(wp.pipelines, prerequisite):
           // Upstream activity check: Only block if actual upstream rework occurred.
           // Without this, self-rework of a pipeline type (e.g., documentation
@@ -216,7 +222,7 @@ The `rework_counts` map is absent (`null`/`undefined`) until the first rework on
 
 > **Per-pipeline isolation:** Documentation self-rework cycles (Documentation FAIL → Documentation re-runs) increment only `rework_counts.documentation`, not `rework_counts.implementation`. This prevents trivial documentation fixes from exhausting the implementation rework budget. Conversely, repeated QA/Review failures that trigger Developer rework increment `rework_counts.implementation` via downstream-fail detection.
 
-> **Parallel counter increments during rework chains:** In a typical QA-fail rework cycle, *both* `rework_counts.implementation` and `rework_counts.qa` increment: the Developer restarts implementation (downstream QA FAIL detected → `implementation++`), and QA restarts qa (direct rework of previous FAIL → `qa++`). After 5 such cycles, both counters reach the circuit breaker limit simultaneously. This is by design — each counter tracks how many times *that specific pipeline type* has been retried, regardless of the root cause. The circuit breaker engages on whichever pipeline type reaches the limit first.
+> **Parallel counter increments during rework chains:** In a typical QA-fail rework cycle, *both* `rework_counts.implementation` and `rework_counts.qa` increment: the Developer restarts implementation (downstream QA FAIL detected → `implementation++`), and QA restarts qa (direct rework of previous FAIL → `qa++`). In the simplest case (one implementation attempt per QA failure), both counters increment at the same rate and reach the circuit breaker limit at the same time after 5 cycles. However, if the Developer requires multiple implementation attempts per QA failure, `rework_counts.implementation` will reach the limit before `rework_counts.qa`. This is by design — each counter tracks how many times *that specific pipeline type* has been retried, regardless of the root cause. The circuit breaker engages on whichever pipeline type reaches the limit first.
 
 > **Auto-cancelled pipeline exclusion:** When determining the "most recent pipeline of same type" for rework detection, auto-cancelled pipelines (`auto_cancelled = true`) are filtered out. An auto-cancelled FAIL — from cascade reblock ([§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock)) or manual IN_PROGRESS → BLOCKED transition — does not trigger rework count increments. See [§21.27](edge-cases.md#2127-auto-cancelled-pipelines).
 
@@ -239,6 +245,8 @@ function hasDownstreamFail(pipelines, pipelineType):
 ```
 
 This ensures the circuit breaker engages for the common pattern: QA/review fails → Developer restarts implementation.
+
+> **Naming note:** Despite its name, `hasDownstreamFail` is sometimes called with the *prerequisite* type (one step upstream of the current pipeline type) rather than the current type itself — see the re-validation guard in §11.1. This is because `getDownstreamTypes(prerequisite)` includes the current pipeline type, allowing the function to detect a FAIL of the current type (e.g., `hasDownstreamFail("qa")` detects a review-1 FAIL when starting code-review). The function name reflects its general purpose ("are there failures downstream of X?"), and the caller controls the scope by choosing the input type.
 
 ---
 

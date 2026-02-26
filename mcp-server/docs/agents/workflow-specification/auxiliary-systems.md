@@ -156,6 +156,8 @@ if (root.auto_handoff_depth ?? 0) != 0:
 
 Individual WP completions do **not** reset the counter. This prevents the counter from being reset N times in a project with N work packages, which would allow `MAX_HANDOFF_DEPTH × N` total handoffs and undermine the loop guard.
 
+> **Wasted handoff cycles:** When the handoff function (§13.1) and the recommendation engine (§14) have different priority orderings (e.g., Documentation handoff checks new-work WPs before FAIL self-rework, while `getNextAction` checks FAIL self-rework first — see §14.5), a handoff may invoke an agent that immediately prioritizes different work than the handoff intended. Each such “wasted” handoff still increments the depth counter. Over many such cycles, this can consume depth budget without productive handoff progress. The dynamic scaling (§18.2.1) provides generous headroom to absorb this, but implementations that observe frequent wasted handoffs MAY consider aligning handoff and recommendation priorities for specific roles, or skipping the depth increment when the receiving agent's `getNextAction` targets a different WP than the handoff intended. Such optimizations are beyond the core specification.
+
 ### 18.5 Depth-Exceeded Behavior
 
 - No error thrown

@@ -259,7 +259,8 @@ Priority order:
 2. **RESUME_OR_CANCEL**: WP has stale IN_PROGRESS `implementation` pipeline (>24h)
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `implementation` pipeline — the Developer has work in progress
 4. **REWORK** (direct): WP where most recent `implementation` pipeline is FAIL
-5. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa` or `code-review` pipeline is FAIL. Documentation FAIL is excluded (routes to Documentation self-rework).
+5. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa` or `code-review` pipeline is FAIL — **AND** `hasDownstreamReengagedSince("implementation")` is false (§14.13) — the downstream agent has not yet re-engaged since the Developer's fix. Documentation FAIL is excluded (routes to Documentation self-rework).
+5b. **WAIT_FOR_DOWNSTREAM**: WP where most recent `implementation` is PASS, a downstream pipeline whose FAIL routes to Developer has FAILed, but `hasDownstreamReengagedSince("implementation")` is true — the Developer's rework has been delivered and the downstream agent should re-engage next. The Developer should wait rather than starting redundant rework.
 6. **IMPLEMENT**: WP that is IN_PROGRESS, has no implementation pipeline yet
 7. **CLAIM_WP**: WP that is READY, all dependencies satisfied, and either unassigned or assigned to "Developer"
 
@@ -287,10 +288,23 @@ function getDeveloperAction(root, store):
   // Priority 5: Downstream-triggered rework (impl PASS, but QA or review FAIL)
   // Only check types whose FAIL routes to Developer per FAIL_ROUTING_MAP (§9.3).
   // Documentation FAIL routes to Documentation (self-rework) and is excluded.
+  // Temporal guard: skip if the Developer has already completed rework and the
+  // downstream agent has not yet re-engaged (see §14.13, §21.52).
   developerReworkTypes = ["qa", "code-review"]
   for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
     if WP is dependency-blocked: skip
+    if hasDownstreamReengagedSince(wp.pipelines, "implementation"):
+      continue    // Developer's fix delivered; waiting for downstream re-engagement
     return REWORK with downstream_triggered = true
+  
+  // Priority 5b: Delivered rework awaiting downstream re-engagement
+  // WPs that matched the downstream-fail condition above but were skipped by the
+  // temporal guard. The Developer should wait rather than churning through redundant
+  // implementation cycles.
+  for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
+    if WP is dependency-blocked: skip
+    if hasDownstreamReengagedSince(wp.pipelines, "implementation"):
+      return WAIT_FOR_DOWNSTREAM with wp.id
   
   // Priority 6: Fresh implementation needed
   for each IN_PROGRESS WP with no implementation pipeline yet:
@@ -458,3 +472,68 @@ function mostRecentEffectivePipeline(wp):
 ```
 
 > **Why exclude auto-cancelled:** An auto-cancelled pipeline's `completed_at` is set at the time of cascade reblock (§15.5) or manual BLOCKED transition — not when real work was last performed. Without this exclusion, a WP that was cascade-reblocked, unblocked, and re-claimed but never worked on would not be flagged as abandoned until the auto-cancelled pipeline's `completed_at` ages past `STALE_PIPELINE_HOURS`. This is consistent with the §21.27 principle that auto-cancelled pipelines are excluded from quality-related decisions.
+
+### 14.12 `wpClaimedDuration` Algorithm
+
+Returns how long a WP has been in its current IN_PROGRESS state. Used by the PM's `REVIEW_ABANDONED` detection (§14.1.2) to enforce the grace period.
+
+```
+function wpClaimedDuration(wp):
+  // Prefer WP detail's last status-change timestamp if tracked by the implementation.
+  // Fallback: use the WP's most recent pipeline start or the root index's last_updated
+  // as a proxy for when the WP was claimed.
+  if wp.status_changed_at is not null:
+    return now() - wp.status_changed_at
+  
+  // Fallback: find the earliest pipeline started_at on the WP as a lower bound.
+  // If no pipelines exist (the scenario we're detecting), fall back to root.last_updated.
+  allPipelines = wp.pipelines.filter(p => p.started_at is not null)
+  if allPipelines is not empty:
+    return now() - allPipelines.first().started_at
+  
+  // Final fallback: root.last_updated (imprecise but conservative)
+  return now() - root.last_updated
+```
+
+> **Implementation note:** The `status_changed_at` field is not part of the core `WorkPackageDetail` schema (§3.3). Implementations that need precise claimed-duration tracking SHOULD add this field and update it on every WP status transition. The fallback heuristics above provide reasonable approximations when the field is absent.
+
+### 14.13 `hasDownstreamReengagedSince` Algorithm
+
+Determines whether the downstream agent (whose FAIL triggered Developer rework) has started a new pipeline since the Developer's most recent implementation PASS. Used by the Developer recommendation engine (§14.2, priority 5) to prevent redundant rework cycles.
+
+```
+function hasDownstreamReengagedSince(pipelines, upstreamType):
+  // Find most recent upstream PASS (excluding auto-cancelled)
+  upstreamPass = pipelines
+    .filter(p => p.type == upstreamType AND p.status == "PASS" AND NOT p.auto_cancelled)
+    .last()
+  
+  if upstreamPass is null OR upstreamPass.completed_at is null:
+    return false              // No upstream PASS to compare against
+  
+  // Check if any downstream pipeline type (whose FAIL routes to Developer)
+  // has started AT or AFTER the upstream PASS completed.
+  // This indicates the downstream agent has re-engaged to validate the fix.
+  developerReworkTypes = ["qa", "code-review"]
+  for each dsType in developerReworkTypes:
+    dsPipelines = pipelines
+      .filter(p => p.type == dsType AND NOT p.auto_cancelled)
+    if dsPipelines is not empty:
+      mostRecent = dsPipelines.last()
+      if mostRecent.started_at is not null
+         AND mostRecent.started_at >= upstreamPass.completed_at:
+        return true            // Downstream has re-engaged since the fix
+  
+  return false                  // No downstream re-engagement detected
+```
+
+| Scenario | Result |
+|----------|--------|
+| impl-1 PASS → qa-1 FAIL (no further activity) | `false` — Developer should rework |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS (no QA re-engagement) | `true` — Developer's fix delivered; wait for QA |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 started | `true` — QA already re-engaged |
+| impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 FAIL | `true` — but `isMostRecentPipelineFail("qa")` still true AND `hasDownstreamReengagedSince` detects qa-2 started after impl-2 PASS → however, since qa-2 FAIL post-dates impl-2 PASS, this means the fix didn't work; see note below |
+
+> **Interaction with re-engagement that fails again:** When the downstream agent re-engages and FAILs again (e.g., qa-2 FAIL after impl-2 PASS), `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS). At first glance this seems wrong — the Developer should rework again. However, at this point `isMostRecentPipelineFail("qa")` is still `true` AND `isMostRecentPipelineFail("implementation")` is `false` (impl-2 is PASS), so priority 5's outer condition fires. The temporal guard then checks: has a downstream pipeline started since impl-2 PASS? Yes — qa-2. But qa-2 also *completed* as FAIL after impl-2 PASS. To distinguish "re-engaged but not yet completed" from "re-engaged and failed again", the function checks `started_at` only, not completion status. When qa-2 has completed as FAIL, the Developer's next `getNextAction` call sees that `hasDownstreamReengagedSince` returns `true` — but this is the *previous* re-engagement. A new implementation PASS (impl-3) would reset the comparison point: `hasDownstreamReengagedSince` would return `false` again (no downstream pipeline started since impl-3 PASS), re-entering the REWORK path. The net effect: the Developer receives one WAIT_FOR_DOWNSTREAM per implementation PASS, then resumes REWORK if the downstream agent FAILs again. This prevents the pathological loop identified in §21.52 while preserving correct rework signaling after repeated failures.
+
+> **Auto-cancelled pipeline exclusion:** Consistent with §21.27, auto-cancelled pipelines are excluded from both the upstream PASS lookup and the downstream re-engagement check.

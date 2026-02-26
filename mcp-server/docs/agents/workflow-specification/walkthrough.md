@@ -134,6 +134,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `WRITE_DOCS` | Documentation | WP needs documentation |
 | `REWORK` | Developer/Documentation | Most recent pipeline FAIL (direct self-rework), or downstream pipeline FAIL routed to this agent (downstream-triggered rework — Developer only, see §14.2) |
 | `WAIT_FOR_REWORK` | QA/Reviewer | Most recent pipeline FAIL AND no upstream re-pass detected (`hasNewUpstreamPassSince` is false); another agent must fix first |
+| `WAIT_FOR_DOWNSTREAM` | Developer | Most recent implementation is PASS, a downstream pipeline (QA/review) has FAILed, but the downstream agent has not yet re-engaged since the Developer's fix (`hasDownstreamReengagedSince` §14.13 is true). Developer should wait rather than starting redundant rework. See [§21.52](edge-cases.md#2152-developer-downstream-rework-churn-prevention). |
 | `WAIT` | Any | No actionable work available |
 | `RESUME_OR_CANCEL` | Any | Stale pipeline detected; decide whether to resume or cancel |
 | `BLOCK_FOR_REWORK_LIMIT` | Any pipeline owner | Per-pipeline rework limit reached; requires human intervention |
@@ -141,6 +142,8 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `CLAIM_WP` | Any pipeline owner | READY WP available to claim (dependencies satisfied, unassigned or assigned to this agent) |
 | `FINALIZE_WP` | Documentation | Documentation pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE |
 | `UPDATE_CRITERIA` | Documentation | Documentation pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria, rework documentation, or escalate via BLOCKED with `technical` blocker (§21.24) |
+| `REPAIR_TIMESTAMPS` | PM | Null timestamp detected on a pipeline where `started_at` or `completed_at` should be present; data integrity issue blocking downstream agent progress (see [§21.18](edge-cases.md#2118-null-timestamp-data-integrity)). Recommended (SHOULD) — not all implementations may emit this action. |
+| `REPAIR_ORPHAN_BLOCKED` | PM | WP is BLOCKED with a `dependency` blocker but all dependencies are terminal; inconsistent state from cascade lock gap or interrupted operation (see [§21.20](edge-cases.md#2120-cascade-lock-gap-recovery)). Recommended (SHOULD) — implementations may auto-repair instead. |
 
 ## Appendix C: Error Conditions Summary
 

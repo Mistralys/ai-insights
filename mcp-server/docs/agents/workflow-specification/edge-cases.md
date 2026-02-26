@@ -126,6 +126,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - When a PM overwrites a `dependency` blocker with a non-dependency type, the `dependency` auto-unblock will no longer fire for that WP — the PM accepts responsibility for managing this
 - All other blocker-type changes are allowed
 - Use case: PM re-classifies a blocker (e.g., `technical` → `decision`) without unblocking first
+- **Known latency — non-dependency → dependency re-classification:** If an assignee changes a WP's blocker from a non-dependency type (e.g., `technical`) to `dependency` *after* the referenced dependency WP has already reached terminal status, no auto-unblock fires. `propagateDependencyUnblock` (§15.4) is event-driven — it triggers when a dependency WP transitions to terminal, not on blocker re-classification. The WP remains BLOCKED until the PM detects it via `REPAIR_ORPHAN_BLOCKED` ([§21.20](#2120-cascade-lock-gap-recovery)) or manually unblocks. Implementations that need immediate auto-unblock on re-classification MAY invoke `propagateDependencyUnblock` as a side effect of the BLOCKED → BLOCKED transition when the new blocker type is `dependency`
 
 ### 21.18 Null Timestamp Data Integrity
 
@@ -138,8 +139,8 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 ### 21.19 Stale Pipeline Detection Limitations
 
-- Stale detection only fires via `getNextAction` for the pipeline's owning agent role
-- If no agent of the correct role queries, a stale pipeline is never detected
+- Stale detection fires via `getNextAction` for the pipeline's owning agent role (§14.2–§14.5, priority 2) **and** via the Project Manager's `REVIEW_STALE` action (§14.1.2, priority 3). The PM provides a cross-role safety net — if no agent of the correct role queries, the PM can still detect stale pipelines
+- However, if *neither* the owning agent nor the PM queries `getNextAction`, a stale pipeline is never detected
 - The 24-hour threshold means up to 23 hours of idle time if an agent crashes early in a pipeline
 - Implementations may optionally expose a PM "check stale now" action to mitigate this gap
 
@@ -285,6 +286,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - This is a known limitation: the PM made a deliberate choice to cancel, and the synthesis captured outcomes at the time of generation
 - Implementations that require an up-to-date synthesis after cancellation should either (a) have the PM reopen the project via a non-cancelled WP's `COMPLETE → IN_PROGRESS` transition (which resets `synthesis_generated`), or (b) add an optional `COMPLETE → CANCELLED resets synthesis_generated` rule as an implementation-specific extension
 - This behavior is consistent with the principle that `COMPLETE → CANCELLED` is a lightweight terminal-to-terminal transition with minimal side effects (no counter change, no cascade reblock, no revision increment)
+- **Contrast with §21.51:** WP creation on a COMPLETE project **does** reset `synthesis_generated` because it introduces *new* work that the prior synthesis never covered. `COMPLETE → CANCELLED` only removes existing work — the synthesis report is stale but not *missing* coverage. This asymmetry is intentional: new work always invalidates synthesis; post-hoc cancellation is a PM judgment call
 
 ### 21.39 Orphaned IN_PROGRESS WP with Null `assigned_to`
 
@@ -298,7 +300,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 - An IN_PROGRESS WP with no IN_PROGRESS pipeline and no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) is considered "abandoned" — the claiming agent likely crashed or disconnected before starting work
 - **Grace period:** The WP must have been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` before it is flagged as abandoned. This prevents false positives on freshly claimed WPs where the agent has not yet had time to start a pipeline. Implementations should track the time-of-claim via the WP detail's last status-change timestamp or, as a fallback, the root index's `last_updated` field for the claiming operation
-- Unlike stale pipeline detection (§21.19), which requires an IN_PROGRESS pipeline to exist, abandoned WP detection catches the gap where the WP was claimed but no pipeline was ever created
+- Unlike stale pipeline detection (§14.8, §21.19), which requires an IN_PROGRESS pipeline to exist, abandoned WP detection catches the gap where the WP was claimed but no pipeline was ever created
 - The PM's `REVIEW_ABANDONED` action (§14.1.2, priority 3b) surfaces these WPs, positioned after `REVIEW_STALE` because stale pipelines represent more urgent in-flight work
 - The PM can: (a) unclaim the WP (IN_PROGRESS → READY, which clears `assigned_to`), (b) override-claim on behalf of a different agent, or (c) cancel the WP if appropriate
 - This also covers the null-`assigned_to` edge case (§21.39), since the check is based on pipeline activity, not assignment state
@@ -312,12 +314,14 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 ### 21.42 Transitive Cascade Reblock Limitation
 
+> **⚠ Safety-critical implementations should evaluate the recursive extension described below.** The compounding effects of this limitation can produce stale pipeline results that bypass both the re-validation guard and the recommendation engine's advisory checks.
+
 - `propagateDependencyReblock` (§15.5) only reblocks **direct** dependents of the reopened WP. Transitive dependents (WPs that depend on a direct dependent, not on the reopened WP itself) are **not** automatically reblocked
 - **Example:** WP-001 → WP-002 → WP-003 (dependency chain). If WP-001 is reopened: WP-002 (depends on WP-001) is reblocked, but WP-003 (depends on WP-002, not WP-001) continues executing — even though its transitive dependency chain is now broken
 - **State-machine integrity is preserved:** WP-003 cannot reach COMPLETE because WP-002 (its dependency) is now BLOCKED (non-terminal), so the dependency check in `claimWorkPackage` (§10.1) and the general terminal-dependency invariant prevent WP-003 from progressing past its current state. However, any in-flight pipelines on WP-003 continue executing against potentially invalidated assumptions, which may result in wasted work and produce misleading pipeline PASS results (e.g., a QA PASS on WP-003 while WP-001 is being reworked)
 - **Mitigation:** The wasted work is bounded — WP-003 cannot claim new WPs or mark itself COMPLETE while WP-002 is non-terminal. When WP-002 is eventually unblocked and re-completed, WP-003's work may still be valid (or the Reviewer/QA will catch inconsistencies in their pipeline passes)
-- **Stale prerequisite interaction:** Beyond wasted work, the continued execution produces pipeline PASS results that persist after WP-002 eventually re-completes and unblocks WP-003. These stale PASSes may satisfy prerequisite checks for later pipeline types — e.g., a QA PASS on WP-003 (validating the pre-reopen state of WP-001) could allow `startPipeline(type=code-review)` to proceed without re-running QA. The re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) does not catch this because no downstream FAIL exists (see "Known limitation — WP reopen scenario" in §11.1.1). The recommendation engine's `hasNewUpstreamPassSince` check mitigates this at the advisory level, but no hard enforcement exists for the transitive case
-- Implementations that need stronger guarantees MAY extend `propagateDependencyReblock` with recursive traversal of the dependency graph, applying the same auto-cancelled pipeline closure pattern and dependency blocker to all transitive dependents. This is an optional enhancement beyond the core specification
+- **Stale prerequisite interaction (compounding gap):** Beyond wasted work, the continued execution produces pipeline PASS results that persist after WP-002 eventually re-completes and unblocks WP-003. These stale PASSes may satisfy prerequisite checks for later pipeline types — e.g., a QA PASS on WP-003 (validating the pre-reopen state of WP-001) could allow `startPipeline(type=code-review)` to proceed without re-running QA. This gap compounds because **three independent safeguards all miss it simultaneously**: (1) the re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) does not fire because no downstream FAIL exists (see "Known limitation — WP reopen scenario" in §11.1.1); (2) the recommendation engine's `hasNewUpstreamPassSince` only compares adjacent pipeline types within a single WP, not across the dependency graph; (3) cascade reblock is limited to direct dependents by design. For longer dependency chains (A → B → C → D), nodes further from the reopened WP have progressively less protection against stale state
+- **Recommended extension for safety-critical implementations:** Extend `propagateDependencyReblock` with recursive traversal of the dependency graph, applying the same auto-cancelled pipeline closure pattern and dependency blocker to all transitive dependents. This eliminates the compounding gap at the cost of broader state disruption on reopen. Implementations that adopt this extension should use a visited-set to prevent infinite traversal in case of (invalid) cyclic dependencies
 
 ### 21.43 Post-Technical-Blocker Unblock Routing
 
@@ -381,3 +385,29 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
 - Non-pipeline agents (Planner, Synthesis) cannot claim WPs — they have no pipeline types to start (§4.1), so a WP claimed by them would be stranded in IN_PROGRESS with no pipeline activity until the PM notices via `REVIEW_ABANDONED` ([§14.1.2](handoff-and-recommendations.md#1412-project-manager-action-logic))
 - This guard is consistent with the spec's enforcement philosophy: pipeline agent guards exist on `startPipeline` ([§11.1.2](operations.md#1112-agent-role-validation)) and `completePipeline` ([§12.4](operations.md#124-agent-role-validation-on-completion)), and the claiming guard extends this to the entry point of the WP lifecycle
 - The PM is permitted to claim on behalf of any pipeline-owning agent (e.g., re-claiming an abandoned WP), consistent with the PM override pattern used throughout the spec
+
+### 21.50 No Agent Guard on Work Package Creation
+
+- The `create_work_package` operation does **not** enforce an agent role guard — any agent may theoretically create a WP
+- In practice, only the Project Manager creates WPs (see §22, Phase 1, step 3), and `getNextAction` only returns `CREATE_WORK_PACKAGES` for the PM role (§14.1)
+- This is a **soft enforcement** model: the recommendation engine steers correct behavior, but no hard guard prevents other agents from calling the underlying tool
+- This approach is intentional: during edge cases (e.g., a Developer discovering the need for a new WP), it may be useful for non-PM agents to create WPs rather than requiring a handoff back to the PM
+- Implementations that require stricter control MAY add a guard restricting WP creation to the Project Manager role, consistent with the enforcement philosophy applied to other lifecycle operations
+
+### 21.51 Work Package Creation on a COMPLETE Project
+
+- If the PM creates a new WP on a `COMPLETE` project (all WPs terminal, `synthesis_generated == true`), the project enters an inconsistent state: `pending_work_packages > 0` while `synthesis_generated` remains `true`
+- Self-healing rule 2 (§17.2) fires on the next status read: `COMPLETE AND pending > 0` → `IN_PROGRESS`. However, `synthesis_generated` is **not** reset by self-healing — it is only reset by the COMPLETE → IN_PROGRESS WP transition (§6.2) and cascade reblock (§15.5)
+- This means the project would be `IN_PROGRESS` with `synthesis_generated == true` and a pending WP — an anomalous combination. Once the new WP reaches a terminal state, self-healing rule 1 (§17.2) would set the project to `COMPLETE` without requiring the Synthesis agent to re-run, producing a stale synthesis report
+- **Prescribed behavior:** WP creation on a COMPLETE project MUST reset `synthesis_generated` to `false`. This ensures the Synthesis agent is required to re-run after the new WP completes, producing an up-to-date report
+- This is analogous to the `synthesis_generated` reset on COMPLETE → IN_PROGRESS (§21.26) — both represent the introduction of new work that invalidates a prior synthesis
+- **Contrast with §21.38:** `COMPLETE → CANCELLED` does **not** reset `synthesis_generated` because cancellation removes existing work rather than introducing new work. See §21.38 for the full rationale
+
+### 21.52 Developer Downstream-Rework Churn Prevention
+
+- After the Developer completes rework (e.g., impl-2 PASS following a qa-1 FAIL), the most recent downstream pipeline is still FAIL. Without a temporal guard, the Developer's `getNextAction` (§14.2 priority 5) would immediately recommend REWORK again — even though the fix has already been delivered and the downstream agent (QA) should re-engage next
+- In headless/automated orchestration, this produces a pathological loop: the Developer churns through redundant implementation cycles (impl-3, impl-4, ...) before the downstream agent gets a turn, exhausting the circuit breaker budget (`rework_counts.implementation` reaching `MAX_REWORK_COUNT`) without any quality signal from downstream
+- **Resolution:** The `hasDownstreamReengagedSince` function (§14.13) detects whether a downstream agent has started a pipeline since the Developer's most recent implementation PASS. When the fix has been delivered but downstream hasn't re-engaged, the Developer receives `WAIT_FOR_DOWNSTREAM` (§14.2 priority 5b) instead of `REWORK`
+- **Trace — prevented churn:** impl-1 PASS → qa-1 FAIL → impl-2 PASS → Developer calls `getNextAction` → priority 5 fires (`isMostRecentPipelineFail("qa")` is true) → `hasDownstreamReengagedSince` returns `true` (impl-2 PASS exists, no QA started since) → skip to priority 5b → **WAIT_FOR_DOWNSTREAM** ✓
+- **Trace — re-engagement then re-failure:** impl-1 PASS → qa-1 FAIL → impl-2 PASS → qa-2 FAIL → Developer calls `getNextAction` → priority 5 fires → `hasDownstreamReengagedSince` returns `true` (qa-2 started after impl-2 PASS) → skip to priority 5b → **WAIT_FOR_DOWNSTREAM**. However, the Developer now needs to rework again. On the *next* cycle: Developer starts impl-3 PASS (e.g., because the qa-2 FAIL handoff note prompted manual routing) → `hasDownstreamReengagedSince` returns `false` (no downstream started since impl-3 PASS) → **REWORK** would fire if needed. The one-cycle WAIT_FOR_DOWNSTREAM delay after qa-2 FAIL is acceptable — the handoff system (§12.2) routes qa-2 FAIL to Developer, and the PM or auto-handoff can re-invoke the Developer
+- This is the Developer-side counterpart of the QA/Reviewer `hasNewUpstreamPassSince` check (§14.3 priority 4, §14.4 priority 4), which prevents *downstream* agents from waiting indefinitely after upstream rework completes. Together they form a symmetric temporal guard: upstream agents wait for downstream re-engagement, and downstream agents detect upstream re-passes
