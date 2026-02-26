@@ -16,3 +16,4 @@
 /orchestrator/.venv/
 /orchestrator/checkpoints/
 /orchestrator/logs/
+/.idea
