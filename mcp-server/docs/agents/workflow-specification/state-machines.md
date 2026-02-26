@@ -1,0 +1,187 @@
+# State Machines
+
+> Part of the [Agent Workflow Specification](README.md).
+
+---
+
+## 5. Project Lifecycle
+
+### 5.1 Initialization
+
+```
+Input: project_path, plan_file
+Precondition: No ledger exists for this project
+
+Steps:
+  1. Derive slug from project_path (folder basename)
+  2. Create root index with:
+     - status = READY
+     - total_work_packages = 0
+     - pending_work_packages = 0
+     - work_packages = []
+     - project_comments = []
+  3. Create project metadata file (.meta.json) alongside root index
+  4. Return root index
+
+Error: Reject if ledger already exists
+```
+
+### 5.2 Project Status Values
+
+| Status | Meaning |
+|--------|---------|
+| `READY` | Project initialized, no work started |
+| `IN_PROGRESS` | At least one WP is being worked on |
+| `COMPLETE` | All WPs terminal AND synthesis generated |
+| `BLOCKED` | One or more WPs blocked |
+
+### 5.3 Automatic Project Status Transitions
+
+Project status updates are **implicit** — they happen as side effects of WP operations:
+
+- Project transitions to `IN_PROGRESS` when first WP is created (if it was `READY`)
+- Project transitions to `BLOCKED` when a WP transitions to `BLOCKED` AND no other WP is `IN_PROGRESS` or `READY`
+- Project transitions **out of** `BLOCKED` when:
+  - A previously-blocked WP is unblocked (auto or manual) AND at least one WP is now `IN_PROGRESS` → project becomes `IN_PROGRESS`
+  - A previously-blocked WP is unblocked AND at least one WP is `READY` (none `IN_PROGRESS`) → project becomes `READY`
+  - All WPs reach terminal status → project follows the completion path below
+- Project transitions to `COMPLETE` when synthesis is marked complete AND all WPs are terminal
+- Project status is also governed by self-healing rules (see [§17](auxiliary-systems.md#17-self-healing))
+
+---
+
+## 6. Work Package State Machine
+
+### 6.1 States
+
+| State | Terminal? | Description |
+|-------|-----------|-------------|
+| `READY` | No | Available to be claimed |
+| `IN_PROGRESS` | No | Being actively worked on |
+| `BLOCKED` | No | Waiting on a dependency or external factor |
+| `COMPLETE` | Normally | All criteria met, documentation done. May be reopened by PM or Documentation (see §6.2). |
+| `CANCELLED` | Yes | Abandoned; satisfies dependencies like COMPLETE |
+
+### 6.2 Transition Table
+
+```
+┌───────────────┬────────────────┬──────────────────────────────────────────────────┐
+│ From          │ To             │ Conditions & Guards                              │
+├───────────────┼────────────────┼──────────────────────────────────────────────────┤
+│ READY         → IN_PROGRESS    │ All dependencies must be COMPLETE or CANCELLED   │
+│ READY         → BLOCKED        │ Must provide blocked_by object                   │
+│ READY         → CANCELLED      │ Agent must be "Project Manager"                  │
+├───────────────┼────────────────┼──────────────────────────────────────────────────┤
+│ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
+│               │                │ Most recent `documentation` pipeline is PASS     │
+│               │                │ Agent must be "Documentation"                    │
+│ IN_PROGRESS   → READY          │ No IN_PROGRESS pipelines on the WP              │
+│               │                │ Agent must be "Project Manager" or current       │
+│               │                │ assignee (wp.assigned_to)                        │
+│               │                │ Clears assigned_to                               │
+│ IN_PROGRESS   → BLOCKED        │ Must provide blocked_by object                   │
+│ IN_PROGRESS   → CANCELLED      │ Agent must be "Project Manager"                  │
+├───────────────┼────────────────┼──────────────────────────────────────────────────┤
+│ BLOCKED       → IN_PROGRESS    │ Agent must be "Project Manager", current         │
+│               │                │ assignee (wp.assigned_to), or system              │
+│               │                │ Clears blocked_by field                          │
+│ BLOCKED       → READY          │ Clears blocked_by field (auto-unblock path)      │
+│ BLOCKED       → CANCELLED      │ Agent must be "Project Manager"                  │
+├───────────────┼────────────────┼──────────────────────────────────────────────────┤
+│ COMPLETE      → IN_PROGRESS    │ Agent must be "Project Manager" or               │
+│               │                │ "Documentation"                                  │
+│               │                │ Increments revision counter                      │
+│               │                │ Triggers cascade reblock of dependents           │
+│ COMPLETE      → CANCELLED      │ Agent must be "Project Manager"                  │
+│               │                │ No counter change (terminal → terminal)          │
+│               │                │ No cascade reblock (CANCELLED satisfies deps)    │
+├───────────────┼────────────────┼──────────────────────────────────────────────────┤
+│ CANCELLED     → (none)         │ Terminal — no outward transitions                │
+└───────────────┴────────────────┴──────────────────────────────────────────────────┘
+```
+
+Same-state transitions (e.g., READY → READY) are always valid (no-op) **except for transitions to guarded states**. Specifically:
+- `COMPLETE → COMPLETE` still requires the Documentation agent guard
+- `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
+- All other same-state transitions are pure no-ops that skip validation
+
+> **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`). This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
+
+### 6.3 State Diagram
+
+```
+                  ┌─────────┐
+                  │  READY  │◄──────────────────┐
+                  └────┬────┘                    │
+                       │                         │ (auto-unblock)
+          ┌────────────┼──────────┐              │
+          ▼            ▼          ▼              │
+   ┌─────────────┐ ┌────────┐ ┌───────────┐     │
+   │ IN_PROGRESS │ │BLOCKED │─┤           │─────┘
+   └──────┬──────┘ └────────┘ │           │
+          │         ▲    │     │ CANCELLED │
+          │         │    └────►│ (terminal)│
+          ├─────────┘          └───────────┘
+          │                          ▲
+          ▼                          │
+   ┌──────────┐          ◄────────────┘
+   │ COMPLETE ├─────────────────────────► CANCELLED (PM only: cancel)
+   │(normally │
+   │terminal) │
+   └──────┬───┘
+          │
+          ├───► IN_PROGRESS (reopen: PM or Documentation only)
+          │
+   ┌──────┘
+   │
+   IN_PROGRESS ──► READY (unclaim: PM or current assignee, no active pipelines)
+```
+
+### 6.4 Counter Updates on Transitions
+
+| Transition | `pending_work_packages` Change |
+|------------|-------------------------------|
+| Non-terminal → COMPLETE | Decrement by 1 |
+| Non-terminal → CANCELLED | Decrement by 1 |
+| COMPLETE → IN_PROGRESS | Increment by 1 |
+| COMPLETE → CANCELLED | No change (terminal → terminal) |
+| All other transitions | No change |
+
+### 6.5 Agent Guards
+
+| Transition | Allowed Agents |
+|------------|---------------|
+| → COMPLETE | "Documentation" (or "Documentation Agent") |
+| → CANCELLED | "Project Manager" (or "Project Manager Agent") |
+| BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
+| IN_PROGRESS → READY | "Project Manager" (or "Project Manager Agent"), current assignee |
+| COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), "Documentation" (or "Documentation Agent") |
+
+> Implementations should accept both short-form ("Documentation") and long-form ("Documentation Agent") variants.
+
+---
+
+## 7. Pipeline State Machine
+
+### 7.1 States
+
+| State | Terminal? | Description |
+|-------|-----------|-------------|
+| `IN_PROGRESS` | No | Pipeline is active |
+| `PASS` | Yes | Pipeline completed successfully |
+| `FAIL` | Yes | Pipeline failed; rework needed |
+
+### 7.2 Transitions
+
+```
+IN_PROGRESS → PASS    (pipeline completed successfully)
+IN_PROGRESS → FAIL    (pipeline failed or was cancelled)
+```
+
+There is no READY state for pipelines. They are created directly as IN_PROGRESS.
+
+PASS and FAIL are terminal — no further transitions.
+
+### 7.3 Cancellation
+
+A pipeline can be cancelled by setting its status to FAIL with a reason string as the summary. This is the mechanism for closing stale pipelines.
