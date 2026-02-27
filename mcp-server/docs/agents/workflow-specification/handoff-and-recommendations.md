@@ -27,12 +27,19 @@ else:
 
 ```
 // FAIL conditions first (§13.2 short-circuit semantics)
-if any non-terminal, non-dependency-blocked WP has a FAIL routed to Developer:
-  // Includes: most recent implementation is FAIL (direct rework),
-  // OR most recent implementation is PASS but QA or review FAIL
-  // (per FAIL_ROUTING_MAP §9.3 — excludes documentation FAIL, which is self-rework)
+// Temporal guard: only signal rework when the downstream agent has re-engaged
+// since the Developer's latest fix (hasDownstreamReengagedSince §14.13).
+// Without this, auto-handoff stalls after Developer delivers a fix — the handoff
+// returns IN_PROGRESS (Developer "must rework") while getNextAction returns
+// WAIT_FOR_DOWNSTREAM, preventing any agent from being routed to QA.
+if any non-terminal, non-dependency-blocked WP has a FAIL routed to Developer
+   AND hasDownstreamReengagedSince(wp.pipelines, "implementation") is true:
+  // Downstream validated the current fix and FAILed again — Developer must rework
   return IN_PROGRESS               (Developer must rework)
-if any non-terminal, non-dependency-blocked WP needs QA (has PASS implementation, no QA started):
+if any non-terminal, non-dependency-blocked WP needs QA:
+  // "Needs QA" means: PASS implementation AND (no QA started yet
+  // OR hasNewUpstreamPassSince("implementation", "qa") — i.e., QA needs
+  // to run or re-run after upstream rework)
   return READY_FOR_QA
 if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
@@ -41,13 +48,25 @@ if any WP is IN_PROGRESS with assigned_to == "Developer":
 return WAIT                        (no actionable work for Developer)
 ```
 
+> **Temporal guard rationale (v1.2.0):** Prior to v1.2.0, the Developer handoff checked for *any* FAIL routed to Developer without verifying whether the Developer had already delivered a fix. After `impl-1 PASS → qa-1 FAIL → impl-2 PASS`, the handoff would return `IN_PROGRESS` (qa-1 FAIL still exists), but `getNextAction` would return `WAIT_FOR_DOWNSTREAM` — the Developer has nothing to do. In auto-handoff–driven orchestration, this caused stalls: no agent was routed to QA for re-engagement. The temporal guard (`hasDownstreamReengagedSince`) aligns the handoff function with the recommendation engine's §14.2 priority 5/5b logic. Similarly, the "needs QA" condition now uses `hasNewUpstreamPassSince` to detect QA re-engagement needs after rework, mirroring the Documentation handoff's approach.
+
 #### QA Handoff
 
 ```
-// FAIL conditions first (§13.2 short-circuit semantics)
+// Re-engagement check (before FAIL short-circuit — see rationale below)
+// If QA previously FAILed but Developer has since re-PASSed implementation,
+// QA should re-engage rather than routing back to Developer.
+if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline
+   AND hasNewUpstreamPassSince(wp.pipelines, "implementation", "qa") is true:
+  return IN_PROGRESS             (QA should re-engage after upstream rework)
+
+// FAIL conditions (§13.2 short-circuit semantics)
+// Only reached when upstream has NOT re-PASSed since the QA FAIL.
 if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
 if WPs with PASS QA but no review started:
+  // "No review started" includes re-engagement: no review yet OR
+  // hasNewUpstreamPassSince("qa", "code-review") for review re-run needs
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
@@ -59,13 +78,25 @@ if any WP is IN_PROGRESS with assigned_to == "QA":
 return WAIT                      (no actionable work for QA)
 ```
 
+> **Re-engagement before FAIL rationale (v1.2.0):** Prior to v1.2.0, the QA handoff's FAIL check short-circuited before considering whether the Developer had already reworked. After `qa-1 FAIL → impl-2 PASS`, the handoff returned `READY_FOR_DEVELOPER`, but the Developer's `getNextAction` returned `WAIT_FOR_DOWNSTREAM`. In auto-handoff orchestration, nobody was routed to QA. The re-engagement check (using `hasNewUpstreamPassSince`) now fires first: if the Developer has re-PASSed since the QA FAIL, the handoff returns `IN_PROGRESS` for QA (mirroring §14.3 priority 4), allowing auto-handoff to keep QA in the loop.
+
 #### Reviewer Handoff
 
 ```
-// FAIL conditions first (§13.2 short-circuit semantics)
+// Re-engagement check (before FAIL short-circuit — see QA handoff rationale)
+// If Reviewer previously FAILed but QA has since re-PASSed,
+// Reviewer should re-engage rather than routing back to Developer.
+if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline
+   AND hasNewUpstreamPassSince(wp.pipelines, "qa", "code-review") is true:
+  return IN_PROGRESS             (Reviewer should re-engage after upstream rework)
+
+// FAIL conditions (§13.2 short-circuit semantics)
+// Only reached when upstream has NOT re-PASSed since the review FAIL.
 if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
 if WPs with PASS code-review but no docs started:
+  // "No docs started" includes re-engagement: no docs yet OR
+  // hasNewUpstreamPassSince("code-review", "documentation") for doc re-run needs
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
@@ -76,6 +107,8 @@ if any WP is IN_PROGRESS with assigned_to == "Reviewer":
   return IN_PROGRESS             (Reviewer has active work)
 return WAIT                      (no actionable work for Reviewer)
 ```
+
+> **Re-engagement before FAIL rationale (v1.2.0):** Identical to the QA handoff rationale. After `review-1 FAIL → impl-2 PASS → qa-2 PASS`, the handoff now returns `IN_PROGRESS` for Reviewer (re-engagement) instead of `READY_FOR_DEVELOPER` (stale FAIL routing). See QA Handoff rationale for the full explanation.
 
 #### Documentation Handoff
 
@@ -137,7 +170,7 @@ return WAIT
 
 ### 13.2 Handoff Evaluation Order
 
-> **Important:** All per-agent handoff functions evaluate conditions **top-to-bottom with short-circuit semantics**. The first matching condition wins. This means FAIL conditions always take priority over PASS conditions: if any WP has a FAIL pipeline requiring Developer rework, that status is returned even if other WPs simultaneously have PASS pipelines ready for the next stage.
+> **Important:** All per-agent handoff functions evaluate conditions **top-to-bottom with short-circuit semantics**. The first matching condition wins. For QA and Reviewer handoffs, re-engagement checks (after upstream rework) take priority over stale FAIL routing — this ensures auto-handoff correctly routes back to the downstream agent when the upstream agent has already delivered a fix. For the Developer handoff, the temporal guard on FAIL conditions prevents false IN_PROGRESS returns when the Developer has already reworked. See the per-handoff rationale notes (v1.2.0) for details.
 
 > **Auto-cancelled pipeline exclusion:** Throughout all handoff and recommendation functions, auto-cancelled pipelines (`auto_cancelled = true`) are excluded from FAIL detection. An auto-cancelled FAIL represents an external interruption (cascade reblock or manual BLOCKED transition), not a quality failure. Functions that filter pipeline history — `isMostRecentPipelineFail` (§14.7), `hasDownstreamFail` (§11.3), and `hasNewUpstreamPassSince` (§14.6) — all exclude auto-cancelled pipelines. See [§21.27](edge-cases.md#2127-auto-cancelled-pipelines) for the full invariant.
 
@@ -361,6 +394,9 @@ Same pattern, applied to `documentation` pipelines:
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
 5. **FINALIZE_WP**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, all acceptance criteria are met, and the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check). The Documentation agent should mark the WP as COMPLETE.
 5b. **UPDATE_CRITERIA**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check passed), but NOT all acceptance criteria are `met: true`. The Documentation agent should update criteria (mark as met), rework documentation to address remaining criteria, or — if the unmet criteria are caused by underlying code issues rather than documentation gaps — set the WP to BLOCKED with a `technical` blocker to escalate to the Project Manager (see §21.24).
+
+> **UPDATE_CRITERIA rework tracking note:** If the Documentation agent chooses to start a new documentation pipeline to address unmet criteria (rather than updating criteria or escalating), this creates a pipeline that is **not tracked as rework** — the most recent documentation pipeline is PASS (not FAIL) and no downstream FAIL exists, so `needsRework = false` in `startPipeline` (§11.1) and `rework_counts.documentation` is not incremented. This is internally consistent (the prior pipeline succeeded; the new one addresses remaining criteria, not a failure) but may be surprising. Implementations that want to track these "criteria-driven re-runs" separately MAY add a distinct counter or metric; the core specification treats them as normal pipeline starts.
+
 6. **WRITE_DOCS**: WP with PASS code-review and no docs yet, OR `hasNewUpstreamPassSince("code-review", "documentation")`
 7. **CLAIM_WP**: READY WP assigned to "Documentation" with all dependencies satisfied (post auto-unblock scenario)
 

@@ -4,6 +4,87 @@
 
 ---
 
+## 9b. Work Package Creation
+
+Creating a WP initializes it from plan data and adds it to the project ledger. This section consolidates guards and behaviors that are defined individually in §3.6, §15.1, §15.2, §21.3, §21.50, and §21.51.
+
+### 9b.1 Algorithm
+
+```
+function createWorkPackage(root, wpData, agentRole):
+  // --- WP ID generation (§3.6) ---
+  existingIds = root.work_packages.map(wp => parseNumericSuffix(wp.work_package_id))
+  nextNum = (max(existingIds) ?? 0) + 1
+  wpId = "WP-" + zeroPad(nextNum, 3)    // e.g., "WP-001", "WP-012"
+
+  // --- Acceptance criteria validation (§21.3) ---
+  if wpData.acceptance_criteria is empty:
+    ERROR("At least one acceptance criterion is required")
+
+  // --- Dependency validation (§15.2) ---
+  for each depId in wpData.dependencies:
+    if not root.work_packages.any(wp => wp.work_package_id == depId):
+      ERROR("Dependency {depId} not found in project")
+
+  // --- Cycle detection (§15.2) ---
+  if hasCycle(wpId, wpData.dependencies, root.work_packages):
+    ERROR("Adding dependencies would create a circular dependency")
+
+  // --- Initial status determination (§15.1) ---
+  unresolvedDeps = wpData.dependencies.filter(depId =>
+    dep = root.work_packages.find(wp => wp.work_package_id == depId)
+    return NOT isTerminalStatus(dep.status)
+  )
+
+  if unresolvedDeps is empty:
+    initialStatus = "READY"
+    blockedBy = null
+  else:
+    initialStatus = "BLOCKED"
+    blockedBy = {
+      type: "dependency",
+      description: "Depends on " + unresolvedDeps.join(", "),
+      blocking_work_package: unresolvedDeps[0]
+    }
+
+  // --- Synthesis invalidation on COMPLETE project (§21.51) ---
+  if root.status == "COMPLETE" OR root.synthesis_generated == true:
+    root.synthesis_generated = false
+
+  // --- Create WP detail file ---
+  wpDetail = WorkPackageDetail {
+    work_package_id: wpId,
+    work_package_file: "{storageDir}/{wpId}.json",
+    status: initialStatus,
+    assigned_to: null,
+    dependencies: wpData.dependencies,
+    blocked_by: blockedBy,
+    acceptance_criteria: wpData.acceptance_criteria,
+    revision: 0,
+    pipelines: []
+  }
+
+  // --- Update root index ---
+  root.work_packages.append(WorkPackageSummary {
+    work_package_id: wpId,
+    status: initialStatus,
+    assigned_to: null,
+    dependencies: wpData.dependencies,
+    file: wpDetail.work_package_file
+  })
+  root.total_work_packages = root.work_packages.length
+  root.pending_work_packages = count(wp in root.work_packages where NOT isTerminalStatus(wp.status))
+  root.last_updated = now()
+
+  write wpDetail
+  write root
+  return wpDetail
+```
+
+> **No agent guard (§21.50):** Unlike `claimWorkPackage` (§10.1) and `startPipeline` (§11.1), WP creation does not enforce an agent role guard. In practice only the PM creates WPs; implementations that require stricter control MAY add a guard.
+
+---
+
 ## 10. Work Package Claiming
 
 Claiming transitions a WP from READY to IN_PROGRESS and assigns an agent.

@@ -2,8 +2,8 @@
 
 > **Purpose:** Language-agnostic specification of the 7-stage agent workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
 
-**Version:** 1.1.0  
-**Date:** 2026-02-26
+**Version:** 1.2.0  
+**Date:** 2026-02-27
 
 ---
 
@@ -14,7 +14,7 @@
 | 1 | [Data Model](data-model.md) | Glossary, Entities & Data Model, Agent Roles |
 | 2 | [State Machines](state-machines.md) | Project Lifecycle, Work Package State Machine, Pipeline State Machine |
 | 3 | [Pipeline Routing](pipeline-routing.md) | Pipeline Ordering & Prerequisites, Pipeline Routing Maps |
-| 4 | [Operations](operations.md) | Work Package Claiming, Starting a Pipeline, Completing a Pipeline |
+| 4 | [Operations](operations.md) | Work Package Creation, Work Package Claiming, Starting a Pipeline, Completing a Pipeline |
 | 5 | [Handoff & Recommendations](handoff-and-recommendations.md) | Handoff Logic, Next-Action Recommendation Engine |
 | 6 | [Dependencies & Rework](dependencies-and-rework.md) | Dependency Management, Rework & Circuit Breaker |
 | 7 | [Auxiliary Systems](auxiliary-systems.md) | Self-Healing, Auto-Handoff Depth Counter, Synthesis Completion, Concurrency Model |
@@ -38,6 +38,7 @@ Use the original section numbers to find content across the split files:
 | 7 | Pipeline State Machine | [state-machines.md](state-machines.md) |
 | 8 | Pipeline Ordering & Prerequisites | [pipeline-routing.md](pipeline-routing.md) |
 | 9 | Pipeline Routing Maps | [pipeline-routing.md](pipeline-routing.md) |
+| 9b | Work Package Creation | [operations.md](operations.md) |
 | 10 | Work Package Claiming | [operations.md](operations.md) |
 | 11 | Starting a Pipeline | [operations.md](operations.md) |
 | 12 | Completing a Pipeline | [operations.md](operations.md) |
