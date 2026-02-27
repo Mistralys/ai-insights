@@ -377,6 +377,7 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
    - The WP can be immediately re-completed without any new pipeline work — a "no-op reopen"
 
 - **Mitigation for no-op reopens:** Implementations that want to prevent this MAY add a guard requiring at least one pipeline started after the COMPLETE → IN_PROGRESS transition before allowing the WP to transition back to COMPLETE. This is an optional enhancement beyond the core specification (see §21.45)
+- **Documentation-initiated reopens:** When the Documentation agent (rather than the PM) reopens a WP, the same structural side effects apply (revision increment, rework count reset, synthesis invalidation, cascade reblock). However, because Documentation does not own the implementation pipeline, it cannot directly set up rework context. The Documentation agent SHOULD perform at least one of: (a) mark one or more acceptance criteria as `met: false` to prevent immediate re-completion, (b) add handoff notes explaining the documentation-related issue that prompted the reopen, or (c) set the WP to BLOCKED with a `technical` blocker if the issue requires code changes. Without any of these actions, the recommendation engine will immediately offer `FINALIZE_WP` (§14.5) — making the reopen a no-op (§21.45). Implementations MAY enforce this by requiring at least one acceptance criterion to be set to `met: false` as part of a Documentation-initiated COMPLETE → IN_PROGRESS transition.
 - **Related edge cases:** §21.34 (FINALIZE_WP gap), §21.44 (rework count reset), §21.45 (re-completion without new work), [§11.1.1](operations.md#1111-re-validation-guard) (re-validation guard WP reopen limitation)
 
 ### 21.49 Agent Role Guard on Work Package Claiming
@@ -424,3 +425,14 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
   - **Documentation** checks: `implementation`, `qa`, `code-review`
 - The PM's `REVIEW_REWORK_LIMIT` action (§14.1.2 priority 2) already surfaces circuit-broken WPs for PM intervention (cancel or restructure). The upstream propagation prevents downstream agents from doing useless work while the PM decides
 - This does **not** affect `startPipeline` guards — the `startPipeline` function (§11.1) continues to enforce the circuit breaker only on the pipeline type being started, not on upstream types. The propagation is advisory (recommendation engine only), consistent with the spec's pattern of soft enforcement via recommendations and hard enforcement via tool guards
+### 21.54 Canonical "Dependency-Blocked" Definition
+
+Throughout handoff (§13) and recommendation (§14) functions, WPs described as "dependency-blocked" are excluded from actionable work. The canonical definition is:
+
+> A WP is **dependency-blocked** when `status == "BLOCKED"` AND `blocked_by.type == "dependency"` (or `blocked_by` is absent, which implies a dependency blocker from legacy data).
+
+This definition checks the `blocked_by` metadata, not the `dependencies` array. A WP with all formal dependencies terminal but a manually-set `dependency` blocker (e.g., PM used BLOCKED → BLOCKED to set a dependency type) is still considered dependency-blocked under this definition.
+
+The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different criterion: it checks whether all entries in the `dependencies` array are terminal, regardless of `blocked_by.type`. These two definitions intentionally differ — auto-unblock is structural (based on the dependency graph), while handoff/recommendation filtering is metadata-based (based on the recorded blocker type).
+
+> **Implementation note:** When filtering "non-dependency-blocked" WPs in handoff and recommendation functions, use `wp.status != "BLOCKED" OR wp.blocked_by.type != "dependency"`. Do not substitute a check against the `dependencies` array — this would miss WPs blocked by PM-set dependency blockers that do not correspond to formal dependencies.

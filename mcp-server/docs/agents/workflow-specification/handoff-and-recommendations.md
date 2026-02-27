@@ -245,6 +245,7 @@ Priority order:
 2. **REVIEW_REWORK_LIMIT**: Any WP has `rework_counts[*] >= MAX_REWORK_COUNT` — PM must cancel or restructure
 3. **REVIEW_STALE**: Any WP has a stale IN_PROGRESS pipeline (>24h) — PM should coordinate with the assigned agent
 3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) AND the WP has been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` (measured via `root.last_updated` for the WP's claiming transition or, if available, the WP detail's most recent status-change timestamp) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
+3c. **REPAIR_ORPHAN_BLOCKED**: Any WP is BLOCKED with a `dependency` blocker (or absent blocker type) but all its formal dependencies are terminal — the WP should have been auto-unblocked by `propagateDependencyUnblock` (§15.4) but wasn't, likely due to a crash during the cascade lock gap (§20.4). PM should auto-repair (transition to READY) or manually unblock.
 4. **CREATE_WORK_PACKAGES**: No WPs exist yet (also covered by §14.1 common pre-check)
 5. **WAIT**: No actionable items
 
@@ -278,6 +279,15 @@ function getPMAction(root, store):
       if wpClaimedDuration(wp) < STALE_PIPELINE_HOURS:
         continue    // Grace period — WP was recently claimed
       return REVIEW_ABANDONED with wp.id, wp.assigned_to
+  
+  // Priority 3c: Orphan-blocked WPs (cascade lock gap recovery — §21.20)
+  // Detect WPs that should have been auto-unblocked but weren't (e.g., crash
+  // during the lock gap between the main update and cascade execution).
+  for each WP with status == "BLOCKED":
+    wpDetail = readWorkPackage(wp.id)
+    if wpDetail.blocked_by is null OR wpDetail.blocked_by.type == "dependency":
+      if canStartWorkPackage(wpDetail, root.work_packages).allowed:
+        return REPAIR_ORPHAN_BLOCKED with wp.id
   
   // Priority 4: No WPs yet (redundant with §14.1, included for completeness)
   if root.work_packages is empty:
@@ -456,6 +466,8 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
   // Upstream completed AT or AFTER downstream started → rework cycle
   return upstreamPass.completed_at >= downstreamLatest.started_at
 ```
+
+> **`>=` comparison note:** The `>=` operator (rather than `>`) is intentionally conservative. If both timestamps are identical (possible with low-resolution clocks or in tests), the function returns `true` — treating coincident events as requiring re-engagement. This may cause a single extra pipeline cycle in edge cases but ensures that borderline timing never silently skips a re-validation.
 
 > **Implementation note:** Since `started_at` is always set at pipeline creation and `completed_at` is always set at pipeline completion, a null timestamp here indicates a data integrity issue (e.g., interrupted write, manual file edit). Implementations SHOULD emit a project comment of type `"warning"` when this occurs, so that the PM has visibility into the anomaly.
 

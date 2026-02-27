@@ -22,6 +22,9 @@ function createWorkPackage(root, wpData, agentRole):
   // --- Acceptance criteria validation (§21.3) ---
   if wpData.acceptance_criteria is empty:
     ERROR("At least one acceptance criterion is required")
+  for each ac in wpData.acceptance_criteria:
+    if ac.criterion is empty or whitespace-only:
+      ERROR("Acceptance criterion text must be non-empty")
 
   // --- Dependency validation (§15.2) ---
   for each depId in wpData.dependencies:
@@ -142,6 +145,160 @@ The override flag is only relevant when `wp.assigned_to` is set to a *different*
 | Any other agent (including current assignee — but the outer guard already passed for current assignee) | No — hard rejection |
 
 > **Design principle — point-in-time dependency validation:** Dependency checks (`canStartWorkPackage`) are enforced at claim time (§10.1) only. Once a WP is IN_PROGRESS, `startPipeline` (§11.1) does **not** re-check dependencies. If a dependency is reopened (COMPLETE → IN_PROGRESS) after a dependent WP has already been claimed, the cascade reblock mechanism (§15.5) is the sole line of defense for direct dependents, and transitive dependents are not reblocked at all (§21.42). This is a conscious trade-off: continuous dependency validation would add complexity and performance cost to every pipeline operation, whereas the cascade reblock mechanism handles the common case (direct dependents). The recommendation engine’s `hasNewUpstreamPassSince` (§14.6) provides soft enforcement for the remaining cases.
+
+---
+
+## 10b. Updating Work Package Status
+
+The core status-transition operation for work packages. All WP status changes — except `READY → IN_PROGRESS`, handled exclusively by `claimWorkPackage` ([§10.1](#101-algorithm)) — flow through this function. It consolidates the transition guards ([§6.2](state-machines.md#62-transition-table)), agent guards ([§6.5](state-machines.md#65-agent-guards)), counter updates ([§6.4](state-machines.md#64-counter-updates-on-transitions)), and post-transition side effects that are specified individually throughout the document.
+
+### 10b.1 Algorithm
+
+```
+function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
+  acquire lock
+  currentStatus = wp.status
+
+  // --- Reject transitions from CANCELLED (§21.32) ---
+  if currentStatus == "CANCELLED":
+    ERROR("CANCELLED is terminal — no transitions allowed (including self-transitions)")
+
+  // --- Same-state transitions ---
+  if currentStatus == targetStatus:
+    if currentStatus == "BLOCKED":
+      goto BLOCKED_HANDLING    // Substantive: replace blocked_by (§6.2, §21.17)
+    if currentStatus == "COMPLETE":
+      if agentRole not in ["Documentation", "Project Manager"]:
+        ERROR("COMPLETE → COMPLETE requires Documentation or PM")
+      release lock
+      return    // Agent check only — no data modification (§6.2 same-state note)
+    release lock
+    return      // All other same-state: pure no-op
+
+  // --- Validate transition exists in §6.2 table ---
+  if not isValidTransition(currentStatus, targetStatus):
+    ERROR("Invalid transition: {currentStatus} → {targetStatus}")
+
+  // --- Agent guards (§6.5) ---
+  validateAgentGuard(currentStatus, targetStatus, agentRole, wp.assigned_to)
+
+  // --- Transition-specific guards and side effects ---
+
+  if targetStatus == "COMPLETE":
+    // Full completion guards (§6.2, §21.10)
+    if not wp.acceptance_criteria.every(ac => ac.met == true):
+      ERROR("Not all acceptance criteria are met")
+    docPipelines = wp.pipelines.filter(p => p.type == "documentation")
+    if docPipelines is empty OR docPipelines.last().status != "PASS":
+      ERROR("Most recent documentation pipeline must be PASS")
+    // Freshness check (§21.10)
+    implPipelines = wp.pipelines.filter(p => p.type == "implementation")
+    if implPipelines is not empty:
+      if docPipelines.last().completed_at < implPipelines.last().started_at:
+        ERROR("Documentation PASS predates most recent implementation start (freshness)")
+
+  if targetStatus == "BLOCKED":
+    BLOCKED_HANDLING:
+    if opts.blocked_by is null:
+      ERROR("Transition to BLOCKED requires a blocked_by object (§21.11)")
+    if currentStatus == "BLOCKED":
+      // Same-state: agent guard + replacement rule (§21.47, §6.2)
+      if agentRole not in ["Project Manager"] AND agentRole != wp.assigned_to:
+        ERROR("BLOCKED → BLOCKED requires PM or current assignee")
+      if wp.blocked_by?.type == "dependency" AND opts.blocked_by.type != "dependency":
+        if agentRole != "Project Manager":
+          ERROR("Only PM can overwrite dependency blocker with non-dependency type")
+    if currentStatus == "IN_PROGRESS":
+      // Auto-cancel IN_PROGRESS pipelines (§21.14b, §21.27)
+      for each pipeline in wp.pipelines where pipeline.status == "IN_PROGRESS":
+        pipeline.status = "FAIL"
+        pipeline.completed_at = now()
+        pipeline.summary = ["Auto-cancelled: WP transitioned to BLOCKED"]
+        pipeline.auto_cancelled = true
+    wp.blocked_by = opts.blocked_by    // assigned_to preserved (not cleared)
+
+  if targetStatus == "CANCELLED" AND currentStatus == "IN_PROGRESS":
+    // Auto-cancel IN_PROGRESS pipelines (§21.14b)
+    for each pipeline in wp.pipelines where pipeline.status == "IN_PROGRESS":
+      pipeline.status = "FAIL"
+      pipeline.completed_at = now()
+      pipeline.summary = ["Auto-cancelled: WP cancelled"]
+      pipeline.auto_cancelled = true
+
+  if currentStatus == "IN_PROGRESS" AND targetStatus == "READY":
+    // Unclaim (§21.13)
+    if wp.pipelines.any(p => p.status == "IN_PROGRESS"):
+      ERROR("Cannot unclaim: IN_PROGRESS pipelines exist on this WP")
+    wp.assigned_to = null
+    root.work_packages[wp.id].assigned_to = null
+
+  if currentStatus == "BLOCKED" AND targetStatus in ["IN_PROGRESS", "READY"]:
+    // Clear blocker (§21.12)
+    wp.blocked_by = null
+
+  if currentStatus == "COMPLETE" AND targetStatus == "IN_PROGRESS":
+    // Reopen side effects (§6.2, §21.4, §21.26, §21.44)
+    wp.revision = (wp.revision ?? 0) + 1
+    wp.rework_counts = null           // Reset rework budget (§21.44)
+    root.synthesis_generated = false  // Invalidate synthesis (§21.26)
+
+  // --- Counter updates (§6.4) ---
+  if NOT isTerminalStatus(currentStatus) AND isTerminalStatus(targetStatus):
+    root.pending_work_packages -= 1
+  if currentStatus == "COMPLETE" AND targetStatus == "IN_PROGRESS":
+    root.pending_work_packages += 1
+  // COMPLETE → CANCELLED: no counter change (terminal → terminal)
+
+  // --- Apply status ---
+  wp.status = targetStatus
+  root.work_packages[wp.id].status = targetStatus
+  root.last_updated = now()
+
+  write wp
+  write root
+  release lock
+
+  // --- Post-transition hooks (outside main lock — see §20.4) ---
+  if isTerminalStatus(targetStatus) AND NOT isTerminalStatus(currentStatus):
+    propagateDependencyUnblock(projectPath, wp.work_package_id)    // §15.4
+  if currentStatus == "COMPLETE" AND targetStatus == "IN_PROGRESS":
+    propagateDependencyReblock(projectPath, wp.work_package_id)    // §15.5
+```
+
+### 10b.2 Agent Guard Helper
+
+```
+function validateAgentGuard(from, to, agentRole, assignedTo):
+  PM = "Project Manager"
+
+  if to == "COMPLETE":
+    if agentRole not in ["Documentation", PM]:
+      ERROR("Only Documentation (or PM) can mark COMPLETE")
+  else if to == "CANCELLED":
+    if agentRole != PM:
+      ERROR("Only Project Manager can cancel a WP")
+  else if from == "BLOCKED" AND to == "IN_PROGRESS":
+    if agentRole not in [PM, "system"] AND agentRole != assignedTo:
+      ERROR("BLOCKED → IN_PROGRESS requires PM, assignee, or system")
+  else if from == "BLOCKED" AND to == "READY":
+    if agentRole != "system":
+      ERROR("BLOCKED → READY is system-only (auto-unblock via §15.4)")
+  else if from == "IN_PROGRESS" AND to == "READY":
+    if agentRole != PM AND agentRole != assignedTo:
+      ERROR("Unclaim requires PM or current assignee")
+  else if from == "COMPLETE" AND to == "IN_PROGRESS":
+    if agentRole not in [PM, "Documentation"]:
+      ERROR("Reopen requires PM or Documentation")
+
+  // → BLOCKED: no agent guard (§6.5 design note)
+  // READY → IN_PROGRESS: use claimWorkPackage (§10.1), not this function
+```
+
+> **Relationship to `claimWorkPackage`:** The `READY → IN_PROGRESS` transition is **not** handled by `updateWorkPackageStatus`. It is handled exclusively by `claimWorkPackage` ([§10.1](#101-algorithm)), which enforces additional guards (assignment check, override flag, dependency validation) specific to the claiming workflow. Implementations that receive a `READY → IN_PROGRESS` request through `updateWorkPackageStatus` SHOULD redirect to `claimWorkPackage` or reject with an error directing the caller to use the claiming operation.
+
+> **Post-transition hooks and lock separation:** `propagateDependencyUnblock` ([§15.4](dependencies-and-rework.md#154-automatic-unblocking-propagatedependencyunblock)) and `propagateDependencyReblock` ([§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock)) execute **after** the main lock is released, per the cascade lock separation principle ([§20.4](auxiliary-systems.md#204-cascade-lock-separation)). Both acquire their own locks. The brief inconsistency window is acceptable because both are idempotent (see §20.4 for crash recovery).
+
+> **Centralization rationale:** Prior to this section, status transition side effects were specified individually across [§6.2](state-machines.md#62-transition-table) (guards), [§6.4](state-machines.md#64-counter-updates-on-transitions) (counters), [§6.5](state-machines.md#65-agent-guards) (agent guards), [§15.4](dependencies-and-rework.md#154-automatic-unblocking-propagatedependencyunblock)/[§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock) (cascades), and §21.4/§21.12/§21.13/§21.14b/§21.26/§21.44 (edge-case side effects). This algorithm consolidates all into a single implementable function. The original sections remain authoritative for *rationale*; this section provides the consolidation for implementation.
 
 ---
 
@@ -433,6 +590,46 @@ On FAIL:
 - Match by **exact** criterion text
 - Found → update the `met` flag
 - Not found → **append** as a new entry `{ criterion, met }`
+
+### 12.3b Acceptance Criteria Management
+
+The merge semantics in [§12.3](#123-acceptance-criteria-merge-semantics) handle adding and updating criteria during `completePipeline`. Removing criteria or modifying criterion text requires a dedicated PM operation.
+
+```
+function updateAcceptanceCriteria(wp, root, agentRole, operations):
+  // Guard: PM only
+  if agentRole != "Project Manager":
+    ERROR("Only the Project Manager can remove or modify acceptance criteria text")
+
+  // Guard: WP must not be CANCELLED
+  if wp.status == "CANCELLED":
+    ERROR("Cannot modify acceptance criteria on a CANCELLED WP")
+
+  for each op in operations:
+    if op.action == "remove":
+      index = wp.acceptance_criteria.findIndex(ac => ac.criterion == op.criterion)
+      if index == -1:
+        ERROR("Criterion not found: {op.criterion}")
+      wp.acceptance_criteria.removeAt(index)
+
+    if op.action == "modify_text":
+      existing = wp.acceptance_criteria.find(ac => ac.criterion == op.old_criterion)
+      if existing is null:
+        ERROR("Criterion not found: {op.old_criterion}")
+      if op.new_criterion is empty or whitespace-only:
+        ERROR("Criterion text must be non-empty")
+      existing.criterion = op.new_criterion
+
+  // Guard: At least one criterion must remain (§21.3)
+  if wp.acceptance_criteria is empty:
+    ERROR("At least one acceptance criterion is required")
+
+  root.last_updated = now()
+  write wp
+  write root
+```
+
+> **Scope:** This operation manages the criteria list structure — removing criteria or changing their text. Toggling `met` status during pipeline completion is handled by [§12.3](#123-acceptance-criteria-merge-semantics) merge semantics. Use this operation for PM corrections: removing accidentally appended criteria, fixing typos in criterion text, or updating outdated requirements.
 
 ### 12.4 Agent Role Validation on Completion
 

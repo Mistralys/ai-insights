@@ -114,6 +114,8 @@ function propagateDependencyUnblock(projectPath, completedWpId):
 >
 > The `assigned_to` field is preserved through the block/unblock cycle, so the recommendation engine will still route the WP to the correct agent. The re-claim step is lightweight (single tool call) and provides explicit confirmation of intent.
 
+> **\u26a0 Stuck-agent limitation:** Because `assigned_to` is preserved through the block/unblock cycle, the WP is routed exclusively to the preserved agent after auto-unblock. If that agent is no longer available (session ended, agent crashed), no other pipeline agent can claim the WP without PM override (`claimWorkPackage` §10.1 rejects when `wp.assigned_to` is set and the caller differs). The WP will eventually be surfaced via the PM's `REVIEW_ABANDONED` action ([§14.1.2](handoff-and-recommendations.md#1412-project-manager-action-logic), priority 3b), but this requires the staleness threshold to elapse. Implementations that need faster recovery MAY detect assignment-to-absent-agent conditions (e.g., cross-referencing `assigned_to` with active agent sessions) and proactively unclaim the WP.
+
 ### 15.5 Cascade Reblocking (propagateDependencyReblock)
 
 When a COMPLETE WP is reopened (COMPLETE → IN_PROGRESS):
@@ -245,6 +247,45 @@ When rework_counts[pipelineType] >= MAX_REWORK_COUNT:
 ```
 
 The circuit breaker is evaluated **per pipeline type**. Reaching the limit on `documentation` does not block `implementation` rework, and vice versa.
+
+### 16.3b Circuit Breaker Reset
+
+When the circuit breaker trips, the only prescribed recovery paths are cancelling or "restructuring" the WP — but restructuring is undefined, and cancellation loses all pipeline history. The following PM-only operation provides a targeted recovery path.
+
+```
+function resetReworkCount(wp, root, pipelineType, agentRole, reason):
+  // Guard: PM only
+  if agentRole != "Project Manager":
+    ERROR("Only the Project Manager can reset rework counts")
+
+  // Guard: Reason is required (audit trail)
+  if reason is empty:
+    ERROR("A reason is required when resetting rework counts")
+
+  counts = wp.rework_counts
+  if counts is null OR (counts[pipelineType] ?? 0) == 0:
+    return    // Nothing to reset
+
+  previousValue = counts[pipelineType]
+  counts[pipelineType] = 0
+  wp.rework_counts = counts
+
+  // Record the reset for auditability
+  root.project_comments.append({
+    type: "rework_reset",
+    priority: "high",
+    timestamp: now(),
+    agent: "Project Manager",
+    note: "Reset rework count for {pipelineType} on {wp.work_package_id} "
+          + "from {previousValue} to 0. Reason: {reason}"
+  })
+
+  root.last_updated = now()
+  write wp
+  write root
+```
+
+> **Use case:** After investigating a root cause (e.g., flaky test environment, misunderstood requirement), the PM resets the counter to allow retries. The mandatory reason and project comment ensure the decision is auditable. The PM should address the root cause before resetting — otherwise the circuit breaker will trip again after `MAX_REWORK_COUNT` additional attempts.
 
 ### 16.4 Rework Flow
 

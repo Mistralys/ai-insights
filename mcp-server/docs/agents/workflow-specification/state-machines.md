@@ -173,6 +173,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | COMPLETE → IN_PROGRESS | Increment by 1 |
 | COMPLETE → COMPLETE | No change (same-state no-op; §6.2 preempts counter logic) |
 | COMPLETE → CANCELLED | No change (terminal → terminal) |
+| CANCELLED → CANCELLED | N/A — transition rejected (§21.32) |
 | All other transitions | No change |
 
 ### 6.5 Agent Guards
