@@ -283,6 +283,12 @@ function getPMAction(root, store):
   // Priority 3c: Orphan-blocked WPs (cascade lock gap recovery — §21.20)
   // Detect WPs that should have been auto-unblocked but weren't (e.g., crash
   // during the lock gap between the main update and cascade execution).
+  // ⚠ Corruption caveat: If blocked_by is null due to data corruption
+  // (rather than a missing dependency blocker), this check may incorrectly
+  // auto-repair a WP that should have a non-dependency blocker (e.g.,
+  // technical). The condition targets the cascade-crash scenario specifically;
+  // other corruption patterns may produce false positives. The PM should
+  // verify the WP's blocking reason before confirming the repair.
   for each WP with status == "BLOCKED":
     wpDetail = readWorkPackage(wp.id)
     if wpDetail.blocked_by is null OR wpDetail.blocked_by.type == "dependency":
@@ -326,6 +332,12 @@ function getDeveloperAction(root, store):
     return CONTINUE_PIPELINE with wp.id, pipeline info
   
   // Priority 4: Direct rework (most recent implementation is FAIL)
+  // ⚠ ORDERING DEPENDENCY: This priority MUST remain above priority 5.
+  // Priority 5 only checks downstream pipeline types (qa, code-review);
+  // a direct implementation FAIL is not caught by priority 5's
+  // isMostRecentPipelineFail check on downstream types. If priorities
+  // 4 and 5 were reordered, direct implementation FAILs would fall
+  // through to priority 6/7 instead of being caught as rework.
   for each IN_PROGRESS WP where isMostRecentPipelineFail("implementation"):
     if WP is dependency-blocked: skip
     return REWORK
@@ -559,9 +571,9 @@ function wpClaimedDuration(wp):
   return now() - root.last_updated
 ```
 
-> **Implementation note:** The `status_changed_at` field is not part of the core `WorkPackageDetail` schema (§3.3). Implementations that need precise claimed-duration tracking SHOULD add this field and update it on every WP status transition. The fallback heuristics above provide reasonable approximations when the field is absent.
+> **Implementation note:** The `status_changed_at` field is part of the `WorkPackageDetail` schema (§3.3) as an optional field. Implementations MUST update this field on every WP status transition (inside `updateWorkPackageStatus` §10b.1 and `claimWorkPackage` §10.1) to ensure accurate claimed-duration tracking. When the field is absent (e.g., WPs created before the field was added), the fallback heuristics above provide reasonable approximations.
 >
-> **⚠ Fallback accuracy warning:** When `status_changed_at` is absent and no pipelines exist — the exact scenario `REVIEW_ABANDONED` is designed to detect — the final fallback `now() - root.last_updated` is used. Since `root.last_updated` is updated by *any* project operation (e.g., completing a pipeline on an unrelated WP), a project with ongoing activity on other WPs will continuously refresh `root.last_updated`, making the abandoned WP's claimed duration appear short. This can suppress `REVIEW_ABANDONED` detection indefinitely on active projects. Implementations that rely on abandoned-WP detection SHOULD add the `status_changed_at` field to the `WorkPackageDetail` schema rather than depending on the fallback heuristic.
+> **⚠ Fallback accuracy warning:** When `status_changed_at` is absent and no pipelines exist — the exact scenario `REVIEW_ABANDONED` is designed to detect — the final fallback `now() - root.last_updated` is used. Since `root.last_updated` is updated by *any* project operation (e.g., completing a pipeline on an unrelated WP), a project with ongoing activity on other WPs will continuously refresh `root.last_updated`, making the abandoned WP's claimed duration appear short. This can suppress `REVIEW_ABANDONED` detection indefinitely on active projects. Implementations MUST populate the `status_changed_at` field (§3.3) rather than depending on the fallback heuristic.
 
 ### 14.13 `hasDownstreamReengagedSince` Algorithm
 

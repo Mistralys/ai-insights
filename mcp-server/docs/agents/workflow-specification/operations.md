@@ -130,6 +130,7 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
   // Apply changes
   wp.status = "IN_PROGRESS"
   wp.assigned_to = agentName
+  wp.status_changed_at = now()      // Track for REVIEW_ABANDONED grace period (§14.12)
   root.work_packages[wp.id].status = "IN_PROGRESS"
   root.work_packages[wp.id].assigned_to = agentName
   root.last_updated = now()
@@ -196,6 +197,20 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
     if implPipelines is not empty:
       if docPipelines.last().completed_at < implPipelines.last().started_at:
         ERROR("Documentation PASS predates most recent implementation start (freshness)")
+    // NOTE: This comparison is intentionally asymmetric — it compares the
+    // documentation pipeline's completed_at against the implementation
+    // pipeline's started_at (not completed_at). A documentation PASS that
+    // occurs after an implementation starts but before it completes would
+    // satisfy this check, even though the documentation validated pre-rework
+    // output. In practice, the pipeline ordering prerequisites (§8.1) prevent
+    // this race: a documentation pipeline cannot start without a PASS
+    // code-review, which requires a PASS QA, which requires a PASS
+    // implementation. A new implementation pipeline invalidates the
+    // prerequisite chain, so no new documentation pipeline can start until
+    // the full chain re-PASSes. The asymmetry only matters if an existing
+    // IN_PROGRESS documentation pipeline overlaps with a new implementation
+    // pipeline — a scenario that requires two agents acting on the same WP
+    // simultaneously outside the recommended flow.
 
   if targetStatus == "BLOCKED":
     BLOCKED_HANDLING:
@@ -251,6 +266,7 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
 
   // --- Apply status ---
   wp.status = targetStatus
+  wp.status_changed_at = now()     // Track for REVIEW_ABANDONED grace period (§14.12)
   root.work_packages[wp.id].status = targetStatus
   root.last_updated = now()
 
@@ -525,6 +541,10 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
       ERROR("Agent role {agentRole} cannot complete {pipelineType} pipeline "
             + "(owned by {expectedRole})")
   
+  // Guard: Status must be PASS or FAIL (the only terminal pipeline statuses per §7.1)
+  if status not in ["PASS", "FAIL"]:
+    ERROR("Invalid pipeline completion status: {status}. Must be PASS or FAIL.")
+
   // Update pipeline
   pipeline.status = status       // "PASS" or "FAIL"
   pipeline.completed_at = now()

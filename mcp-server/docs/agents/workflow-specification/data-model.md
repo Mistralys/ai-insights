@@ -67,6 +67,7 @@ WorkPackageDetail {
   acceptance_criteria:  AcceptanceCriterion[]  // min 1 entry
   revision:            integer                 // Incremented on COMPLETE → IN_PROGRESS
   rework_counts:       ReworkCounts?            // Per-pipeline-type rework counters
+  status_changed_at:   timestamp?              // Updated on every status transition (see §14.12)
   handoff_notes:       HandoffNote[]?
   pipelines:           Pipeline[]
 }

@@ -2,7 +2,7 @@
 
 > **Purpose:** Language-agnostic specification of the 7-stage agent workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
 
-**Version:** 1.3.0  
+**Version:** 1.3.1  
 **Date:** 2026-02-27
 
 ---
