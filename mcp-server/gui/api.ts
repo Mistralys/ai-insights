@@ -15,7 +15,7 @@
  * STDIO discipline: this file never writes to process.stdout.
  */
 
-import { rm } from 'node:fs/promises';
+import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore } from '../src/storage/ledger-store.js';
@@ -117,11 +117,120 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the full list of project summaries from the centralized ledger.
- * May return an empty array if no projects exist.
+ * Resolves the human-readable project name from the managed workspace's
+ * manifest file. Tries package.json → composer.json → pyproject.toml in
+ * order. Returns null if no file is found or any parse/read fails.
  */
-export async function handleListProjects(ledgerRoot: string): Promise<ProjectMeta[]> {
-  return LedgerStore.listAllProjects(ledgerRoot);
+async function readProjectName(planPath: string): Promise<string | null> {
+  // 1. Try package.json
+  try {
+    const raw = await readFile(join(planPath, 'package.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'name' in parsed &&
+      typeof (parsed as Record<string, unknown>).name === 'string' &&
+      (parsed as Record<string, string>).name.trim() !== ''
+    ) {
+      return (parsed as Record<string, string>).name;
+    }
+  } catch {
+    // fall through
+  }
+
+  // 2. Try composer.json
+  try {
+    const raw = await readFile(join(planPath, 'composer.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'name' in parsed &&
+      typeof (parsed as Record<string, unknown>).name === 'string' &&
+      (parsed as Record<string, string>).name.trim() !== ''
+    ) {
+      return (parsed as Record<string, string>).name;
+    }
+  } catch {
+    // fall through
+  }
+
+  // 3. Try pyproject.toml (best-effort regex)
+  try {
+    const raw = await readFile(join(planPath, 'pyproject.toml'), 'utf-8');
+    const match = raw.match(/name\s*=\s*"([^"]+)"/);
+    if (match && match[1].trim() !== '') {
+      return match[1];
+    }
+  } catch {
+    // fall through
+  }
+
+  return null;
+}
+
+export interface ProjectSummary extends ProjectMeta {
+  total_work_packages: number;
+  pending_work_packages: number;
+  project_name: string | null;
+}
+
+/**
+ * Returns the full list of enriched project summaries from the centralized
+ * ledger. Each entry extends ProjectMeta with WP counters and project name.
+ * Per-project read failures are isolated so one bad project never breaks
+ * the entire response.
+ */
+export async function handleListProjects(ledgerRoot: string): Promise<ProjectSummary[]> {
+  const projects = await LedgerStore.listAllProjects(ledgerRoot);
+
+  const summaries = await Promise.all(
+    projects.map(async (meta): Promise<ProjectSummary> => {
+      let total_work_packages = 0;
+      let pending_work_packages = 0;
+      let project_name: string | null = null;
+
+      const store = new LedgerStore(meta.slug, ledgerRoot);
+
+      await Promise.all([
+        (async () => {
+          try {
+            const rootIndex = await store.readRootIndex();
+            total_work_packages = rootIndex.total_work_packages ?? 0;
+            pending_work_packages = rootIndex.pending_work_packages ?? 0;
+          } catch {
+            // default to 0
+          }
+        })(),
+        (async () => {
+          project_name = await readProjectName(meta.plan_path);
+        })(),
+      ]);
+
+      // Infer project name from slug when no manifest file was found.
+      // Strips the YYYY-MM-DD- date prefix and title-cases the remainder,
+      // e.g. "2026-02-27-gui-enhancements" → "Gui Enhancements".
+      if (project_name === null) {
+        const match = meta.slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
+        if (match) {
+          project_name = match[1]
+            .split('-')
+            .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+            .join(' ');
+        }
+      }
+
+      return {
+        ...meta,
+        total_work_packages,
+        pending_work_packages,
+        project_name,
+      };
+    })
+  );
+
+  return summaries;
 }
 
 // ---------------------------------------------------------------------------

@@ -834,8 +834,19 @@ export interface InsightEntry {
 // Per-project read failures are logged to stderr and skipped gracefully; returns [] when no comments exist.
 export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]>;
 
-// GET /api/projects — returns all project summaries from the centralized ledger
-export async function handleListProjects(ledgerRoot: string): Promise<ProjectMeta[]>;
+// Enriched project summary — extends ProjectMeta with WP counters and resolved project name.
+// Returned by GET /api/projects. Fields default to 0 / null on per-project read failure so one
+// bad project never breaks the full response.
+export interface ProjectSummary extends ProjectMeta {
+  total_work_packages: number;   // from root index; defaults to 0 on read failure
+  pending_work_packages: number; // from root index; defaults to 0 on read failure
+  project_name: string | null;   // from package.json → composer.json → pyproject.toml; null on failure
+}
+
+// GET /api/projects — returns enriched project summaries from the centralized ledger.
+// Each entry extends ProjectMeta with WP counters and a resolved project name.
+// Per-project enrichment is concurrent (Promise.all); failures per project are isolated.
+export async function handleListProjects(ledgerRoot: string): Promise<ProjectSummary[]>;
 
 // GET /api/projects/:slug — returns combined root index + meta
 export async function handleGetProject(ledgerRoot: string, slug: string): Promise<ProjectDetail>;
@@ -940,6 +951,9 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.comment-body` | Block container for the comment note text inside `.comment-card` (replaces former inline `style="margin-top:6px"`) |
 | `.comment-context` | Block container for incident context key/value pairs inside `.comment-card` (replaces former inline style block) |
 | `header nav a.active` | Highlights the nav link matching the current hash route (added for Insights nav state) |
+| `.progress-bar-track` | Compact horizontal progress track (60×8 px, `overflow:hidden`, `background:var(--color-border)`); used in the project list `% Done` column |
+| `.progress-bar-fill` | Fill layer inside `.progress-bar-track`; `height:100%`, `background:var(--color-ready)`, `transition:width 0.2s ease`; width is set inline by `buildTable()` |
+| `.filter-bar input[type='text']` | Search input in the project list filter bar; matches `.filter-bar select` visually (same padding, border, border-radius, font-size, background); focus ring mirrors `.form-control:focus` |
 
 > **Resolved (WP-003):** `.priority-high/medium/low` hardcoded hex values have been promoted to `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background was updated from `#e2e8f0` to `var(--color-border)`.
 
@@ -951,7 +965,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 - **`API`** — async fetch wrappers for all 8 REST endpoints (throws `{ code, message }` on non-2xx)
 - **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 - **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`
-- **`renderProjectList(app)`** — table with filter dropdown (client-side), auto-refresh every 10 s, delete button (COMPLETE only, `confirm()` dialog)
+- **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug` and `data-name` attributes off `<tr>` elements (full slug + raw project name, both lowercased for case-insensitive match); delete button (COMPLETE only, `confirm()` dialog)
 - **`renderProjectDetail(app, slug)`** — project header + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
 - **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)

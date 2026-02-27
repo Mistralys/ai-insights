@@ -1,5 +1,10 @@
 # AI Insights Changelog
 
+## v1.4.1 - Ledger GUI Enhancements
+- Ledger: GUI: Added full text filter.
+- Ledger: GUI: Added completion percentage.
+- Ledger: GUI: More Readable Project Name.
+
 ## v1.4.0 - LangGraph Orchestrator Tool
 - Personas: Added the WHATSNEW curator.
 - Personas: Tweaked the sensibility of the changelog curator.

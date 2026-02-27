@@ -457,6 +457,42 @@ input[type="number"].form-control {
   cursor: pointer;
 }
 
+.filter-bar input[type="text"] {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 13px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.filter-bar input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-ready);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* ----------------------------------------------------------
+   Progress bar (% Done column)
+   ---------------------------------------------------------- */
+.progress-bar-track {
+  display: inline-block;
+  width: 60px;
+  height: 8px;
+  background: var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--color-ready);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
 .filter-actions {
   margin-left: auto;
   display: flex;
