@@ -296,6 +296,7 @@ The `agentRole` parameter is mandatory. The agent must match the pipeline owner 
 | None (first pipeline) | N/A | No change |
 | PASS | No downstream FAIL | No change |
 | PASS | Downstream FAIL exists | Increment by 1 |
+| PASS | Downstream IN_PROGRESS (no FAIL) | No change (downstream still validating) |
 | FAIL | N/A | Increment by 1 |
 | IN_PROGRESS | N/A | Cannot start (duplicate guard) |
 
@@ -337,6 +338,12 @@ This ensures the circuit breaker engages for the common pattern: QA/review fails
 
 ```
 function completePipeline(wp, root, pipelineType, status, summary, agentRole, opts):
+  // Guard: WP must be IN_PROGRESS (defense-in-depth — a non-IN_PROGRESS WP
+  // should not have IN_PROGRESS pipelines, but the brief lock gap between
+  // status transition and pipeline cancellation §20.4 could allow a race)
+  if wp.status != "IN_PROGRESS":
+    ERROR("WP status must be IN_PROGRESS, got {wp.status}")
+  
   // Find the most recent IN_PROGRESS pipeline of the given type
   pipeline = wp.pipelines
     .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")

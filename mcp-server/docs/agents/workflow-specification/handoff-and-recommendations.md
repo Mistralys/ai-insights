@@ -50,6 +50,8 @@ return WAIT                        (no actionable work for Developer)
 
 > **Temporal guard rationale (v1.2.0):** Prior to v1.2.0, the Developer handoff checked for *any* FAIL routed to Developer without verifying whether the Developer had already delivered a fix. After `impl-1 PASS → qa-1 FAIL → impl-2 PASS`, the handoff would return `IN_PROGRESS` (qa-1 FAIL still exists), but `getNextAction` would return `WAIT_FOR_DOWNSTREAM` — the Developer has nothing to do. In auto-handoff–driven orchestration, this caused stalls: no agent was routed to QA for re-engagement. The temporal guard (`hasDownstreamReengagedSince`) aligns the handoff function with the recommendation engine's §14.2 priority 5/5b logic. Similarly, the "needs QA" condition now uses `hasNewUpstreamPassSince` to detect QA re-engagement needs after rework, mirroring the Documentation handoff's approach.
 
+> **Direct implementation FAIL routing gap:** When the most recent `implementation` pipeline is itself FAIL (not a downstream QA/review FAIL), the first condition does not match — `hasDownstreamReengagedSince` looks for the latest implementation PASS, which either doesn't exist or predates the FAIL. The WP is instead caught by the generic `assigned_to == "Developer"` fallback, which returns `IN_PROGRESS` ("Developer has active work") rather than the rework-specific `IN_PROGRESS` ("Developer must rework"). The handoff **routing** is correct (Developer stays engaged), but the **semantic signal** differs: the fallback does not distinguish "active work" from "must rework." This has no runtime impact — the recommendation engine (§14.2 priority 4) correctly returns `REWORK` regardless of how the handoff routed — but may cause misleading auto-handoff log entries. Implementations that require precise handoff semantics for logging or observability MAY add a separate condition before the temporal-guarded check: `if any non-terminal WP has a FAIL implementation pipeline (most recent, excluding auto-cancelled): return IN_PROGRESS (Developer must rework)`.
+
 #### QA Handoff
 
 ```
@@ -427,6 +429,16 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
   if downstreamLatest is null:
     return true               // First run — trigger
   
+  // NOTE: The `true` return when no downstream pipeline exists means that
+  // callers using `hasNewUpstreamPassSince` with an OR-ed "no downstream yet"
+  // condition have a redundant first disjunct — the function already returns
+  // `true` for first-run scenarios. This is intentional: the function's
+  // contract is "should the downstream (re-)engage?", which is always yes
+  // when no downstream pipeline has ever run. Callers that need to distinguish
+  // "first run" from "re-engagement after rework" must add an explicit
+  // prior-pipeline-exists guard (see §14.3 priority 4 and §14.4 priority 4
+  // for examples of this pattern).
+
   // Both timestamps must be present
   if upstreamPass.completed_at is null OR downstreamLatest.started_at is null:
     log warning: "Missing timestamp in pipeline comparison for WP {wp.id}; "

@@ -165,6 +165,7 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | Start Pipeline | Re-validation needed | Prerequisite must re-PASS after upstream rework |
 | Start Pipeline | Rework limit | Circuit breaker engaged |
 | Complete Pipeline | No IN_PROGRESS pipeline | Nothing to complete |
+| Complete Pipeline | WP not IN_PROGRESS | WP must be IN_PROGRESS (defense-in-depth against lock-gap races — see [§12.1](operations.md#121-algorithm)) |
 | Complete Pipeline | Missing agent role | `agentRole` parameter is required |
 | Complete Pipeline | Wrong agent role | Agent doesn't own this pipeline type (PM override allowed) |
 | Unclaim WP | Active pipelines | Cannot unclaim WP with IN_PROGRESS pipelines |

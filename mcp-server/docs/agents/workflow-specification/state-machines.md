@@ -72,6 +72,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ READY         → IN_PROGRESS    │ All dependencies must be COMPLETE or CANCELLED   │
 │ READY         → BLOCKED        │ Must provide blocked_by object                   │
 │               │                │ Preserves assigned_to                            │
+│               │                │ Any agent may invoke (see §6.5 design note)      │
 │ READY         → CANCELLED      │ Agent must be "Project Manager"                  │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
@@ -87,6 +88,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │               │                │ All IN_PROGRESS pipelines set to FAIL            │
 │               │                │ (with auto_cancelled = true; see §21.27)         │
 │               │                │ Preserves assigned_to                            │
+│               │                │ Any agent may invoke (see §6.5 design note)      │
 │ IN_PROGRESS   → CANCELLED      │ Agent must be "Project Manager"                  │
 │               │                │ All IN_PROGRESS pipelines set to FAIL            │
 │               │                │ (with auto_cancelled = true; see §21.27)         │
@@ -154,8 +156,8 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 ```
 
 > **Complete transition list** (all transitions from §6.2, for verification):
-> - **READY →** IN_PROGRESS (claim), BLOCKED, CANCELLED (PM only)
-> - **IN_PROGRESS →** COMPLETE (Doc only), READY (unclaim), BLOCKED, CANCELLED (PM only)
+> - **READY →** IN_PROGRESS (claim), BLOCKED (any agent; requires blocker), CANCELLED (PM only)
+> - **IN_PROGRESS →** COMPLETE (Doc only), READY (unclaim), BLOCKED (any agent; requires blocker; auto-cancels pipelines), CANCELLED (PM only)
 > - **BLOCKED →** IN_PROGRESS (PM/assignee/system), READY (auto-unblock only), CANCELLED (PM only)
 > - **COMPLETE →** IN_PROGRESS (reopen: PM or Doc), CANCELLED (PM only; no cascade)
 > - **CANCELLED →** *(none; strictly terminal)*
@@ -182,6 +184,8 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | BLOCKED → BLOCKED | "Project Manager" (or "Project Manager Agent"), current assignee |
 | IN_PROGRESS → READY | "Project Manager" (or "Project Manager Agent"), current assignee |
 | COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), "Documentation" (or "Documentation Agent") |
+
+> **Design note — no agent guard on → BLOCKED transitions:** The `READY → BLOCKED` and `IN_PROGRESS → BLOCKED` transitions intentionally have **no agent role restriction**. Any of the seven agent roles may block a WP by providing a `blocked_by` object. This is a deliberate design choice: any agent may discover a blocker during its work (e.g., a Developer encountering an external dependency, a QA agent discovering a technical issue). Restricting blocking to specific roles would force agents to complete their current pipeline with FAIL and add handoff notes requesting the PM to block — adding latency and complexity without a safety benefit. The `blocked_by` object (§21.11) is required for all → BLOCKED transitions, providing an audit trail of who blocked and why. The `BLOCKED → BLOCKED` replacement rule (§6.2) and `BLOCKED → IN_PROGRESS` agent guard (§6.5) ensure that *resolving* or *modifying* blockers remains restricted to authorized agents (PM/assignee/system).
 
 > Implementations should accept both short-form ("Documentation") and long-form ("Documentation Agent") variants.
 >

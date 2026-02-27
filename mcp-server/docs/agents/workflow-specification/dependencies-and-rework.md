@@ -53,6 +53,8 @@ function hasCycle(newWpId, dependencies, allSummaries):
 
 If a cycle is detected, the WP creation is rejected with an error identifying the cycle path.
 
+> **Structural note — defense-in-depth only:** Under normal operation, cycles are impossible by construction. WP IDs are generated sequentially (§3.6) and dependencies must reference pre-existing IDs (§15.2 validation above), so no existing WP can list `newWpId` as a dependency — the traversal from the new WP's dependencies through the graph can never reach `newWpId`. This check exists as defense-in-depth against data corruption (e.g., a WP referencing a future ID due to manual file editing or interrupted writes). Implementations SHOULD still include it, but should not rely on it as the primary cycle-prevention mechanism — the sequential-ID + existing-ID-only invariants are the real guards.
+
 ### 15.3 Dependency Check for Claiming
 
 ```
