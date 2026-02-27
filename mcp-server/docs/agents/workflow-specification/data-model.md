@@ -96,6 +96,8 @@ Pipeline {
 
 > Note: Pipelines have no READY state. They are always created directly as IN_PROGRESS.
 
+> **Ordering invariant:** The `pipelines` array is **append-only** and ordered by creation time. Implementations MUST NOT reorder, sort, or remove entries from this array. All algorithms in this specification that reference the "most recent" pipeline of a given type use positional lookup (`.last()` after filtering by type), not timestamp comparison. If the array is reordered, the entire state machine — including prerequisite checks, rework detection, re-validation guards, and freshness checks — will produce incorrect results.
+
 ### 3.5 Supporting Types
 
 ```
@@ -156,6 +158,8 @@ IncidentContext {
   workaround:     string?        // Description of workaround (optional)
 }
 ```
+
+> **Informational fields:** `commit_hash` and `pull_request` in `Artifacts` are **pass-through metadata** — no algorithm, guard, or recommendation in this specification consumes them. They exist for external tooling integration (e.g., linking pipeline results to VCS history) and audit trail purposes. Implementations may populate or ignore them without affecting workflow correctness.
 
 ### 3.6 WP ID Format
 

@@ -12,6 +12,8 @@ Creating a WP initializes it from plan data and adds it to the project ledger. T
 
 ```
 function createWorkPackage(root, wpData, agentRole):
+  acquire lock
+
   // --- WP ID generation (§3.6) ---
   existingIds = root.work_packages.map(wp => parseNumericSuffix(wp.work_package_id))
   nextNum = (max(existingIds) ?? 0) + 1
@@ -78,6 +80,7 @@ function createWorkPackage(root, wpData, agentRole):
 
   write wpDetail
   write root
+  release lock
   return wpDetail
 ```
 

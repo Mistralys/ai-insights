@@ -147,3 +147,5 @@ Maps agent role to the pipeline type it owns. Derived from PIPELINE_AGENT_MAP by
 | QA | `qa` |
 | Reviewer | `code-review` |
 | Documentation | `documentation` |
+
+> **Map consistency invariant:** `PIPELINE_AGENT_MAP` (§9.1), `NEXT_AGENT_MAP` (§9.2), `FAIL_ROUTING_MAP` (§9.3), and `AGENT_PIPELINE_MAP` (§9.4) must be consistent — every pipeline type that appears as a key in one map must appear in all maps, and `AGENT_PIPELINE_MAP` must be the exact inverse of `PIPELINE_AGENT_MAP`. A typo or omission in any single map could silently misroute handoffs or skip pipeline stages. Implementations SHOULD validate cross-map consistency at startup (e.g., asserting key-set equality and inverse-mapping correctness) and fail fast on any divergence.

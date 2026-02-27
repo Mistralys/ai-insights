@@ -78,7 +78,9 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
 │               │                │ Most recent `documentation` pipeline is PASS     │
 │               │                │ Doc PASS must post-date most recent              │
-│               │                │ `implementation` pipeline start (freshness check)│
+│               │                │ `implementation` pipeline start (freshness check;│
+│               │                │ passes vacuously if no implementation pipeline   │
+│               │                │ exists — see §21.10)                             │
 │               │                │ Agent must be "Documentation"                    │
 │ IN_PROGRESS   → READY          │ No IN_PROGRESS pipelines on the WP              │
 │               │                │ Agent must be "Project Manager" or current       │
@@ -169,6 +171,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | Non-terminal → COMPLETE | Decrement by 1 |
 | Non-terminal → CANCELLED | Decrement by 1 |
 | COMPLETE → IN_PROGRESS | Increment by 1 |
+| COMPLETE → COMPLETE | No change (same-state no-op; §6.2 preempts counter logic) |
 | COMPLETE → CANCELLED | No change (terminal → terminal) |
 | All other transitions | No change |
 

@@ -361,6 +361,7 @@ function getDeveloperAction(root, store):
 Same priority pattern as Developer, applied to `qa` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[qa] >= MAX_REWORK_COUNT`
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: WP has `rework_counts[implementation] >= MAX_REWORK_COUNT` — the upstream pipeline is circuit-broken; QA should not run against a stale implementation that can no longer be reworked. Returns `WAIT` with a note indicating the upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale QA pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `qa` pipeline
 4. **RUN_QA** (re-engagement after rework): WP has at least one prior `qa` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
@@ -377,6 +378,7 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 Same pattern, applied to `code-review` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[code-review] >= MAX_REWORK_COUNT`
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation` or `qa`) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Reviewer should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `code-review` pipeline
 4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("qa", "code-review")` is true — QA re-passed after previous review; Reviewer should re-engage regardless of previous review result
@@ -391,6 +393,7 @@ Same pattern, applied to `code-review` pipelines:
 Same pattern, applied to `documentation` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[documentation] >= MAX_REWORK_COUNT`
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation`, `qa`, or `code-review`) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Documentation should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale documentation pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `documentation` pipeline
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
