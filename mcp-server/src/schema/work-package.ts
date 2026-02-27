@@ -100,7 +100,7 @@ export type HandoffNote = z.infer<typeof HandoffNoteSchema>;
  * Work Package Detail schema (.ledger/WP-###.json)
  */
 export const WorkPackageDetailSchema = z.object({
-  work_package_id: z.string().regex(/^WP-\d{3}$/),
+  work_package_id: z.string().regex(/^WP-\d{3,}$/),
   work_package_file: z.string(),
   status: WorkPackageStatus,
   assigned_to: z.string(),

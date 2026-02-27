@@ -46,10 +46,10 @@ mcp-server/
 │   │
 │   ├── tools/                   # MCP tool implementations
 │   │   ├── help.ts              # ledger_help — thin handler (schema + register); static strings live in help-content.ts
-│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 19 MCP tools
+│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 20 MCP tools
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
-│   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects
+│   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
 │   │   ├── workflow.ts          # Thin aggregator — delegates register() to the three sub-modules; re-exports backward-compat symbols
 │   │   ├── workflow-batch-actions.ts  # ledger_get_next_actions (batch variant)
@@ -63,8 +63,8 @@ mcp-server/
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
 │       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), validatePlanPathOrError()
-│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, AGENT_PIPELINE_MAP)
-│       ├── timestamp.ts         # Timestamp formatting — now() returns ISO 8601 T-separator (YYYY-MM-DDTHH:MM:SS); parseTimestamp() handles legacy space format
+│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP)
+│       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
@@ -88,16 +88,27 @@ mcp-server/
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
+    │   ├── cancelled-status.test.ts  # CANCELLED status transitions and dependency satisfaction
+    │   ├── cascade-reblock.test.ts  # Cascade-block on COMPLETE → IN_PROGRESS reopen
     │   ├── claim-guard.test.ts  # Assignment guard for ledger_claim_work_package
     │   ├── pipeline.test.ts
+    │   ├── project-lifecycle.test.ts  # ledger_complete_synthesis, self-healing with synthesis_generated
+    │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT
+    │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
     │   ├── work-package.test.ts
-    │   └── workflow-handoff.test.ts
+    │   ├── workflow-batch-actions.test.ts  # All-CANCELLED terminal short-circuit; allTerminal/reason string; WP ID regex (4-digit)
+    │   ├── workflow-handoff.test.ts
+    │   ├── workflow-next-action.test.ts  # REWORK routing, Documentation FAIL routing, BLOCK_FOR_REWORK_LIMIT
+    │   └── workflow-rework-loop.test.ts  # End-to-end rework loop covering FAIL → REWORK → PASS cycles
     │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
+        ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
+        ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince
+        └── wp-id.test.ts        # WP ID generation: variable-width, max-based incrementing
         ├── timestamp.test.ts
         └── wp-id.test.ts
 ```

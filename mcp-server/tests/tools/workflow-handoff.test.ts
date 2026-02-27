@@ -7,6 +7,7 @@ import {
   getReviewerHandoff,
   getDocumentationHandoff,
   getDeveloperHandoff,
+  getPlannerHandoff,
   nextAgentFromStatus,
   buildHandoffResponse,
 } from '../../src/tools/workflow-handoff.js';
@@ -111,7 +112,7 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('IN_PROGRESS');
     });
 
-    it('returns IN_PROGRESS when a QA pipeline has FAIL status', async () => {
+    it('returns READY_FOR_DEVELOPER when a QA pipeline has FAIL status', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -120,7 +121,7 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = await parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
     });
 
     it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', async () => {
@@ -251,16 +252,31 @@ describe('Handoff logic: incomplete project detection', () => {
   });
 
   describe('Developer handoff', () => {
-    it('returns IN_PROGRESS when some WPs lack implementation', async () => {
+    it('returns IN_PROGRESS when some non-BLOCKED WPs lack implementation', async () => {
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+        ]),
+        makeWp('WP-002', 'IN_PROGRESS', []), // READY/IN_PROGRESS but no implementation pipeline yet
+      ];
+
+      const result = await parseResult(getDeveloperHandoff(wpDetails));
+      expect(result.status).toBe('IN_PROGRESS');
+    });
+
+    it('returns READY_FOR_QA when all non-BLOCKED WPs have PASS implementation (remaining WPs are BLOCKED)', async () => {
+      // This was the reported deadlock scenario: WP-001 done, WP-002..N are BLOCKED on dependencies.
+      // The Developer should hand off to QA rather than report IN_PROGRESS for blocked WPs.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
         ]),
         makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
+        makeWp('WP-003', 'BLOCKED', [], ['WP-001']),
       ];
 
       const result = await parseResult(getDeveloperHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_QA');
     });
 
     it('returns READY_FOR_QA when ALL WPs have PASS implementation', async () => {
@@ -721,7 +737,7 @@ describe('BLOCKED WP handling — no rework loop', () => {
       expect(result.status).not.toBe('IN_PROGRESS');
     });
 
-    it('returns IN_PROGRESS when a non-BLOCKED WP has FAIL QA', async () => {
+    it('returns READY_FOR_DEVELOPER when a non-BLOCKED WP has FAIL QA', async () => {
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -730,7 +746,7 @@ describe('BLOCKED WP handling — no rework loop', () => {
       ];
 
       const result = await parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
     });
   });
 
@@ -1005,6 +1021,7 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
       expect(nextAgentFromStatus('READY_FOR_REVIEW', 'QA')).toBe('Reviewer');
       expect(nextAgentFromStatus('READY_FOR_DOCUMENTATION', 'Reviewer')).toBe('Documentation');
       expect(nextAgentFromStatus('READY_FOR_SYNTHESIS', 'Documentation')).toBe('Synthesis');
+      expect(nextAgentFromStatus('READY_FOR_PM', 'Planner')).toBe('Project Manager');
     });
 
     it('returns current agent for IN_PROGRESS', () => {
@@ -1018,6 +1035,12 @@ describe('Three-field handoff format (current_agent / next_agent / status)', () 
 
     it('returns null for COMPLETE', () => {
       expect(nextAgentFromStatus('COMPLETE', 'Synthesis')).toBeNull();
+    });
+
+    it('returns null for CANCELLED (terminal status — GN-1)', () => {
+      // CANCELLED is a terminal status just like COMPLETE; no next agent should be returned.
+      expect(nextAgentFromStatus('CANCELLED', 'Developer')).toBeNull();
+      expect(nextAgentFromStatus('CANCELLED', 'QA')).toBeNull();
     });
 
     it('returns null for unknown status', () => {
@@ -1277,15 +1300,19 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     expect(root.auto_handoff_depth).toBe(3);
   });
 
-  it('resets auto_handoff_depth to 0 when project reaches COMPLETE', async () => {
+  it('does NOT reset auto_handoff_depth in buildHandoffResponse (depth reset moved to updateWorkPackageStatus)', async () => {
+    // Finding #8: auto_handoff_depth is now reset when any WP transitions to COMPLETE
+    // via updateWorkPackageStatus (work-package.ts), not at project-COMPLETE time here.
+    // buildHandoffResponse should leave auto_handoff_depth unchanged regardless of status.
     await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: 5 }));
 
     await parseResult(
       buildHandoffResponse('Synthesis', 'COMPLETE', 'Project done.', undefined, PLAN_PATH, store),
     );
 
+    // Depth should remain 5 — buildHandoffResponse no longer resets it
     const root = await store.readRootIndex();
-    expect(root.auto_handoff_depth).toBe(0);
+    expect(root.auto_handoff_depth).toBe(5);
   });
 
   it('rework loop: QA FAIL → auto_handoff targets Developer agent when depth permits', async () => {
@@ -1355,5 +1382,164 @@ describe('buildHandoffPrompt', () => {
 
   it('handles paths containing spaces', () => {
     expect(buildHandoffPrompt('/users/me/my project')).toBe('Project path: /users/me/my project');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-004: Handoff & Auto-Handoff Fixes
+// ---------------------------------------------------------------------------
+
+describe('getPlannerHandoff — Finding #6: Planner returns a defined, non-generic response', () => {
+  it('returns READY_FOR_DEVELOPER when WPs are READY or IN_PROGRESS', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'READY'),
+      makeWp('WP-002', 'IN_PROGRESS'),
+    ];
+    const result = await parseResult(getPlannerHandoff(wpDetails));
+    expect(result.current_agent).toBe('Planner');
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.details).toContain('Planning complete');
+  });
+
+  it('returns READY_FOR_PM when no work packages exist', async () => {
+    const result = await parseResult(getPlannerHandoff([]));
+    expect(result.status).toBe('READY_FOR_PM');
+    expect(result.current_agent).toBe('Planner');
+    expect(result.next_agent).toBe('Project Manager');
+    expect(result.details).toContain('Planning complete');
+  });
+
+  it('returns WAIT when all WPs are COMPLETE or BLOCKED', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE'),
+      makeWp('WP-002', 'BLOCKED'),
+    ];
+    const result = await parseResult(getPlannerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.details).toContain('Planning complete');
+  });
+
+  it('does NOT return the generic IN_PROGRESS response (must have specific Planner status)', async () => {
+    const wpDetails = [makeWp('WP-001', 'READY')];
+    const result = await parseResult(getPlannerHandoff(wpDetails));
+    // Planner must never fall through to the default IN_PROGRESS handler
+    expect(result.status).not.toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('Planner');
+  });
+});
+
+describe('Synthesis case — Finding #13: includes get_next_action guidance', () => {
+  let handle: { store: LedgerStore; planPath: string; ledgerRoot: string };
+
+  beforeEach(async () => {
+    const { createTempStore } = await import('../helpers/create-temp-store.js');
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    const { cleanupTempStore } = await import('../helpers/create-temp-store.js');
+    await cleanupTempStore(handle);
+  });
+
+  it('Synthesis buildHandoffResponse includes get_next_action guidance in next_action field', async () => {
+    const result = await parseResult(
+      buildHandoffResponse(
+        'Synthesis',
+        'COMPLETE',
+        'Synthesis complete.',
+        'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
+        handle.planPath,
+        handle.store
+      )
+    );
+    expect(result.status).toBe('COMPLETE');
+    expect(result.next_action).toBeDefined();
+    expect(result.next_action).toContain('ledger_get_next_action');
+  });
+});
+
+describe('Global BLOCKED precheck — Finding #9: mixed BLOCKED + COMPLETE returns BLOCKED', () => {
+  /**
+   * Inline replica of the revised global precheck logic in getHandoffStatus.
+   * Tests that the condition fires for BLOCKED+COMPLETE when no READY/IN_PROGRESS exist.
+   */
+  function shouldReturnBlocked(wps: { status: string }[]): boolean {
+    const blockedWps = wps.filter((w) => w.status === 'BLOCKED');
+    const readyOrInProgressWps = wps.filter(
+      (w) => w.status === 'READY' || w.status === 'IN_PROGRESS'
+    );
+    // New condition: BLOCKED triggered by absence of READY/IN_PROGRESS alone
+    return blockedWps.length > 0 && readyOrInProgressWps.length === 0;
+  }
+
+  it('returns BLOCKED for mixed BLOCKED + COMPLETE state (no READY/IN_PROGRESS)', () => {
+    const wps = [
+      { status: 'BLOCKED' },
+      { status: 'BLOCKED' },
+      { status: 'COMPLETE' },
+    ];
+    expect(shouldReturnBlocked(wps)).toBe(true);
+  });
+
+  it('returns BLOCKED when single BLOCKED + single COMPLETE (old behavior was NOT blocked here)', () => {
+    const wps = [
+      { status: 'BLOCKED' },
+      { status: 'COMPLETE' },
+    ];
+    // This was previously false (old bug: required completeWps.length === 0)
+    // New correct behavior: should be true
+    expect(shouldReturnBlocked(wps)).toBe(true);
+  });
+
+  it('does NOT return BLOCKED when READY or IN_PROGRESS WPs exist alongside BLOCKED', () => {
+    expect(shouldReturnBlocked([{ status: 'BLOCKED' }, { status: 'IN_PROGRESS' }])).toBe(false);
+    expect(shouldReturnBlocked([{ status: 'BLOCKED' }, { status: 'READY' }])).toBe(false);
+  });
+
+  it('does NOT return BLOCKED when no BLOCKED WPs exist', () => {
+    expect(shouldReturnBlocked([{ status: 'COMPLETE' }, { status: 'READY' }])).toBe(false);
+    expect(shouldReturnBlocked([{ status: 'COMPLETE' }])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-003: Handoff Routing Fixes — regression & new tests
+// ---------------------------------------------------------------------------
+
+describe('getDocumentationHandoff \u2014 FAIL routing regression (audit issue #2)', () => {
+  it('returns IN_PROGRESS (not READY_FOR_DEVELOPER) when WPs have FAIL documentation pipelines', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.status).not.toBe('READY_FOR_DEVELOPER');
+    expect(result.current_agent).toBe('Documentation');
+    expect(result.details).toContain('rework');
+  });
+});
+
+describe('getPlannerHandoff \u2014 READY_FOR_PM when no WPs exist (audit issue #6)', () => {
+  it('returns READY_FOR_PM when no work packages exist', async () => {
+    const result = await parseResult(getPlannerHandoff([]));
+    expect(result.status).toBe('READY_FOR_PM');
+    expect(result.current_agent).toBe('Planner');
+    expect(result.next_agent).toBe('Project Manager');
+  });
+});
+
+describe('buildHandoffResponse \u2014 auto-handoff absent for non-READY_FOR_* statuses', () => {
+  it('auto_handoff is absent for WAIT, IN_PROGRESS, BLOCKED, COMPLETE statuses', async () => {
+    for (const status of ['WAIT', 'IN_PROGRESS', 'BLOCKED', 'COMPLETE']) {
+      const result = await parseResult(
+        buildHandoffResponse('Developer', status, 'Testing status: ' + status)
+      );
+      expect(result.auto_handoff).toBeUndefined();
+    }
   });
 });

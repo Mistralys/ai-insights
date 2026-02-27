@@ -10,8 +10,10 @@ import {
   getMaxHandoffDepth,
   buildHandoffPrompt,
   isBlockedByDependencies,
+  isMostRecentPipelineFail,
 } from '../utils/workflow-helpers.js';
 import { getConfig } from '../gui/config.js';
+import { isTerminalStatus } from '../schema/validators.js';
 
 /**
  * Tool: get_handoff_status
@@ -45,21 +47,18 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // Read root index
     const rootIndex = await store.readRootIndex();
 
-    // Check for BLOCKED work packages, but only report BLOCKED if there's truly nothing that can be worked on
+    // Check for BLOCKED work packages. Report BLOCKED whenever blocked WPs exist
+    // and nothing is actionable (no READY or IN_PROGRESS WPs), regardless of
+    // whether some WPs are already COMPLETE. A mixed BLOCKED + COMPLETE state
+    // with no forward progress indicates a genuine stall that needs PM resolution.
     const blockedWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'BLOCKED'
-    );
-    const completeWps = rootIndex.work_packages.filter(
-      (wp) => wp.status === 'COMPLETE'
     );
     const readyOrInProgressWps = rootIndex.work_packages.filter(
       (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
     );
 
-    // Only report BLOCKED if ALL WPs are blocked (no READY/IN_PROGRESS, no COMPLETE).
-    // If any WPs are COMPLETE, downstream agents (QA, Reviewer, Documentation) can still process them,
-    // so let agent-specific logic determine the appropriate handoff.
-    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0 && completeWps.length === 0) {
+    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0) {
       return buildHandoffResponse(
         args.current_agent,
         'BLOCKED',
@@ -80,6 +79,8 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
 
     // Agent-specific handoff logic
     switch (args.current_agent) {
+      case 'Planner':
+        return getPlannerHandoff(wpDetails, args.project_path, store);
       case 'Project Manager':
         return getProjectManagerHandoff(wpDetails, args.project_path, store);
       case 'Developer':
@@ -91,7 +92,14 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
       case 'Documentation':
         return getDocumentationHandoff(wpDetails, args.project_path, store);
       case 'Synthesis':
-        return buildHandoffResponse(args.current_agent, 'COMPLETE', 'Synthesis complete.', undefined, args.project_path, store);
+        return buildHandoffResponse(
+          args.current_agent,
+          'COMPLETE',
+          'Synthesis complete.',
+          'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
+          args.project_path,
+          store
+        );
       default:
         return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, args.project_path, store);
     }
@@ -123,10 +131,11 @@ export function nextAgentFromStatus(status: string, currentAgent: string): strin
     READY_FOR_REVIEW: 'Reviewer',
     READY_FOR_DOCUMENTATION: 'Documentation',
     READY_FOR_SYNTHESIS: 'Synthesis',
+    READY_FOR_PM: 'Project Manager',
     BLOCKED: 'Project Manager',
   };
   if (status === 'IN_PROGRESS') return currentAgent;
-  if (status === 'COMPLETE') return null;
+  if (isTerminalStatus(status)) return null;
   return map[status] ?? null;
 }
 
@@ -158,7 +167,11 @@ export async function buildHandoffResponse(
   };
   if (nextAction) payload.next_action = nextAction;
 
-  // Auto-handoff eligibility check
+  // Auto-handoff eligibility check.
+  // NOTE: `status` here is the handoff status value (e.g., READY_FOR_DEVELOPER, READY_FOR_PM),
+  // NOT the ProjectStatus (e.g., IN_PROGRESS). Auto-handoff triggers only for
+  // READY_FOR_* statuses — non-READY_FOR_* values (COMPLETE, BLOCKED, IN_PROGRESS, WAIT)
+  // are explicitly excluded by the conditions below.
   if (
     projectPath &&
     store &&
@@ -190,21 +203,9 @@ export async function buildHandoffResponse(
     }
   }
 
-  // Reset depth counter when project reaches COMPLETE
-  if (status === 'COMPLETE' && store && projectPath) {
-    try {
-      const root = await store.readRootIndex();
-      if ((root.auto_handoff_depth ?? 0) !== 0) {
-        await store.writeRootIndex({
-          ...root,
-          auto_handoff_depth: 0,
-          last_updated: now(),
-        });
-      }
-    } catch (err) {
-      process.stderr.write(`[buildHandoffResponse] storage error (COMPLETE depth reset): ${String(err)}\n`);
-    }
-  }
+  // (auto_handoff_depth is reset at WP-completion time inside updateWorkPackageStatus,
+  //  not here, so that any single WP reaching COMPLETE resets the counter rather than
+  //  only resetting when the entire project completes.)
 
   return {
     content: [
@@ -214,6 +215,49 @@ export async function buildHandoffResponse(
       },
     ],
   };
+}
+
+/**
+ * Get handoff status for Planner
+ *
+ * Planner has completed the project plan. If work packages exist and are
+ * READY/IN_PROGRESS, hand off to Developer. Otherwise return WAIT.
+ */
+export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+  if (wpDetails.length === 0) {
+    return buildHandoffResponse(
+      'Planner',
+      'READY_FOR_PM',
+      'Planning complete. No work packages exist yet — ready for Project Manager to decompose the plan.',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  const readyOrInProgressWps = wpDetails.filter(
+    (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
+  );
+
+  if (readyOrInProgressWps.length > 0) {
+    return buildHandoffResponse(
+      'Planner',
+      'READY_FOR_DEVELOPER',
+      `Planning complete. ${readyOrInProgressWps.length} work package(s) are READY or IN_PROGRESS for implementation.`,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  return buildHandoffResponse(
+    'Planner',
+    'WAIT',
+    'Planning complete. All work packages are either COMPLETE or BLOCKED. No further planner action needed.',
+    undefined,
+    projectPath,
+    store
+  );
 }
 
 /**
@@ -252,8 +296,13 @@ export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], p
  * Get handoff status for Developer
  */
 export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  // Check if all WPs have PASS implementation pipelines
-  const allImplemented = wpDetails.every((wp) =>
+  // Only consider non-BLOCKED WPs for implementation progress.
+  // BLOCKED WPs have no implementation pipeline yet (they're waiting on dependencies)
+  // and must not be counted as "needing work" by the Developer right now.
+  const nonBlockedWps = wpDetails.filter((wp) => wp.status !== 'BLOCKED');
+
+  // Check if all non-BLOCKED WPs have PASS implementation pipelines
+  const allImplemented = nonBlockedWps.length > 0 && nonBlockedWps.every((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
   );
 
@@ -268,22 +317,26 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
     );
   }
 
-  // Check if any WP needs implementation or has FAIL pipeline.
+  // Check if any non-BLOCKED WP needs implementation or has FAIL pipeline.
   //
   // NOTE: isMostRecentPipelineFail is intentionally NOT used here. That helper
   // only checks the most recent pipeline, which would miss a WP that has an
   // older FAIL pipeline followed by a currently IN_PROGRESS one. getDeveloperHandoff
   // needs a conservative signal: if any implementation attempt has ever FAIL-ed
   // and no PASS pipeline exists yet, the WP is still considered in-progress.
-  const needsWork = wpDetails.some(
+  //
+  // BLOCKED WPs are excluded: they are gated on dependencies and cannot be
+  // claimed by the Developer right now. Including them caused a false IN_PROGRESS
+  // that contradicted the WAIT returned by ledger_get_next_action.
+  const needsWork = nonBlockedWps.some(
     (wp) =>
       !wp.pipelines.some((p) => p.type === 'implementation') ||
       wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'FAIL')
   );
 
   if (needsWork) {
-    // Count how many work packages still need implementation
-    const wpsNeedingWork = wpDetails.filter(
+    // Count how many non-BLOCKED work packages still need implementation
+    const wpsNeedingWork = nonBlockedWps.filter(
       (wp) =>
         !wp.pipelines.some((p) => p.type === 'implementation') ||
         wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'FAIL')
@@ -373,27 +426,45 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 
   // Check if any non-BLOCKED WP needs QA or has FAIL pipeline.
   // BLOCKED WPs need Developer rework before QA can retry — exclude them.
-  const needsWork = wpsWithImpl.some(
+  // Distinguish between "needs new QA" / "QA IN_PROGRESS" (→ IN_PROGRESS)
+  // and "only FAILs remain" (→ READY_FOR_DEVELOPER, Developer must rework first).
+  const wpsNeedingNewQa = wpsWithImpl.filter(
     (wp) =>
       wp.status !== 'BLOCKED' &&
-      (!wp.pipelines.some((p) => p.type === 'qa') ||
-      wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
+      !wp.pipelines.some((p) => p.type === 'qa')
+  );
+  const wpsWithQaInProgress = wpsWithImpl.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      wp.pipelines.some((p) => p.type === 'qa' && p.status === 'IN_PROGRESS')
+  );
+  const wpsWithQaFail = wpsWithImpl.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      isMostRecentPipelineFail(wp.pipelines, 'qa')
   );
 
-  if (needsWork) {
-    // Count how many work packages still need QA
-    const wpsNeedingWork = wpsWithImpl.filter(
-      (wp) =>
-        wp.status !== 'BLOCKED' &&
-        (!wp.pipelines.some((p) => p.type === 'qa') ||
-        wp.pipelines.some((p) => p.type === 'qa' && p.status === 'FAIL'))
-    );
+  if (wpsNeedingNewQa.length > 0 || wpsWithQaInProgress.length > 0) {
+    // QA agent still has actionable work (new QA or in-progress QA)
+    const wpsNeedingWork = [...wpsNeedingNewQa, ...wpsWithQaInProgress];
 
     return buildHandoffResponse(
       'QA',
       'IN_PROGRESS',
-      `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA or rework.`,
+      `QA work in progress. ${wpsNeedingWork.length} work package(s) still need QA.`,
       `Call ledger_get_next_action with agent_role: "QA" to find the next work package to validate. Continue working until all WPs have PASS qa pipelines.`,
+      projectPath,
+      store
+    );
+  }
+
+  if (wpsWithQaFail.length > 0) {
+    // All QA work is done but some FAILed — Developer must rework before QA can retry
+    return buildHandoffResponse(
+      'QA',
+      'READY_FOR_DEVELOPER',
+      `QA complete but ${wpsWithQaFail.length} work package(s) have FAIL QA pipelines: ${wpsWithQaFail.map((wp) => wp.work_package_id).join(', ')}. Developer must rework before QA can retry.`,
+      undefined,
       projectPath,
       store
     );
@@ -506,27 +577,45 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 
   // Check if any non-BLOCKED WP needs review or has FAIL pipeline.
   // BLOCKED WPs need upstream rework before Reviewer can retry — exclude them.
-  const needsWork = wpsWithQa.some(
+  // Distinguish between "needs new review" / "review IN_PROGRESS" (→ IN_PROGRESS)
+  // and "only FAILs remain" (→ READY_FOR_DEVELOPER, Developer must rework first).
+  const wpsNeedingNewReview = wpsWithQa.filter(
     (wp) =>
       wp.status !== 'BLOCKED' &&
-      (!wp.pipelines.some((p) => p.type === 'code-review') ||
-      wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
+      !wp.pipelines.some((p) => p.type === 'code-review')
+  );
+  const wpsWithReviewInProgress = wpsWithQa.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'IN_PROGRESS')
+  );
+  const wpsWithReviewFail = wpsWithQa.filter(
+    (wp) =>
+      wp.status !== 'BLOCKED' &&
+      isMostRecentPipelineFail(wp.pipelines, 'code-review')
   );
 
-  if (needsWork) {
-    // Count how many work packages still need review
-    const wpsNeedingWork = wpsWithQa.filter(
-      (wp) =>
-        wp.status !== 'BLOCKED' &&
-        (!wp.pipelines.some((p) => p.type === 'code-review') ||
-        wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'FAIL'))
-    );
+  if (wpsNeedingNewReview.length > 0 || wpsWithReviewInProgress.length > 0) {
+    // Reviewer still has actionable work
+    const wpsNeedingWork = [...wpsNeedingNewReview, ...wpsWithReviewInProgress];
 
     return buildHandoffResponse(
       'Reviewer',
       'IN_PROGRESS',
-      `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review or rework.`,
+      `Review work in progress. ${wpsNeedingWork.length} work package(s) still need review.`,
       `Call ledger_get_next_action with agent_role: "Reviewer" to find the next work package to review. Continue working until all WPs have PASS code-review pipelines.`,
+      projectPath,
+      store
+    );
+  }
+
+  if (wpsWithReviewFail.length > 0) {
+    // All review work is done but some FAILed — Developer must rework before Reviewer can retry
+    return buildHandoffResponse(
+      'Reviewer',
+      'READY_FOR_DEVELOPER',
+      `Review complete but ${wpsWithReviewFail.length} work package(s) have FAIL code-review pipelines: ${wpsWithReviewFail.map((wp) => wp.work_package_id).join(', ')}. Developer must rework before Reviewer can retry.`,
+      undefined,
       projectPath,
       store
     );

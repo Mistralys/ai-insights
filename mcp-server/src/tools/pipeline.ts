@@ -8,9 +8,11 @@ import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
   PipelineTypeEnum,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
+import { MAX_REWORK_COUNT } from '../utils/workflow-helpers.js';
 
 /**
  * Build a next-step guidance string for the agent after completing a pipeline.
@@ -72,6 +74,7 @@ export const _internal = {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
   buildCompletionGuidance,
 };
 
@@ -88,6 +91,10 @@ const StartPipelineSchema = z.object({
     .regex(/^WP-\d{3}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  agent_role: z
+    .string()
+    .optional()
+    .describe('Agent role starting the pipeline. If provided, validated against the pipeline type owner.'),
 });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
@@ -98,14 +105,24 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
-      // 1. Validate WP is IN_PROGRESS
+      // 1. Validate agent role if provided
+      if (args.agent_role !== undefined) {
+        const expectedAgent = PIPELINE_AGENT_MAP[args.type];
+        if (expectedAgent !== args.agent_role) {
+          throw new Error(
+            `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
+          );
+        }
+      }
+
+      // 2. Validate WP is IN_PROGRESS
       if (wp.status !== 'IN_PROGRESS') {
         throw new Error(
           `Cannot start pipeline for work package ${args.work_package_id}: work package status is ${wp.status}. Only IN_PROGRESS work packages can have pipelines started.`
         );
       }
 
-      // 2. Check for duplicate in-progress pipeline of same type
+      // 3. Check for duplicate in-progress pipeline of same type
       const existingInProgress = wp.pipelines.find(
         (p) => p.type === args.type && p.status === 'IN_PROGRESS'
       );
@@ -116,7 +133,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
-      // 3. Enforce pipeline ordering: check prerequisite
+      // 4. Enforce pipeline ordering: check prerequisite
       const prerequisite = PIPELINE_PREREQUISITES[args.type];
       if (prerequisite !== undefined && prerequisite !== null) {
         const hasPassPrerequisite = wp.pipelines.some(
@@ -129,7 +146,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         }
       }
 
-      // 4. Create new pipeline entry
+      // 5. Create new pipeline entry
       const newPipeline: Pipeline = {
         type: args.type,
         status: 'IN_PROGRESS',
@@ -137,15 +154,22 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         summary: [],
       };
 
-      // 5. Increment rework_count if restarting a previously-failed pipeline of the same type
-      const hasPreviousFail = wp.pipelines.some(
-        (p) => p.type === args.type && p.status === 'FAIL'
-      );
-      if (hasPreviousFail) {
+      // 6. Increment rework_count if the most recent pipeline of the same type has FAIL status
+      const sameTypePipelines = wp.pipelines.filter((p) => p.type === args.type);
+      const mostRecent = sameTypePipelines.at(-1);
+      if (mostRecent?.status === 'FAIL') {
         wp.rework_count = (wp.rework_count ?? 0) + 1;
       }
 
-      // 6. Append to pipelines array
+      // 6b. Circuit breaker — reject if rework_count has reached the limit
+      if ((wp.rework_count ?? 0) >= MAX_REWORK_COUNT) {
+        throw new Error(
+          `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
+          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`
+        );
+      }
+
+      // 7. Append to pipelines array
       wp.pipelines.push(newPipeline);
 
       // 7. Update assigned_to to reflect the agent now working on this WP
@@ -295,6 +319,8 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
           if (criterion) {
             criterion.met = update.met;
+          } else {
+            wp.acceptance_criteria.push({ criterion: update.criterion, met: update.met });
           }
         }
       }
@@ -302,7 +328,9 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
       // 5. Append handoff note if provided
       if (args.handoff_notes && args.handoff_notes.length > 0) {
         const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
-        const toAgent = NEXT_AGENT_MAP[args.type] ?? 'Unknown';
+        const toAgent = args.status === 'FAIL'
+          ? (FAIL_ROUTING_MAP[args.type] ?? 'Developer')
+          : (NEXT_AGENT_MAP[args.type] ?? 'Unknown');
         const note: HandoffNote = {
           from_agent: fromAgent,
           to_agent: toAgent,

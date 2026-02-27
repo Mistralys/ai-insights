@@ -13,7 +13,9 @@ import {
   isValidStatusTransition,
   canStartWorkPackage,
   canCompleteWorkPackage,
+  isTerminalStatus,
 } from '../schema/validators.js';
+import type { WorkPackageStatus } from '../schema/enums.js';
 import { withLock } from '../storage/file-lock.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
 
@@ -59,6 +61,7 @@ function buildStatusTransitionGuidance(
  */
 export const _internal = {
   buildStatusTransitionGuidance,
+  propagateDependencyUnblock,
 };
 
 /**
@@ -70,7 +73,7 @@ const GetWorkPackageSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
 });
 
@@ -171,10 +174,11 @@ const CreateWorkPackageSchema = z.object({
     .string()
     .describe('Agent name assigned to this work package (e.g., "Developer")'),
   dependencies: z
-    .array(z.string().regex(/^WP-\d{3}$/))
+    .array(z.string().regex(/^WP-\d{3,}$/))
     .describe('Array of WP IDs this depends on (e.g., ["WP-001"]). Use [] for no dependencies.'),
   acceptance_criteria: z
     .array(z.string())
+    .min(1, 'At least one acceptance criterion is required')
     .describe('Array of acceptance criteria strings (e.g., ["All tests pass", "No lint errors"])'),
   work_package_file: z
     .string()
@@ -308,7 +312,7 @@ const ClaimWorkPackageSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID to claim, format: WP-001, WP-002, etc.'),
   agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
   override: z
@@ -342,6 +346,20 @@ async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
           `Cannot claim work package ${args.work_package_id}: it is assigned to "${wp.assigned_to}" but you are "${args.agent}".\n\n` +
           `If you need to re-assign this WP, pass override: true. ` +
           `Otherwise, only claim work packages assigned to your role.`
+        );
+      }
+
+      // 2b. Override authorization: only PM or current assignee may bypass the assignment check
+      if (
+        args.override &&
+        wp.assigned_to &&
+        args.agent !== 'Project Manager' &&
+        args.agent !== wp.assigned_to
+      ) {
+        throw new Error(
+          `Cannot override claim on work package ${args.work_package_id}: ` +
+          `override is restricted to "Project Manager" or the current assignee ` +
+          `("${wp.assigned_to}"). You are "${args.agent}".`
         );
       }
 
@@ -411,11 +429,11 @@ const UpdateWorkPackageStatusSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID to update, format: WP-001, WP-002, etc.'),
   status: z
-    .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
-    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, BLOCKED→IN_PROGRESS, COMPLETE→IN_PROGRESS'),
+    .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED', 'CANCELLED'])
+    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, READY→CANCELLED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, IN_PROGRESS→CANCELLED, BLOCKED→IN_PROGRESS, BLOCKED→READY, BLOCKED→CANCELLED, COMPLETE→IN_PROGRESS. CANCELLED is terminal (PM-only).'),
   agent: z
     .string()
     .describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation"). Note: only "Documentation" or "Documentation Agent" can set status to COMPLETE.'),
@@ -439,8 +457,9 @@ async function updateWorkPackageStatus(
   const store = new LedgerStore(args.project_path);
 
   try {
+    let oldStatus: WorkPackageStatus | undefined;
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
-      const oldStatus = wp.status;
+      oldStatus = wp.status;
       const newStatus = args.status;
 
       // 1. Validate status transition
@@ -470,6 +489,20 @@ async function updateWorkPackageStatus(
         }
       }
 
+      // 2b. Validate agent permissions for CANCELLED status
+      if (newStatus === 'CANCELLED') {
+        const allowedCancelAgents = [
+          'Project Manager',
+          'Project Manager Agent',
+        ];
+        if (!allowedCancelAgents.includes(args.agent)) {
+          throw new Error(
+            `Only the Project Manager can cancel work packages. You are: ${args.agent}\n\n` +
+              `If you believe this work package should be cancelled, hand off to the Project Manager.`
+          );
+        }
+      }
+
       // 3. Special validation for COMPLETE: check acceptance criteria
       if (newStatus === 'COMPLETE') {
         const completeCheck = canCompleteWorkPackage(wp);
@@ -487,20 +520,39 @@ async function updateWorkPackageStatus(
         );
       }
 
-      // 5. Update work package status
+      // 5. Agent guard for COMPLETE -> IN_PROGRESS (validated before status mutation so the
+      //    WP is never partially mutated when the guard rejects the transition)
+      if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
+        const allowedReopenAgents = [
+          'Project Manager',
+          'Project Manager Agent',
+          'Documentation',
+          'Documentation Agent',
+        ];
+        if (!allowedReopenAgents.includes(args.agent)) {
+          throw new Error(
+            `Only the Project Manager or Documentation agent may reopen a COMPLETE work package (COMPLETE → IN_PROGRESS). You are: ${args.agent}\n\n` +
+              `If you believe this work package needs rework, hand off to the Project Manager or Documentation agent so they can formally reopen it.`
+          );
+        }
+      }
+
+      // 6. Update work package status
       wp.status = newStatus;
 
-      // 6. Handle BLOCKED -> IN_PROGRESS (clear blocker)
-      if (oldStatus === 'BLOCKED' && newStatus === 'IN_PROGRESS') {
+      // 7. Handle any exit from BLOCKED (clear blocker)
+      // Covers both BLOCKED -> IN_PROGRESS and BLOCKED -> READY so the field is
+      // never left stale regardless of which unblock path is taken.
+      if (oldStatus === 'BLOCKED' && newStatus !== 'BLOCKED') {
         delete wp.blocked_by;
       }
 
-      // 7. Handle BLOCKED status (set blocker)
+      // 8. Handle BLOCKED status (set blocker)
       if (newStatus === 'BLOCKED' && args.blocked_by) {
         wp.blocked_by = args.blocked_by as Blocker;
       }
 
-      // 8. Handle COMPLETE -> IN_PROGRESS (increment revision)
+      // 9. Handle COMPLETE -> IN_PROGRESS (increment revision)
       if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
         wp.revision += 1;
       }
@@ -514,13 +566,21 @@ async function updateWorkPackageStatus(
       }
 
       // 10. Update pending_work_packages counter
-      // Decrement when transitioning to COMPLETE
-      if (oldStatus !== 'COMPLETE' && newStatus === 'COMPLETE') {
+      // Decrement when transitioning to COMPLETE or CANCELLED (both are terminal)
+      if (!isTerminalStatus(oldStatus!) && isTerminalStatus(newStatus)) {
         root.pending_work_packages -= 1;
       }
-      // Increment when transitioning from COMPLETE to something else
+      // Increment when transitioning from COMPLETE to something else (reopen)
       if (oldStatus === 'COMPLETE' && newStatus !== 'COMPLETE') {
         root.pending_work_packages += 1;
+      }
+
+      // 11. Reset auto_handoff_depth when any WP reaches COMPLETE.
+      // This prevents the depth counter from stalling mid-project when
+      // multiple partial handoff chains are used across several WPs.
+      // (Replaces the project-COMPLETE-only reset that was in buildHandoffResponse.)
+      if (newStatus === 'COMPLETE' && (root.auto_handoff_depth ?? 0) !== 0) {
+        root.auto_handoff_depth = 0;
       }
 
       root.last_updated = now();
@@ -538,8 +598,14 @@ async function updateWorkPackageStatus(
     //   potentially slow cascade read of multiple WP detail files
     // - The gap between locks is safe because propagateDependencyUnblock is
     //   idempotent: re-running it on an already-unblocked WP is a no-op
-    if (args.status === 'COMPLETE') {
+    if (isTerminalStatus(args.status)) {
       await propagateDependencyUnblock(args.project_path, args.work_package_id);
+    }
+
+    // If the WP was reopened from COMPLETE, cascade-block dependents that are
+    // READY or IN_PROGRESS (they may be operating on stale assumptions).
+    if (oldStatus === 'COMPLETE' && args.status === 'IN_PROGRESS') {
+      await propagateDependencyReblock(args.project_path, args.work_package_id);
     }
 
     // Return updated work package with next-step guidance
@@ -579,11 +645,13 @@ async function updateWorkPackageStatus(
  */
 async function propagateDependencyUnblock(
   projectPath: string,
-  completedWpId: string
+  completedWpId: string,
+  ledgerRoot?: string
 ): Promise<void> {
-  const store = new LedgerStore(projectPath);
+  const store = new LedgerStore(projectPath, ledgerRoot);
+  const lockDir = ledgerRoot ?? projectPath;
 
-  await withLock(projectPath, async () => {
+  await withLock(lockDir, async () => {
     const rootIndex = await store.readRootIndex();
 
     // Find BLOCKED WPs whose dependency list includes the just-completed WP
@@ -600,6 +668,11 @@ async function propagateDependencyUnblock(
       // Check if all dependencies are now COMPLETE
       const canStart = canStartWorkPackage(wpDetail, rootIndex.work_packages);
       if (!canStart.allowed) continue;
+
+      // Skip WPs that are blocked for non-dependency reasons (e.g., external, decision, technical)
+      if (wpDetail.blocked_by && wpDetail.blocked_by.type !== 'dependency') {
+        continue;
+      }
 
       // Transition BLOCKED -> READY and clear blocked_by
       wpDetail.status = 'READY';
@@ -623,18 +696,79 @@ async function propagateDependencyUnblock(
 }
 
 /**
+ * Helper: Propagate dependency re-blocking when a COMPLETE work package is reopened.
+ *
+ * For all non-COMPLETE WPs that depend on the reopened WP, if their status is
+ * READY or IN_PROGRESS, transition them to BLOCKED with an appropriate blocked_by
+ * reason. COMPLETE dependents are left unchanged — they may have been independently
+ * finished and their pipelines remain valid.
+ */
+async function propagateDependencyReblock(
+  projectPath: string,
+  reopenedWpId: string
+): Promise<void> {
+  const store = new LedgerStore(projectPath);
+
+  await withLock(projectPath, async () => {
+    const rootIndex = await store.readRootIndex();
+
+    // Find non-terminal, non-BLOCKED WPs whose dependency list includes the reopened WP
+    const candidates = rootIndex.work_packages.filter(
+      (wp) =>
+        !isTerminalStatus(wp.status) &&
+        wp.status !== 'BLOCKED' &&
+        wp.dependencies.includes(reopenedWpId)
+    );
+
+    if (candidates.length === 0) return;
+
+    for (const candidate of candidates) {
+      const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+
+      // Transition READY/IN_PROGRESS -> BLOCKED
+      wpDetail.status = 'BLOCKED';
+      wpDetail.blocked_by = {
+        type: 'dependency',
+        description: `Dependency ${reopenedWpId} was reopened`,
+        blocking_work_package: reopenedWpId,
+      };
+
+      // Update root summary
+      const summary = rootIndex.work_packages.find(
+        (s) => s.work_package_id === candidate.work_package_id
+      );
+      if (summary) {
+        summary.status = 'BLOCKED';
+      }
+
+      // Persist the WP detail update
+      await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+    }
+
+    // Recompute pending_work_packages
+    rootIndex.pending_work_packages = rootIndex.work_packages.filter(
+      (wp) => !isTerminalStatus(wp.status)
+    ).length;
+    rootIndex.last_updated = now();
+    await store.writeRootIndex(rootIndex);
+  });
+}
+
+/**
  * Helper function to describe legal transitions from a given status
  */
 function getLegalTransitions(status: string): string {
   switch (status) {
     case 'READY':
-      return 'IN_PROGRESS, BLOCKED';
+      return 'IN_PROGRESS, BLOCKED, CANCELLED';
     case 'IN_PROGRESS':
-      return 'COMPLETE, BLOCKED';
+      return 'COMPLETE, BLOCKED, CANCELLED';
     case 'BLOCKED':
-      return 'IN_PROGRESS';
+      return 'IN_PROGRESS, READY, CANCELLED';
     case 'COMPLETE':
       return 'IN_PROGRESS';
+    case 'CANCELLED':
+      return 'none (terminal)';
     default:
       return 'none';
   }

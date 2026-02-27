@@ -3,10 +3,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { DetectProjectResult } from '../storage/ledger-store.js';
 import { WorkPackageStatus } from '../schema/enums.js';
+import { isTerminalStatus } from '../schema/validators.js';
 import { now } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { withLock } from '../storage/file-lock.js';
 
 /**
  * Tool: detect_project
@@ -90,6 +92,64 @@ const GetProjectStatusSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
 });
 
+/**
+ * Pure function: computes the healed project status and counters from
+ * the current root index data. Does NOT read or write disk.
+ */
+export function computeHealedStatus(rootIndex: RootIndex): {
+  totalWps: number;
+  pendingWps: number;
+  healedStatus: RootIndex['status'];
+  needsWrite: boolean;
+} {
+  const totalWps = rootIndex.work_packages.length;
+  const pendingWps = rootIndex.work_packages.filter(
+    (wp) => !isTerminalStatus(wp.status)
+  ).length;
+
+  let healedStatus = rootIndex.status;
+  if (
+    (rootIndex.status === 'IN_PROGRESS' || rootIndex.status === 'READY') &&
+    pendingWps === 0 &&
+    totalWps > 0
+  ) {
+    healedStatus = rootIndex.synthesis_generated ? 'COMPLETE' : rootIndex.status;
+  } else if (rootIndex.status === 'COMPLETE' && pendingWps > 0) {
+    healedStatus = 'IN_PROGRESS';
+  } else if (rootIndex.status === 'READY') {
+    const hasInProgressWp = rootIndex.work_packages.some(
+      (wp) => wp.status === 'IN_PROGRESS'
+    );
+    if (hasInProgressWp) {
+      healedStatus = 'IN_PROGRESS';
+    }
+  } else if (rootIndex.status === 'BLOCKED') {
+    const hasBlockedWp = rootIndex.work_packages.some(
+      (wp) => wp.status === 'BLOCKED'
+    );
+    if (!hasBlockedWp) {
+      if (pendingWps === 0 && totalWps > 0 && rootIndex.synthesis_generated) {
+        healedStatus = 'COMPLETE';
+      } else {
+        const hasInProgressWp = rootIndex.work_packages.some(
+          (wp) => wp.status === 'IN_PROGRESS'
+        );
+        const hasReadyWp = rootIndex.work_packages.some(
+          (wp) => wp.status === 'READY'
+        );
+        healedStatus = hasInProgressWp ? 'IN_PROGRESS' : hasReadyWp ? 'READY' : healedStatus;
+      }
+    }
+  }
+
+  const needsWrite =
+    rootIndex.total_work_packages !== totalWps ||
+    rootIndex.pending_work_packages !== pendingWps ||
+    rootIndex.status !== healedStatus;
+
+  return { totalWps, pendingWps, healedStatus, needsWrite };
+}
+
 async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
   // Validate that the path ends with a valid plan folder pattern
   const validationError = validatePlanPathOrError(args.project_path);
@@ -103,39 +163,34 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
     // Read the root index
     const rootIndex = await store.readRootIndex();
 
-    // Self-healing: recompute counters from actual work package summaries
-    const totalWps = rootIndex.work_packages.length;
-    const pendingWps = rootIndex.work_packages.filter(
-      (wp) => wp.status !== 'COMPLETE'
-    ).length;
+    // Self-healing: compute corrected counters and status (pure)
+    const healed = computeHealedStatus(rootIndex);
 
-    // Self-healing: auto-transition project status based on pending count
-    let healedStatus = rootIndex.status;
-    if (
-      rootIndex.status === 'IN_PROGRESS' &&
-      pendingWps === 0 &&
-      totalWps > 0
-    ) {
-      // All work packages are done — project should be COMPLETE
-      healedStatus = 'COMPLETE';
-    } else if (rootIndex.status === 'COMPLETE' && pendingWps > 0) {
-      // Work was reopened — project should be back to IN_PROGRESS
-      healedStatus = 'IN_PROGRESS';
-    }
+    // Only write to disk if corrections are actually needed
+    if (healed.needsWrite) {
+      await withLock(store.storageDir, async () => {
+        // Re-read under lock to avoid race conditions
+        const fresh = await store.readRootIndex();
+        const freshHealed = computeHealedStatus(fresh);
+        if (freshHealed.needsWrite) {
+          fresh.total_work_packages = freshHealed.totalWps;
+          fresh.pending_work_packages = freshHealed.pendingWps;
+          fresh.status = freshHealed.healedStatus;
+          fresh.last_updated = now();
+          await store.writeRootIndex(fresh);
+        }
+      });
 
-    // If counts or status are incorrect, update them
-    if (
-      rootIndex.total_work_packages !== totalWps ||
-      rootIndex.pending_work_packages !== pendingWps ||
-      rootIndex.status !== healedStatus
-    ) {
-      rootIndex.total_work_packages = totalWps;
-      rootIndex.pending_work_packages = pendingWps;
-      rootIndex.status = healedStatus;
-      rootIndex.last_updated = now();
-
-      // Write the corrected root index
-      await store.writeRootIndex(rootIndex);
+      // Re-read to return the corrected data
+      const corrected = await store.readRootIndex();
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(corrected, null, 2),
+          },
+        ],
+      };
     }
 
     return {
@@ -304,6 +359,78 @@ async function listProjects(args: z.infer<typeof ListProjectsSchema>) {
 }
 
 /**
+ * Tool: complete_synthesis
+ *
+ * Marks synthesis as generated on the root index. Sets `synthesis_generated = true`
+ * and transitions the project to COMPLETE if all work packages are done.
+ */
+const CompleteSynthesisSchema = z.object({
+  project_path: z
+    .string()
+    .describe('Absolute path to the project plan directory'),
+});
+
+async function completeSynthesis(args: z.infer<typeof CompleteSynthesisSchema>) {
+  const pathError = await validatePlanPathOrError(args.project_path);
+  if (pathError) return pathError;
+
+  const store = new LedgerStore(args.project_path);
+
+  try {
+    let result!: { content: Array<{ type: 'text'; text: string }> };
+
+    await withLock(store.storageDir, async () => {
+      const rootIndex = await store.readRootIndex();
+
+      rootIndex.synthesis_generated = true;
+      rootIndex.last_updated = now();
+
+      // If all WPs are terminal (COMPLETE or CANCELLED), transition project to COMPLETE
+      const pendingWps = rootIndex.work_packages.filter(
+        (wp) => !isTerminalStatus(wp.status)
+      ).length;
+      if (pendingWps === 0 && rootIndex.work_packages.length > 0) {
+        rootIndex.status = 'COMPLETE';
+      }
+
+      await store.writeRootIndex(rootIndex);
+
+      result = {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                synthesis_generated: true,
+                project_status: rootIndex.status,
+                message: 'Synthesis marked as generated.',
+                next_steps: [
+                  'Your work is complete. Call ledger_get_handoff_status (current_agent: "Synthesis") to end the workflow.',
+                ],
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    });
+
+    return result;
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error completing synthesis: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
  * Register project lifecycle tools on the MCP server
  */
 export function register(server: McpServer): void {
@@ -345,5 +472,14 @@ export function register(server: McpServer): void {
       inputSchema: ListProjectsSchema.passthrough(),
     },
     listProjects as any
+  );
+
+  server.registerTool(
+    'ledger_complete_synthesis',
+    {
+      description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: project_path. Call this after generating the synthesis report.',
+      inputSchema: CompleteSynthesisSchema.passthrough(),
+    },
+    completeSynthesis as any
   );
 }

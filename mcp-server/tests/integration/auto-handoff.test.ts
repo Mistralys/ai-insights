@@ -298,24 +298,29 @@ describe('Auto-handoff chain integration', () => {
       expect(result.auto_handoff).toBeUndefined();
     });
 
-    it('auto_handoff_depth is reset to 0 after Synthesis emits COMPLETE', async () => {
+    it('auto_handoff_depth is NOT reset by buildHandoffResponse on COMPLETE (depth reset moved to updateWorkPackageStatus)', async () => {
+      // Finding #8: depth reset now happens when a WP transitions to COMPLETE via
+      // updateWorkPackageStatus, not in buildHandoffResponse at project-COMPLETE time.
+      // The initial depth is 5 (set by beforeEach).
       await parseResult(
         buildHandoffResponse('Synthesis', 'COMPLETE', 'Synthesis complete.', undefined, tempDir, store),
       );
 
       const root = await store.readRootIndex();
-      expect(root.auto_handoff_depth).toBe(0);
+      // Depth should remain 5 — buildHandoffResponse no longer clears it
+      expect(root.auto_handoff_depth).toBe(5);
     });
 
-    it('depth reset happens even when starting from a non-zero depth', async () => {
+    it('buildHandoffResponse with COMPLETE does not alter depth (depth reset is in updateWorkPackageStatus)', async () => {
       await store.writeRootIndex(makeRoot({ auto_handoff_depth: 8 }));
 
       await parseResult(
         buildHandoffResponse('Synthesis', 'COMPLETE', 'Done.', undefined, tempDir, store),
       );
 
+      // Depth should remain 8 — no longer reset by buildHandoffResponse
       const root = await store.readRootIndex();
-      expect(root.auto_handoff_depth).toBe(0);
+      expect(root.auto_handoff_depth).toBe(8);
     });
   });
 

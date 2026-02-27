@@ -3,12 +3,15 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { isTerminalStatus } from '../schema/validators.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import {
   extractStalePipelineAction,
   isMostRecentPipelineFail,
   hasDependencyBlocked,
   getHandoffNotesForAgent,
+  hasNewUpstreamPassSince,
+  MAX_REWORK_COUNT,
 } from '../utils/workflow-helpers.js';
 /**
  * Tool: get_next_action
@@ -80,13 +83,32 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
       }
     }
 
-    // Check if all work packages are complete
+    // Check if all work packages are terminal (COMPLETE or CANCELLED)
     const allComplete = rootIndex.work_packages.every(
-      (wp) => wp.status === 'COMPLETE'
+      (wp) => isTerminalStatus(wp.status)
     );
 
     if (allComplete) {
       if (args.agent_role === 'Synthesis') {
+        // Only offer GENERATE_SYNTHESIS once — guard with synthesis_generated flag
+        if (rootIndex.synthesis_generated) {
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    action: 'WAIT',
+                    reason:
+                      'Synthesis report has already been generated. Nothing to do.',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
         return {
           content: [
             {
@@ -264,6 +286,41 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
 
+  // Check for rework circuit breaker — surface BLOCK_FOR_REWORK_LIMIT before other actions
+  for (const wpDetail of wpDetails) {
+    if (
+      wpDetail.status !== 'BLOCKED' &&
+      wpDetail.status !== 'COMPLETE' &&
+      wpDetail.status !== 'CANCELLED' &&
+      (wpDetail.rework_count ?? 0) >= MAX_REWORK_COUNT
+    ) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                action: 'BLOCK_FOR_REWORK_LIMIT',
+                work_package_id: wpDetail.work_package_id,
+                rework_count: wpDetail.rework_count,
+                max_rework_count: MAX_REWORK_COUNT,
+                reason: `Work package ${wpDetail.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). It cannot proceed with further implementation cycles.`,
+                next_steps: [
+                  `1. Review the rework history in ${wpDetail.work_package_id} to understand repeated failures.`,
+                  `2. Consider cancelling this WP via ledger_update_work_package_status (status: "CANCELLED") and creating a replacement WP with a revised approach.`,
+                  `3. Alternatively, restructure the work package scope to address the root cause of repeated failures.`,
+                  `4. Call ledger_get_handoff_status (current_agent: "Developer") to continue the workflow.`,
+                ],
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+  }
+
   // Check for stale IN_PROGRESS implementation pipelines (>24h)
   for (const wpDetail of wpDetails) {
     const staleAction = extractStalePipelineAction(wpDetail, 'implementation');
@@ -406,7 +463,7 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
 /**
  * Get next action for QA
  */
-async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
+export async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
   // Load all WP details to examine pipeline states
   const wpDetails = await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
@@ -418,14 +475,11 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
     if (staleAction) return staleAction;
   }
 
-  // Look for WPs with PASS implementation pipeline but no QA pipeline
+  // Look for WPs with a new upstream implementation PASS not yet covered by a QA pipeline.
+  // Uses temporal comparison to re-trigger QA after Developer rework cycles (Finding #2).
+  // BLOCKED WPs are excluded from new-work suggestions (Finding #7).
   for (const wpDetail of wpDetails) {
-    const hasPassImplPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'implementation' && p.status === 'PASS'
-    );
-    const hasQaPipeline = wpDetail.pipelines.some((p) => p.type === 'qa');
-
-    if (hasPassImplPipeline && !hasQaPipeline) {
+    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'implementation', 'qa') && wpDetail.status !== 'BLOCKED') {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
       return {
         content: [
@@ -454,7 +508,9 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
     }
   }
 
-  // Look for FAIL QA pipelines needing rework (only check the most recent pipeline)
+  // FAIL QA pipelines: QA does NOT self-rework — Developer must fix code first.
+  // Return WAIT so the QA agent yields. The Developer will see the FAIL via
+  // get_next_action and rework the implementation.
   for (const wpDetail of wpDetails) {
     if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, 'qa')) {
       return {
@@ -463,16 +519,8 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
             type: 'text' as const,
             text: JSON.stringify(
               {
-                action: 'REWORK_QA',
-                work_package_id: wpDetail.work_package_id,
-                reason: `Work package ${wpDetail.work_package_id} has a FAIL QA pipeline. Investigate and retry QA.`,
-                next_steps: [
-                  `1. Call ledger_get_work_package to review the previous FAIL QA pipeline summary and comments.`,
-                  `2. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa").`,
-                  '3. Re-run the Verification Stack focusing on previously failed areas.',
-                  `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
-                  `5. Call ledger_get_handoff_status (current_agent: "QA").`,
-                ],
+                action: 'WAIT',
+                reason: `Work package ${wpDetail.work_package_id} has a FAIL QA pipeline. Developer must rework the implementation before QA can retry. QA does not self-rework.`,
               },
               null,
               2
@@ -504,7 +552,7 @@ async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
 /**
  * Get next action for Reviewer
  */
-async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
+export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
   // Load all WP details to examine pipeline states
   const wpDetails = await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
@@ -516,16 +564,11 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
     if (staleAction) return staleAction;
   }
 
-  // Look for WPs with PASS QA pipeline but no code-review pipeline
+  // Look for WPs with a new upstream QA PASS not yet covered by a code-review pipeline.
+  // Uses temporal comparison to re-trigger Review after Developer rework cycles (Finding #2).
+  // BLOCKED WPs are excluded from new-work suggestions (Finding #7).
   for (const wpDetail of wpDetails) {
-    const hasPassQaPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'qa' && p.status === 'PASS'
-    );
-    const hasReviewPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'code-review'
-    );
-
-    if (hasPassQaPipeline && !hasReviewPipeline) {
+    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'qa', 'code-review') && wpDetail.status !== 'BLOCKED') {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
       return {
         content: [
@@ -554,7 +597,8 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
     }
   }
 
-  // Look for FAIL code-review pipelines needing rework (only check the most recent pipeline)
+  // FAIL code-review pipelines: Reviewer does NOT self-rework — Developer must fix code first.
+  // Return WAIT so the Reviewer agent yields.
   for (const wpDetail of wpDetails) {
     if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, 'code-review')) {
       return {
@@ -563,16 +607,8 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
             type: 'text' as const,
             text: JSON.stringify(
               {
-                action: 'REWORK_REVIEW',
-                work_package_id: wpDetail.work_package_id,
-                reason: `Work package ${wpDetail.work_package_id} has a FAIL code-review pipeline. Investigate and retry review.`,
-                next_steps: [
-                  `1. Call ledger_get_work_package to review the previous FAIL code-review pipeline summary and comments.`,
-                  `2. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review").`,
-                  '3. Re-review focusing on previously identified issues.',
-                  `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
-                  `5. Call ledger_get_handoff_status (current_agent: "Reviewer").`,
-                ],
+                action: 'WAIT',
+                reason: `Work package ${wpDetail.work_package_id} has a FAIL code-review pipeline. Developer must rework the implementation before Reviewer can retry. Reviewer does not self-rework.`,
               },
               null,
               2
@@ -604,7 +640,7 @@ async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore) {
 /**
  * Get next action for Documentation
  */
-async function getDocumentationAction(
+export async function getDocumentationAction(
   rootIndex: RootIndex,
   store: LedgerStore
 ) {
@@ -662,16 +698,11 @@ async function getDocumentationAction(
     }
   }
 
-  // Look for WPs with PASS code-review pipeline but no documentation pipeline
+  // Look for WPs with a new upstream code-review PASS not yet covered by a documentation pipeline.
+  // Uses temporal comparison to re-trigger Documentation after rework cycles (Finding #2).
+  // BLOCKED WPs are excluded from new-work suggestions (Finding #7).
   for (const wpDetail of wpDetails) {
-    const hasPassReviewPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'code-review' && p.status === 'PASS'
-    );
-    const hasDocsPipeline = wpDetail.pipelines.some(
-      (p) => p.type === 'documentation'
-    );
-
-    if (hasPassReviewPipeline && !hasDocsPipeline) {
+    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'code-review', 'documentation') && wpDetail.status !== 'BLOCKED') {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Documentation');
       return {
         content: [
@@ -702,6 +733,7 @@ async function getDocumentationAction(
   }
 
   // Look for FAIL documentation pipelines needing rework (only check the most recent pipeline)
+  // Documentation retains self-rework capability (unlike QA/Reviewer).
   for (const wpDetail of wpDetails) {
     if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, 'documentation')) {
       return {
@@ -710,7 +742,7 @@ async function getDocumentationAction(
             type: 'text' as const,
             text: JSON.stringify(
               {
-                action: 'REWORK_DOCS',
+                action: 'REWORK',
                 work_package_id: wpDetail.work_package_id,
                 reason: `Work package ${wpDetail.work_package_id} has a FAIL documentation pipeline. Investigate and retry docs.`,
                 next_steps: [

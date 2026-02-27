@@ -7,8 +7,13 @@
 /docs/agents/**/.ledger/
 /mcp-server/dist/
 /personas/node_modules/
-/dist/notebooklm-bundle.md
+/build/
 /personas/standalone/claude-code/*.md
 /personas/standalone/vs-code/*.md
 /personas/ledger/claude-code/*.md
 /personas/ledger/vs-code/*.md
+/orchestrator/.env
+/orchestrator/.venv/
+/orchestrator/checkpoints/
+/orchestrator/logs/
+/.idea

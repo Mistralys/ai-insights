@@ -20,6 +20,7 @@ import {
   hasDependencyBlocked,
   getHandoffNotesForAgent,
 } from '../utils/workflow-helpers.js';
+import { isTerminalStatus } from '../schema/validators.js';
 /**
  * Build `next_steps` guidance for a batch action entry.
  * Mirrors the step-by-step tool-call instructions from the singular getNextAction
@@ -48,6 +49,7 @@ function buildBatchNextSteps(
       ];
     }
     case 'REWORK': {
+      // Developer rework: fixedPipelineType identifies which downstream pipeline failed
       if (failedPipelineType && failedPipelineType !== 'implementation') {
         return [
           `1. Call ledger_get_work_package to review the FAIL ${failedPipelineType} pipeline comments/summary.`,
@@ -55,6 +57,17 @@ function buildBatchNextSteps(
           '3. Fix the issues identified by the failed pipeline, run tests.',
           `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
           `5. Call ledger_get_handoff_status (current_agent: "Developer").`,
+        ];
+      }
+      // Documentation self-rework or Developer implementation rework
+      if (pipelineType === 'documentation') {
+        return [
+          `1. Call ledger_get_work_package to review the previous FAIL documentation pipeline summary and comments.`,
+          `2. Call ledger_start_pipeline (work_package_id: "${wpId}", type: "documentation").`,
+          '3. Fix documentation issues, update affected files.',
+          `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "documentation", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
+          `5. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`,
+          `6. Call ledger_get_handoff_status (current_agent: "Documentation").`,
         ];
       }
       return [
@@ -71,23 +84,6 @@ function buildBatchNextSteps(
         `1. Call ledger_start_pipeline (work_package_id: "${wpId}", type: "${pipelineType}").`,
         `2. Call ledger_get_work_package to review prior pipeline artifacts.`,
         `3. Perform your ${pipelineType} work.`,
-        `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "${pipelineType}", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
-      ];
-      if (pipelineType === 'documentation') {
-        steps.push(`5. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`);
-        steps.push(`6. Call ledger_get_handoff_status (current_agent: "${agentRole}").`);
-      } else {
-        steps.push(`5. Call ledger_get_handoff_status (current_agent: "${agentRole}").`);
-      }
-      return steps;
-    }
-    case 'REWORK_QA':
-    case 'REWORK_REVIEW':
-    case 'REWORK_DOCS': {
-      const steps = [
-        `1. Call ledger_get_work_package to review the previous FAIL ${pipelineType} pipeline summary and comments.`,
-        `2. Call ledger_start_pipeline (work_package_id: "${wpId}", type: "${pipelineType}").`,
-        `3. Re-run ${pipelineType} focusing on previously failed areas.`,
         `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "${pipelineType}", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
       ];
       if (pipelineType === 'documentation') {
@@ -152,13 +148,13 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
       };
     }
 
-    const allComplete = rootIndex.work_packages.every((wp) => wp.status === 'COMPLETE');
-    if (allComplete) {
+    const allTerminal = rootIndex.work_packages.every((wp) => isTerminalStatus(wp.status));
+    if (allTerminal) {
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify({ actions: [], reason: 'All work packages are COMPLETE.' }, null, 2),
+            text: JSON.stringify({ actions: [], reason: 'All work packages are in a terminal status (COMPLETE or CANCELLED).' }, null, 2),
           },
         ],
       };
@@ -284,8 +280,13 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
 
       // BLOCKED WPs need upstream agent intervention before the current agent
       // can retry — skip rework suggestion to avoid infinite-loop signals.
+      // QA/Reviewer do NOT self-rework (WAIT) — only Documentation self-reworks.
       if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) {
         const reworkAction = reworkActionMap[pipelineType as PostImplPipelineType];
+        if (reworkAction === 'WAIT') {
+          // QA/Reviewer: Developer must rework first — skip this WP in batch output
+          continue;
+        }
         actions.push({
           action: reworkAction,
           work_package_id: wpDetail.work_package_id,

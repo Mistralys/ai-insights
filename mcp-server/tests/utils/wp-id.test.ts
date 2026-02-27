@@ -18,6 +18,11 @@ describe('formatWpId', () => {
     expect(formatWpId(123)).toBe('WP-123');
     expect(formatWpId(999)).toBe('WP-999');
   });
+
+  it('handles four-digit numbers (1000+)', () => {
+    expect(formatWpId(1000)).toBe('WP-1000');
+    expect(formatWpId(1234)).toBe('WP-1234');
+  });
 });
 
 describe('parseWpId', () => {
@@ -25,6 +30,11 @@ describe('parseWpId', () => {
     expect(parseWpId('WP-001')).toBe(1);
     expect(parseWpId('WP-042')).toBe(42);
     expect(parseWpId('WP-123')).toBe(123);
+  });
+
+  it('parses four-digit WP IDs (1000+)', () => {
+    expect(parseWpId('WP-1000')).toBe(1000);
+    expect(parseWpId('WP-1234')).toBe(1234);
   });
 
   it('throws on invalid format', () => {

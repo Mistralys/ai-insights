@@ -10,8 +10,9 @@
 
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
 import type { RootIndex } from '../schema/root-index.js';
+import { isTerminalStatus } from '../schema/validators.js';
 import { parseTimestamp } from './timestamp.js';
-import type { PostImplPipelineType } from './pipeline-maps.js';
+import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
 import { getConfig } from '../gui/config.js';
 
 // ---------------------------------------------------------------------------
@@ -22,6 +23,13 @@ import { getConfig } from '../gui/config.js';
  * Number of hours after which an IN_PROGRESS pipeline is considered stale.
  */
 export const STALE_PIPELINE_HOURS = 24;
+
+/**
+ * Maximum number of rework cycles allowed before a work package is circuit-broken.
+ * When rework_count reaches this value, start_pipeline rejects with guidance to
+ * cancel or restructure, and get_next_action surfaces BLOCK_FOR_REWORK_LIMIT.
+ */
+export const MAX_REWORK_COUNT = 5;
 
 /**
  * Returns the maximum auto-handoff chain depth from the in-memory config cache.
@@ -66,9 +74,9 @@ export const actionNameMap: Record<PostImplPipelineType, string> = {
   'documentation': 'WRITE_DOCS',
 };
 export const reworkActionMap: Record<PostImplPipelineType, string> = {
-  'qa': 'REWORK_QA',
-  'code-review': 'REWORK_REVIEW',
-  'documentation': 'REWORK_DOCS',
+  'qa': 'WAIT',
+  'code-review': 'WAIT',
+  'documentation': 'REWORK',
 };
 
 /** Agent role name used in next_steps tool-call guidance for each pipeline type. */
@@ -122,13 +130,13 @@ export function hasDependencyBlocked(
     return false;
   }
 
-  // Check if any dependency is not COMPLETE
+  // Check if any dependency is not COMPLETE or CANCELLED
   for (const depId of wpDetail.dependencies) {
     const depSummary = rootIndex.work_packages.find(
       (wp) => wp.work_package_id === depId
     );
 
-    if (!depSummary || depSummary.status !== 'COMPLETE') {
+    if (!depSummary || !isTerminalStatus(depSummary.status)) {
       return true;
     }
   }
@@ -152,11 +160,51 @@ export function isBlockedByDependencies(
     return false;
   }
 
-  // Check if any dependency is not COMPLETE
+  // Check if any dependency is not COMPLETE or CANCELLED
   return wp.dependencies.some((depId) => {
     const depWp = allWpDetails.find((w) => w.work_package_id === depId);
-    return !depWp || depWp.status !== 'COMPLETE';
+    return !depWp || !isTerminalStatus(depWp.status);
   });
+}
+
+/**
+ * Helper: Returns true if the downstream pipeline agent should (re-)engage.
+ *
+ * Handles both first-run and rework cycles via timestamp comparison:
+ * - First run: no downstream pipeline exists → always returns true (if upstream PASS exists).
+ * - Rework cycle: a new upstream PASS was recorded after the most recent downstream
+ *   pipeline started → the downstream agent must re-run.
+ * - Already up-to-date: upstream PASS completed before downstream started → returns false.
+ * - No upstream PASS: prerequisite not yet met → returns false.
+ *
+ * Timestamps: compares upstream `completed_at` vs downstream `started_at`. If either
+ * timestamp field is absent, falls back to false (conservative: don't trigger spuriously).
+ */
+export function hasNewUpstreamPassSince(
+  pipelines: Pipeline[],
+  upstreamType: PipelineType,
+  downstreamType: PipelineType
+): boolean {
+  // No upstream PASS → downstream cannot start yet
+  const upstreamPass = pipelines
+    .filter((p) => p.type === upstreamType && p.status === 'PASS')
+    .at(-1);
+  if (!upstreamPass) return false;
+
+  // No downstream pipeline → first run, always trigger
+  const downstreamLatest = pipelines
+    .filter((p) => p.type === downstreamType)
+    .at(-1);
+  if (!downstreamLatest) return true;
+
+  // Both timestamps must be present for temporal comparison
+  if (!upstreamPass.completed_at || !downstreamLatest.started_at) return false;
+
+  const upstreamCompletedAt = parseTimestamp(upstreamPass.completed_at).getTime();
+  const downstreamStartedAt = parseTimestamp(downstreamLatest.started_at).getTime();
+
+  // Upstream completed after downstream started → rework triggered a new cycle
+  return upstreamCompletedAt > downstreamStartedAt;
 }
 
 // ---------------------------------------------------------------------------
