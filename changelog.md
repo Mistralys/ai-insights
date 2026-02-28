@@ -2,9 +2,7 @@
 
 ## v1.5.0 - Ledger Enhancements
 - Ledger: Added archiving of the plan and synthesis documents.
-- GUI: Viewing the archived documents.
-
-## v1.4.1 - Ledger GUI Enhancements
+- Ledger: GUI: Viewing the archived documents.
 - Ledger: GUI: Added full text filter.
 - Ledger: GUI: Added completion percentage.
 - Ledger: GUI: More Readable Project Name.
