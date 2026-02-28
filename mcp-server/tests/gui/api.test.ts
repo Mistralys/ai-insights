@@ -60,7 +60,7 @@ function makeWp(id: string): WorkPackageDetail {
     assigned_to: 'Developer',
     dependencies: [],
     acceptance_criteria: [],
-    revision: 1,
+    revision: 0,
     pipelines: [],
   };
 }
@@ -367,7 +367,7 @@ describe('gui/api.ts', () => {
       const result = await handleGetConfig(configPath);
 
       expect(result.auto_handoff_enabled).toBe(true);
-      expect(result.max_handoff_depth).toBe(10);
+      expect(result.max_handoff_depth).toBe(50);
     });
   });
 
@@ -380,7 +380,7 @@ describe('gui/api.ts', () => {
       });
 
       expect(result.auto_handoff_enabled).toBe(false);
-      expect(result.max_handoff_depth).toBe(10); // default preserved
+      expect(result.max_handoff_depth).toBe(50); // default preserved
     });
 
     it('throws VALIDATION_ERROR for an invalid type (max_handoff_depth: string)', async () => {

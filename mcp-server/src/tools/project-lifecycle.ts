@@ -4,10 +4,11 @@ import { LedgerStore } from '../storage/ledger-store.js';
 import type { DetectProjectResult } from '../storage/ledger-store.js';
 import { WorkPackageStatus } from '../schema/enums.js';
 import { isTerminalStatus } from '../schema/validators.js';
-import { now } from '../utils/timestamp.js';
+import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
 
 /**
@@ -95,59 +96,171 @@ const GetProjectStatusSchema = z.object({
 /**
  * Pure function: computes the healed project status and counters from
  * the current root index data. Does NOT read or write disk.
+ *
+ * Implements all 16 healing rules from §17.2 of the workflow specification
+ * in first-match-wins order.
  */
 export function computeHealedStatus(rootIndex: RootIndex): {
   totalWps: number;
   pendingWps: number;
   healedStatus: RootIndex['status'];
   needsWrite: boolean;
+  corruptionDetected: boolean;
 } {
   const totalWps = rootIndex.work_packages.length;
   const pendingWps = rootIndex.work_packages.filter(
     (wp) => !isTerminalStatus(wp.status)
   ).length;
 
-  let healedStatus = rootIndex.status;
-  if (
-    (rootIndex.status === 'IN_PROGRESS' || rootIndex.status === 'READY') &&
-    pendingWps === 0 &&
-    totalWps > 0
-  ) {
-    healedStatus = rootIndex.synthesis_generated ? 'COMPLETE' : rootIndex.status;
-  } else if (rootIndex.status === 'COMPLETE' && pendingWps > 0) {
-    healedStatus = 'IN_PROGRESS';
-  } else if (rootIndex.status === 'READY') {
-    const hasInProgressWp = rootIndex.work_packages.some(
-      (wp) => wp.status === 'IN_PROGRESS'
-    );
-    if (hasInProgressWp) {
-      healedStatus = 'IN_PROGRESS';
-    }
-  } else if (rootIndex.status === 'BLOCKED') {
-    const hasBlockedWp = rootIndex.work_packages.some(
-      (wp) => wp.status === 'BLOCKED'
-    );
-    if (!hasBlockedWp) {
-      if (pendingWps === 0 && totalWps > 0 && rootIndex.synthesis_generated) {
-        healedStatus = 'COMPLETE';
-      } else {
-        const hasInProgressWp = rootIndex.work_packages.some(
-          (wp) => wp.status === 'IN_PROGRESS'
-        );
-        const hasReadyWp = rootIndex.work_packages.some(
-          (wp) => wp.status === 'READY'
-        );
-        healedStatus = hasInProgressWp ? 'IN_PROGRESS' : hasReadyWp ? 'READY' : healedStatus;
-      }
-    }
+  // Corruption mitigation (§17.2 known-gap note):
+  // If synthesis_generated is true but pending WPs still exist, the flag was set
+  // prematurely. Treat it as false for this computation — do NOT mutate the input.
+  let synthesisGenerated = rootIndex.synthesis_generated ?? false;
+  let corruptionDetected = false;
+  if (synthesisGenerated && pendingWps > 0) {
+    synthesisGenerated = false;
+    corruptionDetected = true;
   }
+
+  // Pre-compute shared predicates once.
+  const hasInProgressWp = rootIndex.work_packages.some((wp) => wp.status === 'IN_PROGRESS');
+  const hasReadyWp = rootIndex.work_packages.some((wp) => wp.status === 'READY');
+
+  let healedStatus = rootIndex.status;
+
+  if (
+      // Rule 1: (IN_PROGRESS or READY) AND pending==0 AND total>0 AND synthesis_generated → COMPLETE
+      (rootIndex.status === 'IN_PROGRESS' || rootIndex.status === 'READY') &&
+      pendingWps === 0 && totalWps > 0 && synthesisGenerated
+    ) {
+      healedStatus = 'COMPLETE';
+    } else if (
+      // Rule 1b: READY AND pending==0 AND total>0 AND NOT synthesis_generated → IN_PROGRESS
+      rootIndex.status === 'READY' &&
+      pendingWps === 0 && totalWps > 0 && !synthesisGenerated
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 1c: IN_PROGRESS AND pending==0 AND total>0 AND NOT synthesis_generated → preserve
+      // No-op: status is correct — project is awaiting synthesis step.
+      rootIndex.status === 'IN_PROGRESS' &&
+      pendingWps === 0 && totalWps > 0 && !synthesisGenerated
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 2: COMPLETE AND pending>0 → IN_PROGRESS
+      rootIndex.status === 'COMPLETE' && pendingWps > 0
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 2b: COMPLETE AND pending==0 AND total>0 AND NOT synthesis_generated → IN_PROGRESS
+      rootIndex.status === 'COMPLETE' &&
+      pendingWps === 0 && totalWps > 0 && !synthesisGenerated
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 3: READY AND hasInProgressWp → IN_PROGRESS
+      rootIndex.status === 'READY' && hasInProgressWp
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 3b: READY AND pending>0 AND !hasReadyWp AND !hasInProgressWp → BLOCKED
+      // (all remaining pending WPs are BLOCKED)
+      rootIndex.status === 'READY' &&
+      pendingWps > 0 && !hasReadyWp && !hasInProgressWp
+    ) {
+      healedStatus = 'BLOCKED';
+    } else if (
+      // Rule 3c: IN_PROGRESS AND pending>0 AND !hasReadyWp AND !hasInProgressWp → BLOCKED
+      rootIndex.status === 'IN_PROGRESS' &&
+      pendingWps > 0 && !hasReadyWp && !hasInProgressWp
+    ) {
+      healedStatus = 'BLOCKED';
+    } else if (
+      // Rule 4: BLOCKED AND hasInProgressWp → IN_PROGRESS
+      rootIndex.status === 'BLOCKED' && hasInProgressWp
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 4b: BLOCKED AND hasReadyWp AND !hasInProgressWp → READY
+      rootIndex.status === 'BLOCKED' && hasReadyWp && !hasInProgressWp
+    ) {
+      healedStatus = 'READY';
+    } else if (
+      // Rule 5a: BLOCKED AND pending==0 AND total>0 AND synthesis_generated → COMPLETE
+      rootIndex.status === 'BLOCKED' &&
+      pendingWps === 0 && totalWps > 0 && synthesisGenerated
+    ) {
+      healedStatus = 'COMPLETE';
+    } else if (
+      // Rule 5b: BLOCKED AND pending==0 AND total>0 AND NOT synthesis_generated → IN_PROGRESS
+      rootIndex.status === 'BLOCKED' &&
+      pendingWps === 0 && totalWps > 0 && !synthesisGenerated
+    ) {
+      healedStatus = 'IN_PROGRESS';
+    } else if (
+      // Rule 6b: (IN_PROGRESS or BLOCKED) AND total==0 → READY
+      (rootIndex.status === 'IN_PROGRESS' || rootIndex.status === 'BLOCKED') &&
+      totalWps === 0
+    ) {
+      healedStatus = 'READY';
+    } else if (
+      // Rule 6c: COMPLETE AND total==0 → READY
+      rootIndex.status === 'COMPLETE' && totalWps === 0
+    ) {
+      healedStatus = 'READY';
+    }
 
   const needsWrite =
     rootIndex.total_work_packages !== totalWps ||
     rootIndex.pending_work_packages !== pendingWps ||
-    rootIndex.status !== healedStatus;
+    rootIndex.status !== healedStatus ||
+    corruptionDetected;
 
-  return { totalWps, pendingWps, healedStatus, needsWrite };
+  return { totalWps, pendingWps, healedStatus, needsWrite, corruptionDetected };
+}
+
+/**
+ * Validates that pipeline `started_at` timestamps within each WP are
+ * monotonically non-decreasing (§17.4).
+ *
+ * Returns an array of human-readable warning strings — one per ordering
+ * violation. Returns an empty array when all orderings are valid.
+ * Does not reorder or mutate any data.
+ */
+async function validatePipelineOrdering(
+  rootIndex: RootIndex,
+  store: LedgerStore
+): Promise<string[]> {
+  const warnings: string[] = [];
+
+  for (const wpSummary of rootIndex.work_packages) {
+    try {
+      const wpDetail = await store.readWorkPackage(wpSummary.work_package_id);
+      const pipelines = wpDetail.pipelines ?? [];
+
+      for (let i = 1; i < pipelines.length; i++) {
+        const prev = pipelines[i - 1];
+        const curr = pipelines[i];
+
+        if (prev?.started_at && curr?.started_at) {
+          const prevTime = parseTimestamp(prev.started_at).getTime();
+          const currTime = parseTimestamp(curr.started_at).getTime();
+
+          if (currTime < prevTime) {
+            warnings.push(
+              `${wpSummary.work_package_id}: pipeline[${i}] started before pipeline[${i - 1}]` +
+              ` (${curr.started_at} < ${prev.started_at})`
+            );
+          }
+        }
+      }
+    } catch {
+      // Skip WPs that cannot be read — ordering validation is non-fatal.
+    }
+  }
+
+  return warnings;
 }
 
 async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
@@ -176,10 +289,31 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
           fresh.total_work_packages = freshHealed.totalWps;
           fresh.pending_work_packages = freshHealed.pendingWps;
           fresh.status = freshHealed.healedStatus;
+          if (freshHealed.corruptionDetected) fresh.synthesis_generated = false;
           fresh.last_updated = now();
           await store.writeRootIndex(fresh);
         }
       });
+
+      // Post-healing: validate pipeline ordering and emit warnings as project comments (§17.4).
+      // Piggybacks on the existing write path — only runs when self-healing was triggered.
+      const orderingWarnings = await validatePipelineOrdering(rootIndex, store);
+      if (orderingWarnings.length > 0) {
+        await withLock(store.storageDir, async () => {
+          const current = await store.readRootIndex();
+          for (const warning of orderingWarnings) {
+            current.project_comments.push({
+              type: 'warning',
+              priority: 'low',
+              timestamp: now(),
+              agent: 'system',
+              note: warning,
+            });
+          }
+          current.last_updated = now();
+          await store.writeRootIndex(current);
+        });
+      }
 
       // Re-read to return the corrected data
       const corrected = await store.readRootIndex();
@@ -368,30 +502,83 @@ const CompleteSynthesisSchema = z.object({
   project_path: z
     .string()
     .describe('Absolute path to the project plan directory'),
+  agent_role: z
+    .string()
+    .describe('The agent role completing synthesis (must be "Synthesis" or "Project Manager")'),
 });
 
-async function completeSynthesis(args: z.infer<typeof CompleteSynthesisSchema>) {
+async function completeSynthesis(
+  args: z.infer<typeof CompleteSynthesisSchema>,
+  _ledgerRoot?: string
+) {
   const pathError = await validatePlanPathOrError(args.project_path);
   if (pathError) return pathError;
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(args.project_path, _ledgerRoot);
 
   try {
-    let result!: { content: Array<{ type: 'text'; text: string }> };
+    let result: { content: Array<{ type: 'text'; text: string }>; isError?: boolean } | undefined;
 
     await withLock(store.storageDir, async () => {
       const rootIndex = await store.readRootIndex();
 
-      rootIndex.synthesis_generated = true;
-      rootIndex.last_updated = now();
+      // §19.1 Guard 1: Agent role validation
+      const SYNTHESIS_PERMITTED_ROLES: readonly string[] = AGENT_ROLES.filter(
+        (r) => r === 'Synthesis' || r === 'Project Manager'
+      );
+      if (!SYNTHESIS_PERMITTED_ROLES.includes(args.agent_role)) {
+        result = {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Error: completeSynthesis requires agent_role ${SYNTHESIS_PERMITTED_ROLES.map(r => `"${r}"`).join(' or ')}, got "${args.agent_role}"`,
+            },
+          ],
+          isError: true,
+        };
+        return;
+      }
 
-      // If all WPs are terminal (COMPLETE or CANCELLED), transition project to COMPLETE
+      // §19.1 Guard 2: Freshly computed counters (do not trust stale pending_work_packages)
+      const totalWps = rootIndex.work_packages.length;
       const pendingWps = rootIndex.work_packages.filter(
         (wp) => !isTerminalStatus(wp.status)
       ).length;
-      if (pendingWps === 0 && rootIndex.work_packages.length > 0) {
-        rootIndex.status = 'COMPLETE';
+
+      // §19.1 Guard 3: At-least-one-WP guard
+      if (totalWps === 0) {
+        result = {
+          content: [
+            {
+              type: 'text' as const,
+              text: 'Error: Cannot complete synthesis: no work packages exist',
+            },
+          ],
+          isError: true,
+        };
+        return;
       }
+
+      // §19.1 Guard 4: Pending-WP guard (uses freshly computed pendingWps, not stale counter)
+      if (pendingWps > 0) {
+        result = {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Error: Cannot complete synthesis: ${pendingWps} work package(s) are still pending`,
+            },
+          ],
+          isError: true,
+        };
+        return;
+      }
+
+      rootIndex.synthesis_generated = true;
+      rootIndex.auto_handoff_depth = 0; // §18.4: depth counter resets only on synthesis completion
+      rootIndex.last_updated = now();
+
+      // All WPs are terminal (pendingWps === 0 && totalWps > 0) — transition project to COMPLETE
+      rootIndex.status = 'COMPLETE';
 
       await store.writeRootIndex(rootIndex);
 
@@ -416,6 +603,9 @@ async function completeSynthesis(args: z.infer<typeof CompleteSynthesisSchema>) 
       };
     });
 
+    if (result === undefined) {
+      throw new Error('Internal error: completeSynthesis — result was not set inside the lock');
+    }
     return result;
   } catch (error) {
     return {
@@ -429,6 +619,13 @@ async function completeSynthesis(args: z.infer<typeof CompleteSynthesisSchema>) 
     };
   }
 }
+
+/**
+ * @internal — exported for unit testing only
+ */
+export const _internal = {
+  completeSynthesis,
+};
 
 /**
  * Register project lifecycle tools on the MCP server
@@ -477,7 +674,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_complete_synthesis',
     {
-      description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: project_path. Call this after generating the synthesis report.',
+      description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: project_path, agent_role. Call this after generating the synthesis report.',
       inputSchema: CompleteSynthesisSchema.passthrough(),
     },
     completeSynthesis as any

@@ -82,6 +82,7 @@ export const PipelineSchema = z.object({
   artifacts: ArtifactsSchema.optional(),
   metrics: MetricsSchema.optional(),
   comments: z.array(PipelineCommentSchema).optional(),
+  auto_cancelled: z.boolean().optional(),
 });
 export type Pipeline = z.infer<typeof PipelineSchema>;
 
@@ -97,19 +98,32 @@ export const HandoffNoteSchema = z.object({
 export type HandoffNote = z.infer<typeof HandoffNoteSchema>;
 
 /**
+ * Rework counts per pipeline type (canonical new field, §3.4)
+ */
+export const ReworkCountsSchema = z.object({
+  implementation: z.number().int().nonnegative().optional(),
+  qa: z.number().int().nonnegative().optional(),
+  'code-review': z.number().int().nonnegative().optional(),
+  documentation: z.number().int().nonnegative().optional(),
+});
+export type ReworkCounts = z.infer<typeof ReworkCountsSchema>;
+
+/**
  * Work Package Detail schema (.ledger/WP-###.json)
  */
 export const WorkPackageDetailSchema = z.object({
   work_package_id: z.string().regex(/^WP-\d{3,}$/),
   work_package_file: z.string(),
   status: WorkPackageStatus,
-  assigned_to: z.string(),
+  assigned_to: z.string().nullable(),
   dependencies: z.array(z.string()),
   blocked_by: BlockerSchema.optional(),
   acceptance_criteria: z.array(AcceptanceCriterionSchema),
-  revision: z.number().int().positive(),
+  revision: z.number().int().nonnegative(),
   pipelines: z.array(PipelineSchema),
   rework_count: z.number().int().nonnegative().optional(),
+  rework_counts: ReworkCountsSchema.optional(),
+  status_changed_at: z.string().optional(),
   handoff_notes: z.array(HandoffNoteSchema).optional(),
 });
 export type WorkPackageDetail = z.infer<typeof WorkPackageDetailSchema>;

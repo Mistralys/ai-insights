@@ -11,6 +11,9 @@ import {
   buildHandoffPrompt,
   isBlockedByDependencies,
   isMostRecentPipelineFail,
+  effectiveMaxDepth,
+  hasDownstreamReengagedSince,
+  hasNewUpstreamPassSince,
 } from '../utils/workflow-helpers.js';
 import { getConfig } from '../gui/config.js';
 import { isTerminalStatus } from '../schema/validators.js';
@@ -146,9 +149,9 @@ export function nextAgentFromStatus(status: string, currentAgent: string): strin
  * - Registry is loaded (`isRegistryLoaded()` returns true)
  * - Next agent has a known VS Code handle
  * - Status is not COMPLETE, BLOCKED, or IN_PROGRESS
- * - `auto_handoff_depth` in the ledger is below `MAX_HANDOFF_DEPTH`
+ * - `auto_handoff_depth` in the ledger is below `effectiveMaxDepth(total_work_packages)` (§18.2.1)
  *
- * On COMPLETE status the depth counter is reset to 0 so the next project starts fresh.
+ * The depth counter is reset to 0 only inside completeSynthesis (§18.4), not on individual WP completions.
  */
 export async function buildHandoffResponse(
   currentAgent: string,
@@ -186,7 +189,7 @@ export async function buildHandoffResponse(
       try {
         const root = await store.readRootIndex();
         const currentDepth = root.auto_handoff_depth ?? 0;
-        if (currentDepth < getMaxHandoffDepth()) {
+        if (currentDepth < effectiveMaxDepth(root.total_work_packages ?? 0)) {
           await store.writeRootIndex({
             ...root,
             auto_handoff_depth: currentDepth + 1,
@@ -203,9 +206,7 @@ export async function buildHandoffResponse(
     }
   }
 
-  // (auto_handoff_depth is reset at WP-completion time inside updateWorkPackageStatus,
-  //  not here, so that any single WP reaching COMPLETE resets the counter rather than
-  //  only resetting when the entire project completes.)
+  // auto_handoff_depth is reset only in completeSynthesis (not on individual WP completions, per §18.4)
 
   return {
     content: [
@@ -261,31 +262,82 @@ export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectP
 }
 
 /**
- * Get handoff status for Project Manager
+ * Private helper: map an `assigned_to` value to the corresponding READY_FOR_* handoff status.
+ * Used by getProjectManagerHandoff to route READY work packages to the correct agent.
+ */
+function readyStatusForAgent(assignedTo: string | null): string {
+  switch (assignedTo) {
+    case 'Developer': return 'READY_FOR_DEVELOPER';
+    case 'QA': return 'READY_FOR_QA';
+    case 'Reviewer': return 'READY_FOR_REVIEW';
+    case 'Documentation': return 'READY_FOR_DOCUMENTATION';
+    default: return 'READY_FOR_DEVELOPER';
+  }
+}
+
+/**
+ * Get handoff status for Project Manager (§5.5)
+ *
+ * Priority-ordered algorithm:
+ * 1. Non-dependency blockers (decision/external/technical) → IN_PROGRESS (PM must act)
+ * 2. READY WPs → route to assigned agent via readyStatusForAgent
+ * 3. All terminal → READY_FOR_SYNTHESIS
+ * 4. WPs in-flight (IN_PROGRESS or dependency-BLOCKED) → WAIT
  */
 export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  // If any WP lacks implementation pipeline, Developer needs to work
-  const needsImplementation = wpDetails.some(
-    (wp) =>
-      (wp.status === 'READY' || wp.status === 'IN_PROGRESS') &&
-      !wp.pipelines.some((p) => p.type === 'implementation')
-  );
+  // Step 1: Non-dependency blockers — PM must resolve before work can continue.
+  // Dependency-blocked WPs (blocked_by absent or blocked_by.type === 'dependency') are
+  // skipped — they are gated on other WPs completing, not on PM intervention.
+  for (const wp of wpDetails) {
+    if (
+      !isTerminalStatus(wp.status) &&
+      wp.status === 'BLOCKED' &&
+      wp.blocked_by != null &&
+      ['decision', 'external', 'technical'].includes(wp.blocked_by.type)
+    ) {
+      return buildHandoffResponse(
+        'Project Manager',
+        'IN_PROGRESS',
+        `Blocker resolution required: ${wp.work_package_id} is BLOCKED by a ${wp.blocked_by.type} issue — "${wp.blocked_by.description}". Project Manager must resolve before work can continue.`,
+        undefined,
+        projectPath,
+        store
+      );
+    }
+  }
 
-  if (needsImplementation) {
+  // Step 2: READY WPs → route to the agent assigned to that work package.
+  for (const wp of wpDetails) {
+    if (wp.status === 'READY') {
+      const status = readyStatusForAgent(wp.assigned_to ?? null);
+      return buildHandoffResponse(
+        'Project Manager',
+        status,
+        `Work package ${wp.work_package_id} is READY and assigned to ${wp.assigned_to ?? 'Developer (default)'}. Routing to the appropriate agent.`,
+        undefined,
+        projectPath,
+        store
+      );
+    }
+  }
+
+  // Step 3: All terminal → Synthesis.
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
     return buildHandoffResponse(
       'Project Manager',
-      'READY_FOR_DEVELOPER',
-      'Work packages created and ready for implementation.',
+      'READY_FOR_SYNTHESIS',
+      'All work packages are in a terminal state. Project ready for Synthesis.',
       undefined,
       projectPath,
       store
     );
   }
 
+  // Step 4: WPs in-flight (IN_PROGRESS or dependency-BLOCKED) — no PM action needed.
   return buildHandoffResponse(
     'Project Manager',
-    'IN_PROGRESS',
-    'Work packages in progress.',
+    'WAIT',
+    'Work packages are in-flight (IN_PROGRESS or BLOCKED by dependencies). No Project Manager action needed.',
     undefined,
     projectPath,
     store
@@ -293,10 +345,67 @@ export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], p
 }
 
 /**
- * Get handoff status for Developer
+ * Get handoff status for Developer (§5.1)
+ *
+ * Priority-ordered algorithm:
+ * 1. Temporal-guarded FAIL check — only trigger rework when downstream has ALREADY
+ *    re-engaged since the most recent implementation PASS (prevents false rework loops
+ *    when Developer has re-delivered but downstream has not yet started).
+ * 2. All non-BLOCKED WPs have PASS impl → READY_FOR_QA.
+ * 3. Non-BLOCKED WPs still need implementation or have impl FAIL → IN_PROGRESS.
+ * 4. All WPs terminal → READY_FOR_SYNTHESIS.
+ * Fallback → READY_FOR_QA (partial-complete case).
  */
 export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  // Only consider non-BLOCKED WPs for implementation progress.
+  // Early exit: all WPs terminal → READY_FOR_SYNTHESIS (§5.1 step 3).
+  // Must be checked BEFORE allImplemented to avoid false positives on CANCELLED WPs
+  // that have no impl pipeline.
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
+    return buildHandoffResponse(
+      'Developer',
+      'READY_FOR_SYNTHESIS',
+      'All work packages are in a terminal state (COMPLETE or CANCELLED).',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // Step 1 of §5.1: Temporal-guarded FAIL check.
+  // Fire IN_PROGRESS only when a downstream agent has ALREADY started work after our
+  // most recent implementation PASS. This prevents false rework loops: if Developer
+  // has re-delivered (impl-2 PASS) but QA has not yet started, hasDownstreamReengagedSince
+  // returns false and we fall through to READY_FOR_QA instead of re-triggering rework.
+  const activeWps = wpDetails.filter(
+    (wp) => !isTerminalStatus(wp.status) && !isBlockedByDependencies(wp)
+  );
+  const failTypes = ['implementation', 'qa', 'code-review'] as const;
+  for (const wp of activeWps) {
+    for (const type of failTypes) {
+      if (
+        isMostRecentPipelineFail(wp.pipelines, type) &&
+        hasDownstreamReengagedSince(wp.pipelines, 'implementation')
+      ) {
+        const wpsNeedingRework = activeWps.filter((w) =>
+          failTypes.some(
+            (t) =>
+              isMostRecentPipelineFail(w.pipelines, t) &&
+              hasDownstreamReengagedSince(w.pipelines, 'implementation')
+          )
+        );
+        return buildHandoffResponse(
+          'Developer',
+          'IN_PROGRESS',
+          `Implementation work in progress. ${wpsNeedingRework.length} work package(s) have downstream failures requiring rework (downstream re-engaged after last implementation PASS).`,
+          `Call ledger_get_next_action with agent_role: "Developer" to find the next work package to implement or rework. Continue working until all WPs have PASS implementation pipelines.`,
+          projectPath,
+          store
+        );
+      }
+    }
+  }
+
+  // Only consider non-BLOCKED WPs for the remaining implementation progress checks.
   // BLOCKED WPs have no implementation pipeline yet (they're waiting on dependencies)
   // and must not be counted as "needing work" by the Developer right now.
   const nonBlockedWps = wpDetails.filter((wp) => wp.status !== 'BLOCKED');
@@ -319,11 +428,13 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 
   // Check if any non-BLOCKED WP needs implementation or has FAIL pipeline.
   //
-  // NOTE: isMostRecentPipelineFail is intentionally NOT used here. That helper
-  // only checks the most recent pipeline, which would miss a WP that has an
-  // older FAIL pipeline followed by a currently IN_PROGRESS one. getDeveloperHandoff
-  // needs a conservative signal: if any implementation attempt has ever FAIL-ed
-  // and no PASS pipeline exists yet, the WP is still considered in-progress.
+  // NOTE: isMostRecentPipelineFail is intentionally NOT used here for the needsWork
+  // check. That helper only checks the most recent pipeline, which would miss a WP
+  // that has an older FAIL pipeline followed by a currently IN_PROGRESS one.
+  // getDeveloperHandoff needs a conservative signal: if any implementation attempt
+  // has ever FAIL-ed and no PASS pipeline exists yet, the WP is still considered
+  // in-progress. The temporal guard above handles the case where a downstream FAIL
+  // requires Developer rework.
   //
   // BLOCKED WPs are excluded: they are gated on dependencies and cannot be
   // claimed by the Developer right now. Including them caused a false IN_PROGRESS
@@ -363,9 +474,46 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 }
 
 /**
- * Get handoff status for QA
+ * Get handoff status for QA (§5.2)
+ *
+ * Re-engagement step MUST precede the FAIL short-circuit (§5.2 critical note).
+ * After qa-1 FAIL → impl-2 PASS, hasNewUpstreamPassSince returns true, routing
+ * QA back to IN_PROGRESS rather than incorrectly sending Developer to rework.
  */
 export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+  // All-terminal early exit: if every WP is COMPLETE/CANCELLED the project is done.
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
+    return buildHandoffResponse(
+      'QA',
+      'READY_FOR_SYNTHESIS',
+      'All work packages are in a terminal state.',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // Step 1 of §5.2: Re-engagement check — MUST precede FAIL short-circuit.
+  // If QA FAIL exists AND Developer has since re-delivered a PASS implementation,
+  // QA must re-engage (IN_PROGRESS) rather than routing back to READY_FOR_DEVELOPER.
+  for (const wp of wpDetails) {
+    if (
+      !isTerminalStatus(wp.status) &&
+      !isBlockedByDependencies(wp) &&
+      isMostRecentPipelineFail(wp.pipelines, 'qa') &&
+      hasNewUpstreamPassSince(wp.pipelines, 'implementation', 'qa')
+    ) {
+      return buildHandoffResponse(
+        'QA',
+        'IN_PROGRESS',
+        `QA re-engagement required: ${wp.work_package_id} has a QA FAIL but implementation was re-delivered after the failure. QA must re-validate.`,
+        `Call ledger_get_next_action with agent_role: "QA" to find the work package to re-validate.`,
+        projectPath,
+        store
+      );
+    }
+  }
+
   // Check if all WPs with implementation pipelines have PASS QA pipelines
   const wpsWithImpl = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
@@ -385,10 +533,10 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
     if (wpsStillNeedingImpl.length > 0) {
       // Check if these WPs are actually ready or blocked by dependencies
       const readyWps = wpsStillNeedingImpl.filter(
-        (wp) => !isBlockedByDependencies(wp, wpDetails)
+        (wp) => !isBlockedByDependencies(wp)
       );
       const blockedWps = wpsStillNeedingImpl.filter((wp) =>
-        isBlockedByDependencies(wp, wpDetails)
+        isBlockedByDependencies(wp)
       );
 
       // If all unimplemented WPs are blocked, proceed to Review instead of waiting
@@ -474,10 +622,10 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
   if (wpsStillNeedingImpl.length > 0) {
     // Check if these WPs are actually ready or blocked by dependencies
     const readyWps = wpsStillNeedingImpl.filter(
-      (wp) => !isBlockedByDependencies(wp, wpDetails)
+      (wp) => !isBlockedByDependencies(wp)
     );
     const blockedWps = wpsStillNeedingImpl.filter((wp) =>
-      isBlockedByDependencies(wp, wpDetails)
+      isBlockedByDependencies(wp)
     );
 
     // If all unimplemented WPs are blocked, proceed to Review instead of waiting
@@ -514,9 +662,44 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 }
 
 /**
- * Get handoff status for Reviewer
+ * Get handoff status for Reviewer (§5.3)
+ *
+ * Structurally identical to QA handoff, applied to code-review pipelines.
+ * Re-engagement step MUST precede the FAIL short-circuit.
  */
 export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+  // All-terminal early exit: if every WP is COMPLETE/CANCELLED the project is done.
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
+    return buildHandoffResponse(
+      'Reviewer',
+      'READY_FOR_SYNTHESIS',
+      'All work packages are in a terminal state.',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // Step 1 of §5.3: Re-engagement check — MUST precede FAIL short-circuit.
+  // If code-review FAIL exists AND QA has since re-passed, Reviewer must re-engage.
+  for (const wp of wpDetails) {
+    if (
+      !isTerminalStatus(wp.status) &&
+      !isBlockedByDependencies(wp) &&
+      isMostRecentPipelineFail(wp.pipelines, 'code-review') &&
+      hasNewUpstreamPassSince(wp.pipelines, 'qa', 'code-review')
+    ) {
+      return buildHandoffResponse(
+        'Reviewer',
+        'IN_PROGRESS',
+        `Reviewer re-engagement required: ${wp.work_package_id} has a code-review FAIL but QA has since re-passed. Reviewer must re-evaluate.`,
+        `Call ledger_get_next_action with agent_role: "Reviewer" to find the work package to re-review.`,
+        projectPath,
+        store
+      );
+    }
+  }
+
   // Check if all WPs with QA pipelines have PASS code-review pipelines
   const wpsWithQa = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
@@ -536,10 +719,10 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
     if (wpsNotYetQaPassed.length > 0) {
       // Check if these WPs are actually ready or blocked by dependencies
       const readyWps = wpsNotYetQaPassed.filter(
-        (wp) => !isBlockedByDependencies(wp, wpDetails)
+        (wp) => !isBlockedByDependencies(wp)
       );
       const blockedWps = wpsNotYetQaPassed.filter((wp) =>
-        isBlockedByDependencies(wp, wpDetails)
+        isBlockedByDependencies(wp)
       );
 
       // If all unimplemented WPs are blocked, proceed to Documentation instead of waiting
@@ -625,10 +808,10 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
   if (wpsNotYetQaPassed.length > 0) {
     // Check if these WPs are actually ready or blocked by dependencies
     const readyWps = wpsNotYetQaPassed.filter(
-      (wp) => !isBlockedByDependencies(wp, wpDetails)
+      (wp) => !isBlockedByDependencies(wp)
     );
     const blockedWps = wpsNotYetQaPassed.filter((wp) =>
-      isBlockedByDependencies(wp, wpDetails)
+      isBlockedByDependencies(wp)
     );
 
     // If all unimplemented WPs are blocked, proceed to Documentation instead of waiting
@@ -665,21 +848,67 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 }
 
 /**
- * Get handoff status for Documentation
+ * Get handoff status for Documentation (§5.4)
+ *
+ * Priority order per §14.5: ready-for-docs (new work or re-engagement via
+ * hasNewUpstreamPassSince) comes BEFORE FAIL self-rework. This is the opposite
+ * of the recommendation engine priority and is intentional for handoff routing.
  */
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  // Check if all WPs with code-review pipelines have PASS documentation pipelines
   const wpsWithReview = wpDetails.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
   );
 
-  const allDocsPassed = wpsWithReview.every((wp) =>
-    wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS')
-  );
-
-  // Check if there are WPs that haven't reached code-review yet
   const wpsNotYetReviewed = wpDetails.filter(
     (wp) => !wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
+  );
+
+  // Step 1 of §5.4: Ready-for-docs check — new documentation OR re-engagement.
+  // Per §14.5: this step comes BEFORE FAIL self-rework in handoff priority.
+  // Uses hasNewUpstreamPassSince to detect re-engagement: a new code-review PASS
+  // after the most recent documentation run means docs must be re-run.
+  const readyForDocsList = wpsWithReview.filter(
+    (wp) =>
+      !isTerminalStatus(wp.status) &&
+      !isBlockedByDependencies(wp) &&
+      (
+        !wp.pipelines.some((p) => p.type === 'documentation') ||
+        hasNewUpstreamPassSince(wp.pipelines, 'code-review', 'documentation')
+      )
+  );
+  if (readyForDocsList.length > 0) {
+    return buildHandoffResponse(
+      'Documentation',
+      'IN_PROGRESS',
+      `Documentation work in progress. ${readyForDocsList.length} work package(s) need documentation or re-documentation after upstream changes.`,
+      `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`,
+      projectPath,
+      store
+    );
+  }
+
+  // Step 2 of §5.4: FAIL → Documentation self-rework.
+  // Documentation self-corrects on FAIL rather than routing back upstream.
+  const wpsWithDocFail = wpsWithReview.filter(
+    (wp) =>
+      !isTerminalStatus(wp.status) &&
+      !isBlockedByDependencies(wp) &&
+      isMostRecentPipelineFail(wp.pipelines, 'documentation')
+  );
+  if (wpsWithDocFail.length > 0) {
+    return buildHandoffResponse(
+      'Documentation',
+      'IN_PROGRESS',
+      `Documentation rework required. ${wpsWithDocFail.length} work package(s) have FAIL documentation pipelines and need rework.`,
+      `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`,
+      projectPath,
+      store
+    );
+  }
+
+  // Check if all reviewed WPs have PASS documentation
+  const allDocsPassed = wpsWithReview.every((wp) =>
+    wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS')
   );
 
   if (allDocsPassed && wpsWithReview.length > 0) {
@@ -687,10 +916,10 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
     if (wpsNotYetReviewed.length > 0) {
       // Check if these WPs are actually blocked by dependencies (not genuinely waiting)
       const readyWps = wpsNotYetReviewed.filter(
-        (wp) => !isBlockedByDependencies(wp, wpDetails)
+        (wp) => !isBlockedByDependencies(wp)
       );
       const blockedWps = wpsNotYetReviewed.filter((wp) =>
-        isBlockedByDependencies(wp, wpDetails)
+        isBlockedByDependencies(wp)
       );
 
       // If all unreviewed WPs are blocked by dependencies, proceed to Synthesis
@@ -725,42 +954,14 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
     );
   }
 
-  // Check if any non-BLOCKED WP needs documentation or has FAIL pipeline.
-  // BLOCKED WPs need upstream rework before Documentation can retry — exclude them.
-  const needsWork = wpsWithReview.some(
-    (wp) =>
-      wp.status !== 'BLOCKED' &&
-      (!wp.pipelines.some((p) => p.type === 'documentation') ||
-      wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL'))
-  );
-
-  if (needsWork) {
-    // Count how many work packages still need documentation
-    const wpsNeedingWork = wpsWithReview.filter(
-      (wp) =>
-        wp.status !== 'BLOCKED' &&
-        (!wp.pipelines.some((p) => p.type === 'documentation') ||
-        wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'FAIL'))
-    );
-
-    return buildHandoffResponse(
-      'Documentation',
-      'IN_PROGRESS',
-      `Documentation work in progress. ${wpsNeedingWork.length} work package(s) still need documentation or rework.`,
-      `Call ledger_get_next_action with agent_role: "Documentation" to find the next work package to document. Continue working until all WPs have PASS documentation pipelines and are marked COMPLETE.`,
-      projectPath,
-      store
-    );
-  }
-
   // All documented WPs are done but some haven't reached review yet
   if (wpsNotYetReviewed.length > 0) {
     // Check if these WPs are actually blocked by dependencies (not genuinely waiting)
     const readyWps = wpsNotYetReviewed.filter(
-      (wp) => !isBlockedByDependencies(wp, wpDetails)
+      (wp) => !isBlockedByDependencies(wp)
     );
     const blockedWps = wpsNotYetReviewed.filter((wp) =>
-      isBlockedByDependencies(wp, wpDetails)
+      isBlockedByDependencies(wp)
     );
 
     // If all unreviewed WPs are blocked by dependencies, proceed to Synthesis

@@ -18,7 +18,7 @@ const AddObservationSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   pipeline_type: PipelineTypeEnum.describe('Pipeline type to add the observation to: "implementation", "qa", "code-review", or "documentation"'),
   type: z
@@ -190,6 +190,14 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
 /**
  * Register observation tools on the MCP server
  */
+/**
+ * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
+ */
+export const _internal = {
+  AddObservationSchema,
+  AddProjectCommentSchema,
+};
+
 export function register(server: McpServer): void {
   server.registerTool(
     'ledger_add_observation',

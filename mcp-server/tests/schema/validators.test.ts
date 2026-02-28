@@ -8,11 +8,22 @@ import type { WorkPackageSummary } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
 describe('isValidStatusTransition', () => {
-  it('allows same-status transitions (no-op)', () => {
+  it('allows same-status transitions (no-op) for non-terminal statuses', () => {
     expect(isValidStatusTransition('READY', 'READY')).toBe(true);
     expect(isValidStatusTransition('IN_PROGRESS', 'IN_PROGRESS')).toBe(true);
     expect(isValidStatusTransition('BLOCKED', 'BLOCKED')).toBe(true);
     expect(isValidStatusTransition('COMPLETE', 'COMPLETE')).toBe(true);
+  });
+
+  it('rejects CANCELLED -> CANCELLED (terminal — no self-transition)', () => {
+    expect(isValidStatusTransition('CANCELLED', 'CANCELLED')).toBe(false);
+  });
+
+  it('rejects all transitions out of CANCELLED (terminal)', () => {
+    expect(isValidStatusTransition('CANCELLED', 'READY')).toBe(false);
+    expect(isValidStatusTransition('CANCELLED', 'IN_PROGRESS')).toBe(false);
+    expect(isValidStatusTransition('CANCELLED', 'BLOCKED')).toBe(false);
+    expect(isValidStatusTransition('CANCELLED', 'COMPLETE')).toBe(false);
   });
 
   describe('from READY', () => {
@@ -34,8 +45,8 @@ describe('isValidStatusTransition', () => {
     it('allows IN_PROGRESS -> BLOCKED', () => {
       expect(isValidStatusTransition('IN_PROGRESS', 'BLOCKED')).toBe(true);
     });
-    it('rejects IN_PROGRESS -> READY', () => {
-      expect(isValidStatusTransition('IN_PROGRESS', 'READY')).toBe(false);
+    it('allows IN_PROGRESS -> READY (unclaim path, spec §21.13)', () => {
+      expect(isValidStatusTransition('IN_PROGRESS', 'READY')).toBe(true);
     });
   });
 
@@ -54,6 +65,9 @@ describe('isValidStatusTransition', () => {
   describe('from COMPLETE', () => {
     it('allows COMPLETE -> IN_PROGRESS (revision)', () => {
       expect(isValidStatusTransition('COMPLETE', 'IN_PROGRESS')).toBe(true);
+    });
+    it('allows COMPLETE -> CANCELLED (PM only)', () => {
+      expect(isValidStatusTransition('COMPLETE', 'CANCELLED')).toBe(true);
     });
     it('rejects COMPLETE -> READY', () => {
       expect(isValidStatusTransition('COMPLETE', 'READY')).toBe(false);

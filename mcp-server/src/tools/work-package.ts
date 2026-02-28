@@ -18,6 +18,7 @@ import {
 import type { WorkPackageStatus } from '../schema/enums.js';
 import { withLock } from '../storage/file-lock.js';
 import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 
 /**
  * Build a next-step guidance string after a WP status transition.
@@ -62,6 +63,12 @@ function buildStatusTransitionGuidance(
 export const _internal = {
   buildStatusTransitionGuidance,
   propagateDependencyUnblock,
+  propagateDependencyReblock,
+  createWorkPackage,
+  updateWorkPackageStatus,
+  claimWorkPackage,
+  resetReworkCount,
+  updateAcceptanceCriteria,
 };
 
 /**
@@ -185,19 +192,42 @@ const CreateWorkPackageSchema = z.object({
     .describe('Relative path to the work package spec file (e.g., "work/WP-001.md")'),
 });
 
+/**
+ * Cycle detection helper for createWorkPackage (§15.2).
+ *
+ * Performs a BFS over the existing WP graph to check whether adding an edge
+ * from `newId` → `deps` would introduce a cycle. The new WP's own ID is
+ * passed as `newId`; if it appears anywhere in the transitive dependency
+ * closure of `deps` the result is `true` (cycle detected).
+ */
+function hasCycle(newId: string, deps: string[], allWps: WorkPackageSummary[]): boolean {
+  const visited = new Set<string>();
+  const queue = [...deps];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current === newId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    const wp = allWps.find((w) => w.work_package_id === current);
+    if (wp) queue.push(...wp.dependencies);
+  }
+  return false;
+}
+
 async function createWorkPackage(
-  args: z.infer<typeof CreateWorkPackageSchema>
+  args: z.infer<typeof CreateWorkPackageSchema>,
+  _ledgerRoot?: string
 ) {
   const validationError = validatePlanPathOrError(args.project_path);
   if (validationError) return validationError;
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(args.project_path, _ledgerRoot);
 
   let createdWpId = '';
 
   try {
     // Use lock to ensure atomic creation of both files
-    await withLock(args.project_path, async () => {
+    await withLock(_ledgerRoot ?? args.project_path, async () => {
       // 1. Read root index to get next WP ID
       const rootIndex = await store.readRootIndex();
 
@@ -222,8 +252,16 @@ async function createWorkPackage(
         }
       }
 
+      // 3b. Cycle detection (§15.2)
+      if (hasCycle(wpId, args.dependencies, rootIndex.work_packages)) {
+        throw new Error(
+          `Dependency cycle detected: WP ${wpId} would create a circular dependency.`
+        );
+      }
+
       // 4. Determine initial status
       let initialStatus: 'READY' | 'BLOCKED' = 'READY';
+      let unmetDeps: string[] = [];
       if (args.dependencies.length > 0) {
         const depCheck = canStartWorkPackage(
           { dependencies: args.dependencies } as WorkPackageSummary,
@@ -231,38 +269,64 @@ async function createWorkPackage(
         );
         if (!depCheck.allowed) {
           initialStatus = 'BLOCKED';
+          unmetDeps = args.dependencies.filter(
+            (depId) =>
+              !rootIndex.work_packages.some(
+                (w) => w.work_package_id === depId && w.status === 'COMPLETE'
+              )
+          );
         }
       }
 
-      // 5. Create acceptance criteria objects
+      // 5. Validate acceptance criteria — reject empty or whitespace-only strings
+      for (let i = 0; i < args.acceptance_criteria.length; i++) {
+        if (!args.acceptance_criteria[i]!.trim()) {
+          throw new Error(`acceptance_criteria[${i}] is empty or whitespace-only.`);
+        }
+      }
+
+      // 6. Create acceptance criteria objects
       const acceptanceCriteria: AcceptanceCriterion[] =
         args.acceptance_criteria.map((criterion) => ({
           criterion,
           met: false,
         }));
 
-      // 6. Create work package detail
+      // 7. Create work package detail
+      // Note: assigned_to is initially null regardless of input (§9b.1 soft-deprecation).
+      // The assigned_to input field is accepted silently but ignored at creation time.
+      // The WP will be assigned when an agent claims it via ledger_claim_work_package.
       const wpDetail: WorkPackageDetail = {
         work_package_id: wpId,
         work_package_file: args.work_package_file,
         status: initialStatus,
-        assigned_to: args.assigned_to,
+        assigned_to: null,
         dependencies: args.dependencies,
         acceptance_criteria: acceptanceCriteria,
-        revision: 1,
+        revision: 0,
         pipelines: [],
       };
 
-      // 7. Create work package summary
+      // Set blocked_by when initial status is BLOCKED (§9b.1)
+      if (initialStatus === 'BLOCKED') {
+        wpDetail.blocked_by = {
+          type: 'dependency',
+          description: 'Created BLOCKED: one or more dependencies not yet COMPLETE',
+          blocking_work_package: unmetDeps[0],
+        };
+      }
+
+      // 8. Create work package summary
+      // assigned_to mirrors the detail: null at creation time.
       const wpSummary: WorkPackageSummary = {
         work_package_id: wpId,
         status: initialStatus,
-        assigned_to: args.assigned_to,
+        assigned_to: null,
         dependencies: args.dependencies,
         file: `ledger/${wpId}.json`,
       };
 
-      // 8. Update root index
+      // 9. Update root index
       rootIndex.work_packages.push(wpSummary);
       rootIndex.total_work_packages += 1;
       rootIndex.pending_work_packages += 1;
@@ -273,12 +337,12 @@ async function createWorkPackage(
         rootIndex.status = 'IN_PROGRESS';
       }
 
-      // 9. Write both files atomically
+      // 10. Write both files atomically
       await store.writeWorkPackage(wpId, wpDetail);
       await store.writeRootIndex(rootIndex);
     });
 
-    // 10. Read back the created work package to return it
+    // 11. Read back the created work package to return it
     const createdWp = await store.readWorkPackage(createdWpId);
 
     return {
@@ -321,11 +385,24 @@ const ClaimWorkPackageSchema = z.object({
     .describe('Set to true to claim a WP assigned to a different agent. Without this flag, claiming a WP assigned to another agent will be rejected.'),
 });
 
-async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
+// Roles permitted to claim work packages via ledger_claim_work_package.
+// Planner, Synthesis, and other orchestrating roles operate outside the
+// dev-loop and must not directly claim implementation work.
+export const CLAIMABLE_ROLES: string[] = [
+  ...AGENT_ROLES.filter((r) => !(ORCHESTRATING_ROLES as readonly string[]).includes(r)),
+  ...AGENT_ROLES
+    .filter((r) => !(ORCHESTRATING_ROLES as readonly string[]).includes(r))
+    .map((r) => `${r} Agent`),
+];
+
+async function claimWorkPackage(
+  args: z.infer<typeof ClaimWorkPackageSchema>,
+  _ledgerRoot?: string
+) {
   const validationError = validatePlanPathOrError(args.project_path);
   if (validationError) return validationError;
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(args.project_path, _ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -333,6 +410,14 @@ async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
       if (wp.status !== 'READY') {
         throw new Error(
           `Cannot claim work package ${args.work_package_id}: current status is ${wp.status}. Only READY work packages can be claimed.`
+        );
+      }
+
+      // 1b. Role guard: reject non-claimable agent roles (fires unconditionally, before assignment/override checks)
+      if (!CLAIMABLE_ROLES.includes(args.agent)) {
+        throw new Error(
+          `Agent role '${args.agent}' cannot claim work packages. ` +
+          `Valid roles: ${CLAIMABLE_ROLES.filter(r => !r.includes('Agent')).join(', ')}.`
         );
       }
 
@@ -380,6 +465,7 @@ async function claimWorkPackage(args: z.infer<typeof ClaimWorkPackageSchema>) {
 
       // 5. Update work package
       wp.status = 'IN_PROGRESS';
+      wp.status_changed_at = now();
       wp.assigned_to = args.agent;
 
       // 6. Update root index summary
@@ -433,7 +519,7 @@ const UpdateWorkPackageStatusSchema = z.object({
     .describe('Work package ID to update, format: WP-001, WP-002, etc.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED', 'CANCELLED'])
-    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, READY→CANCELLED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, IN_PROGRESS→CANCELLED, BLOCKED→IN_PROGRESS, BLOCKED→READY, BLOCKED→CANCELLED, COMPLETE→IN_PROGRESS. CANCELLED is terminal (PM-only).'),
+    .describe('New status. Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, READY→CANCELLED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, IN_PROGRESS→CANCELLED, IN_PROGRESS→READY, BLOCKED→IN_PROGRESS, BLOCKED→READY, BLOCKED→CANCELLED, COMPLETE→IN_PROGRESS, COMPLETE→CANCELLED. CANCELLED is terminal (PM-only). BLOCKED→BLOCKED is also valid and replaces the existing blocker details.'),
   agent: z
     .string()
     .describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation"). Note: only "Documentation" or "Documentation Agent" can set status to COMPLETE.'),
@@ -448,13 +534,28 @@ const UpdateWorkPackageStatusSchema = z.object({
     .describe('Blocker details — REQUIRED when setting status to BLOCKED, omit otherwise'),
 });
 
+/**
+ * Auto-cancels all IN_PROGRESS pipelines on a work package with a given reason.
+ * Used when a WP transitions to BLOCKED or CANCELLED while pipelines are running.
+ */
+function autoCancelActivePipelines(wp: WorkPackageDetail, reason: string): void {
+  const inProgressPipelines = wp.pipelines.filter((p) => p.status === 'IN_PROGRESS');
+  for (const p of inProgressPipelines) {
+    p.status = 'FAIL';
+    p.completed_at = now();
+    p.auto_cancelled = true;
+    p.summary = [reason];
+  }
+}
+
 async function updateWorkPackageStatus(
-  args: z.infer<typeof UpdateWorkPackageStatusSchema>
+  args: z.infer<typeof UpdateWorkPackageStatusSchema>,
+  _ledgerRoot?: string
 ) {
   const validationError = validatePlanPathOrError(args.project_path);
   if (validationError) return validationError;
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(args.project_path, _ledgerRoot);
 
   try {
     let oldStatus: WorkPackageStatus | undefined;
@@ -466,6 +567,44 @@ async function updateWorkPackageStatus(
       if (!isValidStatusTransition(oldStatus, newStatus)) {
         throw new Error(
           `Invalid status transition: ${oldStatus} -> ${newStatus}. Legal transitions from ${oldStatus}: ${getLegalTransitions(oldStatus)}`
+        );
+      }
+
+      // 1a. BLOCKED → BLOCKED: blocker replacement (§21.17)
+      // This is a special same-status branch that replaces the blocker metadata.
+      // It returns immediately without going through the general mutation path.
+      if (oldStatus === 'BLOCKED' && newStatus === 'BLOCKED') {
+        const pmAgents = ['Project Manager', 'Project Manager Agent'];
+        const isAllowed = pmAgents.includes(args.agent) || args.agent === wp.assigned_to;
+        if (!isAllowed) {
+          throw new Error(
+            `Only the Project Manager or the current assignee ("${wp.assigned_to}") may replace a blocker on work package ${args.work_package_id}. You are: ${args.agent}`
+          );
+        }
+        if (!args.blocked_by) {
+          throw new Error('Cannot replace blocker: blocked_by is required when transitioning BLOCKED → BLOCKED');
+        }
+        // Cannot replace a dependency blocker with a non-dependency blocker.
+        // Dependency blockers must be resolved by completing the blocking work package.
+        if (wp.blocked_by?.type === 'dependency' && args.blocked_by.type !== 'dependency') {
+          throw new Error(
+            `Cannot replace a 'dependency' blocker with a '${args.blocked_by.type}' blocker. ` +
+            `Dependency blockers can only be resolved by completing the blocking work package.`
+          );
+        }
+        wp.blocked_by = args.blocked_by as Blocker;
+        wp.status_changed_at = now();
+        root.last_updated = now();
+        return { wp, root };
+      }
+
+      // 1b. READY → IN_PROGRESS redirect (§10b.2)
+      // This transition is reserved for ledger_claim_work_package which validates
+      // dependencies and handles proper agent assignment.
+      if (oldStatus === 'READY' && newStatus === 'IN_PROGRESS') {
+        throw new Error(
+          `Cannot transition ${args.work_package_id} from READY to IN_PROGRESS via ledger_update_work_package_status. ` +
+          `Use ledger_claim_work_package instead — it validates dependencies and handles the assignment.`
         );
       }
 
@@ -537,8 +676,43 @@ async function updateWorkPackageStatus(
         }
       }
 
+      // 5a. IN_PROGRESS → READY: guard (§21.13) — reject if any pipeline is IN_PROGRESS
+      if (oldStatus === 'IN_PROGRESS' && newStatus === 'READY') {
+        const activePipeline = wp.pipelines.find((p) => p.status === 'IN_PROGRESS');
+        if (activePipeline) {
+          throw new Error(
+            `Cannot unclaim work package ${args.work_package_id}: cancel all IN_PROGRESS pipelines before unclaiming.`
+          );
+        }
+      }
+
+      // 5b. → COMPLETE freshness check (§21.10)
+      // The most recent non-auto-cancelled doc PASS must post-date the most recent
+      // non-auto-cancelled implementation pipeline start. Absent timestamps are permissive.
+      if (newStatus === 'COMPLETE') {
+        const docPassPipeline = [...wp.pipelines]
+          .reverse()
+          .find((p) => p.type === 'documentation' && p.status === 'PASS' && !p.auto_cancelled);
+        const implStartPipeline = [...wp.pipelines]
+          .reverse()
+          .find((p) => p.type === 'implementation' && !p.auto_cancelled);
+        if (
+          docPassPipeline?.completed_at &&
+          implStartPipeline?.started_at &&
+          docPassPipeline.completed_at < implStartPipeline.started_at
+        ) {
+          throw new Error(
+            `Cannot mark work package ${args.work_package_id} as COMPLETE: ` +
+            `the documentation pipeline PASS (${docPassPipeline.completed_at}) ` +
+            `pre-dates the most recent implementation pipeline start (${implStartPipeline.started_at}). ` +
+            `The documentation pipeline must be re-run after the latest implementation.`
+          );
+        }
+      }
+
       // 6. Update work package status
       wp.status = newStatus;
+      wp.status_changed_at = now();
 
       // 7. Handle any exit from BLOCKED (clear blocker)
       // Covers both BLOCKED -> IN_PROGRESS and BLOCKED -> READY so the field is
@@ -552,12 +726,35 @@ async function updateWorkPackageStatus(
         wp.blocked_by = args.blocked_by as Blocker;
       }
 
-      // 9. Handle COMPLETE -> IN_PROGRESS (increment revision)
-      if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
-        wp.revision += 1;
+      // 8a. IN_PROGRESS → BLOCKED: auto-cancel IN_PROGRESS pipelines (§10b.1, §21.27)
+      if (oldStatus === 'IN_PROGRESS' && newStatus === 'BLOCKED') {
+        autoCancelActivePipelines(wp, 'Auto-cancelled: WP transitioned IN_PROGRESS → BLOCKED');
       }
 
-      // 9. Update root index summary
+      // 8b. IN_PROGRESS → CANCELLED: auto-cancel IN_PROGRESS pipelines (§21.14b)
+      if (oldStatus === 'IN_PROGRESS' && newStatus === 'CANCELLED') {
+        autoCancelActivePipelines(wp, 'Auto-cancelled: WP transitioned IN_PROGRESS → CANCELLED');
+      }
+
+      // 8c. IN_PROGRESS → READY: clear assignment (unclaim path, §21.13)
+      if (oldStatus === 'IN_PROGRESS' && newStatus === 'READY') {
+        wp.assigned_to = null;
+        const readySummary = root.work_packages.find(
+          (s) => s.work_package_id === args.work_package_id
+        );
+        if (readySummary) {
+          readySummary.assigned_to = null;
+        }
+      }
+
+      // 9. Handle COMPLETE -> IN_PROGRESS (increment revision, reset rework budget, invalidate synthesis)
+      if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
+        wp.revision += 1;
+        wp.rework_counts = undefined; // Reset per-pipeline rework budget (§21.44)
+        root.synthesis_generated = false; // Invalidate synthesis (§21.26)
+      }
+
+      // 10. Update root index summary
       const summary = root.work_packages.find(
         (s) => s.work_package_id === args.work_package_id
       );
@@ -565,7 +762,7 @@ async function updateWorkPackageStatus(
         summary.status = newStatus;
       }
 
-      // 10. Update pending_work_packages counter
+      // 11. Update pending_work_packages counter
       // Decrement when transitioning to COMPLETE or CANCELLED (both are terminal)
       if (!isTerminalStatus(oldStatus!) && isTerminalStatus(newStatus)) {
         root.pending_work_packages -= 1;
@@ -573,14 +770,6 @@ async function updateWorkPackageStatus(
       // Increment when transitioning from COMPLETE to something else (reopen)
       if (oldStatus === 'COMPLETE' && newStatus !== 'COMPLETE') {
         root.pending_work_packages += 1;
-      }
-
-      // 11. Reset auto_handoff_depth when any WP reaches COMPLETE.
-      // This prevents the depth counter from stalling mid-project when
-      // multiple partial handoff chains are used across several WPs.
-      // (Replaces the project-COMPLETE-only reset that was in buildHandoffResponse.)
-      if (newStatus === 'COMPLETE' && (root.auto_handoff_depth ?? 0) !== 0) {
-        root.auto_handoff_depth = 0;
       }
 
       root.last_updated = now();
@@ -599,13 +788,13 @@ async function updateWorkPackageStatus(
     // - The gap between locks is safe because propagateDependencyUnblock is
     //   idempotent: re-running it on an already-unblocked WP is a no-op
     if (isTerminalStatus(args.status)) {
-      await propagateDependencyUnblock(args.project_path, args.work_package_id);
+      await propagateDependencyUnblock(args.project_path, args.work_package_id, _ledgerRoot);
     }
 
     // If the WP was reopened from COMPLETE, cascade-block dependents that are
     // READY or IN_PROGRESS (they may be operating on stale assumptions).
     if (oldStatus === 'COMPLETE' && args.status === 'IN_PROGRESS') {
-      await propagateDependencyReblock(args.project_path, args.work_package_id);
+      await propagateDependencyReblock(args.project_path, args.work_package_id, _ledgerRoot);
     }
 
     // Return updated work package with next-step guidance
@@ -676,6 +865,7 @@ async function propagateDependencyUnblock(
 
       // Transition BLOCKED -> READY and clear blocked_by
       wpDetail.status = 'READY';
+      wpDetail.status_changed_at = now();
       delete wpDetail.blocked_by;
 
       // Update root summary
@@ -702,14 +892,21 @@ async function propagateDependencyUnblock(
  * READY or IN_PROGRESS, transition them to BLOCKED with an appropriate blocked_by
  * reason. COMPLETE dependents are left unchanged — they may have been independently
  * finished and their pipelines remain valid.
+ *
+ * NOTE: When auto-cancelling IN_PROGRESS pipelines (Phase 1), the entire
+ * `summary` array is replaced. Any partial progress notes recorded via
+ * ledger_update_pipeline_progress are intentionally discarded — the work
+ * is considered void and must restart on re-claim.
  */
 async function propagateDependencyReblock(
   projectPath: string,
-  reopenedWpId: string
+  reopenedWpId: string,
+  ledgerRoot?: string
 ): Promise<void> {
-  const store = new LedgerStore(projectPath);
+  const store = new LedgerStore(projectPath, ledgerRoot);
+  const lockDir = ledgerRoot ?? projectPath;
 
-  await withLock(projectPath, async () => {
+  await withLock(lockDir, async () => {
     const rootIndex = await store.readRootIndex();
 
     // Find non-terminal, non-BLOCKED WPs whose dependency list includes the reopened WP
@@ -720,18 +917,20 @@ async function propagateDependencyReblock(
         wp.dependencies.includes(reopenedWpId)
     );
 
-    if (candidates.length === 0) return;
-
     for (const candidate of candidates) {
       const wpDetail = await store.readWorkPackage(candidate.work_package_id);
 
       // Transition READY/IN_PROGRESS -> BLOCKED
       wpDetail.status = 'BLOCKED';
+      wpDetail.status_changed_at = now();
       wpDetail.blocked_by = {
         type: 'dependency',
         description: `Dependency ${reopenedWpId} was reopened`,
         blocking_work_package: reopenedWpId,
       };
+
+      // Auto-cancel any IN_PROGRESS pipelines on the re-blocked WP (§15.5)
+      autoCancelActivePipelines(wpDetail, `Auto-cancelled: dependency ${reopenedWpId} was reopened`);
 
       // Update root summary
       const summary = rootIndex.work_packages.find(
@@ -743,6 +942,32 @@ async function propagateDependencyReblock(
 
       // Persist the WP detail update
       await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+    }
+
+    // Warn COMPLETE dependents without changing their status (§15.5)
+    const completeWps = rootIndex.work_packages.filter(
+      (wp) => wp.status === 'COMPLETE' && wp.dependencies.includes(reopenedWpId)
+    );
+    for (const candidate of completeWps) {
+      const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+      const lastPipeline = wpDetail.pipelines.at(-1);
+      if (lastPipeline) {
+        if (!lastPipeline.comments) lastPipeline.comments = [];
+        lastPipeline.comments.push({
+          type: 'warning',
+          priority: 'medium',
+          timestamp: now(),
+          note:
+            `Dependency ${reopenedWpId} was reopened. Review whether ` +
+            `${candidate.work_package_id} needs to be revisited.`,
+        });
+        await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+      }
+    }
+
+    // Reset synthesis_generated when at least one WP was re-blocked (§21.26 crash-recovery safety net)
+    if (candidates.length > 0) {
+      rootIndex.synthesis_generated = false;
     }
 
     // Recompute pending_work_packages
@@ -762,15 +987,267 @@ function getLegalTransitions(status: string): string {
     case 'READY':
       return 'IN_PROGRESS, BLOCKED, CANCELLED';
     case 'IN_PROGRESS':
-      return 'COMPLETE, BLOCKED, CANCELLED';
+      return 'COMPLETE, BLOCKED, CANCELLED, READY';
     case 'BLOCKED':
       return 'IN_PROGRESS, READY, CANCELLED';
     case 'COMPLETE':
-      return 'IN_PROGRESS';
+      return 'IN_PROGRESS, CANCELLED';
     case 'CANCELLED':
       return 'none (terminal)';
     default:
       return 'none';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool: reset_rework_count (§16.3b)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ResetReworkCountSchema = z.object({
+  project_path: z.string().describe('Absolute path to the project plan directory'),
+  work_package_id: z
+    .string()
+    .regex(/^WP-\d{3,}$/)
+    .describe('ID of the work package'),
+  pipeline_type: z
+    .enum(['implementation', 'qa', 'code-review', 'documentation'])
+    .describe('Which pipeline type rework count to reset'),
+  agent_role: z.string().describe('Must be "Project Manager"'),
+  reason: z.string().trim().min(1).describe('Mandatory reason for the reset (audit trail)'),});
+
+async function resetReworkCount(
+  args: z.infer<typeof ResetReworkCountSchema>,
+  _ledgerRoot?: string
+) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
+  const store = new LedgerStore(args.project_path, _ledgerRoot);
+
+  try {
+    // PM-only guard
+    if (args.agent_role !== 'Project Manager') {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: `Error: ledger_reset_rework_count is a PM-only tool. You are: ${args.agent_role}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Reason guard — Zod .trim().min(1) already rejects empty/whitespace-only strings;
+    // this branch remains unreachable but is kept as a belt-and-suspenders safety net.
+
+    let noOp = false;
+    let previousValue = 0;
+
+    await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      const current = wp.rework_counts?.[args.pipeline_type] ?? 0;
+
+      if (current === 0) {
+        noOp = true;
+        return { wp, root };
+      }
+
+      previousValue = current;
+
+      // Reset the specific pipeline count to 0
+      if (!wp.rework_counts) {
+        wp.rework_counts = {};
+      }
+      wp.rework_counts[args.pipeline_type] = 0;
+
+      // Record audit comment on root index
+      root.project_comments.push({
+        type: 'rework_reset',
+        priority: 'high',
+        timestamp: now(),
+        agent: 'Project Manager',
+        note: `Reset rework count for ${args.pipeline_type} on ${args.work_package_id} from ${previousValue} to 0. Reason: ${args.reason}`,
+      });
+      root.last_updated = now();
+
+      return { wp, root };
+    });
+
+    if (noOp) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                message: 'No-op: rework count is already 0 or absent. No changes written.',
+                work_package_id: args.work_package_id,
+                pipeline_type: args.pipeline_type,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            {
+              message: `Rework count for ${args.pipeline_type} on ${args.work_package_id} reset from ${previousValue} to 0.`,
+              work_package_id: args.work_package_id,
+              pipeline_type: args.pipeline_type,
+              previous_value: previousValue,
+              reason: args.reason,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error resetting rework count: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool: update_acceptance_criteria (§12.3b)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const UpdateAcceptanceCriteriaSchema = z.object({
+  project_path: z.string().describe('Absolute path to the project plan directory'),
+  work_package_id: z
+    .string()
+    .regex(/^WP-\d{3,}$/)
+    .describe('ID of the work package'),
+  agent_role: z.string().describe('Must be "Project Manager"'),
+  operations: z
+    .array(
+      z.discriminatedUnion('action', [
+        z.object({
+          action: z.literal('remove'),
+          criterion: z.string().describe('Exact text of the criterion to remove'),
+        }),
+        z.object({
+          action: z.literal('modify_text'),
+          old_criterion: z.string().describe('Exact text of the existing criterion'),
+          new_criterion: z.string().trim().min(1).describe('New criterion text (must be non-empty)'),        }),
+      ])
+    )
+    .min(1)
+    .describe('List of operations to apply'),
+});
+
+async function updateAcceptanceCriteria(
+  args: z.infer<typeof UpdateAcceptanceCriteriaSchema>,
+  _ledgerRoot?: string
+) {
+  const validationError = validatePlanPathOrError(args.project_path);
+  if (validationError) return validationError;
+
+  // PM-only guard
+  if (args.agent_role !== 'Project Manager') {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error: ledger_update_acceptance_criteria is a PM-only tool. You are: ${args.agent_role}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const store = new LedgerStore(args.project_path, _ledgerRoot);
+
+  try {
+    let appliedOps: string[] = [];
+
+    await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // CANCELLED guard
+      if (wp.status === 'CANCELLED') {
+        throw new Error(
+          `Cannot update acceptance criteria on CANCELLED work package ${args.work_package_id}.`
+        );
+      }
+
+      // Clone the criteria array before any mutation
+      const updatedCriteria: AcceptanceCriterion[] = wp.acceptance_criteria.map((c) => ({ ...c }));
+
+      // Apply operations sequentially
+      for (const op of args.operations) {
+        if (op.action === 'remove') {
+          const idx = updatedCriteria.findIndex((c) => c.criterion === op.criterion);
+          if (idx === -1) {
+            throw new Error(
+              `Criterion not found (remove): "${op.criterion}"`
+            );
+          }
+          updatedCriteria.splice(idx, 1);
+          appliedOps.push(`removed: "${op.criterion}"`);
+        } else {
+          // modify_text
+          const idx = updatedCriteria.findIndex((c) => c.criterion === op.old_criterion);
+          if (idx === -1) {
+            throw new Error(
+              `Criterion not found (modify_text): "${op.old_criterion}"`
+            );
+          }
+          updatedCriteria[idx]!.criterion = op.new_criterion;
+          // modify_text intentionally preserves the existing 'met' value — only the text changes, not the progress state.
+          appliedOps.push(`modified: "${op.old_criterion}" → "${op.new_criterion}"`);
+        }
+      }
+
+      // Post-operations: at-least-one-criterion guard
+      if (updatedCriteria.length === 0) {
+        throw new Error('At least one acceptance criterion is required. Cannot remove all criteria.');
+      }
+
+      wp.acceptance_criteria = updatedCriteria;
+      root.last_updated = now();
+
+      return { wp, root };
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            {
+              message: `Acceptance criteria updated on ${args.work_package_id}.`,
+              applied_operations: appliedOps,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error updating acceptance criteria: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
   }
 }
 
@@ -821,5 +1298,23 @@ export function register(server: McpServer): void {
       inputSchema: UpdateWorkPackageStatusSchema.passthrough(),
     },
     updateWorkPackageStatus as any
+  );
+
+  server.registerTool(
+    'ledger_reset_rework_count',
+    {
+      description: 'PM-only: resets the rework counter for a specific pipeline type on a work package back to 0. Records an audit comment. No-op if counter is already 0.',
+      inputSchema: ResetReworkCountSchema.passthrough(),
+    },
+    resetReworkCount as any
+  );
+
+  server.registerTool(
+    'ledger_update_acceptance_criteria',
+    {
+      description: 'PM-only: remove or modify acceptance criteria text on a work package. Rejects operations that would leave zero criteria. Supported operations: remove (by exact text), modify_text (old → new).',
+      inputSchema: UpdateAcceptanceCriteriaSchema.passthrough(),
+    },
+    updateAcceptanceCriteria as any
   );
 }

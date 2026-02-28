@@ -123,7 +123,20 @@ export class LedgerStore {
     try {
       const content = await readFile(path, 'utf-8');
       const data = JSON.parse(content);
-      return WorkPackageDetailSchema.parse(data);
+      const wp = WorkPackageDetailSchema.parse(data);
+
+      // Migration: rework_count (legacy scalar) → rework_counts (per-pipeline map)
+      if (wp.rework_count !== undefined && wp.rework_counts === undefined) {
+        wp.rework_counts = {
+          implementation: wp.rework_count,
+          qa: 0,
+          'code-review': 0,
+          documentation: 0,
+        };
+        delete wp.rework_count;
+      }
+
+      return wp;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(`Work package ${wpId} not found at ${path}`);

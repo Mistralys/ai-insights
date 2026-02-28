@@ -8,7 +8,7 @@ import { IncidentContextSchema } from './work-package.js';
 export const WorkPackageSummarySchema = z.object({
   work_package_id: z.string().regex(/^WP-\d{3,}$/),
   status: WorkPackageStatus,
-  assigned_to: z.string(),
+  assigned_to: z.string().nullable(),
   dependencies: z.array(z.string()),
   file: z.string(),
 });

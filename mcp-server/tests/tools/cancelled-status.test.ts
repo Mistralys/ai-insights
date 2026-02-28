@@ -25,7 +25,7 @@ function makeWpDetail(
     assigned_to: 'Developer',
     dependencies: deps,
     acceptance_criteria: [],
-    revision: 1,
+    revision: 0,
     pipelines: [],
   };
 }
@@ -75,8 +75,8 @@ describe('CANCELLED status transitions', () => {
     expect(isValidStatusTransition('CANCELLED', 'COMPLETE')).toBe(false);
   });
 
-  it('COMPLETE → CANCELLED is not valid', () => {
-    expect(isValidStatusTransition('COMPLETE', 'CANCELLED')).toBe(false);
+  it('COMPLETE → CANCELLED is valid (PM-only path, spec WP-001)', () => {
+    expect(isValidStatusTransition('COMPLETE', 'CANCELLED')).toBe(true);
   });
 });
 

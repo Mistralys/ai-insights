@@ -103,7 +103,7 @@ console.log('[project-ledger-mcp] Server started');
 
 **Rule:** All work package IDs must match the regex `/^WP-\d{3,}$/` (e.g., `WP-001`, `WP-042`, `WP-999`, `WP-1000`). The minimum is three digits; there is no upper bound to future-proof projects beyond WP-999.
 
-**Enforcement:** Validated by Zod schemas in `GetWorkPackageSchema`, `CreateWorkPackageSchema` (dependencies array), and `ClaimWorkPackageSchema`, as well as utility functions (`formatWpId()`, `parseWpId()`).
+**Enforcement:** Validated by Zod schemas in `GetWorkPackageSchema`, `CreateWorkPackageSchema` (dependencies array), `ClaimWorkPackageSchema`, `StartPipelineSchema`, `CompletePipelineSchema`, `CancelPipelineSchema`, `UpdatePipelineProgressSchema`, and `AddObservationSchema`, as well as utility functions (`formatWpId()`, `parseWpId()`).
 
 ---
 
@@ -150,20 +150,15 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 | `READY` | `CANCELLED` | PM-only agent guard |
 | `IN_PROGRESS` | `COMPLETE` | All acceptance criteria must be met; Documentation agent only |
 | `IN_PROGRESS` | `BLOCKED` | None |
+| `IN_PROGRESS` | `READY` | None (unclaim path, spec §21.13) |
 | `IN_PROGRESS` | `CANCELLED` | PM-only agent guard |
 | `BLOCKED` | `IN_PROGRESS` | None (implicitly means blocker resolved); clears `blocked_by` |
 | `BLOCKED` | `READY` | All dependencies COMPLETE (auto-unblock); clears `blocked_by` |
 | `BLOCKED` | `CANCELLED` | PM-only agent guard |
 | `COMPLETE` | `IN_PROGRESS` | Triggers revision increment; Project Manager or Documentation agent only |
+| `COMPLETE` | `CANCELLED` | PM-only agent guard |
 
-`CANCELLED` is a **terminal status** — no outward transitions allowed (same as `COMPLETE`).
-
-**Enforcement:** `isValidStatusTransition()` validator. Illegal transitions throw errors.
-
----
-
-### 12. COMPLETE Requires All Acceptance Criteria Met
-
+`CANCELLED` is the only fully **terminal status** — it has no outward transitions. This includes `CANCELLED → CANCELLED` self-transitions — re-cancelling an already-cancelled WP is rejected. `COMPLETE` allows one outward transition (to `CANCELLED`, PM-only).
 **Rule:** A work package cannot be marked `COMPLETE` unless all acceptance criteria have `met: true`.
 
 **Enforcement:** `canCompleteWorkPackage()` validator in `ledger_update_work_package_status` tool.
@@ -252,9 +247,9 @@ Otherwise, only claim work packages assigned to your role.
 
 ### 19. Pipelines Must Follow the Required Ordering
 
-**Rule:** Pipelines must be started in order: `implementation` → `qa` → `code-review` → `documentation`. Attempting to start a pipeline without the prerequisite having a `PASS` status throws a descriptive error.
+**Rule:** Pipelines must be started in order: `implementation` → `qa` → `code-review` → `documentation`. Attempting to start a pipeline without the **most recent** prerequisite pipeline having a `PASS` status throws a descriptive error. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
 
-**Enforcement:** `ledger_start_pipeline` checks the `PIPELINE_PREREQUISITES` map before creating a pipeline.
+**Enforcement:** `ledger_start_pipeline` looks up the `PIPELINE_PREREQUISITES` map, finds the most recent pipeline of the prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
 
 **Error message format:**
 ```
@@ -283,18 +278,29 @@ Pipeline order: implementation → qa → code-review → documentation.
 
 ### 21. Rework Count Increments on Pipeline Retry
 
-**Rule:** When `ledger_start_pipeline` is called for a pipeline type whose **most recent** completed pipeline has `FAIL` status, the work package's `rework_count` field is automatically incremented.
+**Rule:** When `ledger_start_pipeline` detects a rework, the work package's rework counters are automatically incremented. Rework is detected when either:
+- **Direct rework:** The most recent completed pipeline of the same type has `FAIL` status.
+- **Downstream rework:** A prerequisite pipeline type was reworked (re-failed) after the last PASS of the current pipeline type.
 
-**Enforcement:** `ledger_start_pipeline` filters pipelines by the same type, checks the last entry (`at(-1)`), and increments `rework_count` only if its status is `FAIL`. A history of `[FAIL, PASS]` does **not** trigger an increment because the most recent is `PASS`.
+Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from both rework-detection checks. This exclusion also applies to **temporal comparison functions** such as `checkRevalidationGuard` — a pipeline with `auto_cancelled: true` is invisible to all time-based guard logic. Auto-cancelled pipelines must never be counted by rework detection, circuit breakers, or any temporal comparison function.
 
-**Initial value:** The field is absent (`undefined`) until the first rework; it is never initialised to `0` on creation.
+**Primary field:** `rework_counts` — a per-pipeline-type map (`{ implementation?, qa?, code-review?, documentation? }`). This is the authoritative counter going forward.
 
-| Most recent pipeline of same type | rework_count change |
+**Legacy field:** `rework_count` — a scalar counter that was maintained during a prior transition period. **Fully retired as of 2026-02-28.** No production code path writes this field anymore. The in-memory migration in `LedgerStore.readWorkPackage()` (see below) handles any on-disk files that still contain it, but no new writes are emitted.
+
+**Backward-compat migration:** `LedgerStore.readWorkPackage()` performs a lazy in-memory migration: if a file contains `rework_count` but no `rework_counts`, it synthesises `rework_counts: { implementation: rework_count, qa: 0, 'code-review': 0, documentation: 0 }` and removes `rework_count`. This migration is **in-memory only** — no write is triggered; the on-disk file is updated lazily on the next `updateWorkPackageWithSync()` call.
+
+**Enforcement:** `ledger_start_pipeline` applies both rework-detection checks and excludes auto-cancelled pipelines. A history of `[FAIL, PASS]` does **not** trigger an increment because the most recent is `PASS`.
+
+**Initial value:** Both fields are absent (`undefined`) until the first rework; neither is ever initialised to `0` on creation.
+
+| Rework condition | rework_counts change |
 |---|---|
-| None or PASS | No increment |
-| FAIL | +1 |
+| None (no prior failure, no downstream rework) | No increment |
+| Direct rework (last same-type FAIL) | rework_counts[type] +1 |
+| Downstream rework (prerequisite reworked after last PASS) | rework_counts[type] +1 |
 
-**Circuit breaker:** After incrementing, if `rework_count >= MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), `ledger_start_pipeline` rejects with an error guiding the caller to cancel or restructure. The `getDeveloperAction` function also surfaces `BLOCK_FOR_REWORK_LIMIT` as the highest-priority action for affected WPs.
+**Circuit breaker:** After incrementing, the effective count is computed as `rework_counts?.[type] ?? 0`. If this value reaches `MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), `ledger_start_pipeline` rejects with an error guiding the caller to cancel or restructure. The `getDeveloperAction` function also surfaces `BLOCK_FOR_REWORK_LIMIT` as the highest-priority action for affected WPs.
 
 ---
 
@@ -317,12 +323,16 @@ Pipeline order: implementation → qa → code-review → documentation.
 **Schema:**
 ```typescript
 interface HandoffNote {
-  from_agent: string; // Inferred from PIPELINE_AGENT_MAP
+  from_agent: string; // PIPELINE_AGENT_MAP[type], or 'Project Manager (PM Override)' when PM override is active
   to_agent: string;   // NEXT_AGENT_MAP (PASS) or FAIL_ROUTING_MAP (FAIL)
   timestamp: string;
   notes: string[];    // The strings passed in handoff_notes
 }
 ```
+
+**`ledger_complete_pipeline` guards (applied before pipeline lookup):**
+1. **WP status guard:** Rejects if `wp.status !== 'IN_PROGRESS'` (defense-in-depth).
+2. **Agent role guard:** `agent_role` must match `PIPELINE_AGENT_MAP[type]`. Exception: `agent_role === 'Project Manager'` bypasses this check (PM Override). When PM override is active, `from_agent` is set to `'Project Manager (PM Override)'`.
 
 **Consumption:** `ledger_get_next_action` and `ledger_get_next_actions` include any handoff notes addressed to the requesting agent in their response, so the next agent sees the notes immediately when they ask for their next action.
 
@@ -631,6 +641,162 @@ Hand off to the Project Manager or Documentation agent to formally reopen this w
 
 **Rationale:** Prevents developer or QA agents from silently reopening completed work, bypassing the formal re-planning and documentation steps.
 
+**Additional effect:** On `COMPLETE → IN_PROGRESS`, rework state is fully reset: `rework_counts` is set to `{}`, `rework_count` is set to `0`, and `root.synthesis_generated` is cleared. This ensures that a reopened WP starts with a clean rework slate and prevents the Synthesis agent from being gated by stale synthesis state.
+
+---
+
+### 40. `READY → IN_PROGRESS` Must Use `ledger_claim_work_package`
+
+**Rule:** `ledger_update_work_package_status` rejects `status: 'IN_PROGRESS'` when the WP is currently `READY`. The caller must use `ledger_claim_work_package` instead.
+
+**Enforcement:** Early-return guard in `updateWorkPackageStatus()` that throws an actionable error naming `ledger_claim_work_package` as the correct tool.
+
+**Rationale:** `ledger_claim_work_package` enforces dependency checks and agent identity checks that `ledger_update_work_package_status` does not replicate.
+
+---
+
+### 41. `IN_PROGRESS → READY` (Unclaim) Requires No Active Pipelines
+
+**Rule:** When transitioning a WP from `IN_PROGRESS` back to `READY`, all pipelines must be in a terminal state (non-`IN_PROGRESS`). If any pipeline is currently `IN_PROGRESS`, the transition is rejected with an actionable error.
+
+**Side effect:** On success, `assigned_to` is cleared in both the WP detail file and the root index summary.
+
+**Enforcement:** Guard in `updateWorkPackageStatus()` step 4 in `src/tools/work-package.ts`.
+
+---
+
+### 42. `BLOCKED → BLOCKED` Replaces the Blocker with Guards
+
+**Rule:** A `BLOCKED` work package can be re-blocked with a different `blocked_by` object. This early-return path:
+1. **Agent guard:** Only the `"Project Manager"` (or `"Project Manager Agent"`) or the current `wp.assigned_to` may replace a blocker.
+2. **Type guard:** Changing a `'dependency'`-type blocker to a non-dependency type (or vice versa) is rejected. Dependency blockers are managed automatically by the system; manual replacement of dependency blockers is disallowed.
+3. **Side effect:** `status_changed_at` and `root.last_updated` are set; `pending_work_packages` is unchanged (status remains `BLOCKED`).
+
+**Enforcement:** Early-return guard in `updateWorkPackageStatus()` step 1a.
+
+---
+
+### 43. `IN_PROGRESS → BLOCKED` and `IN_PROGRESS → CANCELLED` Auto-Cancel Active Pipelines
+
+**Rule:** When a WP transitions from `IN_PROGRESS` to `BLOCKED` or `CANCELLED`, all currently `IN_PROGRESS` pipelines are automatically cancelled. Each cancelled pipeline receives `auto_cancelled: true` to distinguish it from deliberate FAIL pipelines.
+
+**Effect on rework detection:** Auto-cancelled pipelines are excluded from both direct and downstream rework detection in `ledger_start_pipeline` (see constraint 21).
+
+**Enforcement:** Pipeline auto-cancellation via `autoCancelActivePipelines(wp, reason)` helper called at steps 8a/8b in `updateWorkPackageStatus()` in `src/tools/work-package.ts`.
+
+---
+
+### 44. `→ COMPLETE` Freshness Check
+
+**Rule:** When transitioning a WP to `COMPLETE`, a freshness check is applied: the most recent non-auto-cancelled `documentation` pipeline PASS must have been recorded **after** the most recent `implementation` pipeline start. If the doc PASS predates the impl start (stale doc), the transition is rejected.
+
+**Exception:** If no `implementation` pipeline exists, or if no `documentation` pipeline has a PASS, the check is skipped (absent timestamps are accepted).
+
+**Absent timestamp permissive default:** If the most recent `documentation` pipeline lacks a `completed_at` timestamp, or if the most recent `implementation` pipeline lacks a `started_at` timestamp, the freshness check is skipped and the `→ COMPLETE` transition is allowed.
+
+**Enforcement:** Freshness check in `canCompleteWorkPackage()` or in `updateWorkPackageStatus()` step 2b.
+
+**Rationale:** Prevents a WP from being completed with documentation that was written before the current implementation cycle, ensuring the docs always reflect the current implementation.
+
+---
+
+### 45. `status_changed_at` Is Set on Every Status Transition
+
+**Rule:** The `status_changed_at` field on a work package is updated on every successful status transition, including `BLOCKED → BLOCKED` blocker replacements (even though the status value itself doesn't change).
+
+**Field type:** UTC ISO 8601 timestamp string (same format as `now()`).
+
+**Enforcement:** Set in `updateWorkPackageStatus()` after every mutation path (early-return paths and main path).
+
+---
+
+### 46. Work Package `assigned_to` Always Starts as `null`
+
+**Rule:** When creating a work package via `ledger_create_work_package`, the `assigned_to` input field is accepted silently but **ignored**. Both the WP detail file and the root index summary are written with `assigned_to: null`.
+
+**Rationale (§9b.1):** Assignment is managed by `ledger_claim_work_package` (transitions to `IN_PROGRESS`) and cleared by `IN_PROGRESS → READY` (unclaim). Pre-populating at creation time bypasses these guards.
+
+**Enforcement:** `createWorkPackage()` in `src/tools/work-package.ts` overwrites the input value.
+
+---
+
+### 47. New BLOCKED Work Packages Receive An Auto-Assigned `blocked_by`
+
+**Rule:** When a work package's initial status is `BLOCKED` (because at least one dependency is not terminal), `blocked_by` is automatically populated:
+```typescript
+{ type: 'dependency', description: 'Dependency WP-XXX is not complete', blocking_work_package: 'WP-XXX' }
+```
+where `WP-XXX` is the first unmet dependency.
+
+**Enforcement:** Inside `createWorkPackage()` initial status determination.
+
+---
+
+### 48. Creating a Work Package Must Not Introduce a Dependency Cycle
+
+**Rule:** Before persisting, `createWorkPackage` calls `hasCycle(newWpId, deps, allExistingWps)` (BFS) to verify the new dependency edges don't form a circular dependency. If a cycle is detected, the creation is rejected.
+
+**Error message format:**
+```
+Dependency cycle detected: WP X would create a circular dependency.
+```
+
+**Scope:** `hasCycle` checks forward-reference cycles among existing WPs. Simultaneous batch creation bypasses cycle detection — WPs should be created sequentially.
+
+**Enforcement:** `hasCycle()` pure function at module scope in `src/tools/work-package.ts`, called in `createWorkPackage` step 3b.
+
+---
+
+### 49. Acceptance Criteria Cannot Be Empty or Whitespace-Only
+
+**Rule:** Each string in the `acceptance_criteria` array must be non-empty and non-whitespace after trimming. An empty string or a string containing only spaces/tabs/newlines is rejected.
+
+**Error message format:**
+```
+Acceptance criteria cannot be empty or whitespace-only.
+```
+
+**Enforcement:** Validation loop in `createWorkPackage()` before WP creation, supplementing the Zod-level `.min(1)` array constraint.
+
+---
+
+### 50. Only CLAIMABLE_ROLES Can Claim Work Packages
+
+**Rule:** The `agent` field passed to `ledger_claim_work_package` must be a claimable role. 
+
+**Non-claimable roles:** `Planner`, `Planner Agent`, `Synthesis`, `Synthesis Agent` — these orchestrating roles are excluded from claiming WPs.
+
+**Claimable roles:** `Developer`, `Developer Agent`, `QA`, `QA Agent`, `Reviewer`, `Reviewer Agent`, `Documentation`, `Documentation Agent`, `Project Manager`, `Project Manager Agent`.
+
+**Guard ordering:** The CLAIMABLE_ROLES guard fires at step 1b — unconditionally, immediately after the `READY` status guard and **before** the assignment guard (step 2) and override-auth guard (step 2b). Consequence: a non-claimable role always receives the role error regardless of the WP's `assigned_to` field or whether `override: true` is passed.
+
+**Enforcement:** `CLAIMABLE_ROLES` is a named export at module scope in `src/tools/work-package.ts`, checked in `claimWorkPackage` step 1b. It is derived programmatically from `AGENT_ROLES` by filtering out `ORCHESTRATING_ROLES` (defined in `src/utils/constants.ts`), so adding a new orchestrating role automatically removes it from the claimable set without requiring manual updates.
+
+---
+
+### 52. `agent_role` Is Required for `ledger_start_pipeline` and `ledger_complete_pipeline`
+
+**Rule:** Both `ledger_start_pipeline` and `ledger_complete_pipeline` require an `agent_role` parameter. The value must match the pipeline type's owner role (per `PIPELINE_AGENT_MAP`). Calls that omit `agent_role` or provide a mismatched role are rejected with a descriptive error.
+
+**Exception:** `agent_role: 'Project Manager'` (or `'Project Manager Agent'`) bypasses the type-to-agent match check for any pipeline type (PM Override). When PM override is active, `startPipeline` adds a `[PM Override]` marker to the pipeline summary and `completePipeline` sets the handoff note's `from_agent` to `'Project Manager (PM Override)'`.
+
+**Enforcement:** Agent role guard in `startPipeline()` and `completePipeline()` in `src/tools/pipeline.ts` (steps 1b and 2b respectively), applied after the WP status guard.
+
+**Rationale:** Prevents agents from starting or completing pipelines outside their designated stage, ensuring the pipeline type-to-agent assignment invariant is upheld at runtime.
+
+---
+
+### 51. `propagateDependencyReblock` Auto-Cancels IN_PROGRESS Pipelines
+
+**Rule:** When `propagateDependencyReblock` transitions a non-COMPLETE, non-CANCELLED, non-BLOCKED dependent WP back to `BLOCKED`, all currently `IN_PROGRESS` pipelines on that WP are automatically cancelled with `auto_cancelled: true` (consistent with the `IN_PROGRESS → BLOCKED` behavior enforced by `updateWorkPackageStatus`).
+
+**Additional behaviors:**
+- **COMPLETE dependents:** For each `COMPLETE` WP that lists the reopened WP as a dependency, a warning comment is appended to its last pipeline (type: `"warning"`, priority: `"high"`).
+- **`synthesis_generated` reset:** If any WP was re-blocked (i.e., `candidates.length > 0`), `root.synthesis_generated` is reset to `false` to ensure the Synthesis agent must re-run.
+- If no candidates were re-blocked, `synthesis_generated` is **not** changed.
+
+**Enforcement:** `propagateDependencyReblock()` in `src/tools/work-package.ts`.
+
 ---
 
 ## Gotchas
@@ -757,6 +923,76 @@ console.log(previousStatus); // ✅ 'READY' — visible after lock completes
 ```
 
 **Rationale:** `updateWorkPackageWithSync` (and `withLock`) discard the callback's return value for the state-capture use case. Any data produced inside the callback that is needed after it completes must be captured via closure by assigning to an outer-scope `let` variable before the callback runs. This pattern appears throughout `work-package.ts` (e.g., `let createdWpId = ''` in `createWorkPackage`). Failure to follow it produces a TS2304 compile error or, if TypeScript somehow does not catch it, a `ReferenceError` at the call site.
+
+**Alternative correct pattern (`| undefined` union):** When the captured value has no meaningful zero value, use `| undefined` union rather than a non-null assertion (`!`):
+
+```typescript
+// ✅ ALSO CORRECT — | undefined union (used in project-lifecycle.ts completeSynthesis)
+let result: { status: string } | undefined;
+await withLock(store.storageDir, async () => {
+  // ... read-modify-write ...
+  result = { status: 'COMPLETE' };
+});
+if (!result) throw new Error('Expected result to be set inside lock');
+// result is narrowed to { status: string } here
+```
+
+Prefer `| undefined` over non-null assertion (`!`) when the accumulator cannot have a meaningful zero state.
+
+---
+
+## Code Style Conventions
+
+### 53. Test-Only Exports Must Use the `_internal` Naming Convention
+
+**Rule:** Any module that exposes private symbols for unit testing must export them under a single named export called `_internal`. Do **not** introduce alternative names such as `_schemas`, `_test`, or `_utils`.
+
+**Pattern:**
+```typescript
+/**
+ * @internal — exported for unit testing only.
+ */
+export const _internal = {
+  MyPrivateClass,
+  MyInternalSchema,
+  myHelperFunction,
+};
+```
+
+**Rationale:** Consistency and grep-ability. A single naming convention makes it trivial to audit test-only surface (`grep -r '_internal'`) and eliminates `_schemas` / `_test` divergence. The convention was introduced in `work-package.ts` and standardised across all modules in 2026-02-28 (WP-009).
+
+**Enforcement:** `_schemas` exports were renamed to `_internal` in `pipeline.ts` and `observations.ts`. Do not re-introduce `_schemas` or any alternate name.
+
+---
+
+### 54. Prefer `for-of` Loops Over Indexed `for` Loops
+
+**Rule:** Use `for-of` loops for array iteration. Avoid `for (let i = 0; i < arr.length; i++)` indexed loops unless the index itself is required for logic, or a performance constraint is documented.
+
+**When an indexed loop is unavoidable** (e.g. pairwise comparison where both `i-1` and `i` are needed), use non-null-asserted access (`arr[i]!`) with an inline comment explaining the in-bounds guarantee:
+
+```typescript
+// TypeScript is compiled with noUncheckedIndexedAccess so array[i] returns T | undefined.
+// The loop invariant (i < arr.length) guarantees arr[i] is defined — safe to assert.
+for (let i = 1; i < pipelines.length; i++) {
+  const prev = pipelines[i - 1]!; // in-bounds: i >= 1
+  const curr = pipelines[i]!;     // in-bounds: i < pipelines.length
+}
+```
+
+**Context:** The project enables `noUncheckedIndexedAccess` in `tsconfig.json`. This means array element access returns `T | undefined`, which requires either a null-check or a `!` assertion. The `for-of` pattern avoids indexed access entirely and is therefore preferred.
+
+---
+
+### 55. Test Helper Infrastructure Mandate
+
+**Rule:** All new test files **must** import shared fixture factories and test utilities from `tests/helpers/fixtures.ts` and `tests/helpers/test-utils.ts`.
+
+**(a)** Any new test file that needs a project root index, WP detail object, or ledger directory must use the canonical factories from `tests/helpers/fixtures.ts` (e.g. `makeProject`, `makeWpDetail`, `injectLedgerDir`, `nowFloor`).
+
+**(b)** Defining a local test-scope fixture factory function is **prohibited** when a canonical equivalent already exists in `tests/helpers/fixtures.ts`. If the helper does not yet exist and is needed by multiple tests, add it to `tests/helpers/` first rather than duplicating it inline.
+
+**(c)** **Rationale:** Prevents per-file fixture divergence, eliminates test-replica maintenance burden, and ensures fixture behaviour (field defaults, schema shape, timestamps) stays consistent across the entire test suite.
 
 ---
 

@@ -6,6 +6,7 @@ import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import { MAX_REWORK_COUNT } from '../../src/utils/workflow-helpers.js';
 import { getDeveloperAction } from '../../src/tools/workflow-next-action.js';
+import { _internal } from '../../src/tools/pipeline.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail, Pipeline } from '../../src/schema/work-package.js';
 
@@ -30,9 +31,11 @@ function makeWpDetail(
     assigned_to: 'Developer',
     dependencies: [],
     acceptance_criteria: [],
-    revision: 1,
+    revision: 0,
     pipelines,
-    ...(reworkCount !== undefined ? { rework_count: reworkCount } : {}),
+    ...(reworkCount !== undefined
+      ? { rework_counts: { implementation: reworkCount } }
+      : {}),
   };
 }
 
@@ -42,74 +45,25 @@ describe('MAX_REWORK_COUNT constant', () => {
   });
 });
 
-describe('Circuit breaker in start_pipeline (simulated)', () => {
+describe('Circuit breaker in start_pipeline (live _internal)', () => {
   let tempDir: string;
   let store: LedgerStore;
+  let originalArgv: string[];
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'circuit-breaker-'));
     store = new LedgerStore(PLAN_PATH, tempDir);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempDir);
   });
 
   afterEach(async () => {
+    process.argv = originalArgv;
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  /**
-   * Simulate the startPipeline logic including circuit breaker.
-   * Mirrors the actual code in pipeline.ts.
-   */
-  async function simulateStartPipeline(
-    wpId: string,
-    pipelineType: string,
-  ): Promise<void> {
-    await store.updateWorkPackageWithSync(wpId, (wp, root) => {
-      // Rework count increment
-      const sameTypePipelines = wp.pipelines.filter((p) => p.type === pipelineType);
-      const mostRecent = sameTypePipelines.at(-1);
-      if (mostRecent?.status === 'FAIL') {
-        wp.rework_count = (wp.rework_count ?? 0) + 1;
-      }
-
-      // Circuit breaker
-      if ((wp.rework_count ?? 0) >= MAX_REWORK_COUNT) {
-        throw new Error(
-          `Rework circuit breaker: ${wpId} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
-          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`,
-        );
-      }
-
-      wp.pipelines.push({
-        type: pipelineType,
-        status: 'IN_PROGRESS',
-        started_at: now(),
-        summary: [],
-      });
-      root.last_updated = now();
-      return { wp, root };
-    });
-  }
-
-  async function simulateCompletePipeline(
-    wpId: string,
-    pipelineType: string,
-    status: 'PASS' | 'FAIL',
-  ): Promise<void> {
-    await store.updateWorkPackageWithSync(wpId, (wp, root) => {
-      const pipeline = [...wp.pipelines]
-        .reverse()
-        .find((p) => p.type === pipelineType && p.status === 'IN_PROGRESS');
-      if (!pipeline) throw new Error(`No IN_PROGRESS ${pipelineType} pipeline`);
-      pipeline.status = status;
-      pipeline.completed_at = now();
-      pipeline.summary = [status === 'PASS' ? 'Completed' : 'Failed'];
-      root.last_updated = now();
-      return { wp, root };
-    });
-  }
-
-  it('allows pipeline start when rework_count < MAX_REWORK_COUNT', async () => {
-    const root: RootIndex = {
+  function makeRoot(): RootIndex {
+    return {
       plan_file: 'plan.md',
       date_created: now(),
       last_updated: now(),
@@ -127,40 +81,30 @@ describe('Circuit breaker in start_pipeline (simulated)', () => {
       ],
       project_comments: [],
     };
-    await store.writeRootIndex(root);
+  }
+
+  it('allows pipeline start when rework_counts.implementation < MAX_REWORK_COUNT', async () => {
+    await store.writeRootIndex(makeRoot());
     await store.writeWorkPackage(
       'WP-001',
       makeWpDetail('WP-001', 'IN_PROGRESS', [], MAX_REWORK_COUNT - 1),
     );
 
-    // Should not throw — still under the limit
-    await expect(
-      simulateStartPipeline('WP-001', 'implementation'),
-    ).resolves.not.toThrow();
+    const result = await _internal.startPipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+    // Should succeed — still under the limit
+    expect((result as any).isError).toBeFalsy();
   });
 
-  it('rejects pipeline start when rework_count reaches MAX_REWORK_COUNT via increment', async () => {
-    const root: RootIndex = {
-      plan_file: 'plan.md',
-      date_created: now(),
-      last_updated: now(),
-      status: 'IN_PROGRESS',
-      total_work_packages: 1,
-      pending_work_packages: 1,
-      work_packages: [
-        {
-          work_package_id: 'WP-001',
-          file: 'work/WP-001.md',
-          status: 'IN_PROGRESS',
-          assigned_to: 'Developer',
-          dependencies: [],
-        },
-      ],
-      project_comments: [],
-    };
-    await store.writeRootIndex(root);
+  it('rejects pipeline start when rework_counts.implementation reaches MAX via increment', async () => {
+    await store.writeRootIndex(makeRoot());
 
-    // WP at MAX_REWORK_COUNT - 1 with a FAIL pipeline, so increment will push it to MAX
+    // WP at MAX_REWORK_COUNT - 1 with a FAIL pipeline; increment pushes it to MAX
     const failPipeline: Pipeline = {
       type: 'implementation',
       status: 'FAIL',
@@ -173,33 +117,21 @@ describe('Circuit breaker in start_pipeline (simulated)', () => {
       makeWpDetail('WP-001', 'IN_PROGRESS', [failPipeline], MAX_REWORK_COUNT - 1),
     );
 
-    await expect(
-      simulateStartPipeline('WP-001', 'implementation'),
-    ).rejects.toThrow(/Rework circuit breaker/);
+    const result = await _internal.startPipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toMatch(/Rework circuit breaker/);
   });
 
-  it('rejects when rework_count is already at MAX_REWORK_COUNT (no increment needed)', async () => {
-    const root: RootIndex = {
-      plan_file: 'plan.md',
-      date_created: now(),
-      last_updated: now(),
-      status: 'IN_PROGRESS',
-      total_work_packages: 1,
-      pending_work_packages: 1,
-      work_packages: [
-        {
-          work_package_id: 'WP-001',
-          file: 'work/WP-001.md',
-          status: 'IN_PROGRESS',
-          assigned_to: 'Developer',
-          dependencies: [],
-        },
-      ],
-      project_comments: [],
-    };
-    await store.writeRootIndex(root);
+  it('rejects when rework_counts.implementation is already at MAX_REWORK_COUNT (no increment needed)', async () => {
+    await store.writeRootIndex(makeRoot());
 
-    // WP already at MAX_REWORK_COUNT — even with a PASS pipeline, it should be rejected
+    // WP already at MAX — even with a PASS pipeline, circuit breaker fires
     const passPipeline: Pipeline = {
       type: 'implementation',
       status: 'PASS',
@@ -212,43 +144,35 @@ describe('Circuit breaker in start_pipeline (simulated)', () => {
       makeWpDetail('WP-001', 'IN_PROGRESS', [passPipeline], MAX_REWORK_COUNT),
     );
 
-    await expect(
-      simulateStartPipeline('WP-001', 'implementation'),
-    ).rejects.toThrow(/circuit breaker/i);
+    const result = await _internal.startPipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect((result as any).content[0].text).toMatch(/circuit breaker/i);
   });
 
   it('error message contains guidance to cancel or restructure', async () => {
-    const root: RootIndex = {
-      plan_file: 'plan.md',
-      date_created: now(),
-      last_updated: now(),
-      status: 'IN_PROGRESS',
-      total_work_packages: 1,
-      pending_work_packages: 1,
-      work_packages: [
-        {
-          work_package_id: 'WP-001',
-          file: 'work/WP-001.md',
-          status: 'IN_PROGRESS',
-          assigned_to: 'Developer',
-          dependencies: [],
-        },
-      ],
-      project_comments: [],
-    };
-    await store.writeRootIndex(root);
+    await store.writeRootIndex(makeRoot());
     await store.writeWorkPackage(
       'WP-001',
       makeWpDetail('WP-001', 'IN_PROGRESS', [], MAX_REWORK_COUNT),
     );
 
-    try {
-      await simulateStartPipeline('WP-001', 'implementation');
-      expect.fail('Should have thrown');
-    } catch (err: any) {
-      expect(err.message).toContain('CANCELLED');
-      expect(err.message).toContain('restructuring');
-    }
+    const result = await _internal.startPipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBe(true);
+    const text = (result as any).content[0].text as string;
+    expect(text).toContain('CANCELLED');
+    expect(text).toContain('restructuring');
   });
 });
 
@@ -434,7 +358,7 @@ describe('BLOCK_FOR_REWORK_LIMIT in getDeveloperAction', () => {
     const result = await getDeveloperAction(root, store);
     const parsed = parseResult(result);
 
-    // Should get IMPLEMENT, not BLOCK_FOR_REWORK_LIMIT
-    expect(parsed.action).toBe('IMPLEMENT');
+    // Should get CLAIM_WP (READY WP → claim before implement), not BLOCK_FOR_REWORK_LIMIT
+    expect(parsed.action).toBe('CLAIM_WP');
   });
 });

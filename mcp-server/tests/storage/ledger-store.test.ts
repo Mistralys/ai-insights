@@ -6,6 +6,7 @@ import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
+import { makeWorkPackageDetail } from '../helpers/fixtures.js';
 
 const PLAN_PATH = join(tmpdir(), '2026-01-01-test-project');
 
@@ -19,20 +20,6 @@ function makeRootIndex(overrides: Partial<RootIndex> = {}): RootIndex {
     pending_work_packages: 0,
     work_packages: [],
     project_comments: [],
-    ...overrides,
-  };
-}
-
-function makeWpDetail(overrides: Partial<WorkPackageDetail> = {}): WorkPackageDetail {
-  return {
-    work_package_id: 'WP-001',
-    work_package_file: 'work/WP-001.md',
-    status: 'READY',
-    assigned_to: 'Developer Agent',
-    dependencies: [],
-    acceptance_criteria: [{ criterion: 'Tests pass', met: false }],
-    revision: 1,
-    pipelines: [],
     ...overrides,
   };
 }
@@ -65,7 +52,7 @@ describe('LedgerStore', () => {
     });
 
     it('wpDetailExists returns true after writing', async () => {
-      await store.writeWorkPackage('WP-001', makeWpDetail());
+      await store.writeWorkPackage('WP-001', makeWorkPackageDetail());
       expect(await store.wpDetailExists('WP-001')).toBe(true);
     });
   });
@@ -101,7 +88,7 @@ describe('LedgerStore', () => {
 
   describe('readWorkPackage', () => {
     it('reads and validates a valid work package', async () => {
-      const data = makeWpDetail({ status: 'IN_PROGRESS' });
+      const data = makeWorkPackageDetail({ status: 'IN_PROGRESS' });
       await store.writeWorkPackage('WP-001', data);
 
       const result = await store.readWorkPackage('WP-001');
@@ -113,6 +100,54 @@ describe('LedgerStore', () => {
       await expect(store.readWorkPackage('WP-999')).rejects.toThrow(
         'Work package WP-999 not found'
       );
+    });
+
+    it('migration: rework_count scalar → rework_counts map (legacy file)', async () => {
+      // Write a legacy file with only rework_count (no rework_counts)
+      const data = makeWorkPackageDetail({ rework_count: 3 });
+      await store.writeWorkPackage('WP-001', data);
+
+      const result = await store.readWorkPackage('WP-001');
+      expect(result.rework_counts).toEqual({
+        implementation: 3,
+        qa: 0,
+        'code-review': 0,
+        documentation: 0,
+      });
+      expect(result.rework_count).toBeUndefined();
+    });
+
+    it('migration: no migration when both rework_count and rework_counts are present', async () => {
+      const existing = { implementation: 1, qa: 2, 'code-review': 0, documentation: 0 };
+      const data = makeWorkPackageDetail({ rework_count: 3, rework_counts: existing });
+      await store.writeWorkPackage('WP-001', data);
+
+      const result = await store.readWorkPackage('WP-001');
+      // rework_counts must remain unchanged
+      expect(result.rework_counts).toEqual(existing);
+    });
+
+    it('migration: no migration when neither field is present', async () => {
+      const data = makeWorkPackageDetail(); // no rework_count, no rework_counts
+      await store.writeWorkPackage('WP-001', data);
+
+      const result = await store.readWorkPackage('WP-001');
+      expect(result.rework_count).toBeUndefined();
+      expect(result.rework_counts).toBeUndefined();
+    });
+
+    it('migration is in-memory only — file on disk retains original rework_count', async () => {
+      const data = makeWorkPackageDetail({ rework_count: 3 });
+      await store.writeWorkPackage('WP-001', data);
+
+      // Trigger migration via read
+      await store.readWorkPackage('WP-001');
+
+      // The file on disk must still contain the original rework_count
+      const raw = await readFile(join(store.storageDir, 'WP-001.json'), 'utf-8');
+      const onDisk = JSON.parse(raw);
+      expect(onDisk.rework_count).toBe(3);
+      expect(onDisk.rework_counts).toBeUndefined();
     });
   });
 
@@ -137,7 +172,7 @@ describe('LedgerStore', () => {
 
   describe('writeWorkPackage', () => {
     it('creates storageDir automatically', async () => {
-      await store.writeWorkPackage('WP-001', makeWpDetail());
+      await store.writeWorkPackage('WP-001', makeWorkPackageDetail());
       const raw = await readFile(join(store.storageDir, 'WP-001.json'), 'utf-8');
       expect(JSON.parse(raw).work_package_id).toBe('WP-001');
     });
@@ -161,7 +196,7 @@ describe('LedgerStore', () => {
         ],
       });
       await store.writeRootIndex(root);
-      await store.writeWorkPackage('WP-001', makeWpDetail());
+      await store.writeWorkPackage('WP-001', makeWorkPackageDetail({ status: 'READY' }));
     });
 
     it('updates both WP and root index atomically', async () => {

@@ -205,8 +205,9 @@ describe('handoff-config integration: runtime config monitoring', () => {
       });
       await wait(400);
 
-      // depth: 2, max: 2 → 2 < 2 is false → no handoff
-      await store.writeRootIndex(makeRoot({ auto_handoff_depth: 2 }));
+      // depth: 2, max: 2 → effectiveMaxDepth(0) = max(2,0) = 2 → 2 < 2 is false → no handoff
+      // Uses total_work_packages:0 so the config value is the sole ceiling (no WP-scaling).
+      await store.writeRootIndex(makeRoot({ auto_handoff_depth: 2, total_work_packages: 0 }));
 
       const response = await buildHandoffResponse(
         'Developer',
@@ -229,7 +230,8 @@ describe('handoff-config integration: runtime config monitoring', () => {
         ledger_root: '',
       });
       await wait(400);
-      await store.writeRootIndex(makeRoot({ auto_handoff_depth: 2 }));
+      // Uses total_work_packages:0 so effectiveMaxDepth == configMax (no WP-scaling)
+      await store.writeRootIndex(makeRoot({ auto_handoff_depth: 2, total_work_packages: 0 }));
 
       // Verify no handoff at cap
       const before = await buildHandoffResponse(
@@ -246,8 +248,8 @@ describe('handoff-config integration: runtime config monitoring', () => {
       });
       await wait(400);
 
-      // Reset depth to 2 (the write above didn't change depth)
-      await store.writeRootIndex(makeRoot({ auto_handoff_depth: 2 }));
+      // Reset depth to 2 (the write above didn't change depth); keep total_work_packages:0
+      await store.writeRootIndex(makeRoot({ auto_handoff_depth: 2, total_work_packages: 0 }));
 
       const after = await buildHandoffResponse(
         'Developer', 'READY_FOR_QA', 'Test.', undefined, tempDir, store,

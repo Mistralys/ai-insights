@@ -83,7 +83,7 @@ describe('Cascade-block dependents on WP reopen', () => {
       assigned_to: 'Developer',
       dependencies: deps,
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
   }

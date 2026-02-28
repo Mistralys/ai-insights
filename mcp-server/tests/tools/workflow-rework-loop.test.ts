@@ -40,7 +40,7 @@ function makeWp(
     assigned_to: 'Developer',
     dependencies: deps,
     acceptance_criteria: [],
-    revision: 1,
+    revision: 0,
     pipelines: pipelines.map((p) => ({
       type: p.type,
       status: p.status as any,
@@ -105,7 +105,7 @@ describe('FAIL handoff routing (handoff_notes to_agent)', () => {
       assigned_to: 'QA',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [
         { type: 'implementation', status: 'PASS', started_at: now(), summary: [] },
         { type: 'qa', status: 'IN_PROGRESS', started_at: now(), summary: [] },
@@ -148,7 +148,7 @@ describe('FAIL handoff routing (handoff_notes to_agent)', () => {
       assigned_to: 'QA',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [
         { type: 'implementation', status: 'PASS', started_at: now(), summary: [] },
         { type: 'qa', status: 'IN_PROGRESS', started_at: now(), summary: [] },
@@ -242,7 +242,7 @@ describe('Documentation handoff stays IN_PROGRESS on FAIL (self-rework)', () => 
   });
 });
 
-describe('QA/Reviewer next-action returns WAIT on FAIL (no self-rework)', () => {
+describe('QA/Reviewer next-action returns WAIT_FOR_REWORK on FAIL (no self-rework)', () => {
   let tempDir: string;
   let store: LedgerStore;
 
@@ -279,7 +279,7 @@ describe('QA/Reviewer next-action returns WAIT on FAIL (no self-rework)', () => 
     return root;
   }
 
-  it('QA returns WAIT when most-recent QA pipeline is FAIL', async () => {
+  it('QA returns WAIT_FOR_REWORK when most-recent QA pipeline is FAIL', async () => {
     const wp = makeWp('WP-001', 'IN_PROGRESS', [
       { type: 'implementation', status: 'PASS' },
       { type: 'qa', status: 'FAIL' },
@@ -287,12 +287,12 @@ describe('QA/Reviewer next-action returns WAIT on FAIL (no self-rework)', () => 
     const root = await setupRoot([wp]);
 
     const result = await parseResult(getQaAction(root, store));
-    expect(result.action).toBe('WAIT');
+    expect(result.action).toBe('WAIT_FOR_REWORK');
     expect(result.reason).toContain('FAIL QA pipeline');
     expect(result.reason).toContain('Developer must rework');
   });
 
-  it('Reviewer returns WAIT when most-recent code-review pipeline is FAIL', async () => {
+  it('Reviewer returns WAIT_FOR_REWORK when most-recent code-review pipeline is FAIL', async () => {
     const wp = makeWp('WP-001', 'IN_PROGRESS', [
       { type: 'implementation', status: 'PASS' },
       { type: 'qa', status: 'PASS' },
@@ -301,7 +301,7 @@ describe('QA/Reviewer next-action returns WAIT on FAIL (no self-rework)', () => 
     const root = await setupRoot([wp]);
 
     const result = await parseResult(getReviewerAction(root, store));
-    expect(result.action).toBe('WAIT');
+    expect(result.action).toBe('WAIT_FOR_REWORK');
     expect(result.reason).toContain('FAIL code-review pipeline');
     expect(result.reason).toContain('Developer must rework');
   });
@@ -363,7 +363,7 @@ describe('Full FAIL → Developer rework → QA re-trigger → PASS flow', () =>
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: [{ criterion: 'Tests pass', met: false }],
-      revision: 1,
+      revision: 0,
       pipelines: [
         { type: 'implementation', status: 'PASS', started_at: '2026-01-01T10:00:00', completed_at: '2026-01-01T10:30:00', summary: ['Implemented'] },
       ] as Pipeline[],
@@ -391,7 +391,7 @@ describe('Full FAIL → Developer rework → QA re-trigger → PASS flow', () =>
     // QA next-action should return WAIT
     const root2 = await store.readRootIndex();
     const qaAction = await parseResult(getQaAction(root2, store));
-    expect(qaAction.action).toBe('WAIT');
+    expect(qaAction.action).toBe('WAIT_FOR_REWORK');
     expect(qaAction.reason).toContain('Developer must rework');
 
     // --- PHASE 3: Developer reworks (new PASS implementation) ---

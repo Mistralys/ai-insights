@@ -127,7 +127,7 @@ describe('Full workflow integration', () => {
           assigned_to: 'Developer Agent',
           dependencies: [],
           acceptance_criteria: [{ criterion: 'Feature works', met: false }],
-          revision: 1,
+          revision: 0,
           pipelines: [],
         };
 
@@ -174,7 +174,7 @@ describe('Full workflow integration', () => {
           assigned_to: 'Developer Agent',
           dependencies: ['WP-001'],
           acceptance_criteria: [{ criterion: 'Integration works', met: false }],
-          revision: 1,
+          revision: 0,
           pipelines: [],
         };
 
@@ -242,7 +242,7 @@ describe('Full workflow integration', () => {
           { criterion: 'Feature implemented', met: false },
           { criterion: 'Tests pass', met: false },
         ],
-        revision: 1,
+        revision: 0,
         pipelines: [],
       };
       await store.writeWorkPackage('WP-001', wp);
@@ -400,7 +400,7 @@ describe('Full workflow integration', () => {
           { criterion: 'Feature implemented', met: true },
           { criterion: 'Tests pass', met: true },
         ],
-        revision: 1,
+        revision: 0,
         pipelines: [
           {
             type: 'implementation',
@@ -515,7 +515,7 @@ describe('Full workflow integration', () => {
         assigned_to: 'Developer Agent',
         dependencies: [],
         acceptance_criteria: [{ criterion: 'Feature works', met: true }],
-        revision: 1,
+        revision: 0,
         pipelines: [
           {
             type: 'implementation',
@@ -671,7 +671,7 @@ describe('Full workflow integration', () => {
         assigned_to: 'Dev',
         dependencies: [],
         acceptance_criteria: [],
-        revision: 1,
+        revision: 0,
         pipelines: [
           {
             type: 'implementation',
@@ -766,7 +766,7 @@ describe('Full workflow integration', () => {
         assigned_to: 'Dev',
         dependencies: [],
         acceptance_criteria: [{ criterion: 'Done', met: true }],
-        revision: 1,
+        revision: 1, // Deliberate: seeds revision:1 to verify COMPLETE→IN_PROGRESS increment yields revision:2
         pipelines: [],
       });
 
@@ -868,7 +868,7 @@ describe('Full workflow integration', () => {
         assigned_to: 'Documentation Agent',
         dependencies: [],
         acceptance_criteria: [{ criterion: 'Feature complete', met: true }],
-        revision: 1,
+        revision: 0,
         pipelines: [
           {
             type: 'implementation',
@@ -919,7 +919,7 @@ describe('Full workflow integration', () => {
         wp.pipelines.some((p) => p.type === 'documentation' && p.status === 'PASS');
       
       expect(hasAllPipelines).toBe(true);
-      // This condition should trigger the MARK_COMPLETE action in getDocumentationAction
+      // This condition should trigger the FINALIZE_WP action in getDocumentationAction
     });  });
 });
 
@@ -1002,7 +1002,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
       assigned_to: 'Developer Agent',
       dependencies: [],
       acceptance_criteria: [{ criterion: 'Done', met: true }],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     });
 
@@ -1013,7 +1013,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
       assigned_to: 'Developer Agent',
       dependencies: ['WP-001'],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
       blocked_by: { type: 'dependency', description: 'Waiting for WP-001' },
     });
@@ -1025,7 +1025,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
       assigned_to: 'Developer Agent',
       dependencies: ['WP-001', 'WP-002'],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
       blocked_by: { type: 'dependency', description: 'Waiting for WP-001 and WP-002' },
     });

@@ -12,7 +12,7 @@ import {
   PipelineTypeEnum,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
-import { MAX_REWORK_COUNT } from '../utils/workflow-helpers.js';
+import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 
 /**
  * Build a next-step guidance string for the agent after completing a pipeline.
@@ -69,14 +69,9 @@ function buildCompletionGuidance(
 
 /**
  * @internal — exported for unit testing only
+ * Intentionally placed here (after all const declarations) to avoid temporal dead zone
+ * with the Zod schemas defined below.
  */
-export const _internal = {
-  PIPELINE_PREREQUISITES,
-  PIPELINE_AGENT_MAP,
-  NEXT_AGENT_MAP,
-  FAIL_ROUTING_MAP,
-  buildCompletionGuidance,
-};
 
 /**
  * Tool: start_pipeline
@@ -88,12 +83,11 @@ const StartPipelineSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
   agent_role: z
     .string()
-    .optional()
     .describe('Agent role starting the pipeline. If provided, validated against the pipeline type owner.'),
 });
 
@@ -105,14 +99,13 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
-      // 1. Validate agent role if provided
-      if (args.agent_role !== undefined) {
-        const expectedAgent = PIPELINE_AGENT_MAP[args.type];
-        if (expectedAgent !== args.agent_role) {
-          throw new Error(
-            `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
-          );
-        }
+      // 1. Validate agent role — PM may bypass role ownership (PM Override gate)
+      const expectedAgent = PIPELINE_AGENT_MAP[args.type];
+      const isPmOverride = args.agent_role === 'Project Manager';
+      if (!isPmOverride && expectedAgent !== args.agent_role) {
+        throw new Error(
+          `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
+        );
       }
 
       // 2. Validate WP is IN_PROGRESS
@@ -133,16 +126,22 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
-      // 4. Enforce pipeline ordering: check prerequisite
+      // 4. Enforce pipeline ordering: check prerequisite (most-recent semantics per §8.2)
       const prerequisite = PIPELINE_PREREQUISITES[args.type];
       if (prerequisite !== undefined && prerequisite !== null) {
-        const hasPassPrerequisite = wp.pipelines.some(
-          (p) => p.type === prerequisite && p.status === 'PASS'
-        );
-        if (!hasPassPrerequisite) {
+        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
+        const mostRecentPrereq = prereqPipelines.at(-1);
+        if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
           throw new Error(
             `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Pipeline order: implementation → qa → code-review → documentation.`
           );
+        }
+
+        // 4b. Revalidation guard: reject if a prior run exists and the prerequisite
+        //     PASS is stale after upstream rework (§11.1).
+        const revalidError = checkRevalidationGuard(wp.pipelines, args.type, prerequisite);
+        if (revalidError !== null) {
+          throw new Error(revalidError);
         }
       }
 
@@ -151,18 +150,30 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         type: args.type,
         status: 'IN_PROGRESS',
         started_at: now(),
-        summary: [],
+        summary: isPmOverride ? ['[PM Override]'] : [],
       };
 
-      // 6. Increment rework_count if the most recent pipeline of the same type has FAIL status
-      const sameTypePipelines = wp.pipelines.filter((p) => p.type === args.type);
-      const mostRecent = sameTypePipelines.at(-1);
-      if (mostRecent?.status === 'FAIL') {
-        wp.rework_count = (wp.rework_count ?? 0) + 1;
+      // 6. Increment rework_counts per pipeline type if this is a rework run.
+      //    A rework is triggered by either a direct FAIL on this pipeline type or
+      //    a downstream FAIL that requires this type to re-run (§11.3).
+      const effectiveSamePipelines = wp.pipelines.filter(
+        (p) => p.type === args.type && !p.auto_cancelled
+      );
+      const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
+      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type);
+      const needsRework = isDirectRework || isDownstreamRework;
+
+      if (needsRework) {
+        const current = wp.rework_counts?.[args.type] ?? 0;
+        const newCount = current + 1;
+        wp.rework_counts = { ...wp.rework_counts, [args.type]: newCount };
       }
 
-      // 6b. Circuit breaker — reject if rework_count has reached the limit
-      if ((wp.rework_count ?? 0) >= MAX_REWORK_COUNT) {
+      // 6b. Circuit breaker — reject if the per-type rework count has reached the limit
+      // Uses post-increment count; the throw below aborts the write, so the
+      // increment is never persisted if the circuit breaker fires.
+      const effectiveReworkCount = wp.rework_counts?.[args.type] ?? 0;
+      if (effectiveReworkCount >= MAX_REWORK_COUNT) {
         throw new Error(
           `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
           `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`
@@ -223,7 +234,7 @@ const CompletePipelineSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
   status: z.enum(['PASS', 'FAIL']).describe('Pipeline result: "PASS" if successful, "FAIL" if issues found'),
@@ -271,6 +282,9 @@ const CompletePipelineSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Notes for the next agent in the pipeline. Will be attached to the WP as a structured handoff note entry.'),
+  agent_role: z
+    .string()
+    .describe('Agent role completing the pipeline. Must match the pipeline type owner (e.g. "QA" for qa pipelines). "Project Manager" is always allowed (PM Override).'),
 });
 
 async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
@@ -281,6 +295,22 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // 0. Defense-in-depth: WP must be IN_PROGRESS to complete a pipeline
+      if (wp.status !== 'IN_PROGRESS') {
+        throw new Error(
+          `Cannot complete pipeline for WP ${args.work_package_id}: WP status is ${wp.status}. Only IN_PROGRESS work packages may have pipelines completed.`
+        );
+      }
+
+      // 0b. Agent role must match the pipeline type owner (PM may override)
+      const expectedAgent = PIPELINE_AGENT_MAP[args.type];
+      const isPmOverride = args.agent_role === 'Project Manager';
+      if (!isPmOverride && args.agent_role !== expectedAgent) {
+        throw new Error(
+          `Pipeline type '${args.type}' must be completed by ${expectedAgent}. You provided agent_role: '${args.agent_role}'.`
+        );
+      }
+
       // 1. Find most recent IN_PROGRESS pipeline of given type
       const pipeline = wp.pipelines
         .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
@@ -327,7 +357,10 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
       // 5. Append handoff note if provided
       if (args.handoff_notes && args.handoff_notes.length > 0) {
-        const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
+        // PM override: report PM identity instead of the pipeline type's formal owner
+        const fromAgent = isPmOverride
+          ? 'Project Manager (PM Override)'
+          : (PIPELINE_AGENT_MAP[args.type] ?? args.type);
         const toAgent = args.status === 'FAIL'
           ? (FAIL_ROUTING_MAP[args.type] ?? 'Developer')
           : (NEXT_AGENT_MAP[args.type] ?? 'Unknown');
@@ -387,7 +420,7 @@ const CancelPipelineSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
@@ -452,7 +485,7 @@ const UpdatePipelineProgressSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
   summary: z.array(z.string()).describe('Updated summary strings to record as partial progress'),
@@ -545,3 +578,22 @@ export function register(server: McpServer): void {
     updatePipelineProgress as any
   );
 }
+
+/**
+ * @internal — exported for unit testing only. All test-only exports from this module
+ * are consolidated here under `_internal` (see constraint §53).
+ */
+export const _internal = {
+  PIPELINE_PREREQUISITES,
+  PIPELINE_AGENT_MAP,
+  NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
+  buildCompletionGuidance,
+  startPipeline,
+  completePipeline,
+  // Schemas (formerly _schemas — renamed to _internal per §53)
+  StartPipelineSchema,
+  CompletePipelineSchema,
+  CancelPipelineSchema,
+  UpdatePipelineProgressSchema,
+};

@@ -17,6 +17,7 @@ import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { isTerminalStatus } from '../../src/schema/validators.js';
 import { now } from '../../src/utils/timestamp.js';
+import { _internal } from '../../src/tools/workflow-batch-actions.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
@@ -69,7 +70,7 @@ describe('getNextActions batch tool — all-CANCELLED short-circuit (GN-1)', () 
         assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: [],
-        revision: 1,
+        revision: 0,
         pipelines: [],
       };
       await store.writeWorkPackage(wp.work_package_id, wpDetail);
@@ -142,5 +143,36 @@ describe('getNextActions batch tool — all-CANCELLED short-circuit (GN-1)', () 
     const rootIndex = await store.readRootIndex();
     const allTerminal = rootIndex.work_packages.every((wp) => isTerminalStatus(wp.status));
     expect(allTerminal).toBe(false);
+  });
+});
+// ─── buildBatchNextSteps — CLAIM_WP agent guidance (WP-002 fix) ──────────────
+
+describe('buildBatchNextSteps — CLAIM_WP guidance', () => {
+  /**
+   * Regression test for the bug where CLAIM_WP step-1 used ${pipelineType}
+   * ("implementation") instead of ${agentRole} ("Developer") for the agent field.
+   *
+   * buildBatchNextSteps is a pure string-builder with no I/O, so no store setup
+   * is required. It is exercised via the _internal export.
+   */
+  it('CLAIM_WP with pipelineType="implementation" uses agent: "Developer" (not "implementation")', () => {
+    const steps = _internal.buildBatchNextSteps('CLAIM_WP', 'WP-001', 'implementation');
+
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps[0]).toContain('agent: "Developer"');
+    expect(steps[0]).not.toContain('agent: "implementation"');
+  });
+
+  it('CLAIM_WP with pipelineType="qa" uses agent: "QA" (not "qa")', () => {
+    const steps = _internal.buildBatchNextSteps('CLAIM_WP', 'WP-002', 'qa');
+
+    expect(steps[0]).toContain('agent: "QA"');
+    expect(steps[0]).not.toContain('agent: "qa"');
+  });
+
+  it('CLAIM_WP step-1 includes the correct work_package_id', () => {
+    const steps = _internal.buildBatchNextSteps('CLAIM_WP', 'WP-007', 'implementation');
+
+    expect(steps[0]).toContain('"WP-007"');
   });
 });

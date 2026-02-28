@@ -180,4 +180,4 @@ The server has **no stateful services**. All state is persisted to JSON files on
 - **ESM-only:** All imports use `.js` extensions (required for Node16 module resolution)
 - **Strict TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`, and `noEmitOnError: true` in `tsconfig.json` — `noUncheckedIndexedAccess` widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors; `noEmitOnError` prevents any JS from being emitted to `dist/` when type errors are present, ensuring the build fails fast rather than producing a partially compiled output
 - **Pretty JSON:** All JSON files written with 2-space indentation and trailing newline
-- **File Naming:** Work package IDs follow the pattern `WP-###` (zero-padded to 3 digits)
+- **File Naming:** Work package IDs follow the pattern `WP-###` (minimum 3 digits; no upper bound — supports `WP-001` through `WP-9999+`)

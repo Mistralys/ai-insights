@@ -94,6 +94,63 @@ function buildBatchNextSteps(
       }
       return steps;
     }
+    case 'WAIT_FOR_REWORK':
+      return [
+        `WP ${wpId}: Waiting for Developer to rework implementation. QA/Reviewer does not self-rework.`,
+        `Check ledger_get_next_action for Developer to confirm rework has started.`,
+      ];
+    case 'WAIT_FOR_DOWNSTREAM':
+      return [
+        `WP ${wpId}: Implementation pipeline PASS. Waiting for downstream QA/Reviewer pipeline to complete.`,
+        `No action required — hand off to QA agent.`,
+      ];
+    case 'BLOCK_FOR_REWORK_LIMIT':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to review the rework history.`,
+        `2. Escalate to the Project Manager to resolve the rework-limit blocker.`,
+        `3. Consider calling ledger_update_work_package_status (work_package_id: "${wpId}", status: "CANCELLED") and creating a replacement WP.`,
+      ];
+    case 'WAIT_FOR_UPSTREAM_REWORK_LIMIT':
+      return [
+        `WP ${wpId}: An upstream pipeline has reached the rework limit. Waiting for PM to resolve the blocker.`,
+        `No action required — PM must intervene before this pipeline can proceed.`,
+      ];
+    case 'UNBLOCK_WP':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to review the blocked state.`,
+        `2. Resolve the blocking condition (dependency, decision, or external factor).`,
+        `3. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "READY") to unblock.`,
+      ];
+    case 'REVIEW_ABANDONED':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to review the abandoned pipeline.`,
+        `2. Cancel the abandoned pipeline or escalate to PM.`,
+        `3. Create a replacement WP if the work is still needed.`,
+      ];
+    case 'REPAIR_ORPHAN_BLOCKED':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to inspect the orphan-BLOCKED state.`,
+        `2. Verify all dependency WPs are COMPLETE.`,
+        `3. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "READY") to repair.`,
+      ];
+    case 'FINALIZE_WP':
+      return [
+        `1. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`,
+        `2. Call ledger_get_handoff_status (current_agent: "Documentation").`,
+      ];
+    case 'UPDATE_CRITERIA':
+      return [
+        `1. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "documentation", ..., acceptance_criteria_updates: [...]) to mark all criteria as met.`,
+        `2. Then call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`,
+        `3. Call ledger_get_handoff_status (current_agent: "Documentation").`,
+      ];
+    case 'CLAIM_WP':
+      return [
+        `1. Call ledger_claim_work_package (work_package_id: "${wpId}", agent: "${agentRole}").`,
+        `2. Call ledger_start_pipeline (work_package_id: "${wpId}", type: "${pipelineType}").`,
+        `3. Perform your pipeline work.`,
+        `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "${pipelineType}", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
+      ];
     default:
       return [];
   }
@@ -212,7 +269,7 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
       if (pipelineType === 'implementation') {
         if (
           (wpDetail.status === 'READY' || wpDetail.status === 'IN_PROGRESS') &&
-          !hasDependencyBlocked(wpDetail, rootIndex) &&
+          !hasDependencyBlocked(wpDetail) &&
           !wpDetail.pipelines.some((p) => p.type === 'implementation')
         ) {
           const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
@@ -317,6 +374,13 @@ async function getNextActions(args: z.infer<typeof GetNextActionsSchema>) {
   }
 }
 
+
+/**
+ * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
+ */
+export const _internal = {
+  buildBatchNextSteps,
+};
 
 /**
  * Register the ledger_get_next_actions tool on the MCP server.
