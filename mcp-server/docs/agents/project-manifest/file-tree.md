@@ -16,15 +16,19 @@ mcp-server/
 │           ├── .meta.json       # Project metadata (slug, status, timestamps)
 │           ├── .lock            # Lock file for concurrent-write protection
 │           ├── project-ledger.json  # Root index
-│           └── WP-001.json      # Work package detail files
+│           ├── WP-001.json      # Work package detail files
+│           ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
+│           └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
 │
 ├── gui/                         # GUI server process code (separate STDIO-safe HTTP server)
-│   ├── api.ts               # REST API route handlers (handleListProjects, handleGetProject, handleGetWorkPackage, handleDeleteProject, handleGetConfig, handleUpdateConfig)
+│   ├── api.ts               # REST API route handlers (handleListProjects, handleGetProject, handleGetWorkPackage, handleGetPlanDocument, handleDeleteProject, handleGetConfig, handleUpdateConfig)
 │   ├── server.ts            # Standalone Node.js HTTP server (node:http); routes /api/* to api.ts handlers, serves static files from gui/public/; started via `npm run gui`
 │   └── public/              # Static assets served by gui/server.ts
-│       ├── index.html       # Dashboard SPA shell — nav header, main#app, loads styles.css + app.js
-│       ├── styles.css       # Full CSS: custom properties, status badges, tables, cards, forms, loading/error states
-│       └── app.js           # Vanilla JS SPA: API client, hash-based Router, 4 views (project list, project detail, WP detail, config)
+│       ├── index.html       # Dashboard SPA shell — nav header, main#app, loads styles.css + libs/marked.min.js + app.js
+│       ├── styles.css       # Full CSS: custom properties, status badges, tables, cards, forms, loading/error states, plan-content/plan-synopsis
+│       ├── app.js           # Vanilla JS SPA: API client, hash-based Router, 6 views (project list, project detail, plan viewer, WP detail, config, insights)
+│       └── libs/
+│           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB); loaded before app.js; used by the plan viewer
 │
 ├── src/                         # Source code
 │   ├── index.ts                 # MCP server entry point and tool registration

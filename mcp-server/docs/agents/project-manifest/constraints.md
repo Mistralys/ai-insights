@@ -56,6 +56,14 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 
 **Rationale:** Plan folders are the authoritative human source-of-truth. Machine output lives in the centralized ledger at `{mcp-server}/storage/ledger/{slug}/`.
 
+**Archiving clarification:** `archiveDocuments()` copies files **from** the plan folder **into** the centralized storage directory (`storage/ledger/{slug}/`). The direction is one-way: plan folder → ledger. The archived copy is read-only from the agent's perspective — it exists for retrieval by the GUI and tooling, not for editing. The original file in the plan folder remains the authoritative source and is never modified by the server. This is fully consistent with Constraint 4: no writes ever occur inside the plan folder.
+
+**`plan_file` validation:** the `plan_file` argument accepted by `ledger_initialize_project` is enforced at parse time by a Zod `.refine()` check: `v === PLAN_ARCHIVE_FILENAME`. Calls with any value other than `'plan.md'` are rejected with a Zod validation error before reaching handler logic. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on the archived plan document having the fixed filename `plan.md`.
+
+**Archive error contract:** `archiveDocuments()` uses a discriminated error strategy:
+- Missing source file (`ENOENT`) — the filename is silently added to `skipped[]` and a warning is written to `stderr`. The operation continues with remaining files.
+- All other I/O errors (e.g., `EACCES`, `ENOSPC`, `EISDIR`) — the error is **re-thrown** to the caller. Callers must not assume all errors from `archiveDocuments()` are benign; they must be prepared to handle re-thrown non-ENOENT errors.
+
 ---
 
 ### 5. `.meta.json` Must Be Written Under the Project Lock
@@ -796,6 +804,30 @@ Acceptance criteria cannot be empty or whitespace-only.
 - If no candidates were re-blocked, `synthesis_generated` is **not** changed.
 
 **Enforcement:** `propagateDependencyReblock()` in `src/tools/work-package.ts`.
+
+---
+
+## GUI API Constraints
+
+### 40. All Slug- and WpId-Accepting GUI Handlers Must Call Their Path-Traversal Guard First
+
+**Rule:** Every GUI API handler in `gui/api.ts` that accepts a path segment parameter must call its corresponding guard as the **first** (slug) or **second** (wpId) statement, before any other processing.
+
+**Guards:**
+
+| Guard | Parameter | Placement | Affected handlers |
+|-------|-----------|-----------|-------------------|
+| `assertSafeSlug(slug)` | project slug | 1st statement | `handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument` |
+| `assertSafeWpId(wpId)` | work-package ID | 2nd statement (after `assertSafeSlug`) | `handleGetWorkPackage` |
+
+**Rejection criteria (both guards):** throws `ApiError` with code `NOT_FOUND` (HTTP 404) if the value:
+- is empty (`''`)
+- contains a forward slash (`/`)
+- contains a double dot (`..`)
+
+**Rationale:** Returning `NOT_FOUND` (rather than `FORBIDDEN`) on traversal attempts is intentional — it avoids leaking structural information about the server's file system to potential attackers. Using HTTP 404 is consistent with the standard "project not found" response.
+
+**Implementation:** Both guards are module-private to `gui/api.ts` (not exported). They must not be bypassed or called after other parameter-dependent operations.
 
 ---
 

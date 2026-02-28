@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
 import type { DetectProjectResult } from '../storage/ledger-store.js';
 import { WorkPackageStatus } from '../schema/enums.js';
 import { isTerminalStatus } from '../schema/validators.js';
@@ -367,11 +368,16 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
  * Creates a new project ledger with root index and ledger/ subdirectory.
  * Rejects if ledger already exists.
  */
-const InitializeProjectSchema = z.object({
+export const InitializeProjectSchema = z.object({
   project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   plan_file: z
     .string()
-    .describe('Relative path to the plan file from project_path (e.g., "plan.md")'),
+    .refine((v) => v === PLAN_ARCHIVE_FILENAME, {
+      message: `plan_file must be '${PLAN_ARCHIVE_FILENAME}' to match the GUI plan document read path`,
+    })
+    .describe(
+      `Relative path to the plan file from project_path. Must be '${PLAN_ARCHIVE_FILENAME}' — this value is enforced to keep the GUI plan document read path consistent.`
+    ),
 });
 
 async function initializeProject(
@@ -434,11 +440,18 @@ async function initializeProject(
     // 5. Write .meta.json so the project is immediately visible via ledger_list_projects
     await store.writeProjectMeta(args.plan_file);
 
+    // 6. Archive the plan document into the ledger storage directory (best-effort)
+    const archiveResult = await store.archiveDocuments([args.plan_file]);
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(rootIndex, null, 2),
+          text: JSON.stringify({
+            ...rootIndex,
+            archived_documents: archiveResult.archived,
+            archive_skipped: archiveResult.skipped.length > 0 ? archiveResult.skipped : undefined,
+          }, null, 2),
         },
       ],
     };
@@ -505,6 +518,11 @@ const CompleteSynthesisSchema = z.object({
   agent_role: z
     .string()
     .describe('The agent role completing synthesis (must be "Synthesis" or "Project Manager")'),
+  synthesis_file: z
+    .string()
+    .optional()
+    .default(SYNTHESIS_ARCHIVE_FILENAME)
+    .describe(`Filename of the synthesis document (default: "${SYNTHESIS_ARCHIVE_FILENAME}")`),
 });
 
 async function completeSynthesis(
@@ -582,6 +600,9 @@ async function completeSynthesis(
 
       await store.writeRootIndex(rootIndex);
 
+      const synthesisFile = args.synthesis_file ?? SYNTHESIS_ARCHIVE_FILENAME;
+      const archiveResult = await store.archiveDocuments([synthesisFile]);
+
       result = {
         content: [
           {
@@ -591,6 +612,8 @@ async function completeSynthesis(
                 synthesis_generated: true,
                 project_status: rootIndex.status,
                 message: 'Synthesis marked as generated.',
+                archived_documents: archiveResult.archived,
+                archive_skipped: archiveResult.skipped.length > 0 ? archiveResult.skipped : undefined,
                 next_steps: [
                   'Your work is complete. Call ledger_get_handoff_status (current_agent: "Synthesis") to end the workflow.',
                 ],

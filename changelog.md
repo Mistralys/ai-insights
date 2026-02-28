@@ -1,5 +1,12 @@
 # AI Insights Changelog
 
+## v1.5.0 - Ledger Enhancements
+- Ledger: Added archiving of the plan and synthesis documents.
+- Ledger: GUI: Viewing the archived documents.
+- Ledger: GUI: Added full text filter.
+- Ledger: GUI: Added completion percentage.
+- Ledger: GUI: More Readable Project Name.
+
 ## v1.4.0 - LangGraph Orchestrator Tool
 - Personas: Added the WHATSNEW curator.
 - Personas: Tweaked the sensibility of the changelog curator.

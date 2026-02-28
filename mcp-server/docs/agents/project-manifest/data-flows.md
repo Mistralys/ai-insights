@@ -23,10 +23,16 @@ store.writeProjectMeta() — auto-synced after root index write
   ↓
 atomicWriteJson(storage/ledger/{slug}/.meta.json)
   ↓
-Return RootIndex to agent
+store.archiveDocuments([plan_file])  — best-effort; outside lock scope
+  ↓
+  copyFile(join(planPath, plan_file), join(storageDir, plan_file))
+  ENOENT and all other copy errors → file appended to skipped[], warning → stderr
+  Success → file appended to archived[]
+  ↓
+Return RootIndex + { archived_documents, archive_skipped? } to agent
 ```
 
-**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory.
+**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{slug}/` as archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -851,7 +857,7 @@ Simplified table view:
 **Entry Point:** Synthesis agent (or Project Manager) invokes `ledger_complete_synthesis` tool
 
 ```
-Agent → ledger_complete_synthesis(project_path, agent_role)
+Agent → ledger_complete_synthesis(project_path, agent_role, synthesis_file?)
   ↓
 withLock(store.storageDir, async () => {
   Guard 1 (§19.1): agent_role must be "Synthesis" or "Project Manager"
@@ -875,12 +881,20 @@ withLock(store.storageDir, async () => {
   Set project status to COMPLETE (all guards passed)
     ↓
   LedgerStore.writeRootIndex(updatedRoot)
+    ↓
+  store.archiveDocuments([synthesis_file])  — best-effort; inside lock scope
+    ↓
+    copyFile(join(planPath, synthesis_file), join(storageDir, synthesis_file))
+    Error → appended to skipped[], warning → stderr
+    Success → appended to archived[]
+    ↓
+  Assign result content block to outer-scope 'let result!'
 })
   ↓
-Return result
+Return result + { archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races.
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -920,3 +934,63 @@ Return success message listing applied operations
 ```
 
 **Result:** The PM can remove stale or incorrect criteria and fix criterion text without altering evaluation state (`met` flags). The zero-criteria guard ensures every WP always has at least one testable acceptance criterion. All mutations are atomic — a partial batch never leaves the WP in an intermediate state.
+
+---
+
+## Flow 16: Synthesis Document View (GUI)
+
+**Entry Point:** User navigates to `#/projects/:slug/synthesis` in the dashboard
+
+```
+Browser hash → #/projects/:slug/synthesis
+  ↓
+Router.dispatch()
+  ↓
+synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/)
+  ↓
+renderSynthesis(app, slug)
+  ↓
+  app.innerHTML = '<p class="loading">Loading synthesis…</p>'   ← immediate feedback
+  ↓
+  API.getSynthesisDocument(slug)
+  → fetch('GET', '/api/projects/:slug/synthesis')
+  ↓
+  server.ts routes to handleGetSynthesisDocument(ledgerRoot, slug)
+    ↓
+    assertSafeSlug(slug)
+    LedgerStore.ledgerDirExists()   ← NOT_FOUND if project absent
+    readFile(storage/ledger/{slug}/synthesis.md, 'utf-8')
+    → Return { content: "<markdown>" }
+    ← 404 NOT_FOUND if synthesis.md absent or project absent
+  ↓
+  marked.parse(result.content)   ← client-side Markdown → HTML
+  ↓
+  app.innerHTML =
+    <breadcrumb: Projects / {slug} / Synthesis> +
+    <div class="synthesis-content">{html}</div>
+
+On NOT_FOUND:
+  app.innerHTML =
+    <breadcrumb: Projects / {slug} / Synthesis> +
+    <p class="empty-state">Synthesis document not available for this project.</p>
+
+On other errors:
+  app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>'
+```
+
+**Synthesis link on Project Detail page:**
+
+```
+User navigates to #/projects/:slug
+  ↓
+renderProjectDetail(app, slug) calls Promise.all([API.getProject(slug), API.getPlanDocument(slug)])
+  ↓
+project.synthesis_generated === true?
+  YES → inject <div class="synthesis-link-row"><a href="#/projects/:slug/synthesis">View synthesis →</a></div>
+  NO  → nothing rendered (no HTTP call)
+```
+
+**Key design:**
+- The synthesis link is driven by `project.synthesis_generated` (already in the `GET /api/projects/:slug` response — no extra HTTP call).
+- The "not available" empty state handles projects where `synthesis_generated` is `true` but `synthesis.md` was not archived (e.g. race or skipped archival).
+- `.synthesis-content` shares all typography CSS rules with `.plan-content` via multi-selector (DRY — no duplicated rules).

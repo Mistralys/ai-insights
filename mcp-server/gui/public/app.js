@@ -37,6 +37,8 @@ var API = (function () {
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
     getInsights:              function ()             { return request('GET',    '/insights'); },
+    getPlanDocument:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/plan'); },
+    getSynthesisDocument:     function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/synthesis'); },
   };
 })();
 
@@ -77,6 +79,18 @@ var Router = (function () {
 
     if (path === '/' || path === '') {
       renderProjectList(app);
+      return;
+    }
+
+    var planMatch = path.match(/^\/projects\/([^/]+)\/plan$/);
+    if (planMatch) {
+      renderPlan(app, decodeURIComponent(planMatch[1]));
+      return;
+    }
+
+    var synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/);
+    if (synthesisMatch) {
+      renderSynthesis(app, decodeURIComponent(synthesisMatch[1]));
       return;
     }
 
@@ -184,14 +198,21 @@ function renderProjectList(app) {
 
   var allProjects = [];
   var filterValue = 'ALL';
+  var searchValue = '';
 
   function applyFilter() {
     var tbody = document.getElementById('projects-tbody');
     if (!tbody) return;
     var rows = tbody.querySelectorAll('tr[data-status]');
     rows.forEach(function (row) {
-      var show = filterValue === 'ALL' || row.getAttribute('data-status') === filterValue;
-      row.style.display = show ? '' : 'none';
+      var statusMatch = filterValue === 'ALL' || row.getAttribute('data-status') === filterValue;
+      var textMatch = true;
+      if (searchValue !== '') {
+        var rowSlug = (row.getAttribute('data-slug') || '').toLowerCase();
+        var rowName = (row.getAttribute('data-name') || '').toLowerCase();
+        textMatch = rowSlug.indexOf(searchValue) !== -1 || rowName.indexOf(searchValue) !== -1;
+      }
+      row.style.display = (statusMatch && textMatch) ? '' : 'none';
     });
   }
 
@@ -208,8 +229,17 @@ function renderProjectList(app) {
       var deleteBtn = p.status === 'COMPLETE'
         ? '<button class="btn btn-danger btn-sm" data-action="delete" data-slug="' + escapeHtml(p.slug) + '">Delete</button>'
         : '';
-      return '<tr data-status="' + escapeHtml(p.status) + '">' +
-        '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '">' + escapeHtml(p.slug) + '</a></td>' +
+      var projectName = (p.project_name != null && p.project_name !== '') ? escapeHtml(p.project_name) : escapeHtml(p.slug);
+      var doneCellHtml;
+      if (p.total_work_packages > 0) {
+        var pct = Math.round(((p.total_work_packages - p.pending_work_packages) / p.total_work_packages) * 100);
+        doneCellHtml = '<div class="progress-bar-track" title="' + pct + '%"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>';
+      } else {
+        doneCellHtml = '\u2014';
+      }
+      return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '" data-name="' + escapeHtml(p.project_name || '') + '">' +
+        '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>' +
+        '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
@@ -223,7 +253,8 @@ function renderProjectList(app) {
     return '<div class="table-wrapper">' +
       '<table>' +
       '<thead><tr>' +
-        '<th>Project Slug</th>' +
+        '<th>Project</th>' +
+        '<th>% Done</th>' +
         '<th>Status</th>' +
         '<th>Created</th>' +
         '<th>Updated</th>' +
@@ -244,6 +275,7 @@ function renderProjectList(app) {
         '</div>' +
       '</div>' +
       '<div class="filter-bar">' +
+        '<input type="text" id="project-search" placeholder="Search projects\u2026">' +
         '<label for="status-filter">Filter by status:</label>' +
         '<select id="status-filter">' +
           '<option value="ALL">All</option>' +
@@ -262,6 +294,16 @@ function renderProjectList(app) {
       applyFilter();
       filterEl.addEventListener('change', function () {
         filterValue = this.value;
+        applyFilter();
+      });
+    }
+
+    // Restore search value after re-render
+    var searchEl = document.getElementById('project-search');
+    if (searchEl) {
+      searchEl.value = searchValue;
+      searchEl.addEventListener('input', function () {
+        searchValue = this.value.toLowerCase().trim();
         applyFilter();
       });
     }
@@ -303,12 +345,70 @@ function renderProjectList(app) {
 }
 
 /* ----------------------------------------------------------
-   4b. View: Project Detail
+   4b. View: Plan Document
+   ---------------------------------------------------------- */
+function extractSynopsis(markdown) {
+  var match = markdown.match(/## Summary\s*\n([\s\S]*?)(?=\n## |\n---|\s*$)/);
+  return match ? match[1].trim() : null;
+}
+
+async function renderPlan(app, slug) {
+  app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
+  try {
+    var result = await API.getPlanDocument(slug);
+    var html = marked.parse(result.content);
+    app.innerHTML =
+      '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+      '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Plan</div>' +
+      '<div class="plan-content">' + html + '</div>';
+  } catch (err) {
+    if (err && err.code === 'NOT_FOUND') {
+      app.innerHTML =
+        '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Plan</div>' +
+        '<p class="empty-state">Plan document not available for this project.</p>';
+    } else {
+      app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
+    }
+  }
+}
+
+/* ----------------------------------------------------------
+   4b-ii. View: Synthesis Document
+   ---------------------------------------------------------- */
+async function renderSynthesis(app, slug) {
+  app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
+  try {
+    var result = await API.getSynthesisDocument(slug);
+    var html = marked.parse(result.content);
+    app.innerHTML =
+      '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+      '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Synthesis</div>' +
+      '<div class="synthesis-content">' + html + '</div>';
+  } catch (err) {
+    if (err && err.code === 'NOT_FOUND') {
+      app.innerHTML =
+        '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Synthesis</div>' +
+        '<p class="empty-state">Synthesis document not available for this project.</p>';
+    } else {
+      app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
+    }
+  }
+}
+
+/* ----------------------------------------------------------
+   4c. View: Project Detail
    ---------------------------------------------------------- */
 function renderProjectDetail(app, slug) {
   showLoading(app);
 
-  API.getProject(slug).then(function (project) {
+  Promise.all([
+    API.getProject(slug),
+    API.getPlanDocument(slug).catch(function () { return null; }),
+  ]).then(function (results) {
+    var project = results[0];
+    var planResult = results[1];
     var meta = project.meta || {};
     var wps = project.work_packages || [];
 
@@ -364,6 +464,29 @@ function renderProjectDetail(app, slug) {
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
         '</div>' +
       '</div>' +
+
+      (function () {
+        var synopsisHtml = '';
+        if (planResult && planResult.content) {
+          var synopsis = extractSynopsis(planResult.content);
+          if (synopsis) {
+            synopsisHtml =
+              '<div class="plan-synopsis">' +
+              '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
+              '<a href="#/projects/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+              '</div>';
+          }
+        }
+        return synopsisHtml;
+      })() +
+
+      (function () {
+        if (!project.synthesis_generated) return '';
+        return '<div class="synthesis-link-row">' +
+          '<a href="#/projects/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
+          '</div>';
+      })() +
+
       '<div class="card-title">Work Packages</div>' +
       (wps.length
         ? '<div class="table-wrapper"><table>' +

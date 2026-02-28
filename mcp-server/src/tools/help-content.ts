@@ -2,6 +2,8 @@
  * Static documentation strings for all Project Ledger MCP tools.
  * Exported as TOOL_HELP and consumed by help.ts.
  */
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
+
 export const TOOL_HELP: Record<string, string> = {
   overview: `
 # Project Ledger MCP — Tool Reference
@@ -118,15 +120,24 @@ Create a new project ledger. Call this once at project start.
 This also creates a \`.meta.json\` entry in the centralized ledger so the project
 is immediately discoverable via \`ledger_list_projects\`.
 
+The \`plan_file\` document is automatically archived into the ledger storage directory
+at initialization, making it retrievable via the GUI plan endpoint. If the file does
+not yet exist, it is silently skipped and reported in \`archive_skipped\`.
+
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
 - **plan_file** (string): Relative path to the plan file from project_path
+
+## Response Fields
+- All root index fields (plan_file, date_created, status, work_packages, etc.)
+- **archived_documents** (string[]): Files successfully copied to the ledger storage directory
+- **archive_skipped** (string[], optional): Files that could not be archived (source not found)
 
 ## Example
 \`\`\`json
 {
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
-  "plan_file": "plan.md"
+  "plan_file": "${PLAN_ARCHIVE_FILENAME}"
 }
 \`\`\`
 `,
@@ -561,8 +572,25 @@ Mark the project synthesis as generated. Sets \`synthesis_generated = true\` on 
 
 Call this after the Synthesis agent has finished generating its synthesis report. Subsequent calls to \`ledger_get_next_action(Synthesis)\` will return WAIT once this flag is set.
 
+The synthesis document is automatically archived into the ledger storage directory on
+completion. If the file does not exist, it is silently skipped and reported in
+\`archive_skipped\`.
+
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
+
+## Optional Parameters
+- **synthesis_file** (string, default: \`"${SYNTHESIS_ARCHIVE_FILENAME}"\`): Filename of the synthesis
+  document relative to project_path. Defaults to \`${SYNTHESIS_ARCHIVE_FILENAME}\`; specify an alternative
+  filename if your Synthesis agent writes to a different file.
+
+## Response Fields
+- **synthesis_generated** (boolean): Always \`true\`
+- **project_status** (string): New project status (\`COMPLETE\` if all WPs are done)
+- **message** (string): Confirmation message
+- **archived_documents** (string[]): Files successfully copied to the ledger storage directory
+- **archive_skipped** (string[], optional): Files that could not be archived (source not found)
+- **next_steps** (string[]): Guidance for the Synthesis agent
 
 ## When to Call
 - All WPs must be COMPLETE before calling this tool
@@ -572,7 +600,8 @@ Call this after the Synthesis agent has finished generating its synthesis report
 ## Example
 \`\`\`json
 {
-  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature"
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "synthesis_file": "${SYNTHESIS_ARCHIVE_FILENAME}"
 }
 \`\`\`
 `,

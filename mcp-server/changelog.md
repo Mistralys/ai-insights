@@ -71,6 +71,14 @@
 ### Known Gaps (Phase 2)
 - `CompletePipelineSchema` in `src/tools/pipeline.ts` (line ~234) and `AddObservationSchema` in `src/tools/observations.ts` (line ~21) still use the 3-digit-only pattern `/^WP-\d{3}$/`. This creates a workflow break for projects reaching WP-1000+: a pipeline can be started but not completed, and observations cannot be recorded. Two-line fix; tracked for a Phase 2 micro-WP.
 
+## v1.7.0 - GUI Project List Enhancements (2026-02-27)
+
+### Changed
+- `gui/api.ts` — `handleListProjects` now returns `ProjectSummary[]` (extends `ProjectMeta`) with `total_work_packages`, `pending_work_packages`, and `project_name`. Enrichment is concurrent (`Promise.all`); per-project failures default to `0` / `null` and never block the full response. `readProjectName()` helper tries `package.json` → `composer.json` → `pyproject.toml` in order.
+- `gui/public/app.js` — `buildTable()` updated: slug cell strips `YYYY-MM-DD-` prefix for display and surfaces the full slug in a tooltip (`title` attribute); new **Project** column (position 2) shows `project_name` or `—`; new **% Done** column (position 3) renders a compact progress bar + percentage (or `—` for zero-WP projects). `<thead>` column order updated to: Slug, Project, % Done, Status, Created, Updated, Actions.
+- `gui/public/app.js` — `renderProjectList` extended with a fulltext search `<input type="text">` in the `.filter-bar`. `applyFilter()` now gates visibility on `statusMatch && textMatch`; `searchValue` state persists across poll-triggered re-renders alongside `filterValue`. Null `project_name` is handled via `(p.project_name \|\| '')` in `data-name`.
+- `gui/public/styles.css` — Added four new rule blocks (all additive; no existing rules modified): `.progress-bar-track`, `.progress-bar-fill`, `.filter-bar input[type='text']`, `.filter-bar input[type='text']:focus`. All reference existing `:root` CSS custom properties.
+
 ## v1.6.0 - Workflow Specification Audit Fixes (2026-02-26)
 
 ### Fixed
