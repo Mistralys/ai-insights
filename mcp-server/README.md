@@ -287,6 +287,8 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - **Fulltext search** — text input in the filter bar instantly filters rows by slug or project name (combined with the status dropdown, case-insensitive)
 - Drill down into project and work package details
 - View project-level comments and incidents (sorted newest-first) on the Project Detail page
+- **View archived plan** — **View full plan →** link on the Project Detail page (shown when a plan synopsis is available); renders as formatted HTML at `#/projects/:slug/plan`
+- **View archived synthesis** — **View synthesis →** link on the Project Detail page (shown when `synthesis_generated === true`); renders the final synthesis report as formatted HTML at `#/projects/:slug/synthesis`
 - Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - Delete completed projects permanently
 - Toggle auto-handoff and adjust the max handoff depth at runtime (no restart required)

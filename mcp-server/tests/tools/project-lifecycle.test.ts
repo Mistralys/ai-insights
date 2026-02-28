@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
 import {
   createTempStore,
   cleanupTempStore,
@@ -8,7 +9,8 @@ import {
 } from '../helpers/create-temp-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
-import { computeHealedStatus } from '../../src/tools/project-lifecycle.js';
+import { computeHealedStatus, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
 
 const PLAN_PATH = join(tmpdir(), '2026-01-01-lifecycle-heal-test');
 
@@ -365,5 +367,224 @@ describe('computeHealedStatus (exported pure function)', () => {
     expect(result.healedStatus).toBe('READY');
     // pending_work_packages stored as 0 in override but root fixture stores 1 — needsWrite just for counter
     expect(result.healedStatus).not.toBe('COMPLETE');
+  });
+});
+/* ----------------------------------------------------------
+   Schema: initializeProject — plan_file constraint
+   ---------------------------------------------------------- */
+describe('initializeProject: plan_file Zod constraint', () => {
+  it('rejects a non-plan.md plan_file value with a Zod validation error', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'design.md',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const planFileError = result.error.issues.find((i) => i.path.includes('plan_file'));
+      expect(planFileError).toBeDefined();
+    }
+  });
+
+  it('accepts plan.md as a valid plan_file value', () => {
+    const result = InitializeProjectSchema.safeParse({
+      project_path: join(tmpdir(), '2026-01-01-schema-test'),
+      plan_file: 'plan.md',
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: initializeProject — document archiving
+   ---------------------------------------------------------- */
+describe('initializeProject: document archiving', () => {
+  let planDir: string;
+  let ledgerRoot: string;
+  let store: LedgerStore;
+
+  /** Base root index used to initialise the store for each test */
+  function makeBaseRootIndex(planFile: string): RootIndex {
+    const ts = now();
+    return {
+      plan_file: planFile,
+      date_created: ts,
+      last_updated: ts,
+      status: 'READY',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+    };
+  }
+
+  /**
+   * Inline simulation of the archiving side-effect added to initializeProject().
+   * Writes the root index and .meta.json, then calls archiveDocuments.
+   */
+  async function simulateInitializeProject(planFile: string) {
+    const rootIndex = makeBaseRootIndex(planFile);
+    await store.writeRootIndex(rootIndex);
+    await store.writeProjectMeta(planFile);
+    const archiveResult = await store.archiveDocuments([planFile]);
+    return {
+      ...rootIndex,
+      archived_documents: archiveResult.archived,
+      archive_skipped: archiveResult.skipped.length > 0 ? archiveResult.skipped : undefined,
+    };
+  }
+
+  beforeEach(async () => {
+    planDir = await mkdtemp(join(tmpdir(), '2026-01-01-lc-archive-'));
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'ledger-root-'));
+    store = new LedgerStore(planDir, ledgerRoot);
+  });
+
+  afterEach(async () => {
+    await rm(planDir, { recursive: true, force: true });
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('plan archived on init: plan.md appears in ledger storage dir with identical content', async () => {
+    const content = '# My Plan\n\nThis is the plan document.';
+    await writeFile(join(planDir, 'plan.md'), content, 'utf8');
+
+    const result = await simulateInitializeProject('plan.md');
+
+    expect(result.archived_documents).toEqual(['plan.md']);
+    expect(result.archive_skipped).toBeUndefined();
+
+    const archivedContent = await readFile(join(store.storageDir, 'plan.md'), 'utf8');
+    expect(archivedContent).toBe(content);
+  });
+
+  it('plan missing on init: tool succeeds; response includes archive_skipped', async () => {
+    // plan.md does NOT exist in planDir
+    const result = await simulateInitializeProject('plan.md');
+
+    expect(result.archive_skipped).toEqual(['plan.md']);
+    expect(result.archived_documents).toEqual([]);
+  });
+
+  it('archive info in response: response always includes archived_documents field', async () => {
+    await writeFile(join(planDir, 'plan.md'), '# Plan', 'utf8');
+
+    const result = await simulateInitializeProject('plan.md');
+
+    expect(Array.isArray(result.archived_documents)).toBe(true);
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: completeSynthesis — document archiving
+   ---------------------------------------------------------- */
+describe('completeSynthesis: document archiving', () => {
+  let planDir: string;
+  let ledgerRoot: string;
+  let store: LedgerStore;
+
+  /**
+   * Inline simulation of the archiving side-effect added to completeSynthesis().
+   * Reads the root index, updates synthesis flag, writes it back, then archives.
+   */
+  async function simulateCompleteSynthesis(synthesisFile: string) {
+    const rootIndex = await store.readRootIndex();
+    rootIndex.synthesis_generated = true;
+    rootIndex.last_updated = now();
+
+    const pendingWps = rootIndex.work_packages.filter(
+      (wp) => !(['COMPLETE', 'CANCELLED'] as string[]).includes(wp.status)
+    ).length;
+    if (pendingWps === 0 && rootIndex.work_packages.length > 0) {
+      rootIndex.status = 'COMPLETE';
+    }
+
+    await store.writeRootIndex(rootIndex);
+    const archiveResult = await store.archiveDocuments([synthesisFile]);
+    return {
+      synthesis_generated: true,
+      project_status: rootIndex.status,
+      archived_documents: archiveResult.archived,
+      archive_skipped: archiveResult.skipped.length > 0 ? archiveResult.skipped : undefined,
+    };
+  }
+
+  function makeCompleteRootIndex(): RootIndex {
+    const ts = now();
+    return {
+      plan_file: 'plan.md',
+      date_created: ts,
+      last_updated: ts,
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+  }
+
+  beforeEach(async () => {
+    planDir = await mkdtemp(join(tmpdir(), '2026-01-01-synthesis-archive-'));
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'ledger-root-'));
+    store = new LedgerStore(planDir, ledgerRoot);
+    await store.writeRootIndex(makeCompleteRootIndex());
+  });
+
+  afterEach(async () => {
+    await rm(planDir, { recursive: true, force: true });
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('synthesis archived on complete: synthesis.md appears in ledger storage dir', async () => {
+    const content = '# Synthesis\n\nProject complete.';
+    await writeFile(join(planDir, 'synthesis.md'), content, 'utf8');
+
+    const result = await simulateCompleteSynthesis('synthesis.md');
+
+    expect(result.archived_documents).toEqual(['synthesis.md']);
+    expect(result.archive_skipped).toBeUndefined();
+
+    const archivedContent = await readFile(join(store.storageDir, 'synthesis.md'), 'utf8');
+    expect(archivedContent).toBe(content);
+  });
+
+  it('missing synthesis file: tool succeeds; response includes archive_skipped', async () => {
+    // synthesis.md does NOT exist in planDir
+    const result = await simulateCompleteSynthesis('synthesis.md');
+
+    expect(result.archive_skipped).toEqual(['synthesis.md']);
+    expect(result.archived_documents).toEqual([]);
+    expect(result.synthesis_generated).toBe(true);
+  });
+
+  it('custom synthesis_file: report.md is archived when specified', async () => {
+    const content = '# Custom Report';
+    await writeFile(join(planDir, 'report.md'), content, 'utf8');
+
+    const result = await simulateCompleteSynthesis('report.md');
+
+    expect(result.archived_documents).toEqual(['report.md']);
+
+    const archivedContent = await readFile(join(store.storageDir, 'report.md'), 'utf8');
+    expect(archivedContent).toBe(content);
+  });
+
+  it('plan NOT re-archived at synthesis: only the synthesis file is archived', async () => {
+    // Both plan.md and synthesis.md exist in planDir
+    await writeFile(join(planDir, 'plan.md'), '# Plan', 'utf8');
+    await writeFile(join(planDir, 'synthesis.md'), '# Synthesis', 'utf8');
+
+    const result = await simulateCompleteSynthesis('synthesis.md');
+
+    // Only synthesis.md should be archived, not plan.md
+    expect(result.archived_documents).toEqual(['synthesis.md']);
+    expect(result.archived_documents).not.toContain('plan.md');
   });
 });

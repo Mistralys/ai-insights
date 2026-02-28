@@ -16,3 +16,13 @@ export const AGENT_ROLES = [
 ] as const;
 
 export type AgentRole = typeof AGENT_ROLES[number];
+
+/**
+ * Canonical filenames for the two documents archived into ledger storage.
+ *
+ * Use these constants wherever the filename is referenced as a literal —
+ * in Zod defaults, API handlers, and help-content examples — so that a
+ * single-point change keeps every reference in sync.
+ */
+export const PLAN_ARCHIVE_FILENAME      = 'plan.md'       as const;
+export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;

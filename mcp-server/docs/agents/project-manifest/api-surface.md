@@ -23,11 +23,13 @@ Reads the root index and returns project overview. Includes self-healing logic t
 ```typescript
 (args: { 
   project_path: string; 
-  plan_file: string 
+  plan_file: string  // must equal 'plan.md' — enforced by Zod .refine()
 }) => Promise<MCPResult>
 ```
 
-Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists.
+Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
+
+**`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
 
 #### `ledger_list_projects`
 
@@ -42,10 +44,13 @@ Scans the central ledger root directory and returns metadata for all projects. O
 #### `ledger_complete_synthesis`
 
 ```typescript
-(args: { project_path: string }) => Promise<MCPResult>
+(args: { 
+  project_path: string;
+  synthesis_file?: string;  // default: 'synthesis.md'
+}) => Promise<MCPResult>
 ```
 
-Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and transitions the project to `COMPLETE` if all WPs are done. Idempotent — calling multiple times is safe. Called by the Synthesis agent after generating the final report.
+Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and transitions the project to `COMPLETE` if all WPs are done. Idempotent — calling multiple times is safe. Called by the Synthesis agent after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
 
 #### `ledger_detect_project`
 
@@ -391,6 +396,12 @@ class LedgerStore {
       Promise<{ wp: WorkPackageDetail; root: RootIndex }>
   ): Promise<void>;
 
+  // Document archiving
+  archiveDocuments(filenames: string[]): Promise<{ archived: string[]; skipped: string[] }>;
+  // Copies each filename from planPath to storageDir. Missing sources (ENOENT) are silently
+  // skipped (warning written to stderr). Returns lists of archived and skipped filenames.
+  // Non-ENOENT errors (e.g. EACCES, ENOSPC, EISDIR) are re-thrown to the caller.
+
   // Meta methods
   writeProjectMeta(planFile: string, status?: string): Promise<void>;
 
@@ -603,6 +614,14 @@ function canCompleteWorkPackage(
 Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase.
 
 ```typescript
+// Filename used when reading the archived plan document from centralized storage.
+// Used by gui/api.ts (handleGetPlanDocument) as the read target; also referenced in help-content.ts.
+const PLAN_ARCHIVE_FILENAME = 'plan.md' as const;
+
+// Default filename used by ledger_complete_synthesis when archiving the synthesis document.
+// Used as the Zod .default() value in project-lifecycle.ts; also referenced in help-content.ts.
+const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md' as const;
+
 // Canonical array of valid agent role names. Consumers should import from here
 // rather than defining local copies to avoid silent drift.
 const AGENT_ROLES: readonly [
@@ -614,11 +633,16 @@ const AGENT_ROLES: readonly [
 type AgentRole = typeof AGENT_ROLES[number];
 ```
 
-**Importers:**
+**Importers of `AGENT_ROLES`:**
 - `src/tools/workflow-next-action.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/tools/workflow-handoff.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/tools/workflow-batch-actions.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/utils/agent-registry.ts` — imports `AGENT_ROLES` from `'./constants.js'`
+
+**Importers of `PLAN_ARCHIVE_FILENAME` / `SYNTHESIS_ARCHIVE_FILENAME`:**
+- `gui/api.ts` — imports both; `PLAN_ARCHIVE_FILENAME` used in `handleGetPlanDocument` join() call, `SYNTHESIS_ARCHIVE_FILENAME` used in `handleGetSynthesisDocument` join() call
+- `src/tools/project-lifecycle.ts` — imports `SYNTHESIS_ARCHIVE_FILENAME`; used as Zod `.default()` value
+- `src/tools/help-content.ts` — imports both; used in tool help text template expressions
 
 ---
 
@@ -810,6 +834,13 @@ startConfigWatcher(configPath);          // watch for GUI-driven changes
 
 Pure async handler functions called by the HTTP server (`gui/server.ts`). All handlers accept parsed parameters and return typed result objects, or throw `ApiError`.
 
+**Path-traversal guards:** two module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
+
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all six slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument`, `handleGetSynthesisDocument`).
+- `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
+
+Both guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
+
 ```typescript
 // Error type used by all handlers
 export class ApiError extends Error {
@@ -870,6 +901,22 @@ export async function handleDeleteProject(
   slug: string
 ): Promise<{ deleted: true; slug: string }>;
 
+// GET /api/projects/:slug/plan — returns the archived plan.md content for the project
+// Reads from the centralized storage directory (archived copy, not the original planPath).
+// Throws NOT_FOUND when the project slug does not exist or when no plan.md has been archived yet.
+export async function handleGetPlanDocument(
+  ledgerRoot: string,
+  slug: string
+): Promise<{ content: string }>;
+
+// GET /api/projects/:slug/synthesis — returns the archived synthesis.md content for the project
+// Reads from the centralized storage directory (archived copy written by ledger_complete_synthesis).
+// Throws NOT_FOUND when the project slug does not exist or when no synthesis.md has been archived yet.
+export async function handleGetSynthesisDocument(
+  ledgerRoot: string,
+  slug: string
+): Promise<{ content: string }>;
+
 // GET /api/config — returns in-memory config (no disk read)
 export async function handleGetConfig(configPath: string): Promise<GuiConfig>;
 
@@ -909,6 +956,8 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/projects/:slug` | `handleGetProject` |
 | GET | `/api/projects/:slug/work-packages` | `handleListWorkPackages` |
 | GET | `/api/projects/:slug/work-packages/:wpId` | `handleGetWorkPackage` |
+| GET | `/api/projects/:slug/plan` | `handleGetPlanDocument` |
+| GET | `/api/projects/:slug/synthesis` | `handleGetSynthesisDocument` |
 | DELETE | `/api/projects/:slug` | `handleDeleteProject` |
 | GET | `/api/config` | `handleGetConfig` |
 | PUT | `/api/config` | `handleUpdateConfig` (body parsed inline) |
@@ -954,6 +1003,13 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.progress-bar-track` | Compact horizontal progress track (60×8 px, `overflow:hidden`, `background:var(--color-border)`); used in the project list `% Done` column |
 | `.progress-bar-fill` | Fill layer inside `.progress-bar-track`; `height:100%`, `background:var(--color-ready)`, `transition:width 0.2s ease`; width is set inline by `buildTable()` |
 | `.filter-bar input[type='text']` | Search input in the project list filter bar; matches `.filter-bar select` visually (same padding, border, border-radius, font-size, background); focus ring mirrors `.form-control:focus` |
+| `.plan-content` | Prose container for rendered Markdown in the Plan viewer (`#/projects/:slug/plan`); max-width 800 px; typography for `h1–h4`, `p`, `ul`/`ol`/`li`, `table`/`th`/`td`, `code`, `pre`, `hr`; uses `var(--color-border)` for borders/rules and `var(--radius)` for code/pre |
+| `.plan-synopsis` | Synopsis card injected on the Project Detail page when the archived plan has a `## Summary` section; left-border accent using `var(--color-ready)`; max-height 12 rem with `overflow:hidden` (hard cut-off); surface background |
+| `.plan-synopsis__content` | Inner content block inside `.plan-synopsis` for the summary text |
+| `.plan-synopsis__link` | **View full plan →** link element inside `.plan-synopsis` |
+| `.synthesis-content` | Prose container for rendered Markdown in the Synthesis viewer (`#/projects/:slug/synthesis`); shares all typography rules with `.plan-content` via multi-selector CSS (DRY — no duplicated rules) |
+| `.synthesis-link-row` | Row wrapper for the **View synthesis →** link on the Project Detail page; `margin-bottom: 16px`; only rendered when `project.synthesis_generated === true` |
+| `.synthesis-link` | Pill-style inline link inside `.synthesis-link-row`; styled with `var(--color-primary)` foreground, `var(--color-border)` border, `var(--color-bg-card)` background; hover lightens to `var(--color-bg)` |
 
 > **Resolved (WP-003):** `.priority-high/medium/low` hardcoded hex values have been promoted to `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background was updated from `#e2e8f0` to `var(--color-border)`.
 
@@ -962,11 +1018,14 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 > **Known debt (low):** `.insights-filters` duplicates `.filter-bar` layout properties. The Reviewer approved retaining `.insights-filters` as a semantic distinction for now. A future cleanup WP should consolidate them into a single utility class.
 
 **`app.js` structure:**
-- **`API`** — async fetch wrappers for all 8 REST endpoints (throws `{ code, message }` on non-2xx)
-- **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
-- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`
+- **`API`** — async fetch wrappers for all 10 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`
+- **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/plan`, `#/projects/:slug/synthesis`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); the `/plan` and `/synthesis` matches are registered before the generic `/:slug` match to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
+- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`, `extractSynopsis(markdown)`
+- **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
 - **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug` and `data-name` attributes off `<tr>` elements (full slug + raw project name, both lowercased for case-insensitive match); delete button (COMPLETE only, `confirm()` dialog)
-- **`renderProjectDetail(app, slug)`** — project header + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+- **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); project header + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+- **`renderPlan(app, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
+- **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s

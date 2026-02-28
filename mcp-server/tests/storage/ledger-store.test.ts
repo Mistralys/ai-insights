@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../../src/utils/constants.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
@@ -11,7 +12,7 @@ const PLAN_PATH = join(tmpdir(), '2026-01-01-test-project');
 
 function makeRootIndex(overrides: Partial<RootIndex> = {}): RootIndex {
   return {
-    plan_file: 'plan.md',
+    plan_file: PLAN_ARCHIVE_FILENAME,
     date_created: '2026-02-16 10:00:00',
     last_updated: '2026-02-16 10:00:00',
     status: 'READY',
@@ -78,7 +79,7 @@ describe('LedgerStore', () => {
       const result = await store.readRootIndex();
       expect(result.status).toBe('IN_PROGRESS');
       expect(result.total_work_packages).toBe(1);
-      expect(result.plan_file).toBe('plan.md');
+      expect(result.plan_file).toBe(PLAN_ARCHIVE_FILENAME);
     });
 
     it('throws when file does not exist', async () => {
@@ -123,7 +124,7 @@ describe('LedgerStore', () => {
 
       const raw = await readFile(join(store.storageDir, 'project-ledger.json'), 'utf-8');
       const parsed = JSON.parse(raw);
-      expect(parsed.plan_file).toBe('plan.md');
+      expect(parsed.plan_file).toBe(PLAN_ARCHIVE_FILENAME);
       expect(raw.endsWith('\n')).toBe(true);
     });
 
@@ -140,6 +141,78 @@ describe('LedgerStore', () => {
       await store.writeWorkPackage('WP-001', makeWpDetail());
       const raw = await readFile(join(store.storageDir, 'WP-001.json'), 'utf-8');
       expect(JSON.parse(raw).work_package_id).toBe('WP-001');
+    });
+  });
+
+  describe('archiveDocuments', () => {
+    beforeEach(async () => {
+      // Ensure planPath dir and storageDir both exist
+      const { mkdir } = await import('fs/promises');
+      await mkdir(store.planPath, { recursive: true });
+      await mkdir(store.storageDir, { recursive: true });
+    });
+
+    afterEach(async () => {
+      // Clean up any files written to planPath during tests
+      const { readdir: rd, rm: rmf } = await import('fs/promises');
+      try {
+        const entries = await rd(store.planPath);
+        for (const entry of entries) {
+          await rmf(join(store.planPath, entry), { force: true });
+        }
+      } catch {
+        // planPath may not exist — ignore
+      }
+    });
+
+    it('copy succeeds: archives a present file and returns it in archived', async () => {
+      const { writeFile } = await import('fs/promises');
+      const content = '# Plan\n\nHello world.';
+      await writeFile(join(store.planPath, PLAN_ARCHIVE_FILENAME), content, 'utf-8');
+
+      const result = await store.archiveDocuments([PLAN_ARCHIVE_FILENAME]);
+
+      expect(result.archived).toEqual([PLAN_ARCHIVE_FILENAME]);
+      expect(result.skipped).toEqual([]);
+
+      const destContent = await readFile(join(store.storageDir, PLAN_ARCHIVE_FILENAME), 'utf-8');
+      expect(destContent).toBe(content);
+    });
+
+    it('source missing: skips gracefully without throwing', async () => {
+      const result = await store.archiveDocuments(['missing.md']);
+
+      expect(result.archived).toEqual([]);
+      expect(result.skipped).toEqual(['missing.md']);
+    });
+
+    it('mixed: archives present file, skips missing file', async () => {
+      const { writeFile } = await import('fs/promises');
+      await writeFile(join(store.planPath, PLAN_ARCHIVE_FILENAME), '# Plan', 'utf-8');
+
+      const result = await store.archiveDocuments([PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME]);
+
+      expect(result.archived).toEqual([PLAN_ARCHIVE_FILENAME]);
+      expect(result.skipped).toEqual([SYNTHESIS_ARCHIVE_FILENAME]);
+    });
+
+    it('empty array: returns empty archived and skipped', async () => {
+      const result = await store.archiveDocuments([]);
+
+      expect(result.archived).toEqual([]);
+      expect(result.skipped).toEqual([]);
+    });
+
+    it('non-ENOENT I/O error is re-thrown (destination is a directory → EISDIR)', async () => {
+      const { writeFile, mkdir } = await import('fs/promises');
+      // Source exists so the copy is attempted
+      await writeFile(join(store.planPath, PLAN_ARCHIVE_FILENAME), '# Plan', 'utf-8');
+      // Destination is a directory — copyFile will fail with EISDIR, not ENOENT
+      await mkdir(join(store.storageDir, PLAN_ARCHIVE_FILENAME), { recursive: true });
+
+      await expect(store.archiveDocuments([PLAN_ARCHIVE_FILENAME])).rejects.toMatchObject({
+        code: 'EISDIR',
+      });
     });
   });
 
@@ -221,15 +294,15 @@ describe('LedgerStore.detectProjectByCwd', () => {
   // Seed one project (A) into the shared temp ledger root
   async function seedProjectA(): Promise<void> {
     const storeA = new LedgerStore(planPathA, tempLedgerRoot);
-    await storeA.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    await storeA.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'IN_PROGRESS');
   }
 
   // Seed both projects into the shared temp ledger root
   async function seedBothProjects(): Promise<void> {
     const storeA = new LedgerStore(planPathA, tempLedgerRoot);
-    await storeA.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    await storeA.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'IN_PROGRESS');
     const storeB = new LedgerStore(planPathB, tempLedgerRoot);
-    await storeB.writeProjectMeta('plan.md', 'READY');
+    await storeB.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'READY');
   }
 
   beforeEach(async () => {
@@ -298,9 +371,9 @@ describe('LedgerStore.detectProjectByCwd', () => {
     const planPathD = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-d');
 
     const storeC = new LedgerStore(planPathC, tempLedgerRoot);
-    await storeC.writeProjectMeta('plan.md', 'IN_PROGRESS');
+    await storeC.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'IN_PROGRESS');
     const storeD = new LedgerStore(planPathD, tempLedgerRoot);
-    await storeD.writeProjectMeta('plan.md', 'READY');
+    await storeD.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'READY');
 
     // Both C and D derive the same project root (sharedRoot), so both match
     const cwdPath = join(sharedRoot, 'src');
