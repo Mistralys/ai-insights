@@ -110,28 +110,25 @@ The provider is **auto-detected** from which API key is set. If both are set, th
 
 ### Recommended entry point
 
-Use `./orchestrator/run.sh` as the canonical way to launch the orchestrator.
+Use `node scripts/run-orchestrator.js` as the canonical way to launch the orchestrator.
 It performs a **pre-flight build check** — if any file under `mcp-server/src/`
 is newer than `mcp-server/dist/index.js` (or if `dist/` does not yet exist),
 it automatically rebuilds the MCP server before starting the orchestrator.
 This prevents silent failures caused by a stale compiled dist.
 
-> **Pre-requisite:** Your Python virtual environment must be activated so that `orchestrate` is on `PATH`. Run `source orchestrator/.venv/bin/activate` (or the Windows equivalent) before invoking `run.sh`, or add the activation step to your shell profile.
+> **Pre-requisite:** Your Python virtual environment must be activated so that `orchestrate` is on `PATH`. Run `source orchestrator/.venv/bin/activate` (or the Windows equivalent) before invoking the script, or add the activation step to your shell profile.
 
 ```bash
-# Make executable once (after cloning or pulling)
-chmod +x orchestrator/run.sh
-
 # Activate your virtualenv first
 source orchestrator/.venv/bin/activate
 
 # Run from the workspace root
-./orchestrator/run.sh path/to/plan.md
-./orchestrator/run.sh path/to/plan.md --dry-run
+node scripts/run-orchestrator.js path/to/plan.md
+node scripts/run-orchestrator.js path/to/plan.md --dry-run
 ```
 
 > **Note:** You can still call `orchestrate` directly if you know the MCP
-> server dist is already up to date. `./run.sh` is simply the safer default.
+> server dist is already up to date. `node scripts/run-orchestrator.js` is simply the safer default.
 
 ### Basic run
 
@@ -337,11 +334,11 @@ Create a dedicated plan directory with 2–3 work packages in `READY` state and 
 orchestrate docs/agents/plans/my-test-plan/plan.md --dry-run --max-iterations 5
 ```
 
-Alternatively, use `./orchestrator/run.sh` from the workspace root:
+Alternatively, use the Node.js launcher from the workspace root:
 
 ```bash
 source orchestrator/.venv/bin/activate
-./orchestrator/run.sh docs/agents/plans/my-test-plan/plan.md --dry-run --max-iterations 5
+node scripts/run-orchestrator.js docs/agents/plans/my-test-plan/plan.md --dry-run --max-iterations 5
 ```
 
 ### 2. Expected console output (dry-run)
