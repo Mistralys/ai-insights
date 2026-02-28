@@ -648,6 +648,7 @@ async function completeSynthesis(
  */
 export const _internal = {
   completeSynthesis,
+  initializeProject,
 };
 
 /**

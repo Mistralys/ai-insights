@@ -199,6 +199,20 @@ export async function buildHandoffResponse(
             agent_name: agentName,
             prompt: buildHandoffPrompt(projectPath),
           };
+        } else {
+          // §18.5: Depth limit reached — emit a project comment so PM has a diagnostic breadcrumb.
+          const updated = { ...root, last_updated: now() };
+          updated.project_comments = [
+            ...root.project_comments,
+            {
+              type: 'warning',
+              priority: 'high',
+              timestamp: now(),
+              agent: 'System',
+              note: 'Auto-handoff depth limit reached. Manual routing required.',
+            },
+          ];
+          await store.writeRootIndex(updated);
         }
       } catch (err) {
         process.stderr.write(`[buildHandoffResponse] storage error (auto-handoff depth update): ${String(err)}\n`);

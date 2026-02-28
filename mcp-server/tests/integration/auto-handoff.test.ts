@@ -406,6 +406,25 @@ describe('Auto-handoff chain integration', () => {
       );
       expect(resultAtMax.auto_handoff).toBeUndefined();
     });
+
+    it('FIX-04: emits a high-priority warning project comment when depth limit is reached (§18.5)', async () => {
+      await parseResult(
+        getDeveloperHandoff(
+          [makeWp('WP-001', [{ type: 'implementation', status: 'PASS' }])],
+          tempDir,
+          store,
+        ),
+      );
+
+      const root = await store.readRootIndex();
+      const warningComment = root.project_comments.find(
+        (c: any) => c.note === 'Auto-handoff depth limit reached. Manual routing required.',
+      );
+      expect(warningComment).toBeDefined();
+      expect(warningComment?.type).toBe('warning');
+      expect(warningComment?.priority).toBe('high');
+      expect(warningComment?.agent).toBe('System');
+    });
   });
 
   // ── 4. Rework cycle within depth budget ────────────────────────────────────

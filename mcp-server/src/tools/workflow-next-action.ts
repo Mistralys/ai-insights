@@ -1146,6 +1146,9 @@ export async function getDocumentationAction(
 /**
  * Register the ledger_get_next_action tool on the MCP server.
  */
+/** @internal — exported for unit tests only */
+export const _internal = { getNextAction };
+
 export function register(server: McpServer): void {
   server.registerTool(
     'ledger_get_next_action',

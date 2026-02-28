@@ -337,6 +337,13 @@ async function createWorkPackage(
         rootIndex.status = 'IN_PROGRESS';
       }
 
+      // Reset synthesis_generated flag if a new WP is added to a COMPLETE project
+      // or if the flag is stale (§9b.1 defense-in-depth). Self-healing rules also
+      // correct this on read, but an inline reset prevents the window entirely.
+      if (rootIndex.status === 'COMPLETE' || rootIndex.synthesis_generated) {
+        rootIndex.synthesis_generated = false;
+      }
+
       // 10. Write both files atomically
       await store.writeWorkPackage(wpId, wpDetail);
       await store.writeRootIndex(rootIndex);
@@ -608,6 +615,24 @@ async function updateWorkPackageStatus(
         );
       }
 
+      // 1c. BLOCKED → IN_PROGRESS: agent guard (§6.5, §21.21)
+      // Only PM or the current assignee may manually unblock a work package.
+      // The system auto-unblock path (propagateDependencyUnblock) transitions to READY
+      // directly on the WP detail and does not pass through this guard.
+      if (oldStatus === 'BLOCKED' && newStatus === 'IN_PROGRESS') {
+        const pmAgents = ['Project Manager', 'Project Manager Agent'];
+        const isAllowed =
+          pmAgents.includes(args.agent) ||
+          (wp.assigned_to !== null && args.agent === wp.assigned_to);
+        if (!isAllowed) {
+          throw new Error(
+            `Only the Project Manager or the current assignee ("${wp.assigned_to ?? 'none'}") may unblock work package ${
+              args.work_package_id
+            } (BLOCKED → IN_PROGRESS). You are: ${args.agent}`
+          );
+        }
+      }
+
       // 2. Validate agent permissions for COMPLETE status
       if (newStatus === 'COMPLETE') {
         // Only Documentation Agent can mark work packages as COMPLETE
@@ -676,12 +701,25 @@ async function updateWorkPackageStatus(
         }
       }
 
-      // 5a. IN_PROGRESS → READY: guard (§21.13) — reject if any pipeline is IN_PROGRESS
+      // 5a. IN_PROGRESS → READY: guard (§21.13)
       if (oldStatus === 'IN_PROGRESS' && newStatus === 'READY') {
+        // Reject if any pipeline is IN_PROGRESS
         const activePipeline = wp.pipelines.find((p) => p.status === 'IN_PROGRESS');
         if (activePipeline) {
           throw new Error(
             `Cannot unclaim work package ${args.work_package_id}: cancel all IN_PROGRESS pipelines before unclaiming.`
+          );
+        }
+        // Reject if the agent is not PM or the current assignee
+        const pmAgents = ['Project Manager', 'Project Manager Agent'];
+        const isAllowed =
+          pmAgents.includes(args.agent) ||
+          (wp.assigned_to !== null && args.agent === wp.assigned_to);
+        if (!isAllowed) {
+          throw new Error(
+            `Only the Project Manager or the current assignee ("${wp.assigned_to ?? 'none'}") may unclaim work package ${
+              args.work_package_id
+            } (IN_PROGRESS → READY). You are: ${args.agent}`
           );
         }
       }
@@ -767,8 +805,9 @@ async function updateWorkPackageStatus(
       if (!isTerminalStatus(oldStatus!) && isTerminalStatus(newStatus)) {
         root.pending_work_packages -= 1;
       }
-      // Increment when transitioning from COMPLETE to something else (reopen)
-      if (oldStatus === 'COMPLETE' && newStatus !== 'COMPLETE') {
+      // Increment when transitioning from COMPLETE to a non-terminal status (reopen)
+      // CANCELLED is also terminal — do not increment when COMPLETE → CANCELLED
+      if (oldStatus === 'COMPLETE' && !isTerminalStatus(newStatus)) {
         root.pending_work_packages += 1;
       }
 

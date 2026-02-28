@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises';
 import {
   createTempStore,
   cleanupTempStore,
@@ -11,7 +11,7 @@ import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import { computeHealedStatus, _internal, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
 
-const { completeSynthesis } = _internal;
+const { completeSynthesis, initializeProject } = _internal;
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 
 const PLAN_PATH = join(tmpdir(), '2026-01-01-lifecycle-heal-test');
@@ -1025,5 +1025,48 @@ describe('completeSynthesis: document archiving', () => {
     // Only synthesis.md should be archived, not plan.md
     expect(result.archived_documents).toEqual(['synthesis.md']);
     expect(result.archived_documents).not.toContain('plan.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-14 — initializeProject rejects re-initialization when ledger exists (§5.1)
+// ---------------------------------------------------------------------------
+
+describe('initializeProject — rejects re-initialization when ledger exists (FIX-14)', () => {
+  let tempLedgerRoot: string;
+  let planDir: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'fix14-reinit-'));
+    // Plan path must end with a YYYY-MM-DD-... slug so validatePlanPath accepts it
+    planDir = join(tmpdir(), '2026-02-28-fix14-reinit-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    // planDir is fixed (no YYYY-MM-DD random suffix); remove it explicitly
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('rejects a second initializeProject call when the ledger already exists', async () => {
+    // First call: should succeed and create the ledger
+    const firstResult = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+    expect((firstResult as any).isError).toBeFalsy();
+
+    // Second call on the same path: should be rejected
+    const secondResult = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+    expect((secondResult as any).isError).toBe(true);
+    expect((secondResult as any).content[0].text).toContain('already exists');
   });
 });

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { getQaAction, getReviewerAction, getDocumentationAction, getProjectManagerAction, getDeveloperAction } from '../../src/tools/workflow-next-action.js';
+import { getQaAction, getReviewerAction, getDocumentationAction, getProjectManagerAction, getDeveloperAction, _internal } from '../../src/tools/workflow-next-action.js';
 import { MAX_REWORK_COUNT } from '../../src/utils/workflow-helpers.js';
 import { createTempStore, cleanupTempStore } from '../helpers/create-temp-store.js';
 import { makeWorkPackageDetail, makePipeline } from '../helpers/fixtures.js';
@@ -1152,5 +1152,120 @@ describe('getDocumentationAction — BLOCKED-by-dependency guard (hasDependencyB
 
     expect(result.action).toBe('WRITE_DOCS');
     expect(result.work_package_id).toBe('WP-001');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-05 — RESUME_OR_CANCEL for stale pipelines (§14.2–§14.5, P2)
+// ---------------------------------------------------------------------------
+
+describe('Developer action — RESUME_OR_CANCEL for stale implementation pipeline (FIX-05)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RESUME_OR_CANCEL when Developer has a stale IN_PROGRESS implementation pipeline (>24h)', async () => {
+    const staleStart = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(); // 48h ago
+    const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'IN_PROGRESS', staleStart),
+    ] });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RESUME_OR_CANCEL');
+    expect(result.work_package_id).toBe('WP-001');
+    expect(result.pipeline_type).toBe('implementation');
+    expect(result.age_hours).toBeGreaterThanOrEqual(47);
+  });
+
+  it('does NOT return RESUME_OR_CANCEL for a non-stale implementation pipeline (<24h)', async () => {
+    const recentStart = new Date(Date.now() - 30 * 60 * 1000).toISOString(); // 30min ago
+    const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'IN_PROGRESS', recentStart),
+    ] });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RESUME_OR_CANCEL');
+  });
+});
+
+describe('QA action — RESUME_OR_CANCEL for stale QA pipeline (FIX-05)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RESUME_OR_CANCEL when QA has a stale IN_PROGRESS qa pipeline (>24h)', async () => {
+    const staleStart = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const wp = makeWorkPackageDetail({
+      assigned_to: 'QA',
+      acceptance_criteria: [],
+      pipelines: [
+        makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+        makePipeline('qa', 'IN_PROGRESS', staleStart),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RESUME_OR_CANCEL');
+    expect(result.work_package_id).toBe('WP-001');
+    expect(result.pipeline_type).toBe('qa');
+    expect(result.age_hours).toBeGreaterThanOrEqual(47);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-13 — PM returns CREATE_WORK_PACKAGES when project has zero WPs (§21.2)
+// ---------------------------------------------------------------------------
+
+describe('PM action — CREATE_WORK_PACKAGES when project has zero work packages (FIX-13)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns CREATE_WORK_PACKAGES when there are no work packages', async () => {
+    // Set up an empty project (zero WPs)
+    const rootIndex: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T08:00:00',
+      last_updated: '2026-01-01T08:00:00',
+      status: 'READY',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+    };
+    await handle.store.writeRootIndex(rootIndex);
+
+    // getNextAction creates its own LedgerStore — inject ledger root via process.argv
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Project Manager' })
+      );
+      expect(result.action).toBe('CREATE_WORK_PACKAGES');
+    } finally {
+      process.argv = originalArgv;
+    }
   });
 });

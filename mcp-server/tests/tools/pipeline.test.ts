@@ -18,7 +18,7 @@ const PLAN_PATH = join(tmpdir(), '2026-01-01-test-project');
  * the new pipeline ordering and assigned_to update behaviors.
  */
 
-const { PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP } = _internal;
+const { PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, completePipeline } = _internal;
 
 describe('Pipeline ordering enforcement', () => {
   let tempLedgerRoot: string;
@@ -937,5 +937,128 @@ describe('Pipeline schema work_package_id regex (WP-\\d{3,})', () => {
     it('rejects a trailing-alpha WP ID (WP-123abc) — L-6', () => {
       expect(() => UpdatePipelineProgressSchema.parse({ ...progressBase, work_package_id: 'WP-123abc' })).toThrow();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-06 — completePipeline acceptance_criteria_updates merge semantics (§12.3)
+// ---------------------------------------------------------------------------
+
+const FIX06_PLAN_PATH = join(tmpdir(), '2026-02-28-fix06-ac-merge');
+
+describe('completePipeline — acceptance_criteria_updates merge semantics (FIX-06)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  function makeRoot(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'work/WP-001.md' },
+      ],
+      project_comments: [],
+    };
+  }
+
+  function makeWpWithAc(
+    ac: Array<{ criterion: string; met: boolean }>,
+  ): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: ac,
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    };
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'fix06-ac-merge-'));
+    store = new LedgerStore(FIX06_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    await store.writeRootIndex(makeRoot());
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('updates an existing criterion met flag to true via acceptance_criteria_updates', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'All tests pass', met: false },
+    ]));
+
+    await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Implementation done'],
+      agent_role: 'Developer',
+      acceptance_criteria_updates: [{ criterion: 'All tests pass', met: true }],
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.acceptance_criteria).toHaveLength(1);
+    expect(wp.acceptance_criteria[0]!.criterion).toBe('All tests pass');
+    expect(wp.acceptance_criteria[0]!.met).toBe(true);
+  });
+
+  it('appends an unknown criterion when criterion text is not found', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'Existing criterion', met: false },
+    ]));
+
+    await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+      acceptance_criteria_updates: [{ criterion: 'New criterion from pipeline', met: false }],
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.acceptance_criteria).toHaveLength(2);
+    expect(wp.acceptance_criteria[1]!.criterion).toBe('New criterion from pipeline');
+    expect(wp.acceptance_criteria[1]!.met).toBe(false);
+  });
+
+  it('handles mixed update+append batch — updates existing and appends new in a single call', async () => {
+    await store.writeWorkPackage('WP-001', makeWpWithAc([
+      { criterion: 'Tests pass', met: false },
+    ]));
+
+    await completePipeline({
+      project_path: FIX06_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+      acceptance_criteria_updates: [
+        { criterion: 'Tests pass', met: true },          // update existing
+        { criterion: 'Docs updated', met: false },       // append new
+      ],
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.acceptance_criteria).toHaveLength(2);
+    expect(wp.acceptance_criteria.find((c) => c.criterion === 'Tests pass')?.met).toBe(true);
+    expect(wp.acceptance_criteria.find((c) => c.criterion === 'Docs updated')?.met).toBe(false);
   });
 });

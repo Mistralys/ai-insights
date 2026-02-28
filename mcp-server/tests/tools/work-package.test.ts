@@ -423,6 +423,8 @@ describe('propagateDependencyUnblock — non-dependency blocker guard', () => {
     const wp002 = await store.readWorkPackage('WP-002');
     expect(wp002.status).toBe('READY');
     expect(wp002.blocked_by).toBeUndefined();
+    // FIX-12: assigned_to must survive auto-unblock (§15.4)
+    expect(wp002.assigned_to).toBe('Developer');
   });
 
   it('propagateDependencyUnblock correctly unblocks WPs with no blocked_by field', async () => {
@@ -2141,5 +2143,569 @@ describe('ledger_update_acceptance_criteria — §12.3b', () => {
     const text = (result as any).content[0].text as string;
     const parsed = JSON.parse(text);
     expect(parsed.applied_operations).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-01 — BLOCKED → IN_PROGRESS agent guard (§6.5, §21.21)
+// ---------------------------------------------------------------------------
+
+const FIX01_PLAN_PATH = join(tmpdir(), '2026-02-28-fix01-agent-guard');
+
+describe('updateWorkPackageStatus — BLOCKED → IN_PROGRESS agent guard (FIX-01)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix01-blocked-ip-guard-'));
+    store = new LedgerStore(FIX01_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'BLOCKED', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'BLOCKED',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+      blocked_by: { type: 'decision', description: 'Architecture decision needed' },
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('Project Manager can unblock a WP (BLOCKED → IN_PROGRESS)', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX01_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Project Manager' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('IN_PROGRESS');
+  });
+
+  it('Project Manager Agent can unblock a WP (BLOCKED → IN_PROGRESS)', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX01_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Project Manager Agent' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+  });
+
+  it('current assignee (Developer) can unblock their own WP (BLOCKED → IN_PROGRESS)', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX01_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Developer' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('IN_PROGRESS');
+  });
+
+  it('unrelated agent (QA) is rejected when attempting BLOCKED → IN_PROGRESS', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX01_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'QA' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Project Manager or the current assignee');
+    expect((result as any).content[0].text).toContain('You are: QA');
+  });
+
+  it('Reviewer is rejected when attempting BLOCKED → IN_PROGRESS on another agent\'s WP', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX01_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Reviewer' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('You are: Reviewer');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-02 — IN_PROGRESS → READY agent guard (§6.5, §21.13)
+// ---------------------------------------------------------------------------
+
+const FIX02_PLAN_PATH = join(tmpdir(), '2026-02-28-fix02-unclaim-guard');
+
+describe('updateWorkPackageStatus — IN_PROGRESS → READY agent guard (FIX-02)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix02-ip-ready-guard-'));
+    store = new LedgerStore(FIX02_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('Project Manager can unclaim a WP (IN_PROGRESS → READY)', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX02_PLAN_PATH, work_package_id: 'WP-001', status: 'READY', agent: 'Project Manager' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('READY');
+  });
+
+  it('current assignee (Developer) can unclaim their own WP (IN_PROGRESS → READY)', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX02_PLAN_PATH, work_package_id: 'WP-001', status: 'READY', agent: 'Developer' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('READY');
+  });
+
+  it('unrelated agent (QA) is rejected when attempting IN_PROGRESS → READY', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX02_PLAN_PATH, work_package_id: 'WP-001', status: 'READY', agent: 'QA' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Project Manager or the current assignee');
+    expect((result as any).content[0].text).toContain('You are: QA');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-03 — createWorkPackage resets synthesis_generated on COMPLETE project (§9b.1)
+// ---------------------------------------------------------------------------
+
+const FIX03_PLAN_PATH = join(tmpdir(), '2026-02-28-fix03-synthesis-reset');
+
+describe('createWorkPackage — synthesis_generated reset when added to COMPLETE project (FIX-03)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix03-synthesis-reset-'));
+    store = new LedgerStore(FIX03_PLAN_PATH, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('resets synthesis_generated to false when creating a WP on a COMPLETE project', async () => {
+    // Set up a COMPLETE project with synthesis_generated = true
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'COMPLETE',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+    } as any);
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+    });
+
+    // Create a new WP on the COMPLETE project
+    await createWorkPackage(
+      {
+        project_path: FIX03_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['New feature works'],
+        work_package_file: 'work/WP-002.md',
+      },
+      tempDir
+    );
+
+    const root = await store.readRootIndex();
+    expect(root.synthesis_generated).toBe(false);
+  });
+
+  it('resets synthesis_generated to false even when project is IN_PROGRESS but flag is stale', async () => {
+    // Stale synthesis_generated = true on an IN_PROGRESS project
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+      synthesis_generated: true,
+    } as any);
+
+    await createWorkPackage(
+      {
+        project_path: FIX03_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Feature works'],
+        work_package_file: 'work/WP-001.md',
+      },
+      tempDir
+    );
+
+    const root = await store.readRootIndex();
+    expect(root.synthesis_generated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-07 — IN_PROGRESS → COMPLETE rejected for non-Documentation agents (§6.2, §6.5)
+// ---------------------------------------------------------------------------
+
+const FIX07_PLAN_PATH = join(tmpdir(), '2026-02-28-fix07-complete-guard');
+
+describe('updateWorkPackageStatus — IN_PROGRESS → COMPLETE rejected for non-Documentation agent (FIX-07)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix07-complete-guard-'));
+    store = new LedgerStore(FIX07_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'Feature works', met: true }],
+      revision: 0,
+      pipelines: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('rejects Developer attempting IN_PROGRESS → COMPLETE', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX07_PLAN_PATH, work_package_id: 'WP-001', status: 'COMPLETE', agent: 'Developer' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Only the Documentation Agent');
+    expect((result as any).content[0].text).toContain('You are: Developer');
+  });
+
+  it('rejects QA attempting IN_PROGRESS → COMPLETE', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX07_PLAN_PATH, work_package_id: 'WP-001', status: 'COMPLETE', agent: 'QA' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Only the Documentation Agent');
+    expect((result as any).content[0].text).toContain('You are: QA');
+  });
+
+  it('rejects Reviewer attempting IN_PROGRESS → COMPLETE', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX07_PLAN_PATH, work_package_id: 'WP-001', status: 'COMPLETE', agent: 'Reviewer' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Only the Documentation Agent');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-08 — IN_PROGRESS → CANCELLED rejected for non-PM agent (§6.2, §6.5)
+// ---------------------------------------------------------------------------
+
+const FIX08_PLAN_PATH = join(tmpdir(), '2026-02-28-fix08-cancel-guard');
+
+describe('updateWorkPackageStatus — IN_PROGRESS → CANCELLED rejected for non-PM agent (FIX-08)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix08-cancel-guard-'));
+    store = new LedgerStore(FIX08_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('rejects Developer attempting IN_PROGRESS → CANCELLED', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX08_PLAN_PATH, work_package_id: 'WP-001', status: 'CANCELLED', agent: 'Developer' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Only the Project Manager can cancel');
+    expect((result as any).content[0].text).toContain('You are: Developer');
+  });
+
+  it('rejects QA attempting IN_PROGRESS → CANCELLED', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX08_PLAN_PATH, work_package_id: 'WP-001', status: 'CANCELLED', agent: 'QA' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Only the Project Manager can cancel');
+  });
+
+  it('Project Manager can cancel a WP (IN_PROGRESS → CANCELLED)', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX08_PLAN_PATH, work_package_id: 'WP-001', status: 'CANCELLED', agent: 'Project Manager' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('CANCELLED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-09 — → BLOCKED without blocked_by rejected (§21.11)
+// ---------------------------------------------------------------------------
+
+const FIX09_PLAN_PATH = join(tmpdir(), '2026-02-28-fix09-blocked-no-reason');
+
+describe('updateWorkPackageStatus — → BLOCKED without blocked_by rejected (FIX-09)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix09-blocked-no-reason-'));
+    store = new LedgerStore(FIX09_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('rejects IN_PROGRESS → BLOCKED when blocked_by is omitted', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX09_PLAN_PATH, work_package_id: 'WP-001', status: 'BLOCKED', agent: 'Developer' },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Cannot transition to BLOCKED status without providing blocked_by information');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-10 — COMPLETE → COMPLETE same-state no-op (§6.2)
+// ---------------------------------------------------------------------------
+
+const FIX10_PLAN_PATH = join(tmpdir(), '2026-02-28-fix10-complete-noop');
+
+describe('updateWorkPackageStatus — COMPLETE → COMPLETE same-state no-op (FIX-10)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix10-complete-noop-'));
+    store = new LedgerStore(FIX10_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'Feature works', met: true }],
+      revision: 0,
+      pipelines: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('Documentation Agent can apply COMPLETE → COMPLETE with no side effects', async () => {
+    const rootBefore = await store.readRootIndex();
+    const pendingBefore = rootBefore.pending_work_packages;
+
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX10_PLAN_PATH, work_package_id: 'WP-001', status: 'COMPLETE', agent: 'Documentation Agent' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('COMPLETE');
+    expect(wp.revision).toBe(0); // No revision increment on COMPLETE → COMPLETE
+
+    const rootAfter = await store.readRootIndex();
+    expect(rootAfter.pending_work_packages).toBe(pendingBefore); // Counter unchanged
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-11 — COMPLETE → CANCELLED counter invariant (§6.4, §7.3)
+// ---------------------------------------------------------------------------
+
+const FIX11_PLAN_PATH = join(tmpdir(), '2026-02-28-fix11-counter-invariant');
+
+describe('updateWorkPackageStatus — COMPLETE → CANCELLED counter invariant (FIX-11)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'fix11-counter-invariant-'));
+    store = new LedgerStore(FIX11_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+    });
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('pending_work_packages is unchanged after COMPLETE → CANCELLED (both are terminal)', async () => {
+    const rootBefore = await store.readRootIndex();
+    expect(rootBefore.pending_work_packages).toBe(0);
+
+    const result = await updateWorkPackageStatus(
+      { project_path: FIX11_PLAN_PATH, work_package_id: 'WP-001', status: 'CANCELLED', agent: 'Project Manager' },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+
+    const rootAfter = await store.readRootIndex();
+    expect(rootAfter.pending_work_packages).toBe(0); // Both COMPLETE and CANCELLED are terminal; counter unchanged
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('CANCELLED');
   });
 });
