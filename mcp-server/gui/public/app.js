@@ -37,6 +37,8 @@ var API = (function () {
     getConfig:                function ()             { return request('GET',    '/config'); },
     updateConfig:             function (data)         { return request('PUT',    '/config', data); },
     getInsights:              function ()             { return request('GET',    '/insights'); },
+    getPlanDocument:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/plan'); },
+    getSynthesisDocument:     function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/synthesis'); },
   };
 })();
 
@@ -77,6 +79,18 @@ var Router = (function () {
 
     if (path === '/' || path === '') {
       renderProjectList(app);
+      return;
+    }
+
+    var planMatch = path.match(/^\/projects\/([^/]+)\/plan$/);
+    if (planMatch) {
+      renderPlan(app, decodeURIComponent(planMatch[1]));
+      return;
+    }
+
+    var synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/);
+    if (synthesisMatch) {
+      renderSynthesis(app, decodeURIComponent(synthesisMatch[1]));
       return;
     }
 
@@ -331,12 +345,70 @@ function renderProjectList(app) {
 }
 
 /* ----------------------------------------------------------
-   4b. View: Project Detail
+   4b. View: Plan Document
+   ---------------------------------------------------------- */
+function extractSynopsis(markdown) {
+  var match = markdown.match(/## Summary\s*\n([\s\S]*?)(?=\n## |\n---|\s*$)/);
+  return match ? match[1].trim() : null;
+}
+
+async function renderPlan(app, slug) {
+  app.innerHTML = '<p class="loading">Loading plan\u2026</p>';
+  try {
+    var result = await API.getPlanDocument(slug);
+    var html = marked.parse(result.content);
+    app.innerHTML =
+      '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+      '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Plan</div>' +
+      '<div class="plan-content">' + html + '</div>';
+  } catch (err) {
+    if (err && err.code === 'NOT_FOUND') {
+      app.innerHTML =
+        '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Plan</div>' +
+        '<p class="empty-state">Plan document not available for this project.</p>';
+    } else {
+      app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
+    }
+  }
+}
+
+/* ----------------------------------------------------------
+   4b-ii. View: Synthesis Document
+   ---------------------------------------------------------- */
+async function renderSynthesis(app, slug) {
+  app.innerHTML = '<p class="loading">Loading synthesis\u2026</p>';
+  try {
+    var result = await API.getSynthesisDocument(slug);
+    var html = marked.parse(result.content);
+    app.innerHTML =
+      '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+      '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Synthesis</div>' +
+      '<div class="synthesis-content">' + html + '</div>';
+  } catch (err) {
+    if (err && err.code === 'NOT_FOUND') {
+      app.innerHTML =
+        '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
+        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Synthesis</div>' +
+        '<p class="empty-state">Synthesis document not available for this project.</p>';
+    } else {
+      app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
+    }
+  }
+}
+
+/* ----------------------------------------------------------
+   4c. View: Project Detail
    ---------------------------------------------------------- */
 function renderProjectDetail(app, slug) {
   showLoading(app);
 
-  API.getProject(slug).then(function (project) {
+  Promise.all([
+    API.getProject(slug),
+    API.getPlanDocument(slug).catch(function () { return null; }),
+  ]).then(function (results) {
+    var project = results[0];
+    var planResult = results[1];
     var meta = project.meta || {};
     var wps = project.work_packages || [];
 
@@ -392,6 +464,29 @@ function renderProjectDetail(app, slug) {
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
         '</div>' +
       '</div>' +
+
+      (function () {
+        var synopsisHtml = '';
+        if (planResult && planResult.content) {
+          var synopsis = extractSynopsis(planResult.content);
+          if (synopsis) {
+            synopsisHtml =
+              '<div class="plan-synopsis">' +
+              '<div class="plan-synopsis__content">' + marked.parse(synopsis) + '</div>' +
+              '<a href="#/projects/' + encodeURIComponent(slug) + '/plan" class="plan-synopsis__link">View full plan \u2192</a>' +
+              '</div>';
+          }
+        }
+        return synopsisHtml;
+      })() +
+
+      (function () {
+        if (!project.synthesis_generated) return '';
+        return '<div class="synthesis-link-row">' +
+          '<a href="#/projects/' + encodeURIComponent(slug) + '/synthesis" class="synthesis-link">View synthesis \u2192</a>' +
+          '</div>';
+      })() +
+
       '<div class="card-title">Work Packages</div>' +
       (wps.length
         ? '<div class="table-wrapper"><table>' +

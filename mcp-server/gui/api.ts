@@ -19,6 +19,7 @@ import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore } from '../src/storage/ledger-store.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../src/utils/constants.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
@@ -52,6 +53,36 @@ function forbidden(message: string): never {
 
 function validationError(message: string, details?: unknown): never {
   throw new ApiError('VALIDATION_ERROR', message, details);
+}
+
+/**
+ * Guards against path-traversal attacks on the project slug URL parameter.
+ *
+ * Throws a NOT_FOUND (404) error for any slug that is empty, contains a
+ * forward-slash, or contains a `..` component — all of which could otherwise
+ * be used to escape the ledger root directory.
+ *
+ * @param slug - The raw slug string extracted from the request URL.
+ */
+function assertSafeSlug(slug: string): void {
+  if (!slug || slug.includes('/') || slug.includes('..')) {
+    notFound(`Invalid project slug: '${slug}'.`);
+  }
+}
+
+/**
+ * Guards against path-traversal attacks on the work-package ID URL parameter.
+ *
+ * Throws a NOT_FOUND (404) error for any wpId that is empty, contains a
+ * forward-slash, or contains a `..` component — all of which could otherwise
+ * be used to escape the project ledger directory.
+ *
+ * @param wpId - The raw work-package ID string extracted from the request URL.
+ */
+function assertSafeWpId(wpId: string): void {
+  if (!wpId || wpId.includes('/') || wpId.includes('..')) {
+    notFound(`Invalid work-package ID: '${wpId}'.`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +278,7 @@ export async function handleGetProject(
   ledgerRoot: string,
   slug: string
 ): Promise<ProjectDetail> {
+  assertSafeSlug(slug);
   const store = new LedgerStore(slug, ledgerRoot);
 
   if (!(await store.ledgerDirExists())) {
@@ -277,6 +309,7 @@ export async function handleListWorkPackages(
   ledgerRoot: string,
   slug: string
 ): Promise<RootIndex['work_packages']> {
+  assertSafeSlug(slug);
   const store = new LedgerStore(slug, ledgerRoot);
 
   if (!(await store.ledgerDirExists())) {
@@ -305,6 +338,8 @@ export async function handleGetWorkPackage(
   slug: string,
   wpId: string
 ): Promise<WorkPackageDetail> {
+  assertSafeSlug(slug);
+  assertSafeWpId(wpId);
   const store = new LedgerStore(slug, ledgerRoot);
 
   if (!(await store.ledgerDirExists())) {
@@ -339,6 +374,7 @@ export async function handleDeleteProject(
   ledgerRoot: string,
   slug: string
 ): Promise<DeleteProjectResult> {
+  assertSafeSlug(slug);
   const store = new LedgerStore(slug, ledgerRoot);
 
   if (!(await store.ledgerDirExists())) {
@@ -362,6 +398,61 @@ export async function handleDeleteProject(
   await rm(projectDir, { recursive: true, force: true });
 
   return { deleted: true, slug };
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/plan
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the content of the archived plan.md for a project.
+ * Throws NOT_FOUND if the project does not exist or has no archived plan.
+ */
+export async function handleGetPlanDocument(
+  ledgerRoot: string,
+  slug: string
+): Promise<{ content: string }> {
+  assertSafeSlug(slug);
+  const store = new LedgerStore(slug, ledgerRoot);
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  try {
+    const planContent = await readFile(join(ledgerRoot, slug, PLAN_ARCHIVE_FILENAME), 'utf-8');
+    return { content: planContent };
+  } catch {
+    notFound(`Plan document not found for project '${slug}'.`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/synthesis
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the content of the archived synthesis.md for a project.
+ * Throws NOT_FOUND if the project does not exist or has no archived synthesis.
+ */
+export async function handleGetSynthesisDocument(
+  ledgerRoot: string,
+  slug: string
+): Promise<{ content: string }> {
+  assertSafeSlug(slug);
+  const store = new LedgerStore(slug, ledgerRoot);
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  try {
+    const synthesisContent = await readFile(
+      join(ledgerRoot, slug, SYNTHESIS_ARCHIVE_FILENAME),
+      'utf-8'
+    );
+    return { content: synthesisContent };
+  } catch {
+    notFound(`Synthesis document not found for project '${slug}'.`);
+  }
 }
 
 // ---------------------------------------------------------------------------
