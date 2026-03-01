@@ -126,7 +126,7 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. The response tells you which WP to work on (or to WAIT) and provides `next_steps` with the exact sequence of tool calls.
 3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → start pipeline → implement → complete pipeline.
 4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify, Observe).
-5. **Repeat:** Call `ledger_get_next_action` again. If it returns `IMPLEMENT`, repeat from step 3 (new WP). If it returns `REWORK`, repeat from step 3 but focus on the issues flagged by QA or the Reviewer. Continue until the action is `WAIT`.
+5. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `IMPLEMENT` (new WP), `REWORK` (fix issues flagged by QA or the Reviewer), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 6. {{> handoff-block-vscode}}
 {{else}}

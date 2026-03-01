@@ -31,7 +31,11 @@ mcp_tools:
   - tool: ledger_start_pipeline
     purpose: "Begin the `implementation` pipeline for a WP."
   - tool: ledger_complete_pipeline
-    purpose: "Finalize the pipeline with status, summary, artifacts, acceptance criteria updates, and Code Insight Observer comments. This is the **primary tool for updating acceptance criteria**."
+    purpose: "Finalize the pipeline with status, summary, artifacts, acceptance criteria updates, handoff notes for the next agent, and Code Insight Observer comments. This is the **primary tool for updating acceptance criteria**."
+  - tool: ledger_cancel_pipeline
+    purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
+  - tool: ledger_update_pipeline_progress
+    purpose: "Record incremental progress checkpoints on an active pipeline without completing it."
   - tool: ledger_add_observation
     purpose: Add an observation to an existing pipeline after completion.
   - tool: ledger_add_project_comment
@@ -40,3 +44,5 @@ mcp_tools:
     purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
   - tool: ledger_get_handoff_status
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
+  - tool: ledger_help
+    purpose: "Get usage documentation and examples for any ledger tool."
