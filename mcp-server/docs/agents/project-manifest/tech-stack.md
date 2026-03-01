@@ -115,9 +115,8 @@ Each tool category has its own module with:
 - `pipeline.ts` — Pipeline start/complete operations
 - `observations.ts` — Comment and observation tracking
 - `workflow.ts` — Thin aggregator; delegates to the three sub-modules below
-- `workflow-next-action.ts` — ledger_get_next_action logic
+- `workflow-next-action.ts` — ledger_get_next_action and ledger_get_next_actions (batch) logic
 - `workflow-handoff.ts` — ledger_get_handoff_status logic
-- `workflow-batch-actions.ts` — ledger_get_next_actions (batch) logic
 - `help-content.ts` — Static TOOL_HELP documentation strings (extracted from help.ts)
 
 ---

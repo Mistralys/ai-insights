@@ -170,7 +170,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
-| `mcp_tools` | `Array<{tool, purpose}>` | no | MCP tool entries for the tools table; omitted for Agent 1 |
+| `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, `renderMcpToolsTable` excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
 
 ---
 

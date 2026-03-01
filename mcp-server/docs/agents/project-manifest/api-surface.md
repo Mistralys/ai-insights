@@ -13,7 +13,8 @@ The primary public API is the set of **MCP tools** registered by the server. Age
 #### `ledger_get_project_status`
 
 ```typescript
-(args: { project_path: string }) => Promise<MCPResult>
+(args: { project_path?: string; cwd_path?: string }) => Promise<MCPResult>
+// Note: at least one of project_path or cwd_path is required.
 ```
 
 Reads the root index and returns project overview. Includes self-healing logic (`computeHealedStatus`) that recomputes counters and status from actual work package data. Self-healing separates computation (pure function) from persistence (conditional write under lock). No disk write occurs if counters and status are already correct.
@@ -47,7 +48,8 @@ Scans the central ledger root directory and returns metadata for all projects. O
 
 ```typescript
 (args: {
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   agent_role: string;
   synthesis_file?: string;  // default: 'synthesis.md'
 }) => Promise<MCPResult>
@@ -79,6 +81,8 @@ Identifies the active project by cross-referencing the supplied working-director
 
 Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
+> **WP-005 note:** As of WP-005, all tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
+
 ---
 
 ### Work Package Tools
@@ -87,7 +91,8 @@ Note: `cwd_path` must be a directory path, not a file path. The tool does NOT re
 
 ```typescript
 (args: { 
-  project_path: string; 
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string // WP-### format
 }) => Promise<MCPResult>
 ```
@@ -98,7 +103,8 @@ Reads and returns the full work package detail.
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   status?: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
   assigned_to?: string;
 }) => Promise<MCPResult>
@@ -110,7 +116,8 @@ Lists work package summaries from the root index with optional filters.
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   assigned_to: string;      // Accepted silently but IGNORED — WP always starts with assigned_to: null
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
@@ -130,7 +137,8 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   agent: string;
   override?: boolean;
@@ -147,7 +155,8 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'CANCELLED';
   agent: string;
@@ -177,7 +186,8 @@ The `agent` field is required because the server checks which persona is attempt
 
 ```typescript
 (args: {
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string; // WP-### format
   pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: string;  // Must be "Project Manager"
@@ -196,7 +206,8 @@ The `agent` field is required because the server checks which persona is attempt
 
 ```typescript
 (args: {
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string; // WP-### format
   agent_role: string;      // Must be "Project Manager"
   operations: Array<
@@ -221,11 +232,36 @@ The `agent` field is required because the server checks which persona is attempt
 
 ### Pipeline Tools
 
+#### `ledger_begin_work`
+
+```typescript
+(args: {
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
+  work_package_id: string;
+  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+}) => Promise<MCPResult & { claimed: boolean }>
+```
+
+**Convenience wrapper that replaces the `ledger_claim_work_package` + `ledger_start_pipeline` two-step sequence.** Operates entirely within a single `withLock` scope.
+
+**Claim phase (WP is `READY`):** Applies the same CLAIMABLE_ROLES guard, assignment guard, dependency completeness check, and `READY → IN_PROGRESS` status transition as `ledger_claim_work_package`. On success, `claimed: true` is returned.
+
+**Idempotent re-entry (WP is already `IN_PROGRESS` and `assigned_to` matches `agent_role`):** Skips the claim phase and proceeds directly to the pipeline start phase. `claimed: false` is returned.
+
+**Other statuses (`COMPLETE`, `BLOCKED`, etc.):** Rejected with a descriptive error.
+
+**Pipeline start phase:** Applies the same pipeline ordering, duplicate IN_PROGRESS rejection, rework detection, circuit breaker, revalidation guard, and `agent_role` ownership validation as `ledger_start_pipeline`. A `[PM Override]` marker is added when `agent_role: 'Project Manager'`.
+
+**Response:** Same shape as `ledger_start_pipeline` (updated WP detail + pipelines) with an additional `claimed: boolean` field.
+
 #### `ledger_start_pipeline`
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
@@ -248,7 +284,8 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
@@ -289,11 +326,19 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 
 **`acceptance_criteria_updates` merge semantics:** Each item is matched by exact `criterion` string. If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array.
 
+**Auto-finalize (§WP-006):** When `type: 'documentation'`, `status: 'PASS'`, and `agent_role: 'Documentation'`, the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`:
+- **All criteria met** — WP is automatically transitioned to `COMPLETE` within the same lock scope. Response payload includes `auto_finalized: true`. `pending_work_packages` is decremented and the root summary is updated. After the lock is released, `propagateDependencyUnblock` is called to transition eligible BLOCKED dependents to READY (§6.3 compliance — see Gotcha 8 in constraints.md for lock-ordering details).
+- **Any criterion unmet** — WP remains `IN_PROGRESS`. Response payload includes `auto_finalize_blocked: true` and `unmet_criteria: string[]` listing the unmet criterion texts.
+- **FAIL result or non-Documentation `agent_role`** — auto-finalize does not fire; WP status is unchanged.
+
+`ledger_update_work_package_status` remains registered for PM and edge-case use, but the Documentation agent no longer needs to call it after a successful pipeline PASS.
+
 #### `ledger_cancel_pipeline`
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   reason: string;
@@ -306,7 +351,8 @@ Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting 
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   summary: string[];
@@ -323,7 +369,8 @@ Appends to the summary array of the most recent `IN_PROGRESS` pipeline without c
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   work_package_id: string;
   pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   type: string; // e.g., "code-smell", "refactor", "debt"
@@ -338,7 +385,8 @@ Adds a comment to the most recent pipeline of the specified type. The `pipeline_
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   type: string; // e.g., "incident", "note", "decision"
   priority: 'low' | 'medium' | 'high';
   agent: string;
@@ -363,30 +411,27 @@ Adds a comment to the project-level comments array in the root index. For `incid
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  max_results?: number; // default: 1 (single-action mode)
 }) => Promise<MCPResult>
 ```
 
-Reads root index and work package details to recommend the next action for an agent. Returns a single actionable recommendation. For projects with many independent WPs, prefer `ledger_get_next_actions`.
+Reads root index and work package details to recommend the next action(s) for an agent.
 
-#### `ledger_get_next_actions`
+- **Default (`max_results` omitted or `1`)**: Returns a single action object (early-return mode, backward-compatible).
+- **`max_results > 1`**: Switches to batch collector mode, returning up to `max_results` actions as an array under the `"actions"` key (`{ actions: [...], total: N }`). Useful for projects with many independent WPs that can be processed in parallel.
+- **`action: WAIT` responses**: Automatically include a top-level `handoff_status` key with the same payload as `ledger_get_handoff_status`. Use it directly — no separate call needed. If handoff computation fails, `handoff_status_error` is present instead, signalling a fallback to `ledger_get_handoff_status`.
 
-```typescript
-(args: { 
-  project_path: string;
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
-  max_results?: number; // default: 5
-}) => Promise<MCPResult>
-```
-
-Batch version of `ledger_get_next_action`. Returns all currently actionable work packages for the given agent role, up to `max_results`. Useful in projects with many independent WPs that can be processed in parallel.
+> `ledger_get_next_actions` (plural) has been removed — use `max_results` on this tool instead.
 
 #### `ledger_get_handoff_status`
 
 ```typescript
 (args: { 
-  project_path: string;
+  project_path?: string; // at least one of project_path or cwd_path required
+  cwd_path?: string;
   current_agent: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult>
 ```
@@ -737,7 +782,6 @@ type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
 **Importers of `AGENT_ROLES`:**
 - `src/tools/workflow-next-action.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/tools/workflow-handoff.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
-- `src/tools/workflow-batch-actions.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/utils/agent-registry.ts` — imports `AGENT_ROLES` from `'./constants.js'`
 - `src/tools/work-package.ts` — imports `AGENT_ROLES`, `ORCHESTRATING_ROLES` from `'../utils/constants.js'`
 
@@ -863,6 +907,30 @@ function inferProjectRootFromPlanPath(planPath: string): string;
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts
 function planFolderBasename(projectPath: string): string;
 
+// Resolves the project path from either an explicit project_path or a cwd_path.
+// Resolution order:
+//   1. If project_path is provided: validates format via planFolderBasename(), returns it.
+//   2. If cwd_path is provided: calls LedgerStore.detectProjectByCwd(), returns plan_path on FOUND.
+//      Throws with a candidate list on AMBIGUOUS; throws on NOT_FOUND.
+//   3. If neither is provided: throws 'Either project_path or cwd_path is required.'
+// Exported from src/utils/path-validator.ts. Used by all tool handlers (except initializeProject).
+async function resolveProjectPath(args: {
+  project_path?: string;
+  cwd_path?: string;
+  [key: string]: unknown;
+}): Promise<string>;
+
+// Zod refinement predicate: returns false if BOTH project_path and cwd_path are present.
+// Use with z.object({…}).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG })
+// on any schema that has both optional path fields. See constraint §57.
+// Exported from src/utils/path-validator.ts.
+const mutuallyExclusivePaths: (args: { project_path?: string | null; cwd_path?: string | null }) => boolean;
+
+// Error message paired with mutuallyExclusivePaths.
+// Value: "Provide either 'project_path' or 'cwd_path', not both."
+// Exported from src/utils/path-validator.ts.
+const MUTUAL_EXCLUSIVITY_PATH_MSG: string;
+
 // Returns all pipeline types that come AFTER the given type in canonical PIPELINE_TYPES order.
 // Returns [] for 'documentation' (nothing follows it). Returns [] for unknown types.
 // Exported from src/utils/pipeline-maps.ts. Returns a fresh array — safe to mutate.
@@ -886,7 +954,7 @@ function getUpstreamTypes(type: PipelineType): PipelineType[];
 
 Tool modules expose internal helpers and constants to unit tests via one of three patterns:
 
-- **`pipeline.ts`**, **`work-package.ts`**, **`project-lifecycle.ts`**, **`observations.ts`**, and **`workflow-batch-actions.ts`**: use a manual `export const _internal = { ... }` object. Tests import with `import { _internal } from <module>.js`. In `pipeline.ts` and `observations.ts` the Zod schemas are included in `_internal` (alongside routing constants and helpers) — there is no separate `_schemas` export. See §53 in `constraints.md`.
+- **`pipeline.ts`**, **`work-package.ts`**, **`project-lifecycle.ts`**, and **`observations.ts`**: use a manual `export const _internal = { ... }` object. Tests import with `import { _internal } from <module>.js`. In `pipeline.ts` and `observations.ts` the Zod schemas are included in `_internal` (alongside routing constants and helpers) — there is no separate `_schemas` export. See §53 in `constraints.md`.
 - **Workflow sub-modules**: helpers and constants are exported directly as named exports. Tests use direct named imports from the defining module (e.g. `import { getDeveloperAction } from workflow-next-action.js`). `workflow.ts` re-exports all symbols for backward compatibility, but tests should prefer importing from the defining module.
 
 **These internal exports are not part of the public API — do not call them from production code.**
@@ -909,17 +977,25 @@ export const _internal: {
 ### `src/tools/work-package.ts` — work package helpers
 
 ```typescript
+// Named export — called by pipeline.ts (completePipeline) and updateWorkPackageStatus.
+// Propagates COMPLETE/CANCELLED to eligible BLOCKED dependents (→ READY).
+// Self-contained: creates its own LedgerStore and acquires its own lock.
+export function propagateDependencyUnblock(
+  projectPath: string,
+  completedWpId: string,
+  ledgerRoot?: string
+): Promise<void>;
+```
+
+```typescript
 export const _internal: {
   // Generates the human-readable status transition error guidance string.
   buildStatusTransitionGuidance: (from: WorkPackageStatus, to: WorkPackageStatus) => string;
-  // Checks all dependents of a just-completed/cancelled WP and transitions any whose
-  // dependencies are now all COMPLETE or CANCELLED from BLOCKED → READY.
-  // Sets status_changed_at = now() on each cascaded WP before writing.
+  // Named export promoted in WP-001; _internal reference kept for test imports.
   propagateDependencyUnblock: (
-    rootIndex: RootIndex,
+    projectPath: string,
     completedWpId: string,
-    store: LedgerStore,
-    _ledgerRoot?: string
+    ledgerRoot?: string
   ) => Promise<void>;
   // Re-blocks non-COMPLETE, non-CANCELLED, non-BLOCKED dependents of a reopened WP.
   // Auto-cancels IN_PROGRESS pipelines on re-blocked WPs (auto_cancelled:true).
@@ -1009,22 +1085,6 @@ export const _internal: {
 ```
 
 Exposes the two observation Zod schemas for unit-test validation of individual fields (e.g. the `work_package_id` regex `/^WP-\d{3,}$/`) in isolation. Formerly `_schemas` — renamed to `_internal` per §53 in `constraints.md`.
-
-### `src/tools/workflow-batch-actions.ts` — batch guidance builder
-
-```typescript
-export const _internal: {
-  buildBatchNextSteps: (
-    action: string,
-    wpId: string,
-    pipelineType: string,
-    wpStatus?: string,
-    failedPipelineType?: string,
-  ) => string[];
-};
-```
-
-Exposes the private `buildBatchNextSteps` function for unit testing. `buildBatchNextSteps` generates the `next_steps` guidance array attached to each `ledger_get_next_actions` response item. It resolves the human-readable agent role from `pipelineType` using `pipelineAgentRoleMap` (with a graceful `?? pipelineType` fallback for unknown types), then constructs role-appropriate step lists for each action variant (`IMPLEMENT`, `REWORK`, `WRITE_DOCS`, `REWORK_DOCS`, `RUN_QA`, `REWORK_QA`, `REVIEW`, `REWORK_REVIEW`, `CLAIM_WP`, `WAIT`). The `CLAIM_WP` case uses `agentRole` (not `pipelineType`) for the agent field in the `ledger_claim_work_package` step.
 
 ---
 
@@ -1470,6 +1530,30 @@ export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore): Pro
 //   P7 CLAIM_WP                         — READY WP assigned to Documentation with dependencies satisfied.
 //   Fallback WAIT.
 export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+
+// Post-processes a single-action MCP result: embeds handoff_status in payload.action === 'WAIT'
+// responses. Called from getNextAction at dispatch time so agent action functions remain
+// signature-stable. Non-WAIT actions pass through unchanged.
+// @internal — exported via _internal for unit tests
+async function embedHandoffStatusInWait(
+  mcpResult: { content: Array<{ type: string; text: string }> },
+  projectPath: string,
+  agentRole: string,
+): Promise<{ content: Array<{ type: string; text: string }> }>;
+
+// _internal — exported for unit tests only.
+// buildBatchNextSteps: generates the next_steps guidance array for batch collector results.
+//   Resolves agent role from pipelineType via pipelineAgentRoleMap; builds role-appropriate
+//   step lists for: IMPLEMENT, REWORK, WRITE_DOCS, RUN_QA, RUN_REVIEW, CLAIM_WP, WAIT, etc.
+//   CLAIM_WP uses agentRole (not pipelineType) for the agent field.
+// getNextActionsCollector: collects up to `limit` actionable items for an agent role.
+//   Takes (rootIndex, store, agentRole, limit) — rootIndex already loaded, no disk read.
+//   Returns { actions: [...], total: N } in the same format as max_results batch mode.
+export const _internal: {
+  getNextAction: Function;
+  buildBatchNextSteps: (action: string, wpId: string, pipelineType: string, wpStatus?: string, failedPipelineType?: string) => string[];
+  getNextActionsCollector: (rootIndex: RootIndex, store: LedgerStore, agentRole: AgentRole, limit: number) => Promise<MCPResult>;
+};
 ```
 
 ### `src/tools/workflow-handoff.ts` — ledger_get_handoff_status internals
@@ -1553,6 +1637,15 @@ export function getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootInd
 // Known READY_FOR_* mappings include: READY_FOR_PM → 'Project Manager', READY_FOR_DEVELOPER,
 // READY_FOR_QA, READY_FOR_REVIEW (→ 'Reviewer'), READY_FOR_SYNTHESIS (→ 'Synthesis').
 export function nextAgentFromStatus(status: string, currentAgent: string): string | null;
+
+// Shared utility: compute handoff status payload without MCP response wrapper.
+// Called by workflow-next-action.ts to embed handoff_status in WAIT responses,
+// eliminating the need for a separate ledger_get_handoff_status call for Developer, QA, Reviewer.
+// Throws on path validation failure or project-not-found errors.
+export async function computeHandoffStatus(
+  projectPath: string,
+  agentRole: string,
+): Promise<Record<string, unknown>>;
 
 // Builds the standard handoff response payload (current_agent, next_agent, status).
 export function buildHandoffResponse(

@@ -190,6 +190,30 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 
 ---
 
+### 13b. Auto-Finalize on Documentation Pipeline PASS (§WP-006)
+
+**Rule:** When `ledger_complete_pipeline` is called with `type: "documentation"`, `status: "PASS"`, and `agent_role: "Documentation"`, the server automatically evaluates whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`. If all criteria are met, the WP is transitioned to `COMPLETE` **within the same lock scope** as the pipeline completion — no separate `ledger_update_work_package_status` call is required.
+
+**Conditions (all must apply):**
+- `type === 'documentation'`
+- `status === 'PASS'`
+- `agent_role === 'Documentation'` (PM overrides bypass auto-finalize)
+- All `wp.acceptance_criteria[*].met === true` after applying `acceptance_criteria_updates`
+
+**Response signals:**
+- `auto_finalized: true` — WP transitioned to COMPLETE; `pending_work_packages` decremented.
+- `auto_finalize_blocked: true` + `unmet_criteria: string[]` — criteria check failed; WP stays IN_PROGRESS.
+
+**Enforcement:** Logic in `completePipeline()` in `src/tools/pipeline.ts` (added in WP-006).
+
+**Dependency unblocking side-effect (§6.3):** When auto-finalize transitions the WP to `COMPLETE`, `propagateDependencyUnblock` is called **after** the main lock is released (consistent with §12.2, Gotcha 8). This transitions eligible BLOCKED dependents to `READY`. Only dependents whose `blocked_by.type` is `'dependency'` (or absent) are eligible — WPs blocked by `'external'`, `'decision'`, or `'technical'` reasons remain BLOCKED.
+
+**Rationale:** The Documentation agent always called `ledger_update_work_package_status` immediately after a PASS pipeline — the transition was unconditional and never conditional. Automating it server-side removes a mandatory extra tool call from every Documentation pipeline, shortening the agent loop by one step.
+
+**`ledger_update_work_package_status` remains registered** for PM and edge-case use (e.g., re-opening a WP, manually completing a WP with prior pipeline history).
+
+---
+
 ### 14. Claiming a WP Assigned to Another Agent Requires Override
 
 **Rule:** `ledger_claim_work_package` rejects the claim when the work package's `assigned_to` field differs from the calling `agent` parameter, unless `override: true` is explicitly passed.
@@ -1025,6 +1049,50 @@ for (let i = 1; i < pipelines.length; i++) {
 **(b)** Defining a local test-scope fixture factory function is **prohibited** when a canonical equivalent already exists in `tests/helpers/fixtures.ts`. If the helper does not yet exist and is needed by multiple tests, add it to `tests/helpers/` first rather than duplicating it inline.
 
 **(c)** **Rationale:** Prevents per-file fixture divergence, eliminates test-replica maintenance burden, and ensures fixture behaviour (field defaults, schema shape, timestamps) stays consistent across the entire test suite.
+
+---
+
+### 56. JSDoc Convention for Captured-Closure Variables
+
+**Rule:** When using the captured-closure pattern (an outer-scope `let` written inside a `withLock` / `updateWorkPackageWithSync` callback and read after the call returns), add a brief `// captured via closure in lock callback` inline comment on the `let` declaration.
+
+**Example:**
+```typescript
+let autoFinalizeResult: 'finalized' | 'blocked' | null = null; // captured via closure in lock callback
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  // ... logic that may set autoFinalizeResult ...
+  autoFinalizeResult = 'finalized';
+  return { wp, root };
+});
+if (autoFinalizeResult === 'finalized') { /* ... */ }
+```
+
+**Rationale:** The pattern is non-obvious to contributors unfamiliar with the lock-callback design. Without the comment, reviewers may assume the variable is always `null` after the call (it isn't — the callback executed synchronously within the lock and the `let` is live). See Gotcha 12 for a full explanation of the captured-closure mechanics.
+
+---
+
+### 57. Mutual Exclusivity of `project_path` and `cwd_path` in Tool Schemas
+
+**Rule:** Every MCP tool schema that accepts both an optional `project_path` and an optional `cwd_path` field **must** include a `.refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG })` call to reject payloads that provide both.
+
+**Enforcement:**
+- The predicate `mutuallyExclusivePaths` and the message constant `MUTUAL_EXCLUSIVITY_PATH_MSG` are exported from `src/utils/path-validator.ts`.
+- The `.refine()` call is appended directly to the `z.object({ … })` definition, turning it into a `ZodEffects` type.
+- Because `ZodEffects` does not expose `.passthrough()`, the corresponding `server.registerTool` call **must** use the bare schema name (e.g. `inputSchema: GetWorkPackageSchema`) rather than `inputSchema: GetWorkPackageSchema.passthrough()`.
+- Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
+- `begin-work.ts` (`BeginWorkSchema`) follows the same rule even though it wraps `ledger_begin_work` rather than a `ledger_*` legacy tool.
+
+**Example:**
+```typescript
+const GetWorkPackageSchema = z.object({
+  project_path: z.string().optional().describe('…'),
+  cwd_path:     z.string().optional().describe('…'),
+  work_package_id: z.string().regex(/^WP-\d{3,}$/),
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+```
+
+**Rationale:** Without this guard, callers may accidentally pass both fields. `resolveProjectPath` (in `path-validator.ts`) always prefers `project_path` over `cwd_path`, which silently ignores the `cwd_path`; adding the Zod refinement surfaces the confusion as an error at the schema layer rather than letting incorrect input succeed silently.
 
 ---
 

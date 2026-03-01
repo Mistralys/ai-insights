@@ -68,7 +68,7 @@ You will be provided with:
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the documentation pipeline. Read existing documentation files.
 4. **Update Docs:** Edit the markdown files in the workspace (README, API references, architecture guides).
-5. **Complete Pipeline & Mark Complete:** Call `ledger_complete_pipeline`, then follow the `--- NEXT STEP ---` guidance in the response — it will instruct you to mark the WP as `COMPLETE` via `ledger_update_work_package_status`.
+5. **Complete Pipeline:** Call `ledger_complete_pipeline` with your summary, comments, and `acceptance_criteria_updates`. When `status: PASS` and all acceptance criteria are met, the WP is automatically transitioned to `COMPLETE` — check the response for `auto_finalized: true`. If criteria are still unmet, the response includes `auto_finalize_blocked: true` and the `unmet_criteria` list; update the criteria and re-run the pipeline.
 6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `WRITE_DOCS` (new documentation pass), `REWORK_DOCS` (fix documentation issues), `FINALIZE_WP` (mark WP as COMPLETE — all criteria met), `UPDATE_CRITERIA` (update unmet acceptance criteria before completing), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 7. {{> handoff-block-vscode}}

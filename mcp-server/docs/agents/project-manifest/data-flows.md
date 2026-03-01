@@ -265,10 +265,17 @@ updater function:
 Write both files atomically
 Release lock
   ↓
+If auto-finalize fired (autoFinalizeResult === 'finalized'):
+  propagateDependencyUnblock(projectPath, work_package_id)
+  [acquires its own separate lock — §12.2, Gotcha 8]
+    For each BLOCKED WP whose dependencies include this WP:
+      If all dependencies are now COMPLETE and blocked_by.type === 'dependency' (or absent):
+        Transition BLOCKED → READY, clear blocked_by
+  ↓
 Return updated WorkPackageDetail to agent
 ```
 
-**Result:** Pipeline marked as complete with all metadata captured.
+**Result:** Pipeline marked as complete with all metadata captured. When auto-finalize fires, eligible BLOCKED dependents are also transitioned to READY.
 
 ---
 

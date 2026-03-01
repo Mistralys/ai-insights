@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
-import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
@@ -25,19 +25,25 @@ import { isTerminalStatus } from '../schema/validators.js';
  * the correct AGENT: and STATUS: handoff block for the current agent.
  */
 const GetHandoffStatusSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   current_agent: z
     .string()
     .describe(
       'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
     ),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     // Validate agent role
@@ -67,7 +73,7 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
         'BLOCKED',
         `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`,
         undefined,
-        args.project_path,
+        projectPath,
         store
       );
     }
@@ -83,28 +89,28 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
     // Agent-specific handoff logic
     switch (args.current_agent) {
       case 'Planner':
-        return getPlannerHandoff(wpDetails, args.project_path, store);
+        return getPlannerHandoff(wpDetails, projectPath, store);
       case 'Project Manager':
-        return getProjectManagerHandoff(wpDetails, args.project_path, store);
+        return getProjectManagerHandoff(wpDetails, projectPath, store);
       case 'Developer':
-        return getDeveloperHandoff(wpDetails, args.project_path, store);
+        return getDeveloperHandoff(wpDetails, projectPath, store);
       case 'QA':
-        return getQaHandoff(wpDetails, args.project_path, store);
+        return getQaHandoff(wpDetails, projectPath, store);
       case 'Reviewer':
-        return getReviewerHandoff(wpDetails, args.project_path, store);
+        return getReviewerHandoff(wpDetails, projectPath, store);
       case 'Documentation':
-        return getDocumentationHandoff(wpDetails, args.project_path, store);
+        return getDocumentationHandoff(wpDetails, projectPath, store);
       case 'Synthesis':
         return buildHandoffResponse(
           args.current_agent,
           'COMPLETE',
           'Synthesis complete.',
           'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
-          args.project_path,
+          projectPath,
           store
         );
       default:
-        return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, args.project_path, store);
+        return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, projectPath, store);
     }
   } catch (error) {
     return {
@@ -1010,6 +1016,28 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
   );
 }
 
+/**
+ * Compute the handoff status payload without wrapping in an MCP response.
+ *
+ * Shared utility called by workflow-next-action.ts to embed `handoff_status`
+ * directly in `WAIT` responses, eliminating the need for a separate
+ * `ledger_get_handoff_status` call by Developer, QA, and Reviewer agents.
+ *
+ * @throws {Error} if handoff status computation fails (invalid path, project not found, etc.)
+ */
+export async function computeHandoffStatus(
+  projectPath: string,
+  agentRole: string,
+): Promise<Record<string, unknown>> {
+  const mcpResult = await getHandoffStatus({ project_path: projectPath, current_agent: agentRole });
+  if ('isError' in mcpResult && mcpResult.isError) {
+    const errText = (mcpResult.content as Array<{ text: string }>)[0]?.text ?? 'Handoff status computation failed';
+    throw new Error(errText);
+  }
+  const text = (mcpResult.content as Array<{ type: string; text: string }>)[0]?.text ?? '{}';
+  return JSON.parse(text) as Record<string, unknown>;
+}
+
 
 /**
  * Register the ledger_get_handoff_status tool on the MCP server.
@@ -1019,7 +1047,7 @@ export function register(server: McpServer): void {
     'ledger_get_handoff_status',
     {
       description: 'Get the handoff status to determine if your work is done and which agent should work next. REQUIRED params: project_path, current_agent. Call this after completing your pipelines to check if work should be handed to the next agent in the workflow.',
-      inputSchema: GetHandoffStatusSchema.passthrough(),
+      inputSchema: GetHandoffStatusSchema,
     },
     getHandoffStatus as any
   );

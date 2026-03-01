@@ -1,7 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as nextActionModule from './workflow-next-action.js';
 import * as handoffModule from './workflow-handoff.js';
-import * as batchActionsModule from './workflow-batch-actions.js';
 
 // Re-export for backward compatibility with test namespace imports.
 export * from '../utils/workflow-helpers.js';
@@ -28,5 +27,4 @@ export { PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP } from '../utils/p
 export function register(server: McpServer): void {
   nextActionModule.register(server);
   handoffModule.register(server);
-  batchActionsModule.register(server);
 }

@@ -56,7 +56,6 @@ mcp-server/
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
 │   │   ├── workflow.ts          # Thin aggregator — delegates register() to the three sub-modules; re-exports backward-compat symbols
-│   │   ├── workflow-batch-actions.ts  # ledger_get_next_actions (batch variant)
 │   │   ├── workflow-handoff.ts        # ledger_get_handoff_status
 │   │   └── workflow-next-action.ts    # ledger_get_next_action
 │   │
@@ -66,7 +65,7 @@ mcp-server/
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
-│       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), validatePlanPathOrError()
+│       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
 │       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes)
 │       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
@@ -103,7 +102,6 @@ mcp-server/
     │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT
     │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
     │   ├── work-package.test.ts
-    │   ├── workflow-batch-actions.test.ts  # All-CANCELLED terminal short-circuit; allTerminal/reason string; WP ID regex (4-digit)
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts  # REWORK routing, Documentation FAIL routing, BLOCK_FOR_REWORK_LIMIT
     │   └── workflow-rework-loop.test.ts  # End-to-end rework loop covering FAIL → REWORK → PASS cycles
@@ -135,7 +133,7 @@ File I/O layer with atomicity and locking guarantees. `LedgerStore` is the prima
 
 Each file exports a `register(server: McpServer)` function that registers one or more MCP tools. Tools are grouped by functional category (lifecycle, work packages, pipelines, observations, workflow).
 
-The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (ledger_get_next_action), `workflow-handoff.ts` (ledger_get_handoff_status), and `workflow-batch-actions.ts` (ledger_get_next_actions). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
+The workflow tools are split across three files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (ledger_get_next_action and ledger_get_next_actions), and `workflow-handoff.ts` (ledger_get_handoff_status). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
 
 ### `tests/`
 

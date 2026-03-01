@@ -746,10 +746,26 @@ describe('Pipeline completion guidance (buildCompletionGuidance)', () => {
     expect(guidance).toContain('Documentation');
   });
 
-  it('PASS documentation suggests marking WP as COMPLETE', () => {
+  it('PASS documentation (no auto-finalize result) suggests calling get_handoff_status', () => {
     const guidance = buildCompletionGuidance('WP-001', 'documentation', 'PASS');
+    expect(guidance).toContain('ledger_get_handoff_status');
+    // The old ledger_update_work_package_status call is no longer in the guidance
+    // (WP-006: auto-finalize handles the COMPLETE transition server-side)
+    expect(guidance).not.toContain('ledger_update_work_package_status');
+  });
+
+  it('PASS documentation with auto_finalized mentions COMPLETE and handoff', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'documentation', 'PASS', 'finalized', []);
+    expect(guidance).toContain('auto-finalized');
     expect(guidance).toContain('COMPLETE');
-    expect(guidance).toContain('ledger_update_work_package_status');
+    expect(guidance).toContain('ledger_get_handoff_status');
+  });
+
+  it('PASS documentation with auto_finalize_blocked lists unmet criteria', () => {
+    const guidance = buildCompletionGuidance('WP-001', 'documentation', 'PASS', 'blocked', ['Docs updated', 'Tests pass']);
+    expect(guidance).toContain('NOT auto-finalized');
+    expect(guidance).toContain('Docs updated');
+    expect(guidance).toContain('Tests pass');
   });
 
   it('FAIL implementation tells agent to leave WP as IN_PROGRESS for Developer rework', () => {
@@ -1060,5 +1076,362 @@ describe('completePipeline — acceptance_criteria_updates merge semantics (FIX-
     expect(wp.acceptance_criteria).toHaveLength(2);
     expect(wp.acceptance_criteria.find((c) => c.criterion === 'Tests pass')?.met).toBe(true);
     expect(wp.acceptance_criteria.find((c) => c.criterion === 'Docs updated')?.met).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-006 — completePipeline auto-finalize on documentation PASS (§WP-006)
+// ---------------------------------------------------------------------------
+
+const WP006_PLAN_PATH = join(tmpdir(), '2026-03-01-wp006-auto-finalize');
+
+describe('completePipeline — auto-finalize on documentation PASS (WP-006)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  function makeRootForAutoFinalize(pending = 1): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: pending,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Documentation', dependencies: [], file: 'work/WP-001.md' },
+      ],
+      project_comments: [],
+    };
+  }
+
+  /** WP ready for documentation pipeline — all prerequisite pipelines completed */
+  function makeWpForDocPipeline(
+    ac: Array<{ criterion: string; met: boolean }>,
+    extraPipelines: Array<{ type: string; status: string; started_at?: string; completed_at?: string }> = [],
+  ): WorkPackageDetail {
+    const prereqs: WorkPackageDetail['pipelines'] = [
+      { type: 'implementation', status: 'PASS', started_at: '2026-03-01T08:00:00Z', completed_at: '2026-03-01T09:00:00Z', summary: [] },
+      { type: 'qa',             status: 'PASS', started_at: '2026-03-01T09:00:00Z', completed_at: '2026-03-01T10:00:00Z', summary: [] },
+      { type: 'code-review',   status: 'PASS', started_at: '2026-03-01T10:00:00Z', completed_at: '2026-03-01T11:00:00Z', summary: [] },
+      { type: 'documentation', status: 'IN_PROGRESS', started_at: '2026-03-01T11:00:00Z', summary: [] },
+      ...extraPipelines,
+    ];
+    return {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Documentation',
+      dependencies: [],
+      acceptance_criteria: ac,
+      revision: 0,
+      pipelines: prereqs,
+    };
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp006-auto-finalize-'));
+    store = new LedgerStore(WP006_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('auto-finalizes WP to COMPLETE when doc pipeline PASS + all criteria met', async () => {
+    await store.writeRootIndex(makeRootForAutoFinalize());
+    await store.writeWorkPackage('WP-001', makeWpForDocPipeline([
+      { criterion: 'Docs updated', met: true },
+      { criterion: 'README accurate', met: true },
+    ]));
+
+    const result = await completePipeline({
+      project_path: WP006_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'PASS',
+      summary: ['Documentation complete'],
+      agent_role: 'Documentation',
+    });
+
+    // Response should include auto_finalized: true
+    const text = (result as any).content[0].text;
+    const json = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(json.auto_finalized).toBe(true);
+    expect(json.auto_finalize_blocked).toBeUndefined();
+
+    // WP should be COMPLETE
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('COMPLETE');
+    expect(wp.status_changed_at).toBeDefined();
+
+    // Root index should reflect COMPLETE and decremented pending counter
+    const root = await store.readRootIndex();
+    expect(root.work_packages[0]!.status).toBe('COMPLETE');
+    expect(root.pending_work_packages).toBe(0);
+  });
+
+  it('does NOT auto-finalize when doc pipeline PASS + unmet criteria', async () => {
+    await store.writeRootIndex(makeRootForAutoFinalize());
+    await store.writeWorkPackage('WP-001', makeWpForDocPipeline([
+      { criterion: 'Docs updated', met: true },
+      { criterion: 'README accurate', met: false },  // <-- unmet
+    ]));
+
+    const result = await completePipeline({
+      project_path: WP006_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'PASS',
+      summary: ['Partial docs'],
+      agent_role: 'Documentation',
+    });
+
+    const text = (result as any).content[0].text;
+    const json = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(json.auto_finalize_blocked).toBe(true);
+    expect(json.unmet_criteria).toContain('README accurate');
+    expect(json.auto_finalized).toBeUndefined();
+
+    // WP should remain IN_PROGRESS
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('IN_PROGRESS');
+
+    // pending counter must not change
+    const root = await store.readRootIndex();
+    expect(root.pending_work_packages).toBe(1);
+  });
+
+  it('does NOT auto-finalize when doc pipeline FAIL', async () => {
+    await store.writeRootIndex(makeRootForAutoFinalize());
+    await store.writeWorkPackage('WP-001', makeWpForDocPipeline([
+      { criterion: 'Docs updated', met: true },
+    ]));
+
+    const result = await completePipeline({
+      project_path: WP006_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'FAIL',
+      summary: ['Docs incomplete'],
+      agent_role: 'Documentation',
+    });
+
+    const text = (result as any).content[0].text;
+    const json = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(json.auto_finalized).toBeUndefined();
+    expect(json.auto_finalize_blocked).toBeUndefined();
+
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('IN_PROGRESS');
+  });
+
+  it('does NOT auto-finalize when non-documentation pipeline PASS + all criteria met', async () => {
+    // Re-use FIX-06 setup: implementation pipeline, all criteria met
+    await store.writeRootIndex(makeRootForAutoFinalize());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'All tests pass', met: true }],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: '2026-03-01T08:00:00Z', summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: WP006_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Implementation done'],
+      agent_role: 'Developer',
+    });
+
+    const text = (result as any).content[0].text;
+    const json = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(json.auto_finalized).toBeUndefined();
+    expect(json.auto_finalize_blocked).toBeUndefined();
+
+    // WP should remain IN_PROGRESS (can't auto-finalize from implementation)
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('IN_PROGRESS');
+  });
+});
+
+// Auto-finalize + propagateDependencyUnblock (§6.3 compliance)
+// ---------------------------------------------------------------------------
+// Verifies that when completePipeline auto-finalizes a WP to COMPLETE, the server
+// also calls propagateDependencyUnblock — transitioning eligible BLOCKED dependents
+// to READY (lock-ordering §12.2, Gotcha 8 respected: call happens outside main lock).
+
+const AUTOFINALIZE_UNBLOCK_PLAN_PATH = join(tmpdir(), '2026-03-01-autofinalize-unblock');
+
+describe('completePipeline — auto-finalize triggers propagateDependencyUnblock (§6.3)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  /** Root index with WP-001 (to-be-finalized) and WP-002 (dependent). */
+  function makeRootWithDependent(wp2Status: 'BLOCKED' | 'READY'): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 2,
+      pending_work_packages: 2,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Documentation', dependencies: [], file: 'ledger/WP-001.json' },
+        { work_package_id: 'WP-002', status: wp2Status, assigned_to: 'Developer', dependencies: ['WP-001'], file: 'ledger/WP-002.json' },
+      ],
+      project_comments: [],
+    };
+  }
+
+  /** WP-001 ready for documentation pipeline. */
+  function makeWp001ForDocPipeline(): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Documentation',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'All done', met: true }],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'PASS', started_at: '2026-03-01T08:00:00Z', completed_at: '2026-03-01T09:00:00Z', summary: [] },
+        { type: 'qa',             status: 'PASS', started_at: '2026-03-01T09:00:00Z', completed_at: '2026-03-01T10:00:00Z', summary: [] },
+        { type: 'code-review',   status: 'PASS', started_at: '2026-03-01T10:00:00Z', completed_at: '2026-03-01T11:00:00Z', summary: [] },
+        { type: 'documentation', status: 'IN_PROGRESS', started_at: '2026-03-01T11:00:00Z', summary: [] },
+      ],
+    };
+  }
+
+  /** A BLOCKED WP-002 that depends on WP-001 (dependency blocker). */
+  function makeWp002Blocked(blockerType: 'dependency' | 'technical' = 'dependency'): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'BLOCKED',
+      assigned_to: 'Developer',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [{ criterion: 'Feature implemented', met: false }],
+      revision: 0,
+      pipelines: [],
+      blocked_by: {
+        type: blockerType,
+        description: blockerType === 'dependency'
+          ? 'Dependency WP-001 not yet COMPLETE'
+          : 'Awaiting external tool availability',
+      },
+    };
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'autofinalize-unblock-'));
+    store = new LedgerStore(AUTOFINALIZE_UNBLOCK_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('auto-finalizes WP-001 and transitions BLOCKED dependent (WP-002) to READY', async () => {
+    await store.writeRootIndex(makeRootWithDependent('BLOCKED'));
+    await store.writeWorkPackage('WP-001', makeWp001ForDocPipeline());
+    await store.writeWorkPackage('WP-002', makeWp002Blocked('dependency'));
+
+    const result = await completePipeline({
+      project_path: AUTOFINALIZE_UNBLOCK_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'PASS',
+      summary: ['Documentation complete'],
+      agent_role: 'Documentation',
+    });
+
+    // WP-001 must be COMPLETE (auto-finalized)
+    const wp1 = await store.readWorkPackage('WP-001');
+    expect(wp1.status).toBe('COMPLETE');
+
+    const text = (result as any).content[0].text;
+    const json = JSON.parse(text.split('\n\n--- NEXT STEP ---')[0]);
+    expect(json.auto_finalized).toBe(true);
+
+    // WP-002 must have been unblocked to READY by propagateDependencyUnblock
+    const wp2 = await store.readWorkPackage('WP-002');
+    expect(wp2.status).toBe('READY');
+    expect(wp2.blocked_by).toBeUndefined();
+
+    const root = await store.readRootIndex();
+    const wp2Summary = root.work_packages.find(w => w.work_package_id === 'WP-002');
+    expect(wp2Summary?.status).toBe('READY');
+  });
+
+  it('auto-finalizes WP-001 with no dependents → no error, no side effects', async () => {
+    // Root with only WP-001 (no dependents)
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Documentation', dependencies: [], file: 'ledger/WP-001.json' },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWp001ForDocPipeline());
+
+    const result = await completePipeline({
+      project_path: AUTOFINALIZE_UNBLOCK_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'PASS',
+      summary: ['Documentation complete'],
+      agent_role: 'Documentation',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+
+    const wp1 = await store.readWorkPackage('WP-001');
+    expect(wp1.status).toBe('COMPLETE');
+  });
+
+  it('auto-finalizes WP-001 but does NOT unblock WP-002 blocked by a non-dependency reason', async () => {
+    await store.writeRootIndex(makeRootWithDependent('BLOCKED'));
+    await store.writeWorkPackage('WP-001', makeWp001ForDocPipeline());
+    // WP-002 BLOCKED for a non-dependency reason — must stay BLOCKED
+    await store.writeWorkPackage('WP-002', makeWp002Blocked('technical'));
+
+    await completePipeline({
+      project_path: AUTOFINALIZE_UNBLOCK_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'PASS',
+      summary: ['Documentation complete'],
+      agent_role: 'Documentation',
+    });
+
+    // WP-001 auto-finalized
+    const wp1 = await store.readWorkPackage('WP-001');
+    expect(wp1.status).toBe('COMPLETE');
+
+    // WP-002 must remain BLOCKED (non-dependency blocker)
+    const wp2 = await store.readWorkPackage('WP-002');
+    expect(wp2.status).toBe('BLOCKED');
+    expect(wp2.blocked_by?.type).toBe('technical');
   });
 });

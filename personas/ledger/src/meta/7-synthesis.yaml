@@ -21,8 +21,6 @@ self_documenting_note: true
 has_incident_logging: false
 
 mcp_tools:
-  - tool: ledger_detect_project
-    purpose: Detect the active project from the current workspace path.
   - tool: ledger_get_next_action
     purpose: "Confirm the project is ready for synthesis (expects `GENERATE_SYNTHESIS`)."
   - tool: ledger_get_project_status

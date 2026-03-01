@@ -8,7 +8,7 @@ import { isTerminalStatus } from '../schema/validators.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
-import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { validatePlanPath, resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
 
@@ -91,8 +91,10 @@ async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
  * Includes self-healing logic that recomputes counters from actual WP data.
  */
 const GetProjectStatusSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-});
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 /**
  * Pure function: computes the healed project status and counters from
@@ -265,13 +267,14 @@ async function validatePipelineOrdering(
 }
 
 async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
-  // Validate that the path ends with a valid plan folder pattern
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) {
-    return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     // Read the root index
@@ -343,7 +346,7 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
         content: [
           {
             type: 'text' as const,
-            text: `Project not initialized at ${args.project_path}. Use ledger_initialize_project to create a new project ledger.`,
+            text: `Project not initialized at ${projectPath}. Use ledger_initialize_project to create a new project ledger.`,
           },
         ],
       };
@@ -384,9 +387,9 @@ async function initializeProject(
   args: z.infer<typeof InitializeProjectSchema>
 ) {
   // Validate that the path ends with a valid plan folder pattern
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) {
-    return validationError;
+  const pathValidation = validatePlanPath(args.project_path);
+  if (!pathValidation.isValid) {
+    return { content: [{ type: 'text' as const, text: pathValidation.error }], isError: true };
   }
 
   const store = new LedgerStore(args.project_path);
@@ -514,7 +517,12 @@ async function listProjects(args: z.infer<typeof ListProjectsSchema>) {
 const CompleteSynthesisSchema = z.object({
   project_path: z
     .string()
+    .optional()
     .describe('Absolute path to the project plan directory'),
+  cwd_path: z
+    .string()
+    .optional()
+    .describe('Workspace root path — alternative to project_path for automatic project detection.'),
   agent_role: z
     .string()
     .describe('The agent role completing synthesis (must be "Synthesis" or "Project Manager")'),
@@ -523,16 +531,21 @@ const CompleteSynthesisSchema = z.object({
     .optional()
     .default(SYNTHESIS_ARCHIVE_FILENAME)
     .describe(`Filename of the synthesis document (default: "${SYNTHESIS_ARCHIVE_FILENAME}")`),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function completeSynthesis(
   args: z.infer<typeof CompleteSynthesisSchema>,
   _ledgerRoot?: string
 ) {
-  const pathError = await validatePlanPathOrError(args.project_path);
-  if (pathError) return pathError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path, _ledgerRoot);
+  const store = new LedgerStore(projectPath, _ledgerRoot);
 
   try {
     let result: { content: Array<{ type: 'text'; text: string }>; isError?: boolean } | undefined;
@@ -672,7 +685,7 @@ export function register(server: McpServer): void {
     'ledger_get_project_status',
     {
       description: 'Read project overview from the root index. REQUIRED params: project_path. Returns work package summaries, counters, and project status. Self-heals incorrect counters. Call this first to understand project state.',
-      inputSchema: GetProjectStatusSchema.passthrough(),
+      inputSchema: GetProjectStatusSchema,
     },
     getProjectStatus as any
   );
@@ -699,7 +712,7 @@ export function register(server: McpServer): void {
     'ledger_complete_synthesis',
     {
       description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: project_path, agent_role. Call this after generating the synthesis report.',
-      inputSchema: CompleteSynthesisSchema.passthrough(),
+      inputSchema: CompleteSynthesisSchema,
     },
     completeSynthesis as any
   );

@@ -2,10 +2,16 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
-import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { isTerminalStatus, canStartWorkPackage } from '../schema/validators.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
-import { PIPELINE_TYPES, type PipelineType } from '../utils/pipeline-maps.js';
+import {
+  PIPELINE_TYPES,
+  PIPELINE_PREREQUISITES,
+  AGENT_PIPELINE_MAP,
+  type PipelineType,
+  type PostImplPipelineType,
+} from '../utils/pipeline-maps.js';
 import { parseTimestamp } from '../utils/timestamp.js';
 import {
   extractStalePipelineAction,
@@ -19,7 +25,13 @@ import {
   mostRecentEffectivePipeline,
   MAX_REWORK_COUNT,
   STALE_PIPELINE_HOURS,
+  pipelineAgentRoleMap,
+  agentNameMap,
+  actionNameMap,
+  reworkActionMap,
+  isStalePipeline,
 } from '../utils/workflow-helpers.js';
+import { computeHandoffStatus } from './workflow-handoff.js';
 /**
  * Tool: get_next_action
  *
@@ -27,19 +39,31 @@ import {
  * Returns actionable recommendations based on work package statuses and pipeline states.
  */
 const GetNextActionSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   agent_role: z
     .string()
     .describe(
       'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
     ),
-});
+  max_results: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Maximum number of actionable WPs to return (default: 1). When > 1, returns up to this many actions as an array under the "actions" key instead of a single action object. Useful for projects with many independent WPs.'),
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     // Validate agent role
@@ -72,21 +96,25 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
           ],
         };
       } else {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  action: 'WAIT',
-                  reason: `No work packages exist yet. Wait for Project Manager to create work packages.`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return await embedHandoffStatusInWait(
+          {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    action: 'WAIT',
+                    reason: `No work packages exist yet. Wait for Project Manager to create work packages.`,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          },
+          projectPath,
+          args.agent_role
+        );
       }
     }
 
@@ -99,22 +127,25 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
       if (args.agent_role === 'Synthesis') {
         // Only offer GENERATE_SYNTHESIS once — guard with synthesis_generated flag
         if (rootIndex.synthesis_generated) {
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(
-                  {
-                    action: 'WAIT',
-                    reason:
-                      'Synthesis report has already been generated. Nothing to do.',
-                  },
-                  null,
-                  2
-                ),
-              },
-            ],
-          };
+          return await embedHandoffStatusInWait(
+            {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify(
+                    {
+                      action: 'WAIT',
+                      reason: 'Synthesis report has already been generated. Nothing to do.',
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+            },
+            projectPath,
+            args.agent_role
+          );
         }
         return {
           content: [
@@ -150,23 +181,31 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
           ],
         };
       } else {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  action: 'WAIT',
-                  reason:
-                    'All work packages are COMPLETE. Project is ready for Synthesis agent.',
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return await embedHandoffStatusInWait(
+          {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    action: 'WAIT',
+                    reason: 'All work packages are COMPLETE. Project is ready for Synthesis agent.',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          },
+          projectPath,
+          args.agent_role
+        );
       }
+    }
+
+    // If max_results > 1, use batch collector mode
+    if (args.max_results !== undefined && args.max_results > 1) {
+      return getNextActionsCollector(rootIndex, store, args.agent_role as AgentRole, args.max_results);
     }
 
     // Agent-specific logic
@@ -174,46 +213,53 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
       case 'Project Manager':
         return await getProjectManagerAction(rootIndex, store);
       case 'Developer':
-        return await getDeveloperAction(rootIndex, store);
+        return await embedHandoffStatusInWait(await getDeveloperAction(rootIndex, store), projectPath, args.agent_role);
       case 'QA':
-        return await getQaAction(rootIndex, store);
+        return await embedHandoffStatusInWait(await getQaAction(rootIndex, store), projectPath, args.agent_role);
       case 'Reviewer':
-        return await getReviewerAction(rootIndex, store);
+        return await embedHandoffStatusInWait(await getReviewerAction(rootIndex, store), projectPath, args.agent_role);
       case 'Documentation':
-        return await getDocumentationAction(rootIndex, store);
+        return await embedHandoffStatusInWait(await getDocumentationAction(rootIndex, store), projectPath, args.agent_role);
       case 'Synthesis':
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  action: 'WAIT',
-                  reason:
-                    'Not all work packages are COMPLETE. Wait for all WPs to finish.',
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return await embedHandoffStatusInWait(
+          {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    action: 'WAIT',
+                    reason: 'Not all work packages are COMPLETE. Wait for all WPs to finish.',
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          },
+          projectPath,
+          args.agent_role
+        );
       default:
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: JSON.stringify(
-                {
-                  action: 'WAIT',
-                  reason: `No action available for agent role: ${args.agent_role}`,
-                },
-                null,
-                2
-              ),
-            },
-          ],
-        };
+        return await embedHandoffStatusInWait(
+          {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify(
+                  {
+                    action: 'WAIT',
+                    reason: `No action available for agent role: ${args.agent_role}`,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          },
+          projectPath,
+          args.agent_role
+        );
     }
   } catch (error) {
     return {
@@ -226,6 +272,41 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
       isError: true,
     };
   }
+}
+
+/**
+ * Post-processes a single-action MCP result: if payload.action === "WAIT",
+ * computes handoff_status via computeHandoffStatus and embeds it as a top-level key.
+ * Non-WAIT responses and empty projectPath values are returned unchanged.
+ * On handoff computation failure, embeds handoff_status_error instead.
+ * @internal — exposed via _internal for unit tests
+ */
+async function embedHandoffStatusInWait(
+  mcpResult: { content: Array<{ type: string; text: string }> },
+  projectPath: string,
+  agentRole: string,
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  const text = mcpResult.content[0]?.text;
+  if (!text || !projectPath) return mcpResult;
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return mcpResult;
+  }
+
+  if (payload['action'] !== 'WAIT') return mcpResult;
+
+  try {
+    payload['handoff_status'] = await computeHandoffStatus(projectPath, agentRole);
+  } catch (err) {
+    payload['handoff_status_error'] = (err as Error).message;
+  }
+
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+  };
 }
 
 /**
@@ -469,7 +550,7 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} has a FAIL implementation pipeline. Rework and retry.`,
             next_steps: [
-              `1. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation") — WP is already IN_PROGRESS.`,
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "implementation", agent_role: "Developer") — WP is already IN_PROGRESS, starts pipeline directly.`,
               '2. Review the previous FAIL pipeline summary, fix the issues, run tests.',
               `3. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
               `4. Call ledger_get_handoff_status (current_agent: "Developer").`,
@@ -497,7 +578,7 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
               reason: `Work package ${wpDetail.work_package_id} has a downstream failure after implementation was accepted. Downstream re-engagement detected.`,
               next_steps: [
                 `1. Call ledger_get_work_package to review the downstream FAIL pipeline comments/summary.`,
-                `2. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation") to begin a new implementation cycle.`,
+                `2. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "implementation", agent_role: "Developer") to begin a new implementation cycle.`,
                 '3. Fix the issues identified by the failed pipeline, run tests.',
                 `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
                 `5. Call ledger_get_handoff_status (current_agent: "Developer").`,
@@ -534,11 +615,10 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
               work_package_id: wpDetail.work_package_id,
               reason: `Work package ${wpDetail.work_package_id} is IN_PROGRESS with no implementation pipeline. Implement.`,
               next_steps: [
-                `1. WP is already IN_PROGRESS — skip claiming.`,
-                `2. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation").`,
-                '3. Read the WP spec, implement the changes, run tests.',
-                `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
-                `5. Call ledger_get_handoff_status (current_agent: "Developer").`,
+                `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "implementation", agent_role: "Developer").`,
+                '2. Read the WP spec, implement the changes, run tests.',
+                `3. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+                `4. Call ledger_get_handoff_status (current_agent: "Developer").`,
               ],
               ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
             }, null, 2),
@@ -558,11 +638,10 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} is READY and assigned to Developer with all dependencies satisfied.`,
             next_steps: [
-              `1. Call ledger_claim_work_package (work_package_id: "${wpDetail.work_package_id}", agent: "Developer") to transition to IN_PROGRESS.`,
-              `2. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation").`,
-              '3. Read the WP spec, implement the changes, run tests.',
-              `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
-              `5. Call ledger_get_handoff_status (current_agent: "Developer").`,
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "implementation", agent_role: "Developer") to claim and start the pipeline in one step.`,
+              '2. Read the WP spec, implement the changes, run tests.',
+              `3. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+              `4. Call ledger_get_handoff_status (current_agent: "Developer").`,
             ],
             ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
           }, null, 2),
@@ -669,7 +748,7 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} has a new implementation PASS since the last QA pipeline. Re-run QA.`,
             next_steps: [
-              `1. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa").`,
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "qa", agent_role: "QA").`,
               `2. Call ledger_get_work_package to review implementation artifacts and acceptance criteria.`,
               '3. Execute the Verification Stack: build check, AC verification, regression tests, edge-case stress tests.',
               `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
@@ -709,7 +788,7 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore) {
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} has PASS implementation pipeline but no QA pipeline. Run QA.`,
             next_steps: [
-              `1. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa").`,
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "qa", agent_role: "QA").`,
               `2. Call ledger_get_work_package to review implementation artifacts and acceptance criteria.`,
               '3. Execute the Verification Stack: build check, AC verification, regression tests, edge-case stress tests.',
               `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
@@ -843,7 +922,7 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} has a new QA PASS since the last code-review pipeline. Re-run review.`,
             next_steps: [
-              `1. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review").`,
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "code-review", agent_role: "Reviewer").`,
               `2. Call ledger_get_work_package to review implementation artifacts and QA results.`,
               '3. Perform code review: architecture, quality, security, maintainability.',
               `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
@@ -883,7 +962,7 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
             work_package_id: wpDetail.work_package_id,
             reason: `Work package ${wpDetail.work_package_id} has PASS QA pipeline but no code-review pipeline. Run review.`,
             next_steps: [
-              `1. Call ledger_start_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review").`,
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "code-review", agent_role: "Reviewer").`,
               `2. Call ledger_get_work_package to review implementation artifacts and QA results.`,
               '3. Perform code review: architecture, quality, security, maintainability.',
               `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
@@ -1012,7 +1091,7 @@ export async function getDocumentationAction(
             reason: `Work package ${id} has a FAIL documentation pipeline. Investigate and retry documentation.`,
             next_steps: [
               `1. Call ledger_get_work_package to review the previous FAIL documentation pipeline summary and comments.`,
-              `2. Call ledger_start_pipeline (work_package_id: "${id}", type: "documentation").`,
+              `2. Call ledger_begin_work (work_package_id: "${id}", type: "documentation", agent_role: "Documentation").`,
               '3. Fix documentation issues, update affected files.',
               `4. Call ledger_complete_pipeline (work_package_id: "${id}", type: "documentation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
               `5. Call ledger_get_handoff_status (current_agent: "Documentation").`,
@@ -1091,7 +1170,7 @@ export async function getDocumentationAction(
             work_package_id: id,
             reason: `Work package ${id} has PASS code-review pipeline. Write or update documentation.`,
             next_steps: [
-              `1. Call ledger_start_pipeline (work_package_id: "${id}", type: "documentation").`,
+              `1. Call ledger_begin_work (work_package_id: "${id}", type: "documentation", agent_role: "Documentation").`,
               `2. Call ledger_get_work_package to review implementation artifacts and review comments.`,
               '3. Update documentation, README files, and inline docs as needed.',
               `4. Call ledger_complete_pipeline (work_package_id: "${id}", type: "documentation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
@@ -1144,17 +1223,303 @@ export async function getDocumentationAction(
 }
 
 /**
+ * Build `next_steps` guidance for a batch action entry.
+ * Mirrors the step-by-step tool-call instructions from getNextAction's singular helpers,
+ * but in compact array form suitable for batch responses.
+ * @internal — exported for unit tests only (via _internal)
+ */
+function buildBatchNextSteps(
+  action: string,
+  wpId: string,
+  pipelineType: string,
+  wpStatus?: string,
+  failedPipelineType?: string,
+): string[] {
+  const agentRole = pipelineAgentRoleMap[pipelineType] ?? pipelineType;
+
+  switch (action) {
+    case 'IMPLEMENT': {
+      return [
+        `1. Call ledger_begin_work (work_package_id: "${wpId}", type: "implementation", agent_role: "Developer")${wpStatus === 'READY' ? ' to claim and start the pipeline in one step' : ' \u2014 WP is already IN_PROGRESS, starts pipeline directly'}.`,
+        '2. Read the WP spec, implement the changes, run tests.',
+        `3. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+        `4. Call ledger_get_handoff_status (current_agent: "Developer").`,
+      ];
+    }
+    case 'REWORK': {
+      // Developer rework: failedPipelineType identifies which downstream pipeline failed
+      if (failedPipelineType && failedPipelineType !== 'implementation') {
+        return [
+          `1. Call ledger_get_work_package to review the FAIL ${failedPipelineType} pipeline comments/summary.`,
+          `2. Call ledger_begin_work (work_package_id: "${wpId}", type: "implementation", agent_role: "Developer").`,
+          '3. Fix the issues identified by the failed pipeline, run tests.',
+          `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+          `5. Call ledger_get_handoff_status (current_agent: "Developer").`,
+        ];
+      }
+      // Documentation self-rework or Developer implementation rework
+      if (pipelineType === 'documentation') {
+        return [
+          `1. Call ledger_get_work_package to review the previous FAIL documentation pipeline summary and comments.`,
+          `2. Call ledger_begin_work (work_package_id: "${wpId}", type: "documentation", agent_role: "Documentation").`,
+          '3. Fix documentation issues, update affected files.',
+          `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "documentation", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
+          `5. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`,
+          `6. Call ledger_get_handoff_status (current_agent: "Documentation").`,
+        ];
+      }
+      return [
+        `1. Call ledger_begin_work (work_package_id: "${wpId}", type: "implementation", agent_role: "Developer") \u2014 WP is already IN_PROGRESS, starts pipeline directly.`,
+        '2. Review the previous FAIL pipeline summary, fix the issues, run tests.',
+        `3. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "implementation", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+        `4. Call ledger_get_handoff_status (current_agent: "Developer").`,
+      ];
+    }
+    case 'RUN_QA':
+    case 'RUN_REVIEW':
+    case 'WRITE_DOCS': {
+      const steps = [
+        `1. Call ledger_begin_work (work_package_id: "${wpId}", type: "${pipelineType}", agent_role: "${agentRole}").`,
+        `2. Call ledger_get_work_package to review prior pipeline artifacts.`,
+        `3. Perform your ${pipelineType} work.`,
+        `4. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "${pipelineType}", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
+      ];
+      if (pipelineType === 'documentation') {
+        steps.push(`5. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`);
+        steps.push(`6. Call ledger_get_handoff_status (current_agent: "${agentRole}").`);
+      } else {
+        steps.push(`5. Call ledger_get_handoff_status (current_agent: "${agentRole}").`);
+      }
+      return steps;
+    }
+    case 'WAIT_FOR_REWORK':
+      return [
+        `WP ${wpId}: Waiting for Developer to rework implementation. QA/Reviewer does not self-rework.`,
+        `Check ledger_get_next_action for Developer to confirm rework has started.`,
+      ];
+    case 'WAIT_FOR_DOWNSTREAM':
+      return [
+        `WP ${wpId}: Implementation pipeline PASS. Waiting for downstream QA/Reviewer pipeline to complete.`,
+        `No action required — hand off to QA agent.`,
+      ];
+    case 'BLOCK_FOR_REWORK_LIMIT':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to review the rework history.`,
+        `2. Escalate to the Project Manager to resolve the rework-limit blocker.`,
+        `3. Consider calling ledger_update_work_package_status (work_package_id: "${wpId}", status: "CANCELLED") and creating a replacement WP.`,
+      ];
+    case 'WAIT_FOR_UPSTREAM_REWORK_LIMIT':
+      return [
+        `WP ${wpId}: An upstream pipeline has reached the rework limit. Waiting for PM to resolve the blocker.`,
+        `No action required — PM must intervene before this pipeline can proceed.`,
+      ];
+    case 'UNBLOCK_WP':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to review the blocked state.`,
+        `2. Resolve the blocking condition (dependency, decision, or external factor).`,
+        `3. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "READY") to unblock.`,
+      ];
+    case 'REVIEW_ABANDONED':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to review the abandoned pipeline.`,
+        `2. Cancel the abandoned pipeline or escalate to PM.`,
+        `3. Create a replacement WP if the work is still needed.`,
+      ];
+    case 'REPAIR_ORPHAN_BLOCKED':
+      return [
+        `1. Call ledger_get_work_package (work_package_id: "${wpId}") to inspect the orphan-BLOCKED state.`,
+        `2. Verify all dependency WPs are COMPLETE.`,
+        `3. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "READY") to repair.`,
+      ];
+    case 'FINALIZE_WP':
+      return [
+        `1. Call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`,
+        `2. Call ledger_get_handoff_status (current_agent: "Documentation").`,
+      ];
+    case 'UPDATE_CRITERIA':
+      return [
+        `1. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "documentation", ..., acceptance_criteria_updates: [...]) to mark all criteria as met.`,
+        `2. Then call ledger_update_work_package_status (work_package_id: "${wpId}", status: "COMPLETE", agent: "Documentation").`,
+        `3. Call ledger_get_handoff_status (current_agent: "Documentation").`,
+      ];
+    case 'CLAIM_WP':
+      return [
+        `1. Call ledger_begin_work (work_package_id: "${wpId}", type: "${pipelineType}", agent_role: "${agentRole}").`,
+        `2. Perform your pipeline work.`,
+        `3. Call ledger_complete_pipeline (work_package_id: "${wpId}", type: "${pipelineType}", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Collect up to `limit` actionable items for an agent role.
+ * Uses the same per-WP evaluation logic as the singular getXxxAction helpers,
+ * but without the early-return pattern — results are collected into an array.
+ * Only used when max_results > 1 is passed to ledger_get_next_action.
+ */
+async function getNextActionsCollector(
+  rootIndex: RootIndex,
+  store: LedgerStore,
+  agentRole: AgentRole,
+  limit: number
+): Promise<{ content: [{ type: 'text'; text: string }] }> {
+  const pipelineType = AGENT_PIPELINE_MAP[agentRole];
+  if (!pipelineType) {
+    // Planner, Synthesis, Project Manager — batch not meaningful
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(
+            { actions: [], reason: `Batch actions not applicable for role: ${agentRole}` },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  const wpDetails = await Promise.all(
+    rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
+  );
+
+  const actions: object[] = [];
+  // Prerequisite type for this agent's pipeline
+  const prerequisite = PIPELINE_PREREQUISITES[pipelineType];
+
+  for (const wpDetail of wpDetails) {
+    if (actions.length >= limit) break;
+
+    // Skip stale pipelines (RESUME_OR_CANCEL handling)
+    const stale = wpDetail.pipelines.find((p) => p.type === pipelineType && isStalePipeline(p));
+    if (stale) {
+      const ageHours = stale.started_at
+        ? Math.floor((Date.now() - parseTimestamp(stale.started_at).getTime()) / (1000 * 60 * 60))
+        : -1;
+      actions.push({
+        action: 'RESUME_OR_CANCEL',
+        work_package_id: wpDetail.work_package_id,
+        pipeline_type: pipelineType,
+        started_at: stale.started_at ?? 'unknown',
+        age_hours: ageHours,
+        reason: `Work package ${wpDetail.work_package_id} has a stale '${pipelineType}' pipeline (~${ageHours}h). Resume or cancel.`,
+      });
+      continue;
+    }
+
+    // For implementation: look for READY/IN_PROGRESS WPs with no implementation pipeline yet
+    if (pipelineType === 'implementation') {
+      if (
+        (wpDetail.status === 'READY' || wpDetail.status === 'IN_PROGRESS') &&
+        !hasDependencyBlocked(wpDetail) &&
+        !wpDetail.pipelines.some((p) => p.type === 'implementation')
+      ) {
+        const handoffNotes = wpDetail.assigned_to === 'Developer'
+          ? (getHandoffNotesForAgent(wpDetail, 'Developer') ?? undefined)
+          : undefined;
+        actions.push({
+          action: 'IMPLEMENT',
+          work_package_id: wpDetail.work_package_id,
+          reason: `Work package ${wpDetail.work_package_id} is ${wpDetail.status} with no implementation pipeline.`,
+          next_steps: buildBatchNextSteps('IMPLEMENT', wpDetail.work_package_id, 'implementation', wpDetail.status),
+          ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+        });
+        continue;
+      }
+      // Rework: FAIL implementation pipeline
+      if (isMostRecentPipelineFail(wpDetail.pipelines, 'implementation')) {
+        actions.push({
+          action: 'REWORK',
+          work_package_id: wpDetail.work_package_id,
+          reason: `Work package ${wpDetail.work_package_id} has a FAIL implementation pipeline.`,
+          next_steps: buildBatchNextSteps('REWORK', wpDetail.work_package_id, 'implementation'),
+        });
+        continue;
+      }
+      // Rework: downstream pipeline (QA or code-review) failed — Developer must fix
+      const hasPassImpl = wpDetail.pipelines.some(
+        (p) => p.type === 'implementation' && p.status === 'PASS'
+      );
+      if (hasPassImpl) {
+        for (const downstreamType of ['qa', 'code-review'] as const) {
+          if (isMostRecentPipelineFail(wpDetail.pipelines, downstreamType)) {
+            const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
+            actions.push({
+              action: 'REWORK',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} has a FAIL ${downstreamType} pipeline. Developer rework needed.`,
+              pipeline_that_failed: downstreamType,
+              next_steps: buildBatchNextSteps('REWORK', wpDetail.work_package_id, 'implementation', undefined, downstreamType),
+              ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+            });
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    // For qa / code-review / documentation: check prerequisite PASS and no own pipeline yet
+    const hasPassPrerequisite =
+      prerequisite === null ||
+      wpDetail.pipelines.some((p) => p.type === prerequisite && p.status === 'PASS');
+    const hasPipelineAlready = wpDetail.pipelines.some((p) => p.type === pipelineType);
+
+    if (hasPassPrerequisite && !hasPipelineAlready) {
+      const actionName = actionNameMap[pipelineType as PostImplPipelineType];
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, agentNameMap[pipelineType as PostImplPipelineType]);
+      actions.push({
+        action: actionName,
+        work_package_id: wpDetail.work_package_id,
+        reason: `Work package ${wpDetail.work_package_id} is ready for ${pipelineType}.`,
+        next_steps: buildBatchNextSteps(actionName, wpDetail.work_package_id, pipelineType),
+        ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+      });
+      continue;
+    }
+
+    // BLOCKED WPs: skip rework suggestion to avoid infinite-loop signals.
+    // QA/Reviewer do NOT self-rework (WAIT) — only Documentation self-reworks.
+    if (wpDetail.status !== 'BLOCKED' && isMostRecentPipelineFail(wpDetail.pipelines, pipelineType)) {
+      const reworkAction = reworkActionMap[pipelineType as PostImplPipelineType];
+      if (reworkAction === 'WAIT') {
+        // QA/Reviewer: Developer must rework first — skip this WP in batch output
+        continue;
+      }
+      actions.push({
+        action: reworkAction,
+        work_package_id: wpDetail.work_package_id,
+        reason: `Work package ${wpDetail.work_package_id} has a FAIL ${pipelineType} pipeline.`,
+        next_steps: buildBatchNextSteps(reworkAction, wpDetail.work_package_id, pipelineType),
+      });
+    }
+  }
+
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({ actions, total: actions.length }, null, 2),
+      },
+    ],
+  };
+}
+
+/**
  * Register the ledger_get_next_action tool on the MCP server.
  */
 /** @internal — exported for unit tests only */
-export const _internal = { getNextAction };
+export const _internal = { getNextAction, buildBatchNextSteps, getNextActionsCollector, embedHandoffStatusInWait };
 
 export function register(server: McpServer): void {
   server.registerTool(
     'ledger_get_next_action',
     {
-      description: 'Get the next recommended action for your agent role. REQUIRED params: project_path, agent_role. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states.',
-      inputSchema: GetNextActionSchema.passthrough(),
+      description: 'Get the next recommended action for your agent role. REQUIRED params: project_path, agent_role. OPTIONAL: max_results (default: 1). When max_results is 1 (default), returns a single action object. When max_results > 1, returns an array of up to that many actions under the "actions" key. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states.',
+      inputSchema: GetNextActionSchema,
     },
     getNextAction as any
   );

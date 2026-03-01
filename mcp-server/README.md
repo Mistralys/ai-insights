@@ -316,6 +316,7 @@ The server exposes 20 MCP tools organized by category:
 - `ledger_update_work_package_status` — Update WP status
 
 ### Pipelines
+- `ledger_begin_work` — Claim a READY WP and start its pipeline in a single atomic call (replaces `ledger_claim_work_package` + `ledger_start_pipeline` two-step)
 - `ledger_start_pipeline` — Begin implementation/QA/review/docs phase
 - `ledger_complete_pipeline` — Record results and artifacts
 - `ledger_cancel_pipeline` — Cancel a stale IN_PROGRESS pipeline (marks it FAIL)
@@ -326,8 +327,7 @@ The server exposes 20 MCP tools organized by category:
 - `ledger_add_project_comment` — Add project-level comment
 
 ### Workflow Coordination
-- `ledger_get_next_action` — Ask "what should I do next?" (includes stale pipeline detection)
-- `ledger_get_next_actions` — Batch version returning all actionable WPs for an agent role
+- `ledger_get_next_action` — Ask "what should I do next?" (includes stale pipeline detection); pass `max_results` to get up to N actionable WPs in one call
 - `ledger_get_handoff_status` — Compute handoff status for current agent
 
 ### Help & Documentation

@@ -20,25 +20,18 @@ self_documenting_note: true
 has_incident_logging: false
 
 mcp_tools:
-  - tool: ledger_detect_project
-    purpose: Detect the active project from the current workspace path.
-  - tool: ledger_get_project_status
-    purpose: "Retrieve project status summary (also used to verify MCP server reachability)."
   - tool: ledger_get_next_action
     purpose: "Get your next task (`RUN_QA`, `REWORK_QA`, `CLAIM_WP`, or `WAIT`)."
-  - tool: ledger_claim_work_package
-    purpose: "Claim a READY WP assigned to your role (transitions it to IN_PROGRESS)."
+  - tool: ledger_begin_work
+    purpose: "Claim a READY WP and start the `qa` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
     purpose: Read WP detail including implementation artifacts and AC.
-  - tool: ledger_start_pipeline
-    purpose: "Begin the `qa` pipeline for a WP."
   - tool: ledger_complete_pipeline
     purpose: "Finalize pipeline with status, summary, metrics, comments, AC updates, and handoff notes for the next agent."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: "Add project-level comments (e.g., observations, notes)."
-  - tool: ledger_get_handoff_status
-    purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
   - tool: ledger_help
+    note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."

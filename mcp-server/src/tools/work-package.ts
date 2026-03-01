@@ -17,7 +17,7 @@ import {
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
 import { withLock } from '../storage/file-lock.js';
-import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 
 /**
@@ -77,18 +77,24 @@ export const _internal = {
  * Reads and returns the full work package detail for a given WP ID.
  */
 const GetWorkPackageSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     const wp = await store.readWorkPackage(args.work_package_id);
@@ -121,19 +127,25 @@ async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
  * Optionally filters by status and/or assigned_to.
  */
 const ListWorkPackagesSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
     .optional()
     .describe('Optional filter by work package status'),
   assigned_to: z.string().optional().describe('Optional filter by assigned agent name'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     const rootIndex = await store.readRootIndex();
@@ -176,7 +188,8 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
  * Creates both the detail file (.ledger/WP-###.json) and root index summary atomically.
  */
 const CreateWorkPackageSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   assigned_to: z
     .string()
     .describe('Agent name assigned to this work package (e.g., "Developer")'),
@@ -190,7 +203,8 @@ const CreateWorkPackageSchema = z.object({
   work_package_file: z
     .string()
     .describe('Relative path to the work package spec file (e.g., "work/WP-001.md")'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 /**
  * Cycle detection helper for createWorkPackage (§15.2).
@@ -218,16 +232,20 @@ async function createWorkPackage(
   args: z.infer<typeof CreateWorkPackageSchema>,
   _ledgerRoot?: string
 ) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path, _ledgerRoot);
+  const store = new LedgerStore(projectPath, _ledgerRoot);
 
   let createdWpId = '';
 
   try {
     // Use lock to ensure atomic creation of both files
-    await withLock(_ledgerRoot ?? args.project_path, async () => {
+    await withLock(_ledgerRoot ?? projectPath, async () => {
       // 1. Read root index to get next WP ID
       const rootIndex = await store.readRootIndex();
 
@@ -380,7 +398,8 @@ async function createWorkPackage(
  * Validates dependencies are met before allowing the transition.
  */
 const ClaimWorkPackageSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -390,7 +409,8 @@ const ClaimWorkPackageSchema = z.object({
     .boolean()
     .optional()
     .describe('Set to true to claim a WP assigned to a different agent. Without this flag, claiming a WP assigned to another agent will be rejected.'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 // Roles permitted to claim work packages via ledger_claim_work_package.
 // Planner, Synthesis, and other orchestrating roles operate outside the
@@ -406,10 +426,14 @@ async function claimWorkPackage(
   args: z.infer<typeof ClaimWorkPackageSchema>,
   _ledgerRoot?: string
 ) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path, _ledgerRoot);
+  const store = new LedgerStore(projectPath, _ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -519,7 +543,8 @@ async function claimWorkPackage(
  * Enforces legal status transitions and special rules (COMPLETE requires all criteria met, etc.).
  */
 const UpdateWorkPackageStatusSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -539,7 +564,8 @@ const UpdateWorkPackageStatusSchema = z.object({
     .passthrough()
     .optional()
     .describe('Blocker details — REQUIRED when setting status to BLOCKED, omit otherwise'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 /**
  * Auto-cancels all IN_PROGRESS pipelines on a work package with a given reason.
@@ -559,10 +585,14 @@ async function updateWorkPackageStatus(
   args: z.infer<typeof UpdateWorkPackageStatusSchema>,
   _ledgerRoot?: string
 ) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path, _ledgerRoot);
+  const store = new LedgerStore(projectPath, _ledgerRoot);
 
   try {
     let oldStatus: WorkPackageStatus | undefined;
@@ -827,13 +857,13 @@ async function updateWorkPackageStatus(
     // - The gap between locks is safe because propagateDependencyUnblock is
     //   idempotent: re-running it on an already-unblocked WP is a no-op
     if (isTerminalStatus(args.status)) {
-      await propagateDependencyUnblock(args.project_path, args.work_package_id, _ledgerRoot);
+      await propagateDependencyUnblock(projectPath, args.work_package_id, _ledgerRoot);
     }
 
     // If the WP was reopened from COMPLETE, cascade-block dependents that are
     // READY or IN_PROGRESS (they may be operating on stale assumptions).
     if (oldStatus === 'COMPLETE' && args.status === 'IN_PROGRESS') {
-      await propagateDependencyReblock(args.project_path, args.work_package_id, _ledgerRoot);
+      await propagateDependencyReblock(projectPath, args.work_package_id, _ledgerRoot);
     }
 
     // Return updated work package with next-step guidance
@@ -871,7 +901,7 @@ async function updateWorkPackageStatus(
  * their dependencies are now COMPLETE. If so, transitions them to READY and clears
  * the blocked_by field.
  */
-async function propagateDependencyUnblock(
+export async function propagateDependencyUnblock(
   projectPath: string,
   completedWpId: string,
   ledgerRoot?: string
@@ -1043,7 +1073,8 @@ function getLegalTransitions(status: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ResetReworkCountSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project plan directory'),
+  project_path: z.string().optional().describe('Absolute path to the project plan directory'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1052,16 +1083,21 @@ const ResetReworkCountSchema = z.object({
     .enum(['implementation', 'qa', 'code-review', 'documentation'])
     .describe('Which pipeline type rework count to reset'),
   agent_role: z.string().describe('Must be "Project Manager"'),
-  reason: z.string().trim().min(1).describe('Mandatory reason for the reset (audit trail)'),});
+  reason: z.string().trim().min(1).describe('Mandatory reason for the reset (audit trail)'),})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function resetReworkCount(
   args: z.infer<typeof ResetReworkCountSchema>,
   _ledgerRoot?: string
 ) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path, _ledgerRoot);
+  const store = new LedgerStore(projectPath, _ledgerRoot);
 
   try {
     // PM-only guard
@@ -1167,7 +1203,8 @@ async function resetReworkCount(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const UpdateAcceptanceCriteriaSchema = z.object({
-  project_path: z.string().describe('Absolute path to the project plan directory'),
+  project_path: z.string().optional().describe('Absolute path to the project plan directory'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1188,14 +1225,19 @@ const UpdateAcceptanceCriteriaSchema = z.object({
     )
     .min(1)
     .describe('List of operations to apply'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function updateAcceptanceCriteria(
   args: z.infer<typeof UpdateAcceptanceCriteriaSchema>,
   _ledgerRoot?: string
 ) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
   // PM-only guard
   if (args.agent_role !== 'Project Manager') {
@@ -1210,7 +1252,7 @@ async function updateAcceptanceCriteria(
     };
   }
 
-  const store = new LedgerStore(args.project_path, _ledgerRoot);
+  const store = new LedgerStore(projectPath, _ledgerRoot);
 
   try {
     let appliedOps: string[] = [];
@@ -1298,7 +1340,7 @@ export function register(server: McpServer): void {
     'ledger_get_work_package',
     {
       description: 'Read the full detail for a specific work package',
-      inputSchema: GetWorkPackageSchema.passthrough(),
+      inputSchema: GetWorkPackageSchema,
     },
     getWorkPackage as any
   );
@@ -1307,7 +1349,7 @@ export function register(server: McpServer): void {
     'ledger_list_work_packages',
     {
       description: 'List work package summaries with optional filters',
-      inputSchema: ListWorkPackagesSchema.passthrough(),
+      inputSchema: ListWorkPackagesSchema,
     },
     listWorkPackages as any
   );
@@ -1316,7 +1358,7 @@ export function register(server: McpServer): void {
     'ledger_create_work_package',
     {
       description: 'Create a new work package with auto-generated WP ID. REQUIRED params: project_path, assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically.',
-      inputSchema: CreateWorkPackageSchema.passthrough(),
+      inputSchema: CreateWorkPackageSchema,
     },
     createWorkPackage as any
   );
@@ -1325,7 +1367,7 @@ export function register(server: McpServer): void {
     'ledger_claim_work_package',
     {
       description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Rejects claims when the WP is assigned to a different agent unless override: true is passed. Validates that all dependencies are COMPLETE before allowing the claim.',
-      inputSchema: ClaimWorkPackageSchema.passthrough(),
+      inputSchema: ClaimWorkPackageSchema,
     },
     claimWorkPackage as any
   );
@@ -1334,7 +1376,7 @@ export function register(server: McpServer): void {
     'ledger_update_work_package_status',
     {
       description: 'Update work package status. REQUIRED params: project_path, work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by.',
-      inputSchema: UpdateWorkPackageStatusSchema.passthrough(),
+      inputSchema: UpdateWorkPackageStatusSchema,
     },
     updateWorkPackageStatus as any
   );
@@ -1343,7 +1385,7 @@ export function register(server: McpServer): void {
     'ledger_reset_rework_count',
     {
       description: 'PM-only: resets the rework counter for a specific pipeline type on a work package back to 0. Records an audit comment. No-op if counter is already 0.',
-      inputSchema: ResetReworkCountSchema.passthrough(),
+      inputSchema: ResetReworkCountSchema,
     },
     resetReworkCount as any
   );
@@ -1352,7 +1394,7 @@ export function register(server: McpServer): void {
     'ledger_update_acceptance_criteria',
     {
       description: 'PM-only: remove or modify acceptance criteria text on a work package. Rejects operations that would leave zero criteria. Supported operations: remove (by exact text), modify_text (old → new).',
-      inputSchema: UpdateAcceptanceCriteriaSchema.passthrough(),
+      inputSchema: UpdateAcceptanceCriteriaSchema,
     },
     updateAcceptanceCriteria as any
   );

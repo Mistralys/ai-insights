@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { getQaAction, getReviewerAction, getDocumentationAction, getProjectManagerAction, getDeveloperAction, _internal } from '../../src/tools/workflow-next-action.js';
 import { MAX_REWORK_COUNT } from '../../src/utils/workflow-helpers.js';
+import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
 import { createTempStore, cleanupTempStore } from '../helpers/create-temp-store.js';
 import { makeWorkPackageDetail, makePipeline } from '../helpers/fixtures.js';
 import type { TempStoreHandle } from '../helpers/create-temp-store.js';
@@ -1264,6 +1266,298 @@ describe('PM action — CREATE_WORK_PACKAGES when project has zero work packages
         _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Project Manager' })
       );
       expect(result.action).toBe('CREATE_WORK_PACKAGES');
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// max_results — batch collector mode
+// ---------------------------------------------------------------------------
+
+describe('getNextActionsCollector — batch mode via max_results', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns an "actions" array when called via getNextActionsCollector', async () => {
+    // Three independent READY WPs assigned to Developer
+    const wps = [
+      makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-003', status: 'READY', pipelines: [] }),
+    ];
+    const rootIndex = await setupStore(handle, wps);
+
+    const result = await parseResult(_internal.getNextActionsCollector(rootIndex, handle.store, 'Developer', 3));
+    expect(Array.isArray(result.actions)).toBe(true);
+    expect(result.total).toBe(3);
+    expect(result.actions).toHaveLength(3);
+    for (const action of result.actions) {
+      expect(action.action).toBe('IMPLEMENT');
+    }
+  });
+
+  it('limits results to max_results count', async () => {
+    const wps = [
+      makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-003', status: 'READY', pipelines: [] }),
+    ];
+    const rootIndex = await setupStore(handle, wps);
+
+    const result = await parseResult(_internal.getNextActionsCollector(rootIndex, handle.store, 'Developer', 2));
+    expect(result.actions).toHaveLength(2);
+    expect(result.total).toBe(2);
+  });
+
+  it('returns fewer items than limit when fewer WPs are actionable', async () => {
+    // Only one READY WP
+    const wps = [
+      makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', pipelines: [] }),
+    ];
+    const rootIndex = await setupStore(handle, wps);
+
+    const result = await parseResult(_internal.getNextActionsCollector(rootIndex, handle.store, 'Developer', 5));
+    expect(result.actions).toHaveLength(1);
+    expect(result.total).toBe(1);
+  });
+
+  it('returns empty actions array for non-applicable roles (Project Manager)', async () => {
+    const wps = [makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', pipelines: [] })];
+    const rootIndex = await setupStore(handle, wps);
+
+    const result = await parseResult(_internal.getNextActionsCollector(rootIndex, handle.store, 'Project Manager', 5));
+    expect(result.actions).toHaveLength(0);
+    expect(result.reason).toContain('not applicable');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handoff_status embedding in WAIT responses (§WP-004)
+// ---------------------------------------------------------------------------
+
+describe('getNextAction — handoff_status embedded in WAIT responses', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+    // Reset the agent registry to prevent state leakage into sibling tests (constraint 28).
+    resetRegistry();
+  });
+
+  it('embeds handoff_status when Developer has no more work (WAIT → READY_FOR_QA)', async () => {
+    // WP-001: Developer, IN_PROGRESS, PASS implementation → no more work for Developer
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      pipelines: [makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00')],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Developer' })
+      );
+      expect(result.action).toBe('WAIT');
+      expect(result.handoff_status).toBeDefined();
+      expect(result.handoff_status.current_agent).toBe('Developer');
+      expect(result.handoff_status.next_agent).toBe('QA');
+      expect(result.handoff_status.status).toBe('READY_FOR_QA');
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('does not embed handoff_status in non-WAIT responses', async () => {
+    // WP-001: Developer, READY → CLAIM_WP / IMPLEMENT (not WAIT)
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'READY',
+      assigned_to: 'Developer',
+      pipelines: [],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Developer' })
+      );
+      expect(result.action).not.toBe('WAIT');
+      expect(result.handoff_status).toBeUndefined();
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('handoff_status.auto_handoff is absent when agent registry is not loaded (test environment default)', async () => {
+    // WP-001: Developer, IN_PROGRESS, PASS implementation → WAIT with handoff_status but no auto_handoff
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      pipelines: [makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00')],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Developer' })
+      );
+      expect(result.action).toBe('WAIT');
+      expect(result.handoff_status).toBeDefined();
+      // auto_handoff absent: agent registry is not loaded in the test environment
+      expect(result.handoff_status.auto_handoff).toBeUndefined();
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('handoff_status.auto_handoff present when agent registry is loaded (synthesis #10)', async () => {
+    // Load a mock agent registry with a QA handle so that auto_handoff is populated.
+    const agentsDir = await mkdtemp(join(tmpdir(), 'mock-agents-'));
+    try {
+      // Write a minimal .agent.md file for the QA role.
+      await writeFile(
+        join(agentsDir, 'qa.agent.md'),
+        ['---', 'name: Mock QA Agent', 'role: QA', '---', '', '# QA Agent'].join('\n'),
+        'utf8',
+      );
+      await discoverAgents(agentsDir);
+
+      const wp = makeWorkPackageDetail({
+        work_package_id: 'WP-001',
+        status: 'IN_PROGRESS',
+        assigned_to: 'Developer',
+        pipelines: [makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00')],
+      });
+      await setupStore(handle, [wp]);
+
+      const originalArgv = [...process.argv];
+      process.argv.push('--ledger-dir', handle.ledgerRoot);
+      try {
+        const result = await parseResult(
+          _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Developer' })
+        );
+        expect(result.action).toBe('WAIT');
+        expect(result.handoff_status).toBeDefined();
+        // next_agent is present at the handoff_status level
+        expect(result.handoff_status.next_agent).toBe('QA');
+        // auto_handoff is present because the registry is loaded and QA has a known handle
+        expect(result.handoff_status.auto_handoff).toBeDefined();
+        // agent_name (VS Code handle) and prompt are the two auto_handoff fields
+        expect(result.handoff_status.auto_handoff.agent_name).toBeTypeOf('string');
+        expect(result.handoff_status.auto_handoff.prompt).toBeTypeOf('string');
+      } finally {
+        process.argv = originalArgv;
+      }
+    } finally {
+      // Clean up the temp agents directory regardless of test outcome.
+      await rm(agentsDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: cwd_path auto-detection (end-to-end)
+// ---------------------------------------------------------------------------
+
+describe('getNextAction — cwd_path auto-detection (WP-005)', () => {
+  // Use a plan path that is properly nested 4 levels under a project root
+  // so that inferProjectRootFromPlanPath() can round-trip back to projectRoot.
+  let projectRoot: string;
+  let planPath: string;
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    projectRoot = await mkdtemp(join(tmpdir(), 'cwd-proj-root-'));
+    planPath = join(projectRoot, 'docs', 'agents', 'plans', '2026-01-01-cwd-e2e');
+    handle = await createTempStore(planPath);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  it('returns a valid action when cwd_path is passed instead of project_path', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'READY',
+      assigned_to: 'Developer',
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ cwd_path: projectRoot, agent_role: 'Developer' })
+      );
+      // READY WP → CLAIM_WP action (claim before implement)
+      expect(result.action).toBe('CLAIM_WP');
+      expect(result.work_package_id).toBe('WP-001');
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('returns an error when cwd_path does not match any project', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'READY',
+      assigned_to: 'Developer',
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const rawResult = await _internal.getNextAction({ cwd_path: '/nonexistent/path/not/a/project', agent_role: 'Developer' });
+      // Error responses are plain text (not JSON) with isError: true
+      expect((rawResult as any).isError).toBe(true);
+      expect((rawResult as any).content[0].text).toMatch(/No project found/i);
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it('prefers project_path over cwd_path when both are provided', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'READY',
+      assigned_to: 'Developer',
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      // Pass both — project_path takes priority and should resolve correctly
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: planPath, cwd_path: '/some/other/path', agent_role: 'Developer' })
+      );
+      // READY WP → CLAIM_WP action (project_path was used, not the invalid cwd_path)
+      expect(result.action).toBe('CLAIM_WP');
+      expect(result.work_package_id).toBe('WP-001');
     } finally {
       process.argv = originalArgv;
     }

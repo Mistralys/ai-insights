@@ -17,7 +17,7 @@ import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { isTerminalStatus } from '../../src/schema/validators.js';
 import { now } from '../../src/utils/timestamp.js';
-import { _internal } from '../../src/tools/workflow-batch-actions.js';
+import { _internal } from '../../src/tools/workflow-next-action.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
@@ -155,19 +155,19 @@ describe('buildBatchNextSteps — CLAIM_WP guidance', () => {
    * buildBatchNextSteps is a pure string-builder with no I/O, so no store setup
    * is required. It is exercised via the _internal export.
    */
-  it('CLAIM_WP with pipelineType="implementation" uses agent: "Developer" (not "implementation")', () => {
+  it('CLAIM_WP with pipelineType="implementation" uses agent_role: "Developer" (not "implementation")', () => {
     const steps = _internal.buildBatchNextSteps('CLAIM_WP', 'WP-001', 'implementation');
 
     expect(steps.length).toBeGreaterThan(0);
-    expect(steps[0]).toContain('agent: "Developer"');
-    expect(steps[0]).not.toContain('agent: "implementation"');
+    expect(steps[0]).toContain('agent_role: "Developer"');
+    expect(steps[0]).not.toContain('agent_role: "implementation"');
   });
 
-  it('CLAIM_WP with pipelineType="qa" uses agent: "QA" (not "qa")', () => {
+  it('CLAIM_WP with pipelineType="qa" uses agent_role: "QA" (not "qa")', () => {
     const steps = _internal.buildBatchNextSteps('CLAIM_WP', 'WP-002', 'qa');
 
-    expect(steps[0]).toContain('agent: "QA"');
-    expect(steps[0]).not.toContain('agent: "qa"');
+    expect(steps[0]).toContain('agent_role: "QA"');
+    expect(steps[0]).not.toContain('agent_role: "qa"');
   });
 
   it('CLAIM_WP step-1 includes the correct work_package_id', () => {
