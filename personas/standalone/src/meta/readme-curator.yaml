@@ -3,9 +3,10 @@ name: "README Curator"
 description: "Produces a human‑optimized README.md that follows a landing‑page funnel: Hook → Features → Requirements → Quick Start → Learn More."
 vs_file_name: readme-curator.agent.md
 cc_file_name: readme-curator.md
-version: "1.2.0"
-last_updated: "2026-02-24"
+version: "1.2.1"
+last_updated: "2026-03-01"
 changelog:
+  - "v1.2.1: Added a helper section with rewriting entire README files."
   - "v1.2.0: Rewrite to produce a better human-oriented README."
   - "v1.1.0: Pre-changelog initial release."
 
