@@ -3,10 +3,11 @@ name: "Orchestrator Runner"
 description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document."
 vs_file_name: orchestrator-runner.agent.md
 cc_file_name: orchestrator-runner.md
-version: "1.0.0"
+version: "1.0.1"
 last_updated: "2026-02-28"
 changelog:
   - "v1.0.0: Initial release."
+  - "v1.0.1: Minor updates and fixes."
 
 tools:
   - vscode
