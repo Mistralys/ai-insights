@@ -248,7 +248,7 @@ The `agent` field is required because the server checks which persona is attempt
 
 **Claim phase (WP is `READY`):** Applies the same CLAIMABLE_ROLES guard, assignment guard, dependency completeness check, and `READY → IN_PROGRESS` status transition as `ledger_claim_work_package`. On success, `claimed: true` is returned.
 
-**Idempotent re-entry (WP is already `IN_PROGRESS` and `assigned_to` matches `agent_role`):** Skips the claim phase and proceeds directly to the pipeline start phase. `claimed: false` is returned.
+**Cross-agent handoff (WP is already `IN_PROGRESS`):** Skips the claim phase and proceeds directly to the pipeline start phase when either (a) `assigned_to` matches `agent_role` (idempotent re-entry) OR (b) `agent_role` is the legitimate pipeline-type owner per `PIPELINE_AGENT_MAP` (e.g., Documentation agent starting a `documentation` pipeline on a Reviewer-assigned WP). `claimed: false` is returned in both cases. This mirrors the spec (§9.1, §16.5), which designates `assigned_to` as a trailing bookkeeping field updated by the pipeline-start phase — not a security gate.
 
 **Other statuses (`COMPLETE`, `BLOCKED`, etc.):** Rejected with a descriptive error.
 
@@ -1494,7 +1494,9 @@ export const pipelineAgentRoleMap: Record<string, string>;
 
 ```typescript
 // Project Manager next-action computation. Implements the 5-priority algorithm from §14.1.2.
-// Loads all WP details via Promise.all, then evaluates priorities in strict top-down order:
+// When preloadedWpDetails is provided (by the parent getNextAction call), skips the internal
+// Promise.all disk fetch and uses the pre-loaded data instead (matching the pattern of all
+// other role action functions). Evaluates priorities in strict top-down order:
 //   P1 UNBLOCK_WP        — BLOCKED WP with decision/external/technical blocker.
 //   P2 REVIEW_REWORK_LIMIT — IN_PROGRESS WP where any rework_counts entry >= MAX_REWORK_COUNT.
 //   P3 REVIEW_STALE      — IN_PROGRESS WP with a stale active pipeline (via extractStalePipelineAction).
@@ -1505,7 +1507,12 @@ export const pipelineAgentRoleMap: Record<string, string>;
 //   P4 WAIT              — no actionable items found.
 // Note: dependency-blocked WPs (blocked_by.type === 'dependency' or absent blocked_by) are
 // explicitly excluded from UNBLOCK_WP and fall through to REPAIR_ORPHAN_BLOCKED.
-export function getProjectManagerAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+export function getProjectManagerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
+
+// Synthesis-specific action for when project is still in progress (not all WPs complete).
+// Returns a static WAIT response. Extracted from the switch case inline literal for
+// consistency with all other role action helpers.
+function getSynthesisAction(): ActionResult;
 
 // Developer-specific next-action computation. Implements the 7-priority per-WP algorithm from §14.2.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
@@ -1717,7 +1724,8 @@ export function nextAgentFromStatus(status: string, currentAgent: string): strin
 
 // Shared utility: compute handoff status payload without MCP response wrapper.
 // Called by workflow-next-action.ts to embed handoff_status in WAIT responses,
-// eliminating the need for a separate ledger_get_handoff_status call for Developer, QA, Reviewer.
+// eliminating the need for a separate ledger_get_handoff_status call for all agent roles
+// (Project Manager, Developer, QA, Reviewer, Documentation, Synthesis).
 // Throws on path validation failure or project-not-found errors.
 //
 // opts (all optional): when store, rootIndex, and wpDetails are ALL provided, the function

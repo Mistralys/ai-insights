@@ -119,11 +119,15 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
 
         claimed = true;
       } else if (wp.status === 'IN_PROGRESS') {
-        // Idempotent re-entry: skip claim if WP is already IN_PROGRESS for this agent.
-        if (wp.assigned_to !== args.agent_role) {
+        // Idempotent re-entry: skip claim if WP is already IN_PROGRESS.
+        // Allow if the agent is the current assignee OR the legitimate pipeline-type owner.
+        // The pipeline-start phase (below) re-validates via PIPELINE_AGENT_MAP and
+        // auto-updates assigned_to on success, so this is safe and spec-compliant.
+        const isPipelineOwner = PIPELINE_AGENT_MAP[args.type as PipelineType] === args.agent_role;
+        if (wp.assigned_to !== args.agent_role && !isPipelineOwner) {
           throw new Error(
             `Cannot begin work on ${args.work_package_id}: it is IN_PROGRESS and assigned to "${wp.assigned_to}" but you are "${args.agent_role}". ` +
-              `Only the assigned agent may start a pipeline on an IN_PROGRESS work package.`
+              `Only the assigned agent or the legitimate pipeline-type owner may start a pipeline on an IN_PROGRESS work package.`
           );
         }
         claimed = false;

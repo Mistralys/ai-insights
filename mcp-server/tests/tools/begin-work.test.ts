@@ -189,6 +189,130 @@ describe('beginWork — IN_PROGRESS → start-only (WP-003)', () => {
     );
     expect(activePipeline).toBeDefined();
   });
+
+  it('allows QA agent to start qa pipeline on a WP currently assigned to Developer (cross-agent handoff)', async () => {
+    // WP is IN_PROGRESS assigned to Developer with a PASS implementation pipeline.
+    // QA is the legitimate pipeline-type owner for 'qa', so the guard should pass.
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Developer'));
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('IN_PROGRESS', 'Developer', [
+        {
+          type: 'implementation',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['done'],
+        },
+      ]),
+    );
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'qa',
+      agent_role: 'QA',
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const payload = resultPayload(result);
+    expect(payload.claimed).toBe(false);
+    const activePipeline = payload.pipelines.find(
+      (p: any) => p.type === 'qa' && p.status === 'IN_PROGRESS',
+    );
+    expect(activePipeline).toBeDefined();
+    // assigned_to should now be updated to QA
+    expect(payload.assigned_to).toBe('QA');
+  });
+
+  it('allows Reviewer to start code-review pipeline on a WP currently assigned to QA (cross-agent handoff)', async () => {
+    // WP is IN_PROGRESS assigned to QA with PASS implementation + PASS qa pipelines.
+    // Reviewer is the pipeline-type owner for 'code-review', so the guard should pass.
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'QA'));
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('IN_PROGRESS', 'QA', [
+        {
+          type: 'implementation',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['done'],
+        },
+        {
+          type: 'qa',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['done'],
+        },
+      ]),
+    );
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'code-review',
+      agent_role: 'Reviewer',
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const payload = resultPayload(result);
+    expect(payload.claimed).toBe(false);
+    const activePipeline = payload.pipelines.find(
+      (p: any) => p.type === 'code-review' && p.status === 'IN_PROGRESS',
+    );
+    expect(activePipeline).toBeDefined();
+    expect(payload.assigned_to).toBe('Reviewer');
+  });
+
+  it('allows Documentation agent to start documentation pipeline on a WP currently assigned to Reviewer (cross-agent handoff)', async () => {
+    // WP is IN_PROGRESS assigned to Reviewer with PASS implementation + qa + code-review pipelines.
+    // Documentation is the pipeline-type owner for 'documentation', so the guard should pass.
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Reviewer'));
+    await store.writeWorkPackage(
+      'WP-001',
+      makeWpDetail('IN_PROGRESS', 'Reviewer', [
+        {
+          type: 'implementation',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['done'],
+        },
+        {
+          type: 'qa',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['done'],
+        },
+        {
+          type: 'code-review',
+          status: 'PASS',
+          started_at: now(),
+          completed_at: now(),
+          summary: ['done'],
+        },
+      ]),
+    );
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      agent_role: 'Documentation',
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const payload = resultPayload(result);
+    expect(payload.claimed).toBe(false);
+    const activePipeline = payload.pipelines.find(
+      (p: any) => p.type === 'documentation' && p.status === 'IN_PROGRESS',
+    );
+    expect(activePipeline).toBeDefined();
+    expect(payload.assigned_to).toBe('Documentation');
+  });
 });
 
 describe('beginWork — guard violations (WP-003)', () => {
@@ -373,14 +497,16 @@ describe('beginWork — guard violations (WP-003)', () => {
     expect(resultText(result)).toContain('COMPLETE');
   });
 
-  it('rejects when IN_PROGRESS WP is assigned to a different agent', async () => {
+  it('rejects when IN_PROGRESS WP is assigned to a different agent AND the agent is not the pipeline-type owner', async () => {
+    // Developer tries to start a 'qa' pipeline on a WP assigned to QA.
+    // Developer is neither the assignee ('QA') nor the pipeline-type owner for 'qa' (also 'QA').
     await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'QA'));
     await store.writeWorkPackage('WP-001', makeWpDetail('IN_PROGRESS', 'QA'));
 
     const result = await _internal.beginWork({
       project_path: PLAN_PATH,
       work_package_id: 'WP-001',
-      type: 'implementation',
+      type: 'qa',
       agent_role: 'Developer',
     });
 

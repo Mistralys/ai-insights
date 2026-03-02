@@ -215,7 +215,7 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
     switch (args.agent_role) {
       case 'Project Manager':
         return await embedHandoffStatusInWait(
-          await getProjectManagerAction(rootIndex, store),
+          await getProjectManagerAction(rootIndex, store, wpDetails),
           projectPath,
           args.agent_role,
           { store, rootIndex, wpDetails }
@@ -230,21 +230,7 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
         return await embedHandoffStatusInWait(await getDocumentationAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
       case 'Synthesis':
         return await embedHandoffStatusInWait(
-          {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(
-                  {
-                    action: 'WAIT',
-                    reason: 'Not all work packages are COMPLETE. Wait for all WPs to finish.',
-                  },
-                  null,
-                  2
-                ),
-              },
-            ],
-          },
+          getSynthesisAction(),
           projectPath,
           args.agent_role,
           { store, rootIndex, wpDetails }
@@ -285,15 +271,37 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
 }
 
 /**
+ * Get next action for Synthesis agent when project is still in progress.
+ */
+function getSynthesisAction() {
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(
+          {
+            action: 'WAIT',
+            reason: 'Not all work packages are COMPLETE. Wait for all WPs to finish.',
+          },
+          null,
+          2
+        ),
+      },
+    ],
+  };
+}
+
+/**
  * Get next action for Project Manager.
  * Implements the 5-priority algorithm from §14.1.2.
  */
 export async function getProjectManagerAction(
   rootIndex: RootIndex,
-  store: LedgerStore
+  store: LedgerStore,
+  preloadedWpDetails?: WorkPackageDetail[]
 ) {
-  // Load all WP details (needed for pipeline and rework state checks)
-  const wpDetails = await Promise.all(
+  // Load all WP details (needed for pipeline and rework state checks; skip if pre-loaded by caller)
+  const wpDetails = preloadedWpDetails ?? await Promise.all(
     rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
   );
 
