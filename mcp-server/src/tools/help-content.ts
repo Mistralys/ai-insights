@@ -44,7 +44,7 @@ export const TOOL_HELP: Record<string, string> = {
 ## Workflow Order
 
 1. PM creates work packages (ledger_create_work_package)
-2. Developer claims WP and starts pipeline in one call (`ledger_begin_work` type="implementation", agent_role="Developer"), completes pipeline (ledger_complete_pipeline). Note: starting a pipeline auto-updates assigned_to on the WP.
+2. Developer claims WP and starts pipeline in one call (\`ledger_begin_work\` type="implementation", agent_role="Developer"), completes pipeline (ledger_complete_pipeline). Note: starting a pipeline auto-updates assigned_to on the WP.
 3. QA starts pipeline (type="qa"), completes pipeline
 4. Reviewer starts pipeline (type="code-review"), completes pipeline
 5. Documentation starts pipeline (type="documentation"), completes pipeline — if status=PASS and all acceptance criteria are met, the WP is automatically transitioned to COMPLETE (auto-finalize, no separate ledger_update_work_package_status call needed)
@@ -208,9 +208,9 @@ Create a new work package. WP ID is auto-generated.
   ledger_begin_work: `
 # ledger_begin_work
 
-Claim a READY work package and start its pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence.
+Claim a READY work package and start its pipeline in a single atomic call. Replaces the two-step \`ledger_claim_work_package\` + \`ledger_start_pipeline\` sequence.
 
-If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the claim phase is skipped and only the pipeline is started. The response includes a `claimed: boolean` field indicating whether the claim step ran.
+If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the claim phase is skipped and only the pipeline is started. The response includes a \`claimed: boolean\` field indicating whether the claim step ran.
 
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
@@ -228,7 +228,7 @@ If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the 
 - Agent role validation — pipeline type must match the expected owner role
 
 ## Response
-Same shape as `ledger_start_pipeline` plus a `claimed: boolean` field.
+Same shape as \`ledger_start_pipeline\` plus a \`claimed: boolean\` field.
 
 ## Example: Claim and start implementation
 \`\`\`json
@@ -381,9 +381,9 @@ Complete the most recent IN_PROGRESS pipeline of the specified type.
 
 ## Auto-Finalize (Documentation Pipeline)
 
-When `type: "documentation"`, `status: "PASS"`, and `agent_role: "Documentation"`, the server automatically checks whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`:
-- **All criteria met** — WP is transitioned to `COMPLETE` within the same lock scope. Response includes `auto_finalized: true`.
-- **Criteria unmet** — WP stays `IN_PROGRESS`. Response includes `auto_finalize_blocked: true` and `unmet_criteria: [...]` listing the unmet criterion names.
+When \`type: "documentation"\`, \`status: "PASS"\`, and \`agent_role: "Documentation"\`, the server automatically checks whether all acceptance criteria are met **after** applying \`acceptance_criteria_updates\`:
+- **All criteria met** — WP is transitioned to \`COMPLETE\` within the same lock scope. Response includes \`auto_finalized: true\`.
+- **Criteria unmet** — WP stays \`IN_PROGRESS\`. Response includes \`auto_finalize_blocked: true\` and \`unmet_criteria: [...]\` listing the unmet criterion names.
 - **FAIL result or non-Documentation agent** — auto-finalize does not fire; WP status is unchanged.
 
 ## Example

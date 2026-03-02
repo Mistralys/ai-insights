@@ -9,7 +9,6 @@
  */
 
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
-import { isTerminalStatus } from '../schema/validators.js';
 import { parseTimestamp } from './timestamp.js';
 import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
 import { getDownstreamTypes, getUpstreamTypes, FAIL_ROUTING_MAP } from './pipeline-maps.js';

@@ -1,13 +1,13 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
+import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
 import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
 import {
-  getMaxHandoffDepth,
   buildHandoffPrompt,
   isBlockedByDependencies,
   isMostRecentPipelineFail,
@@ -1023,12 +1023,86 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
  * directly in `WAIT` responses, eliminating the need for a separate
  * `ledger_get_handoff_status` call by Developer, QA, and Reviewer agents.
  *
+ * When `opts.store`, `opts.rootIndex`, and `opts.wpDetails` are ALL provided, the
+ * function bypasses `getHandoffStatus()` entirely — dispatching directly to the
+ * per-role handoff function with the pre-loaded data. This eliminates the redundant
+ * LedgerStore construction and disk reads that would otherwise occur on every
+ * WAIT response in the next-action flow.
+ *
+ * When any of the three opts fields is absent (or opts is omitted), the function
+ * falls back to calling `getHandoffStatus()` as before — preserving compatibility
+ * with the standalone `ledger_get_handoff_status` tool call path.
+ *
  * @throws {Error} if handoff status computation fails (invalid path, project not found, etc.)
  */
 export async function computeHandoffStatus(
   projectPath: string,
   agentRole: string,
+  opts?: { store?: LedgerStore; rootIndex?: RootIndex; wpDetails?: WorkPackageDetail[] },
 ): Promise<Record<string, unknown>> {
+  // Fast path: all three pre-loaded values available — bypass getHandoffStatus()
+  if (opts?.store && opts?.rootIndex && opts?.wpDetails) {
+    const { store: s, rootIndex, wpDetails } = opts;
+    let mcpResult: { content: Array<{ type: string; text: string }> };
+
+    // Replicate the global BLOCKED short-circuit from getHandoffStatus
+    const blockedWps = rootIndex.work_packages.filter((wp) => wp.status === 'BLOCKED');
+    const readyOrInProgressWps = rootIndex.work_packages.filter(
+      (wp) => wp.status === 'READY' || wp.status === 'IN_PROGRESS'
+    );
+    if (blockedWps.length > 0 && readyOrInProgressWps.length === 0) {
+      mcpResult = await buildHandoffResponse(
+        agentRole,
+        'BLOCKED',
+        `All work packages are BLOCKED: ${blockedWps.map((wp) => wp.work_package_id).join(', ')}. Resolution required before proceeding.`,
+        undefined,
+        projectPath,
+        s
+      );
+    } else {
+      switch (agentRole) {
+        case 'Planner':
+          mcpResult = await getPlannerHandoff(wpDetails, projectPath, s);
+          break;
+        case 'Project Manager':
+          mcpResult = await getProjectManagerHandoff(wpDetails, projectPath, s);
+          break;
+        case 'Developer':
+          mcpResult = await getDeveloperHandoff(wpDetails, projectPath, s);
+          break;
+        case 'QA':
+          mcpResult = await getQaHandoff(wpDetails, projectPath, s);
+          break;
+        case 'Reviewer':
+          mcpResult = await getReviewerHandoff(wpDetails, projectPath, s);
+          break;
+        case 'Documentation':
+          mcpResult = await getDocumentationHandoff(wpDetails, projectPath, s);
+          break;
+        case 'Synthesis':
+          mcpResult = await buildHandoffResponse(
+            agentRole,
+            'COMPLETE',
+            'Synthesis complete.',
+            'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
+            projectPath,
+            s
+          );
+          break;
+        default:
+          mcpResult = await buildHandoffResponse(agentRole, 'IN_PROGRESS', 'Work in progress.', undefined, projectPath, s);
+      }
+    }
+
+    if ('isError' in mcpResult && (mcpResult as { isError?: boolean }).isError) {
+      const errText = (mcpResult.content as Array<{ text: string }>)[0]?.text ?? 'Handoff status computation failed';
+      throw new Error(errText);
+    }
+    const fastText = (mcpResult.content as Array<{ type: string; text: string }>)[0]?.text ?? '{}';
+    return JSON.parse(fastText) as Record<string, unknown>;
+  }
+
+  // Fallback: original path — constructs a fresh LedgerStore via getHandoffStatus()
   const mcpResult = await getHandoffStatus({ project_path: projectPath, current_agent: agentRole });
   if ('isError' in mcpResult && mcpResult.isError) {
     const errText = (mcpResult.content as Array<{ text: string }>)[0]?.text ?? 'Handoff status computation failed';

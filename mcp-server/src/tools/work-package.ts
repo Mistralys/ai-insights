@@ -21,6 +21,18 @@ import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 
 /**
+ * Extracts the ledger root string from an unknown parameter value.
+ * Guards against the MCP SDK injecting a RequestHandlerExtra object as the
+ * second positional argument to handler functions (see constraint 58).
+ *
+ * @param val - The raw value passed as `_ledgerRoot` by the MCP SDK or a test
+ * @returns The string value if `val` is a string, otherwise `undefined`
+ */
+function extractLedgerRoot(val: unknown): string | undefined {
+  return typeof val === 'string' ? val : undefined;
+}
+
+/**
  * Build a next-step guidance string after a WP status transition.
  *
  * Provides explicit routing so agents never have to guess what comes next.
@@ -239,13 +251,14 @@ async function createWorkPackage(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath, _ledgerRoot);
+  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   let createdWpId = '';
 
   try {
     // Use lock to ensure atomic creation of both files
-    await withLock(_ledgerRoot ?? projectPath, async () => {
+    await withLock(store.storageDir, async () => {
       // 1. Read root index to get next WP ID
       const rootIndex = await store.readRootIndex();
 
@@ -433,7 +446,8 @@ async function claimWorkPackage(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath, _ledgerRoot);
+  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -592,7 +606,8 @@ async function updateWorkPackageStatus(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath, _ledgerRoot);
+  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     let oldStatus: WorkPackageStatus | undefined;
@@ -857,13 +872,13 @@ async function updateWorkPackageStatus(
     // - The gap between locks is safe because propagateDependencyUnblock is
     //   idempotent: re-running it on an already-unblocked WP is a no-op
     if (isTerminalStatus(args.status)) {
-      await propagateDependencyUnblock(projectPath, args.work_package_id, _ledgerRoot);
+      await propagateDependencyUnblock(projectPath, args.work_package_id, { store });
     }
 
     // If the WP was reopened from COMPLETE, cascade-block dependents that are
     // READY or IN_PROGRESS (they may be operating on stale assumptions).
     if (oldStatus === 'COMPLETE' && args.status === 'IN_PROGRESS') {
-      await propagateDependencyReblock(projectPath, args.work_package_id, _ledgerRoot);
+      await propagateDependencyReblock(projectPath, args.work_package_id, { store });
     }
 
     // Return updated work package with next-step guidance
@@ -895,6 +910,21 @@ async function updateWorkPackageStatus(
 }
 
 /**
+ * Resolve a LedgerStore from an overloaded parameter.
+ *
+ * Accepts either a raw project root string, a pre-constructed store object,
+ * or undefined (in which case a store is created from `projectPath` alone).
+ */
+function resolveStore(
+  projectPath: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): LedgerStore {
+  return typeof ledgerRootOrOpts === 'object' && ledgerRootOrOpts !== null
+    ? ledgerRootOrOpts.store
+    : new LedgerStore(projectPath, typeof ledgerRootOrOpts === 'string' ? ledgerRootOrOpts : undefined);
+}
+
+/**
  * Helper: Propagate dependency unblocking after a work package transitions to COMPLETE.
  *
  * For all BLOCKED WPs that depend on the just-completed WP, checks whether ALL of
@@ -904,12 +934,11 @@ async function updateWorkPackageStatus(
 export async function propagateDependencyUnblock(
   projectPath: string,
   completedWpId: string,
-  ledgerRoot?: string
+  ledgerRootOrOpts?: string | { store: LedgerStore }
 ): Promise<void> {
-  const store = new LedgerStore(projectPath, ledgerRoot);
-  const lockDir = ledgerRoot ?? projectPath;
+  const store = resolveStore(projectPath, ledgerRootOrOpts);
 
-  await withLock(lockDir, async () => {
+  await withLock(store.storageDir, async () => {
     const rootIndex = await store.readRootIndex();
 
     // Find BLOCKED WPs whose dependency list includes the just-completed WP
@@ -970,12 +999,11 @@ export async function propagateDependencyUnblock(
 async function propagateDependencyReblock(
   projectPath: string,
   reopenedWpId: string,
-  ledgerRoot?: string
+  ledgerRootOrOpts?: string | { store: LedgerStore }
 ): Promise<void> {
-  const store = new LedgerStore(projectPath, ledgerRoot);
-  const lockDir = ledgerRoot ?? projectPath;
+  const store = resolveStore(projectPath, ledgerRootOrOpts);
 
-  await withLock(lockDir, async () => {
+  await withLock(store.storageDir, async () => {
     const rootIndex = await store.readRootIndex();
 
     // Find non-terminal, non-BLOCKED WPs whose dependency list includes the reopened WP
@@ -1097,7 +1125,8 @@ async function resetReworkCount(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath, _ledgerRoot);
+  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     // PM-only guard
@@ -1252,7 +1281,8 @@ async function updateAcceptanceCriteria(
     };
   }
 
-  const store = new LedgerStore(projectPath, _ledgerRoot);
+  const ledgerRoot = extractLedgerRoot(_ledgerRoot);
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     let appliedOps: string[] = [];
@@ -1360,7 +1390,7 @@ export function register(server: McpServer): void {
       description: 'Create a new work package with auto-generated WP ID. REQUIRED params: project_path, assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically.',
       inputSchema: CreateWorkPackageSchema,
     },
-    createWorkPackage as any
+    (args) => createWorkPackage(args)
   );
 
   server.registerTool(
@@ -1369,7 +1399,7 @@ export function register(server: McpServer): void {
       description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Rejects claims when the WP is assigned to a different agent unless override: true is passed. Validates that all dependencies are COMPLETE before allowing the claim.',
       inputSchema: ClaimWorkPackageSchema,
     },
-    claimWorkPackage as any
+    (args) => claimWorkPackage(args)
   );
 
   server.registerTool(
@@ -1378,7 +1408,7 @@ export function register(server: McpServer): void {
       description: 'Update work package status. REQUIRED params: project_path, work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by.',
       inputSchema: UpdateWorkPackageStatusSchema,
     },
-    updateWorkPackageStatus as any
+    (args) => updateWorkPackageStatus(args)
   );
 
   server.registerTool(
@@ -1387,7 +1417,7 @@ export function register(server: McpServer): void {
       description: 'PM-only: resets the rework counter for a specific pipeline type on a work package back to 0. Records an audit comment. No-op if counter is already 0.',
       inputSchema: ResetReworkCountSchema,
     },
-    resetReworkCount as any
+    (args) => resetReworkCount(args)
   );
 
   server.registerTool(
@@ -1396,6 +1426,6 @@ export function register(server: McpServer): void {
       description: 'PM-only: remove or modify acceptance criteria text on a work package. Rejects operations that would leave zero criteria. Supported operations: remove (by exact text), modify_text (old → new).',
       inputSchema: UpdateAcceptanceCriteriaSchema,
     },
-    updateAcceptanceCriteria as any
+    (args) => updateAcceptanceCriteria(args)
   );
 }

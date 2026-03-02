@@ -650,7 +650,8 @@ function buildForTarget(suite, target) {
       if (persona.mcp_tools) {
         const noteOnlyTools = persona.mcp_tools.filter(t => t.note_only).map(t => t.tool);
         for (const toolName of noteOnlyTools) {
-          if (output.includes(`| \`${toolName}\` |`)) {
+          const toolNameRegex = new RegExp(`\\|\\s*\`${toolName}\`\\s*\\|`);
+          if (toolNameRegex.test(output)) {
             process.stderr.write(
               `[note_only-violation] ${suite}/${target}/${contentBasename}: note_only tool "${toolName}" appears in generated output.\n`
             );

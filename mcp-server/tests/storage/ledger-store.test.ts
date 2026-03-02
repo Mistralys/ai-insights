@@ -262,7 +262,7 @@ describe('LedgerStore', () => {
           {
             work_package_id: 'WP-001',
             status: 'READY',
-            assigned_to: 'Developer Agent',
+            assigned_to: 'Developer',
             dependencies: [],
             file: '.ledger/WP-001.json',
           },

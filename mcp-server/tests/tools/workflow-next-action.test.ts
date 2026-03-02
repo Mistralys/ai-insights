@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'path';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -1338,6 +1338,32 @@ describe('getNextActionsCollector — batch mode via max_results', () => {
     expect(result.actions).toHaveLength(0);
     expect(result.reason).toContain('not applicable');
   });
+
+  it('stops fetching WPs after limit actions are found (sequential early-exit)', async () => {
+    // Set up 5 READY WPs — only the first 2 need to be read when limit is 2
+    const wps = [
+      makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-003', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-004', status: 'READY', pipelines: [] }),
+      makeWorkPackageDetail({ work_package_id: 'WP-005', status: 'READY', pipelines: [] }),
+    ];
+    const rootIndex = await setupStore(handle, wps);
+
+    // Spy on store.readWorkPackage to count actual disk reads
+    const readSpy = vi.spyOn(handle.store, 'readWorkPackage');
+
+    const result = await parseResult(_internal.getNextActionsCollector(rootIndex, handle.store, 'Developer', 2));
+
+    // Should have returned exactly 2 actions
+    expect(result.actions).toHaveLength(2);
+    expect(result.total).toBe(2);
+
+    // Sequential early-exit: only 2 WPs should have been read, not all 5
+    expect(readSpy).toHaveBeenCalledTimes(2);
+
+    readSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1472,6 +1498,32 @@ describe('getNextAction — handoff_status embedded in WAIT responses', () => {
     } finally {
       // Clean up the temp agents directory regardless of test outcome.
       await rm(agentsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('embeds handoff_status in PM WAIT response (bug fix: PM case was missing embedHandoffStatusInWait)', async () => {
+    // Set up a project with one WP that is IN_PROGRESS with an active (non-stale)
+    // IN_PROGRESS pipeline — no PM-priority actions fire (no blockers, no stale
+    // pipelines, no rework violations), so PM falls through to WAIT.
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      pipelines: [makePipeline('implementation', 'IN_PROGRESS', '2026-03-02T06:00:00')],
+    });
+    await setupStore(handle, [wp]);
+
+    const originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', handle.ledgerRoot);
+    try {
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Project Manager' })
+      );
+      expect(result.action).toBe('WAIT');
+      expect(result.handoff_status).toBeDefined();
+      expect(result.handoff_status.current_agent).toBe('Project Manager');
+    } finally {
+      process.argv = originalArgv;
     }
   });
 });

@@ -124,7 +124,7 @@ describe('Full workflow integration', () => {
           work_package_id: wpId,
           work_package_file: 'work/WP-001.md',
           status: 'READY',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: [],
           acceptance_criteria: [{ criterion: 'Feature works', met: false }],
           revision: 0,
@@ -134,7 +134,7 @@ describe('Full workflow integration', () => {
         const summary: WorkPackageSummary = {
           work_package_id: wpId,
           status: 'READY',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: [],
           file: `ledger/${wpId}.json`,
         };
@@ -171,7 +171,7 @@ describe('Full workflow integration', () => {
           work_package_id: wpId,
           work_package_file: 'work/WP-002.md',
           status: initialStatus as 'READY' | 'BLOCKED',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: ['WP-001'],
           acceptance_criteria: [{ criterion: 'Integration works', met: false }],
           revision: 0,
@@ -181,7 +181,7 @@ describe('Full workflow integration', () => {
         const summary: WorkPackageSummary = {
           work_package_id: wpId,
           status: initialStatus as 'READY' | 'BLOCKED',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: ['WP-001'],
           file: `ledger/${wpId}.json`,
         };
@@ -223,7 +223,7 @@ describe('Full workflow integration', () => {
           {
             work_package_id: 'WP-001',
             status: 'READY',
-            assigned_to: 'Developer Agent',
+            assigned_to: 'Developer',
             dependencies: [],
             file: '.ledger/WP-001.json',
           },
@@ -236,7 +236,7 @@ describe('Full workflow integration', () => {
         work_package_id: 'WP-001',
         work_package_file: 'work/WP-001.md',
         status: 'READY',
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: [
           { criterion: 'Feature implemented', met: false },
@@ -257,7 +257,7 @@ describe('Full workflow integration', () => {
         expect(depCheck.allowed).toBe(true);
 
         wp.status = 'IN_PROGRESS';
-        wp.assigned_to = 'Developer Agent';
+        wp.assigned_to = 'Developer';
 
         const summary = root.work_packages.find(
           (s) => s.work_package_id === 'WP-001'
@@ -381,7 +381,7 @@ describe('Full workflow integration', () => {
           {
             work_package_id: 'WP-001',
             status: 'IN_PROGRESS',
-            assigned_to: 'Developer Agent',
+            assigned_to: 'Developer',
             dependencies: [],
             file: '.ledger/WP-001.json',
           },
@@ -394,7 +394,7 @@ describe('Full workflow integration', () => {
         work_package_id: 'WP-001',
         work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: [
           { criterion: 'Feature implemented', met: true },
@@ -499,7 +499,7 @@ describe('Full workflow integration', () => {
           {
             work_package_id: 'WP-001',
             status: 'IN_PROGRESS',
-            assigned_to: 'Developer Agent',
+            assigned_to: 'Developer',
             dependencies: [],
             file: '.ledger/WP-001.json',
           },
@@ -512,7 +512,7 @@ describe('Full workflow integration', () => {
         work_package_id: 'WP-001',
         work_package_file: 'work/WP-001.md',
         status: 'IN_PROGRESS',
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: [],
         acceptance_criteria: [{ criterion: 'Feature works', met: true }],
         revision: 0,
@@ -972,21 +972,21 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
         {
           work_package_id: 'WP-001',
           status: 'IN_PROGRESS',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: [],
           file: 'ledger/WP-001.json',
         },
         {
           work_package_id: 'WP-002',
           status: 'BLOCKED',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: ['WP-001'],
           file: 'ledger/WP-002.json',
         },
         {
           work_package_id: 'WP-003',
           status: 'BLOCKED',
-          assigned_to: 'Developer Agent',
+          assigned_to: 'Developer',
           dependencies: ['WP-001', 'WP-002'],
           file: 'ledger/WP-003.json',
         },
@@ -999,7 +999,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
       work_package_id: 'WP-001',
       work_package_file: 'work/WP-001.md',
       status: 'IN_PROGRESS',
-      assigned_to: 'Developer Agent',
+      assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: [{ criterion: 'Done', met: true }],
       revision: 0,
@@ -1010,7 +1010,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
       work_package_id: 'WP-002',
       work_package_file: 'work/WP-002.md',
       status: 'BLOCKED',
-      assigned_to: 'Developer Agent',
+      assigned_to: 'Developer',
       dependencies: ['WP-001'],
       acceptance_criteria: [],
       revision: 0,
@@ -1022,7 +1022,7 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
       work_package_id: 'WP-003',
       work_package_file: 'work/WP-003.md',
       status: 'BLOCKED',
-      assigned_to: 'Developer Agent',
+      assigned_to: 'Developer',
       dependencies: ['WP-001', 'WP-002'],
       acceptance_criteria: [],
       revision: 0,

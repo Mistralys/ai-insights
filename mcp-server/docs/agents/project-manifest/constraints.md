@@ -2,6 +2,18 @@
 
 This document codifies established rules, conventions, and non-obvious gotchas.
 
+### Constraint Entry Format
+
+New constraint entries should follow this structure (modelled on Constraint 2):
+
+| Section | Content |
+|---------|---------|
+| **Rule** | The specific, actionable rule — include forbidden alternatives inline. |
+| **Rationale** | Why the rule exists. One or two sentences. |
+| **Anti-pattern** (if applicable) | A concrete ❌ code example showing the wrong approach. |
+| **Correct pattern** (if applicable) | A concrete ✅ code example showing the right approach. |
+| **Forbidden patterns** (if applicable) | A prose or list summary of every variant that must NOT be used. |
+
 ---
 
 ## File System Constraints
@@ -14,11 +26,23 @@ This document codifies established rules, conventions, and non-obvious gotchas.
 
 **Implementation:** Write to `{file}.tmp.{pid}`, then atomically rename to target.
 
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — direct write; a crash mid-write leaves the target file truncated or corrupt
+await fs.writeFile(targetPath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — write to .tmp.{pid}, then rename; readers never see a partial file
+await atomicWriteJson(targetPath, data);
+```
+
 ---
 
 ### 2. Dual-File Updates Require Locking
 
-**Rule:** When updating both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock(store.storageDir, ...)`. Pass `store.storageDir`, not `project_path`.
+**Rule:** When updating both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock(store.storageDir, ...)`. **`store.storageDir` is the only acceptable first argument to `withLock` — never pass `projectPath`, `ledgerRoot`, or `ledgerRoot ?? projectPath`.** Once a `LedgerStore` is constructed, use its `.storageDir` property to obtain the canonical lock directory.
 
 **Extension — Single-File Read-Modify-Write:** Even when updating only the root index, any read-modify-write sequence must also be wrapped in `withLock(store.storageDir, ...)` to prevent TOCTOU races. Example: `completeSynthesis` reads the root index, mutates `synthesis_generated` and project status, then writes it back — this entire sequence must occur inside a single lock scope.
 
@@ -1050,6 +1074,31 @@ for (let i = 1; i < pipelines.length; i++) {
 
 **(c)** **Rationale:** Prevents per-file fixture divergence, eliminates test-replica maintenance burden, and ensures fixture behaviour (field defaults, schema shape, timestamps) stays consistent across the entire test suite.
 
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — local factory duplicates the canonical makeWpDetail from tests/helpers/fixtures.ts
+function makeTestWp(overrides: Partial<WorkPackageDetail> = {}): WorkPackageDetail {
+  return {
+    work_package_id: 'WP-001',
+    status: 'READY',
+    revision: 0,
+    pipelines: [],
+    assigned_to: null,
+    dependencies: [],
+    acceptance_criteria: [],
+    ...overrides,
+  };
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — import the canonical factory; field defaults and schema shape are guaranteed
+import { makeWpDetail } from '../helpers/fixtures.js';
+
+const wp = makeWpDetail({ work_package_id: 'WP-001', status: 'READY' });
+```
+
 ---
 
 ### 56. JSDoc Convention for Captured-Closure Variables
@@ -1093,6 +1142,140 @@ const GetWorkPackageSchema = z.object({
 ```
 
 **Rationale:** Without this guard, callers may accidentally pass both fields. `resolveProjectPath` (in `path-validator.ts`) always prefers `project_path` over `cwd_path`, which silently ignores the `cwd_path`; adding the Zod refinement surfaces the confusion as an error at the schema layer rather than letting incorrect input succeed silently.
+
+---
+
+### 58. MCP SDK Injects `RequestHandlerExtra` — Handler Registration Must Use Wrapper Functions
+
+**Rule:** Every internal tool handler that has a second positional parameter (`_ledgerRoot?: string`) **must** be registered via an arrow-function wrapper, **not** passed directly as the handler. Additionally, each such handler **must** apply a defensive type guard before using `_ledgerRoot`.
+
+**Root cause:** The MCP SDK (v1.0.4+) calls every registered tool handler as:
+```typescript
+typedHandler(args, extra)   // extra is RequestHandlerExtra
+```
+If the handler has a second positional parameter (`_ledgerRoot?: string`), the `extra` object is captured by it. Because `extra` is truthy, `_ledgerRoot ?? projectPath` resolves to the `extra` object, causing downstream `path.join()` calls to throw:
+```
+TypeError: The "path" argument must be of type string. Received an instance of Object
+```
+
+**Two-layer defence (belt-and-suspenders):**
+
+*Layer 1 — Registration wrapper (primary):*
+```typescript
+// ✅ CORRECT — extra never reaches the internal handler
+server.registerTool('ledger_create_work_package', { ... }, (args) => createWorkPackage(args));
+
+// ❌ WRONG — extra leaks into _ledgerRoot
+server.registerTool('ledger_create_work_package', { ... }, createWorkPackage as any);
+```
+
+*Layer 2 — Defensive type guard inside the handler (secondary):*
+```typescript
+async function createWorkPackage(args: ..., _ledgerRoot?: string) {
+  // ✅ Guard against the MCP SDK injecting a RequestHandlerExtra object
+  const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
+  // Use ledgerRoot throughout — never use _ledgerRoot directly after this line
+}
+```
+
+**Affected handlers (both layers applied as of 2026-03-01):**
+- `createWorkPackage` — `src/tools/work-package.ts`
+- `claimWorkPackage` — `src/tools/work-package.ts`
+- `updateWorkPackageStatus` — `src/tools/work-package.ts`
+- `resetReworkCount` — `src/tools/work-package.ts`
+- `updateAcceptanceCriteria` — `src/tools/work-package.ts`
+- `completeSynthesis` — `src/tools/project-lifecycle.ts`
+
+**Why single-argument handlers are unaffected:** Handlers with only one parameter (`initializeProject`, `getProjectStatus`, etc.) silently ignore any surplus arguments passed by the SDK — `extra` is discarded before it can cause harm.
+
+**Rationale:** A bug introduced when the SDK began passing `extra` went undetected because all unit tests call internal functions directly with an explicit string `_ledgerRoot`. The registration layer, where the SDK's extra injection occurs, had no test coverage. The two-layer defence ensures correctness both at the registration boundary and inside the function itself.
+
+---
+
+### 59. Acceptance Criteria Field-Name Verification
+
+**Rule:** Acceptance criteria text that references specific JSON field names, TypeScript parameter names, or object property names (e.g., `store`, `rootIndex`, `wpDetails`, `storageDir`) **must** be verified against the actual implementation source before the AC is committed to a work package. If the implementation uses a different name than what the AC states, the AC text must be updated to match.
+
+**Rationale:** Stale field-name references in ACs cause false-negative review outcomes. When a reviewer checks `wpDetails` against acceptance criteria but the implementation uses `allWpDetails`, the criterion is technically not met — yet neither the agent nor the QA reviewer notices. This constraint formalises the verification step that was retroactively identified in synthesis #4 of the Ledger Tool Simplification rework-1 cycle.
+
+**Anti-pattern:**
+```
+// AC text: "getNextActionsCollector receives `wpDetails` as a pre-loaded array"
+// Implementation: loads wp details internally, no wpDetails parameter
+// → AC text silently passes review because no one checks the parameter name
+```
+
+**Correct pattern:**
+```
+// AC text uses the exact parameter/field name from the source:
+// "getNextActionsCollector receives `rootIndex: RootIndex` and `store: LedgerStore`"
+// Verified against src/tools/workflow-next-action.ts before committing
+```
+
+---
+
+### 60. No Unused Locals (`noUnusedLocals`)
+
+**Rule:** `tsconfig.json` enables `"noUnusedLocals": true`. Every import, variable, parameter, and type alias that is declared must be consumed within its file. Dead imports and unused variables are compile errors — fix, never suppress.
+
+**Rationale:** Unused imports are structural noise left behind by refactors (e.g., when symbols move to a new module). They mislead agents and developers into thinking a dependency exists when it does not, and they obscure intent. The `noUnusedLocals` flag makes these errors hard build failures so they cannot accumulate silently.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — AGENT_PIPELINE_MAP moved to workflow-next-action-batch.ts but was
+// left in the import list of workflow-next-action.ts after a file-split refactor.
+import {
+  PIPELINE_TYPES,
+  AGENT_PIPELINE_MAP,   // ← never referenced in this file
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — only symbols actually used in this file are imported.
+import {
+  PIPELINE_TYPES,
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
+```
+
+**Forbidden patterns:**
+- Adding `// @ts-ignore` or `// eslint-disable` to suppress unused-local errors.
+- Importing a symbol "for re-export" without an explicit re-export statement.
+- Leaving a symbol in an import group after moving its last consumer to another file.
+
+---
+
+### 61. `assigned_to` Requires a Canonical AgentRole; `project_comments.agent` Does Not
+
+**Rule:** The `assigned_to` field on a work package (`WorkPackageSchema.assigned_to`) must be a value from the `AGENT_ROLES` constant (a validated `AgentRole` union). The `agent` field on a project-level comment (`ProjectCommentSchema.agent`) is typed as `z.string()` and is intentionally **not** constrained to `AGENT_ROLES`.
+
+**Rationale:** `assigned_to` drives workflow routing, gate checks, and pipeline agent-map lookups — it must be a machine-readable canonical role value. `project_comments.agent` is a human-readable audit identifier; it records who wrote the comment as a narrative label, not as a workflow actor, so free-form strings are appropriate.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — using a non-canonical value in the role-validated field
+await claimWorkPackage({ ..., agent: "Developer Agent" });
+// Zod rejects "Developer Agent" — not a member of AGENT_ROLES
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — canonical AgentRole value required for assigned_to/agent in claim
+await claimWorkPackage({ ..., agent: "Developer" });
+
+// ✅ ALSO CORRECT — free-text is acceptable in project_comments.agent
+await addProjectComment({ ..., agent: "Developer Agent" });
+// z.string() accepts arbitrary strings here; this is intentional
+```
+
+**Forbidden patterns:**
+- Using `"Developer Agent"` (or any multi-word variant) as the `agent` argument to `ledger_claim_work_package` or `ledger_start_pipeline`.
+- Assuming `project_comments.agent` and `assigned_to` share the same validation rules — they do not.
+- Hardcoding role strings anywhere other than constants. Use `AGENT_ROLES` entries or the `AgentRole` type for `assigned_to`-typed fields.
+
+**Reference:** `AGENT_ROLES` is defined in `src/utils/constants.ts`. `ProjectCommentSchema` is in `src/schema/validators.ts`.
 
 ---
 

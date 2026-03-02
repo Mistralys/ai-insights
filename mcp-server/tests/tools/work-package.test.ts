@@ -2709,3 +2709,101 @@ describe('updateWorkPackageStatus — COMPLETE → CANCELLED counter invariant (
     expect(wp.status).toBe('CANCELLED');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression — MCP extra-argument leak (_ledgerRoot type guard)
+// Bug reported: 2026-03-01 (docs/agents/plans/2026-03-01-.../pm-findings.md)
+// ---------------------------------------------------------------------------
+// Before the fix, the MCP SDK injected a RequestHandlerExtra object as the
+// second argument to each handler that had a `_ledgerRoot?: string` second
+// param. Because the object is truthy, `_ledgerRoot ?? projectPath` resolved
+// to the object, and `path.join(object, slug)` threw:
+//   TypeError: The "path" argument must be of type string. Received an instance of Object
+//
+// Fix applied (belt-and-suspenders):
+//   1. Registration wrappers: `(args) => handler(args)` stop MCP extra from
+//      reaching the internal function via the SDK call path.
+//   2. Defensive type guard inside each handler:
+//      `const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined`
+//
+// These tests exercise the defensive guard directly by calling internal
+// functions with a fake extra object as the second argument and confirming
+// that no path TypeError appears in the returned error message.
+// ---------------------------------------------------------------------------
+describe('MCP extra-argument leak — _ledgerRoot defensive type guard (regression 2026-03-01)', () => {
+  // Simulates the MCP SDK RequestHandlerExtra object that was leaking into _ledgerRoot
+  const FAKE_EXTRA = {
+    requestId: 'mcp-test-extra-obj',
+    signal: new AbortController().signal,
+    authInfo: undefined,
+  } as unknown as string;
+
+  // An intentionally non-existent plan path — we expect a "project not found" error,
+  // NOT a path TypeError. Any path TypeError in the response means the guard regressed.
+  const GHOST_PLAN = join(tmpdir(), '2026-03-01-extra-leak-regression');
+
+  function containsPathTypeError(result: unknown): boolean {
+    const text = (result as any)?.content?.[0]?.text ?? '';
+    return (
+      /path.*argument.*must.*be.*type.*string/i.test(text) ||
+      /received an instance of object/i.test(text)
+    );
+  }
+
+  it('createWorkPackage does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: GHOST_PLAN,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['AC-1'],
+        work_package_file: 'work/WP-001.md',
+      },
+      FAKE_EXTRA
+    );
+    expect(containsPathTypeError(result)).toBe(false);
+  });
+
+  it('claimWorkPackage does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await claimWorkPackage(
+      { project_path: GHOST_PLAN, work_package_id: 'WP-001', agent: 'Developer' },
+      FAKE_EXTRA
+    );
+    expect(containsPathTypeError(result)).toBe(false);
+  });
+
+  it('updateWorkPackageStatus does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await updateWorkPackageStatus(
+      { project_path: GHOST_PLAN, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Developer' },
+      FAKE_EXTRA
+    );
+    expect(containsPathTypeError(result)).toBe(false);
+  });
+
+  it('resetReworkCount does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await resetReworkCount(
+      {
+        project_path: GHOST_PLAN,
+        work_package_id: 'WP-001',
+        pipeline_type: 'implementation',
+        agent_role: 'Project Manager',
+        reason: 'regression test — extra leak guard',
+      },
+      FAKE_EXTRA
+    );
+    expect(containsPathTypeError(result)).toBe(false);
+  });
+
+  it('updateAcceptanceCriteria does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await updateAcceptanceCriteria(
+      {
+        project_path: GHOST_PLAN,
+        work_package_id: 'WP-001',
+        agent_role: 'Project Manager',
+        operations: [{ action: 'remove', criterion: 'AC-1' }],
+      },
+      FAKE_EXTRA
+    );
+    expect(containsPathTypeError(result)).toBe(false);
+  });
+});

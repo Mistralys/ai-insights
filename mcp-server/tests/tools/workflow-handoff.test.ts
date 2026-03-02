@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -11,6 +11,7 @@ import {
   getProjectManagerHandoff,
   nextAgentFromStatus,
   buildHandoffResponse,
+  computeHandoffStatus,
 } from '../../src/tools/workflow-handoff.js';
 import { getDeveloperAction } from '../../src/tools/workflow-next-action.js';
 import {
@@ -51,7 +52,7 @@ function makeWp(
     work_package_id: id,
     work_package_file: `work/${id}.md`,
     status: status as any,
-    assigned_to: 'Developer Agent',
+    assigned_to: 'Developer',
     dependencies: deps,
     acceptance_criteria: [],
     revision: 0,
@@ -585,7 +586,7 @@ describe('getNextActions batch tool (WP-006)', () => {
       work_packages: wps.map((w) => ({
         work_package_id: w.id,
         status: w.status as any,
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: w.deps ?? [],
         file: `ledger/${w.id}.json`,
       })),
@@ -598,7 +599,7 @@ describe('getNextActions batch tool (WP-006)', () => {
         work_package_id: w.id,
         work_package_file: `work/${w.id}.md`,
         status: w.status as any,
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: w.deps ?? [],
         acceptance_criteria: [],
         revision: 0,
@@ -2041,5 +2042,74 @@ describe('WP-005: getProjectManagerHandoff \u2014 additional scenarios', () => {
     ];
     const result = await parseResult(getProjectManagerHandoff(wpDetails));
     expect(result.status).toBe('WAIT');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-003: computeHandoffStatus — bypass path reuses pre-loaded data
+// ---------------------------------------------------------------------------
+
+describe('computeHandoffStatus — bypass path (store/rootIndex/wpDetails opts)', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'handoff-bypass-'));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('does not call store.readRootIndex or readWorkPackage when all three opts are provided', async () => {
+    // Point store at the temp directory — no ledger files written (bypass path must not read)
+    const store = new LedgerStore(PLAN_PATH, tmpDir);
+
+    // Manually construct the pre-loaded data (no I/O needed for bypass path)
+    const wpDetail = makeWp('WP-001', 'COMPLETE', [{ type: 'implementation', status: 'PASS' }, { type: 'documentation', status: 'PASS' }]);
+    const rootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00',
+      last_updated: '2026-01-01T00:00:00',
+      status: 'IN_PROGRESS' as const,
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [{ work_package_id: 'WP-001', status: 'COMPLETE' as const, assigned_to: 'Developer' as const, dependencies: [], file: 'ledger/WP-001.json' }],
+      project_comments: [],
+      auto_handoff_depth: 0,
+    };
+    const wpDetails = [wpDetail];
+
+    // Spy on I/O methods — they must NOT be called when opts are provided
+    const readRootSpy = vi.spyOn(store, 'readRootIndex');
+    const readWpSpy = vi.spyOn(store, 'readWorkPackage');
+
+    const result = await computeHandoffStatus(PLAN_PATH, 'Developer', { store, rootIndex, wpDetails });
+
+    // All WPs are COMPLETE → Developer handoff is READY_FOR_SYNTHESIS
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+    expect(result.current_agent).toBe('Developer');
+
+    // Bypass path: no disk reads should have been issued
+    expect(readRootSpy).not.toHaveBeenCalled();
+    expect(readWpSpy).not.toHaveBeenCalled();
+
+    readRootSpy.mockRestore();
+    readWpSpy.mockRestore();
+  });
+
+  it('falls back to getHandoffStatus when opts are absent or incomplete (no bypass without all three)', async () => {
+    // With only one opts field (store, but not rootIndex or wpDetails),
+    // the bypass path is NOT activated. getHandoffStatus() is called instead,
+    // which tries to read ledger files from disk. Since no ledger exists at temp dir,
+    // computeHandoffStatus should throw (proving the bypass was NOT used).
+    const store = new LedgerStore(PLAN_PATH, tmpDir);
+
+    // No opts at all — fallback is used, ledger not found → throws
+    await expect(computeHandoffStatus(PLAN_PATH, 'Developer')).rejects.toThrow();
+
+    // Partial opts (only store, no rootIndex/wpDetails) — bypass is skipped → throws
+    await expect(
+      computeHandoffStatus(PLAN_PATH, 'Developer', { store })
+    ).rejects.toThrow();
   });
 });

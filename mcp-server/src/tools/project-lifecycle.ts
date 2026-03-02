@@ -545,7 +545,8 @@ async function completeSynthesis(
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath, _ledgerRoot);
+  const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     let result: { content: Array<{ type: 'text'; text: string }>; isError?: boolean } | undefined;
@@ -714,6 +715,6 @@ export function register(server: McpServer): void {
       description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: project_path, agent_role. Call this after generating the synthesis report.',
       inputSchema: CompleteSynthesisSchema,
     },
-    completeSynthesis as any
+    (args) => completeSynthesis(args)
   );
 }

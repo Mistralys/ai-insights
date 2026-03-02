@@ -77,7 +77,7 @@ This ensures readers never see partial writes.
 ### 4. **File Locking for Concurrency**
 
 `withLock()` utility provides **distributed file locking**:
-- Creates `.ledger.lock` in project directory
+- Creates `.ledger.lock` in the storage directory (`store.storageDir`) — never in the plan directory
 - Retries lock acquisition (5 retries, 200ms intervals)
 - Stale lock detection (10 second timeout)
 - Always releases lock in `finally` block
@@ -154,13 +154,50 @@ Runtime-adjustable settings are managed via a **module-level singleton cache** b
 
 ---
 
+### 9. **Dual-Caller Store Overload Pattern**
+
+Some internal functions in `src/tools/work-package.ts` must be callable by two different callers:
+1. **Top-level MCP tool handlers** — which have a `projectPath: string` but no open store.
+2. **Internal callers** — which already hold a `LedgerStore` and must not construct another one (to avoid redundant I/O and potential double-locking).
+
+The pattern uses a **discriminated union** as the last parameter:
+
+```typescript
+// Shared signature used by propagateDependencyUnblock and propagateDependencyReblock
+function example(
+  projectPath: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): Promise<void>;
+```
+
+A private module helper `resolveStore()` (not exported) encapsulates the disambiguation:
+
+```typescript
+function resolveStore(
+  projectPath: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): LedgerStore {
+  if (typeof ledgerRootOrOpts === 'object' && ledgerRootOrOpts !== null) {
+    return ledgerRootOrOpts.store;   // ← pre-built store from internal caller
+  }
+  return new LedgerStore(projectPath, ledgerRootOrOpts);  // ← construct from path
+}
+```
+
+**When to apply this pattern:** Any function that (a) owns a lock-protected workflow and (b) is called both by top-level tools and by other internal functions that already hold a store. Do not inline the ternary — extract it into a private `resolveXxx()` helper following this convention.
+
+**Key File:** `src/tools/work-package.ts` — `resolveStore()`
+
+---
+
 ## Build & Test
 
 | Script | Command | Purpose |
 |--------|---------|----------|
 | **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
 | **dev** | `npm run dev` | Run server in development mode with tsx |
-| **test** | `npm test` | Run all tests once |
+| **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js --check` before every test run — exits 1 if any generated persona file is stale, blocking the test run. This is **one of two** enforcement layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
+| **test** | `npm test` | Run all tests once (pretest fires first) |
 | **test:watch** | `npm run test:watch` | Run tests in watch mode |
 
 No explicit build step is required for development (tsx handles TypeScript on-the-fly).
@@ -177,6 +214,6 @@ The server has **no stateful services**. All state is persisted to JSON files on
 ## Key Conventions
 
 - **ESM-only:** All imports use `.js` extensions (required for Node16 module resolution)
-- **Strict TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`, and `noEmitOnError: true` in `tsconfig.json` — `noUncheckedIndexedAccess` widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors; `noEmitOnError` prevents any JS from being emitted to `dist/` when type errors are present, ensuring the build fails fast rather than producing a partially compiled output
+- **Strict TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`, `noEmitOnError: true`, and `noUnusedLocals: true` in `tsconfig.json` — `noUncheckedIndexedAccess` widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors; `noEmitOnError` prevents any JS from being emitted to `dist/` when type errors are present, ensuring the build fails fast rather than producing a partially compiled output; `noUnusedLocals` makes dead imports and unused variables hard compile errors, preventing structural noise from accumulating silently after refactors
 - **Pretty JSON:** All JSON files written with 2-space indentation and trailing newline
 - **File Naming:** Work package IDs follow the pattern `WP-###` (minimum 3 digits; no upper bound — supports `WP-001` through `WP-9999+`)

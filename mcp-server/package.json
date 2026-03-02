@@ -9,6 +9,7 @@
     "predev": "npm run sync-version",
     "build": "tsc",
     "dev": "tsx src/index.ts",
+    "pretest": "node ../scripts/build-personas.js --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "check:roles": "node ../scripts/check-known-roles.js",

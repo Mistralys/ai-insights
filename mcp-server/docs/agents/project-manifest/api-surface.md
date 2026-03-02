@@ -967,6 +967,8 @@ export const _internal: {
   // _ledgerRoot test-hook for test isolation (mirrors the pattern in work-package.ts).
   // Enforces §19.1 guards: agent role, fresh counter computation, at-least-one-WP,
   // and pending-WP check. All guards run inside the write lock.
+  // ⚠️ _ledgerRoot is guarded: `typeof _ledgerRoot === 'string'` — safe when the
+  // MCP SDK injects a RequestHandlerExtra object (see §58 in constraints.md).
   completeSynthesis: (
     args: { project_path: string; agent_role: string },
     _ledgerRoot?: string
@@ -979,12 +981,34 @@ export const _internal: {
 ```typescript
 // Named export — called by pipeline.ts (completePipeline) and updateWorkPackageStatus.
 // Propagates COMPLETE/CANCELLED to eligible BLOCKED dependents (→ READY).
-// Self-contained: creates its own LedgerStore and acquires its own lock.
+// When ledgerRootOrOpts is a { store } object, uses the provided LedgerStore directly
+// (avoids redundant construction). Otherwise constructs its own store and acquires
+// its own lock. String form preserved for backward compatibility.
 export function propagateDependencyUnblock(
   projectPath: string,
   completedWpId: string,
-  ledgerRoot?: string
+  ledgerRootOrOpts?: string | { store: LedgerStore }
 ): Promise<void>;
+```
+
+```typescript
+// Module-private helper — normalizes the raw _ledgerRoot parameter injected by the
+// MCP SDK (which may be a RequestHandlerExtra object rather than a string, per
+// constraint 58). Returns the string unmodified, or undefined for any non-string value.
+function extractLedgerRoot(val: unknown): string | undefined;
+```
+
+```typescript
+// Module-private helper — resolves a LedgerStore from the overloaded
+// ledgerRootOrOpts parameter shared by propagateDependencyUnblock and
+// propagateDependencyReblock. Returns the pre-constructed store when passed a
+// { store } object; otherwise constructs a new LedgerStore from projectPath
+// (and optionally the string ledger root). Eliminates the duplicated inline
+// ternary that previously appeared in both propagate functions.
+function resolveStore(
+  projectPath: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): LedgerStore;
 ```
 
 ```typescript
@@ -995,7 +1019,7 @@ export const _internal: {
   propagateDependencyUnblock: (
     projectPath: string,
     completedWpId: string,
-    ledgerRoot?: string
+    ledgerRootOrOpts?: string | { store: LedgerStore }
   ) => Promise<void>;
   // Re-blocks non-COMPLETE, non-CANCELLED, non-BLOCKED dependents of a reopened WP.
   // Auto-cancels IN_PROGRESS pipelines on re-blocked WPs (auto_cancelled:true).
@@ -1005,8 +1029,7 @@ export const _internal: {
   propagateDependencyReblock: (
     projectPath: string,
     reopenedWpId: string,
-    store: LedgerStore,
-    _ledgerRoot?: string
+    ledgerRootOrOpts?: string | { store: LedgerStore }
   ) => Promise<void>;
   // Cycle detection used by createWorkPackage. BFS over the dependency graph
   // starting from the candidate new WP. Returns true if adding the WP with the
@@ -1017,16 +1040,34 @@ export const _internal: {
     dependencies: string[],
     existingWps: WorkPackageSummary[]
   ) => boolean;
-  // Core implementation of ledger_create_work_package. Accepts an optional
-  // _ledgerRoot test-hook (mirrors propagateDependencyUnblock's pattern).
+  // Core implementation of ledger_create_work_package. _ledgerRoot is a test-hook
+  // normalized via extractLedgerRoot() (see §58 in constraints.md).
   createWorkPackage: (
     args: CreateWorkPackageArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
-  // Core implementation of ledger_update_work_package_status. Accepts an optional
-  // _ledgerRoot test-hook for test isolation.
+  // Core implementation of ledger_claim_work_package. Same _ledgerRoot guard as
+  // createWorkPackage (§58).
+  claimWorkPackage: (
+    args: ClaimWorkPackageArgs,
+    _ledgerRoot?: string
+  ) => Promise<MCPResult>;
+  // Core implementation of ledger_update_work_package_status. Same _ledgerRoot
+  // guard as createWorkPackage (§58).
   updateWorkPackageStatus: (
     args: UpdateWorkPackageStatusArgs,
+    _ledgerRoot?: string
+  ) => Promise<MCPResult>;
+  // Core implementation of ledger_reset_rework_count (PM-only). Same _ledgerRoot
+  // guard as createWorkPackage (§58).
+  resetReworkCount: (
+    args: ResetReworkCountArgs,
+    _ledgerRoot?: string
+  ) => Promise<MCPResult>;
+  // Core implementation of ledger_update_acceptance_criteria (PM-only). Same
+  // _ledgerRoot guard as createWorkPackage (§58).
+  updateAcceptanceCriteria: (
+    args: UpdateAcceptanceCriteriaArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
 };
@@ -1479,7 +1520,7 @@ export function getProjectManagerAction(rootIndex: RootIndex, store: LedgerStore
 //   P7 CLAIM_WP                  — READY WP assigned to Developer with dependencies satisfied.
 //   Fallback WAIT.
 // Legacy rework_count scalar fallback removed; uses rework_counts.implementation only.
-export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // QA-specific next-action computation. Implements the 7+1b per-WP algorithm from §14.3.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
@@ -1493,7 +1534,7 @@ export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore): Pr
 //   P6 RUN_QA (first-run)               — most recent implementation is PASS, no QA pipeline.
 //   P7 CLAIM_WP                         — READY WP assigned to QA with dependencies satisfied.
 //   Fallback WAIT.
-export function getQaAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+export function getQaAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // Reviewer-specific next-action computation. Mirror of QA for §14.4 (code-review pipeline).
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
@@ -1508,7 +1549,7 @@ export function getQaAction(rootIndex: RootIndex, store: LedgerStore): Promise<A
 //   P6 RUN_REVIEW (first-run)           — most recent QA is PASS, no code-review pipeline.
 //   P7 CLAIM_WP                         — READY WP assigned to Reviewer with dependencies satisfied.
 //   Fallback WAIT.
-export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // Documentation-specific next-action computation. Implements the 7+1b per-WP algorithm from §14.5.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
@@ -1529,41 +1570,77 @@ export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore): Pro
 //                                         pipeline exists OR hasNewUpstreamPassSince('code-review','documentation')=true.
 //   P7 CLAIM_WP                         — READY WP assigned to Documentation with dependencies satisfied.
 //   Fallback WAIT.
-export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore): Promise<ActionResult>;
+export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // Post-processes a single-action MCP result: embeds handoff_status in payload.action === 'WAIT'
-// responses. Called from getNextAction at dispatch time so agent action functions remain
-// signature-stable. Non-WAIT actions pass through unchanged.
-// @internal — exported via _internal for unit tests
-async function embedHandoffStatusInWait(
-  mcpResult: { content: Array<{ type: string; text: string }> },
-  projectPath: string,
-  agentRole: string,
-): Promise<{ content: Array<{ type: string; text: string }> }>;
+// responses. Defined in workflow-next-action-batch.ts; imported and re-exported via _internal.
+// @internal — re-exported via _internal for unit tests
 
 // _internal — exported for unit tests only.
-// buildBatchNextSteps: generates the next_steps guidance array for batch collector results.
-//   Resolves agent role from pipelineType via pipelineAgentRoleMap; builds role-appropriate
-//   step lists for: IMPLEMENT, REWORK, WRITE_DOCS, RUN_QA, RUN_REVIEW, CLAIM_WP, WAIT, etc.
-//   CLAIM_WP uses agentRole (not pipelineType) for the agent field.
-// getNextActionsCollector: collects up to `limit` actionable items for an agent role.
-//   Takes (rootIndex, store, agentRole, limit) — rootIndex already loaded, no disk read.
-//   Returns { actions: [...], total: N } in the same format as max_results batch mode.
+// buildBatchNextSteps and getNextActionsCollector now live in workflow-next-action-batch.ts;
+// they are imported back here and re-exported through _internal for test backward compatibility.
 export const _internal: {
   getNextAction: Function;
   buildBatchNextSteps: (action: string, wpId: string, pipelineType: string, wpStatus?: string, failedPipelineType?: string) => string[];
   getNextActionsCollector: (rootIndex: RootIndex, store: LedgerStore, agentRole: AgentRole, limit: number) => Promise<MCPResult>;
+  embedHandoffStatusInWait: (mcpResult: { content: Array<{ type: string; text: string }> }, projectPath: string, agentRole: string, opts?: { store?: LedgerStore; rootIndex?: RootIndex; wpDetails?: WorkPackageDetail[] }) => Promise<{ content: Array<{ type: string; text: string }> }>;
 };
+```
+
+### `src/tools/workflow-next-action-batch.ts` — batch/collector sub-module
+
+```typescript
+// Extracted from workflow-next-action.ts to reduce file size and isolate batch concerns.
+// This module owns embedHandoffStatusInWait, buildBatchNextSteps, and getNextActionsCollector.
+// Imported by workflow-next-action.ts; all three are re-exported via _internal for test access.
+
+// Embeds handoff_status into WAIT responses. Calls computeHandoffStatus(projectPath, agentRole, opts?).
+// Non-WAIT responses and empty projectPath are returned unchanged.
+// On failure, embeds handoff_status_error instead.
+// opts.store/rootIndex/wpDetails are forwarded to computeHandoffStatus to enable the
+// bypass path — when all three are present, no new LedgerStore is created.
+export async function embedHandoffStatusInWait(
+  mcpResult: { content: Array<{ type: string; text: string }> },
+  projectPath: string,
+  agentRole: string,
+  opts?: { store?: LedgerStore; rootIndex?: RootIndex; wpDetails?: WorkPackageDetail[] },
+): Promise<{ content: Array<{ type: string; text: string }> }>;
+
+// Generates the next_steps guidance array for batch action entries.
+// Resolves agent role from pipelineType via pipelineAgentRoleMap; builds role-appropriate
+// step lists for: IMPLEMENT, REWORK, WRITE_DOCS, RUN_QA, RUN_REVIEW, CLAIM_WP, WAIT, etc.
+// CLAIM_WP uses agentRole (not pipelineType) for the agent field.
+export function buildBatchNextSteps(
+  action: string,
+  wpId: string,
+  pipelineType: string,
+  wpStatus?: string,
+  failedPipelineType?: string,
+): string[];
+
+// Collects up to `limit` actionable items for an agent role.
+// Takes (rootIndex, store, agentRole, limit) — rootIndex already loaded, no disk read.
+// Returns { actions: [...], total: N } in the same format as max_results batch mode.
+// Planner / Synthesis / Project Manager roles return actions: [] (batch not meaningful).
+// WPs are fetched sequentially with early exit: stops reading after `limit` actions are
+// collected, avoiding unnecessary readWorkPackage calls for the remaining WPs.
+export async function getNextActionsCollector(
+  rootIndex: RootIndex,
+  store: LedgerStore,
+  agentRole: AgentRole,
+  limit: number,
+): Promise<{ content: [{ type: 'text'; text: string }] }>;
 ```
 
 ### `src/tools/workflow-handoff.ts` — ledger_get_handoff_status internals
 
 ```typescript
 // Handoff computation functions (one per agent role).
-// All functions receive the full WP list and root index; each returns a HandoffResult.
+// All functions receive the full WP list plus optional projectPath and store for dep-blocked routing.
+// Each function is async and returns a Promise<HandoffResult>.
 
 // getPlannerHandoff: returns READY_FOR_PM when no WPs exist (signals PM to begin task decomposition).
-export function getPlannerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getDeveloperHandoff (§5.1): short-circuit priority order:
 //   1. Temporal guard — for each non-terminal non-dep-blocked WP: if the most recent downstream
@@ -1577,7 +1654,7 @@ export function getPlannerHandoff(wps: WorkPackageDetail[], root: RootIndex): Ha
 //      incorrectly. The guard must run on non-empty activeWps only.
 //   4. Active work — any WP is IN_PROGRESS with assigned_to === 'Developer' → IN_PROGRESS.
 //   → WAIT
-export function getDeveloperHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getQaHandoff (§5.2): short-circuit priority order:
 //   1. Re-engagement (BEFORE FAIL) — most recent QA is FAIL AND
@@ -1592,7 +1669,7 @@ export function getDeveloperHandoff(wps: WorkPackageDetail[], root: RootIndex): 
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to QA → IN_PROGRESS.
 //   → WAIT
-export function getQaHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getReviewerHandoff (§5.3): mirror of getQaHandoff for code-review pipelines:
 //   1. Re-engagement (BEFORE FAIL) — most recent code-review is FAIL AND
@@ -1607,7 +1684,7 @@ export function getQaHandoff(wps: WorkPackageDetail[], root: RootIndex): Handoff
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to Reviewer → IN_PROGRESS.
 //   → WAIT
-export function getReviewerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getDocumentationHandoff (§5.4): §14.5 priority — ready-for-docs BEFORE self-rework:
 //   1. Ready-for-docs — non-terminal WPs where PASS code-review exists AND
@@ -1620,7 +1697,7 @@ export function getReviewerHandoff(wps: WorkPackageDetail[], root: RootIndex): H
 //   4. wpsNotYetReviewed remain — dep-blocked routing:
 //        not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS.
 //   → WAIT
-export function getDocumentationHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getProjectManagerHandoff (§5.5): steps applied to full WP list:
 //   1. Non-dependency blockers — any WP is BLOCKED with technical/external/decision blocker
@@ -1629,7 +1706,7 @@ export function getDocumentationHandoff(wps: WorkPackageDetail[], root: RootInde
 //      READY_FOR_DEVELOPER, or READY_FOR_SYNTHESIS (private helper, not exported).
 //   3. All terminal → READY_FOR_SYNTHESIS.
 //   → WAIT
-export function getProjectManagerHandoff(wps: WorkPackageDetail[], root: RootIndex): HandoffResult;
+export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // Maps a workflow status string and currentAgent to the next agent role name.
 // Returns null for any terminal status (COMPLETE or CANCELLED) via isTerminalStatus(),
@@ -1642,9 +1719,16 @@ export function nextAgentFromStatus(status: string, currentAgent: string): strin
 // Called by workflow-next-action.ts to embed handoff_status in WAIT responses,
 // eliminating the need for a separate ledger_get_handoff_status call for Developer, QA, Reviewer.
 // Throws on path validation failure or project-not-found errors.
+//
+// opts (all optional): when store, rootIndex, and wpDetails are ALL provided, the function
+// bypasses getHandoffStatus() entirely — dispatching directly to the per-role handoff function
+// with the pre-loaded data. This avoids redundant LedgerStore construction and disk reads on
+// every WAIT response in the next-action flow. When any field is absent, falls back to the
+// original getHandoffStatus() path (compatible with the standalone tool call path).
 export async function computeHandoffStatus(
   projectPath: string,
   agentRole: string,
+  opts?: { store?: LedgerStore; rootIndex?: RootIndex; wpDetails?: WorkPackageDetail[] },
 ): Promise<Record<string, unknown>>;
 
 // Builds the standard handoff response payload (current_agent, next_agent, status).

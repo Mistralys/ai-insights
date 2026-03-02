@@ -240,7 +240,7 @@ Agent → ledger_complete_pipeline(project_path, work_package_id, type, agent_ro
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(project_path)
+withLock(store.storageDir)
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -288,7 +288,7 @@ Agent → ledger_update_work_package_status(project_path, work_package_id, statu
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(project_path)
+withLock(store.storageDir)
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -618,7 +618,7 @@ Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(project_path)
+withLock(store.storageDir)
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -649,7 +649,7 @@ Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, s
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(project_path)
+withLock(store.storageDir)
   ↓
 Read WorkPackageDetail and RootIndex
   ↓

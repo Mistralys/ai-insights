@@ -56,8 +56,9 @@ mcp-server/
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
 │   │   ├── workflow.ts          # Thin aggregator — delegates register() to the three sub-modules; re-exports backward-compat symbols
-│   │   ├── workflow-handoff.ts        # ledger_get_handoff_status
-│   │   └── workflow-next-action.ts    # ledger_get_next_action
+│   │   ├── workflow-handoff.ts              # ledger_get_handoff_status
+│   │   ├── workflow-next-action.ts          # ledger_get_next_action (per-role single-action logic)
+│   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module: embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector
 │   │
 │   └── utils/                   # Utility functions
 │       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache)
@@ -133,7 +134,7 @@ File I/O layer with atomicity and locking guarantees. `LedgerStore` is the prima
 
 Each file exports a `register(server: McpServer)` function that registers one or more MCP tools. Tools are grouped by functional category (lifecycle, work packages, pipelines, observations, workflow).
 
-The workflow tools are split across three files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (ledger_get_next_action and ledger_get_next_actions), and `workflow-handoff.ts` (ledger_get_handoff_status). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
+The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (per-role single-action logic for `ledger_get_next_action`), `workflow-next-action-batch.ts` (batch/collector sub-module: `embedHandoffStatusInWait`, `buildBatchNextSteps`, `getNextActionsCollector`), and `workflow-handoff.ts` (`ledger_get_handoff_status`). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
 
 ### `tests/`
 

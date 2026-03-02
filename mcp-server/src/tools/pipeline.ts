@@ -452,7 +452,7 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
     // its own separate lock (§12.2, Gotcha 8). Gate on autoFinalizeResult === 'finalized'
     // so we only pay the I/O cost when a COMPLETE transition actually occurred.
     if (autoFinalizeResult === 'finalized') {
-      await propagateDependencyUnblock(projectPath, args.work_package_id);
+      await propagateDependencyUnblock(projectPath, args.work_package_id, { store });
     }
 
     // Return updated work package with next-step guidance

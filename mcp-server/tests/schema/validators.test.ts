@@ -82,7 +82,7 @@ describe('canStartWorkPackage', () => {
   const makeSummary = (id: string, status: string): WorkPackageSummary => ({
     work_package_id: id,
     status: status as WorkPackageSummary['status'],
-    assigned_to: 'Developer Agent',
+    assigned_to: 'Developer',
     dependencies: [],
     file: `ledger/${id}.json`,
   });

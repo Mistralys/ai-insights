@@ -20,6 +20,24 @@
 
 5. **Nested `{{#if}}` blocks are not supported.** The template engine uses a single-pass regex that stops at the first `{{/if}}` encountered. Nesting `{{#if}}` inside another `{{#if}}` will silently produce incorrect output. Flatten nested conditions to separate top-level `{{#if}}` blocks or extract to partials.
 
+   **Anti-pattern:**
+   ```
+   {{#if platform_vscode}}
+     {{#if feature_enabled}}
+       Content for VS Code only when feature is on
+     {{/if}}
+   {{/if}}
+   ```
+   The inner `{{/if}}` terminates the outer block prematurely, leaving stray `{{/if}}` and `{{#if feature_enabled}}` markers in the output.
+
+   **Correct pattern:**
+   ```
+   {{#if platform_vscode_and_feature}}
+     Content for VS Code only when feature is on
+   {{/if}}
+   ```
+   Pre-compute the compound boolean as a variable in the build script (or add it to `_shared.yaml`), then use a single top-level `{{#if}}` block.
+
 6. **No `{{#each}}` loops.** Iteration must be handled by computed variables. The build script pre-renders `roster_rendered` and `mcp_tools_table` as fully-formed Markdown strings.
 
 7. **Max partial depth: 2.** Partials can embed other partials, but only to depth 2. Deeper nesting is silently ignored (markers left in output).
@@ -94,7 +112,11 @@
 
 32b. **`note_only: true` on `mcp_tools` entries excludes them from the rendered tools table.** When an `mcp_tools` entry in a per-persona YAML file has `note_only: true`, the `renderMcpToolsTable()` function filters it out (using `.filter(t => !t.note_only)`) before building the Markdown table. The entry is still present in the YAML source and the tool remains functionally accessible to the agent, but it is not listed as a table row in generated output. Use this flag for tools that agents should be aware of via prose content (e.g., in a `mcp-tools-note.md` partial) but that are not primary workflow tools for that role. Entries without `note_only` are unaffected — `undefined` is falsy and passes the filter without change.
 
-32c. **`--check` mode asserts that `note_only: true` tools are absent from generated output.** Running `node scripts/build-personas.js --check` performs two validations per file: (1) the generated content matches the file on disk (staleness check), and (2) no tool entry marked `note_only: true` in the persona's `mcp_tools` YAML appears as a rendered table row (`| \`toolName\` |`) in the generated output. Violations increment `staleCount` and are printed to stderr with prefix `[note_only-violation]`. If any violation is found the process exits with code 1. This guard prevents a regression where the `.filter(t => !t.note_only)` line in `renderMcpToolsTable()` is accidentally removed — which would silently surface internal-only tooling in published persona documents.
+32c. **`--check` mode asserts that `note_only: true` tools are absent from generated output.** Running `node scripts/build-personas.js --check` performs two validations per file: (1) the generated content matches the file on disk (staleness check), and (2) no tool entry marked `note_only: true` in the persona's `mcp_tools` YAML appears as a rendered table row in the generated output. The guard in `build-personas.js` uses a **regex** (`/\|\s*\`toolName\`\s*\|/`) rather than `string.includes()` — this tolerates Markdown table column-spacing variations (e.g., `|  \`toolName\`  |`). Violations increment `staleCount` and are printed to stderr with prefix `[note_only-violation]`. If any violation is found the process exits with code 1.
+
+   > **Why regex over string.includes:** `string.includes('| \`toolName\` |')` is tightly coupled to exact column spacing. A Markdown table reformatter or editor that normalises padding (e.g., `|  \`toolName\`  |`) would silently bypass the check. The regex `\|\s*\`…\`\s*\|` matches any amount of whitespace on either side of the backtick-quoted name, making the guard robust to formatting drift.
+
+   > **AC field-name verification:** When acceptance criteria text references specific field names, TypeScript parameter names, or object property names (e.g., `store`, `rootIndex`, `wpDetails`, `storageDir`), verify these against the actual implementation source before committing the AC to a work package. If implementation uses a different name than what the AC states, update the AC text to match. Stale field-name references in ACs cause false-negative review outcomes.
 
 33. **`KNOWN_ROLES` ↔ `AGENT_ROLES`**: The sync script's `KNOWN_ROLES` constant must match `mcp-server/src/utils/constants.ts` → `AGENT_ROLES`. There is no automated validation between these two — it's a manual sync contract.
 
@@ -115,3 +137,13 @@ When the build system was introduced, the generated output differs from the orig
 39. **`mcp-tools-note` placement unified.** For Agent 3 (Developer), the self-documenting note was moved from the Workflow section to the MCP Tools section for consistency with agents 4–7.
 
 40. **Detect-step wording standardized.** Slight rewording of the detect-project pre-flight step to be uniform across all agents that use it.
+
+---
+
+## Pre-Commit Guard
+
+41. **Never edit generated persona files directly.** Always update the template sources in `personas/ledger/src/` or `personas/standalone/src/` and rebuild. The generated output directories (`personas/ledger/vs-code/`, `personas/ledger/claude-code/`, `personas/standalone/vs-code/`, `personas/standalone/claude-code/`) are fully overwritten on every build.
+
+42. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check` before every commit. Without this step, stale generated output can be committed silently.
+
+43. **`.githooks/pre-commit` enforces persona freshness at commit time.** The hook exits non-zero if any generated persona file is stale, blocking the commit. This closes the gap where a developer editing only `personas/src/` would never trigger the freshness check via `mcp-server/` tests.

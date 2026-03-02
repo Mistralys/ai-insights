@@ -141,7 +141,7 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
   const store = new LedgerStore(projectPath);
 
   try {
-    await withLock(projectPath, async () => {
+    await withLock(store.storageDir, async () => {
       // 1. Validate context for incident type
       if (args.type === 'incident' && !args.context) {
         throw new Error(

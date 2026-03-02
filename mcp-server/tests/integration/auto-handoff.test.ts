@@ -37,7 +37,7 @@ function makeWp(
     work_package_id: id,
     work_package_file: `work/${id}.md`,
     status: status as any,
-    assigned_to: 'Developer Agent',
+    assigned_to: 'Developer',
     dependencies: [],
     acceptance_criteria: [],
     revision: 0,

@@ -1070,3 +1070,38 @@ describe('initializeProject — rejects re-initialization when ledger exists (FI
     expect((secondResult as any).content[0].text).toContain('already exists');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression — MCP extra-argument leak (_ledgerRoot type guard)
+// Bug reported: 2026-03-01 (docs/agents/plans/2026-03-01-.../pm-findings.md)
+// ---------------------------------------------------------------------------
+// completeSynthesis had `_ledgerRoot?: string` as a second parameter.
+// The MCP SDK passes a RequestHandlerExtra object as the second argument,
+// which is truthy and gets captured by _ledgerRoot. LedgerStore's constructor
+// then calls `path.join(extra_object, slug)` which throws a path TypeError.
+//
+// Fix: defensive type guard `const ledgerRoot = typeof _ledgerRoot === 'string'
+//      ? _ledgerRoot : undefined` plus a registration wrapper.
+//
+// This test confirms the guard works by calling completeSynthesis directly
+// with a fake extra object and verifying no path TypeError surfaces.
+// ---------------------------------------------------------------------------
+describe('completeSynthesis — _ledgerRoot defensive type guard (regression 2026-03-01)', () => {
+  const FAKE_EXTRA = {
+    requestId: 'mcp-test-extra-obj',
+    signal: new AbortController().signal,
+    authInfo: undefined,
+  } as unknown as string;
+
+  const GHOST_PLAN = join(tmpdir(), '2026-03-01-lifecycle-extra-leak-regression');
+
+  it('does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await completeSynthesis(
+      { project_path: GHOST_PLAN, agent_role: 'Synthesis' },
+      FAKE_EXTRA
+    );
+    const text = (result as any)?.content?.[0]?.text ?? '';
+    expect(/path.*argument.*must.*be.*type.*string/i.test(text)).toBe(false);
+    expect(/received an instance of object/i.test(text)).toBe(false);
+  });
+});
