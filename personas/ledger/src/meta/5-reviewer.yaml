@@ -2,6 +2,10 @@ number: 5
 role: Reviewer
 vs_file_name: 5-reviewer.agent.md
 cc_file_name: 5-reviewer.md
+version: "3.5.1"
+changelog:
+  - "3.5.1: Enabled incident logging."
+  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode
@@ -17,7 +21,7 @@ tools:
 has_mcp: true
 has_detect_project: true
 self_documenting_note: true
-has_incident_logging: false
+has_incident_logging: true
 
 mcp_tools:
   - tool: ledger_get_next_action

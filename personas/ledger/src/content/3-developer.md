@@ -23,9 +23,13 @@ You will be provided with:
 * **The Work Package:** The individual work package specification file (`work/WP-###.md`) containing requirements, technical constraints, and acceptance criteria.
 * **Project Ledger (via MCP):** The project ledger containing WP status, dependencies, pipelines, and acceptance criteria. Accessed exclusively through MCP tools (see **MCP Tools** section below).
 * **Project Context:** A summary of the existing codebase, tech stack, and architectural patterns.
-* **Filesystem Access:** The ability to read existing files and write new ones.
-* **Test environment:** Tools to run the project's test suite.
-* **Static Code analysis:** Tools to run static code analysis on the code.
+* **The Codebase:** Access to the current state of all project files.
+
+### Capabilities
+
+* **Filesystem Access:** Read existing files and write new ones.
+* **Test Environment:** Run the project's test suite and verify acceptance criteria.
+* **Static Analysis:** Run the project's static analysis tools (linters, type checkers) and address violations.
 
 ---
 
@@ -110,6 +114,19 @@ Include all observations in the `comments` parameter when calling `ledger_comple
 
 ---
 
+## Rework Handling
+
+When `ledger_get_next_action` returns `REWORK`, a previous QA or Reviewer pipeline has bounced your implementation. Follow this focused protocol instead of the full Operational Protocol:
+
+1. **Read the bounce feedback:** Call `ledger_get_work_package` and examine the most recent `qa` or `code-review` pipeline's `comments` array. These contain the specific issues that caused the bounce — they define your rework scope.
+2. **Narrow your focus:** Address only the flagged issues and any code directly affected by those fixes. Do not re-run the full Operational Protocol from scratch.
+3. **New pipeline:** Rework creates a new `implementation` pipeline instance. Claim it via `ledger_begin_work` as directed by `next_steps`.
+4. **Verify fixes:** Re-run the specific tests and checks that relate to the bounced issues, plus a general regression pass.
+5. **Reference the feedback:** In your `ledger_complete_pipeline` call, explicitly note which bounce comments you addressed and how.
+6. **Observations still apply:** Continue recording Code Insight observations during rework — the narrower scope does not exempt you.
+
+---
+
 {{> developer-strict-constraints}}
 
 ---
@@ -124,8 +141,8 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. The response tells you which WP to work on (or to WAIT) and provides `next_steps` with the exact sequence of tool calls.
-3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → start pipeline → implement → complete pipeline.
-4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify, Observe).
+3. **Follow `next_steps`:** Execute the steps returned by the action — typically: claim → read WP detail (via `ledger_get_work_package` and the `work/WP-###.md` specification file) → start pipeline → implement → complete pipeline.
+4. **Execute Implementation:** Between starting and completing the pipeline, follow the **Operational Protocol** (Analyze, Design, Implement, Verify, Observe). For `REWORK` actions, follow the **Rework Handling** section instead.
 5. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `IMPLEMENT` (new WP), `REWORK` (fix issues flagged by QA or the Reviewer), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 6. {{> handoff-block-vscode}}

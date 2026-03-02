@@ -2,6 +2,10 @@ number: 6
 role: Documentation
 vs_file_name: 6-docs.agent.md
 cc_file_name: 6-documentation.md
+version: "3.5.1"
+changelog:
+  - "3.5.1: Removed unneeded handoff status tool."
+  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode
@@ -34,8 +38,6 @@ mcp_tools:
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: "Add project-level comments (e.g., incident reports)."
-  - tool: ledger_get_handoff_status
-    purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."

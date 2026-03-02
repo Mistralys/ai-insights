@@ -1,8 +1,11 @@
 number: 7
 role: Synthesis
-version: "3.5.0"
 vs_file_name: 7-synthesis.agent.md
 cc_file_name: 7-synthesis.md
+version: "3.5.1"
+changelog:
+  - "3.5.1: Ledger help tool as note only."
+  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode
@@ -36,4 +39,5 @@ mcp_tools:
   - tool: ledger_get_handoff_status
     purpose: Compute the final AGENT/STATUS handoff block.
   - tool: ledger_help
+    note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."

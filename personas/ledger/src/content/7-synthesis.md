@@ -57,7 +57,7 @@ You will be provided with:
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Expect `GENERATE_SYNTHESIS` when all WPs are complete. Steps 3–7 below elaborate on the synthesis work.
-3. **Read Project Overview:** Reuse the `ledger_get_project_status` response from pre-flight Step 2. If the data is stale or incomplete, call it again.
+3. **Read Project Overview:** Call `ledger_get_project_status` to load the root index with project overview, WP summaries, and comments.
 4. **Read All Work Packages:** Call `ledger_get_work_package` for each WP to load pipeline data, metrics, and comments.
 5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, record the failure via `ledger_add_project_comment` (e.g., `"Synthesis aborted: critical ledger data incomplete"`), then skip to Step 9 to obtain the handoff block from the ledger.
 6. **Generate Report:** Write the `synthesis.md` file to the plan folder.

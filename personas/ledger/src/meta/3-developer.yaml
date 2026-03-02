@@ -2,6 +2,10 @@ number: 3
 role: Developer
 vs_file_name: 3-dev.agent.md
 cc_file_name: 3-developer.md
+version: "3.5.1"
+changelog:
+  - "3.5.1: Added capabilities and rework sections, added missing add observation tool."
+  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode
@@ -30,6 +34,8 @@ mcp_tools:
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: "Add a project-level comment (e.g., incident reports)."
+  - tool: ledger_add_observation
+    purpose: "Add a Code Insight observation to a completed pipeline (use when you discover something after calling `ledger_complete_pipeline`)."
   - tool: ledger_get_work_package
     purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
   - tool: ledger_help
