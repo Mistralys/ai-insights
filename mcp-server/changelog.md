@@ -1,5 +1,23 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.8.1 - begin_work Handoff Guard Fix + Micro-Debt Cleanup (2026-03-02)
+
+### Fixed
+
+- **`src/tools/begin-work.ts`** — Relaxed the overly strict `IN_PROGRESS` guard in `ledger_begin_work`. Previously, the guard required `wp.assigned_to === args.agent_role`, which blocked all cross-agent handoffs when agents used `ledger_begin_work` instead of the two-step `ledger_claim_work_package + ledger_start_pipeline` sequence. The guard now accepts either (a) the current assignee (`assigned_to === agent_role`, idempotent re-entry) OR (b) the legitimate pipeline-type owner per `PIPELINE_AGENT_MAP` (`PIPELINE_AGENT_MAP[args.type] === args.agent_role`). This mirrors `ledger_start_pipeline`'s own authorization model (§9.1, §16.5) and correctly treats `assigned_to` as a trailing bookkeeping field, not a security gate.
+
+### Changed
+
+- **`src/tools/workflow-next-action.ts`** — `getProjectManagerAction` now accepts an optional `preloadedWpDetails?: WorkPackageDetail[]` parameter. When provided (by the `getNextAction` switch caller), the internal `Promise.all` disk fetch is skipped. This matches the established signature pattern of all other role action helpers (`getDeveloperAction`, `getQaAction`, `getReviewerAction`, `getDocumentationAction`) and eliminates redundant disk reads per PM next-action call.
+- **`src/tools/workflow-next-action.ts`** — Extracted `getSynthesisAction()` as a named module-internal helper function. The Synthesis switch case previously used an inline object literal; it now delegates to the named function, consistent with all other agent-role cases.
+
+### Tests
+
+- **`tests/tools/begin-work.test.ts`** — Added 3 cross-agent handoff tests: QA beginning work on a Developer-assigned WP (`type: "qa"`), Reviewer on a QA-assigned WP (`type: "code-review"`), and Documentation on a Reviewer-assigned WP (`type: "documentation"`). Each test asserts `claimed: false`, the correct pipeline IN_PROGRESS state, and the auto-updated `assigned_to` value. Narrowed the existing "rejects when IN_PROGRESS WP is assigned to a different agent" test to require both guards to fail simultaneously (assignee mismatch AND not the pipeline-type owner).
+- **All 986 tests pass** (983 original + 3 new). Zero regressions.
+
+---
+
 ## v1.8.0 - Phase 4: Recommendation Engine Rewrite (2026-02-28)
 
 ### Changed
