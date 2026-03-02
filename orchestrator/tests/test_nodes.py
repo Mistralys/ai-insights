@@ -404,3 +404,153 @@ class TestStateUpdateSchema:
         assert not unexpected, (
             f"{module_name} returned unexpected state keys: {unexpected}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: inject_project_path integration in create_stage_node
+# ---------------------------------------------------------------------------
+
+class TestToolWrappingInNode:
+    """Verify that create_stage_node calls inject_project_path and passes the
+    wrapped tools to create_deep_agent (WP-005 AC2)."""
+
+    async def test_inject_project_path_is_called(self):
+        """create_stage_node must call inject_project_path with the correct
+        project_path from state."""
+        from src.nodes import create_stage_node
+
+        call_log: list[dict] = []
+
+        def _fake_inject(tools: list, project_path: str) -> list:
+            call_log.append({"tools": tools, "project_path": project_path})
+            return tools  # pass through
+
+        captured_tools: list[Any] = []
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured_tools.extend(kwargs.get("tools", []))
+            return _make_agent_mock()
+
+        fake_tools = [MagicMock()]
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=fake_tools,
+        )
+
+        with _patch_persona(), \
+             patch("src.nodes.inject_project_path", side_effect=_fake_inject), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            await node_fn(base_state(project_path="/myproject"))
+
+        assert call_log, "inject_project_path was never called"
+        assert call_log[0]["project_path"] == "/myproject", (
+            f"inject_project_path called with wrong path: {call_log[0]['project_path']!r}"
+        )
+
+    async def test_wrapped_tools_injects_project_path_into_calls(self):
+        """The wrapped tools returned by inject_project_path must auto-inject
+        project_path into calls that omit it."""
+        # Use real inject_project_path (not mocked) to verify end-to-end.
+        from src.nodes import create_stage_node
+
+        seen_inputs: list[Any] = []
+
+        async def _tracking_ainvoke(input: Any, *args: Any, **kwargs: Any) -> str:
+            seen_inputs.append(input)
+            return "ok"
+
+        class _TrackingTool:
+            """Plain class tool stub: MagicMock is intentionally avoided because
+            MagicMock auto-creates any attribute on lookup, which would cause
+            the hasattr(wrapped_tool, '_orig_ainvoke') assertion to pass as a
+            false positive even if inject_project_path had not been called."""
+
+            name = "tracking_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:  # noqa: A002
+                return await _tracking_ainvoke(input, *args, **kwargs)
+
+        real_tool = _TrackingTool()
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=[real_tool],
+        )
+
+        # Agent mock that calls tool.ainvoke({}) once during invocation.
+        async def _agent_invokes_tool(inputs: dict) -> dict:
+            # Simulate the agent calling the first wrapped tool with no project_path.
+            wrapped = inputs.get("_wrapped_tools")
+            msg = MagicMock()
+            msg.content = "done"
+            return {"messages": [msg]}
+
+        # We need to capture what tools create_deep_agent receives.
+        tools_passed_to_agent: list[Any] = []
+
+        def _fake_create_agent(**kwargs: Any) -> MagicMock:
+            tools_passed_to_agent.extend(kwargs.get("tools", []))
+            agent = MagicMock()
+            agent.ainvoke = AsyncMock(return_value={"messages": [MagicMock(content="done")]})
+            return agent
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            await node_fn(base_state(project_path="/wrapped-path"))
+
+        # Verify that create_deep_agent received exactly one tool.
+        assert len(tools_passed_to_agent) == 1
+        # Verify the tool has been monkeypatched (has the sentinel).
+        wrapped_tool = tools_passed_to_agent[0]
+        assert hasattr(wrapped_tool, "_orig_ainvoke"), (
+            "Tool passed to create_deep_agent must have been wrapped by inject_project_path"
+        )
+
+    async def test_wrapped_tools_inject_project_path_on_invocation(self):
+        """Wrapped tools must inject project_path when the caller omits it."""
+        from src.utils.tool_wrappers import inject_project_path
+
+        seen: list[Any] = []
+
+        class _TrackingTool:
+            """Plain class so _orig_ainvoke sentinel behaves correctly."""
+            name = "tracking_tool"
+
+            async def ainvoke(self, input: Any, *a: Any, **kw: Any) -> str:
+                seen.append(input)
+                return "ok"
+
+        tool = _TrackingTool()
+        inject_project_path([tool], "/from-state")
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert seen[0]["project_path"] == "/from-state"
+        assert seen[0]["agent_role"] == "Developer"
+
+    async def test_wrapped_tools_preserve_explicit_project_path(self):
+        """Explicit project_path in tool call must not be overridden by wrapper."""
+        from src.utils.tool_wrappers import inject_project_path
+
+        seen: list[Any] = []
+
+        class _TrackingTool:
+            """Plain class so _orig_ainvoke sentinel behaves correctly."""
+            name = "tracking_tool"
+
+            async def ainvoke(self, input: Any, *a: Any, **kw: Any) -> str:
+                seen.append(input)
+                return "ok"
+
+        tool = _TrackingTool()
+        inject_project_path([tool], "/default-path")
+
+        await tool.ainvoke({"project_path": "/explicit-path", "type": "qa"})
+
+        assert seen[0]["project_path"] == "/explicit-path"

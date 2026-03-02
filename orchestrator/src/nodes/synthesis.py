@@ -36,13 +36,15 @@ def _build_synthesis_prompt(state: "WorkflowState") -> str:
     return (
         f"You are the Synthesis agent.\n\n"
         f"**Project path:** {project_path}\n\n"
+        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
         f"**Your task:**\n"
         f"All work packages for this project are now COMPLETE. "
         f"Your job is to produce a comprehensive synthesis report.\n\n"
         f"1. Call `ledger_get_project_status` with "
         f"`project_path={project_path!r}` to get the final project overview.\n"
         f"2. For each completed work package, call "
-        f"`ledger_get_work_package` to retrieve pipeline outcomes, "
+        f"`ledger_get_work_package` with `project_path={project_path!r}` to retrieve pipeline outcomes, "
         f"observations, and acceptance criteria results.\n"
         f"3. Write a synthesis document that includes:\n"
         f"   - Project summary and outcomes achieved.\n"
@@ -52,6 +54,8 @@ def _build_synthesis_prompt(state: "WorkflowState") -> str:
         f"   - Metrics summary (tests passed, files modified, etc.).\n"
         f"4. Save the synthesis document as "
         f"`synthesis.md` inside `{project_path}`.\n"
+        f"5. Call `ledger_complete_synthesis` with `project_path={project_path!r}` "
+        f"and `agent_role='Synthesis'` to mark the project COMPLETE.\n"
     )
 
 

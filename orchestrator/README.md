@@ -192,34 +192,45 @@ The thread ID is printed at the start of every run and in the run summary under 
 
 ### Supervisor (deterministic router)
 
-The supervisor reads the current ledger state (via MCP tools) and routes to
-the next appropriate stage:
+The supervisor is a pure-Python deterministic router — no LLM calls are made here. Rather than inspecting raw pipeline state itself, it calls **`ledger_get_next_action`** once per agent role (in priority order) and dispatches to the corresponding stage. The MCP server is the authoritative routing source. `ledger_get_project_status` and `ledger_list_work_packages` are also called for observability but no longer drive routing decisions.
 
-| Ledger state | Routes to |
+| Ledger state / action | Routes to |
 |---|---|
 | No WPs yet | `pm` (create work packages) |
-| WP with no pipelines | `developer` (implement) |
-| PASS implementation, no QA | `qa` |
-| FAIL QA | `developer` (rework) |
-| PASS QA, no code-review | `reviewer` |
-| FAIL code-review | `developer` (rework) |
-| PASS code-review, no docs | `docs` |
-| PASS docs | synthesis (after marking WP COMPLETE) |
+| `IMPLEMENT` action returned | `developer` (implement) |
+| `REWORK` action returned | `developer` (rework) |
+| `CONTINUE_PIPELINE` action | `developer` (resume in-progress work) |
+| `RUN_QA` action returned | `qa` |
+| `RUN_REVIEW` action returned | `reviewer` |
+| `WRITE_DOCS` / `FINALIZE_WP` / `UPDATE_CRITERIA` | `docs` |
+| `REPAIR_ORPHAN_BLOCKED` / `UNBLOCK_WP` / `REVIEW_*` | `pm` (PM intervention) |
+| All roles return `WAIT` | `synthesis` (generates final report; calls `ledger_complete_synthesis`) |
 | All WPs COMPLETE | `synthesis` (final report) |
-| All WPs BLOCKED | `END` (with error) |
 | `iteration >= max_iterations` | `END` (safety limit) |
-| Any pipeline `IN_PROGRESS` for a WP | Skip that WP this iteration |
-| All actionable WPs skipped (in-flight or circuit-broken) | `END` (no dispatch possible) |
-| WP accumulates ≥ 3 consecutive stage failures | `END` (circuit-breaker halt, `level=WARNING`) |
+| `BLOCK_FOR_REWORK_LIMIT` or unknown action | Skip WP / treat as `WAIT` (circuit-breaker signal) |
+| WP accumulates ≥ 3 consecutive stage failures | Circuit-breaker: WP skipped for remainder of run (`level=WARNING`) |
 
 ### Stage nodes (Deep Agents)
 
 Each stage node:
 1. Reads the persona Markdown from `personas/ledger/vs-code/<N>-<role>.md`.
-2. Calls `llm.invoke([SystemMessage(persona), HumanMessage(prompt)])`.
-3. Returns a state update with `stage_result`, `stage_success`, and a `run_log` entry.
+2. Wraps the shared MCP tools via `inject_project_path` (`src/utils/tool_wrappers.py`) — auto-injects `project_path` into every tool call even when the LLM-driven agent omits it (Layer 2 safety net).
+3. Creates a Deep Agent (`create_deep_agent`) with the wrapped tools and calls `agent.ainvoke`.
+4. Returns a state update with `stage_result`, `stage_success`, and a `run_log` entry.
 
 The supervisor's MCP tool calls handle all ledger mutations (start pipelines, complete pipelines, mark WPs COMPLETE).
+
+### MCP Tool Wrapping (`src/utils/tool_wrappers.py`)
+
+`inject_project_path(tools, project_path)` monkeypatches each tool's `ainvoke` to auto-inject `project_path` when the argument is absent from the tool call. It acts as a **Layer 2 safety net**: even if the LLM-driven agent ignores explicit prompt instructions to supply `project_path`, the argument still reaches the MCP server.
+
+Key design properties:
+
+| Property | Detail |
+|----------|--------|
+| **Idempotent** | A sentinel attribute `_orig_ainvoke` is stored on the tool object on the first wrap. Repeated calls — which occur because `list(mcp_tools)` in `node_fn` is a shallow copy referencing the same tool objects — always delegate to the true original `ainvoke`. Wrapper chains never grow beyond one level. |
+| **Non-destructive** | Only `ainvoke` is patched. All other attributes (`name`, `description`, `args_schema`) remain untouched, so schema introspection and tool discovery work normally. |
+| `setdefault` **semantics** | An explicitly-provided `project_path` already present in the tool-call arguments is never overwritten. Injection is also skipped when `cwd_path` is present (used by `ledger_detect_project`). |
 
 ### WorkflowState fields (key additions)
 
@@ -254,40 +265,49 @@ Each run writes a JSONL file to `orchestrator/logs/` (path printed at run start)
 
 ## Supervisor Routing Model
 
-The supervisor is a pure-Python deterministic router — no LLM calls are made here. It reads the current ledger state via three MCP tools (`ledger_get_project_status`, `ledger_list_work_packages`, `ledger_get_work_package`) and returns a LangGraph `Command` routing the graph to the next stage.
+The supervisor is a pure-Python deterministic router — no LLM calls are made here. It delegates all routing decisions to the MCP server via **`ledger_get_next_action`** and returns a LangGraph `Command` routing the graph to the next stage. `ledger_get_project_status` and `ledger_list_work_packages` are called for observability context but do not drive routing.
 
 ### Special Exits (checked first, in order)
 
 ```
 supervisor_node
-  ├─ iteration > max_iterations        → __end__   (safety limit; level=WARNING)
-  ├─ All WPs terminal (COMPLETE or CANCELLED) → synthesis
-  └─ All actionable WPs skipped        → __end__   (all in-flight or circuit-broken; level=WARNING)
+  ├─ iteration > max_iterations                      → __end__    (safety limit; level=WARNING)
+  ├─ No WPs in ledger                                 → pm         (create work packages)
+  └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
 ```
 
-### Standard Routing (per WP — first actionable WP wins)
+### Standard Routing (per role — first dispatchable action wins)
+
+The supervisor calls `ledger_get_next_action` for each agent role in priority order
+(`Project Manager` → `Developer` → `QA` → `Reviewer` → `Documentation`).
+The **role** determines the destination; the **action** determines dispatch vs. skip:
 
 ```
-  no WPs in ledger                     → pm
-  no actionable WPs (all BLOCKED)      → __end__
+For each role in priority order:
+  action ∈ _SKIP_ACTIONS            → skip this role
+    (_SKIP_ACTIONS includes WAIT, WAIT_FOR_REWORK, WAIT_FOR_DOWNSTREAM,
+     WAIT_FOR_UPSTREAM_REWORK_LIMIT, BLOCK_FOR_REWORK_LIMIT)
 
-  Per-WP pipeline state machine:
-    no pipelines / impl FAIL           → developer
-    impl IN_PROGRESS                   → skip (in-flight; do not re-dispatch)
-    impl PASS, no qa                   → qa
-    qa IN_PROGRESS                     → skip (in-flight)
-    qa FAIL                            → developer  (rework)
-    qa PASS, no code-review            → reviewer
-    code-review IN_PROGRESS            → skip (in-flight)
-    code-review FAIL                   → developer  (rework)
-    code-review PASS, no docs          → docs
-    docs IN_PROGRESS                   → skip (in-flight)
-    docs FAIL                          → docs       (retry)
-    docs PASS                          → WP fully done; continue to next WP
-    circuit-breaker ≥ 3 failures       → skip WP, record error entry
+  action not in _DISPATCH_ACTIONS    → treat as WAIT (forward-compatibility guard)
 
-  all actionable WPs processed         → synthesis
+  action ∈ _DISPATCH_ACTIONS and circuit-breaker (≥ 3 consecutive failures)
+                                     → skip WP, record WARNING entry
+
+  action ∈ _DISPATCH_ACTIONS         → dispatch to role’s stage:
+    “Project Manager”  → pm          (_DISPATCH_ACTIONS includes REPAIR_ORPHAN_BLOCKED,
+    “Developer”        → developer    UNBLOCK_WP, REVIEW_REWORK_LIMIT, REVIEW_STALE,
+    “QA”               → qa           REVIEW_ABANDONED, IMPLEMENT, REWORK, CLAIM_WP,
+    “Reviewer”         → reviewer     CONTINUE_PIPELINE, RESUME_OR_CANCEL, RUN_QA,
+    "Documentation"    → docs         RUN_REVIEW, WRITE_DOCS, FINALIZE_WP,
+                                      UPDATE_CRITERIA)
+
+All roles returned WAIT/skip          → synthesis
 ```
+
+> `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
+> `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage
+> mapping. Adding a new action from the MCP server only requires updating those
+> constants — no other routing logic changes are needed.
 
 ### Circuit-Breaker
 
@@ -295,7 +315,7 @@ The `consecutive_failures` field in `WorkflowState` tracks per-WP failure counts
 - **Increments** the counter for the previous WP if `stage_success` is `False`.
 - **Resets** the counter when `stage_success` is `True`.
 
-A WP that accumulates **≥ 3 consecutive failures** is skipped for the remainder of the run. If all actionable WPs are skipped (all circuit-broken or all in-flight), the supervisor routes to `__end__` with a `level=WARNING` halt entry.
+A WP that accumulates **≥ 3 consecutive failures** is skipped for the remainder of the run (its `ledger_get_next_action` dispatch is bypassed). Skipped WPs do not terminate the run — the supervisor continues checking the remaining roles. Only when all roles return `WAIT` or are circuit-broken does the supervisor fall through to `synthesis`.
 
 Source of truth: `orchestrator/src/supervisor.py`.
 
@@ -487,7 +507,7 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 160 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 216 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -507,8 +527,9 @@ Tests are structured as:
 
 | File | What it tests |
 |------|---------------|
-| `test_supervisor.py` | Supervisor routing paths: standard pipeline state machine, in-flight WP skip, all-in-flight halt, circuit-breaker increment/reset/halt (mocked MCP) |
-| `test_nodes.py` | 6 stage-node factories and prompt builders |
+| `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP) |
+| `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration |
+| `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool |
 | `test_graph.py` | Graph topology, edges, compilation |
 | `test_cli.py` | Argument parsing, interrupt mapping, exit codes |
 | `test_state.py` | WorkflowState schema and reducer semantics |
