@@ -60,6 +60,10 @@ Evaluate the submission based on these four criteria:
 
 {{> reviewer-operational-protocol}}
 
+{{#if has_incident_logging}}
+* **Environment Incident Logging:** {{> incident-logging}}
+{{/if}}
+
 ---
 
 ## Decision Logic
