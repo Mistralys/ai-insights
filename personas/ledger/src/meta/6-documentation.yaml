@@ -2,8 +2,9 @@ number: 6
 role: Documentation
 vs_file_name: 6-docs.agent.md
 cc_file_name: 6-documentation.md
-version: "3.5.1"
+version: "3.5.2"
 changelog:
+  - "3.5.2: Fixed REWORK_DOCS→REWORK action name; added ledger_update_work_package_status tool for FINALIZE_WP edge case; added Rework Handling section; fixed incident logging conditional bypass."
   - "3.5.1: Removed unneeded handoff status tool."
   - "3.5.0: Initial changelogged version."
 
@@ -25,7 +26,7 @@ has_incident_logging: true
 
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`WRITE_DOCS`, `REWORK_DOCS`, `FINALIZE_WP`, `UPDATE_CRITERIA`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`WRITE_DOCS`, `REWORK`, `FINALIZE_WP`, `UPDATE_CRITERIA`, `CLAIM_WP`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `documentation` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
@@ -36,6 +37,8 @@ mcp_tools:
     purpose: "Finalize pipeline with status, summary, comments, and handoff notes. When `status: PASS` and all acceptance criteria are met, the WP is automatically transitioned to `COMPLETE` — no separate call needed."
   - tool: ledger_cancel_pipeline
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
+  - tool: ledger_update_work_package_status
+    purpose: "Mark a WP as COMPLETE when `ledger_get_next_action` returns `FINALIZE_WP` (all criteria met, doc fresh). Only needed when auto-finalize did not fire during `ledger_complete_pipeline`."
   - tool: ledger_add_project_comment
     purpose: "Add project-level comments (e.g., incident reports)."
   - tool: ledger_help
