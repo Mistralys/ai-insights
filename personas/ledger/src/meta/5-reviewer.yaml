@@ -2,8 +2,9 @@ number: 5
 role: Reviewer
 vs_file_name: 5-reviewer.agent.md
 cc_file_name: 5-reviewer.md
-version: "3.5.2"
+version: "3.5.3"
 changelog:
+  - "3.5.3: Removed phantom REWORK_REVIEW action from workflow and YAML; added acceptance_criteria_updates to output format and workflow step 5."
   - "3.5.2: Added incident logging block."
   - "3.5.1: Enabled incident logging."
   - "3.5.0: Initial changelogged version."
@@ -26,7 +27,7 @@ has_incident_logging: true
 
 mcp_tools:
   - tool: ledger_get_next_action
-    purpose: "Get your next task (`RUN_REVIEW`, `REWORK_REVIEW`, `CLAIM_WP`, or `WAIT`)."
+    purpose: "Get your next task (`RUN_REVIEW`, `CLAIM_WP`, `CONTINUE_PIPELINE`, or `WAIT`)."
   - tool: ledger_begin_work
     purpose: "Claim a READY WP and start the `code-review` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
   - tool: ledger_get_work_package
