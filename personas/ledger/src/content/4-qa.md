@@ -50,6 +50,21 @@ You will be provided with:
 
 {{> qa-operational-protocol}}
 
+{{#if has_incident_logging}}
+* **Environment Incident Logging:** {{> incident-logging}}
+{{/if}}
+
+---
+
+## Rework Handling (REWORK_QA)
+
+When `ledger_get_next_action` returns `REWORK_QA`, a Developer has resubmitted code after a previous QA bounce. Follow this focused protocol instead of the full Verification Stack:
+
+1. **Read the previous bounce:** Call `ledger_get_work_package` and examine your most recent `qa` pipeline's `comments` array. These contain the specific issues you flagged — they define your rework verification scope.
+2. **Narrow your focus:** Re-verify only the previously-failed ACs and any code directly affected by the Developer's fixes. Do not re-run the full Verification Stack from scratch.
+3. **Regression pass:** Run a targeted regression check to ensure the fixes did not introduce new issues.
+4. **Reference your original feedback:** In your `ledger_complete_pipeline` call, explicitly note which previously-failed ACs now pass and whether any remain unresolved.
+
 ---
 
 ## Decision Logic (The "Go/No-Go")
