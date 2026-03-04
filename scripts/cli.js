@@ -151,6 +151,54 @@ function findPython() {
   return null;
 }
 
+function syncOrchestratorVersion() {
+  const changelogPath = path.join(ORCHESTRATOR_DIR, 'changelog.md');
+  const pyprojectPath = path.join(ORCHESTRATOR_DIR, 'pyproject.toml');
+
+  if (!fs.existsSync(changelogPath)) {
+    log('  ✗ orchestrator/changelog.md not found', 'red');
+    return;
+  }
+  if (!fs.existsSync(pyprojectPath)) {
+    log('  ✗ orchestrator/pyproject.toml not found', 'red');
+    return;
+  }
+
+  try {
+    const changelog = fs.readFileSync(changelogPath, 'utf8');
+    // Match ## v1.2.3 or ## [1.2.3]
+    const versionMatch = changelog.match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
+    
+    if (!versionMatch) {
+      // It's possible the changelog hasn't been started or format differs
+      log('  ⚠ Could not find version in orchestrator/changelog.md', 'yellow');
+      return;
+    }
+
+    const newVersion = versionMatch[1];
+    let pyproject = fs.readFileSync(pyprojectPath, 'utf8');
+
+    // Simple regex for top-level version = "..."
+    const versionRegex = /^version\s*=\s*"[^"]+"/m;
+    if (!versionRegex.test(pyproject)) {
+      log('  ⚠ Could not find "version" key in pyproject.toml', 'yellow');
+      return;
+    }
+
+    const newContent = pyproject.replace(versionRegex, `version = "${newVersion}"`);
+    
+    // Only write if changed
+    if (newContent !== pyproject) {
+      fs.writeFileSync(pyprojectPath, newContent, 'utf8');
+      log(`  ✓ Updated orchestrator/pyproject.toml to ${newVersion}`, 'green');
+    } else {
+      log(`  ✓ orchestrator/pyproject.toml already at ${newVersion}`, 'green');
+    }
+  } catch (e) {
+    log(`  ✗ Failed to sync orchestrator version: ${e.message}`, 'red');
+  }
+}
+
 function venvBin(name) {
   return IS_WIN
     ? path.join(ORCHESTRATOR_DIR, '.venv', 'Scripts', `${name}.exe`)
@@ -343,7 +391,16 @@ function cmdSyncPersonas(args)    { runScript('sync-personas.js', args); }
 function cmdBuildPersonas(args)   { runScript('build-personas.js', args); }
 function cmdPackagePersonas(args) { runScript('package-personas.js', args); }
 function cmdGui(args)             { runLongScript('run-gui.js', args); }
-function cmdBuildLedger(args)     { runScript(path.join('..', 'mcp-server', 'scripts', 'sync-version.js'), args); }
+function cmdBuildMaintain(args) {
+  // 1. Sync MCP server version (existing behavior)
+  runScript(path.join('..', 'mcp-server', 'scripts', 'sync-version.js'), args);
+
+  // 2. Sync Orchestrator version (new behavior)
+  syncOrchestratorVersion();
+
+  // 3. Build Personas
+  runScript('build-personas.js', args);
+}
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
@@ -383,23 +440,16 @@ const COMMANDS = [
     key:         '4',
     label:       'Sync personas',
     category:    'Personas',
-    description: 'Build + deploy to VS Code / Claude Code',
+    description: 'Deploy to VS Code & Claude Code',
     run:         cmdSyncPersonas,
   },
-  {
-    id:          'build-personas',
-    key:         '5',
-    label:       'Build personas',
-    category:    'Personas',
-    description: 'Build only (no deploy)',
-    run:         cmdBuildPersonas,
-  },
+
   {
     id:          'package-personas',
     key:         '6',
     label:       'Package personas',
     category:    'Personas',
-    description: 'Build + ZIP standalone personas',
+    description: 'ZIP standalone personas',
     run:         cmdPackagePersonas,
   },
   {
@@ -411,12 +461,12 @@ const COMMANDS = [
     run:         cmdGui,
   },
   {
-    id:          'build-ledger',
+    id:          'build-maintain',
     key:         '0',
-    label:       'Build Ledger',
-    category:    'MCP Server',
-    description: 'Sync package.json from changelog',
-    run:         cmdBuildLedger,
+    label:       'Build & Maintain',
+    category:    'Validation & Utilities',
+    description: 'Sync versions & build personas',
+    run:         cmdBuildMaintain,
   },
   {
     id:          'check-roles',
@@ -446,14 +496,13 @@ function printHelp() {
   const rows = [
     ['setup',                    'Full workspace setup wizard'],
     ['setup --all',              'Non-interactive full setup'],
-    ['build-ledger',             'Sync MCP server package.json from changelog'],
+    ['build-maintain',           'Sync versions & build personas'],
     ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
     ['mcp-json',                 'Generate IDE MCP server config'],
     ['mcp-json --force',         'Overwrite existing .mcp.json'],
     ['git-hooks',                'Install git hooks (pre-commit persona guard)'],
-    ['sync-personas',            'Build + deploy personas to IDE'],
-    ['build-personas',           'Build personas only (no deploy)'],
-    ['package-personas',         'Build + ZIP standalone personas'],
+    ['sync-personas',            'Deploy to VS Code & Claude Code'],
+    ['package-personas',         'ZIP standalone personas'],
     ['gui',                      'Launch MCP GUI dashboard (long-running)'],
     // Note: orchestrator requires --plan <path>; not available in interactive menu
     ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
