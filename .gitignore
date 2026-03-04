@@ -17,3 +17,4 @@
 /orchestrator/checkpoints/
 /orchestrator/logs/
 /.idea
+/dist/*.zip
