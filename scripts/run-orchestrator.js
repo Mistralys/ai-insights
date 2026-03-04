@@ -80,7 +80,7 @@ if (needBuild) {
   const build = spawnSync(npmCmd, ['run', 'build'], {
     cwd:   path.join(WORKSPACE_ROOT, 'mcp-server'),
     stdio: 'inherit',
-    shell: false,
+    shell: isWindows, // npm.cmd requires shell:true on Windows/Node22+ to avoid EINVAL
   });
   if (build.status !== 0) {
     process.exit(build.status ?? 1);
@@ -94,7 +94,10 @@ if (needBuild) {
 // ---------------------------------------------------------------------------
 const forwardedArgs = process.argv.slice(2);
 
-const orchestrateCmd    = isWindows ? 'orchestrate.cmd' : 'orchestrate';
+// Python venv installs orchestrate as "orchestrate.exe" on Windows, not
+// "orchestrate.cmd" (the .cmd suffix is for npm-installed wrappers).
+// Using "orchestrate" works cross-platform: Node resolves .exe via PATHEXT.
+const orchestrateCmd = 'orchestrate';
 const result = spawnSync(orchestrateCmd, forwardedArgs, {
   stdio: 'inherit',
   shell: false,

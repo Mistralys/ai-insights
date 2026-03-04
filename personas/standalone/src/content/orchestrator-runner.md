@@ -77,16 +77,16 @@ source "$AI_INSIGHTS_ROOT/orchestrator/.venv/bin/activate"
 & "$env:AI_INSIGHTS_ROOT\orchestrator\.venv\Scripts\Activate.ps1"
 ```
 
-If `.venv` does not exist under `$AI_INSIGHTS_ROOT/orchestrator/`, stop and guide the user through setup using the dedicated setup script (they must complete this before proceeding):
+If `.venv` does not exist under `$AI_INSIGHTS_ROOT/orchestrator/`, stop and guide the user through setup using the unified CLI (they must complete this before proceeding):
 
 ```bash
 cd "$AI_INSIGHTS_ROOT"
-node scripts/setup-orchestrator.js              # Anthropic (default)
-# node scripts/setup-orchestrator.js --provider google   # Google AI Studio
-# node scripts/setup-orchestrator.js --help              # see all options
+node scripts/cli.js setup --components orchestrator              # Anthropic (default)
+# node scripts/cli.js setup --components orchestrator --provider google   # Google AI Studio
+# node scripts/cli.js setup --help                                         # see all options
 ```
 
-The script creates `.venv`, upgrades pip, installs the package with the chosen LLM provider extra, and scaffolds `.env` from `.env.example` automatically. After it completes, activate the venv and re-run the pre-flight check.
+The setup wizard creates `.venv`, upgrades pip, installs the package with the chosen LLM provider extra, and scaffolds `.env` from `.env.example` automatically. After it completes, activate the venv and re-run the pre-flight check.
 
 ### 4. Verify `.env` is configured
 
@@ -226,8 +226,8 @@ The thread ID appears in both the console output at run start and in the `run_st
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `AI_INSIGHTS_ROOT` not set, `scripts/run-orchestrator.js` not found | ai-insights workspace not configured | Set `AI_INSIGHTS_ROOT` to the ai-insights workspace path (see Pre-Flight step 1) |
-| `command not found: orchestrate` | venv not activated | `source "$AI_INSIGHTS_ROOT/orchestrator/.venv/bin/activate"` — or run `node scripts/setup-orchestrator.js` first if `.venv` is missing |
-| `ModuleNotFoundError` on startup | Package not installed in active venv | Re-run `node scripts/setup-orchestrator.js` from `$AI_INSIGHTS_ROOT` to reinstall |
+| `command not found: orchestrate` | venv not activated | `source "$AI_INSIGHTS_ROOT/orchestrator/.venv/bin/activate"` — or run `node scripts/cli.js setup --components orchestrator` first if `.venv` is missing |
+| `ModuleNotFoundError` on startup | Package not installed in active venv | Re-run `node scripts/cli.js setup --components orchestrator` from `$AI_INSIGHTS_ROOT` to reinstall |
 | `[run-orchestrator.js] mcp-server/dist is stale` then build fails | TypeScript compile error in mcp-server | `cd "$AI_INSIGHTS_ROOT/mcp-server" && npm run build` and inspect output |
 | `MCP connection failed` at runtime | `dist/` missing or corrupted | `cd "$AI_INSIGHTS_ROOT/mcp-server" && npm run build` |
 | `ANTHROPIC_API_KEY not set` or equivalent | Missing key in `.env` | Populate `$AI_INSIGHTS_ROOT/orchestrator/.env` |
