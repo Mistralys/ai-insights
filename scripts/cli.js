@@ -410,16 +410,8 @@ const COMMANDS = [
     run:         cmdGui,
   },
   {
-    id:          'orchestrator',
-    key:         '8',
-    label:       'Run orchestrator',
-    category:    'Orchestrator',
-    description: 'Auto-rebuild MCP server + launch',
-    run:         cmdOrchestrator,
-  },
-  {
     id:          'check-roles',
-    key:         '9',
+    key:         '8',
     label:       'Check role parity',
     category:    'Validation & Utilities',
     description: 'Verify persona ↔ MCP server roles',
@@ -427,7 +419,7 @@ const COMMANDS = [
   },
   {
     id:          'bundle-docs',
-    key:         '0',
+    key:         '9',
     label:       'Bundle docs',
     category:    'Validation & Utilities',
     description: 'Compile doc bundles',
@@ -453,7 +445,8 @@ function printHelp() {
     ['build-personas',           'Build personas only (no deploy)'],
     ['package-personas',         'Build + ZIP standalone personas'],
     ['gui',                      'Launch MCP GUI dashboard (long-running)'],
-    ['orchestrator',             'Run orchestrator pipeline (long-running)'],
+    // Note: orchestrator requires --plan <path>; not available in interactive menu
+    ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
     ['check-roles',              'Verify persona ↔ MCP server role parity'],
     ['bundle-docs',              'Compile doc bundles'],
     ['help',                     'Show this help'],
@@ -624,12 +617,12 @@ async function runSetup(args) {
 // ─── Interactive main menu ────────────────────────────────────────────────────
 
 const BANNER_LINES = [
-  "       _    ___   ____              _         __    __",
-  "      / \\  |_ _| |_ _| _ __   ___ (_)  __ _ | |__ | |_  ___",
-  "     / _ \\  | |   | | | '_ \\ / __|| | / _` || '_ \\| __|/ __|",
-  "    / ___ \\ | |  _| |_| | | |\\__ \\| || (_| || | | | |_ \\__ \\",
-  "   /_/   \\_\\___||_____|_| |_||___/|_| \\__, ||_| |_|\\__||___/",
-  "                                        |___/",
+  " █████╗ ██╗    ██╗███╗   ██╗███████╗██╗ ██████╗ ██╗  ██╗████████╗███████╗",
+  "██╔══██╗██║    ██║████╗  ██║██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝██╔════╝",
+  "███████║██║    ██║██╔██╗ ██║███████╗██║██║  ███╗███████║   ██║   ███████╗",
+  "██╔══██║██║    ██║██║╚██╗██║╚════██║██║██║   ██║██╔══██║   ██║   ╚════██║",
+  "██║  ██║██║    ██║██║ ╚████║███████║██║╚██████╔╝██║  ██║   ██║   ███████║",
+  "╚═╝  ╚═╝╚═╝    ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝",
 ];
 
 function renderMenu(version) {
