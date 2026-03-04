@@ -242,7 +242,8 @@ These are the critical synchronization points between sub-projects. Breaking any
 ### Root-Level Tooling
 
 | File | Purpose |
-|------|---------|
+|------|---------|  
+| `scripts/cli.js` | **Interactive command center + direct CLI** for all workspace operations. Replaces `setup-orchestrator.js` as the user-facing entry point. |
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
 | `scripts/build-personas.js` | Assemble 7 ledger persona files from `personas/ledger/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |

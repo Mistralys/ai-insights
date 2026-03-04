@@ -31,58 +31,33 @@ A headless, IDE-free alternative to the ledger workflow. Built on **LangGraph** 
 
 ## 🚀 Quick Start
 
-### 1 — Deploy Personas to Your IDE
+```bash
+node scripts/cli.js
+```
+
+This opens an interactive menu where you can set up the workspace, sync personas, launch the GUI, run the orchestrator, and more — all from one place.
+
+Or run the full setup non-interactively:
 
 ```bash
-# Install dependencies (first time only)
-cd personas && npm install && cd ..
-
-# Build and deploy to both VS Code and Claude Code
-node scripts/sync-personas.js
+node scripts/cli.js setup --all
 ```
 
-A clean run prints:
-```
-✓ All 7 VS Code persona file(s) passed frontmatter validation
-✓ All 7 Claude Code persona file(s) passed frontmatter validation
-```
-
-> Deploy to only one target: `--target vscode` or `--target claude-code`.
-> Preview without copying: `--dry-run`.
-> Full options: see [personas/ledger/README.md](personas/ledger/README.md).
-
----
-
-### 2 — Set Up the MCP Server (ledger workflow)
+You can also run any task directly:
 
 ```bash
-cd mcp-server
-npm install
-npm run build
+node scripts/cli.js sync-personas          # build + deploy personas to IDE
+node scripts/cli.js gui                    # launch MCP GUI dashboard
+node scripts/cli.js orchestrator plan.md  # run orchestrator pipeline
+node scripts/cli.js help                  # list all commands
 ```
 
-Then add the server to your IDE's `.mcp.json` (see [mcp-server/README.md](mcp-server/README.md) for config).
+> **Prerequisites:** Node.js >= 18. Python 3.11+ is only required for the orchestrator component.
 
-Launch the GUI dashboard at any time:
-
-```bash
-node scripts/run-gui.js
-```
-
----
-
-### 3 — Run the Orchestrator (headless)
-
-```bash
-# One-shot setup: creates venv, installs deps, scaffolds .env
-node scripts/setup-orchestrator.js
-
-# Edit orchestrator/.env with your API key, then run a plan:
-node scripts/run-orchestrator.js path/to/plan.md
-```
-
-`run-orchestrator.js` rebuilds a stale MCP server automatically before launching.
-Full setup and options: [orchestrator/README.md](orchestrator/README.md).
+Full setup and options for each sub-project:
+- [personas/ledger/README.md](personas/ledger/README.md) — Persona workflow guide
+- [mcp-server/README.md](mcp-server/README.md) — MCP server architecture and GUI
+- [orchestrator/README.md](orchestrator/README.md) — Orchestrator setup, CLI reference
 
 ---
 
@@ -99,7 +74,8 @@ This enables a pre-commit guard that fails the commit if any generated persona f
 ### Key scripts
 
 | Script | Purpose |
-|--------|---------|
+|--------|---------|  
+| `node scripts/cli.js` | **Interactive command center** — menu-driven or direct CLI for all workspace operations |
 | `node scripts/sync-personas.js` | Build + deploy personas; validate frontmatter |
 | `node scripts/build-personas.js` | Build personas only (no deploy) |
 | `node scripts/build-personas.js --check` | Detect stale persona output (non-zero if stale) |
