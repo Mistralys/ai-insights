@@ -306,6 +306,7 @@ function renderRoster(roster, activeNumber) {
  */
 function renderMcpToolsTable(tools) {
   return tools
+    .filter(t => !t.note_only)
     .map(t => `| \`${t.tool}\` | ${t.purpose} |`)
     .join('\n');
 }
@@ -628,6 +629,7 @@ function buildForTarget(suite, target) {
       if (output.length > 300) console.log('  ...(truncated)');
       console.log();
     } else if (CHECK) {
+      // Check 1: Staleness — generated output must match the file on disk.
       if (!fs.existsSync(outputFile)) {
         console.log(`[missing] ${contentBasename}`);
         staleCount++;
@@ -638,6 +640,23 @@ function buildForTarget(suite, target) {
           staleCount++;
         } else {
           console.log(`[ok]      ${contentBasename}`);
+        }
+      }
+      // Check 2: note_only regression guard.
+      // Assert that tools marked note_only: true are absent from the generated
+      // output. This guards against accidental removal of the `.filter(t => !t.note_only)`
+      // in renderMcpToolsTable() — which would silently surface internal-only
+      // tooling in published persona documents.
+      if (persona.mcp_tools) {
+        const noteOnlyTools = persona.mcp_tools.filter(t => t.note_only).map(t => t.tool);
+        for (const toolName of noteOnlyTools) {
+          const toolNameRegex = new RegExp(`\\|\\s*\`${toolName}\`\\s*\\|`);
+          if (toolNameRegex.test(output)) {
+            process.stderr.write(
+              `[note_only-violation] ${suite}/${target}/${contentBasename}: note_only tool "${toolName}" appears in generated output.\n`
+            );
+            staleCount++;
+          }
         }
       }
     } else {

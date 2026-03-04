@@ -120,7 +120,7 @@ describe('ProjectMeta — writeProjectMeta / readProjectMeta', () => {
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     });
 

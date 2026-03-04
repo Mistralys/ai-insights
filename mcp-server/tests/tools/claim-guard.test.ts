@@ -85,7 +85,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: [{ criterion: 'Feature works', met: false }],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     await handle.store.writeWorkPackage('WP-001', wp1);
@@ -97,7 +97,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: 'Documentation',
       dependencies: [],
       acceptance_criteria: [{ criterion: 'Docs written', met: false }],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     await handle.store.writeWorkPackage('WP-002', wp2);
@@ -117,7 +117,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     const error = claimWorkPackageGuard(wp, 'Developer');
@@ -132,7 +132,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: 'Documentation',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     const error = claimWorkPackageGuard(wp, 'Developer');
@@ -150,7 +150,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: 'Documentation',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     const error = claimWorkPackageGuard(wp, 'Developer', true);
@@ -165,7 +165,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: '',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     const error = claimWorkPackageGuard(wp, 'QA');
@@ -180,7 +180,7 @@ describe('claim_work_package assignment guard', () => {
       assigned_to: 'Developer',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [],
     };
     const error = claimWorkPackageGuard(wp, 'Developer');

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises';
 import {
   createTempStore,
   cleanupTempStore,
@@ -9,131 +9,129 @@ import {
 } from '../helpers/create-temp-store.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
-import { computeHealedStatus, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
+import { computeHealedStatus, _internal, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
+
+const { completeSynthesis, initializeProject } = _internal;
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 
 const PLAN_PATH = join(tmpdir(), '2026-01-01-lifecycle-heal-test');
 
 /**
- * Tests for the two new self-healing rules added to getProjectStatus:
- *   1. READY → IN_PROGRESS when any WP is IN_PROGRESS
- *   2. BLOCKED → IN_PROGRESS/READY when no WPs are actually BLOCKED
+ * Tests for the self-healing rules in computeHealedStatus.
  *
- * These tests validate the healing logic by driving store operations directly
- * and checking the corrected status — the same pattern used elsewhere in the
- * test suite (see claim-guard.test.ts).
- *
- * The healing function below is an inline replica of the two new branches
- * added to project-lifecycle.ts so tests remain independent of internal exports.
+ * These tests validate the 16-rule healing logic by calling the production
+ * computeHealedStatus function directly (publicly exported from
+ * project-lifecycle.ts). No inline replicas.
  */
 
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
-type WpStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+type WpStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'CANCELLED';
 
-/** Inline replica of the self-healing logic from project-lifecycle.ts */
-function applyStatusHealing(
+/**
+ * Helper: builds a minimal RootIndex and calls computeHealedStatus.
+ * Derives totalWps and pendingWps from wpStatuses automatically.
+ */
+function healStatus(
   currentStatus: ProjectStatus,
   wpStatuses: WpStatus[],
-  pendingWps: number,
-  totalWps: number,
   synthesisGenerated?: boolean,
 ): ProjectStatus {
-  if (currentStatus === 'IN_PROGRESS' && pendingWps === 0 && totalWps > 0) {
-    return synthesisGenerated ? 'COMPLETE' : 'IN_PROGRESS';
-  }
-  if (currentStatus === 'COMPLETE' && pendingWps > 0) {
-    return 'IN_PROGRESS';
-  }
-  if (currentStatus === 'READY') {
-    const hasInProgressWp = wpStatuses.some((s) => s === 'IN_PROGRESS');
-    if (hasInProgressWp) return 'IN_PROGRESS';
-  }
-  if (currentStatus === 'BLOCKED') {
-    const hasBlockedWp = wpStatuses.some((s) => s === 'BLOCKED');
-    if (!hasBlockedWp) {
-      const hasInProgressWp = wpStatuses.some((s) => s === 'IN_PROGRESS');
-      const hasReadyWp = wpStatuses.some((s) => s === 'READY');
-      return hasInProgressWp ? 'IN_PROGRESS' : hasReadyWp ? 'READY' : currentStatus;
-    }
-  }
-  return currentStatus;
+  const rootIndex = {
+    plan_file: 'plan.md',
+    date_created: now(),
+    last_updated: now(),
+    status: currentStatus,
+    total_work_packages: wpStatuses.length,
+    pending_work_packages: wpStatuses.filter(
+      (s) => s !== 'COMPLETE' && s !== 'CANCELLED'
+    ).length,
+    work_packages: wpStatuses.map((s, i) => ({
+      work_package_id: `WP-${String(i + 1).padStart(3, '0')}`,
+      file: `work/WP-${String(i + 1).padStart(3, '0')}.md`,
+      status: s,
+      assigned_to: 'Developer' as const,
+      dependencies: [],
+    })),
+    project_comments: [],
+    ...(synthesisGenerated !== undefined ? { synthesis_generated: synthesisGenerated } : {}),
+  };
+  return computeHealedStatus(rootIndex as any).healedStatus as ProjectStatus;
 }
 
 describe('Project status self-healing: READY → IN_PROGRESS', () => {
   it('heals READY to IN_PROGRESS when a WP is IN_PROGRESS', () => {
-    const healed = applyStatusHealing('READY', ['IN_PROGRESS'], 1, 1);
-    expect(healed).toBe('IN_PROGRESS');
+    expect(healStatus('READY', ['IN_PROGRESS'])).toBe('IN_PROGRESS');
   });
 
   it('heals READY to IN_PROGRESS when mixed WP statuses include IN_PROGRESS', () => {
-    const healed = applyStatusHealing('READY', ['READY', 'IN_PROGRESS', 'BLOCKED'], 3, 3);
-    expect(healed).toBe('IN_PROGRESS');
+    expect(healStatus('READY', ['READY', 'IN_PROGRESS', 'BLOCKED'])).toBe('IN_PROGRESS');
   });
 
   it('does NOT heal READY when all WPs are READY', () => {
-    const healed = applyStatusHealing('READY', ['READY', 'READY'], 2, 2);
-    expect(healed).toBe('READY');
+    expect(healStatus('READY', ['READY', 'READY'])).toBe('READY');
   });
 
-  it('does NOT heal READY when all WPs are BLOCKED', () => {
-    const healed = applyStatusHealing('READY', ['BLOCKED', 'BLOCKED'], 2, 2);
-    expect(healed).toBe('READY');
+  it('heals READY to BLOCKED when all WPs are BLOCKED (Rule 3b)', () => {
+    // Rule 3b: READY AND pending>0 AND !hasReadyWp AND !hasInProgressWp → BLOCKED
+    expect(healStatus('READY', ['BLOCKED', 'BLOCKED'])).toBe('BLOCKED');
   });
 
   it('does NOT heal READY when there are no WPs', () => {
-    const healed = applyStatusHealing('READY', [], 0, 0);
-    expect(healed).toBe('READY');
+    expect(healStatus('READY', [])).toBe('READY');
+  });
+
+  it('heals READY to IN_PROGRESS when pending==0 and synthesis not generated (Rule 1b)', () => {
+    expect(healStatus('READY', ['COMPLETE', 'COMPLETE'], false)).toBe('IN_PROGRESS');
+  });
+
+  it('heals READY to COMPLETE when pending==0 and synthesis generated (Rule 1)', () => {
+    expect(healStatus('READY', ['COMPLETE', 'COMPLETE'], true)).toBe('COMPLETE');
   });
 });
 
 describe('Project status self-healing: BLOCKED → IN_PROGRESS/READY', () => {
-  it('heals BLOCKED to IN_PROGRESS when no WPs are BLOCKED and some are IN_PROGRESS', () => {
-    const healed = applyStatusHealing('BLOCKED', ['IN_PROGRESS', 'READY'], 2, 2);
-    expect(healed).toBe('IN_PROGRESS');
+  it('heals BLOCKED to IN_PROGRESS when some WPs are IN_PROGRESS (Rule 4)', () => {
+    expect(healStatus('BLOCKED', ['IN_PROGRESS', 'READY'])).toBe('IN_PROGRESS');
   });
 
-  it('heals BLOCKED to READY when no WPs are BLOCKED and some are READY but none IN_PROGRESS', () => {
-    const healed = applyStatusHealing('BLOCKED', ['READY', 'COMPLETE'], 1, 2);
-    expect(healed).toBe('READY');
+  it('heals BLOCKED to READY when no WPs are IN_PROGRESS but some are READY (Rule 4b)', () => {
+    expect(healStatus('BLOCKED', ['READY', 'COMPLETE'])).toBe('READY');
   });
 
-  it('does NOT heal BLOCKED when at least one WP is still BLOCKED', () => {
-    const healed = applyStatusHealing('BLOCKED', ['BLOCKED', 'READY'], 2, 2);
-    expect(healed).toBe('BLOCKED');
+  it('heals BLOCKED to READY even when some WPs are BLOCKED if READY WPs exist (Rule 4b)', () => {
+    // Rule 4b: BLOCKED AND hasReadyWp AND !hasInProgressWp → READY
+    expect(healStatus('BLOCKED', ['BLOCKED', 'READY'])).toBe('READY');
   });
 
-  it('does NOT heal BLOCKED when all WPs are COMPLETE and no READY/IN_PROGRESS exists', () => {
-    // All COMPLETE means no pending; healing falls through to existing IN_PROGRESS/COMPLETE rules
-    // With no BLOCKED WPs and no IN_PROGRESS/READY, status stays unchanged
-    const healed = applyStatusHealing('BLOCKED', ['COMPLETE', 'COMPLETE'], 0, 2);
-    expect(healed).toBe('BLOCKED');
+  it('heals BLOCKED to IN_PROGRESS when all WPs are COMPLETE and synthesis not generated (Rule 5b)', () => {
+    // Rule 5b: BLOCKED AND pending==0 AND total>0 AND NOT synthesis_generated → IN_PROGRESS
+    expect(healStatus('BLOCKED', ['COMPLETE', 'COMPLETE'], false)).toBe('IN_PROGRESS');
   });
 
-  it('heals BLOCKED to IN_PROGRESS over READY when both exist', () => {
-    const healed = applyStatusHealing('BLOCKED', ['READY', 'IN_PROGRESS', 'COMPLETE'], 2, 3);
-    expect(healed).toBe('IN_PROGRESS');
+  it('heals BLOCKED to IN_PROGRESS over READY when both exist (Rule 4)', () => {
+    expect(healStatus('BLOCKED', ['READY', 'IN_PROGRESS', 'COMPLETE'])).toBe('IN_PROGRESS');
+  });
+
+  it('heals BLOCKED to COMPLETE when all WPs done and synthesis generated (Rule 5a)', () => {
+    expect(healStatus('BLOCKED', ['COMPLETE', 'COMPLETE'], true)).toBe('COMPLETE');
   });
 });
 
 describe('Project status self-healing: existing rules still work', () => {
   it('heals IN_PROGRESS to COMPLETE when all WPs done and synthesis generated', () => {
-    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2, true);
-    expect(healed).toBe('COMPLETE');
+    expect(healStatus('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], true)).toBe('COMPLETE');
   });
 
   it('stays IN_PROGRESS when all WPs done but synthesis NOT generated', () => {
-    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2, false);
-    expect(healed).toBe('IN_PROGRESS');
+    expect(healStatus('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], false)).toBe('IN_PROGRESS');
   });
 
   it('stays IN_PROGRESS when all WPs done and synthesis_generated is undefined', () => {
-    const healed = applyStatusHealing('IN_PROGRESS', ['COMPLETE', 'COMPLETE'], 0, 2);
-    expect(healed).toBe('IN_PROGRESS');
+    expect(healStatus('IN_PROGRESS', ['COMPLETE', 'COMPLETE'])).toBe('IN_PROGRESS');
   });
 
   it('heals COMPLETE to IN_PROGRESS when pending WPs exist', () => {
-    const healed = applyStatusHealing('COMPLETE', ['IN_PROGRESS', 'COMPLETE'], 1, 2);
-    expect(healed).toBe('IN_PROGRESS');
+    expect(healStatus('COMPLETE', ['IN_PROGRESS', 'COMPLETE'])).toBe('IN_PROGRESS');
   });
 });
 
@@ -170,14 +168,8 @@ describe('Project status self-healing: store integration', () => {
     await handle.store.writeRootIndex(root);
 
     const readBack = await handle.store.readRootIndex();
-    const wpStatuses = readBack.work_packages.map((wp) => wp.status as WpStatus);
-    const healed = applyStatusHealing(
-      readBack.status as ProjectStatus,
-      wpStatuses,
-      readBack.pending_work_packages,
-      readBack.total_work_packages,
-    );
-    expect(healed).toBe('IN_PROGRESS');
+    const result = computeHealedStatus(readBack);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
   });
 
   it('BLOCKED project with only READY WPs stores correctly and heals to READY', async () => {
@@ -202,14 +194,8 @@ describe('Project status self-healing: store integration', () => {
     await handle.store.writeRootIndex(root);
 
     const readBack = await handle.store.readRootIndex();
-    const wpStatuses = readBack.work_packages.map((wp) => wp.status as WpStatus);
-    const healed = applyStatusHealing(
-      readBack.status as ProjectStatus,
-      wpStatuses,
-      readBack.pending_work_packages,
-      readBack.total_work_packages,
-    );
-    expect(healed).toBe('READY');
+    const result = computeHealedStatus(readBack);
+    expect(result.healedStatus).toBe('READY');
   });
 });
 
@@ -364,9 +350,462 @@ describe('computeHealedStatus (exported pure function)', () => {
       ],
     });
     const result = computeHealedStatus(root);
-    expect(result.healedStatus).toBe('READY');
-    // pending_work_packages stored as 0 in override but root fixture stores 1 — needsWrite just for counter
+    // Rule 1b: READY + pending=0 + total>0 + !synthesis_generated → IN_PROGRESS
+    // (awaiting synthesis — project should not skip to COMPLETE)
+    expect(result.healedStatus).toBe('IN_PROGRESS');
     expect(result.healedStatus).not.toBe('COMPLETE');
+  });
+});
+// ---------------------------------------------------------------------------
+// §17.2 Healing rules — exhaustive coverage using computeHealedStatus directly
+// ---------------------------------------------------------------------------
+
+describe('computeHealedStatus — §17.2 healing rules', () => {
+  function makeRoot(overrides: Partial<RootIndex> = {}): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      ...overrides,
+    };
+  }
+
+  function wp(id: string, status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'CANCELLED') {
+    return {
+      work_package_id: id,
+      status,
+      assigned_to: 'Developer',
+      dependencies: [] as string[],
+      file: `ledger/${id}.json`,
+    };
+  }
+
+  it('Rule 1 (IN_PROGRESS): (IN_PROGRESS) + pending=0 + total>0 + synthesis_generated → COMPLETE', () => {
+    const root = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('COMPLETE');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 1 (READY): (READY) + pending=0 + total>0 + synthesis_generated → COMPLETE', () => {
+    const root = makeRoot({
+      status: 'READY',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('COMPLETE');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 1b: READY + pending=0 + total>0 + !synthesis_generated → IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'READY',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: false,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 1c: IN_PROGRESS + pending=0 + total>0 + !synthesis_generated → preserve IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: false,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    // needsWrite may be true due to counter mismatch (pending_work_packages stored as 0 but root has pending=0)
+    // Status is IN_PROGRESS → IN_PROGRESS, so status diff won't trigger it; only counter mismatch matters.
+    expect(result.pendingWps).toBe(0);
+  });
+
+  it('Rule 2: COMPLETE + pending>0 → IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'COMPLETE',
+      total_work_packages: 2,
+      pending_work_packages: 1,
+      synthesis_generated: true,
+      work_packages: [wp('WP-001', 'COMPLETE'), wp('WP-002', 'IN_PROGRESS')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 2b: COMPLETE + pending=0 + total>0 + !synthesis_generated → IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'COMPLETE',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: false,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 3: READY + any WP IN_PROGRESS → IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'READY',
+      total_work_packages: 2,
+      pending_work_packages: 2,
+      work_packages: [wp('WP-001', 'IN_PROGRESS'), wp('WP-002', 'READY')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 3b: READY + pending>0 + no WP READY/IN_PROGRESS → BLOCKED', () => {
+    const root = makeRoot({
+      status: 'READY',
+      total_work_packages: 2,
+      pending_work_packages: 2,
+      work_packages: [wp('WP-001', 'BLOCKED'), wp('WP-002', 'BLOCKED')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('BLOCKED');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 3c: IN_PROGRESS + pending>0 + no WP READY/IN_PROGRESS → BLOCKED', () => {
+    const root = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 2,
+      pending_work_packages: 2,
+      work_packages: [wp('WP-001', 'BLOCKED'), wp('WP-002', 'BLOCKED')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('BLOCKED');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 4: BLOCKED + any WP IN_PROGRESS → IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'BLOCKED',
+      total_work_packages: 2,
+      pending_work_packages: 2,
+      work_packages: [wp('WP-001', 'IN_PROGRESS'), wp('WP-002', 'BLOCKED')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 4b: BLOCKED + any WP READY (none IN_PROGRESS) → READY', () => {
+    const root = makeRoot({
+      status: 'BLOCKED',
+      total_work_packages: 2,
+      pending_work_packages: 2,
+      work_packages: [wp('WP-001', 'READY'), wp('WP-002', 'BLOCKED')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('READY');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 5a: BLOCKED + pending=0 + total>0 + synthesis_generated → COMPLETE', () => {
+    const root = makeRoot({
+      status: 'BLOCKED',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('COMPLETE');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 5b: BLOCKED + pending=0 + total>0 + !synthesis_generated → IN_PROGRESS', () => {
+    const root = makeRoot({
+      status: 'BLOCKED',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      synthesis_generated: false,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 6b (IN_PROGRESS): IN_PROGRESS + total=0 → READY', () => {
+    const root = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('READY');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 6b (BLOCKED): BLOCKED + total=0 → READY', () => {
+    const root = makeRoot({
+      status: 'BLOCKED',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('READY');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('Rule 6c: COMPLETE + total=0 → READY', () => {
+    const root = makeRoot({
+      status: 'COMPLETE',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      synthesis_generated: true,
+      work_packages: [],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('READY');
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('synthesis_generated corruption: synthesis_generated=true + pending>0 → reset flag, needsWrite=true', () => {
+    // synthesis_generated is true but WP-001 is IN_PROGRESS (still pending)
+    const root = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      synthesis_generated: true,
+      work_packages: [wp('WP-001', 'IN_PROGRESS')],
+    });
+    const result = computeHealedStatus(root);
+    // With corruption reset, synthesisGenerated=false and pending>0 →
+    // Rule 1c: IN_PROGRESS + pending>0 doesn't match Rule 1c (which needs pending=0).
+    // Actually pending>0 falls through to Rule 3c: IN_PROGRESS + pending>0 + !hasReady + !hasInProgress?
+    // WP-001 IS IN_PROGRESS, so hasInProgressWp=true. Rule 3c requires !hasInProgressWp → doesn't match.
+    // No rule fires → healedStatus stays IN_PROGRESS. But corruptionDetected=true → needsWrite=true.
+    expect(result.needsWrite).toBe(true);
+    expect(result.corruptionDetected).toBe(true);
+    expect(result.healedStatus).toBe('IN_PROGRESS'); // status unchanged but write needed to reset flag
+  });
+
+  it('corruption round-trip: after write callback resets synthesis_generated, second call returns needsWrite=false', () => {
+    // First call — simulate the state before healing write
+    const rootBefore = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      synthesis_generated: true,
+      work_packages: [wp('WP-001', 'IN_PROGRESS')],
+    });
+    const first = computeHealedStatus(rootBefore);
+    expect(first.corruptionDetected).toBe(true);
+    expect(first.needsWrite).toBe(true);
+
+    // Simulate the write callback applying all freshHealed fields, including
+    // resetting synthesis_generated=false when corruptionDetected is true.
+    const rootAfterWrite = makeRoot({
+      status: first.healedStatus,
+      total_work_packages: first.totalWps,
+      pending_work_packages: first.pendingWps,
+      // write callback conditional: if (freshHealed.corruptionDetected) fresh.synthesis_generated = false
+      synthesis_generated: first.corruptionDetected ? false : rootBefore.synthesis_generated,
+      work_packages: [wp('WP-001', 'IN_PROGRESS')],
+    });
+
+    // Second call — counters and status are already correct, flag is reset
+    const second = computeHealedStatus(rootAfterWrite);
+    expect(second.corruptionDetected).toBe(false);
+    expect(second.needsWrite).toBe(false);
+  });
+
+  it('no-op: correct IN_PROGRESS state with actual pending WPs → needsWrite=false', () => {
+    const root = makeRoot({
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [wp('WP-001', 'IN_PROGRESS')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.needsWrite).toBe(false);
+    expect(result.healedStatus).toBe('IN_PROGRESS');
+    expect(result.totalWps).toBe(1);
+    expect(result.pendingWps).toBe(1);
+  });
+
+  it('CANCELLED project falls through all rules unchanged', () => {
+    const root = makeRoot({
+      status: 'CANCELLED' as any,
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [wp('WP-001', 'COMPLETE')],
+    });
+    const result = computeHealedStatus(root);
+    expect(result.healedStatus).toBe('CANCELLED');
+  });
+});
+
+describe('completeSynthesis — §19.1 guards', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  function makeTerminalRoot(overrides: Partial<RootIndex> = {}): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      ...overrides,
+    };
+  }
+
+  it('rejects caller when agent_role is not "Synthesis" or "Project Manager"', async () => {
+    await handle.store.writeRootIndex(makeTerminalRoot());
+    for (const role of ['Developer', 'QA', 'Reviewer', 'Documentation', 'random-role']) {
+      const result = await completeSynthesis(
+        { project_path: PLAN_PATH, agent_role: role },
+        handle.ledgerRoot,
+      );
+      expect(result.isError, `expected isError for role "${role}"`).toBe(true);
+      expect(result.content[0].text).toContain('agent_role');
+      expect(result.content[0].text).toContain(role);
+    }
+  });
+
+  it('rejects when project has zero work packages', async () => {
+    await handle.store.writeRootIndex(
+      makeTerminalRoot({ total_work_packages: 0, pending_work_packages: 0, work_packages: [] }),
+    );
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis' },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('no work packages');
+  });
+
+  it('rejects when pending WPs remain (uses freshly computed counter, not stale)', async () => {
+    // pending_work_packages counter is 0 (stale) but WP-002 is still IN_PROGRESS
+    await handle.store.writeRootIndex(
+      makeTerminalRoot({
+        total_work_packages: 2,
+        pending_work_packages: 0, // deliberately stale
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Developer',
+            dependencies: [],
+            file: 'ledger/WP-001.json',
+          },
+          {
+            work_package_id: 'WP-002',
+            status: 'IN_PROGRESS', // non-terminal — must be caught by fresh counter
+            assigned_to: 'Developer',
+            dependencies: [],
+            file: 'ledger/WP-002.json',
+          },
+        ],
+      }),
+    );
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis' },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('pending');
+  });
+
+  it('succeeds for "Synthesis" agent when all WPs terminal', async () => {
+    await handle.store.writeRootIndex(
+      makeTerminalRoot({
+        status: 'IN_PROGRESS',
+        total_work_packages: 2,
+        pending_work_packages: 0,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'COMPLETE',
+            assigned_to: 'Developer',
+            dependencies: [],
+            file: 'ledger/WP-001.json',
+          },
+          {
+            work_package_id: 'WP-002',
+            status: 'CANCELLED',
+            assigned_to: 'Developer',
+            dependencies: [],
+            file: 'ledger/WP-002.json',
+          },
+        ],
+      }),
+    );
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis' },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.synthesis_generated).toBe(true);
+    expect(data.project_status).toBe('COMPLETE');
+  });
+
+  it('succeeds for "Project Manager" agent when all WPs terminal (PM override)', async () => {
+    await handle.store.writeRootIndex(makeTerminalRoot());
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Project Manager' },
+      handle.ledgerRoot,
+    );
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.synthesis_generated).toBe(true);
+    expect(data.project_status).toBe('COMPLETE');
   });
 });
 /* ----------------------------------------------------------
@@ -586,5 +1025,83 @@ describe('completeSynthesis: document archiving', () => {
     // Only synthesis.md should be archived, not plan.md
     expect(result.archived_documents).toEqual(['synthesis.md']);
     expect(result.archived_documents).not.toContain('plan.md');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FIX-14 — initializeProject rejects re-initialization when ledger exists (§5.1)
+// ---------------------------------------------------------------------------
+
+describe('initializeProject — rejects re-initialization when ledger exists (FIX-14)', () => {
+  let tempLedgerRoot: string;
+  let planDir: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'fix14-reinit-'));
+    // Plan path must end with a YYYY-MM-DD-... slug so validatePlanPath accepts it
+    planDir = join(tmpdir(), '2026-02-28-fix14-reinit-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    // planDir is fixed (no YYYY-MM-DD random suffix); remove it explicitly
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('rejects a second initializeProject call when the ledger already exists', async () => {
+    // First call: should succeed and create the ledger
+    const firstResult = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+    expect((firstResult as any).isError).toBeFalsy();
+
+    // Second call on the same path: should be rejected
+    const secondResult = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+    expect((secondResult as any).isError).toBe(true);
+    expect((secondResult as any).content[0].text).toContain('already exists');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression — MCP extra-argument leak (_ledgerRoot type guard)
+// Bug reported: 2026-03-01 (docs/agents/plans/2026-03-01-.../pm-findings.md)
+// ---------------------------------------------------------------------------
+// completeSynthesis had `_ledgerRoot?: string` as a second parameter.
+// The MCP SDK passes a RequestHandlerExtra object as the second argument,
+// which is truthy and gets captured by _ledgerRoot. LedgerStore's constructor
+// then calls `path.join(extra_object, slug)` which throws a path TypeError.
+//
+// Fix: defensive type guard `const ledgerRoot = typeof _ledgerRoot === 'string'
+//      ? _ledgerRoot : undefined` plus a registration wrapper.
+//
+// This test confirms the guard works by calling completeSynthesis directly
+// with a fake extra object and verifying no path TypeError surfaces.
+// ---------------------------------------------------------------------------
+describe('completeSynthesis — _ledgerRoot defensive type guard (regression 2026-03-01)', () => {
+  const FAKE_EXTRA = {
+    requestId: 'mcp-test-extra-obj',
+    signal: new AbortController().signal,
+    authInfo: undefined,
+  } as unknown as string;
+
+  const GHOST_PLAN = join(tmpdir(), '2026-03-01-lifecycle-extra-leak-regression');
+
+  it('does not produce a path TypeError when extra object is the second arg', async () => {
+    const result = await completeSynthesis(
+      { project_path: GHOST_PLAN, agent_role: 'Synthesis' },
+      FAKE_EXTRA
+    );
+    const text = (result as any)?.content?.[0]?.text ?? '';
+    expect(/path.*argument.*must.*be.*type.*string/i.test(text)).toBe(false);
+    expect(/received an instance of object/i.test(text)).toBe(false);
   });
 });

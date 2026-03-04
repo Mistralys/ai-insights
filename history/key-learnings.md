@@ -84,3 +84,5 @@
 - MIA capable of documenting module including submodules. 
 - Implementing the development workflow in LangGraph @Python.
 - Solidifying the ledger workflow with cyclic specification & audit cycles.
+- Large multi-phase projects with a plan per phase and each phase using the previous phase's synthesis.
+- Create parallel local project copies with branches to work with workflows in parallel.

@@ -1,5 +1,20 @@
 # AI Insights Changelog
 
+## v1.6.0 - Ledger Spec Sync & Persona Refinements
+- MCP: Synchronized workflow, pipeline, handoff, and work-package tools to the specification.
+- MCP: Fixed workflow bug and root folder handling.
+- Orchestrator: Delegated all agent logic to the ledger via tool wrappers.
+- Orchestrator: Added setup script and replaced the run script.
+- Personas: Added orchestrator runner persona.
+- Personas: Updated ledger workflow.
+- Personas: Readme curator now helps rewrite project readmes.
+- Personas: Added philosophy of persona content.
+- Personas: Fixed Reviewer logic bug and missing incident logging.
+- Personas: QA: Added rework handling information.
+- Personas: Simplified tool calls.
+- Docs: Added persona tool usage matrix.
+- Git: Added pre-commit persona freshness hook.
+
 ## v1.5.0 - Ledger Enhancements
 - Ledger: Added archiving of the plan and synthesis documents.
 - Ledger: GUI: Viewing the archived documents.

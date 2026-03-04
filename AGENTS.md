@@ -247,6 +247,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | `scripts/build-personas.js` | Assemble 7 ledger persona files from `personas/ledger/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
 | `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
+| `scripts/install-hooks.js` | One-time setup: sets `git config core.hooksPath .githooks` to activate the pre-commit persona freshness guard |
 | `context.yaml` | Context Hub configuration for documentation generation |
 | `.mcp.dist.json` | Template MCP server configuration (copy to `.mcp.json` and update paths) |
 

@@ -56,24 +56,26 @@ mcp-server/
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
 │   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
 │   │   ├── workflow.ts          # Thin aggregator — delegates register() to the three sub-modules; re-exports backward-compat symbols
-│   │   ├── workflow-batch-actions.ts  # ledger_get_next_actions (batch variant)
-│   │   ├── workflow-handoff.ts        # ledger_get_handoff_status
-│   │   └── workflow-next-action.ts    # ledger_get_next_action
+│   │   ├── workflow-handoff.ts              # ledger_get_handoff_status
+│   │   ├── workflow-next-action.ts          # ledger_get_next_action (per-role single-action logic)
+│   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module: embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector
 │   │
 │   └── utils/                   # Utility functions
-        ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache)
+│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache)
 │       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
-│       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), validatePlanPathOrError()
-│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP)
+│       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
+│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes)
 │       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
     ├── helpers/                 # Shared test utilities (NEVER write to production storage)
-    │   └── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
+    │   ├── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
+    │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline() (positional or overrides), makeWorkPackageSummary() — spec-compliant fixture factories (revision: 0 default)
+    │   └── test-utils.ts        # injectLedgerDir() — injects --ledger-dir argv before a test; nowFloor() — returns current timestamp truncated to second precision
     │
     ├── gui/                     # GUI and config module tests
     │   ├── config.test.ts       # Unit tests for src/gui/config.ts (cache, read, write, watcher lifecycle)
@@ -85,7 +87,8 @@ mcp-server/
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
-    │   └── validators.test.ts
+    │   ├── validators.test.ts
+    │   └── work-package-schema.test.ts  # Zod parse-level tests for PipelineSchema and WorkPackageDetailSchema new fields (22 tests)
     │
     ├── storage/                 # Storage layer tests
     │   ├── ledger-store.test.ts
@@ -100,7 +103,6 @@ mcp-server/
     │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT
     │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
     │   ├── work-package.test.ts
-    │   ├── workflow-batch-actions.test.ts  # All-CANCELLED terminal short-circuit; allTerminal/reason string; WP ID regex (4-digit)
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts  # REWORK routing, Documentation FAIL routing, BLOCK_FOR_REWORK_LIMIT
     │   └── workflow-rework-loop.test.ts  # End-to-end rework loop covering FAIL → REWORK → PASS cycles
@@ -110,11 +112,10 @@ mcp-server/
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
+        ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes
         ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
         ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince
         └── wp-id.test.ts        # WP ID generation: variable-width, max-based incrementing
-        ├── timestamp.test.ts
-        └── wp-id.test.ts
 ```
 
 ---
@@ -133,13 +134,17 @@ File I/O layer with atomicity and locking guarantees. `LedgerStore` is the prima
 
 Each file exports a `register(server: McpServer)` function that registers one or more MCP tools. Tools are grouped by functional category (lifecycle, work packages, pipelines, observations, workflow).
 
-The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (ledger_get_next_action), `workflow-handoff.ts` (ledger_get_handoff_status), and `workflow-batch-actions.ts` (ledger_get_next_actions). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
+The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (per-role single-action logic for `ledger_get_next_action`), `workflow-next-action-batch.ts` (batch/collector sub-module: `embedHandoffStatusInWait`, `buildBatchNextSteps`, `getNextActionsCollector`), and `workflow-handoff.ts` (`ledger_get_handoff_status`). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
 
 ### `tests/`
 
 Vitest test suites organized by layer (helpers, integration, schema, storage, tools, utils). Tests run with `npm test` or `npm run test:watch`.
 
 `tests/helpers/create-temp-store.ts` provides `createTempStore(planPath)` and `cleanupTempStore(handle)` — a shared factory that always injects a `mkdtemp` ledger root, enforcing the test isolation contract (see Constraint 20).
+
+`tests/helpers/fixtures.ts` provides `makeWorkPackageDetail()`, `makePipeline()`, and `makeWorkPackageSummary()` — lightweight fixture factories with spec-compliant defaults (`revision: 0`, `assigned_to: 'Developer'`). `makePipeline` supports two calling conventions: positional `(type, status, started_at?, completed_at?)` and overrides `(Partial<Pipeline>)`. All factories accept an `overrides` partial to customize individual fields. Use these instead of inline fixtures to reduce churn when schema fields are added in future phases.
+
+`tests/helpers/test-utils.ts` provides `injectLedgerDir(dir)` — injects `--ledger-dir <dir>` into `process.argv` before a test and returns a cleanup function to restore the original state — and `nowFloor()` — returns the current UTC timestamp truncated to second precision (matching ledger timestamp format). Both utilities are available for adoption in any test file that needs ledger-dir injection or precise timestamp comparison.
 
 ---
 

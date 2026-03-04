@@ -60,6 +60,10 @@ Evaluate the submission based on these four criteria:
 
 {{> reviewer-operational-protocol}}
 
+{{#if has_incident_logging}}
+* **Environment Incident Logging:** {{> incident-logging}}
+{{/if}}
+
 ---
 
 ## Decision Logic
@@ -79,9 +83,9 @@ Evaluate the submission based on these four criteria:
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the code-review pipeline. Read the specific modified source files.
 4. **Execute Review:** Perform the Code Quality & Architecture Check (as defined in Operational Protocol).
-5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments).
+5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, metrics, comments, acceptance_criteria_updates).
 6. **Cross-Cutting Insights (optional):** If you identified architectural patterns or concerns spanning multiple WPs, call `ledger_add_project_comment` to record them at the project level.
-7. **Repeat:** Call `ledger_get_next_action` again. If it returns `RUN_REVIEW`, repeat from step 3 (full review). If it returns `REWORK_REVIEW`, repeat from step 3 but focus on the blocking issues from your previous review and verify they have been addressed. Continue until the action is `WAIT`.
+7. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_REVIEW` (full review), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 8. {{> handoff-block-vscode}}
 {{else}}

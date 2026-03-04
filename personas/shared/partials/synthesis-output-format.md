@@ -6,4 +6,4 @@
     * **Strategic Recommendations:** The "Gold Nuggets" found during the session.
     * **Next Steps:** What should the Planner/Manager focus on next?
 
-2. **Ledger Status:** Project completion is derived from all WPs reaching COMPLETE status (handled by upstream agents). Verify and report this status in the synthesis — do not attempt to set it directly.
+2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call.

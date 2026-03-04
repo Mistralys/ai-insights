@@ -17,6 +17,8 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
+from src.utils.tool_wrappers import inject_project_path
+
 if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
@@ -64,13 +66,16 @@ def create_stage_node(
             user_prompt = build_prompt(state)
 
             target_path: str = state.get("target_project_path", "")  # type: ignore[call-overload]
+            project_path: str = state["project_path"]  # type: ignore[index]
             backend = LocalShellBackend(root_dir=target_path or None)
+
+            wrapped_tools = inject_project_path(list(mcp_tools), project_path)
 
             agent = create_deep_agent(
                 model=config.model_name,
                 backend=backend,
                 system_prompt=persona_prompt,
-                tools=mcp_tools,
+                tools=wrapped_tools,
             )
 
             # Use ainvoke so LangGraph's inner ToolNode takes the async path

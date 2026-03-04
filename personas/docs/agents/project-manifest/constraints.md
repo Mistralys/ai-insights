@@ -14,11 +14,35 @@
 
 ---
 
+## Persona Content Philosophy
+
+3b. **Persona content must add value the self-documenting tools cannot provide.** The ledger's `next_steps` arrays, `--- NEXT STEP ---` guidance blocks, and Zod parameter descriptions are the runtime source of truth. A persona's job is to provide **identity, methodology, and decision-making framework** — not to duplicate tool documentation. When tool self-documentation already covers a behavior (e.g., wait-action reasons, required parameters), do not restate it in persona content. When persona content enumerates tool parameters or action names, it must match the implementation exactly or defer to the tool descriptions entirely.
+
+---
+
 ## Template Engine Limitations
 
 4. **`{{else}}` blocks are supported.** Conditionals may include an optional `{{else}}` branch: `{{#if flag}}…{{else}}…{{/if}}`. When the flag is truthy, the content before `{{else}}` is kept; when falsy, the content after `{{else}}` is kept. Prefer `{{else}}` over computed inverse booleans.
 
 5. **Nested `{{#if}}` blocks are not supported.** The template engine uses a single-pass regex that stops at the first `{{/if}}` encountered. Nesting `{{#if}}` inside another `{{#if}}` will silently produce incorrect output. Flatten nested conditions to separate top-level `{{#if}}` blocks or extract to partials.
+
+   **Anti-pattern:**
+   ```
+   {{#if platform_vscode}}
+     {{#if feature_enabled}}
+       Content for VS Code only when feature is on
+     {{/if}}
+   {{/if}}
+   ```
+   The inner `{{/if}}` terminates the outer block prematurely, leaving stray `{{/if}}` and `{{#if feature_enabled}}` markers in the output.
+
+   **Correct pattern:**
+   ```
+   {{#if platform_vscode_and_feature}}
+     Content for VS Code only when feature is on
+   {{/if}}
+   ```
+   Pre-compute the compound boolean as a variable in the build script (or add it to `_shared.yaml`), then use a single top-level `{{#if}}` block.
 
 6. **No `{{#each}}` loops.** Iteration must be handled by computed variables. The build script pre-renders `roster_rendered` and `mcp_tools_table` as fully-formed Markdown strings.
 
@@ -92,11 +116,79 @@
 
 ## Cross-System Dependencies
 
+32b. **`note_only: true` on `mcp_tools` entries excludes them from the rendered tools table.** When an `mcp_tools` entry in a per-persona YAML file has `note_only: true`, the `renderMcpToolsTable()` function filters it out (using `.filter(t => !t.note_only)`) before building the Markdown table. The entry is still present in the YAML source and the tool remains functionally accessible to the agent, but it is not listed as a table row in generated output. Use this flag for tools that agents should be aware of via prose content (e.g., in a `mcp-tools-note.md` partial) but that are not primary workflow tools for that role. Entries without `note_only` are unaffected — `undefined` is falsy and passes the filter without change.
+
+32c. **`--check` mode asserts that `note_only: true` tools are absent from generated output.** Running `node scripts/build-personas.js --check` performs two validations per file: (1) the generated content matches the file on disk (staleness check), and (2) no tool entry marked `note_only: true` in the persona's `mcp_tools` YAML appears as a rendered table row in the generated output. The guard in `build-personas.js` uses a **regex** (`/\|\s*\`toolName\`\s*\|/`) rather than `string.includes()` — this tolerates Markdown table column-spacing variations (e.g., `|  \`toolName\`  |`). Violations increment `staleCount` and are printed to stderr with prefix `[note_only-violation]`. If any violation is found the process exits with code 1.
+
+   > **Why regex over string.includes:** `string.includes('| \`toolName\` |')` is tightly coupled to exact column spacing. A Markdown table reformatter or editor that normalises padding (e.g., `|  \`toolName\`  |`) would silently bypass the check. The regex `\|\s*\`…\`\s*\|` matches any amount of whitespace on either side of the backtick-quoted name, making the guard robust to formatting drift.
+
+   > **AC field-name verification:** When acceptance criteria text references specific field names, TypeScript parameter names, or object property names (e.g., `store`, `rootIndex`, `wpDetails`, `storageDir`), verify these against the actual implementation source before committing the AC to a work package. If implementation uses a different name than what the AC states, update the AC text to match. Stale field-name references in ACs cause false-negative review outcomes.
+
 33. **`KNOWN_ROLES` ↔ `AGENT_ROLES`**: The sync script's `KNOWN_ROLES` constant must match `mcp-server/src/utils/constants.ts` → `AGENT_ROLES`. There is no automated validation between these two — it's a manual sync contract.
 
 34. **`role` field ↔ Agent Registry**: The `role` value in persona frontmatter is used by the MCP server's Agent Registry (`mcp-server/src/utils/agent-registry.ts`) to discover agent handles for automatic handoffs. The registry scans `*.agent.md` files in the VS Code prompts directory and matches the `role` field.
 
 35. **`mcp_server_name` ↔ `.mcp.json`**: The `mcp_server_name` value in `_shared.yaml` must match the server key in the target project's `.mcp.json` file. Default is `central_pm`.
+
+---
+
+## MCP Tool Allocation Matrix
+
+This table is the **normative reference** for which MCP tools belong in each persona's `mcp_tools` YAML. When editing persona YAML files, consult this matrix to verify that tool additions or removals are intentional. The `note_only` column indicates tools present in the YAML but excluded from the rendered table (see constraint 32b).
+
+### Legend
+
+| Symbol | Meaning |
+|--------|---------|
+| **✓** | Tool is listed in the persona's `mcp_tools` table |
+| *(note)* | Tool is in YAML with `note_only: true` — available but not rendered in the table |
+| — | Tool is not assigned to this persona |
+
+### Allocation Table
+
+| MCP Tool | 1-Plan | 2-PM | 3-Dev | 4-QA | 5-Rev | 6-Doc | 7-Syn |
+|---|---|---|---|---|---|---|---|
+| `ledger_initialize_project` | — | **✓** | — | — | — | — | — |
+| `ledger_create_work_package` | — | **✓** | — | — | — | — | — |
+| `ledger_get_next_action` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** |
+| `ledger_begin_work` | — | — | **✓** | **✓** | **✓** | **✓** | — |
+| `ledger_get_work_package` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** |
+| `ledger_complete_pipeline` | — | — | **✓** | **✓** | **✓** | **✓** | — |
+| `ledger_cancel_pipeline` | — | — | **✓** | **✓** | **✓** | **✓** | — |
+| `ledger_add_project_comment` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** |
+| `ledger_add_observation` | — | — | **✓** | — | — | — | — |
+| `ledger_get_project_status` | — | **✓** | — | — | — | — | **✓** |
+| `ledger_list_work_packages` | — | — | — | — | — | **✓** | **✓** |
+| `ledger_get_handoff_status` | — | **✓** | — | — | — | — | **✓** |
+| `ledger_complete_synthesis` | — | — | — | — | — | — | **✓** |
+| `ledger_help` | — | — | *(note)* | *(note)* | *(note)* | *(note)* | *(note)* |
+
+### Rationale
+
+**1 — Planner:** Has no MCP tools. The Planner produces a plan document before any ledger exists. It operates entirely on the filesystem and has no ledger to interact with.
+
+**2 — Project Manager:** Initializes the ledger (`ledger_initialize_project`) and creates all work packages (`ledger_create_work_package`). Uses `ledger_get_project_status` to verify the ledger after creation. Uses `ledger_get_handoff_status` to compute the handoff block — required because PM does not use `ledger_get_next_action` (it has no pipeline loop) and therefore cannot rely on the embedded `handoff_status` in WAIT responses.
+
+**3 — Developer:** Full pipeline agent. Uses `ledger_get_next_action` → `ledger_begin_work` → `ledger_complete_pipeline` as the core loop. Has `ledger_add_observation` (unique to Developer) for the Code Insight Observer role — recording observations after a pipeline is already completed. Has `ledger_cancel_pipeline` for stale pipeline recovery.
+
+**4 — QA:** Pipeline agent with the same core loop as Developer (get next action → begin work → complete pipeline). Does not need `ledger_add_observation` because QA records all findings as pipeline comments in `ledger_complete_pipeline`. Does not need `ledger_get_project_status` — reachability is confirmed by the `ledger_get_next_action` call in the preflight detect step.
+
+**5 — Reviewer:** Same tool set as QA and for the same reasons. The Reviewer's distinct behavior (review dimensions, PASS/FAIL logic, cross-cutting insights via `ledger_add_project_comment`) is expressed through how the tools are used, not which tools are available.
+
+**6 — Documentation:** Pipeline agent with `ledger_list_work_packages` (unique among pipeline agents) — needed to scan across WPs for documentation gaps that span multiple work packages. Does not have `ledger_get_handoff_status` because the handoff status is embedded in the WAIT response from `ledger_get_next_action` (the handoff partial provides a fallback path if the embedded status is absent).
+
+**7 — Synthesis:** Read-heavy agent. Uses `ledger_get_project_status` and `ledger_list_work_packages` to iterate all WPs, `ledger_get_work_package` for deep reads, and `ledger_complete_synthesis` (unique to Synthesis) to archive the report and transition the project to COMPLETE. Uses `ledger_get_handoff_status` explicitly because its handoff step (workflow step 9) is a custom block that directly calls this tool rather than relying on the WAIT-embedded status. Does not have `ledger_begin_work` or `ledger_complete_pipeline` — Synthesis does not run standard pipelines.
+
+### Feature Flag Reference
+
+These per-persona YAML flags control which partials and content sections are included:
+
+| Flag | Effect | Personas with `true` |
+|---|---|---|
+| `has_mcp` | Includes MCP intro, role boundaries, tool table, preflight sections | 2-PM, 3-Dev, 4-QA, 5-Rev, 6-Doc, 7-Syn |
+| `has_detect_project` | Includes the `cwd_path` auto-detect preflight step | 3-Dev, 4-QA, 5-Rev, 6-Doc, 7-Syn |
+| `self_documenting_note` | Includes the `mcp-tools-note` partial (explains `ledger_help` availability) | 3-Dev, 4-QA, 5-Rev, 6-Doc, 7-Syn |
+| `has_incident_logging` | Includes the `incident-logging` partial (instructs agent to log system-level incidents) | 3-Dev, 4-QA, 5-Rev, 6-Doc |
 
 ---
 
@@ -111,3 +203,13 @@ When the build system was introduced, the generated output differs from the orig
 39. **`mcp-tools-note` placement unified.** For Agent 3 (Developer), the self-documenting note was moved from the Workflow section to the MCP Tools section for consistency with agents 4–7.
 
 40. **Detect-step wording standardized.** Slight rewording of the detect-project pre-flight step to be uniform across all agents that use it.
+
+---
+
+## Pre-Commit Guard
+
+41. **Never edit generated persona files directly.** Always update the template sources in `personas/ledger/src/` or `personas/standalone/src/` and rebuild. The generated output directories (`personas/ledger/vs-code/`, `personas/ledger/claude-code/`, `personas/standalone/vs-code/`, `personas/standalone/claude-code/`) are fully overwritten on every build.
+
+42. **Run `node scripts/install-hooks.js` after cloning.** This sets `git config core.hooksPath .githooks` for the repo, activating the `.githooks/pre-commit` hook. The hook runs `node scripts/build-personas.js --check` before every commit. Without this step, stale generated output can be committed silently.
+
+43. **`.githooks/pre-commit` enforces persona freshness at commit time.** The hook exits non-zero if any generated persona file is stale, blocking the commit. This closes the gap where a developer editing only `personas/src/` would never trigger the freshness check via `mcp-server/` tests.

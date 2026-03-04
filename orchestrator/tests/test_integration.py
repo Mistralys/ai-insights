@@ -91,6 +91,86 @@ class ScriptedLedger:
         if self._index < len(self._steps) - 1:
             self._index += 1
 
+    # ------------------------------------------------------------------
+    # Internal helper: derive ledger_get_next_action response from WP state
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _derive_next_action(
+        agent_role: str, wp_list: list, wp_details: dict
+    ) -> dict:
+        """Simulate what ``ledger_get_next_action`` returns for *agent_role*."""
+
+        def latest(pipelines: list, ptype: str) -> str | None:
+            for p in reversed(pipelines):
+                if p.get("type") == ptype:
+                    return p.get("status")
+            return None
+
+        non_terminal = [
+            wp
+            for wp in wp_list
+            if wp.get("status") not in ("COMPLETE", "CANCELLED")
+        ]
+
+        # All non-terminal WPs BLOCKED → PM handles repair.
+        if non_terminal and all(
+            wp.get("status") == "BLOCKED" for wp in non_terminal
+        ):
+            if agent_role == "Project Manager":
+                return {"action": "REPAIR_ORPHAN_BLOCKED"}
+            return {"action": "WAIT"}
+
+        # IN_PROGRESS first (matches real server priority), then READY.
+        ordered = [
+            wp for wp in wp_list if wp.get("status") == "IN_PROGRESS"
+        ] + [wp for wp in wp_list if wp.get("status") == "READY"]
+
+        for wp_summary in ordered:
+            wp_id = wp_summary.get("work_package_id", "")
+            if wp_summary.get("status") in ("COMPLETE", "CANCELLED", "BLOCKED"):
+                continue
+
+            wp_detail = wp_details.get(wp_id, wp_summary)
+            pipelines = wp_detail.get("pipelines", [])
+
+            impl = latest(pipelines, "implementation")
+            qa = latest(pipelines, "qa")
+            cr = latest(pipelines, "code-review")
+            doc = latest(pipelines, "documentation")
+
+            if impl is None:
+                next_role, action = "Developer", "IMPLEMENT"
+            elif impl == "IN_PROGRESS":
+                next_role, action = "Developer", "CONTINUE_PIPELINE"
+            elif impl == "FAIL":
+                next_role, action = "Developer", "REWORK"
+            elif impl == "PASS" and qa is None:
+                next_role, action = "QA", "RUN_QA"
+            elif qa == "IN_PROGRESS":
+                next_role, action = "QA", "CONTINUE_PIPELINE"
+            elif qa == "FAIL":
+                next_role, action = "Developer", "REWORK"
+            elif qa == "PASS" and cr is None:
+                next_role, action = "Reviewer", "RUN_REVIEW"
+            elif cr == "IN_PROGRESS":
+                next_role, action = "Reviewer", "CONTINUE_PIPELINE"
+            elif cr == "FAIL":
+                next_role, action = "Developer", "REWORK"
+            elif cr == "PASS" and doc is None:
+                next_role, action = "Documentation", "WRITE_DOCS"
+            elif doc == "IN_PROGRESS":
+                next_role, action = "Documentation", "CONTINUE_PIPELINE"
+            elif doc == "FAIL":
+                next_role, action = "Documentation", "REWORK"
+            else:
+                continue  # WP fully done
+
+            if next_role == agent_role:
+                return {"action": action, "work_package_id": wp_id}
+
+        return {"action": "WAIT"}
+
     def make_mcp_tools(self) -> list[Any]:
         """Return a list of mock LangChain ``Tool`` objects backed by this ledger."""
 
@@ -105,6 +185,15 @@ class ScriptedLedger:
             detail = self.state.get("wp_details", {}).get(wp_id, {})
             return json.dumps(detail)
 
+        def _next_action(kwargs: dict) -> str:
+            role: str = kwargs.get("agent_role", "")
+            result = self._derive_next_action(
+                role,
+                self.state.get("wp_list", []),
+                self.state.get("wp_details", {}),
+            )
+            return json.dumps(result)
+
         def _make(name: str, fn) -> MagicMock:
             tool = MagicMock()
             tool.name = name
@@ -116,6 +205,7 @@ class ScriptedLedger:
             _make("ledger_get_project_status", _project_status),
             _make("ledger_list_work_packages", _wp_list),
             _make("ledger_get_work_package", _wp_detail),
+            _make("ledger_get_next_action", _next_action),
         ]
 
     def make_stage_node(self, stage: str, *, advance: bool = True):

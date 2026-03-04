@@ -17,6 +17,11 @@ export const AGENT_ROLES = [
 
 export type AgentRole = typeof AGENT_ROLES[number];
 
+// Roles that orchestrate the workflow but do not directly execute implementation work.
+// Used to derive CLAIMABLE_ROLES in work-package.ts.
+export const ORCHESTRATING_ROLES = ['Planner', 'Synthesis'] as const;
+export type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
+
 /**
  * Canonical filenames for the two documents archived into ledger storage.
  *

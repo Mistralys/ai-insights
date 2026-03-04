@@ -104,7 +104,11 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
     ERROR("Cannot claim: status is {wp.status}, expected READY")
   
   // Guard: Only pipeline-owning agents or PM can claim (see §21.49)
-  CLAIMABLE_ROLES = ["Developer", "QA", "Reviewer", "Documentation", "Project Manager"]
+  // CLAIMABLE_ROLES is derived programmatically: AGENT_ROLES minus ORCHESTRATING_ROLES
+  // (i.e. excludes 'Planner' and 'Synthesis'), including both bare names and 'X Agent' variants.
+  // Source of truth: CLAIMABLE_ROLES export in src/tools/work-package.ts.
+  CLAIMABLE_ROLES = AGENT_ROLES.filter(r => r not in ORCHESTRATING_ROLES)
+                  + [r + " Agent" for r in AGENT_ROLES if r not in ORCHESTRATING_ROLES]
   if agentName not in CLAIMABLE_ROLES:
     ERROR("Agent role {agentName} cannot claim work packages. "
           + "Only pipeline-owning agents and Project Manager may claim.")

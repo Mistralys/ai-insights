@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -8,8 +8,10 @@ import {
   getDocumentationHandoff,
   getDeveloperHandoff,
   getPlannerHandoff,
+  getProjectManagerHandoff,
   nextAgentFromStatus,
   buildHandoffResponse,
+  computeHandoffStatus,
 } from '../../src/tools/workflow-handoff.js';
 import { getDeveloperAction } from '../../src/tools/workflow-next-action.js';
 import {
@@ -50,10 +52,10 @@ function makeWp(
     work_package_id: id,
     work_package_file: `work/${id}.md`,
     status: status as any,
-    assigned_to: 'Developer Agent',
+    assigned_to: 'Developer',
     dependencies: deps,
     acceptance_criteria: [],
-    revision: 1,
+    revision: 0,
     pipelines: pipelines.map((p) => ({
       type: p.type,
       status: p.status as any,
@@ -487,7 +489,7 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
       assigned_to: 'QA',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [
         { type: 'implementation', status: 'PASS' as any, summary: ['done'] },
         { type: 'qa', status: 'IN_PROGRESS' as any, started_at: now(), summary: [] },
@@ -510,7 +512,7 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
       assigned_to: 'QA',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [
         { type: 'implementation', status: 'PASS' as any, summary: [] },
         { type: 'qa', status: 'IN_PROGRESS' as any, started_at: now(), summary: [] },
@@ -531,7 +533,7 @@ describe('Handoff notes in completePipeline (WP-006)', () => {
       assigned_to: 'QA',
       dependencies: [],
       acceptance_criteria: [],
-      revision: 1,
+      revision: 0,
       pipelines: [
         { type: 'implementation', status: 'PASS' as any, summary: [] },
         { type: 'qa', status: 'IN_PROGRESS' as any, started_at: now(), summary: [] },
@@ -584,7 +586,7 @@ describe('getNextActions batch tool (WP-006)', () => {
       work_packages: wps.map((w) => ({
         work_package_id: w.id,
         status: w.status as any,
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: w.deps ?? [],
         file: `ledger/${w.id}.json`,
       })),
@@ -597,10 +599,10 @@ describe('getNextActions batch tool (WP-006)', () => {
         work_package_id: w.id,
         work_package_file: `work/${w.id}.md`,
         status: w.status as any,
-        assigned_to: 'Developer Agent',
+        assigned_to: 'Developer',
         dependencies: w.deps ?? [],
         acceptance_criteria: [],
-        revision: 1,
+        revision: 0,
         pipelines: w.pipelines.map((p) => ({
           type: p.type,
           status: p.status as any,
@@ -842,12 +844,29 @@ describe('Developer downstream pipeline failure detection', () => {
         assigned_to: 'Developer',
         dependencies: w.deps ?? [],
         acceptance_criteria: [],
-        revision: 1,
-        pipelines: w.pipelines.map((p) => ({
-          type: p.type,
-          status: p.status as any,
-          summary: [],
-        })),
+        revision: 0,
+        pipelines: w.pipelines.map((p, i) => {
+          // Completed pipelines get sequential timestamps (1h apart, 30min duration).
+          // IN_PROGRESS pipelines get a recent started_at (non-stale) with no completed_at.
+          if (p.status === 'IN_PROGRESS') {
+            return {
+              type: p.type,
+              status: p.status as any,
+              summary: [],
+              started_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5min ago
+            };
+          }
+          const base = new Date('2026-01-01T08:00:00').getTime();
+          const startMs = base + i * 60 * 60 * 1000;
+          const endMs = startMs + 30 * 60 * 1000;
+          return {
+            type: p.type,
+            status: p.status as any,
+            summary: [],
+            started_at: new Date(startMs).toISOString(),
+            completed_at: new Date(endMs).toISOString(),
+          };
+        }),
       };
       await store.writeWorkPackage(w.id, wpDetail);
     }
@@ -868,10 +887,9 @@ describe('Developer downstream pipeline failure detection', () => {
     ]);
 
     const parsed = await parseResult(result);
+    // qa started AFTER impl PASS (sequential timestamps) → hasDownstreamReengagedSince=true → REWORK
     expect(parsed.action).toBe('REWORK');
     expect(parsed.work_package_id).toBe('WP-001');
-    expect(parsed.pipeline_that_failed).toBe('qa');
-    expect(parsed.reason).toContain('FAIL qa pipeline');
   });
 
   it('returns REWORK when code-review pipeline fails', async () => {
@@ -888,15 +906,14 @@ describe('Developer downstream pipeline failure detection', () => {
     ]);
 
     const parsed = await parseResult(result);
+    // code-review started AFTER impl PASS (sequential timestamps) → hasDownstreamReengagedSince=true → REWORK
     expect(parsed.action).toBe('REWORK');
     expect(parsed.work_package_id).toBe('WP-001');
-    expect(parsed.pipeline_that_failed).toBe('code-review');
-    expect(parsed.reason).toContain('FAIL code-review pipeline');
   });
 
-  it('returns REWORK for BLOCKED WP with downstream FAIL (the exact deadlock scenario)', async () => {
-    // This is the exact scenario that caused the deadlock:
-    // WP has PASS impl, FAIL QA, and status is BLOCKED
+  it('returns WAIT for BLOCKED WP with downstream FAIL (BLOCKED WPs are PM territory, not Developer)', async () => {
+    // In the new algorithm, Developer only handles IN_PROGRESS and READY WPs.
+    // BLOCKED WPs are handled by PM (UNBLOCK_WP / REPAIR_ORPHAN_BLOCKED).
     const result = await setupAndGetDevAction([
       {
         id: 'WP-005',
@@ -909,9 +926,8 @@ describe('Developer downstream pipeline failure detection', () => {
     ]);
 
     const parsed = await parseResult(result);
-    expect(parsed.action).toBe('REWORK');
-    expect(parsed.work_package_id).toBe('WP-005');
-    expect(parsed.pipeline_that_failed).toBe('qa');
+    // BLOCKED WPs are skipped by getDeveloperAction; PM should handle via UNBLOCK_WP
+    expect(parsed.action).toBe('WAIT');
   });
 
   it('returns WAIT when all pipelines are PASS (no rework needed)', async () => {
@@ -957,9 +973,9 @@ describe('Developer downstream pipeline failure detection', () => {
     expect(parsed.pipeline_that_failed).toBeUndefined();
   });
 
-  it('does not return REWORK for downstream FAIL when implementation is not PASS', async () => {
-    // Edge case: WP has no PASS implementation but has a FAIL QA —
-    // this shouldn't happen in practice, but be defensive
+  it('returns CONTINUE_PIPELINE when implementation pipeline is IN_PROGRESS (even if qa somehow has FAIL)', async () => {
+    // Edge case: impl IN_PROGRESS + qa FAIL — shouldn't happen in practice.
+    // New algorithm: active IN_PROGRESS pipeline triggers CONTINUE_PIPELINE (P3) before any downstream check.
     const result = await setupAndGetDevAction([
       {
         id: 'WP-001',
@@ -972,8 +988,8 @@ describe('Developer downstream pipeline failure detection', () => {
     ]);
 
     const parsed = await parseResult(result);
-    // Should not suggest rework because impl isn't PASS
-    expect(parsed.action).toBe('WAIT');
+    // CONTINUE_PIPELINE fires (P3) because impl is still actively IN_PROGRESS
+    expect(parsed.action).toBe('CONTINUE_PIPELINE');
   });
 
   it('surfaces QA failure even when QA was retried and failed again', async () => {
@@ -990,8 +1006,8 @@ describe('Developer downstream pipeline failure detection', () => {
     ]);
 
     const parsed = await parseResult(result);
+    // Most recent qa FAIL started AFTER impl PASS (sequential timestamps) → REWORK
     expect(parsed.action).toBe('REWORK');
-    expect(parsed.pipeline_that_failed).toBe('qa');
   });
 
   it('does not surface downstream FAIL when QA passed after a retry', async () => {
@@ -1300,8 +1316,8 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     expect(root.auto_handoff_depth).toBe(3);
   });
 
-  it('does NOT reset auto_handoff_depth in buildHandoffResponse (depth reset moved to updateWorkPackageStatus)', async () => {
-    // Finding #8: auto_handoff_depth is now reset when any WP transitions to COMPLETE
+  it('does NOT reset auto_handoff_depth in buildHandoffResponse (depth reset moved to completeSynthesis per §18.4)', async () => {
+    // Per §18.4: auto_handoff_depth is only reset inside completeSynthesis, not here.
     // via updateWorkPackageStatus (work-package.ts), not at project-COMPLETE time here.
     // buildHandoffResponse should leave auto_handoff_depth unchanged regardless of status.
     await store.writeRootIndex(makeAutoHandoffRoot({ auto_handoff_depth: 5 }));
@@ -1533,6 +1549,271 @@ describe('getPlannerHandoff \u2014 READY_FOR_PM when no WPs exist (audit issue #
   });
 });
 
+// ---------------------------------------------------------------------------
+// WP-002: Per-agent handoff function rewrites (\u00a75.1\u20135.5)
+// ---------------------------------------------------------------------------
+
+/** Build a WP with proper sequential timestamps for temporal-guard tests */
+function makeWpTimed(
+  id: string,
+  status: string,
+  pipelines: Array<{ type: string; status: string }>,
+  deps: string[] = []
+): WorkPackageDetail {
+  const base = new Date('2026-01-01T08:00:00').getTime();
+  return {
+    work_package_id: id,
+    work_package_file: `work/${id}.md`,
+    status: status as any,
+    assigned_to: 'Developer',
+    dependencies: deps,
+    acceptance_criteria: [],
+    revision: 0,
+    pipelines: pipelines.map((p, i) => {
+      if (p.status === 'IN_PROGRESS') {
+        return { type: p.type, status: p.status as any, summary: [], started_at: new Date(base + i * 3600000).toISOString() };
+      }
+      const startMs = base + i * 3600000;
+      const endMs = startMs + 30 * 60 * 1000;
+      return {
+        type: p.type,
+        status: p.status as any,
+        summary: [],
+        started_at: new Date(startMs).toISOString(),
+        completed_at: new Date(endMs).toISOString(),
+      };
+    }),
+  };
+}
+
+describe('WP-002: getDeveloperHandoff \u2014 \u00a75.1 rewrites', () => {
+  it('AC1: returns READY_FOR_QA when PASS impl exists and no QA pipeline', async () => {
+    const wpDetails = [makeWp('WP-001', 'IN_PROGRESS', [{ type: 'implementation', status: 'PASS' }])];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
+  });
+
+  it('AC2: returns READY_FOR_QA after qa-1 FAIL \u2192 impl-2 PASS (not IN_PROGRESS rework)', async () => {
+    // impl-1 PASS \u2192 qa-1 FAIL \u2192 impl-2 PASS: Developer re-delivered, QA has not yet re-started.
+    // Temporal guard must NOT fire because downstream has not re-engaged since impl-2.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+        { type: 'implementation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+
+  it('AC3: does NOT return IN_PROGRESS (rework) when Developer already re-delivered and downstream has not re-validated', async () => {
+    // impl-2 PASS exists after qa-1 FAIL \u2014 QA has not started again yet.
+    // hasDownstreamReengagedSince must be false \u2192 guard stays quiet.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+        { type: 'implementation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+
+  it('AC3 (guard fires): returns IN_PROGRESS when QA FAIL and QA started AFTER impl PASS (downstream re-engaged)', async () => {
+    // impl-1 PASS \u2192 qa-1 FAIL (qa started AFTER impl-1 completed): downstream re-engaged \u2192 rework.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('AC4: returns READY_FOR_SYNTHESIS when all WPs are COMPLETE', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('AC4: returns READY_FOR_SYNTHESIS when all WPs are COMPLETE or CANCELLED', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [{ type: 'implementation', status: 'PASS' }]),
+      makeWp('WP-002', 'CANCELLED', []),
+    ];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+});
+
+describe('WP-002: getQaHandoff \u2014 \u00a75.2 re-engagement guard', () => {
+  it('AC5: returns IN_PROGRESS (re-engagement) when QA FAIL exists and Developer has since re-PASSed', async () => {
+    // impl-1 PASS \u2192 qa-1 FAIL \u2192 impl-2 PASS: QA must re-engage.
+    // hasNewUpstreamPassSince("implementation","qa") = true \u2192 step 1 fires.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+        { type: 'implementation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('AC6: returns READY_FOR_DEVELOPER when latest QA is FAIL and no implementation re-pass (no timestamps)', async () => {
+    // Without timestamps, hasNewUpstreamPassSince is conservative (returns false).
+    // Re-engagement step does not fire \u2192 FAIL short-circuit fires \u2192 READY_FOR_DEVELOPER.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('AC6 (timed): returns READY_FOR_DEVELOPER when QA FAIL but no re-delivery (impl PASS predates qa start)', async () => {
+    // impl PASS completed at T=0.5h. qa FAIL started at T=1h (after impl).
+    // No impl-2 \u2192 hasNewUpstreamPassSince("implementation","qa") = false.
+    // Most-recent impl PASS (T=0.5) completed BEFORE qa FAIL started (T=1) \u2192 returns false.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    // impl PASS completed at T=0.5h; qa started at T=1h. impl.completed_at < qa.started_at
+    // \u2192 hasNewUpstreamPassSince = false \u2192 re-engagement guard doesn't fire \u2192 READY_FOR_DEVELOPER.
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+});
+
+describe('WP-002: getReviewerHandoff \u2014 \u00a75.3 re-engagement guard', () => {
+  it('AC7: returns IN_PROGRESS (re-engagement) when review FAIL and QA has since re-PASSed', async () => {
+    // qa-1 PASS \u2192 review-1 FAIL \u2192 qa-2 PASS: Reviewer must re-engage.
+    // hasNewUpstreamPassSince("qa","code-review") = true \u2192 step 1 fires.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'FAIL' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+});
+
+describe('WP-002: getDocumentationHandoff \u2014 \u00a75.4 priority order', () => {
+  it('AC8: returns IN_PROGRESS for new docs (PASS code-review, no doc yet) \u2014 step 1 fires before FAIL check', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('Documentation');
+  });
+
+  it('AC9: returns IN_PROGRESS for re-engagement when new code-review PASS exists after previous doc run', async () => {
+    // cr-1 PASS \u2192 doc-1 PASS \u2192 cr-2 PASS: docs are stale, Documentation must re-run.
+    // hasNewUpstreamPassSince("code-review","documentation") detects cr-2 completed after doc-1 started.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+});
+
+describe('WP-002: getProjectManagerHandoff \u2014 \u00a75.5 rewrite', () => {
+  it('AC10: returns IN_PROGRESS for blocked_by.type === "technical"', async () => {
+    const wp: WorkPackageDetail = {
+      ...makeWp('WP-001', 'BLOCKED'),
+      blocked_by: { type: 'technical', description: 'legacy module needs refactoring' },
+    };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.details).toContain('WP-001');
+  });
+
+  it('AC10: returns IN_PROGRESS for blocked_by.type === "external"', async () => {
+    const wp: WorkPackageDetail = {
+      ...makeWp('WP-001', 'BLOCKED'),
+      blocked_by: { type: 'external', description: 'waiting for vendor API' },
+    };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('AC10: returns IN_PROGRESS for blocked_by.type === "decision"', async () => {
+    const wp: WorkPackageDetail = {
+      ...makeWp('WP-001', 'BLOCKED'),
+      blocked_by: { type: 'decision', description: 'architecture choice needed' },
+    };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('AC11: falls through dependency-blocked WPs (does not trigger IN_PROGRESS)', async () => {
+    // WP-002 is dep-blocked (status BLOCKED, no blocked_by) \u2014 PM should not act.
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [{ type: 'implementation', status: 'PASS' }]),
+      makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    // WP-001 is COMPLETE (terminal), WP-002 is dep-blocked \u2014 no READY WPs, not all terminal.
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+
+  it('AC12: returns READY_FOR_QA for a READY WP with assigned_to === "QA"', async () => {
+    const wp: WorkPackageDetail = { ...makeWp('WP-001', 'READY'), assigned_to: 'QA' };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.current_agent).toBe('Project Manager');
+  });
+
+  it('AC13: returns READY_FOR_DEVELOPER for a READY WP with assigned_to === null (default routing)', async () => {
+    const wp: WorkPackageDetail = { ...makeWp('WP-001', 'READY'), assigned_to: null as any };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('AC14: returns READY_FOR_SYNTHESIS when all WPs are in terminal states', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [{ type: 'implementation', status: 'PASS' }]),
+      makeWp('WP-002', 'CANCELLED', []),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+});
+
 describe('buildHandoffResponse \u2014 auto-handoff absent for non-READY_FOR_* statuses', () => {
   it('auto_handoff is absent for WAIT, IN_PROGRESS, BLOCKED, COMPLETE statuses', async () => {
     for (const status of ['WAIT', 'IN_PROGRESS', 'BLOCKED', 'COMPLETE']) {
@@ -1541,5 +1822,294 @@ describe('buildHandoffResponse \u2014 auto-handoff absent for non-READY_FOR_* st
       );
       expect(result.auto_handoff).toBeUndefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: getDeveloperHandoff \u2014 additional scenarios (R1.3, R1.6, R1.7)
+// ---------------------------------------------------------------------------
+
+describe('WP-005: getDeveloperHandoff \u2014 additional scenarios', () => {
+  it('R1.3: returns READY_FOR_QA when qa-2 is IN_PROGRESS after impl-2 PASS (qa not FAIL \u2014 temporal guard silent)', async () => {
+    // impl-1 PASS \u2192 qa-1 FAIL \u2192 impl-2 PASS \u2192 qa-2 IN_PROGRESS
+    // Most recent qa pipeline is IN_PROGRESS (not FAIL) \u2192 isMostRecentPipelineFail(\u2018qa\u2019)=false
+    // Temporal guard does not fire. allImplemented (impl-2 PASS) \u2192 READY_FOR_QA.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'IN_PROGRESS' },
+      ]),
+    ];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
+  });
+
+  it('R1.6: returns IN_PROGRESS when WP is IN_PROGRESS with no implementation pipeline (active work fallback)', async () => {
+    // WP is IN_PROGRESS, no impl pipeline \u2192 Developer has not yet started \u2192 IN_PROGRESS
+    const wpDetails = [makeWp('WP-001', 'IN_PROGRESS', [])];
+    const result = await parseResult(getDeveloperHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('R1.7: does NOT return IN_PROGRESS for a dependency-blocked WP with impl FAIL (dep-blocked exclusion)', async () => {
+    // WP is BLOCKED with no blocked_by (canonical dependency-type per \u00a721.54) and impl FAIL.
+    // isBlockedByDependencies=true \u2192 excluded from both temporal guard and needsWork checks.
+    // The FAIL must not trigger IN_PROGRESS rework detection for dep-blocked WPs.
+    const wp: WorkPackageDetail = {
+      ...makeWp('WP-001', 'BLOCKED', [{ type: 'implementation', status: 'FAIL' }]),
+    };
+    const result = await parseResult(getDeveloperHandoff([wp]));
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: getQaHandoff \u2014 additional scenarios (R2.3 \u2013 R2.6)
+// ---------------------------------------------------------------------------
+
+describe('WP-005: getQaHandoff \u2014 additional scenarios', () => {
+  it('R2.3: returns READY_FOR_REVIEW when qa PASS and code-review needs re-engagement (new QA PASS since last cr FAIL)', async () => {
+    // qa-1 PASS \u2192 cr-1 FAIL \u2192 qa-2 PASS: QA re-validated, QA job done \u2192 READY_FOR_REVIEW
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'FAIL' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+  });
+
+  it('R2.4: returns READY_FOR_REVIEW when qa PASS and code-review already PASS too', async () => {
+    // All post-impl stages done \u2014 QA routes to Reviewer (normal progression)
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+  });
+
+  it('R2.5: returns READY_FOR_SYNTHESIS when all WPs are COMPLETE', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('R2.6: returns IN_PROGRESS when WP is IN_PROGRESS with impl PASS and no QA pipeline yet', async () => {
+    // WP has PASS impl but no QA pipeline \u2014 QA has work to do
+    const wp: WorkPackageDetail = {
+      ...makeWp('WP-001', 'IN_PROGRESS', [{ type: 'implementation', status: 'PASS' }]),
+      assigned_to: 'QA',
+    };
+    const result = await parseResult(getQaHandoff([wp]));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: getReviewerHandoff \u2014 additional scenarios (R3.2 \u2013 R3.4)
+// ---------------------------------------------------------------------------
+
+describe('WP-005: getReviewerHandoff \u2014 additional scenarios', () => {
+  it('R3.2: returns READY_FOR_DEVELOPER when review-1 FAIL and no QA re-pass (no timestamps)', async () => {
+    // Without timestamps, hasNewUpstreamPassSince returns false \u2192 re-engagement guard stays silent.
+    // FAIL short-circuit fires \u2192 READY_FOR_DEVELOPER.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('R3.3: returns READY_FOR_DOCUMENTATION when review PASS and new documentation work needed', async () => {
+    // cr PASS, no documentation pipeline yet \u2014 Reviewer routes to Documentation
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+  });
+
+  it('R3.4: returns READY_FOR_SYNTHESIS when all WPs are COMPLETE', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: getDocumentationHandoff \u2014 additional scenarios (R4.3 \u2013 R4.5)
+// ---------------------------------------------------------------------------
+
+describe('WP-005: getDocumentationHandoff \u2014 additional scenarios', () => {
+  it('R4.3: returns IN_PROGRESS when doc-1 FAIL but new cr-2 PASS is newer (ready-for-docs fires before FAIL check per \u00a714.5)', async () => {
+    // cr-1 PASS \u2192 doc-1 FAIL \u2192 cr-2 PASS (cr-2 completed after doc-1 started).
+    // hasNewUpstreamPassSince(\u2018code-review\u2019,\u2018documentation\u2019) detects cr-2 \u2192 step 1 fires BEFORE step 2.
+    const wpDetails = [
+      makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'FAIL' },
+        { type: 'code-review', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('R4.4: returns IN_PROGRESS when doc-1 FAIL with no new upstream PASS (FAIL self-rework path)', async () => {
+    // cr PASS \u2192 doc FAIL: no new cr PASS since doc started (makeWp has no timestamps \u2192 conservative).
+    // Step 1 (ready-for-docs) does not fire. Step 2 (FAIL self-rework) fires \u2192 IN_PROGRESS.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('R4.5: returns READY_FOR_SYNTHESIS when all WPs are COMPLETE', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'COMPLETE', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-005: getProjectManagerHandoff \u2014 additional scenarios (R5.6, R5.7, R5.10)
+// ---------------------------------------------------------------------------
+
+describe('WP-005: getProjectManagerHandoff \u2014 additional scenarios', () => {
+  it('R5.6: returns READY_FOR_REVIEW for a READY WP with assigned_to === "Reviewer"', async () => {
+    const wp: WorkPackageDetail = { ...makeWp('WP-001', 'READY'), assigned_to: 'Reviewer' };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+    expect(result.current_agent).toBe('Project Manager');
+  });
+
+  it('R5.7: returns READY_FOR_DOCUMENTATION for a READY WP with assigned_to === "Documentation"', async () => {
+    const wp: WorkPackageDetail = { ...makeWp('WP-001', 'READY'), assigned_to: 'Documentation' };
+    const result = await parseResult(getProjectManagerHandoff([wp]));
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+  });
+
+  it('R5.10: returns WAIT when all WPs are IN_PROGRESS (no READY, no non-dependency BLOCKED)', async () => {
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', []),
+      makeWp('WP-002', 'IN_PROGRESS', []),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-003: computeHandoffStatus — bypass path reuses pre-loaded data
+// ---------------------------------------------------------------------------
+
+describe('computeHandoffStatus — bypass path (store/rootIndex/wpDetails opts)', () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'handoff-bypass-'));
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  it('does not call store.readRootIndex or readWorkPackage when all three opts are provided', async () => {
+    // Point store at the temp directory — no ledger files written (bypass path must not read)
+    const store = new LedgerStore(PLAN_PATH, tmpDir);
+
+    // Manually construct the pre-loaded data (no I/O needed for bypass path)
+    const wpDetail = makeWp('WP-001', 'COMPLETE', [{ type: 'implementation', status: 'PASS' }, { type: 'documentation', status: 'PASS' }]);
+    const rootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00',
+      last_updated: '2026-01-01T00:00:00',
+      status: 'IN_PROGRESS' as const,
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [{ work_package_id: 'WP-001', status: 'COMPLETE' as const, assigned_to: 'Developer' as const, dependencies: [], file: 'ledger/WP-001.json' }],
+      project_comments: [],
+      auto_handoff_depth: 0,
+    };
+    const wpDetails = [wpDetail];
+
+    // Spy on I/O methods — they must NOT be called when opts are provided
+    const readRootSpy = vi.spyOn(store, 'readRootIndex');
+    const readWpSpy = vi.spyOn(store, 'readWorkPackage');
+
+    const result = await computeHandoffStatus(PLAN_PATH, 'Developer', { store, rootIndex, wpDetails });
+
+    // All WPs are COMPLETE → Developer handoff is READY_FOR_SYNTHESIS
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+    expect(result.current_agent).toBe('Developer');
+
+    // Bypass path: no disk reads should have been issued
+    expect(readRootSpy).not.toHaveBeenCalled();
+    expect(readWpSpy).not.toHaveBeenCalled();
+
+    readRootSpy.mockRestore();
+    readWpSpy.mockRestore();
+  });
+
+  it('falls back to getHandoffStatus when opts are absent or incomplete (no bypass without all three)', async () => {
+    // With only one opts field (store, but not rootIndex or wpDetails),
+    // the bypass path is NOT activated. getHandoffStatus() is called instead,
+    // which tries to read ledger files from disk. Since no ledger exists at temp dir,
+    // computeHandoffStatus should throw (proving the bypass was NOT used).
+    const store = new LedgerStore(PLAN_PATH, tmpDir);
+
+    // No opts at all — fallback is used, ledger not found → throws
+    await expect(computeHandoffStatus(PLAN_PATH, 'Developer')).rejects.toThrow();
+
+    // Partial opts (only store, no rootIndex/wpDetails) — bypass is skipped → throws
+    await expect(
+      computeHandoffStatus(PLAN_PATH, 'Developer', { store })
+    ).rejects.toThrow();
   });
 });

@@ -20,7 +20,7 @@ import { atomicWriteJson } from '../storage/atomic-writer.js';
 
 export const GuiConfigSchema = z.object({
   auto_handoff_enabled: z.boolean().default(true),
-  max_handoff_depth: z.number().int().min(1).default(10),
+  max_handoff_depth: z.number().int().min(1).default(50),
   ledger_root: z.string().default(''),
 });
 
@@ -32,7 +32,7 @@ export type GuiConfig = z.infer<typeof GuiConfigSchema>;
 
 export const DEFAULT_CONFIG: GuiConfig = {
   auto_handoff_enabled: true,
-  max_handoff_depth: 10,
+  max_handoff_depth: 50,
   ledger_root: '',
 };
 

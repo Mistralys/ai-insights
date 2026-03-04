@@ -25,19 +25,21 @@ export function isTerminalStatus(status: string): boolean {
  * - IN_PROGRESS -> COMPLETE (if all acceptance criteria met)
  * - IN_PROGRESS -> BLOCKED
  * - IN_PROGRESS -> CANCELLED (PM only)
+ * - IN_PROGRESS -> READY (unclaim path, spec §21.13)
  * - BLOCKED -> IN_PROGRESS
  * - BLOCKED -> READY (auto-unblock by propagateDependencyUnblock)
  * - BLOCKED -> CANCELLED (PM only)
  * - COMPLETE -> IN_PROGRESS (triggers revision increment)
- * - CANCELLED is terminal — no transitions out
+ * - COMPLETE -> CANCELLED (PM only)
+ * - CANCELLED is terminal — no transitions out (including CANCELLED -> CANCELLED)
  */
 export function isValidStatusTransition(
   from: WorkPackageStatus,
   to: WorkPackageStatus
 ): boolean {
-  // Same status is always valid (no-op)
+  // Same-status is a no-op for all statuses except CANCELLED (which is terminal).
   if (from === to) {
-    return true;
+    return from !== 'CANCELLED';
   }
 
   switch (from) {
@@ -45,16 +47,16 @@ export function isValidStatusTransition(
       return to === 'IN_PROGRESS' || to === 'BLOCKED' || to === 'CANCELLED';
 
     case 'IN_PROGRESS':
-      return to === 'COMPLETE' || to === 'BLOCKED' || to === 'CANCELLED';
+      return to === 'COMPLETE' || to === 'BLOCKED' || to === 'CANCELLED' || to === 'READY';
 
     case 'BLOCKED':
       return to === 'IN_PROGRESS' || to === 'READY' || to === 'CANCELLED';
 
     case 'COMPLETE':
-      return to === 'IN_PROGRESS';
+      return to === 'IN_PROGRESS' || to === 'CANCELLED';
 
     case 'CANCELLED':
-      return false;  // Terminal — no transitions out
+      return false; // Terminal — no transitions out
 
     default:
       return false;

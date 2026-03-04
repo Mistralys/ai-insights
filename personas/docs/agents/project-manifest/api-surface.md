@@ -8,7 +8,7 @@
 |------|--------|---------|-------------|
 | `--suite` | `ledger \| standalone \| all` or comma-separated | `ledger` | Select which persona suite(s) to build. `all` expands to `ledger,standalone`. Comma-separated values run suites in order without duplication (e.g. `--suite ledger,standalone`). |
 | `--target` | `vscode \| claude-code \| all` | `all` | Select which IDE target to generate. Can be combined with `--suite`. |
-| `--check` | *(flag)* | off | Verify output is up-to-date without writing. Exits 1 if any file is stale. Suite-aware: use `--suite all --check` to check all suites. |
+| `--check` | *(flag)* | off | Verify output is up-to-date without writing. Exits 1 if any file is stale or if any `note_only: true` tool entry appears as a rendered table row in generated output (`[note_only-violation]`). Suite-aware: use `--suite all --check` to check all suites. |
 | `--dry-run` | *(flag)* | off | Preview build without writing files. |
 | `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block (no current persona triggers this — see constraint 9 GN-4); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see constraint 9 GN-5). |
 
@@ -170,7 +170,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
-| `mcp_tools` | `Array<{tool, purpose}>` | no | MCP tool entries for the tools table; omitted for Agent 1 |
+| `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, `renderMcpToolsTable` excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
 
 ---
 
