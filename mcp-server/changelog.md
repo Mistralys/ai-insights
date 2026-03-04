@@ -1,6 +1,7 @@
 # Project Ledger MCP Server - Changelog
 
 ## v1.9.0 - VS Code Persona IDs
+- MCP: More lenient parameters for the complete pipeline tool.
 - Personas: Added unique \id\ field to all ledger and standalone persona definitions.
 - Registry: Extended agent discovery to cache and resolve agents by ID alongside handles.
 - Workflow: Updated handoff logic to propagate stable agent IDs in auto-handoff payloads.

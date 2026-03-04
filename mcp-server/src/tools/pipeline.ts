@@ -107,7 +107,7 @@ const StartPipelineSchema = z.object({
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
   agent_role: z
     .string()
-    .describe('Agent role starting the pipeline. If provided, validated against the pipeline type owner.'),
+    .describe('Your agent role. Must match the pipeline type owner: "Developer" for implementation, "QA" for qa, "Reviewer" for code-review, "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'),
 })
   .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
@@ -263,7 +263,7 @@ const CompletePipelineSchema = z.object({
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
   status: z.enum(['PASS', 'FAIL']).describe('Pipeline result: "PASS" if successful, "FAIL" if issues found'),
-  summary: z.array(z.string()).describe('Array of summary strings describing what was done (e.g., ["Implemented feature X", "Added tests"])'),
+  summary: z.union([z.string(), z.array(z.string())]).describe('Summary of what was done. Accepts a single string or an array of strings (e.g., "Implemented feature X" or ["Implemented feature X", "Added tests"]).'),
   artifacts: z
     .object({
       files_modified: z.array(z.string()).optional(),
@@ -288,12 +288,12 @@ const CompletePipelineSchema = z.object({
       z.object({
         type: z.string(),
         priority: z.enum(['low', 'medium', 'high']),
-        timestamp: z.string(),
+        timestamp: z.string().optional(),
         note: z.string(),
       }).passthrough()
     )
     .optional()
-    .describe('Observations and comments from the pipeline. Each object: { type, priority, timestamp (ISO 8601), note }. Types for implementation: "code-smell", "refactor", "improvement", "debt", "convention". Types for QA: "bug", "regression", "edge-case", "coverage-gap". Priority: "high" (likely bugs/security), "medium" (quality/DX degradation), "low" (nice-to-have). Be specific: reference file paths and function names. If no observations, include one { type: "improvement", note: "No observations — code is clean and consistent." } entry to confirm active review.'),
+    .describe('Observations and comments from the pipeline. Each object: { type, priority, note } (timestamp is auto-filled if omitted). Types for implementation: "code-smell", "refactor", "improvement", "debt", "convention". Types for QA: "bug", "regression", "edge-case", "coverage-gap". Priority: "high" (likely bugs/security), "medium" (quality/DX degradation), "low" (nice-to-have). Be specific: reference file paths and function names. If no observations, include one { type: "improvement", note: "No observations — code is clean and consistent." } entry to confirm active review.'),
   acceptance_criteria_updates: z
     .array(
       z.object({
@@ -309,11 +309,30 @@ const CompletePipelineSchema = z.object({
     .describe('Notes for the next agent in the pipeline. Will be attached to the WP as a structured handoff note entry.'),
   agent_role: z
     .string()
-    .describe('Agent role completing the pipeline. Must match the pipeline type owner (e.g. "QA" for qa pipelines). "Project Manager" is always allowed (PM Override).'),
+    .describe('Your agent role. Must match the pipeline type owner: "Developer" for implementation, "QA" for qa, "Reviewer" for code-review, "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'),
 })
   .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
-async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
+async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>) {
+  // ── Normalize lenient inputs ──────────────────────────────────────────────
+  // summary: coerce a bare string to a single-element array
+  const normalizedSummary: string[] = typeof rawArgs.summary === 'string'
+    ? [rawArgs.summary]
+    : rawArgs.summary;
+
+  // comments[].timestamp: auto-fill missing timestamps with server time
+  const normalizedComments = rawArgs.comments?.map((c) => ({
+    ...c,
+    timestamp: c.timestamp ?? now(),
+  }));
+
+  const args = {
+    ...rawArgs,
+    summary: normalizedSummary,
+    comments: normalizedComments,
+  };
+  // ────────────────────────────────────────────────────────────────────────────
+
   let projectPath: string;
   try {
     projectPath = await resolveProjectPath(args);
@@ -651,7 +670,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_complete_pipeline',
     {
-      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL but important: acceptance_criteria_updates (PRIMARY way to mark AC as met before COMPLETE), artifacts (files_modified, commit_hash), metrics (test_coverage, tests_passed/failed), comments (observations — REQUIRED for implementation pipelines). Must call ledger_start_pipeline first. On completion, response includes a NEXT STEP guidance block.',
+      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, agent_role ("Developer"|"QA"|"Reviewer"|"Documentation" or "Project Manager"), status (PASS or FAIL), summary (string or array). OPTIONAL: acceptance_criteria_updates (PRIMARY way to mark AC as met before COMPLETE), artifacts (files_modified, commit_hash), metrics (test_coverage, tests_passed/failed), comments (observations with auto-timestamping — timestamp is auto-filled if omitted). Must call ledger_start_pipeline first. On completion, response includes a NEXT STEP guidance block.',
       inputSchema: CompletePipelineSchema,
     },
     completePipeline as any

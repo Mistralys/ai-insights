@@ -264,11 +264,13 @@ The `agent` field is required because the server checks which persona is attempt
   cwd_path?: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  agent_role: string; // required — see mapping below
 }) => Promise<MCPResult>
 ```
 
 Starts a new pipeline for a work package. The `type` field is validated by a Zod enum — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
+
+**`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type and adds a `[PM Override]` marker to the pipeline summary.
 
 **Pipeline ordering (§8.2):** Enforces `implementation` → `qa` → `code-review` → `documentation` order. Checks the **most recent** prerequisite pipeline entry via `.at(-1)` — a historical PASS followed by a subsequent FAIL is treated as unmet. Returns a descriptive error if the prerequisite is absent or not PASS.
 
@@ -278,8 +280,6 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
 
 **Revalidation guard:** After rework detection, `checkRevalidationGuard()` is called. If a prior PASS of the prerequisite pipeline has become stale relative to upstream rework, the guard fires and rejects the start with a descriptive explanation.
 
-`agent_role` is **required**. It must match the pipeline type's owner role (per the `PIPELINE_AGENT_MAP`). For example, passing `agent_role: 'QA'` when starting an `implementation` pipeline is rejected with a descriptive error. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type and adds a `[PM Override]` marker to the pipeline summary.
-
 #### `ledger_complete_pipeline`
 
 ```typescript
@@ -288,9 +288,9 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
   cwd_path?: string;
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  agent_role: string; // required — see mapping below
   status: 'PASS' | 'FAIL';
-  summary: string[];
+  summary: string | string[]; // single string or array — coerced to array server-side
   artifacts?: {
     files_modified?: string[];
     commit_hash?: string;
@@ -306,7 +306,7 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
   comments?: Array<{
     type: string;
     priority: 'low' | 'medium' | 'high';
-    timestamp: string;
+    timestamp?: string; // optional — auto-filled with server time if omitted
     note: string;
   }>;
   acceptance_criteria_updates?: Array<{
@@ -318,6 +318,12 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
 ```
 
 Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (next agent in chain). On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (routes QA/code-review/implementation failures to Developer; documentation failures to Documentation for self-rework). Sets status, completion timestamp, summary, and optional fields.
+
+**`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize (§WP-006) and PM Override handoff-note identity.
+
+**Lenient input handling (agent-friendly):**
+- **`summary`**: Accepts a single string or an array of strings. A bare string is automatically wrapped in a single-element array.
+- **`comments[].timestamp`**: Optional. When omitted, the server auto-fills with the current ISO 8601 timestamp.
 
 **Guards (applied in order):**
 1. **WP status guard:** Rejects if the work package is not `IN_PROGRESS` (defense-in-depth, checked before role or pipeline lookup).

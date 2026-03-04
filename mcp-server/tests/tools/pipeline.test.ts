@@ -957,6 +957,148 @@ describe('Pipeline schema work_package_id regex (WP-\\d{3,})', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Lenient input normalization (summary, agent_role, comments[].timestamp)
+// ---------------------------------------------------------------------------
+
+describe('CompletePipelineSchema lenient input acceptance', () => {
+  const { CompletePipelineSchema } = _internal;
+  const base = { project_path: '/tmp/test-project', work_package_id: 'WP-001', type: 'implementation', status: 'PASS' as const };
+
+  it('accepts summary as a single string', () => {
+    expect(() => CompletePipelineSchema.parse({ ...base, summary: 'Implemented feature X', agent_role: 'Developer' })).not.toThrow();
+  });
+
+  it('still accepts summary as an array of strings', () => {
+    expect(() => CompletePipelineSchema.parse({ ...base, summary: ['Implemented feature X', 'Added tests'], agent_role: 'Developer' })).not.toThrow();
+  });
+
+  it('accepts comments without timestamp (auto-filled server-side)', () => {
+    expect(() => CompletePipelineSchema.parse({
+      ...base,
+      summary: ['done'],
+      agent_role: 'Developer',
+      comments: [{ type: 'improvement', priority: 'low', note: 'Clean code' }],
+    })).not.toThrow();
+  });
+
+  it('still accepts comments with explicit timestamp', () => {
+    expect(() => CompletePipelineSchema.parse({
+      ...base,
+      summary: ['done'],
+      agent_role: 'Developer',
+      comments: [{ type: 'improvement', priority: 'low', timestamp: '2026-03-04T12:00:00Z', note: 'Clean code' }],
+    })).not.toThrow();
+  });
+
+  it('rejects omitted agent_role (§52 — required for PM Override safety)', () => {
+    expect(() => CompletePipelineSchema.parse({
+      ...base,
+      summary: ['done'],
+    })).toThrow();
+  });
+});
+
+describe('StartPipelineSchema agent_role is required (§52)', () => {
+  const { StartPipelineSchema } = _internal;
+  const base = { project_path: '/tmp/test-project', work_package_id: 'WP-001', type: 'implementation' };
+
+  it('rejects omitted agent_role', () => {
+    expect(() => StartPipelineSchema.parse(base)).toThrow();
+  });
+
+  it('accepts explicit agent_role', () => {
+    expect(() => StartPipelineSchema.parse({ ...base, agent_role: 'Developer' })).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// completePipeline handler — lenient argument normalization
+// ---------------------------------------------------------------------------
+
+const LENIENT_PLAN_PATH = join(tmpdir(), '2026-03-04-lenient-input');
+
+describe('completePipeline handler normalizes lenient inputs', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+
+  function makeRoot(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'work/WP-001.md' },
+      ],
+      project_comments: [],
+    };
+  }
+
+  function makeWpWithImplPipeline(): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    };
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(LENIENT_PLAN_PATH + '-');
+    store = new LedgerStore(tempLedgerRoot);
+    await store.writeRootIndex(makeRoot());
+    await store.writeWorkPackage('WP-001', makeWpWithImplPipeline());
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('coerces a summary string to a single-element array', async () => {
+    const result = await completePipeline({
+      project_path: tempLedgerRoot,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: 'Implemented the feature' as any,
+      agent_role: 'Developer',
+    });
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = wp.pipelines.at(-1)!;
+    expect(pipeline.summary).toEqual(['Implemented the feature']);
+  });
+
+  it('auto-fills comment timestamps when omitted', async () => {
+    const result = await completePipeline({
+      project_path: tempLedgerRoot,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+      comments: [
+        { type: 'improvement', priority: 'low', note: 'Clean code' } as any,
+      ],
+    });
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = wp.pipelines.at(-1)!;
+    expect(pipeline.comments).toHaveLength(1);
+    expect(pipeline.comments![0].timestamp).toBeDefined();
+    expect(pipeline.comments![0].timestamp.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // FIX-06 — completePipeline acceptance_criteria_updates merge semantics (§12.3)
 // ---------------------------------------------------------------------------
 
