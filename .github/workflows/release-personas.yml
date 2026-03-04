@@ -1,0 +1,40 @@
+name: Release Personas
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract changelog entry
+        id: changelog
+        run: node scripts/extract-changelog-entry.js
+
+      - name: Install personas dependencies
+        run: cd personas && npm ci
+
+      - name: Build and package standalone personas
+        run: node scripts/package-personas.js --version ${{ steps.changelog.outputs.version }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ steps.changelog.outputs.title }}
+          body: ${{ steps.changelog.outputs.body }}
+          files: dist/ai-insights-personas-*.zip
