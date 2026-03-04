@@ -80,7 +80,8 @@ function checkWorkspaceRoot() {
 
 function readVersion() {
   try {
-    // Matches either `## [1.2.3]` or `## v1.2.3` style headings
+    // Matches `## v1.2.3` and `## [1.2.3]` style headings.
+    // Verified against changelog.md format `## v{semver} - {title}` — 2026-03-04.
     const m = fs.readFileSync(CHANGELOG_FILE, 'utf8').match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
     return m ? `v${m[1]}` : 'unknown';
   } catch { return 'unknown'; }
@@ -139,7 +140,8 @@ function findPython() {
   const candidates = IS_WIN ? ['python', 'python3', 'py'] : ['python3', 'python'];
   for (const cand of candidates) {
     const a = cand === 'py' ? ['-3', '--version'] : ['--version'];
-    const r = spawnSync(cand, a, { encoding: 'utf8' });
+    // python, python3, py are .exe on Windows — no shell wrapper needed
+    const r = spawnSync(cand, a, { encoding: 'utf8', shell: false });
     if (r.status !== 0) continue;
     const raw = (r.stdout || '') + (r.stderr || '');
     const m = raw.match(/Python (\d+)\.(\d+)/);
