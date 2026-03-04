@@ -43,7 +43,7 @@ The MCP server solves these problems by:
 
 ### Architecture
 
-The server exposes **20 MCP tools** that agents invoke to manage project state:
+The server exposes **22 MCP tools** that agents invoke to manage project state:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -73,6 +73,8 @@ The server exposes **20 MCP tools** that agents invoke to manage project state:
          │     project-ledger.json│ ← Root index
          │     WP-001.json       │ ← Work package 1
          │     WP-002.json       │ ← Work package 2
+         │     plan.md           │ ← Archived plan document
+         │     synthesis.md      │ ← Archived synthesis report
          │     ...               │
          └──────────────────────┘
 ```
@@ -102,7 +104,13 @@ The server manages three types of files, all stored under the centralized ledger
    - Artifacts (files modified, commit hashes, test results)
    - Observations and technical debt notes
 
-All three file types are kept in sync automatically — when an agent updates a work package, the server updates both JSON files and the `.meta.json` in a single atomic operation.
+4. **Archived Documents** (`storage/ledger/{slug}/plan.md`, `synthesis.md`): Read-only snapshots of key project documents
+   - `plan.md` — copied from the project folder when `ledger_initialize_project` is called
+   - `synthesis.md` — copied when `ledger_complete_synthesis` is called
+   - Both are served as formatted HTML by the GUI (`#/projects/:slug/plan` and `#/projects/:slug/synthesis`)
+   - Copies are best-effort; each tool response includes `archived_documents[]` and, when relevant, `archive_skipped[]`
+
+All four file types are kept in sync automatically — when an agent updates a work package, the server updates both JSON files and the `.meta.json` in a single atomic operation.
 
 ---
 
@@ -299,7 +307,7 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 
 ## Available Tools
 
-The server exposes 20 MCP tools organized by category:
+The server exposes 22 MCP tools organized by category:
 
 ### Project Lifecycle
 - `ledger_get_project_status` — Read project overview
@@ -314,6 +322,8 @@ The server exposes 20 MCP tools organized by category:
 - `ledger_create_work_package` — Create new work package
 - `ledger_claim_work_package` — Start working on a WP
 - `ledger_update_work_package_status` — Update WP status
+- `ledger_reset_rework_count` — Reset rework counter for a pipeline type on a WP (PM-only)
+- `ledger_update_acceptance_criteria` — Add, remove, or modify acceptance criteria on a WP (PM-only)
 
 ### Pipelines
 - `ledger_begin_work` — Claim a READY WP and start its pipeline in a single atomic call (replaces `ledger_claim_work_package` + `ledger_start_pipeline` two-step)
@@ -545,19 +555,3 @@ For developers and curious users who want to understand the internals:
 ## License
 
 Same as the parent ai-insights project.
-
----
-
-## TODO
-
-- UI for the ledger
-- Centralize the ledger files
-
-- Review: 
-
-Yes — there was a gap in my execution. Here's what happened:
-
-My ledger_get_handoff_status returned an auto_handoff pointing to the Developer agent, which I correctly invoked.
-The Developer completed WP-001 and returned a manual routing block (NEXT AGENT: QA) instead of triggering its own auto-handoff to QA.
-At that point I should have re-called ledger_get_handoff_status (or directly invoked the QA subagent) based on the "NEXT AGENT: QA" signal — but I just relayed the block to you instead.
-The missing instruction on my end: after a subagent returns with a NEXT AGENT signal, I should continue the chain rather than surfacing the manual block to the user. The Developer agent also bears partial responsibility for not calling ledger_get_handoff_status itself before returning.

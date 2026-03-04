@@ -10,13 +10,9 @@ A headless, deterministic alternative to IDE-based agent workflows. The orchestr
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-  - [Recommended entry point](#recommended-entry-point)
-  - [Basic run](#basic-run)
-  - [Common examples](#common-examples)
 - [Architecture](#architecture)
-- [Supervisor Routing Model](#supervisor-routing-model)
-- [JSONL Log Schema](#jsonl-log-schema)
-- [Smoke-Testing the Dispatch Loop](#smoke-testing-the-dispatch-loop)
+- [Folder Overview](#folder-overview)
+- [Documentation Index](#documentation-index)
 - [CLI Reference](#cli-reference)
 - [Troubleshooting](#troubleshooting)
 - [Running Tests](#running-tests)
@@ -174,228 +170,74 @@ The thread ID is printed at the start of every run and in the run summary under 
 
 ```
                         ┌───────────────────────────────────────┐
-                        │             LangGraph graph            │
-                        │                                        │
+                        │             LangGraph graph           │
+                        │                                       │
           START ──────→ │  supervisor (router — no LLM call)    │
-                        │       │                                │
-                        │       │  Command(goto=...)             │
-                        │       ↓                                │
+                        │       │                               │
+                        │       │  Command(goto=...)            │
+                        │       ↓                               │
                         │  pm ──────────────────────────────┐   │
                         │  developer ────────────────────── │   │
-                        │  qa ───────────────────────────── │── supervisor
+                        │  qa ───────────────────────────── │─────supervisor
                         │  reviewer ─────────────────────── │   │
                         │  docs ─────────────────────────── ┘   │
-                        │                                        │
-                        │  synthesis ──────────────────────→ END │
+                        │                                       │
+                        │  synthesis ─────────────────────→ END │
                         └───────────────────────────────────────┘
 ```
 
 ### Supervisor (deterministic router)
 
-The supervisor is a pure-Python deterministic router — no LLM calls are made here. Rather than inspecting raw pipeline state itself, it calls **`ledger_get_next_action`** once per agent role (in priority order) and dispatches to the corresponding stage. The MCP server is the authoritative routing source. `ledger_get_project_status` and `ledger_list_work_packages` are also called for observability but no longer drive routing decisions.
+The supervisor is a pure-Python deterministic router — **no LLM calls** are made here. All routing is delegated to the MCP server's `ledger_get_next_action` tool, making the ledger the single source of truth for workflow progression. `ledger_get_project_status` is called for observability. `ledger_list_work_packages` detects two boundary conditions (empty project → PM, all terminal → synthesis) before entering the per-role dispatch loop.
 
 | Ledger state / action | Routes to |
 |---|---|
 | No WPs yet | `pm` (create work packages) |
-| `IMPLEMENT` action returned | `developer` (implement) |
-| `REWORK` action returned | `developer` (rework) |
-| `CONTINUE_PIPELINE` action | `developer` (resume in-progress work) |
-| `RUN_QA` action returned | `qa` |
-| `RUN_REVIEW` action returned | `reviewer` |
+| `IMPLEMENT` / `REWORK` / `CONTINUE_PIPELINE` / `CLAIM_WP` / `RESUME_OR_CANCEL` | `developer` |
+| `RUN_QA` | `qa` |
+| `RUN_REVIEW` | `reviewer` |
 | `WRITE_DOCS` / `FINALIZE_WP` / `UPDATE_CRITERIA` | `docs` |
 | `REPAIR_ORPHAN_BLOCKED` / `UNBLOCK_WP` / `REVIEW_*` | `pm` (PM intervention) |
-| All roles return `WAIT` | `synthesis` (generates final report; calls `ledger_complete_synthesis`) |
-| All WPs COMPLETE | `synthesis` (final report) |
+| All roles return `WAIT` | `synthesis` |
+| All WPs COMPLETE or CANCELLED | `synthesis` (final report) |
 | `iteration >= max_iterations` | `END` (safety limit) |
-| `BLOCK_FOR_REWORK_LIMIT` or unknown action | Skip WP / treat as `WAIT` (circuit-breaker signal) |
-| WP accumulates ≥ 3 consecutive stage failures | Circuit-breaker: WP skipped for remainder of run (`level=WARNING`) |
+| WP accumulates ≥ 3 consecutive stage failures | Circuit-breaker: WP skipped for remainder of run |
 
-### Stage nodes (Deep Agents)
+For the full routing algorithm, action sets, and circuit-breaker mechanics, see [docs/supervisor-routing.md](docs/supervisor-routing.md).
 
-Each stage node:
-1. Reads the persona Markdown from `personas/ledger/vs-code/<N>-<role>.md`.
-2. Wraps the shared MCP tools via `inject_project_path` (`src/utils/tool_wrappers.py`) — auto-injects `project_path` into every tool call even when the LLM-driven agent omits it (Layer 2 safety net).
-3. Creates a Deep Agent (`create_deep_agent`) with the wrapped tools and calls `agent.ainvoke`.
-4. Returns a state update with `stage_result`, `stage_success`, and a `run_log` entry.
+### Stage nodes
 
-The supervisor's MCP tool calls handle all ledger mutations (start pipelines, complete pipelines, mark WPs COMPLETE).
-
-### MCP Tool Wrapping (`src/utils/tool_wrappers.py`)
-
-`inject_project_path(tools, project_path)` monkeypatches each tool's `ainvoke` to auto-inject `project_path` when the argument is absent from the tool call. It acts as a **Layer 2 safety net**: even if the LLM-driven agent ignores explicit prompt instructions to supply `project_path`, the argument still reaches the MCP server.
-
-Key design properties:
-
-| Property | Detail |
-|----------|--------|
-| **Idempotent** | A sentinel attribute `_orig_ainvoke` is stored on the tool object on the first wrap. Repeated calls — which occur because `list(mcp_tools)` in `node_fn` is a shallow copy referencing the same tool objects — always delegate to the true original `ainvoke`. Wrapper chains never grow beyond one level. |
-| **Non-destructive** | Only `ainvoke` is patched. All other attributes (`name`, `description`, `args_schema`) remain untouched, so schema introspection and tool discovery work normally. |
-| `setdefault` **semantics** | An explicitly-provided `project_path` already present in the tool-call arguments is never overwritten. Injection is also skipped when `cwd_path` is present (used by `ledger_detect_project`). |
-
-### WorkflowState fields (key additions)
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `consecutive_failures` | `dict` | Per-WP consecutive failure counter (`{wp_id: count}`). Reset to `{}` on success. The supervisor halts a WP after ≥ 3 consecutive failures. |
-| `run_log` | `list` (append-only) | JSONL-style log entries. Each entry carries a `level` field: `"INFO"` for normal routing, `"WARNING"` for safety/circuit-breaker halts, `"ERROR"` for MCP or stage errors. |
-| `wps_completed_this_run` | `int` | Running total of work packages completed during the current run. Incremented by the supervisor each pass when a WP transitions to COMPLETE. Printed in the run summary as "This run : N WP(s) completed this run". |
-| `stage_success` | `bool` | Set by each stage node after execution. `True` means the agent finished without raising an exception (the best available proxy for “at least one PASS pipeline produced” at node level). `False` means the stage raised an error. Read by the supervisor circuit-breaker. |
-| `pending_wp_count` | `int` | Count of WPs in a non-terminal status (i.e. not COMPLETE and not CANCELLED). Used by the supervisor to determine whether all work is done and synthesis routing is appropriate. |
-
-All other `WorkflowState` fields are documented in `orchestrator/src/state.py`.
-
-### JSONL log entry types
-
-Each run writes a JSONL file to `orchestrator/logs/` (path printed at run start). Key entry types:
-
-| `action` value | Emitted by | Key fields |
-|---|---|---|
-| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result` (`"PASS"` / `"FAIL"`), `tokens_used` (dict or `null`) |
-| `supervisor_route` | `supervisor.py` | `stage`, `level` (`"INFO"` / `"WARNING"`), `next_node` |
-| `run_error` | `cli.py` | `stage="cli"`, `level="ERROR"`, `error` (message string), `thread_id` |
-| `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `level` (`"INFO"` / `"ERROR"`), `thread_id` |
-
-**`tokens_used`** on `stage_complete` entries: a dict with LangChain `usage_metadata` keys (`input_tokens`, `output_tokens`, `total_tokens`) when the LLM returns usage data, or `null` when metadata is absent (e.g. streaming responses or providers that omit token counts).
-
-**`level`** on `run_end` entries: `"INFO"` when the workflow completed without error; `"ERROR"` when errors were captured in `outside_errors` before the run finished.
-
-> **Full field reference:** For the complete per-field type and description table (including all 11 fields), see the [JSONL Log Schema](#jsonl-log-schema) section.
+Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, and invokes it. The 6 stages are: `pm`, `developer`, `qa`, `reviewer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
 
 ---
 
-## Supervisor Routing Model
+## Folder Overview
 
-The supervisor is a pure-Python deterministic router — no LLM calls are made here. It delegates all routing decisions to the MCP server via **`ledger_get_next_action`** and returns a LangGraph `Command` routing the graph to the next stage. `ledger_get_project_status` and `ledger_list_work_packages` are called for observability context but do not drive routing.
-
-### Special Exits (checked first, in order)
-
-```
-supervisor_node
-  ├─ iteration > max_iterations                      → __end__    (safety limit; level=WARNING)
-  ├─ No WPs in ledger                                 → pm         (create work packages)
-  └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
-```
-
-### Standard Routing (per role — first dispatchable action wins)
-
-The supervisor calls `ledger_get_next_action` for each agent role in priority order
-(`Project Manager` → `Developer` → `QA` → `Reviewer` → `Documentation`).
-The **role** determines the destination; the **action** determines dispatch vs. skip:
-
-```
-For each role in priority order:
-  action ∈ _SKIP_ACTIONS            → skip this role
-    (_SKIP_ACTIONS includes WAIT, WAIT_FOR_REWORK, WAIT_FOR_DOWNSTREAM,
-     WAIT_FOR_UPSTREAM_REWORK_LIMIT, BLOCK_FOR_REWORK_LIMIT)
-
-  action not in _DISPATCH_ACTIONS    → treat as WAIT (forward-compatibility guard)
-
-  action ∈ _DISPATCH_ACTIONS and circuit-breaker (≥ 3 consecutive failures)
-                                     → skip WP, record WARNING entry
-
-  action ∈ _DISPATCH_ACTIONS         → dispatch to role’s stage:
-    “Project Manager”  → pm          (_DISPATCH_ACTIONS includes REPAIR_ORPHAN_BLOCKED,
-    “Developer”        → developer    UNBLOCK_WP, REVIEW_REWORK_LIMIT, REVIEW_STALE,
-    “QA”               → qa           REVIEW_ABANDONED, IMPLEMENT, REWORK, CLAIM_WP,
-    “Reviewer”         → reviewer     CONTINUE_PIPELINE, RESUME_OR_CANCEL, RUN_QA,
-    "Documentation"    → docs         RUN_REVIEW, WRITE_DOCS, FINALIZE_WP,
-                                      UPDATE_CRITERIA)
-
-All roles returned WAIT/skip          → synthesis
-```
-
-> `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
-> `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage
-> mapping. Adding a new action from the MCP server only requires updating those
-> constants — no other routing logic changes are needed.
-
-### Circuit-Breaker
-
-The `consecutive_failures` field in `WorkflowState` tracks per-WP failure counts. Each supervisor pass:
-- **Increments** the counter for the previous WP if `stage_success` is `False`.
-- **Resets** the counter when `stage_success` is `True`.
-
-A WP that accumulates **≥ 3 consecutive failures** is skipped for the remainder of the run (its `ledger_get_next_action` dispatch is bypassed). Skipped WPs do not terminate the run — the supervisor continues checking the remaining roles. Only when all roles return `WAIT` or are circuit-broken does the supervisor fall through to `synthesis`.
-
-Source of truth: `orchestrator/src/supervisor.py`.
+| Path | Purpose |
+|------|---------|
+| `src/supervisor.py` | Pure-Python deterministic router (no LLM calls) |
+| `src/graph.py` | LangGraph `StateGraph` assembly and compilation |
+| `src/state.py` | `WorkflowState` TypedDict with annotated reducers |
+| `src/cli.py` | CLI entry point (`orchestrate` command) |
+| `src/config.py` | `.env` loading, provider auto-detection, pipeline constants |
+| `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
+| `src/nodes/` | Stage node factories (pm, developer, qa, reviewer, docs, synthesis) |
+| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger |
+| `tests/` | 216 tests — unit, integration (ScriptedLedger), and live marks |
+| `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 
 ---
 
-## JSONL Log Schema
+## Documentation Index
 
-Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start). Each line is a JSON object. The full field reference:
+| Document | Content |
+|----------|---------|
+| [docs/architecture.md](docs/architecture.md) | Stage node lifecycle, MCP tool wrapping, WorkflowState fields, JSONL log entry types |
+| [docs/supervisor-routing.md](docs/supervisor-routing.md) | Full routing algorithm, special exits, action sets, circuit-breaker |
+| [docs/jsonl-log-schema.md](docs/jsonl-log-schema.md) | Complete JSONL field reference (11 fields) |
+| [docs/smoke-testing.md](docs/smoke-testing.md) | Runbook for verifying the dispatch loop |
+| [docs/public-api.md](docs/public-api.md) | Public functions, classes, and entry points |
 
-| Field | Present In | Type | Description |
-|-------|-----------|------|-------------|
-| `timestamp` | all entries | ISO 8601 string | Wall-clock time of the event (UTC) |
-| `stage` | all entries | string | Node/stage name (e.g. `"supervisor"`, `"developer"`, `"cli"`) |
-| `wp_id` | stage events | string | Work package ID being processed (e.g. `"WP-003"`); empty string for supervisor-level events |
-| `action` | all entries | string | Event type (e.g. `"route"`, `"stage_complete"`, `"halt"`, `"run_start"`, `"run_end"`) |
-| `destination` | routing events | string | Next LangGraph node name (e.g. `"developer"`, `"__end__"`) |
-| `result` | `stage_complete` | string | `"PASS"` or `"FAIL"` |
-| `level` | all entries | string | `"INFO"` for normal events; `"WARNING"` for safety/circuit-breaker halts; `"ERROR"` for MCP or stage errors |
-| `error` | error entries | string | Error message (only present when `level` is `"ERROR"`) |
-| `tokens_used` | `stage_complete` | dict or null | `{"input_tokens": N, "output_tokens": N, "total_tokens": N}` when the LLM returns usage metadata; `null` when absent |
-| `thread_id` | `run_start`, `run_end` | string | LangGraph thread identifier (UUID) for checkpoint/resume |
-| `dry_run` | `run_start` | boolean | `true` when `--dry-run` flag was passed |
-
----
-
-## Smoke-Testing the Dispatch Loop
-
-Use this runbook to verify the supervisor dispatch loop is working correctly against a fresh ledger project without running the full agent pipeline.
-
-### 1. Prepare a test ledger project
-
-Create a dedicated plan directory with 2–3 work packages in `READY` state and no in-flight pipelines. Use the MCP server tools (or create `.json` files directly under `.ledger/`) to initialise a minimal project:
-
-```bash
-# Example: use the orchestrator CLI in dry-run mode against an existing plan
-orchestrate docs/agents/plans/my-test-plan/plan.md --dry-run --max-iterations 5
-```
-
-Alternatively, use the Node.js launcher from the workspace root:
-
-```bash
-source orchestrator/.venv/bin/activate
-node scripts/run-orchestrator.js docs/agents/plans/my-test-plan/plan.md --dry-run --max-iterations 5
-```
-
-### 2. Expected console output (dry-run)
-
-For a project with two `READY` WPs (WP-001, WP-002, no dependencies):
-
-```
-[INFO] Supervisor iteration 1: routing WP-001 → developer
-[INFO] Supervisor iteration 2: routing WP-002 → developer
-[INFO] Supervisor iteration 3: all WPs COMPLETE → synthesis
-```
-
-In `--dry-run` mode no agents are called — only the routing decisions are executed.
-
-### 3. Inspect the JSONL log
-
-The JSONL log is written to `orchestrator/logs/<timestamp>-<plan-title>.jsonl`. To verify routing decisions:
-
-```bash
-# Print all routing events
-grep '"action": "route"' orchestrator/logs/<your-log-file>.jsonl | python3 -m json.tool
-
-# Check for any WARNING or ERROR level entries
-grep -E '"level": "(WARNING|ERROR)"' orchestrator/logs/<your-log-file>.jsonl
-
-# Count stage dispatches
-grep '"action": "route"' orchestrator/logs/<your-log-file>.jsonl | wc -l
-```
-
-### 4. Verifying dispatch correctness
-
-| What to check | How |
-|---|---|
-| Correct first dispatch | First `"action": "route"` entry should have `"destination": "developer"` for a fresh WP |
-| No duplicate dispatches | Each WP ID should appear at most once per routing sweep |
-| Safety limit behaviour | Run with `--max-iterations 2`; verify the log ends with `"action": "safety_limit"` at `"level": "WARNING"` |
-| Circuit-breaker halt | Manually set `consecutive_failures` ≥ 3 in state; verify `"action": "halted_repeated_failure"` |
 
 ---
 
