@@ -4,8 +4,8 @@ description: "Create, update, and audit project manifests — the source of trut
 vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
-version: "1.0.3"
-last_updated: "2026-02-23"
+version: "1.0.4"
+last_updated: "2026-03-04"
 
 tools:
   - vscode
