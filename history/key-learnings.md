@@ -86,3 +86,9 @@
 - Solidifying the ledger workflow with cyclic specification & audit cycles.
 - Large multi-phase projects with a plan per phase and each phase using the previous phase's synthesis.
 - Create parallel local project copies with branches to work with workflows in parallel.
+
+### March 2026
+
+- Verifying ledger logic against the specification through unit tests first.
+- Periodic audits after multiple iterations: Can something be simplified.
+- Adding a glossary of opaque terms connected to the modules they are used in.
