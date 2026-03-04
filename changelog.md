@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.6.1 - Ledger Personas Improvements
+- Personas: Simplified the preflight check.
+- Personas: Avoiding the first tool call missing the agent role.
+- Personas: Improved document formatting with clear sections.
+- Personas: Restructured some overly verbose texts into lists.
+
 ## v1.6.0 - Ledger Spec Sync & Persona Refinements
 - MCP: Synchronized workflow, pipeline, handoff, and work-package tools to the specification.
 - MCP: Fixed workflow bug and root folder handling.

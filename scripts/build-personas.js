@@ -268,6 +268,23 @@ function collapseBlankLines(text) {
 }
 
 /**
+ * Post-processing: ensure every Markdown heading has a blank line before it.
+ * Fixes spacing gaps caused by partial concatenation where trimEnd() strips
+ * trailing newlines and conditionals add only single \n delimiters.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function ensureBlankLineBeforeHeadings(text) {
+  // Blank line before headings
+  text = text.replace(/([^\n])\n(#{1,6} )/g, '$1\n\n$2');
+  // Blank line before and after horizontal rules (---)
+  text = text.replace(/([^\n])\n(---)\n/g, '$1\n\n$2\n');
+  text = text.replace(/\n(---)\n([^\n])/g, '\n$1\n\n$2');
+  return text;
+}
+
+/**
  * Normalize line endings to LF (\n) for OS-agnostic output.
  * Converts CRLF (\r\n) first, then strips any remaining stray CR (\r).
  *
@@ -586,6 +603,7 @@ function buildForTarget(suite, target) {
     body = resolveConditionals(body, context);
     body = resolveVariables(body, context, contentBasename);
     body = collapseBlankLines(body);
+    body = ensureBlankLineBeforeHeadings(body);
     body = body.trimEnd();
 
     // ------------------------------------------------------------------

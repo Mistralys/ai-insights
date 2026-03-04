@@ -2,8 +2,9 @@ number: 6
 role: Documentation
 vs_file_name: 6-docs.agent.md
 cc_file_name: 6-documentation.md
-version: "3.5.2"
+version: "3.5.3"
 changelog:
+  - "3.5.3: Simplified preflight and some verbose sections."
   - "3.5.2: Fixed REWORK_DOCS→REWORK action name; added ledger_update_work_package_status tool for FINALIZE_WP edge case; added Rework Handling section; fixed incident logging conditional bypass."
   - "3.5.1: Removed unneeded handoff status tool."
   - "3.5.0: Initial changelogged version."
