@@ -1,5 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.9.0 - VS Code Persona IDs
+- Personas: Added unique \id\ field to all ledger and standalone persona definitions.
+- Registry: Extended agent discovery to cache and resolve agents by ID alongside handles.
+- Workflow: Updated handoff logic to propagate stable agent IDs in auto-handoff payloads.
+- Build: Updated persona build and sync scripts to validate the new \id\ field.
+- Tests: Added coverage for ID-based agent resolution and handoff payload structure.
+
 ## v1.8.1 - begin_work Handoff Guard Fix & Micro-Debt Cleanup
 - Workflow: Fixed cross-agent handoffs failing when agents used `ledger_begin_work`.
 - Workflow: Eliminated redundant disk reads during project manager action checks.
