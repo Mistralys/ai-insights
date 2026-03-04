@@ -343,6 +343,7 @@ function cmdSyncPersonas(args)    { runScript('sync-personas.js', args); }
 function cmdBuildPersonas(args)   { runScript('build-personas.js', args); }
 function cmdPackagePersonas(args) { runScript('package-personas.js', args); }
 function cmdGui(args)             { runLongScript('run-gui.js', args); }
+function cmdBuildLedger(args)     { runScript(path.join('..', 'mcp-server', 'scripts', 'sync-version.js'), args); }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
@@ -410,6 +411,14 @@ const COMMANDS = [
     run:         cmdGui,
   },
   {
+    id:          'build-ledger',
+    key:         '0',
+    label:       'Build Ledger',
+    category:    'MCP Server',
+    description: 'Sync package.json from changelog',
+    run:         cmdBuildLedger,
+  },
+  {
     id:          'check-roles',
     key:         '8',
     label:       'Check role parity',
@@ -437,6 +446,7 @@ function printHelp() {
   const rows = [
     ['setup',                    'Full workspace setup wizard'],
     ['setup --all',              'Non-interactive full setup'],
+    ['build-ledger',             'Sync MCP server package.json from changelog'],
     ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
     ['mcp-json',                 'Generate IDE MCP server config'],
     ['mcp-json --force',         'Overwrite existing .mcp.json'],
