@@ -36,5 +36,12 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ steps.changelog.outputs.title }}
-          body: ${{ steps.changelog.outputs.body }}
+          body: |
+            ${{ steps.changelog.outputs.body }}
+
+            ---
+
+            ### Standalone ZIP Files
+
+            All standalone personas (that do not need the ledger) are available as a separate download for Claude and VS Code.
           files: dist/ai-insights-personas-*.zip
