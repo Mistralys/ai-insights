@@ -26,6 +26,41 @@ const path = require('path');
 const yaml = require(path.join(__dirname, '..', 'personas', 'node_modules', 'js-yaml'));
 
 // ---------------------------------------------------------------------------
+// Version sync
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads the latest version from personas/changelog.md and writes it to
+ * personas/package.json.  Called once at the end of a real (non-dry-run,
+ * non-check) build so package.json always reflects the changelog version.
+ */
+function syncPersonasVersion() {
+  const changelogPath = path.join(__dirname, '..', 'personas', 'changelog.md');
+  const pkgPath       = path.join(__dirname, '..', 'personas', 'package.json');
+
+  const changelog = fs.readFileSync(changelogPath, 'utf8');
+  const match     = changelog.match(/^## v(\d+\.\d+\.\d+)/m);
+
+  if (!match) {
+    console.warn('[WARN] Could not extract version from personas/changelog.md — skipping package.json update.');
+    return;
+  }
+
+  const newVersion = match[1];
+  const pkg        = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const oldVersion = pkg.version;
+
+  if (oldVersion === newVersion) {
+    console.log(`personas/package.json already at v${newVersion} — no update needed.`);
+    return;
+  }
+
+  pkg.version = newVersion;
+  fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+  console.log(`Updated personas/package.json: v${oldVersion} → v${newVersion}`);
+}
+
+// ---------------------------------------------------------------------------
 // CLI flags
 // ---------------------------------------------------------------------------
 
@@ -726,6 +761,7 @@ if (CHECK) {
     `\nBuilt ${builtCount} persona(s) across ${SUITES_TO_BUILD.length} suite(s) × ${targets.length} target(s). [suites: ${suiteLabel}]`
   );
   if (warnings > 0) console.log(`${warnings} warning(s).`);
+  syncPersonasVersion();
 }
 
 if (STRICT && strictFailures > 0) {
