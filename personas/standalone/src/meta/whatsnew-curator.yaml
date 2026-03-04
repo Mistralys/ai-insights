@@ -6,8 +6,6 @@ id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 version: "1.0.0"
 last_updated: "2026-02-25"
-changelog:
-  - "1.0.0: Initial release."
 
 tools:
   - vscode

@@ -6,9 +6,6 @@ id: standalone-module-intent-architect
 cc_file_name: module-intent-architect.md
 version: "1.0.2"
 last_updated: "2026-02-24"
-changelog:
-  - "1.0.2 Better described the possibility to generate additional documentation."
-  - "1.0.1 Initital pre-changelog release."
 
 tools:
   - vscode

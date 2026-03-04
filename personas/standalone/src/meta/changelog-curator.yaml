@@ -6,9 +6,6 @@ id: standalone-changelog-curator
 cc_file_name: changelog-curator.md
 version: "1.1.0"
 last_updated: "2026-02-25"
-changelog:
-  - "1.1.0: Tweaked verbosity of entries with refined rationales."
-  - "1.0.0: Initial release."
 
 tools:
   - vscode

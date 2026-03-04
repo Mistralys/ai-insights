@@ -119,3 +119,64 @@
 
 ## v1.0.0 - Initial release
 - Finalized all workflow prompts with YAML frontmatter.
+
+# Ledger Personas
+
+## 1 - Planner
+- **v1.3.1:** Added clause for naming synthesis rework plans.
+- **v1.3.0:** Initial changelogged version.
+
+## 2 - Project Manager
+- **v3.5.1:** Simplified preflight and some verbose sections.
+- **v3.5.0:** Initial changelogged version.
+
+## 3 - Developer
+- **v3.5.2:** Simplified preflight and some verbose sections.
+- **v3.5.1:** Added capabilities and rework sections, added missing add observation tool.
+- **v3.5.0:** Initial changelogged version.
+
+## 4 - QA
+- **v3.5.3:** Simplified preflight and some verbose sections.
+- **v3.5.2:** Added incident logging block and REWORK_QA handling section.
+- **v3.5.1:** Enabled incident logging.
+- **v3.5.0:** Initial changelogged version.
+
+## 5 - Reviewer
+- **v3.5.4:** Simplified preflight and some verbose sections.
+- **v3.5.3:** Removed phantom REWORK_REVIEW action from workflow and YAML; added acceptance_criteria_updates to output format and workflow step 5.
+- **v3.5.2:** Added incident logging block.
+- **v3.5.1:** Enabled incident logging.
+- **v3.5.0:** Initial changelogged version.
+
+## 6 - Documentation
+- **v3.5.3:** Simplified preflight and some verbose sections.
+- **v3.5.2:** Fixed REWORK_DOCS→REWORK action name; added ledger_update_work_package_status tool for FINALIZE_WP edge case; added Rework Handling section; fixed incident logging conditional bypass.
+- **v3.5.1:** Removed unneeded handoff status tool.
+- **v3.5.0:** Initial changelogged version.
+
+## 7 - Synthesis
+- **v3.5.2:** Simplified preflight and some verbose sections.
+- **v3.5.1:** Ledger help tool as note only.
+- **v3.5.0:** Initial changelogged version.
+
+# Standalone Personas
+
+## Changelog Curator
+- **v1.1.0:** Tweaked verbosity of entries with refined rationales.
+- **v1.0.0:** Initial release.
+
+## Module Intent Architect
+- **v1.0.2:** Better described the possibility to generate additional documentation.
+- **v1.0.1:** Initital pre-changelog release.
+
+## Orchestrator Runner
+- **v1.0.1:** Minor updates and fixes.
+- **v1.0.0:** Initial release.
+
+## README Curator
+- **v1.2.1:** Added a helper section with rewriting entire README files.
+- **v1.2.0:** Rewrite to produce a better human-oriented README.
+- **v1.1.0:** Pre-changelog initial release.
+
+## WHATSNEW Curator
+- **v1.0.0:** Initial release.

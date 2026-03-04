@@ -4,10 +4,6 @@ vs_file_name: 7-synthesis.agent.md
 id: ledger-7-synthesis
 cc_file_name: 7-synthesis.md
 version: "3.5.2"
-changelog:
-  - "3.5.2: Simplified preflight and some verbose sections."
-  - "3.5.1: Ledger help tool as note only."
-  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode

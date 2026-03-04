@@ -4,11 +4,6 @@ vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
 version: "3.5.3"
-changelog:
-  - "3.5.3: Simplified preflight and some verbose sections."
-  - "3.5.2: Added incident logging block and REWORK_QA handling section."
-  - "3.5.1: Enabled incident logging."
-  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode

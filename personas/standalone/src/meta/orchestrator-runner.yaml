@@ -6,9 +6,6 @@ id: standalone-orchestrator-runner
 cc_file_name: orchestrator-runner.md
 version: "1.0.1"
 last_updated: "2026-02-28"
-changelog:
-  - "v1.0.0: Initial release."
-  - "v1.0.1: Minor updates and fixes."
 
 tools:
   - vscode
