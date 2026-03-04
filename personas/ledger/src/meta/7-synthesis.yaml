@@ -1,6 +1,7 @@
 number: 7
 role: Synthesis
 vs_file_name: 7-synthesis.agent.md
+id: ledger-7-synthesis
 cc_file_name: 7-synthesis.md
 version: "3.5.2"
 changelog:

@@ -242,12 +242,17 @@ describe('LedgerStore', () => {
       const { writeFile, mkdir } = await import('fs/promises');
       // Source exists so the copy is attempted
       await writeFile(join(store.planPath, PLAN_ARCHIVE_FILENAME), '# Plan', 'utf-8');
-      // Destination is a directory — copyFile will fail with EISDIR, not ENOENT
+      // Destination is a directory — copyFile will fail with EISDIR on Linux/macOS
+      // or EPERM on Windows (both are non-ENOENT errors that should be re-thrown)
       await mkdir(join(store.storageDir, PLAN_ARCHIVE_FILENAME), { recursive: true });
 
-      await expect(store.archiveDocuments([PLAN_ARCHIVE_FILENAME])).rejects.toMatchObject({
-        code: 'EISDIR',
-      });
+      await expect(store.archiveDocuments([PLAN_ARCHIVE_FILENAME])).rejects.toSatisfy(
+        (err: unknown) =>
+          err instanceof Error &&
+          'code' in err &&
+          ((err as NodeJS.ErrnoException).code === 'EISDIR' ||
+            (err as NodeJS.ErrnoException).code === 'EPERM'),
+      );
     });
   });
 

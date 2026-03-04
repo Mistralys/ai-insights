@@ -62,7 +62,7 @@ mcp-server/
 │   │
 │   └── utils/                   # Utility functions
 │       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache)
-│       ├── agent-registry.ts    # Discovers VS Code agent handles by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), isRegistryLoaded(), resetRegistry()
+│       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), getAgentId(), isRegistryLoaded(), resetRegistry()
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities

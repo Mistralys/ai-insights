@@ -5,6 +5,8 @@ import { ifDefined } from './if-defined.js';
 
 /** Module-level cache: role → VS Code agent name */
 let agentHandleMap: Record<string, string> = {};
+/** Module-level cache: role → VS Code agent id */
+let agentIdMap: Record<string, string> = {};
 let registryLoaded = false;
 
 /**
@@ -14,10 +16,10 @@ let registryLoaded = false;
  * Handles both quoted strings (`name: '3 - Developer v3.1.2'`) and bare
  * strings (`role: Developer`).
  *
- * @returns An object with the parsed `name` and `role` string values, or
+ * @returns An object with the parsed `name`, `role`, and `id` string values, or
  *   `undefined` for each field if not found.
  */
-function parseFrontmatter(content: string): { name?: string; role?: string } {
+function parseFrontmatter(content: string): { name?: string; role?: string; id?: string } {
   // Frontmatter block must start at the very beginning of the file
   if (!content.startsWith('---')) {
     return {};
@@ -33,6 +35,7 @@ function parseFrontmatter(content: string): { name?: string; role?: string } {
 
   let name: string | undefined;
   let role: string | undefined;
+  let id: string | undefined;
 
   for (const rawLine of frontmatter.split('\n')) {
     const line = rawLine.trim();
@@ -50,9 +53,16 @@ function parseFrontmatter(content: string): { name?: string; role?: string } {
       ifDefined(roleMatch[1], (v) => { role = stripYamlQuotes(v.trim()); });
       continue;
     }
+
+    const idMatch = line.match(/^id:\s*(.+)$/);
+    if (idMatch) {
+      // Unreachable: regex (.+) always captures when match succeeds; satisfies noUncheckedIndexedAccess
+      ifDefined(idMatch[1], (v) => { id = stripYamlQuotes(v.trim()); });
+      continue;
+    }
   }
 
-  return { name, role };
+  return { name, role, id };
 }
 
 /**
@@ -112,6 +122,7 @@ export async function discoverAgents(agentsDir: string, strict = false): Promise
 
   const agentFiles = entries.filter((e) => e.endsWith('.agent.md'));
   const newMap: Record<string, string> = {};
+  const newIdMap: Record<string, string> = {};
 
   for (const filename of agentFiles) {
     const filePath = join(agentsDir, filename);
@@ -126,7 +137,7 @@ export async function discoverAgents(agentsDir: string, strict = false): Promise
       continue;
     }
 
-    const { name, role } = parseFrontmatter(content);
+    const { name, role, id } = parseFrontmatter(content);
 
     if (!role) {
       // No role: field — silently skip (e.g. standalone agents like Researcher)
@@ -155,9 +166,13 @@ export async function discoverAgents(agentsDir: string, strict = false): Promise
       );
     }
     newMap[role] = name;
+    if (id) {
+      newIdMap[role] = id;
+    }
   }
 
   agentHandleMap = newMap;
+  agentIdMap = newIdMap;
   registryLoaded = Object.keys(newMap).length > 0;
   return { ...newMap };
 }
@@ -171,6 +186,17 @@ export async function discoverAgents(agentsDir: string, strict = false): Promise
  */
 export function getAgentHandle(role: string): string | null {
   return agentHandleMap[role] ?? null;
+}
+
+/**
+ * Looks up the VS Code agent `id` for a given workflow role.
+ *
+ * @param role - The workflow role name (e.g. `"Developer"`, `"QA"`).
+ * @returns The agent's `id` string (e.g. `"ledger-3-dev"`) or
+ *   `null` if the role is not in the registry or has no `id:` field.
+ */
+export function getAgentId(role: string): string | null {
+  return agentIdMap[role] ?? null;
 }
 
 /**
@@ -188,5 +214,6 @@ export function isRegistryLoaded(): boolean {
  */
 export function resetRegistry(): void {
   agentHandleMap = {};
+  agentIdMap = {};
   registryLoaded = false;
 }

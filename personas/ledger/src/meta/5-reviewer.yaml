@@ -1,6 +1,7 @@
 number: 5
 role: Reviewer
 vs_file_name: 5-reviewer.agent.md
+id: ledger-5-reviewer
 cc_file_name: 5-reviewer.md
 version: "3.5.4"
 changelog:

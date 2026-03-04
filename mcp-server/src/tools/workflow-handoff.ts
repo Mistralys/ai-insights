@@ -5,7 +5,7 @@ import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
 import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
-import { isRegistryLoaded, getAgentHandle } from '../utils/agent-registry.js';
+import { isRegistryLoaded, getAgentHandle, getAgentId } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
 import {
   buildHandoffPrompt,
@@ -201,9 +201,11 @@ export async function buildHandoffResponse(
             auto_handoff_depth: currentDepth + 1,
             last_updated: now(),
           });
+          const agentId = nextAgent ? getAgentId(nextAgent) : null;
           payload.auto_handoff = {
             agent_name: agentName,
-            prompt: buildHandoffPrompt(projectPath),
+            ...(agentId !== null ? { agent_id: agentId } : {}),
+            prompt: buildHandoffPrompt(projectPath, agentId ?? undefined),
           };
         } else {
           // §18.5: Depth limit reached — emit a project comment so PM has a diagnostic breadcrumb.

@@ -137,8 +137,14 @@ function buildHandoffResponse(currentAgent, status, ..., store):
   if currentDepth < effectiveMax:
     root.auto_handoff_depth = currentDepth + 1
     store.writeRootIndex(root)
+    agentId = getAgentId(nextAgent)  // null when persona has no id: field
     include auto_handoff in response payload:
-      { agent_name: nextAgentHandle, prompt: buildHandoffPrompt(projectPath) }
+      {
+        agent_name: nextAgentHandle,
+        ...(agentId !== null ? { agent_id: agentId } : {}),
+        prompt: buildHandoffPrompt(projectPath, agentId ?? undefined)
+        // prompt starts with "@{agentId}\n" when agentId is present — VS Code routes to the matching persona
+      }
   else:
     omit auto_handoff from response
     // Emit warning for observability

@@ -69,9 +69,17 @@ export function effectiveMaxDepth(
 /**
  * Builds the prompt string passed to the next agent during auto-handoff.
  * Intentionally minimal — the receiving agent's persona contains full workflow instructions.
+ *
+ * When `agentId` is provided, the returned string is prefixed with `@{agentId}\n` so that
+ * VS Code recognises it as a routing directive and loads the correct persona before the
+ * subagent runs.  The prefix **must** appear at position 0 for VS Code to honour it.
+ *
+ * When `agentId` is omitted (or `undefined`) the original format is returned unchanged,
+ * preserving backward compatibility with persona files that do not carry an `id:` field.
  */
-export function buildHandoffPrompt(projectPath: string): string {
-  return `Project path: ${projectPath}`;
+export function buildHandoffPrompt(projectPath: string, agentId?: string): string {
+  const body = `Project path: ${projectPath}`;
+  return agentId ? `@${agentId}\n${body}` : body;
 }
 
 // ---------------------------------------------------------------------------

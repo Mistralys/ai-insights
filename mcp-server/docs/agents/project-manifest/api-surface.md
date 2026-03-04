@@ -450,8 +450,9 @@ interface HandoffStatusPayload {
 
   // Present only when automatic handoff is eligible
   auto_handoff?: {
-    agent_name: string;      // The agent file name (e.g. "6-documentation.agent.md")
-    prompt: string;          // Prompt to pass to the next agent (contains project_path)
+    agent_name: string;      // The agent display name (e.g. "6 - Documentation v3.5.2")
+    agent_id?: string;       // VS Code routing id (e.g. "ledger-6-docs") — omitted when absent from registry
+    prompt: string;          // Prompt to pass to the next agent; prefixed with "@{agent_id}\n" when agent_id is present
   };
 }
 ```
@@ -802,7 +803,7 @@ Exported from `src/utils/agent-registry.ts`. Discovers VS Code agent handles by 
 async function discoverAgents(agentsDir: string, strict?: boolean): Promise<Record<string, string>>;
 ```
 
-Scans `agentsDir` for `*.agent.md` files, parses YAML frontmatter in each, and builds an in-memory map from workflow `role` names to VS Code agent `name` handles (e.g. `{ "Developer": "3 - Developer v3.1.2" }`). Overwrites the module-level cache on each call and returns a shallow copy.
+Scans `agentsDir` for `*.agent.md` files, parses YAML frontmatter in each, and builds two in-memory maps: a `role → name` map (e.g. `{ "Developer": "3 - Developer v3.1.2" }`) and a `role → id` map (e.g. `{ "Developer": "ledger-3-dev" }`). Overwrites both module-level caches on each call and returns a shallow copy of the `role → name` map. Entries without an `id:` field are recorded in `agentHandleMap` only — absent `id:` is not an error.
 
 **Parameters:**
 - `agentsDir` — path to the directory containing `*.agent.md` files.
@@ -823,7 +824,15 @@ Scans `agentsDir` for `*.agent.md` files, parses YAML frontmatter in each, and b
 function getAgentHandle(role: string): string | null;
 ```
 
-Looks up a role in the cached map. Returns the agent handle string (e.g. `"3 - Developer v3.1.2"`) or `null` if the role is not found. Does not trigger discovery.
+Looks up a role in the cached `agentHandleMap`. Returns the agent handle string (e.g. `"3 - Developer v3.1.2"`) or `null` if the role is not found. Does not trigger discovery.
+
+### `getAgentId()`
+
+```typescript
+function getAgentId(role: string): string | null;
+```
+
+Looks up a role in the cached `agentIdMap`. Returns the agent `id` string (e.g. `"ledger-3-dev"`) or `null` if the role is not found or if the matching `.agent.md` file has no `id:` frontmatter field. Does not trigger discovery. Used by `buildHandoffResponse()` to attach `@id` routing prefixes to auto-handoff prompts.
 
 ### `isRegistryLoaded()`
 
@@ -839,7 +848,7 @@ Returns `true` if the registry has been populated by a successful `discoverAgent
 function resetRegistry(): void;
 ```
 
-Clears the cached agent handle map and resets the loaded flag. **Intended for use in unit tests only.**
+Clears both cached maps (`agentHandleMap` and `agentIdMap`) and resets the loaded flag. **Intended for use in unit tests only.**
 
 ---
 
@@ -1481,7 +1490,12 @@ export function checkRevalidationGuard(
 export function getHandoffNotesForAgent(wpDetail: WorkPackageDetail, agentName: string): string[] | undefined;
 
 // Returns the prompt string passed to the next agent during auto-handoff.
-export function buildHandoffPrompt(projectPath: string): string;
+// When agentId is provided, prepends "@{agentId}\n" to the prompt so VS Code routes
+// the subagent call to the persona with the matching id: frontmatter field.
+// The @id prefix MUST appear at position 0 for VS Code to honour the routing directive.
+// When agentId is omitted or undefined, returns "Project path: {projectPath}" unchanged
+// (backward compatibility with persona files that do not carry an id: field).
+export function buildHandoffPrompt(projectPath: string, agentId?: string): string;
 
 // Display name maps used by workflow tool responses.
 export const agentNameMap: Record<string, string>;
@@ -1740,6 +1754,17 @@ export async function computeHandoffStatus(
 ): Promise<Record<string, unknown>>;
 
 // Builds the standard handoff response payload (current_agent, next_agent, status).
+// When projectPath and store are provided and auto-handoff depth allows, appends an
+// auto_handoff object to the payload. The auto_handoff shape is:
+//
+//   auto_handoff: {
+//     agent_name: string,           // VS Code agent name (e.g. "3 - Developer v3.5.2")
+//     agent_id?: string,            // VS Code agent id (e.g. "ledger-3-dev") — omitted when absent
+//     prompt: string,               // Project path prompt, prefixed with "@{agent_id}\n" when agent_id is present
+//   }
+//
+// agent_id is resolved via getAgentId(nextAgent) and omitted (not set to null) when the
+// registry has no id for the next agent, ensuring clean JSON serialization.
 export function buildHandoffResponse(
   currentAgent: string,
   status: string,

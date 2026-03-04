@@ -1505,11 +1505,13 @@ describe('getNextAction — handoff_status embedded in WAIT responses', () => {
     // Set up a project with one WP that is IN_PROGRESS with an active (non-stale)
     // IN_PROGRESS pipeline — no PM-priority actions fire (no blockers, no stale
     // pipelines, no rework violations), so PM falls through to WAIT.
+    // Use a dynamic recent timestamp (1 hour ago) so the pipeline is never stale.
+    const recentStart = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const wp = makeWorkPackageDetail({
       work_package_id: 'WP-001',
       status: 'IN_PROGRESS',
       assigned_to: 'Developer',
-      pipelines: [makePipeline('implementation', 'IN_PROGRESS', '2026-03-02T06:00:00')],
+      pipelines: [makePipeline('implementation', 'IN_PROGRESS', recentStart)],
     });
     await setupStore(handle, [wp]);
 

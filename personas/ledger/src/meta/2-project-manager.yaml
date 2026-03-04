@@ -1,6 +1,7 @@
 number: 2
 role: Project Manager
 vs_file_name: 2-pm.agent.md
+id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 version: "3.5.1"
 changelog:

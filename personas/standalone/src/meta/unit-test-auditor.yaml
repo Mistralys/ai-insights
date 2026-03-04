@@ -2,6 +2,7 @@ slug: unit-test-auditor
 name: "Unit Test Auditor"
 description: "Audit specific codebase parts."
 vs_file_name: unit-test-auditor.agent.md
+id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
 version: "1.0.1"
 last_updated: "2026-02-23"

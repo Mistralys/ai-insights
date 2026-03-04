@@ -377,8 +377,9 @@ function validateCcFileName(persona, suite) {
 // Frontmatter templates
 // ---------------------------------------------------------------------------
 
-// LEDGER — preserved byte-for-byte from pre-WP-004 baseline
+// LEDGER — WP-002 added id: field; remaining fields are the pre-WP-002 baseline
 const FRONTMATTER_LEDGER_VSCODE = `---
+id: {{id}}
 name: '{{number}} - {{role}} v{{version}}'
 description: 'Step {{number}}/{{total}} in the agent workflow.'
 role: {{role}}
@@ -406,6 +407,7 @@ mcpServers:
 
 // STANDALONE — no role, no mcpServers; uses slug-based identification
 const FRONTMATTER_STANDALONE_VSCODE = `---
+id: {{id}}
 name: '{{name}}'
 description: '{{description}}'
 author: {{author}}

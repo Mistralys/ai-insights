@@ -2,6 +2,7 @@ slug: whatsnew-curator
 name: "WHATSNEW Curator"
 description: "Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only."
 vs_file_name: whatsnew-curator.agent.md
+id: standalone-whatsnew-curator
 cc_file_name: whatsnew-curator.md
 version: "1.0.0"
 last_updated: "2026-02-25"

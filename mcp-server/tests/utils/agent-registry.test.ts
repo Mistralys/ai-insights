@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import {
   discoverAgents,
   getAgentHandle,
+  getAgentId,
   isRegistryLoaded,
   resetRegistry,
 } from '../../src/utils/agent-registry.js';
@@ -15,11 +16,12 @@ import {
 async function writeAgentFile(
   dir: string,
   filename: string,
-  fm: { name?: string; role?: string; extra?: string } = {},
+  fm: { name?: string; role?: string; id?: string; extra?: string } = {},
 ): Promise<void> {
   const lines: string[] = ['---'];
   if (fm.name !== undefined) lines.push(`name: ${fm.name}`);
   if (fm.role !== undefined) lines.push(`role: ${fm.role}`);
+  if (fm.id !== undefined) lines.push(`id: ${fm.id}`);
   if (fm.extra) lines.push(fm.extra);
   lines.push('---', '', '# Body text');
   await writeFile(join(dir, filename), lines.join('\n'), 'utf8');
@@ -48,6 +50,10 @@ describe('AC: module exports', () => {
 
   it('exports getAgentHandle as a function', () => {
     expect(typeof getAgentHandle).toBe('function');
+  });
+
+  it('exports getAgentId as a function', () => {
+    expect(typeof getAgentId).toBe('function');
   });
 
   it('exports isRegistryLoaded as a function', () => {
@@ -478,5 +484,129 @@ describe('AC: role collision warning', () => {
     const calls = stderrSpy.mock.calls.map((c) => String(c[0]));
     const hasCollisionWarning = calls.some((msg) => msg.includes('Role collision'));
     expect(hasCollisionWarning).toBe(false);
+  });
+});
+// ─── AC: getAgentId() ────────────────────────────────────────────────────────
+
+describe('AC: getAgentId()', () => {
+  it('returns the correct id for a known role after discovery', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    expect(getAgentId('Developer')).toBe('ledger-3-dev');
+  });
+
+  it('returns null for an unknown role', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    expect(getAgentId('UnknownRole')).toBeNull();
+  });
+
+  it('returns null before discoverAgents has been called', () => {
+    expect(getAgentId('Developer')).toBeNull();
+  });
+
+  it('returns null for a role whose file has no id: field', async () => {
+    await writeAgentFile(tmpDir, '4-qa.agent.md', {
+      name: '4 - QA v3.5.3',
+      role: 'QA',
+      // no id field
+    });
+    await discoverAgents(tmpDir);
+    expect(getAgentId('QA')).toBeNull();
+  });
+
+  it('returns null after resetRegistry even if discovery was performed', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    resetRegistry();
+    expect(getAgentId('Developer')).toBeNull();
+  });
+});
+
+// ─── AC: parseFrontmatter id extraction (via discoverAgents) ─────────────────
+
+describe('AC: parseFrontmatter id: extraction', () => {
+  it('correctly extracts a bare id: value', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    expect(getAgentId('Developer')).toBe('ledger-3-dev');
+  });
+
+  it('returns undefined for id: when the field is absent (backward compat)', async () => {
+    // File with name + role but no id:
+    await writeAgentFile(tmpDir, 'legacy.agent.md', {
+      name: 'Legacy Agent v1.0.0',
+      role: 'QA',
+    });
+    await discoverAgents(tmpDir);
+    // getAgentHandle still works
+    expect(getAgentHandle('QA')).toBe('Legacy Agent v1.0.0');
+    // getAgentId returns null (no id in registry)
+    expect(getAgentId('QA')).toBeNull();
+  });
+
+  it('builds both handle and id maps when a file has all three fields', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    expect(getAgentHandle('Developer')).toBe('3 - Developer v3.5.2');
+    expect(getAgentId('Developer')).toBe('ledger-3-dev');
+  });
+});
+
+// ─── AC: resetRegistry() clears both maps ────────────────────────────────────
+
+describe('AC: resetRegistry() clears both handle map and id map', () => {
+  it('clears the handle map', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    resetRegistry();
+    expect(getAgentHandle('Developer')).toBeNull();
+  });
+
+  it('clears the id map', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    resetRegistry();
+    expect(getAgentId('Developer')).toBeNull();
+  });
+
+  it('clears the loaded flag', async () => {
+    await writeAgentFile(tmpDir, '3-dev.agent.md', {
+      name: '3 - Developer v3.5.2',
+      role: 'Developer',
+      id: 'ledger-3-dev',
+    });
+    await discoverAgents(tmpDir);
+    expect(isRegistryLoaded()).toBe(true);
+    resetRegistry();
+    expect(isRegistryLoaded()).toBe(false);
   });
 });

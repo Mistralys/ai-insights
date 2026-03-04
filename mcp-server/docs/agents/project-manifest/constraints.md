@@ -455,7 +455,7 @@ interface HandoffNote {
 
 ### 28. Prefer Real Implementations Over `vi.mock` for Agent Registry and Ledger Tests
 
-**Rule:** When writing tests that involve the agent registry (`discoverAgents`, `isRegistryLoaded`, `getAgentHandle`) or `LedgerStore`, use the real implementations backed by a temporary directory rather than `vi.mock`.
+**Rule:** When writing tests that involve the agent registry (`discoverAgents`, `isRegistryLoaded`, `getAgentHandle`, `getAgentId`) or `LedgerStore`, use the real implementations backed by a temporary directory rather than `vi.mock`.
 
 **Pattern:**
 ```typescript

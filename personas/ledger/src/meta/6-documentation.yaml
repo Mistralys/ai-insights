@@ -1,6 +1,7 @@
 number: 6
 role: Documentation
 vs_file_name: 6-docs.agent.md
+id: ledger-6-docs
 cc_file_name: 6-documentation.md
 version: "3.5.3"
 changelog:

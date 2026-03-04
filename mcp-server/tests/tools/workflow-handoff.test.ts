@@ -1195,6 +1195,12 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     await writeFile(join(agentDir, filename), content, 'utf8');
   }
 
+  /** Write a minimal *.agent.md file that includes an id: frontmatter field. */
+  async function writeAgentFileWithId(filename: string, name: string, role: string, id: string): Promise<void> {
+    const content = `---\nid: ${id}\nname: ${name}\nrole: ${role}\n---\n\n# Body`;
+    await writeFile(join(agentDir, filename), content, 'utf8');
+  }
+
   /** Build a minimal RootIndex with optional field overrides. */
   function makeAutoHandoffRoot(overrides: Partial<RootIndex> = {}): RootIndex {
     return {
@@ -1345,6 +1351,42 @@ describe('Auto-handoff: buildHandoffResponse with auto_handoff', () => {
     expect(result.auto_handoff.agent_name).toBe('3 - Developer v3.1.2');
   });
 
+  it('WP-005: auto_handoff includes agent_id when persona has id: frontmatter', async () => {
+    await writeAgentFileWithId('4-qa.agent.md', '4 - QA v1.0', 'QA', 'ledger-4-qa');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_id).toBe('ledger-4-qa');
+  });
+
+  it('WP-005: auto_handoff.prompt starts with @id\\n when persona has id: frontmatter', async () => {
+    await writeAgentFileWithId('4-qa.agent.md', '4 - QA v1.0', 'QA', 'ledger-4-qa');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
+    );
+
+    expect(result.auto_handoff.prompt).toBe(`@ledger-4-qa\nProject path: ${PLAN_PATH}`);
+  });
+
+  it('WP-005: auto_handoff has no agent_id and plain prompt when persona lacks id: (backward compat)', async () => {
+    await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      buildHandoffResponse('Developer', 'READY_FOR_QA', 'All implemented.', undefined, PLAN_PATH, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_id).toBeUndefined();
+    expect(result.auto_handoff.prompt).toBe(`Project path: ${PLAN_PATH}`);
+  });
+
   it('depth boundary: auto_handoff present at MAX-1, absent at MAX', async () => {
     await writeAgentFile('4-qa.agent.md', '4 - QA v1.0', 'QA');
     await discoverAgents(agentDir);
@@ -1398,6 +1440,19 @@ describe('buildHandoffPrompt', () => {
 
   it('handles paths containing spaces', () => {
     expect(buildHandoffPrompt('/users/me/my project')).toBe('Project path: /users/me/my project');
+  });
+
+  it('WP-005: prepends @id\\n when agentId is provided', () => {
+    expect(buildHandoffPrompt('/some/project/path', 'ledger-3-dev')).toBe('@ledger-3-dev\nProject path: /some/project/path');
+  });
+
+  it('WP-005: backward compat — omits prefix when agentId is undefined', () => {
+    expect(buildHandoffPrompt('/some/project/path', undefined)).toBe('Project path: /some/project/path');
+  });
+
+  it('WP-005: @id prefix appears at position 0 of the prompt string', () => {
+    const prompt = buildHandoffPrompt('/proj', 'ledger-4-qa');
+    expect(prompt.startsWith('@ledger-4-qa\n')).toBe(true);
   });
 });
 

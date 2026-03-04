@@ -158,6 +158,11 @@ function validateVSCodeFrontmatter(dir) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'vs_file_name:' field${colors.reset}`);
       warningCount++;
     }
+
+    if (!fields.id) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'id:' field${colors.reset}`);
+      warningCount++;
+    }
   }
 
   if (warningCount === 0) {
@@ -389,6 +394,11 @@ function validateStandaloneVSCodeFrontmatter(dir) {
 
     if (!fields.vs_file_name) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'vs_file_name:' field${colors.reset}`);
+      warningCount++;
+    }
+
+    if (!fields.id) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'id:' field${colors.reset}`);
       warningCount++;
     }
   }

@@ -1,6 +1,7 @@
 number: 3
 role: Developer
 vs_file_name: 3-dev.agent.md
+id: ledger-3-dev
 cc_file_name: 3-developer.md
 version: "3.5.2"
 changelog:

@@ -94,6 +94,14 @@
 
 25. **`role` values must match `AGENT_ROLES`** in `mcp-server/src/utils/constants.ts`. The sync script's `KNOWN_ROLES` array mirrors this and must be kept in manual sync. Mismatched roles produce advisory warnings.
 
+25b. **`id` naming convention and stability rules:**
+   - **Ledger personas**: `id` must follow `ledger-{vs_file_name stem}` — e.g. `vs_file_name: 3-dev.agent.md` → `id: ledger-3-dev`.
+   - **Standalone personas**: `id` must follow `standalone-{vs_file_name stem}` — e.g. `vs_file_name: researcher.agent.md` → `id: standalone-researcher`.
+   - **Format constraints**: lowercase only, no spaces, no special characters except hyphens.
+   - **Stability**: `id` values must never change once published — they are the routing key used by VS Code `@id` subagent routing. Version bumps, renames, or persona reordering must not alter the `id`.
+   - **Uniqueness**: `id` values must be globally unique across all custom agents in the user's VS Code instance. The `ledger-` and `standalone-` namespace prefixes isolate these personas from each other and from any third-party agents the user may have installed.
+   - **Claude Code output is unaffected**: `id:` is only added to `FRONTMATTER_LEDGER_VSCODE` and `FRONTMATTER_STANDALONE_VSCODE`. The Claude Code frontmatter templates (`FRONTMATTER_LEDGER_CC`, `FRONTMATTER_STANDALONE_CC`) do not include `id:` — Claude Code uses name-derivation routing, not `@id` routing.
+
 26. **`default_version` in `_shared.yaml` applies to all personas** unless overridden per-persona. Currently only Agent 1 (Planner) overrides the version (uses `1.3.0` while others use `3.4.0`).
 
 27. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — `buildForTarget()` emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to both suites (ledger, standalone).

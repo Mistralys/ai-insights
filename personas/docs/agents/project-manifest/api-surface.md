@@ -161,6 +161,7 @@ Use these flags in content templates to write platform-conditional blocks:
 |-------|------|----------|-------------|
 | `number` | `int` | yes | Agent position (1–7) |
 | `role` | `string` | yes | Workflow role identifier — must match `AGENT_ROLES` in MCP server |
+| `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `ledger-{vs_file_name stem}` (e.g. `ledger-3-dev` for `3-dev.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
 | `vs_file_name` | `string` | yes | Output filename when synced to VS Code prompts dir |
 | `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
 | `version` | `string` | no | Overrides `default_version` for this persona |
@@ -178,10 +179,11 @@ Use these flags in content templates to write platform-conditional blocks:
 
 ### Ledger — VS Code (`FRONTMATTER_LEDGER_VSCODE`)
 
-Written to `personas/ledger/vs-code/`. Identical to the pre-WP-004 baseline.
+Written to `personas/ledger/vs-code/`.
 
 ```yaml
 ---
+id: {{id}}
 name: '{{number}} - {{role}} v{{version}}'
 description: 'Step {{number}}/{{total}} in the agent workflow.'
 role: {{role}}
@@ -220,6 +222,7 @@ Written to `personas/standalone/vs-code/`. No `role`. Uses the persona `name` fi
 
 ```yaml
 ---
+id: {{id}}
 name: '{{name}}'
 description: '{{description}}'
 author: {{author}}
@@ -273,6 +276,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `slug` | `string` | yes | Kebab-case identifier (e.g. `"researcher"`, `"manifest-curator"`) |
+| `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `standalone-{vs_file_name stem}` (e.g. `standalone-researcher` for `researcher.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
 | `name` | `string` | yes | Human-readable display name including version (e.g. `"Researcher v1.0.1"`) |
 | `description` | `string` | yes | Short description of the persona's purpose |
 | `vs_file_name` | `string` | yes | Output filename for VS Code sync (e.g. `"researcher.agent.md"`) |
@@ -311,8 +315,8 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `extractVSFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `vs_file_name` field or null |
 | `extractCCFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `name` field (trimmed) + `.md`, or null |
 | `parseFrontmatter` | `(filePath: string) → Object \| null` | Reads all top-level YAML frontmatter fields into a plain object |
-| `validateVSCodeFrontmatter` | `(dir: string) → void` | Validates `role`, `name`, and `vs_file_name` fields in ledger VS Code persona frontmatter |
-| `validateStandaloneVSCodeFrontmatter` | `(dir: string) → void` | Validates standalone VS Code persona frontmatter: requires `name` and `vs_file_name`; no `role` required; warns on failures but does not block sync |
+| `validateVSCodeFrontmatter` | `(dir: string) → void` | Validates `role`, `name`, `vs_file_name`, and `id` fields in ledger VS Code persona frontmatter; warns (non-blocking) when `id:` is missing |
+| `validateStandaloneVSCodeFrontmatter` | `(dir: string) → void` | Validates standalone VS Code persona frontmatter: requires `name`, `vs_file_name`, and `id`; no `role` required; warns on failures (including missing `id:`) but does not block sync |
 | `validateCCFrontmatter` | `(dir: string) → void` | Validates `name` (kebab-case with numeric prefix), `role`, `permissionMode`, `model`, `memory` in CC persona frontmatter |
 | `syncFromDir` | `(sourceDir, targetDir, extractFileNameFn, label, dryRun?) → void` | Generic copy helper: reads all `.md` files from sourceDir, extracts deployment name via `extractFileNameFn`, copies to targetDir |
 | `syncVSCode` | `(dryRun?: boolean, customPath?: string \| null) → void` | Syncs `personas/ledger/vs-code/` → VS Code prompts dir; calls `validateVSCodeFrontmatter` |
