@@ -1,5 +1,10 @@
 # AI Insights Changelog
 
+## v1.7.0 - CLI and more
+- CLI: Added a handy CLI menu.
+- Personas: Fixed VS Code subagent call syntax.
+- MCP: Tool handling improvements.
+
 ## v1.6.1 - Ledger Personas Improvements
 - Personas: Simplified the preflight check.
 - Personas: Avoiding the first tool call missing the agent role.
