@@ -87,6 +87,13 @@ function readVersion() {
   } catch { return 'unknown'; }
 }
 
+function readSubVersion(subDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(subDir, 'package.json'), 'utf8'));
+    return pkg.version ? `v${pkg.version}` : 'unknown';
+  } catch { return 'unknown'; }
+}
+
 // ─── Script runners ───────────────────────────────────────────────────────────
 
 /**
@@ -690,10 +697,16 @@ function renderMenu(version) {
   console.log(C.cyan(BANNER_LINES.join('\n')));
   console.log(C.dim(`  Workspace CLI  ${version}\n`));
 
+  const catVersions = {
+    'MCP Server': readSubVersion(MCP_SERVER_DIR),
+    'Personas':   readSubVersion(PERSONAS_DIR),
+  };
+
   // Group commands by category (preserving insertion order)
   const cats = [...new Set(COMMANDS.map((c) => c.category))];
   for (const cat of cats) {
-    console.log(C.bold(`  ${cat}`));
+    const subVer = catVersions[cat] ? C.dim(` ${catVersions[cat]}`) : '';
+    console.log(C.bold(`  ${cat}`) + subVer);
     for (const cmd of COMMANDS.filter((c) => c.category === cat)) {
       const key   = C.cyan(`${cmd.key}.`);
       const label = cmd.label.padEnd(26);
