@@ -1,3 +1,3 @@
-**Step 1 — Detect the active project**
+**Detect the active project**
 
-Pass `cwd_path` set to the workspace root in your first tool call (e.g., `ledger_get_next_action`). Project detection is automatic — the tool resolves the matching project from the centralized ledger and reads the correct plan. You no longer need to call `ledger_detect_project` separately.
+Combine project detection with your first action query — call `ledger_get_next_action` with `cwd_path` (workspace root) and `agent_role: "{{role}}"`. The tool resolves the matching project from the centralized ledger. A successful response also confirms the MCP server is reachable. On failure, stop immediately:

@@ -1,1 +1,8 @@
-The ledger tools are self-documenting: each action response includes a `next_steps` array with the exact tool calls to make, each tool response includes `--- NEXT STEP ---` guidance, and parameter descriptions document required fields and allowed values. If you need detailed usage examples or parameter documentation for any tool, call `ledger_help` (with an optional `tool_name` for a specific tool).
+### Self-documenting tools
+
+The ledger tools guide you at every step:
+
+- Each action response includes a `next_steps` array with the exact tool calls to make.
+- Each tool response includes `--- NEXT STEP ---` guidance.
+- Parameter descriptions document required fields and allowed values.
+- For detailed usage examples, call `ledger_help` (with an optional `tool_name` for a specific tool).

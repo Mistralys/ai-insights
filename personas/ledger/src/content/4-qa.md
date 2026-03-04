@@ -40,10 +40,6 @@ You will be provided with:
 {{> mcp-preflight-detect}}
 {{/if}}
 
-{{#if has_detect_project}}
-{{> mcp-preflight-verify-with-detect}}
-{{/if}}
-
 {{> mcp-unavailable}}
 
 ---

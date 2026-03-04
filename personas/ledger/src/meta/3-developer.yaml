@@ -2,8 +2,9 @@ number: 3
 role: Developer
 vs_file_name: 3-dev.agent.md
 cc_file_name: 3-developer.md
-version: "3.5.1"
+version: "3.5.2"
 changelog:
+  - "3.5.2: Simplified preflight and some verbose sections."
   - "3.5.1: Added capabilities and rework sections, added missing add observation tool."
   - "3.5.0: Initial changelogged version."
 
