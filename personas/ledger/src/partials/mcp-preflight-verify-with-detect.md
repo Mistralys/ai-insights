@@ -1,3 +1,3 @@
 **Step 2 — Verify MCP server reachability**
 
-Call `ledger_get_project_status` with the resolved `project_path`. Any successful response (status data or "not initialized" message) confirms the server is running. On failure, stop immediately:
+A successful response to the `ledger_get_next_action` call in Step 1 confirms the MCP server is reachable and the project was detected. On failure, stop immediately:

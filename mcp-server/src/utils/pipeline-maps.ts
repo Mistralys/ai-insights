@@ -62,13 +62,28 @@ export const PIPELINE_AGENT_MAP: Record<PipelineType, string> = {
 
 /**
  * Map of pipeline type to the next agent in the pipeline chain.
- * Used to route handoff notes to the correct recipient agent.
+ * Used to route handoff notes to the correct recipient agent on PASS.
  */
 export const NEXT_AGENT_MAP: Record<PipelineType, string> = {
   'implementation': 'QA',
   'qa': 'Reviewer',
   'code-review': 'Documentation',
   'documentation': 'Synthesis',
+};
+
+/**
+ * Map of pipeline type to the agent that should handle rework on FAIL.
+ * QA/code-review/implementation failures route back to Developer;
+ * documentation failures stay with Documentation (self-rework).
+ *
+ * Cross-ref: `developerReworkTypes` in workflow-helpers.ts is derived from
+ * this map at runtime so the two cannot silently diverge.
+ */
+export const FAIL_ROUTING_MAP: Record<PipelineType, string> = {
+  'implementation': 'Developer',
+  'qa': 'Developer',
+  'code-review': 'Developer',
+  'documentation': 'Documentation',
 };
 
 /**
@@ -80,3 +95,27 @@ export const NEXT_AGENT_MAP: Record<PipelineType, string> = {
 export const AGENT_PIPELINE_MAP: Record<string, PipelineType> = Object.fromEntries(
   PIPELINE_TYPES.map((type): [string, PipelineType] => [PIPELINE_AGENT_MAP[type], type])
 );
+
+/**
+ * Returns all pipeline types that follow the given type in the canonical pipeline
+ * ordering (PIPELINE_TYPES). Returns an empty array for the last stage or an
+ * unknown type.
+ * Per §8.4: getDownstreamTypes("implementation") → ["qa", "code-review", "documentation"]
+ */
+export function getDownstreamTypes(pipelineType: PipelineType): PipelineType[] {
+  const index = PIPELINE_TYPES.indexOf(pipelineType);
+  if (index === -1 || index === PIPELINE_TYPES.length - 1) return [];
+  return [...PIPELINE_TYPES.slice(index + 1)];
+}
+
+/**
+ * Returns all pipeline types that precede the given type in the canonical pipeline
+ * ordering (PIPELINE_TYPES). Returns an empty array for the first stage or an
+ * unknown type.
+ * Per §8.5: getUpstreamTypes("documentation") → ["implementation", "qa", "code-review"]
+ */
+export function getUpstreamTypes(pipelineType: PipelineType): PipelineType[] {
+  const index = PIPELINE_TYPES.indexOf(pipelineType);
+  if (index === -1 || index === 0) return [];
+  return [...PIPELINE_TYPES.slice(0, index)];
+}

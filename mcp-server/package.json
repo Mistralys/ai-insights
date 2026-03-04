@@ -1,6 +1,6 @@
 {
   "name": "project-ledger-mcp",
-  "version": "1.5.0",
+  "version": "1.7.0",
   "type": "module",
   "description": "MCP server for Project Ledger workflow coordination",
   "main": "dist/index.js",
@@ -9,6 +9,7 @@
     "predev": "npm run sync-version",
     "build": "tsc",
     "dev": "tsx src/index.ts",
+    "pretest": "node ../scripts/build-personas.js --check",
     "test": "vitest run",
     "test:watch": "vitest",
     "check:roles": "node ../scripts/check-known-roles.js",

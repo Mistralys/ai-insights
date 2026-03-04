@@ -135,13 +135,19 @@ returned by some methods, you have nothing to update.
 | `- Updated \`constraints.md\`: renumbered all constraints from a mixed…` | `- Constraints: Renumbered to clean sequential 1–38 scheme.` |
 | Bullet that names the file path | Bullet that names the module/class concept |
 | Long prose breaking-change section | Short paragraph: what changed, what to do |
+| Bullet names specific functions/files: `Fixed \`asyncio.get_event_loop()\` deprecation in \`mcp_client.py\`` | State the outcome only: `Fixed event loop deprecation issue.` |
+| Bullet includes library version constraints: `Fixed parsing for \`lib\` ≥ 0.1.0` | Drop version detail: `Fixed MCP tool response parsing.` |
+| Bullet explains internal cause: `Rebuilt stale dist/ — was causing silent failures` | Name the visible symptom: `Fixed root index not found failures.` |
+| Bullet is trivial housekeeping: `Added .env to .gitignore` | Drop the entry entirely. |
+| Bullet over-specifies a docs change: `Updated model name in .env.example and README to claude-sonnet-4` | Summarise: `Updated .env.example.` |
 
 ---
 
 ## Strict Constraints
 
 - **Facts only:** Every bullet must trace back to a commit, diff, or existing changelog entry. Never invent changes.
-- **No implementation detail:** Changelogs describe *what* changed and *why*, not *how*. No method bodies, no algorithm descriptions.
+- **No implementation detail:** Changelogs describe *what area* was affected and the *outcome*, not *how* or *why*. Strip file names, function names, library versions, and technical root causes. Keep only information a user would recognise (e.g. a visible error message). If the only interesting fact is that something was fixed or updated, say exactly that.
+- **Trivia filter:** Omit purely internal housekeeping that has no user-facing effect — `.gitignore` tweaks, CI config changes, lockfile updates, dependency-pin bumps. If a housekeeping change *did* fix a visible problem, log the fix, not the housekeeping.
 - **Preserve links:** Keep all issue/PR links from the original. Add new ones only if the user provides them.
 - **SemVer integrity:** Never alter a version number unless the user explicitly instructs it.
 - **No git write operations:** Do not `git add`, `commit`, `push`, or create branches.

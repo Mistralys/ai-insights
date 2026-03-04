@@ -60,9 +60,50 @@ Exits 0 when `KNOWN_ROLES` and `AGENT_ROLES` are identical; exits 1 with a label
 cd mcp-server && npm run build
 ```
 
+### Persona Freshness Guard
+
+Persona files in `personas/ledger/vs-code/`, `personas/ledger/claude-code/`, `personas/standalone/vs-code/`, and `personas/standalone/claude-code/` are **auto-generated**. If their source templates are edited without rebuilding, the deployed personas silently diverge from the source.
+
+`node scripts/build-personas.js --check` detects stale output and exits non-zero. This check runs automatically before every MCP server test run via the `pretest` npm lifecycle hook in `mcp-server/package.json`:
+
+```bash
+# Trigger automatically:
+cd mcp-server && npm test      # pretest runs build-personas.js --check first
+
+# Or run the check directly from the workspace root:
+node scripts/build-personas.js --check
+
+# Or from inside personas/:
+npm run check
+```
+
+If the check fails (stale persona detected), rebuild with:
+
+```bash
+node scripts/build-personas.js
+# or, to rebuild and deploy in one step:
+node scripts/sync-personas.js
+```
+
 ## Project Ledger MCP Server
 
 - [Ledger MCP](/mcp-server/README.md) - Agent workflow ledger storage.
+
+## Orchestrator
+
+The orchestrator is a **headless, deterministic alternative** to running the agent workflow interactively through an AI IDE. It executes the same MCP-server-backed, persona-driven pipeline entirely from the command line — no IDE required.
+
+- [Orchestrator README](/orchestrator/README.md) - Full setup and usage guide.
+
+**Quick start:**
+```bash
+cd orchestrator
+pip install -e ".[anthropic]"   # or ".[google]"
+cp .env.example .env            # fill in your API key
+orchestrate path/to/plan.md
+```
+
+> **Relationship to the IDE workflow:** Both workflows use the same MCP server and persona prompts. The orchestrator is an alternative execution mode; the IDE-based workflow remains fully functional.
 
 ## LLM Discussion Archive
 
@@ -71,3 +112,13 @@ cd mcp-server && npm run build
 ## Prompt Archive
 
 - [Reusable Prompts](/prompts/)
+
+## Development
+
+After cloning the repository, activate the pre-commit persona freshness guard:
+
+```
+node scripts/install-hooks.js
+```
+
+This sets `git config core.hooksPath .githooks`, enabling a pre-commit hook that runs `node scripts/build-personas.js --check` before every commit. The hook exits non-zero if any generated persona file is stale, preventing commits with out-of-date output.

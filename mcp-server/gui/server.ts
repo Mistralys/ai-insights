@@ -21,6 +21,8 @@ import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
 import {
   handleListProjects,
   handleGetProject,
+  handleGetPlanDocument,
+  handleGetSynthesisDocument,
   handleListWorkPackages,
   handleGetWorkPackage,
   handleDeleteProject,
@@ -153,6 +155,15 @@ function matchRoute(
 
   const rest = segments.slice(1);
 
+  // Route dispatch note:
+  // Routes are matched by segment count (rest.length) first, then by segment values.
+  // Because the dispatcher walks the if-else chain in declaration order, two routes
+  // that share the same rest.length value are ordered by their position here — the
+  // first matching branch wins and subsequent branches at the same length are shadowed.
+  // When adding a new route with the same rest.length as an existing one (e.g. a future
+  // /:slug/synthesis at length 3 alongside /:slug/plan), make sure the more-specific
+  // pattern appears BEFORE the catch-all pattern at that length, or it will never match.
+
   // GET /api/insights
   if (method === 'GET' && rest.length === 1 && rest[0] === 'insights') {
     return () => handleGetInsights(ledgerRoot);
@@ -161,6 +172,28 @@ function matchRoute(
   // GET /api/projects
   if (method === 'GET' && rest.length === 1 && rest[0] === 'projects') {
     return () => handleListProjects(ledgerRoot);
+  }
+
+  // GET /api/projects/:slug/plan
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'plan'
+  ) {
+    const slug = rest[1]!;
+    return () => handleGetPlanDocument(ledgerRoot, slug);
+  }
+
+  // GET /api/projects/:slug/synthesis
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'synthesis'
+  ) {
+    const slug = rest[1]!;
+    return () => handleGetSynthesisDocument(ledgerRoot, slug);
   }
 
   // GET /api/projects/:slug

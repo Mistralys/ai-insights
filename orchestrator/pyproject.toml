@@ -1,0 +1,54 @@
+[project]
+name = "ai-insights-orchestrator"
+version = "0.1.0"
+description = "LangGraph + Deep Agents orchestrator for ledger-based agent workflow"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.4",
+    "deepagents>=0.3",
+    "langchain-mcp-adapters>=0.2",
+    "langchain-core>=0.3.45",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+anthropic = [
+    "langchain-anthropic>=0.3.10",
+]
+google = [
+    "langchain-google-genai>=2.0",
+]
+checkpoint = [
+    "langgraph-checkpoint-sqlite",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[project.scripts]
+orchestrate = "src.cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: end-to-end graph execution tests (no real MCP or LLM required)",
+    "live: requires a built MCP server and a real LLM API key",
+]

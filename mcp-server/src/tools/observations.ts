@@ -5,7 +5,7 @@ import { now } from '../utils/timestamp.js';
 import { withLock } from '../storage/file-lock.js';
 import type { PipelineComment, IncidentContext } from '../schema/work-package.js';
 import type { ProjectComment } from '../schema/root-index.js';
-import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { PipelineTypeEnum } from '../utils/pipeline-maps.js';
 
 /**
@@ -15,10 +15,11 @@ import { PipelineTypeEnum } from '../utils/pipeline-maps.js';
  * Comments do NOT include an agent field (agent is inferred from pipeline type).
  */
 const AddObservationSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   pipeline_type: PipelineTypeEnum.describe('Pipeline type to add the observation to: "implementation", "qa", "code-review", or "documentation"'),
   type: z
@@ -28,13 +29,18 @@ const AddObservationSchema = z.object({
     ),
   priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   note: z.string().describe('Detailed description of the observation'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function addObservation(args: z.infer<typeof AddObservationSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -104,7 +110,8 @@ async function addObservation(args: z.infer<typeof AddObservationSchema>) {
  * For incident type comments, context is required.
  */
 const AddProjectCommentSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   type: z.string().describe('Comment type: "incident", "note", or "decision"'),
   priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
@@ -120,16 +127,21 @@ const AddProjectCommentSchema = z.object({
     .passthrough()
     .optional()
     .describe('REQUIRED when type is "incident". Provide os, tool, resolved fields at minimum.'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
-    await withLock(args.project_path, async () => {
+    await withLock(store.storageDir, async () => {
       // 1. Validate context for incident type
       if (args.type === 'incident' && !args.context) {
         throw new Error(
@@ -190,12 +202,20 @@ async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) 
 /**
  * Register observation tools on the MCP server
  */
+/**
+ * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
+ */
+export const _internal = {
+  AddObservationSchema,
+  AddProjectCommentSchema,
+};
+
 export function register(server: McpServer): void {
   server.registerTool(
     'ledger_add_observation',
     {
       description: 'Add an observation/comment to the most recent pipeline of the specified type. REQUIRED params: project_path, work_package_id, pipeline_type, type, priority, note. The pipeline must already exist (use ledger_start_pipeline first).',
-      inputSchema: AddObservationSchema.passthrough(),
+      inputSchema: AddObservationSchema,
     },
     addObservation as any
   );
@@ -204,7 +224,7 @@ export function register(server: McpServer): void {
     'ledger_add_project_comment',
     {
       description: 'Add a project-level comment. REQUIRED params: project_path, type, priority, agent, note. If type is "incident", the context param is also required (with os, tool, resolved fields).',
-      inputSchema: AddProjectCommentSchema.passthrough(),
+      inputSchema: AddProjectCommentSchema,
     },
     addProjectComment as any
   );

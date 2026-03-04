@@ -1,8 +1,11 @@
 number: 7
 role: Synthesis
-version: "3.5.0"
 vs_file_name: 7-synthesis.agent.md
 cc_file_name: 7-synthesis.md
+version: "3.5.1"
+changelog:
+  - "3.5.1: Ledger help tool as note only."
+  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode
@@ -21,8 +24,6 @@ self_documenting_note: true
 has_incident_logging: false
 
 mcp_tools:
-  - tool: ledger_detect_project
-    purpose: Detect the active project from the current workspace path.
   - tool: ledger_get_next_action
     purpose: "Confirm the project is ready for synthesis (expects `GENERATE_SYNTHESIS`)."
   - tool: ledger_get_project_status
@@ -33,5 +34,10 @@ mcp_tools:
     purpose: Read full WP detail including all pipelines, metrics, and comments.
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
+  - tool: ledger_complete_synthesis
+    purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`."
   - tool: ledger_get_handoff_status
     purpose: Compute the final AGENT/STATUS handoff block.
+  - tool: ledger_help
+    note_only: true
+    purpose: "Get usage documentation and examples for any ledger tool."

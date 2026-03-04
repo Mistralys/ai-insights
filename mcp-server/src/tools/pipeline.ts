@@ -3,14 +3,17 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline, HandoffNote } from '../schema/work-package.js';
-import { validatePlanPathOrError } from '../utils/path-validator.js';
+import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
   PipelineTypeEnum,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
+import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
+import { propagateDependencyUnblock } from './work-package.js';
 
 /**
  * Build a next-step guidance string for the agent after completing a pipeline.
@@ -26,17 +29,34 @@ function buildCompletionGuidance(
   wpId: string,
   pipelineType: PipelineType,
   status: 'PASS' | 'FAIL',
+  autoFinalizeResult: 'finalized' | 'blocked' | null = null,
+  unmetCriteria: string[] = [],
 ): string {
   const currentAgent = PIPELINE_AGENT_MAP[pipelineType] ?? pipelineType;
   const nextAgent = NEXT_AGENT_MAP[pipelineType] ?? 'the next agent';
 
   if (status === 'PASS') {
     if (pipelineType === 'documentation') {
+      if (autoFinalizeResult === 'finalized') {
+        return (
+          `\n\n--- NEXT STEP ---\n` +
+          `Pipeline PASS. WP ${wpId} was auto-finalized to COMPLETE (all acceptance criteria met). ` +
+          `Call ledger_get_handoff_status (current_agent: "Documentation") to confirm handoff.`
+        );
+      }
+      if (autoFinalizeResult === 'blocked') {
+        const criteriaList = unmetCriteria.map((c) => `  - ${c}`).join('\n');
+        return (
+          `\n\n--- NEXT STEP ---\n` +
+          `Pipeline PASS but WP ${wpId} was NOT auto-finalized: the following acceptance criteria are still unmet:\n${criteriaList}\n\n` +
+          `Update the unmet criteria via ledger_complete_pipeline (with acceptance_criteria_updates) or ask the Project Manager ` +
+          `to use ledger_update_work_package_status if manual completion is needed.`
+        );
+      }
+      // Fallback (e.g. PM override completing a doc pipeline): preserve original guidance
       return (
         `\n\n--- NEXT STEP ---\n` +
-        `Pipeline PASS. As the Documentation agent, you should now mark ${wpId} as COMPLETE ` +
-        `using ledger_update_work_package_status (status: "COMPLETE", agent: "Documentation"). ` +
-        `Then call ledger_get_handoff_status to confirm handoff.`
+        `Pipeline PASS. Call ledger_get_handoff_status (current_agent: "Documentation") to confirm handoff.`
       );
     }
     return (
@@ -67,13 +87,9 @@ function buildCompletionGuidance(
 
 /**
  * @internal — exported for unit testing only
+ * Intentionally placed here (after all const declarations) to avoid temporal dead zone
+ * with the Zod schemas defined below.
  */
-export const _internal = {
-  PIPELINE_PREREQUISITES,
-  PIPELINE_AGENT_MAP,
-  NEXT_AGENT_MAP,
-  buildCompletionGuidance,
-};
 
 /**
  * Tool: start_pipeline
@@ -82,30 +98,48 @@ export const _internal = {
  * Validates WP is IN_PROGRESS and no duplicate in-progress pipeline exists.
  */
 const StartPipelineSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
-});
+  agent_role: z
+    .string()
+    .describe('Agent role starting the pipeline. If provided, validated against the pipeline type owner.'),
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
-      // 1. Validate WP is IN_PROGRESS
+      // 1. Validate agent role — PM may bypass role ownership (PM Override gate)
+      const expectedAgent = PIPELINE_AGENT_MAP[args.type];
+      const isPmOverride = args.agent_role === 'Project Manager';
+      if (!isPmOverride && expectedAgent !== args.agent_role) {
+        throw new Error(
+          `Pipeline type '${args.type}' can only be started by the ${expectedAgent} agent. You provided agent_role: '${args.agent_role}'.`
+        );
+      }
+
+      // 2. Validate WP is IN_PROGRESS
       if (wp.status !== 'IN_PROGRESS') {
         throw new Error(
           `Cannot start pipeline for work package ${args.work_package_id}: work package status is ${wp.status}. Only IN_PROGRESS work packages can have pipelines started.`
         );
       }
 
-      // 2. Check for duplicate in-progress pipeline of same type
+      // 3. Check for duplicate in-progress pipeline of same type
       const existingInProgress = wp.pipelines.find(
         (p) => p.type === args.type && p.status === 'IN_PROGRESS'
       );
@@ -116,36 +150,61 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
-      // 3. Enforce pipeline ordering: check prerequisite
+      // 4. Enforce pipeline ordering: check prerequisite (most-recent semantics per §8.2)
       const prerequisite = PIPELINE_PREREQUISITES[args.type];
       if (prerequisite !== undefined && prerequisite !== null) {
-        const hasPassPrerequisite = wp.pipelines.some(
-          (p) => p.type === prerequisite && p.status === 'PASS'
-        );
-        if (!hasPassPrerequisite) {
+        const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
+        const mostRecentPrereq = prereqPipelines.at(-1);
+        if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
           throw new Error(
             `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Pipeline order: implementation → qa → code-review → documentation.`
           );
         }
+
+        // 4b. Revalidation guard: reject if a prior run exists and the prerequisite
+        //     PASS is stale after upstream rework (§11.1).
+        const revalidError = checkRevalidationGuard(wp.pipelines, args.type, prerequisite);
+        if (revalidError !== null) {
+          throw new Error(revalidError);
+        }
       }
 
-      // 4. Create new pipeline entry
+      // 5. Create new pipeline entry
       const newPipeline: Pipeline = {
         type: args.type,
         status: 'IN_PROGRESS',
         started_at: now(),
-        summary: [],
+        summary: isPmOverride ? ['[PM Override]'] : [],
       };
 
-      // 5. Increment rework_count if restarting a previously-failed pipeline of the same type
-      const hasPreviousFail = wp.pipelines.some(
-        (p) => p.type === args.type && p.status === 'FAIL'
+      // 6. Increment rework_counts per pipeline type if this is a rework run.
+      //    A rework is triggered by either a direct FAIL on this pipeline type or
+      //    a downstream FAIL that requires this type to re-run (§11.3).
+      const effectiveSamePipelines = wp.pipelines.filter(
+        (p) => p.type === args.type && !p.auto_cancelled
       );
-      if (hasPreviousFail) {
-        wp.rework_count = (wp.rework_count ?? 0) + 1;
+      const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
+      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type);
+      const needsRework = isDirectRework || isDownstreamRework;
+
+      if (needsRework) {
+        const current = wp.rework_counts?.[args.type] ?? 0;
+        const newCount = current + 1;
+        wp.rework_counts = { ...wp.rework_counts, [args.type]: newCount };
       }
 
-      // 6. Append to pipelines array
+      // 6b. Circuit breaker — reject if the per-type rework count has reached the limit
+      // Uses post-increment count; the throw below aborts the write, so the
+      // increment is never persisted if the circuit breaker fires.
+      const effectiveReworkCount = wp.rework_counts?.[args.type] ?? 0;
+      if (effectiveReworkCount >= MAX_REWORK_COUNT) {
+        throw new Error(
+          `Rework circuit breaker: ${args.work_package_id} has reached the maximum rework count (${MAX_REWORK_COUNT}). ` +
+          `Consider cancelling this work package (transition to CANCELLED) or restructuring the approach.`
+        );
+      }
+
+      // 7. Append to pipelines array
       wp.pipelines.push(newPipeline);
 
       // 7. Update assigned_to to reflect the agent now working on this WP
@@ -196,10 +255,11 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
  * Sets status, completion timestamp, summary, and optional fields.
  */
 const CompletePipelineSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
   status: z.enum(['PASS', 'FAIL']).describe('Pipeline result: "PASS" if successful, "FAIL" if issues found'),
@@ -247,16 +307,44 @@ const CompletePipelineSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Notes for the next agent in the pipeline. Will be attached to the WP as a structured handoff note entry.'),
-});
+  agent_role: z
+    .string()
+    .describe('Agent role completing the pipeline. Must match the pipeline type owner (e.g. "QA" for qa pipelines). "Project Manager" is always allowed (PM Override).'),
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
+
+  // Track auto-finalize result to embed in response (set inside updateWorkPackageWithSync callback)
+  let autoFinalizeResult: 'finalized' | 'blocked' | null = null;
+  let unmetCriteriaList: string[] = [];
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // 0. Defense-in-depth: WP must be IN_PROGRESS to complete a pipeline
+      if (wp.status !== 'IN_PROGRESS') {
+        throw new Error(
+          `Cannot complete pipeline for WP ${args.work_package_id}: WP status is ${wp.status}. Only IN_PROGRESS work packages may have pipelines completed.`
+        );
+      }
+
+      // 0b. Agent role must match the pipeline type owner (PM may override)
+      const expectedAgent = PIPELINE_AGENT_MAP[args.type];
+      const isPmOverride = args.agent_role === 'Project Manager';
+      if (!isPmOverride && args.agent_role !== expectedAgent) {
+        throw new Error(
+          `Pipeline type '${args.type}' must be completed by ${expectedAgent}. You provided agent_role: '${args.agent_role}'.`
+        );
+      }
+
       // 1. Find most recent IN_PROGRESS pipeline of given type
       const pipeline = wp.pipelines
         .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
@@ -295,14 +383,51 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
 
           if (criterion) {
             criterion.met = update.met;
+          } else {
+            wp.acceptance_criteria.push({ criterion: update.criterion, met: update.met });
           }
+        }
+      }
+
+      // 4b. Auto-finalize (§WP-006): fires only when Documentation agent completes a
+      // documentation pipeline with PASS and all acceptance criteria are met.
+      // The check occurs AFTER acceptance_criteria_updates so freshly-marked criteria
+      // are evaluated. PM overrides bypass auto-finalize intentionally.
+      const isDocPass = args.type === 'documentation' && args.status === 'PASS';
+      const isDocAgent = args.agent_role === 'Documentation';
+      if (isDocPass && isDocAgent) {
+        const unmet = wp.acceptance_criteria
+          .filter((ac) => !ac.met)
+          .map((ac) => ac.criterion);
+        if (unmet.length === 0) {
+          // All criteria met — auto-finalize WP
+          wp.status = 'COMPLETE';
+          wp.status_changed_at = now();
+          const wpSummary = root.work_packages.find(
+            (s) => s.work_package_id === args.work_package_id
+          );
+          if (wpSummary) {
+            wpSummary.status = 'COMPLETE';
+          }
+          // WP was IN_PROGRESS (non-terminal) → COMPLETE (terminal): decrement counter
+          root.pending_work_packages -= 1;
+          autoFinalizeResult = 'finalized';
+        } else {
+          // Criteria not met — do NOT finalize, flag blocked state
+          unmetCriteriaList = unmet;
+          autoFinalizeResult = 'blocked';
         }
       }
 
       // 5. Append handoff note if provided
       if (args.handoff_notes && args.handoff_notes.length > 0) {
-        const fromAgent = PIPELINE_AGENT_MAP[args.type] ?? args.type;
-        const toAgent = NEXT_AGENT_MAP[args.type] ?? 'Unknown';
+        // PM override: report PM identity instead of the pipeline type's formal owner
+        const fromAgent = isPmOverride
+          ? 'Project Manager (PM Override)'
+          : (PIPELINE_AGENT_MAP[args.type] ?? args.type);
+        const toAgent = args.status === 'FAIL'
+          ? (FAIL_ROUTING_MAP[args.type] ?? 'Developer')
+          : (NEXT_AGENT_MAP[args.type] ?? 'Unknown');
         const note: HandoffNote = {
           from_agent: fromAgent,
           to_agent: toAgent,
@@ -321,18 +446,39 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
       return { wp, root };
     });
 
+    // §6.3: Any → COMPLETE must trigger propagateDependencyUnblock.
+    // The auto-finalize path sets the WP to COMPLETE inside the lock scope above.
+    // We call propagateDependencyUnblock AFTER the lock is released — it acquires
+    // its own separate lock (§12.2, Gotcha 8). Gate on autoFinalizeResult === 'finalized'
+    // so we only pay the I/O cost when a COMPLETE transition actually occurred.
+    if (autoFinalizeResult === 'finalized') {
+      await propagateDependencyUnblock(projectPath, args.work_package_id, { store });
+    }
+
     // Return updated work package with next-step guidance
     const updatedWp = await store.readWorkPackage(args.work_package_id);
     const guidance = buildCompletionGuidance(
       args.work_package_id,
       args.type,
       args.status,
+      autoFinalizeResult,
+      unmetCriteriaList,
     );
+
+    // Build response payload — embed auto-finalize signals if applicable
+    const responsePayload: Record<string, unknown> = { ...updatedWp };
+    if (autoFinalizeResult === 'finalized') {
+      responsePayload.auto_finalized = true;
+    } else if (autoFinalizeResult === 'blocked') {
+      responsePayload.auto_finalize_blocked = true;
+      responsePayload.unmet_criteria = unmetCriteriaList;
+    }
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(updatedWp, null, 2) + guidance,
+          text: JSON.stringify(responsePayload, null, 2) + guidance,
         },
       ],
     };
@@ -356,20 +502,26 @@ async function completePipeline(args: z.infer<typeof CompletePipelineSchema>) {
  * its status to FAIL and recording the cancellation reason as the summary.
  */
 const CancelPipelineSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -421,20 +573,26 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
  * Allows agents to record progress notes without completing the pipeline.
  */
 const UpdatePipelineProgressSchema = z.object({
-  project_path: z.string().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
+  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
   work_package_id: z
     .string()
-    .regex(/^WP-\d{3}$/)
+    .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
   summary: z.array(z.string()).describe('Updated summary strings to record as partial progress'),
-});
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
 async function updatePipelineProgress(args: z.infer<typeof UpdatePipelineProgressSchema>) {
-  const validationError = validatePlanPathOrError(args.project_path);
-  if (validationError) return validationError;
+  let projectPath: string;
+  try {
+    projectPath = await resolveProjectPath(args);
+  } catch (err) {
+    return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
+  }
 
-  const store = new LedgerStore(args.project_path);
+  const store = new LedgerStore(projectPath);
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
@@ -485,7 +643,7 @@ export function register(server: McpServer): void {
     'ledger_start_pipeline',
     {
       description: 'Start a new pipeline for a work package. REQUIRED params: project_path, work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type.',
-      inputSchema: StartPipelineSchema.passthrough(),
+      inputSchema: StartPipelineSchema,
     },
     startPipeline as any
   );
@@ -494,7 +652,7 @@ export function register(server: McpServer): void {
     'ledger_complete_pipeline',
     {
       description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, status (PASS or FAIL), summary. OPTIONAL but important: acceptance_criteria_updates (PRIMARY way to mark AC as met before COMPLETE), artifacts (files_modified, commit_hash), metrics (test_coverage, tests_passed/failed), comments (observations — REQUIRED for implementation pipelines). Must call ledger_start_pipeline first. On completion, response includes a NEXT STEP guidance block.',
-      inputSchema: CompletePipelineSchema.passthrough(),
+      inputSchema: CompletePipelineSchema,
     },
     completePipeline as any
   );
@@ -503,7 +661,7 @@ export function register(server: McpServer): void {
     'ledger_cancel_pipeline',
     {
       description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: project_path, work_package_id, type, reason.',
-      inputSchema: CancelPipelineSchema.passthrough(),
+      inputSchema: CancelPipelineSchema,
     },
     cancelPipeline as any
   );
@@ -512,8 +670,27 @@ export function register(server: McpServer): void {
     'ledger_update_pipeline_progress',
     {
       description: 'Update the summary of the most recent IN_PROGRESS pipeline without completing it. Allows agents to record partial progress notes mid-work. REQUIRED params: project_path, work_package_id, type, summary.',
-      inputSchema: UpdatePipelineProgressSchema.passthrough(),
+      inputSchema: UpdatePipelineProgressSchema,
     },
     updatePipelineProgress as any
   );
 }
+
+/**
+ * @internal — exported for unit testing only. All test-only exports from this module
+ * are consolidated here under `_internal` (see constraint §53).
+ */
+export const _internal = {
+  PIPELINE_PREREQUISITES,
+  PIPELINE_AGENT_MAP,
+  NEXT_AGENT_MAP,
+  FAIL_ROUTING_MAP,
+  buildCompletionGuidance,
+  startPipeline,
+  completePipeline,
+  // Schemas (formerly _schemas — renamed to _internal per §53)
+  StartPipelineSchema,
+  CompletePipelineSchema,
+  CancelPipelineSchema,
+  UpdatePipelineProgressSchema,
+};

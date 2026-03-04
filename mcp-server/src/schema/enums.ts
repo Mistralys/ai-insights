@@ -9,7 +9,7 @@ export type ProjectStatus = z.infer<typeof ProjectStatus>;
 /**
  * Work package status enum matching project-ledger-schema.md
  */
-export const WorkPackageStatus = z.enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED']);
+export const WorkPackageStatus = z.enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED', 'CANCELLED']);
 export type WorkPackageStatus = z.infer<typeof WorkPackageStatus>;
 
 /**

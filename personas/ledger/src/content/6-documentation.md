@@ -49,6 +49,21 @@ You will be provided with:
 
 {{> docs-operational-protocol}}
 
+{{#if has_incident_logging}}
+* **Environment Incident Logging:** {{> incident-logging}}
+{{/if}}
+
+---
+
+## Rework Handling
+
+When `ledger_get_next_action` returns `REWORK`, a previous documentation pipeline has failed. Documentation handles its own rework (failures are self-routed). Follow this focused protocol instead of the full Operational Protocol:
+
+1. **Read the previous failure:** Call `ledger_get_work_package` and examine the most recent `documentation` pipeline's `summary` and `comments` array. These contain the specific issues — they define your rework scope.
+2. **Narrow your focus:** Re-examine only the previously-flagged documentation gaps and any files directly affected. Do not re-run the full Operational Protocol from scratch.
+3. **Check for upstream changes:** Verify whether new implementation or review artifacts have appeared since your last pass. If so, incorporate those changes into your rework.
+4. **Reference the feedback:** In your `ledger_complete_pipeline` call, explicitly note which previous issues you addressed and how.
+
 ---
 
 ## Decision Logic
@@ -68,8 +83,8 @@ You will be provided with:
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the documentation pipeline. Read existing documentation files.
 4. **Update Docs:** Edit the markdown files in the workspace (README, API references, architecture guides).
-5. **Complete Pipeline & Mark Complete:** Call `ledger_complete_pipeline`, then follow the `--- NEXT STEP ---` guidance in the response — it will instruct you to mark the WP as `COMPLETE` via `ledger_update_work_package_status`.
-6. **Repeat:** Call `ledger_get_next_action` again. If it returns `WRITE_DOCS` or `REWORK_DOCS`, repeat from step 3. Continue until the action is `WAIT`.
+5. **Complete Pipeline:** Call `ledger_complete_pipeline` with your summary, comments, and `acceptance_criteria_updates`. When `status: PASS` and all acceptance criteria are met, the WP is automatically transitioned to `COMPLETE` — check the response for `auto_finalized: true`. If criteria are still unmet, the response includes `auto_finalize_blocked: true` and the `unmet_criteria` list; update the criteria and re-run the pipeline.
+6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `WRITE_DOCS` (new documentation pass), `REWORK` (fix documentation issues — see Rework Handling), `FINALIZE_WP` (mark WP as COMPLETE — all criteria met), `UPDATE_CRITERIA` (update unmet acceptance criteria before completing), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 7. {{> handoff-block-vscode}}
 {{else}}

@@ -16,3 +16,18 @@ export const AGENT_ROLES = [
 ] as const;
 
 export type AgentRole = typeof AGENT_ROLES[number];
+
+// Roles that orchestrate the workflow but do not directly execute implementation work.
+// Used to derive CLAIMABLE_ROLES in work-package.ts.
+export const ORCHESTRATING_ROLES = ['Planner', 'Synthesis'] as const;
+export type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
+
+/**
+ * Canonical filenames for the two documents archived into ledger storage.
+ *
+ * Use these constants wherever the filename is referenced as a literal —
+ * in Zod defaults, API handlers, and help-content examples — so that a
+ * single-point change keeps every reference in sync.
+ */
+export const PLAN_ARCHIVE_FILENAME      = 'plan.md'       as const;
+export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;

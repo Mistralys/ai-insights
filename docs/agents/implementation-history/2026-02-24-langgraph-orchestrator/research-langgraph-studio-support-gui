@@ -1,0 +1,60 @@
+# Implementation Guide: LangGraph Studio Compatibility
+
+To enable visual debugging, time-travel, and manual interrupts for the **DEV > QA > Review > Documentation** loops, the orchestrator must meet specific configuration requirements.
+
+### 1. Create the `langgraph.json` Configuration
+
+LangGraph Studio requires a configuration file in the `orchestrator/` root. This file tells the Studio where your graph is defined and which environment variables to load.
+
+**File: `orchestrator/langgraph.json**`
+
+```json
+{
+  "python_version": "3.11",
+  "dependencies": ["."],
+  "env": ".env",
+  "graphs": {
+    "orchestrator": "./src/graph.py:graph"
+  }
+}
+
+```
+
+### 2. Expose the Compiled Graph
+
+The Studio expects a variable or a factory function that returns a `CompiledGraph`. In your current `src/graph.py`, ensure the graph is compiled and assigned to a variable named `graph`.
+
+* **Node & State Access**: The Studio will automatically detect your `WorkflowState` schema to render the current state of the ledger and WP summaries.
+* **Checkpointer Compatibility**: While your plan uses `SqliteSaver`, the Studio manages its own persistence during local development.
+* **Graph Entry**: The Studio will respect the `START` to `supervisor` edge defined in your architecture.
+
+### 3. Environment & MCP Integration
+
+For the Studio to execute the stage nodes (Developer, QA, etc.), it must be able to launch the MCP server as a subprocess.
+
+* **API Keys**: Ensure `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY` are present in the `.env` file used by the Studio.
+* **MCP Pathing**: The `mcp_server_cmd` in `src/config.py` must use an absolute path or a path relative to the `orchestrator/` directory to ensure the `node mcp-server/dist/index.js` command executes correctly within the Studio's environment.
+* **LocalShellBackend**: Since agents use the `LocalShellBackend`, any files changed by the "Developer" agent during a Studio run will be reflected in your real local filesystem.
+
+### 4. Enable Human-in-the-Loop (Review Gate)
+
+To utilize the Studio's "Pause" feature for your **Review** stage, the developer agent should implement the `interrupt_before` parameter during compilation.
+
+**Update `src/graph.py` Compilation:**
+
+```python
+# Add interrupts for the Reviewer and QA nodes to allow manual inspection in the GUI
+graph = builder.compile(
+    checkpointer=checkpointer,
+    interrupt_before=["reviewer", "qa"] 
+)
+
+```
+
+* **Review Cycle**: When the `supervisor` routes to `reviewer`, the Studio will pause execution.
+* **State Editing**: You can manually edit the `stage_result` or `current_wp_id` in the Studio UI before resuming the node.
+
+### 5. Dependency Alignment
+
+Ensure the `pyproject.toml` includes `langgraph>=0.4` and `deepagents>=0.3`. The Studio uses these to build the execution container.
+

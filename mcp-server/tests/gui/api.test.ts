@@ -14,6 +14,8 @@ import { tmpdir } from 'os';
 import {
   handleListProjects,
   handleGetProject,
+  handleGetPlanDocument,
+  handleGetSynthesisDocument,
   handleListWorkPackages,
   handleGetWorkPackage,
   handleDeleteProject,
@@ -23,6 +25,7 @@ import {
   ApiError,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../../src/utils/constants.js';
 import {
   readConfigFromDisk,
   writeConfig,
@@ -39,7 +42,7 @@ import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 /** Build a minimal valid RootIndex. */
 function makeRoot(overrides: Partial<RootIndex> = {}): RootIndex {
   return {
-    plan_file: 'plan.md',
+    plan_file: PLAN_ARCHIVE_FILENAME,
     date_created: now(),
     last_updated: now(),
     status: 'IN_PROGRESS',
@@ -60,7 +63,7 @@ function makeWp(id: string): WorkPackageDetail {
     assigned_to: 'Developer',
     dependencies: [],
     acceptance_criteria: [],
-    revision: 1,
+    revision: 0,
     pipelines: [],
   };
 }
@@ -128,7 +131,7 @@ describe('gui/api.ts', () => {
 
       const result = await handleGetProject(ledgerRoot, '2026-01-01-test');
 
-      expect(result.plan_file).toBe('plan.md');
+      expect(result.plan_file).toBe(PLAN_ARCHIVE_FILENAME);
       expect(result.status).toBe('IN_PROGRESS');
       expect(result.meta).toBeDefined();
       expect(result.meta.slug).toBe('2026-01-01-test');
@@ -138,6 +141,12 @@ describe('gui/api.ts', () => {
       await expect(handleGetProject(ledgerRoot, '2026-01-01-non-existent')).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
+    });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleGetProject(ledgerRoot, '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetProject(ledgerRoot, 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetProject(ledgerRoot, '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 
@@ -166,6 +175,12 @@ describe('gui/api.ts', () => {
         handleListWorkPackages(ledgerRoot, '2026-01-01-does-not-exist')
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleListWorkPackages(ledgerRoot, '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleListWorkPackages(ledgerRoot, 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleListWorkPackages(ledgerRoot, '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
   });
 
   // ─── handleGetWorkPackage ────────────────────────────────────────────────
@@ -193,6 +208,19 @@ describe('gui/api.ts', () => {
       await expect(
         handleGetWorkPackage(ledgerRoot, '2026-01-01-ghost-project', 'WP-001')
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleGetWorkPackage(ledgerRoot, '../escape', 'WP-001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetWorkPackage(ledgerRoot, 'a/b', 'WP-001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetWorkPackage(ledgerRoot, '', 'WP-001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects path-traversal wpIds with NOT_FOUND', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-traversal');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 
@@ -235,6 +263,12 @@ describe('gui/api.ts', () => {
       await expect(
         handleDeleteProject(ledgerRoot, '2026-01-01-phantom-project')
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleDeleteProject(ledgerRoot, '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleDeleteProject(ledgerRoot, 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleDeleteProject(ledgerRoot, '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 
@@ -360,6 +394,74 @@ describe('gui/api.ts', () => {
     });
   });
 
+  // ─── handleGetPlanDocument ───────────────────────────────────────────────
+
+  describe('handleGetPlanDocument', () => {
+    it('happy path: returns { content } for a project with an archived plan.md', async () => {
+      await createProject(ledgerRoot, '2026-01-01-plan-test');
+      const planContent = '# Plan\n\nThis is the plan.';
+      await writeFile(join(ledgerRoot, '2026-01-01-plan-test', PLAN_ARCHIVE_FILENAME), planContent, 'utf-8');
+
+      const result = await handleGetPlanDocument(ledgerRoot, '2026-01-01-plan-test');
+
+      expect(result).toEqual({ content: planContent });
+    });
+
+    it('plan not found: throws NOT_FOUND when project exists but has no plan.md', async () => {
+      await createProject(ledgerRoot, '2026-01-01-no-plan');
+
+      await expect(
+        handleGetPlanDocument(ledgerRoot, '2026-01-01-no-plan')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('project not found: throws NOT_FOUND for a non-existent slug', async () => {
+      await expect(
+        handleGetPlanDocument(ledgerRoot, '2026-01-01-ghost-project')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleGetPlanDocument(ledgerRoot, '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetPlanDocument(ledgerRoot, 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetPlanDocument(ledgerRoot, '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  // ─── handleGetSynthesisDocument ──────────────────────────────────────────
+
+  describe('handleGetSynthesisDocument', () => {
+    it('happy path: returns { content } for a project with an archived synthesis.md', async () => {
+      await createProject(ledgerRoot, '2026-01-01-synthesis-test');
+      const synthesisContent = '# Synthesis\n\nThis is the synthesis report.';
+      await writeFile(join(ledgerRoot, '2026-01-01-synthesis-test', SYNTHESIS_ARCHIVE_FILENAME), synthesisContent, 'utf-8');
+
+      const result = await handleGetSynthesisDocument(ledgerRoot, '2026-01-01-synthesis-test');
+
+      expect(result).toEqual({ content: synthesisContent });
+    });
+
+    it('synthesis not found: throws NOT_FOUND when project exists but has no synthesis.md', async () => {
+      await createProject(ledgerRoot, '2026-01-01-no-synthesis');
+
+      await expect(
+        handleGetSynthesisDocument(ledgerRoot, '2026-01-01-no-synthesis')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('project not found: throws NOT_FOUND for a non-existent slug', async () => {
+      await expect(
+        handleGetSynthesisDocument(ledgerRoot, '2026-01-01-ghost-project')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleGetSynthesisDocument(ledgerRoot, '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetSynthesisDocument(ledgerRoot, 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleGetSynthesisDocument(ledgerRoot, '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
   // ─── handleGetConfig ─────────────────────────────────────────────────────
 
   describe('handleGetConfig', () => {
@@ -367,7 +469,7 @@ describe('gui/api.ts', () => {
       const result = await handleGetConfig(configPath);
 
       expect(result.auto_handoff_enabled).toBe(true);
-      expect(result.max_handoff_depth).toBe(10);
+      expect(result.max_handoff_depth).toBe(50);
     });
   });
 
@@ -380,7 +482,7 @@ describe('gui/api.ts', () => {
       });
 
       expect(result.auto_handoff_enabled).toBe(false);
-      expect(result.max_handoff_depth).toBe(10); // default preserved
+      expect(result.max_handoff_depth).toBe(50); // default preserved
     });
 
     it('throws VALIDATION_ERROR for an invalid type (max_handoff_depth: string)', async () => {

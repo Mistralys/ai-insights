@@ -2,6 +2,8 @@
  * Static documentation strings for all Project Ledger MCP tools.
  * Exported as TOOL_HELP and consumed by help.ts.
  */
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
+
 export const TOOL_HELP: Record<string, string> = {
   overview: `
 # Project Ledger MCP — Tool Reference
@@ -13,10 +15,12 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_get_project_status | project_path | Read project overview |
 | ledger_initialize_project | project_path, plan_file | Create new project ledger |
 | ledger_list_projects | None (status filter optional) | List all tracked projects with status, dates, and plan paths |
+| ledger_complete_synthesis | project_path | Mark synthesis as generated; transitions project to COMPLETE |
 | ledger_get_work_package | project_path, work_package_id | Read a work package's full detail |
 | ledger_list_work_packages | project_path | List work packages (optional: status, assigned_to filters) |
 | ledger_create_work_package | project_path, assigned_to, dependencies, acceptance_criteria, work_package_file | Create a new work package |
 | ledger_claim_work_package | project_path, work_package_id, agent | Claim a READY WP → IN_PROGRESS |
+| ledger_begin_work | project_path, work_package_id, type, agent_role | Claim + start pipeline in one atomic call |
 | ledger_update_work_package_status | project_path, work_package_id, status, agent | Update WP status |
 | ledger_start_pipeline | project_path, work_package_id, type | Start a pipeline (ordered: impl → qa → code-review → docs) |
 | ledger_complete_pipeline | project_path, work_package_id, type, status, summary | Complete a pipeline |
@@ -24,8 +28,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_update_pipeline_progress | project_path, work_package_id, type, summary | Update summary of IN_PROGRESS pipeline without completing it |
 | ledger_add_observation | project_path, work_package_id, pipeline_type, type, priority, note | Add observation to pipeline |
 | ledger_add_project_comment | project_path, type, priority, agent, note | Add project-level comment |
-| ledger_get_next_action | project_path, agent_role | Get next recommended action (singular) |
-| ledger_get_next_actions | project_path, agent_role | Get ALL recommended actions (batch, optional max_results) |
+| ledger_get_next_action | project_path, agent_role | Get next recommended action (optional: max_results for batch mode) |
 | ledger_get_handoff_status | project_path, current_agent | Check handoff status |
 
 ## Common Mistakes
@@ -41,12 +44,12 @@ export const TOOL_HELP: Record<string, string> = {
 ## Workflow Order
 
 1. PM creates work packages (ledger_create_work_package)
-2. Developer claims WP (ledger_claim_work_package), starts pipeline (ledger_start_pipeline type="implementation"), completes pipeline (ledger_complete_pipeline). Note: starting a pipeline auto-updates assigned_to on the WP.
+2. Developer claims WP and starts pipeline in one call (\`ledger_begin_work\` type="implementation", agent_role="Developer"), completes pipeline (ledger_complete_pipeline). Note: starting a pipeline auto-updates assigned_to on the WP.
 3. QA starts pipeline (type="qa"), completes pipeline
 4. Reviewer starts pipeline (type="code-review"), completes pipeline
-5. Documentation starts pipeline (type="documentation"), completes pipeline, then marks WP COMPLETE (ledger_update_work_package_status)
+5. Documentation starts pipeline (type="documentation"), completes pipeline — if status=PASS and all acceptance criteria are met, the WP is automatically transitioned to COMPLETE (auto-finalize, no separate ledger_update_work_package_status call needed)
 
-**Important:** Every ledger_complete_pipeline and ledger_update_work_package_status response includes a "--- NEXT STEP ---" guidance block telling you exactly what to do next. Follow it.
+**Important:** Every ledger_complete_pipeline response includes a "--- NEXT STEP ---" guidance block telling you exactly what to do next. Follow it.
 
 ## Rework After Pipeline FAIL
 
@@ -72,10 +75,10 @@ STATUS: <status>
 
 All three fields are returned by ledger_get_handoff_status — copy them verbatim.
 
-## Batch vs Singular Action Tools
+## Action Tool max_results
 
-- **ledger_get_next_action** (singular): Returns the first actionable WP for your role. Best for simple projects or when you process one WP at a time.
-- **ledger_get_next_actions** (plural): Returns ALL actionable WPs up to max_results (default 5). Best for projects with many independent WPs.
+- **ledger_get_next_action** (singular, default): Returns the first actionable WP for your role. Best for simple projects or when you process one WP at a time.
+- **ledger_get_next_action with max_results > 1**: Returns up to N actionable WPs as an array under the "actions" key. Best for projects with many independent WPs.
 
 ## Storage Architecture
 
@@ -117,15 +120,24 @@ Create a new project ledger. Call this once at project start.
 This also creates a \`.meta.json\` entry in the centralized ledger so the project
 is immediately discoverable via \`ledger_list_projects\`.
 
+The \`plan_file\` document is automatically archived into the ledger storage directory
+at initialization, making it retrievable via the GUI plan endpoint. If the file does
+not yet exist, it is silently skipped and reported in \`archive_skipped\`.
+
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
 - **plan_file** (string): Relative path to the plan file from project_path
+
+## Response Fields
+- All root index fields (plan_file, date_created, status, work_packages, etc.)
+- **archived_documents** (string[]): Files successfully copied to the ledger storage directory
+- **archive_skipped** (string[], optional): Files that could not be archived (source not found)
 
 ## Example
 \`\`\`json
 {
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
-  "plan_file": "plan.md"
+  "plan_file": "${PLAN_ARCHIVE_FILENAME}"
 }
 \`\`\`
 `,
@@ -178,7 +190,7 @@ Create a new work package. WP ID is auto-generated.
 - **project_path** (string): Absolute path to the plan directory
 - **assigned_to** (string): Agent name (e.g., "Developer")
 - **dependencies** (array): Array of WP IDs this depends on. Use [] for no dependencies.
-- **acceptance_criteria** (array): Array of criteria strings
+- **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
 - **work_package_file** (string): Relative path to the WP spec file
 
 ## Example
@@ -189,6 +201,52 @@ Create a new work package. WP ID is auto-generated.
   "dependencies": [],
   "acceptance_criteria": ["All tests pass", "No lint errors"],
   "work_package_file": "work/WP-001.md"
+}
+\`\`\`
+`,
+
+  ledger_begin_work: `
+# ledger_begin_work
+
+Claim a READY work package and start its pipeline in a single atomic call. Replaces the two-step \`ledger_claim_work_package\` + \`ledger_start_pipeline\` sequence.
+
+If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the claim phase is skipped and only the pipeline is started. The response includes a \`claimed: boolean\` field indicating whether the claim step ran.
+
+## Required Parameters
+- **project_path** (string): Absolute path to the plan directory
+- **work_package_id** (string): WP ID (format: WP-001)
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", or "documentation"
+- **agent_role** (string): Your agent role (e.g., "Developer", "QA") — used for both the claim and pipeline ownership guards
+
+## Guards Preserved
+- CLAIMABLE_ROLES — rejects roles not permitted to claim WPs
+- Assignment guard — WP must be assigned to your role (or already IN_PROGRESS and assigned to you)
+- Dependency completeness — all dependencies must be COMPLETE before claiming
+- Duplicate pipeline rejection — no two IN_PROGRESS pipelines of the same type
+- Pipeline ordering — implementation → qa → code-review → documentation
+- Rework circuit breaker — rejects if per-type rework count is at maximum
+- Agent role validation — pipeline type must match the expected owner role
+
+## Response
+Same shape as \`ledger_start_pipeline\` plus a \`claimed: boolean\` field.
+
+## Example: Claim and start implementation
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "type": "implementation",
+  "agent_role": "Developer"
+}
+\`\`\`
+
+## Example: Start next pipeline (WP already IN_PROGRESS)
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "work_package_id": "WP-001",
+  "type": "qa",
+  "agent_role": "QA"
 }
 \`\`\`
 `,
@@ -207,7 +265,7 @@ If the work package is already assigned to a different agent, the claim will be 
 - **agent** (string): ⚠️ REQUIRED — Your agent name (e.g., "Developer", "QA")
 
 ## Optional Parameters
-- **override** (boolean): Set to \`true\` to claim a WP assigned to a different agent. Omit or set \`false\` otherwise.
+- **override** (boolean): Set to \`true\` to claim a WP assigned to a different agent. Only the **Project Manager** and the **current assignee** may use \`override: true\`. Omit or set \`false\` otherwise.
 
 ## Example
 \`\`\`json
@@ -245,7 +303,10 @@ Update a work package's status.
 
 ## Rules
 - Only the Documentation agent can set status to "COMPLETE"
-- Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, BLOCKED→IN_PROGRESS, COMPLETE→IN_PROGRESS
+- Only the Project Manager can set status to "CANCELLED"
+- Legal transitions: READY→IN_PROGRESS, READY→BLOCKED, READY→CANCELLED, IN_PROGRESS→COMPLETE, IN_PROGRESS→BLOCKED, IN_PROGRESS→CANCELLED, BLOCKED→IN_PROGRESS, BLOCKED→READY, BLOCKED→CANCELLED, COMPLETE→IN_PROGRESS
+- CANCELLED is a terminal status — no outward transitions from CANCELLED are permitted
+- CANCELLED WPs satisfy dependency requirements (treated like COMPLETE for dependency checks)
 
 ## Example: Mark COMPLETE (Documentation agent only)
 \`\`\`json
@@ -312,11 +373,18 @@ Complete the most recent IN_PROGRESS pipeline of the specified type.
 - **summary** (array): Array of summary strings
 
 ## Optional Parameters
-- **acceptance_criteria_updates** (array): Mark acceptance criteria as met. Each item: { "criterion": "...", "met": true }
+- **acceptance_criteria_updates** (array): Mark acceptance criteria as met. Each item: { "criterion": "...", "met": true }. If the criterion text matches an existing entry, its \`met\` flag is updated. If the text is **not found**, a new criterion entry is appended to the WP's acceptance criteria list.
 - **artifacts** (object): { files_modified, commit_hash, pull_request }
 - **metrics** (object): { test_coverage, tests_passed, tests_failed, security_issues }
 - **comments** (array): Observations from the pipeline
 - **handoff_notes** (array of strings): Notes for the next agent. Creates a structured handoff note entry on the WP addressed to the next agent in the pipeline chain.
+
+## Auto-Finalize (Documentation Pipeline)
+
+When \`type: "documentation"\`, \`status: "PASS"\`, and \`agent_role: "Documentation"\`, the server automatically checks whether all acceptance criteria are met **after** applying \`acceptance_criteria_updates\`:
+- **All criteria met** — WP is transitioned to \`COMPLETE\` within the same lock scope. Response includes \`auto_finalized: true\`.
+- **Criteria unmet** — WP stays \`IN_PROGRESS\`. Response includes \`auto_finalize_blocked: true\` and \`unmet_criteria: [...]\` listing the unmet criterion names.
+- **FAIL result or non-Documentation agent** — auto-finalize does not fire; WP status is unchanged.
 
 ## Example
 \`\`\`json
@@ -436,37 +504,30 @@ Add a project-level comment (not tied to a specific pipeline).
   ledger_get_next_action: `
 # ledger_get_next_action
 
-Get the next recommended action for your agent role (singular — returns the first actionable WP).
-For projects with many independent WPs, use ledger_get_next_actions instead.
+Get the next recommended action for your agent role.
 
-## Required Parameters
-- **project_path** (string): Absolute path to the plan directory
-- **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
+When called with no max_results (or max_results: 1), returns a single action object — the first
+actionable WP for your role (early-return mode, backward-compatible).
 
-## Example
-\`\`\`json
-{
-  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
-  "agent_role": "Developer"
-}
-\`\`\`
-`,
-
-  ledger_get_next_actions: `
-# ledger_get_next_actions
-
-Get ALL currently actionable work packages for your agent role (batch version of ledger_get_next_action).
-Returns an array of action recommendations instead of just the first one.
-Useful for projects with many independent work packages.
+When called with max_results > 1, returns up to that many actions as an array under the "actions"
+key. Useful for projects with many independent WPs where you want to process several in parallel.
 
 ## Required Parameters
 - **project_path** (string): Absolute path to the plan directory
 - **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
 
 ## Optional Parameters
-- **max_results** (number): Maximum number of results to return. Defaults to 5.
+- **max_results** (number, integer, positive): Maximum number of actionable WPs to return. Default: 1 (single-action mode). When > 1, response format changes to { "actions": [...], "total": N }.
 
-## Example
+## Example — single action (default)
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "agent_role": "Developer"
+}
+\`\`\`
+
+## Example — batch mode
 \`\`\`json
 {
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
@@ -475,7 +536,7 @@ Useful for projects with many independent work packages.
 }
 \`\`\`
 
-## Returns
+## Batch Response Format
 \`\`\`json
 {
   "actions": [
@@ -485,6 +546,32 @@ Useful for projects with many independent work packages.
   "total": 2
 }
 \`\`\`
+
+## WAIT Response Format
+When all work for your role is done, the response has the following shape.
+The \`handoff_status\` key is automatically embedded so you do NOT need to call
+\`ledger_get_handoff_status\` separately — use \`handoff_status\` from this response directly.
+If \`auto_handoff\` is present, invoke the next agent immediately. Otherwise, print the
+handoff block and end your turn.
+\`\`\`json
+{
+  "action": "WAIT",
+  "reason": "...",
+  "handoff_status": {
+    "current_agent": "Developer",
+    "next_agent": "QA",
+    "status": "READY_FOR_QA",
+    "details": "All work packages have PASS implementation pipelines.",
+    "auto_handoff": {
+      "agent_name": "4 - QA v3.5.0",
+      "prompt": "..."
+    }
+  }
+}
+\`\`\`
+The \`auto_handoff\` key is only present when handoff eligibility conditions are met.
+If \`handoff_status_error\` appears instead of \`handoff_status\`, fall back to calling
+\`ledger_get_handoff_status\` manually.
 `,
 
   ledger_get_handoff_status: `
@@ -496,7 +583,7 @@ Check handoff status to determine if your work is done.
 The response JSON includes:
 - **current_agent**: The agent that just finished working (you)
 - **next_agent**: The agent that should pick up next (derived from status; omitted for COMPLETE)
-- **status**: Workflow status (READY_FOR_DEVELOPER, READY_FOR_QA, READY_FOR_REVIEW, READY_FOR_DOCUMENTATION, READY_FOR_SYNTHESIS, IN_PROGRESS, BLOCKED, COMPLETE)
+- **status**: Workflow status (READY_FOR_DEVELOPER, READY_FOR_QA, READY_FOR_REVIEW, READY_FOR_DOCUMENTATION, READY_FOR_SYNTHESIS, READY_FOR_PM, IN_PROGRESS, BLOCKED, COMPLETE)
 - **details**: Human-readable description of the current state
 
 Copy the current_agent, next_agent, and status into your handoff block:
@@ -548,6 +635,47 @@ Array of \`.meta.json\` objects, each containing:
 ## Storage
 Ledger files are at \`{mcp-server}/storage/ledger/{slug}/\` by default.
 Override with \`--ledger-dir <path>\` at server startup.
+`,
+
+  ledger_complete_synthesis: `
+# ledger_complete_synthesis
+
+Mark the project synthesis as generated. Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
+
+Call this after the Synthesis agent has finished generating its synthesis report. Subsequent calls to \`ledger_get_next_action(Synthesis)\` will return WAIT once this flag is set.
+
+The synthesis document is automatically archived into the ledger storage directory on
+completion. If the file does not exist, it is silently skipped and reported in
+\`archive_skipped\`.
+
+## Required Parameters
+- **project_path** (string): Absolute path to the plan directory
+
+## Optional Parameters
+- **synthesis_file** (string, default: \`"${SYNTHESIS_ARCHIVE_FILENAME}"\`): Filename of the synthesis
+  document relative to project_path. Defaults to \`${SYNTHESIS_ARCHIVE_FILENAME}\`; specify an alternative
+  filename if your Synthesis agent writes to a different file.
+
+## Response Fields
+- **synthesis_generated** (boolean): Always \`true\`
+- **project_status** (string): New project status (\`COMPLETE\` if all WPs are done)
+- **message** (string): Confirmation message
+- **archived_documents** (string[]): Files successfully copied to the ledger storage directory
+- **archive_skipped** (string[], optional): Files that could not be archived (source not found)
+- **next_steps** (string[]): Guidance for the Synthesis agent
+
+## When to Call
+- All WPs must be COMPLETE before calling this tool
+- The Synthesis agent calls this at the end of its report generation
+- Only the Synthesis agent should call this tool
+
+## Example
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "synthesis_file": "${SYNTHESIS_ARCHIVE_FILENAME}"
+}
+\`\`\`
 `,
 };
 

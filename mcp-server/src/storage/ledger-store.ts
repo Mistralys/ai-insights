@@ -1,4 +1,4 @@
-import { readFile, access, readdir } from 'fs/promises';
+import { readFile, access, readdir, copyFile } from 'fs/promises';
 import { join } from 'path';
 import { constants } from 'fs';
 import { RootIndexSchema, type RootIndex } from '../schema/root-index.js';
@@ -123,7 +123,20 @@ export class LedgerStore {
     try {
       const content = await readFile(path, 'utf-8');
       const data = JSON.parse(content);
-      return WorkPackageDetailSchema.parse(data);
+      const wp = WorkPackageDetailSchema.parse(data);
+
+      // Migration: rework_count (legacy scalar) → rework_counts (per-pipeline map)
+      if (wp.rework_count !== undefined && wp.rework_counts === undefined) {
+        wp.rework_counts = {
+          implementation: wp.rework_count,
+          qa: 0,
+          'code-review': 0,
+          documentation: 0,
+        };
+        delete wp.rework_count;
+      }
+
+      return wp;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(`Work package ${wpId} not found at ${path}`);
@@ -272,6 +285,45 @@ export class LedgerStore {
         `Project meta validation failed at ${path}: ${(error as Error).message}`
       );
     }
+  }
+
+  // ==================== Archive Methods ====================
+
+  /**
+   * Copies named Markdown files from the plan folder to the ledger storage directory.
+   *
+   * Missing source files (`ENOENT`) are silently skipped with a warning to stderr.
+   * Any other I/O error (e.g. `EACCES`, `ENOSPC`, `EISDIR`) is **re-thrown** so
+   * the caller can observe the failure rather than receiving a silent partial result.
+   *
+   * The storageDir is expected to already exist (created by initializeProject).
+   *
+   * @param filenames - Array of filenames (relative to planPath) to archive
+   * @returns Object with arrays of archived and skipped filenames
+   * @throws {NodeJS.ErrnoException} For any non-ENOENT filesystem error
+   */
+  async archiveDocuments(filenames: string[]): Promise<{ archived: string[]; skipped: string[] }> {
+    const archived: string[] = [];
+    const skipped: string[] = [];
+
+    for (const filename of filenames) {
+      const src = join(this.planPath, filename);
+      const dest = join(this.storageDir, filename);
+      try {
+        await copyFile(src, dest);
+        archived.push(filename);
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+          console.error(`[project-ledger-mcp] Archive skipped (source not found): ${src}`);
+          skipped.push(filename);
+        } else {
+          throw err; // unexpected I/O error — do not silently swallow
+        }
+      }
+    }
+
+    return { archived, skipped };
   }
 
   /**

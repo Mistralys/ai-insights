@@ -6,9 +6,9 @@ import { IncidentContextSchema } from './work-package.js';
  * Work Package Summary object schema (lightweight entry in root index)
  */
 export const WorkPackageSummarySchema = z.object({
-  work_package_id: z.string().regex(/^WP-\d{3}$/),
+  work_package_id: z.string().regex(/^WP-\d{3,}$/),
   status: WorkPackageStatus,
-  assigned_to: z.string(),
+  assigned_to: z.string().nullable(),
   dependencies: z.array(z.string()),
   file: z.string(),
 });
@@ -40,5 +40,6 @@ export const RootIndexSchema = z.object({
   work_packages: z.array(WorkPackageSummarySchema),
   project_comments: z.array(ProjectCommentSchema),
   auto_handoff_depth: z.number().int().nonnegative().optional(),
+  synthesis_generated: z.boolean().optional(),
 });
 export type RootIndex = z.infer<typeof RootIndexSchema>;

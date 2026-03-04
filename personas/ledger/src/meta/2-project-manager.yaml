@@ -2,6 +2,9 @@ number: 2
 role: Project Manager
 vs_file_name: 2-pm.agent.md
 cc_file_name: 2-project-manager.md
+version: "3.5.0"
+changelog:
+  - "3.5.0: Initial changelogged version."
 
 tools:
   - vscode
