@@ -1,124 +1,123 @@
 # AI Insights
 
-## Agent Personas
+A toolkit for structured, multi-agent AI development workflows. It gives AI coding agents a shared memory, a defined set of roles, and a headless execution path — so complex projects can be tackled across multiple chat sessions without losing context.
 
-Workflows for agentic coding using custom prompts.
+---
 
-- [Ledger-Enabled](/personas/ledger/README.md) - For keeping state between sessions.
-- [Standalone](/personas/standalone/) - Independent single-purpose agents (no MCP dependency).
+## 🧩 Tools
 
-### Deploying Personas to AI IDEs
+### Agent Personas
 
-To automatically build and copy persona files to your AI IDE, use the sync script:
+Pre-built prompt files that assign a specific role to an AI agent in your IDE (VS Code / Claude Code). Two suites are available:
+
+| Suite | Description | Docs |
+|-------|-------------|------|
+| **Ledger-Enabled** | 7-stage workflow (Planner → PM → Developer → QA → Reviewer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Standalone** | Single-purpose agents with no MCP dependency — drop in and use | [personas/standalone/](personas/standalone/) |
+
+### Project Ledger MCP Server
+
+A [Model Context Protocol](https://modelcontextprotocol.io/) server that gives agents structured, persistent project state. It exposes 20 tools for managing work packages, tracking progress, and coordinating handoffs — with atomic writes and schema validation to prevent data corruption.
+
+→ [mcp-server/README.md](mcp-server/README.md)
+
+### Orchestrator
+
+A headless, IDE-free alternative to the ledger workflow. Built on **LangGraph** + **Deep Agents**, it runs the same MCP-server-backed pipeline entirely from the command line — useful for automation, CI pipelines, or working outside an AI IDE.
+
+→ [orchestrator/README.md](orchestrator/README.md)
+
+---
+
+## 🚀 Quick Start
+
+### 1 — Deploy Personas to Your IDE
 
 ```bash
-# Deploy to both VS Code and Claude Code (default)
+# Install dependencies (first time only)
+cd personas && npm install && cd ..
+
+# Build and deploy to both VS Code and Claude Code
 node scripts/sync-personas.js
-
-# Deploy to VS Code only
-node scripts/sync-personas.js --target vscode
-
-# Deploy to Claude Code only
-node scripts/sync-personas.js --target claude-code
-
-# Preview what would be copied without making changes (dry run)
-node scripts/sync-personas.js --dry-run
-
-# Copy VS Code personas to a custom directory
-node scripts/sync-personas.js --custom-path "/path/to/custom/dir"
 ```
 
-**VS Code** — The script automatically detects your operating system and uses the correct User prompts directory:
-- **Windows**: `%APPDATA%\Code\User\prompts`
-- **macOS**: `~/Library/Application Support/Code/User/prompts`
-- **Linux**: `~/.config/Code/User/prompts`
-
-**Claude Code** — Personas are always deployed to `~/.claude/agents/` (cross-platform standard).
-
-After syncing, the script validates frontmatter in the deployed personas. A clean run prints:
-
+A clean run prints:
 ```
 ✓ All 7 VS Code persona file(s) passed frontmatter validation
 ✓ All 7 Claude Code persona file(s) passed frontmatter validation
 ```
 
-### Validating Role Parity
+> Deploy to only one target: `--target vscode` or `--target claude-code`.
+> Preview without copying: `--dry-run`.
+> Full options: see [personas/ledger/README.md](personas/ledger/README.md).
 
-`scripts/sync-personas.js` maintains a hard-coded `KNOWN_ROLES` array that must stay in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts`. A drift check script is provided:
+---
 
-```bash
-# From the workspace root (requires the MCP server to be built first)
-node scripts/check-known-roles.js
-
-# Or from inside mcp-server/
-npm run check:roles
-```
-
-Exits 0 when `KNOWN_ROLES` and `AGENT_ROLES` are identical; exits 1 with a labelled diff if they diverge. If the compiled output is missing, the script prints a clear error with build instructions. Build the server first with:
+### 2 — Set Up the MCP Server (ledger workflow)
 
 ```bash
-cd mcp-server && npm run build
+cd mcp-server
+npm install
+npm run build
 ```
 
-### Persona Freshness Guard
+Then add the server to your IDE's `.mcp.json` (see [mcp-server/README.md](mcp-server/README.md) for config).
 
-Persona files in `personas/ledger/vs-code/`, `personas/ledger/claude-code/`, `personas/standalone/vs-code/`, and `personas/standalone/claude-code/` are **auto-generated**. If their source templates are edited without rebuilding, the deployed personas silently diverge from the source.
-
-`node scripts/build-personas.js --check` detects stale output and exits non-zero. This check runs automatically before every MCP server test run via the `pretest` npm lifecycle hook in `mcp-server/package.json`:
+Launch the GUI dashboard at any time:
 
 ```bash
-# Trigger automatically:
-cd mcp-server && npm test      # pretest runs build-personas.js --check first
-
-# Or run the check directly from the workspace root:
-node scripts/build-personas.js --check
-
-# Or from inside personas/:
-npm run check
+node scripts/run-gui.js
 ```
 
-If the check fails (stale persona detected), rebuild with:
+---
+
+### 3 — Run the Orchestrator (headless)
 
 ```bash
-node scripts/build-personas.js
-# or, to rebuild and deploy in one step:
-node scripts/sync-personas.js
+# One-shot setup: creates venv, installs deps, scaffolds .env
+node scripts/setup-orchestrator.js
+
+# Edit orchestrator/.env with your API key, then run a plan:
+node scripts/run-orchestrator.js path/to/plan.md
 ```
 
-## Project Ledger MCP Server
+`run-orchestrator.js` rebuilds a stale MCP server automatically before launching.
+Full setup and options: [orchestrator/README.md](orchestrator/README.md).
 
-- [Ledger MCP](/mcp-server/README.md) - Agent workflow ledger storage.
+---
 
-## Orchestrator
+## 🛠 Development
 
-The orchestrator is a **headless, deterministic alternative** to running the agent workflow interactively through an AI IDE. It executes the same MCP-server-backed, persona-driven pipeline entirely from the command line — no IDE required.
+### Install the pre-commit hook
 
-- [Orchestrator README](/orchestrator/README.md) - Full setup and usage guide.
-
-**Quick start:**
 ```bash
-cd orchestrator
-pip install -e ".[anthropic]"   # or ".[google]"
-cp .env.example .env            # fill in your API key
-orchestrate path/to/plan.md
-```
-
-> **Relationship to the IDE workflow:** Both workflows use the same MCP server and persona prompts. The orchestrator is an alternative execution mode; the IDE-based workflow remains fully functional.
-
-## LLM Discussion Archive
-
-- [Discussions](/discussions/)
-
-## Prompt Archive
-
-- [Reusable Prompts](/prompts/)
-
-## Development
-
-After cloning the repository, activate the pre-commit persona freshness guard:
-
-```
 node scripts/install-hooks.js
 ```
 
-This sets `git config core.hooksPath .githooks`, enabling a pre-commit hook that runs `node scripts/build-personas.js --check` before every commit. The hook exits non-zero if any generated persona file is stale, preventing commits with out-of-date output.
+This enables a pre-commit guard that fails the commit if any generated persona file is stale (out of sync with its source template).
+
+### Key scripts
+
+| Script | Purpose |
+|--------|---------|
+| `node scripts/sync-personas.js` | Build + deploy personas; validate frontmatter |
+| `node scripts/build-personas.js` | Build personas only (no deploy) |
+| `node scripts/build-personas.js --check` | Detect stale persona output (non-zero if stale) |
+| `node scripts/check-known-roles.js` | Verify role parity between personas and MCP server |
+| `node scripts/package-personas.js` | Package standalone personas into distributable ZIPs |
+| `node scripts/bundle-docs.js` | Compile project docs into bundles (e.g. for NotebookLM) |
+| `node scripts/run-gui.js` | Launch the MCP server GUI dashboard |
+| `node scripts/run-orchestrator.js` | Launch the orchestrator (rebuilds MCP server if stale) |
+
+---
+
+## 📚 Learn More
+
+| Resource | Description |
+|----------|-------------|
+| [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (7 stages, MCP setup, best practices) |
+| [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, development |
+| [orchestrator/README.md](orchestrator/README.md) | Orchestrator setup, configuration, CLI reference, troubleshooting |
+| [discussions/](discussions/) | LLM discussion archive and design notes |
+| [history/key-learnings.md](history/key-learnings.md) | Lessons learned across the project |
+| [AGENTS.md](AGENTS.md) | Agent operating instructions (for AI agents entering this workspace) |
