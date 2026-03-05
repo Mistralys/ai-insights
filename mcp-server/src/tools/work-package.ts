@@ -89,8 +89,8 @@ export const _internal = {
  * Reads and returns the full work package detail for a given WP ID.
  */
 const GetWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -138,8 +138,8 @@ async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
  * Optionally filters by status and/or assigned_to.
  */
 const ListWorkPackagesSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
     .optional()
@@ -198,8 +198,8 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
  * Creates both the detail file (.ledger/WP-###.json) and root index summary atomically.
  */
 const CreateWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   assigned_to: z
     .string()
     .describe('Agent name assigned to this work package (e.g., "Developer")'),
@@ -408,8 +408,8 @@ async function createWorkPackage(
  * Validates dependencies are met before allowing the transition.
  */
 const ClaimWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -553,8 +553,8 @@ async function claimWorkPackage(
  * Enforces legal status transitions and special rules (COMPLETE requires all criteria met, etc.).
  */
 const UpdateWorkPackageStatusSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1096,8 +1096,8 @@ function getLegalTransitions(status: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ResetReworkCountSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the project plan directory'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1226,8 +1226,8 @@ async function resetReworkCount(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const UpdateAcceptanceCriteriaSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the project plan directory'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1380,7 +1380,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_create_work_package',
     {
-      description: 'Create a new work package with auto-generated WP ID. REQUIRED params: project_path, assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically.',
+      description: 'Create a new work package with auto-generated WP ID. REQUIRED params: assigned_to, dependencies (use [] if none), acceptance_criteria, work_package_file. Creates both detail file and root index summary atomically. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CreateWorkPackageSchema,
     },
     (args) => createWorkPackage(args)
@@ -1389,7 +1389,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_claim_work_package',
     {
-      description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: project_path, work_package_id, agent. Rejects claims when the WP is assigned to a different agent unless override: true is passed. Validates that all dependencies are COMPLETE before allowing the claim.',
+      description: 'Claim a READY work package by transitioning to IN_PROGRESS. REQUIRED params: work_package_id, agent. Rejects claims when the WP is assigned to a different agent unless override: true is passed. Validates that all dependencies are COMPLETE before allowing the claim. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: ClaimWorkPackageSchema,
     },
     (args) => claimWorkPackage(args)
@@ -1398,7 +1398,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_update_work_package_status',
     {
-      description: 'Update work package status. REQUIRED params: project_path, work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by.',
+      description: 'Update work package status. REQUIRED params: work_package_id, status, agent. The "agent" param must be your agent name (e.g., "Developer", "Documentation"). Only the Documentation agent can set status to COMPLETE. If setting status to BLOCKED, also provide blocked_by. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: UpdateWorkPackageStatusSchema,
     },
     (args) => updateWorkPackageStatus(args)

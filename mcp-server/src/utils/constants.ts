@@ -19,6 +19,12 @@ export type AgentRole = typeof AGENT_ROLES[number];
 
 // Roles that orchestrate the workflow but do not directly execute implementation work.
 // Used to derive CLAIMABLE_ROLES in work-package.ts.
+/**
+ * Safe slug pattern: lowercase alphanumeric with hyphens, must start with alnum.
+ * Max length enforced separately (200 chars).
+ */
+export const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+
 export const ORCHESTRATING_ROLES = ['Planner', 'Synthesis'] as const;
 export type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
 

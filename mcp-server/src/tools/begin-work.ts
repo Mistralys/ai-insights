@@ -18,11 +18,11 @@ const BeginWorkSchema = z.object({
   project_path: z
     .string()
     .optional()
-    .describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
+    .describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
   cwd_path: z
     .string()
     .optional()
-    .describe('Workspace root path — alternative to project_path for automatic project detection.'),
+    .describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -268,8 +268,9 @@ export function register(server: McpServer): void {
         'Claim a READY work package and start its pipeline in a single atomic call. ' +
         'Replaces the two-step ledger_claim_work_package + ledger_start_pipeline sequence. ' +
         'If the WP is already IN_PROGRESS and assigned to you, skips the claim phase (idempotent re-entry). ' +
-        'REQUIRED params: project_path, work_package_id, type, agent_role. ' +
-        'Response includes all standard WP fields plus claimed: boolean indicating whether the claim step ran.',
+        'REQUIRED params: work_package_id, type, agent_role. ' +
+        'Response includes all standard WP fields plus claimed: boolean indicating whether the claim step ran. ' +
+        'Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: BeginWorkSchema,
     },
     beginWork as any

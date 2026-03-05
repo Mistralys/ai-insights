@@ -18,8 +18,9 @@
 import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { LedgerStore } from '../src/storage/ledger-store.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../src/utils/constants.js';
+import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
+import { inferProjectRootFromPlanPath } from '../src/utils/ledger-root.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
@@ -59,6 +60,10 @@ function notFound(message: string): never {
 
 function forbidden(message: string): never {
   throw new ApiError('FORBIDDEN', message);
+}
+
+function conflict(message: string): never {
+  throw new ApiError('CONFLICT', message);
 }
 
 function validationError(message: string, details?: unknown): never {
@@ -215,11 +220,15 @@ export interface ProjectSummary extends ProjectMeta {
   total_work_packages: number;
   pending_work_packages: number;
   project_name: string | null;
+  repository_name: string | null;
 }
 
 /**
  * Returns the full list of enriched project summaries from the centralized
- * ledger. Each entry extends ProjectMeta with WP counters and project name.
+ * ledger. Each entry extends ProjectMeta with WP counters, project name, and
+ * repository_name derived from the project root directory.
+ * project_name resolution order: manifest file → slug date-strip fallback →
+ * meta.title (takes precedence when set).
  * Per-project read failures are isolated so one bad project never breaks
  * the entire response.
  */
@@ -262,11 +271,23 @@ export async function handleListProjects(ledgerRoot: string): Promise<ProjectSum
         }
       }
 
+      // Persisted title takes precedence over auto-detected manifest names.
+      if (meta.title && meta.title.trim().length > 0) {
+        project_name = meta.title;
+      }
+
+      // Derive repository_name from the project root directory name.
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      const repository_name = projectRoot
+        ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
+        : null;
+
       return {
         ...meta,
         total_work_packages,
         pending_work_packages,
         project_name,
+        repository_name,
       };
     })
   );
@@ -589,6 +610,96 @@ export async function handleResetProject(
 
   const result = await applyProjectReset(store, diagnosis, decisions as Record<string, WpDecision>);
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/projects/:slug
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for the PATCH /api/projects/:slug request body.
+ *
+ * Accepts `title`, `slug`, or both — but requires at least one field to be
+ * present. Hoisted to module level so it can be reused and inspected in tests.
+ */
+export const RenameBodySchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    slug: z.string().min(1).max(200).optional(),
+  })
+  .refine((d) => d.title !== undefined || d.slug !== undefined, {
+    message: 'At least one of title or slug must be provided.',
+  });
+
+/**
+ * Handles `PATCH /api/projects/:slug`.
+ *
+ * Accepts a partial update body with `title`, `slug`, or both:
+ * - `title` — persists a new display title via `LedgerStore.updateTitle()`.
+ * - `slug`  — renames the ledger storage directory and updates `.meta.json`
+ *             via `LedgerStore.renameSlug()`. The response `ProjectMeta.slug`
+ *             reflects the new slug so the frontend can redirect.
+ *
+ * Operations are applied in order: title first, then slug. Each updates
+ * `latestMeta` independently. `last_updated` is **not** modified by either
+ * operation — renaming is cosmetic and must not distort sort order.
+ *
+ * Do not reuse the `LedgerStore` instance after a slug rename; its internal
+ * `storageDir` points to the (now non-existent) old path.
+ *
+ * Throws `NOT_FOUND` if the project does not exist.
+ * Throws `VALIDATION_ERROR` if the body is empty or fails schema validation.
+ * Throws `CONFLICT` if the target slug directory already exists.
+ */
+export async function handleRenameProject(
+  ledgerRoot: string,
+  slug: string,
+  body: unknown
+): Promise<ProjectMeta> {
+  assertSafeSlug(slug);
+  const parseResult = RenameBodySchema.safeParse(body);
+  if (!parseResult.success) {
+    validationError('Invalid rename request body.', parseResult.error.issues);
+  }
+  const { title, slug: newSlug } = parseResult.data;
+
+  // Early-reject invalid slug patterns before touching disk.
+  if (newSlug !== undefined && !SAFE_SLUG_REGEX.test(newSlug)) {
+    validationError(
+      `Invalid slug '${newSlug}'. Must match ^[a-z0-9][a-z0-9-]*$.`
+    );
+  }
+
+  const store = new LedgerStore(slug, ledgerRoot);
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project not found: ${slug}`);
+  }
+
+  let latestMeta: ProjectMeta | undefined;
+
+  if (title !== undefined) {
+    latestMeta = await store.updateTitle(title);
+  }
+
+  if (newSlug !== undefined) {
+    if (newSlug === slug) {
+      // Same-slug no-op: nothing to rename. Materialise latestMeta if needed.
+      latestMeta ??= await store.readProjectMeta();
+    } else {
+      try {
+        latestMeta = await store.renameSlug(newSlug);
+      } catch (err: unknown) {
+        if (err instanceof SlugConflictError) {
+          conflict(`Slug already in use: '${newSlug}'.`);
+        }
+        throw err;
+      }
+    }
+  }
+
+  // latestMeta is always defined here: the .refine() above guarantees at least
+  // one branch ran. The non-null assertion keeps TypeScript happy.
+  return latestMeta!;
 }
 
 // ---------------------------------------------------------------------------

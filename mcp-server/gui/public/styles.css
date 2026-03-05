@@ -1047,3 +1047,88 @@ input[type="number"].form-control {
   background: #fef3c7;
   color: var(--color-in-progress);
 }
+
+/* ----------------------------------------------------------
+   Inline title edit (project detail page)
+   ---------------------------------------------------------- */
+.page-heading-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.edit-title-btn,
+.edit-slug-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 15px;
+  padding: 2px 5px;
+  border-radius: var(--radius);
+  line-height: 1;
+  opacity: 0.45;
+  transition: opacity 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.edit-title-btn:hover,
+.edit-slug-btn:hover {
+  opacity: 1;
+  color: var(--color-ready);
+}
+
+.title-edit-input {
+  font-size: 1.5rem;
+  font-weight: 700;
+  border: 2px solid var(--color-ready);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  outline: none;
+  min-width: 180px;
+  max-width: 600px;
+  width: 40ch;
+  box-shadow: none;
+  line-height: 1.3;
+}
+
+.title-edit-error {
+  color: var(--color-blocked);
+  font-size: 12px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.slug-edit-input {
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+  border: 2px solid var(--color-ready);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  outline: none;
+  min-width: 160px;
+  max-width: 400px;
+  width: 30ch;
+}
+
+.slug-edit-error {
+  color: var(--color-blocked);
+  font-size: 12px;
+  margin-top: 3px;
+  display: block;
+}
+
+/* ----------------------------------------------------------
+   Repository column (project list table)
+   ---------------------------------------------------------- */
+.repo-col {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

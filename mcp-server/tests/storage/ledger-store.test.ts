@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile } from 'fs/promises';
+import { mkdtemp, rm, readFile, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
@@ -434,5 +434,143 @@ describe('LedgerStore.detectProjectByCwd', () => {
     if (result.status === 'FOUND') {
       expect(result.meta.slug).toBe('2026-02-16-beta');
     }
+  });
+});
+
+// ==================== updateTitle ====================
+
+describe('LedgerStore.updateTitle', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'title-test-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
+    // Seed a meta.json so readProjectMeta() works in updateTitle
+    await store.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'IN_PROGRESS');
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('sets the title field and returns the updated ProjectMeta', async () => {
+    const result = await store.updateTitle('My Title');
+
+    expect(result.title).toBe('My Title');
+    expect(result.slug).toBe(store.slug);
+  });
+
+  it('does not mutate last_updated (title rename is cosmetic, not a content update)', async () => {
+    const meta = await store.readProjectMeta();
+    const before = meta.last_updated;
+
+    const result = await store.updateTitle('Updated Title');
+
+    expect(result.last_updated).toBe(before);
+  });
+
+  it('persists the title to disk (readable after the call)', async () => {
+    await store.updateTitle('Persisted Title');
+
+    const rawMeta = JSON.parse(await readFile(store.metaPath(), 'utf-8')) as { title?: string };
+    expect(rawMeta.title).toBe('Persisted Title');
+  });
+
+  it('overwrites a previous title with a new one', async () => {
+    await store.updateTitle('First Title');
+    const result = await store.updateTitle('Second Title');
+
+    expect(result.title).toBe('Second Title');
+
+    const rawMeta = JSON.parse(await readFile(store.metaPath(), 'utf-8')) as { title?: string };
+    expect(rawMeta.title).toBe('Second Title');
+  });
+});
+
+// ==================== renameSlug ====================
+
+describe('LedgerStore.renameSlug', () => {
+  const OLD_SLUG = '2026-03-05-rename-slug-old';
+  const NEW_SLUG = '2026-03-05-rename-slug-new';
+  const OLD_PLAN_PATH = join(tmpdir(), OLD_SLUG);
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'rename-slug-test-'));
+    store = new LedgerStore(OLD_PLAN_PATH, tempLedgerRoot);
+    // Seed .meta.json so the old storage dir exists and is valid.
+    await store.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'IN_PROGRESS');
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('happy path: old dir no longer exists; new dir exists on disk', async () => {
+    await store.renameSlug(NEW_SLUG);
+
+    await expect(access(join(tempLedgerRoot, NEW_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, OLD_SLUG))).rejects.toThrow();
+  });
+
+  it('happy path: updates slug in .meta.json to the new slug', async () => {
+    await store.renameSlug(NEW_SLUG);
+
+    const raw = JSON.parse(
+      await readFile(join(tempLedgerRoot, NEW_SLUG, '.meta.json'), 'utf-8')
+    ) as { slug: string };
+    expect(raw.slug).toBe(NEW_SLUG);
+  });
+
+  it('preserves other meta fields (plan_path, status, date_created, last_updated)', async () => {
+    const metaBefore = await store.readProjectMeta();
+
+    await store.renameSlug(NEW_SLUG);
+
+    const raw = JSON.parse(
+      await readFile(join(tempLedgerRoot, NEW_SLUG, '.meta.json'), 'utf-8')
+    ) as Record<string, unknown>;
+    expect(raw['plan_path']).toBe(metaBefore.plan_path);
+    expect(raw['status']).toBe(metaBefore.status);
+    expect(raw['date_created']).toBe(metaBefore.date_created);
+    expect(raw['last_updated']).toBe(metaBefore.last_updated);
+  });
+
+  it('rejects same slug with a descriptive error; directory is untouched', async () => {
+    await expect(store.renameSlug(OLD_SLUG)).rejects.toThrow(/already/i);
+    // Original dir must still exist.
+    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+  });
+
+  it('rejects invalid slug patterns with a validation error; filesystem is untouched', async () => {
+    await expect(store.renameSlug('my slug!')).rejects.toThrow(/invalid/i);
+    await expect(store.renameSlug('../escape')).rejects.toThrow(/invalid/i);
+    await expect(store.renameSlug('')).rejects.toThrow(/invalid/i);
+    // Original dir must be untouched.
+    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+  });
+
+  it('rejects when target dir already exists; original dir is intact', async () => {
+    // Create the target dir ahead of time to simulate a conflict.
+    const conflictStore = new LedgerStore(join(tmpdir(), NEW_SLUG), tempLedgerRoot);
+    await conflictStore.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'READY');
+
+    await expect(store.renameSlug(NEW_SLUG)).rejects.toThrow(/already in use/i);
+    // Old dir must be untouched.
+    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+  });
+
+  it('returns updated ProjectMeta with new slug; other fields preserved', async () => {
+    const metaBefore = await store.readProjectMeta();
+
+    const result = await store.renameSlug(NEW_SLUG);
+
+    expect(result.slug).toBe(NEW_SLUG);
+    expect(result.plan_path).toBe(metaBefore.plan_path);
+    expect(result.status).toBe(metaBefore.status);
+    expect(result.date_created).toBe(metaBefore.date_created);
+    expect(result.last_updated).toBe(metaBefore.last_updated);
   });
 });

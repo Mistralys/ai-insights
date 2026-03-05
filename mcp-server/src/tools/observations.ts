@@ -15,8 +15,8 @@ import { PipelineTypeEnum } from '../utils/pipeline-maps.js';
  * Comments do NOT include an agent field (agent is inferred from pipeline type).
  */
 const AddObservationSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -109,8 +109,8 @@ async function addObservation(args: z.infer<typeof AddObservationSchema>) {
  * For incident type comments, context is required.
  */
 const AddProjectCommentSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   type: z.string().describe('Comment type: "incident", "note", or "decision"'),
   priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
@@ -212,7 +212,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_add_observation',
     {
-      description: 'Add an observation/comment to the most recent pipeline of the specified type. REQUIRED params: project_path, work_package_id, pipeline_type, type, priority, note. The pipeline must already exist (use ledger_start_pipeline first).',
+      description: 'Add an observation/comment to the most recent pipeline of the specified type. REQUIRED params: work_package_id, pipeline_type, type, priority, note. The pipeline must already exist (use ledger_start_pipeline first). Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: AddObservationSchema,
     },
     addObservation as any
@@ -221,7 +221,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_add_project_comment',
     {
-      description: 'Add a project-level comment. REQUIRED params: project_path, type, priority, agent, note. If type is "incident", the context param is also required (with os, tool, resolved fields).',
+      description: 'Add a project-level comment. REQUIRED params: type, priority, agent, note. If type is "incident", the context param is also required (with os, tool, resolved fields). Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: AddProjectCommentSchema,
     },
     addProjectComment as any

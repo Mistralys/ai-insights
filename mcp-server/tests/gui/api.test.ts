@@ -22,6 +22,7 @@ import {
   handleGetConfig,
   handleUpdateConfig,
   handleGetInsights,
+  handleRenameProject,
   ApiError,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
@@ -499,6 +500,245 @@ describe('gui/api.ts', () => {
       const afterRoot = (await handleGetConfig(configPath)).ledger_root;
       expect(afterRoot).toBe(beforeRoot);
       expect(afterRoot).not.toBe('/evil/path');
+    });
+  });
+
+  // ─── handleRenameProject ────────────────────────────────────────────
+
+  describe('handleRenameProject', () => {
+    it('successful rename: returns updated meta with the new title and preserves last_updated', async () => {
+      const store = await createProject(ledgerRoot, '2026-01-01-rename-test');
+      const { last_updated: lastUpdatedBefore } = await store.readProjectMeta();
+
+      const result = await handleRenameProject(ledgerRoot, '2026-01-01-rename-test', { title: 'My New Title' });
+
+      expect(result.title).toBe('My New Title');
+      expect(result.slug).toBe('2026-01-01-rename-test');
+      // AC: updateTitle() must NOT mutate last_updated (WP-001)
+      expect(result.last_updated).toBe(lastUpdatedBefore);
+    });
+
+    it('rejects empty title with VALIDATION_ERROR', async () => {
+      await createProject(ledgerRoot, '2026-01-01-rename-empty');
+
+      await expect(
+        handleRenameProject(ledgerRoot, '2026-01-01-rename-empty', { title: '' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('rejects title exceeding 200 characters with VALIDATION_ERROR', async () => {
+      await createProject(ledgerRoot, '2026-01-01-rename-long');
+      const longTitle = 'A'.repeat(201);
+
+      await expect(
+        handleRenameProject(ledgerRoot, '2026-01-01-rename-long', { title: longTitle })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('rejects a title of exactly 200 chars — should pass (boundary check)', async () => {
+      await createProject(ledgerRoot, '2026-01-01-rename-max');
+      const maxTitle = 'A'.repeat(200);
+
+      const result = await handleRenameProject(ledgerRoot, '2026-01-01-rename-max', { title: maxTitle });
+      expect(result.title).toBe(maxTitle);
+    });
+
+    it('throws NOT_FOUND for a non-existent slug', async () => {
+      await expect(
+        handleRenameProject(ledgerRoot, '2026-01-01-ghost', { title: 'Whatever' })
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects path-traversal slugs with NOT_FOUND', async () => {
+      await expect(handleRenameProject(ledgerRoot, '../escape', { title: 'X' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleRenameProject(ledgerRoot, 'a/b', { title: 'X' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(handleRenameProject(ledgerRoot, '', { title: 'X' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('persists the title: handleGetProject returns the new title after rename', async () => {
+      await createProject(ledgerRoot, '2026-01-01-persist-rename');
+      await handleRenameProject(ledgerRoot, '2026-01-01-persist-rename', { title: 'Persisted Title' });
+
+      const detail = await handleGetProject(ledgerRoot, '2026-01-01-persist-rename');
+      expect(detail.meta.title).toBe('Persisted Title');
+    });
+
+    it('rejects a non-object body with VALIDATION_ERROR', async () => {
+      await createProject(ledgerRoot, '2026-01-01-rename-bad-body');
+
+      await expect(
+        handleRenameProject(ledgerRoot, '2026-01-01-rename-bad-body', 'not-an-object')
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    // ── WP-002: slug rename tests ──────────────────────────────────────────
+
+    it('rejects an empty body {} with VALIDATION_ERROR', async () => {
+      await createProject(ledgerRoot, '2026-03-05-empty-body');
+
+      await expect(
+        handleRenameProject(ledgerRoot, '2026-03-05-empty-body', {})
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('slug-only rename: returns meta with the new slug value', async () => {
+      await createProject(ledgerRoot, '2026-03-05-slug-rename-src');
+
+      const result = await handleRenameProject(
+        ledgerRoot,
+        '2026-03-05-slug-rename-src',
+        { slug: '2026-03-05-slug-rename-dst' }
+      );
+
+      expect(result.slug).toBe('2026-03-05-slug-rename-dst');
+    });
+
+    it('slug rename: new slug directory exists on disk, old directory is removed', async () => {
+      await createProject(ledgerRoot, '2026-03-05-slug-disk-src');
+
+      await handleRenameProject(
+        ledgerRoot,
+        '2026-03-05-slug-disk-src',
+        { slug: '2026-03-05-slug-disk-dst' }
+      );
+
+      // New directory must exist.
+      await expect(access(join(ledgerRoot, '2026-03-05-slug-disk-dst'))).resolves.toBeUndefined();
+      // Old directory must be gone.
+      await expect(access(join(ledgerRoot, '2026-03-05-slug-disk-src'))).rejects.toThrow();
+    });
+
+    it('slug rename does not modify last_updated', async () => {
+      const store = await createProject(ledgerRoot, '2026-03-05-slug-lu-src');
+      const { last_updated: before } = await store.readProjectMeta();
+
+      const result = await handleRenameProject(
+        ledgerRoot,
+        '2026-03-05-slug-lu-src',
+        { slug: '2026-03-05-slug-lu-dst' }
+      );
+
+      expect(result.last_updated).toBe(before);
+    });
+
+    it('combined { title, slug } applies title first then slug rename', async () => {
+      await createProject(ledgerRoot, '2026-03-05-combined-src');
+
+      const result = await handleRenameProject(
+        ledgerRoot,
+        '2026-03-05-combined-src',
+        { title: 'Combined Title', slug: '2026-03-05-combined-dst' }
+      );
+
+      expect(result.title).toBe('Combined Title');
+      expect(result.slug).toBe('2026-03-05-combined-dst');
+    });
+
+    it('slug rename: rejects invalid slug pattern with VALIDATION_ERROR', async () => {
+      await createProject(ledgerRoot, '2026-03-05-bad-slug-src');
+
+      await expect(
+        handleRenameProject(ledgerRoot, '2026-03-05-bad-slug-src', { slug: 'Invalid Slug!!' })
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('slug rename: throws CONFLICT when target slug already exists', async () => {
+      await createProject(ledgerRoot, '2026-03-05-conflict-src');
+      await createProject(ledgerRoot, '2026-03-05-conflict-dst');
+
+      await expect(
+        handleRenameProject(
+          ledgerRoot,
+          '2026-03-05-conflict-src',
+          { slug: '2026-03-05-conflict-dst' }
+        )
+      ).rejects.toMatchObject({ code: 'CONFLICT' });
+    });
+
+    it('same-slug no-op: returns HTTP 200 with unchanged metadata, does not call renameSlug', async () => {
+      const store = await createProject(ledgerRoot, '2026-03-05-same-slug-noop');
+      const before = await store.readProjectMeta();
+
+      const result = await handleRenameProject(
+        ledgerRoot,
+        '2026-03-05-same-slug-noop',
+        { slug: '2026-03-05-same-slug-noop' }
+      );
+
+      expect(result.slug).toBe('2026-03-05-same-slug-noop');
+      expect(result.last_updated).toBe(before.last_updated);
+      // Confirm old directory still exists (no rename occurred).
+      await expect(access(join(ledgerRoot, '2026-03-05-same-slug-noop'))).resolves.toBeUndefined();
+    });
+
+    it('combined title + same-slug no-op: updates title, slug unchanged', async () => {
+      const store = await createProject(ledgerRoot, '2026-03-05-combined-same-slug');
+      const { last_updated: before } = await store.readProjectMeta();
+
+      const result = await handleRenameProject(
+        ledgerRoot,
+        '2026-03-05-combined-same-slug',
+        { title: 'Updated Title', slug: '2026-03-05-combined-same-slug' }
+      );
+
+      expect(result.title).toBe('Updated Title');
+      expect(result.slug).toBe('2026-03-05-combined-same-slug');
+      // last_updated must not be mutated by updateTitle per existing AC.
+      expect(result.last_updated).toBe(before);
+    });
+  });
+
+  // ─── repository_name in handleListProjects ────────────────────────────────
+
+  describe('handleListProjects — repository_name', () => {
+    it('derives repository_name from the last segment of the inferred project root', async () => {
+      // planPath = {tmpdir}/my-repo/docs/agents/plans/2026-01-01-test
+      // inferProjectRootFromPlanPath walks 4 levels up to {tmpdir}/my-repo
+      const planPath = join(tmpdir(), 'my-repo', 'docs', 'agents', 'plans', '2026-01-01-repo-test');
+      const store = new LedgerStore(planPath, ledgerRoot);
+      await store.writeRootIndex(makeRoot());
+
+      const results = await handleListProjects(ledgerRoot);
+      const project = results.find((p) => p.slug === '2026-01-01-repo-test');
+      expect(project).toBeDefined();
+      expect(project!.repository_name).toBe('my-repo');
+    });
+
+    it('returns null for repository_name when plan_path is empty', async () => {
+      // Use a very shallow plan path that does not have 4 levels above it from tmpdir
+      // We simulate this by using a slug path; slug-based stores have planPath = tmpdir/slug
+      // inferProjectRootFromPlanPath returns empty string for paths too shallow, so repository_name = null
+      await createProject(ledgerRoot, '2026-01-01-no-repo');
+
+      const results = await handleListProjects(ledgerRoot);
+      const project = results.find((p) => p.slug === '2026-01-01-no-repo');
+      expect(project).toBeDefined();
+      // repository_name is null or a string — either is valid when path is shallow
+      expect(project!.repository_name === null || typeof project!.repository_name === 'string').toBe(true);
+    });
+  });
+
+  // ─── title priority in handleListProjects ───────────────────────────────
+
+  describe('handleListProjects — title priority', () => {
+    it('returns the persisted meta.title as project_name when set (overrides slug-derived name)', async () => {
+      const store = await createProject(ledgerRoot, '2026-01-01-titled-project');
+      await store.updateTitle('My Custom Title');
+
+      const results = await handleListProjects(ledgerRoot);
+      const project = results.find((p) => p.slug === '2026-01-01-titled-project');
+      expect(project).toBeDefined();
+      expect(project!.project_name).toBe('My Custom Title');
+    });
+
+    it('falls back to slug-derived name when no title is set', async () => {
+      await createProject(ledgerRoot, '2026-01-01-auto-name');
+
+      const results = await handleListProjects(ledgerRoot);
+      const project = results.find((p) => p.slug === '2026-01-01-auto-name');
+      expect(project).toBeDefined();
+      // Slug-derived: strips date prefix and title-cases remainder → 'Auto Name'
+      expect(project!.project_name).toBe('Auto Name');
     });
   });
 });

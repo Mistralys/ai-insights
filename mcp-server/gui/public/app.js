@@ -42,6 +42,8 @@ var API = (function () {
     analyzeProjectReset:      function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
     applyProjectReset:        function (slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
     getProjectHealth:         function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/health'); },
+    renameProject:            function (slug, title)  { return request('PATCH',  '/projects/' + encodeURIComponent(slug), { title: title }); },
+    renameSlug:               function (slug, newSlug) { return request('PATCH',  '/projects/' + encodeURIComponent(slug), { slug: newSlug }); },
   };
 })();
 
@@ -213,7 +215,8 @@ function renderProjectList(app) {
       if (searchValue !== '') {
         var rowSlug = (row.getAttribute('data-slug') || '').toLowerCase();
         var rowName = (row.getAttribute('data-name') || '').toLowerCase();
-        textMatch = rowSlug.indexOf(searchValue) !== -1 || rowName.indexOf(searchValue) !== -1;
+        var rowRepo = (row.getAttribute('data-repo') || '').toLowerCase();
+        textMatch = rowSlug.indexOf(searchValue) !== -1 || rowName.indexOf(searchValue) !== -1 || rowRepo.indexOf(searchValue) !== -1;
       }
       row.style.display = (statusMatch && textMatch) ? '' : 'none';
     });
@@ -240,8 +243,9 @@ function renderProjectList(app) {
       } else {
         doneCellHtml = '\u2014';
       }
-      return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '" data-name="' + escapeHtml(p.project_name || '') + '">' +
+      return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '" data-name="' + escapeHtml(p.project_name || '') + '" data-repo="' + escapeHtml(p.repository_name || '') + '">' +
         '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>' +
+        '<td class="repo-col">' + escapeHtml(p.repository_name || '\u2014') + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
@@ -257,6 +261,7 @@ function renderProjectList(app) {
       '<table>' +
       '<thead><tr>' +
         '<th>Project</th>' +
+        '<th>Repository</th>' +
         '<th>% Done</th>' +
         '<th>Status</th>' +
         '<th>Created</th>' +
@@ -454,16 +459,22 @@ function renderProjectDetail(app, slug) {
         }).join('')
       : '<p class="text-muted">No comments yet.</p>';
 
+    var displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug;
     app.innerHTML =
-      '<p class="breadcrumb"><a href="#/">Projects</a> / ' + escapeHtml(slug) + '</p>' +
+      '<p class="breadcrumb"><a href="#/">Projects</a> / <span id="breadcrumb-title">' + escapeHtml(displayTitle) + '</span></p>' +
       '<div class="page-header">' +
-        '<h1>' + escapeHtml(slug) + '</h1>' +
+        '<div class="page-heading-wrapper">' +
+          '<h1 id="project-title-heading">' + escapeHtml(displayTitle) + '</h1>' +
+          '<button class="edit-title-btn" id="edit-title-btn" title="Rename project">\u270e</button>' +
+        '</div>' +
         statusBadge(meta.status) +
         '<span id="health-badge" class="health-badge">Checking\u2026</span>' +
         '<button class="btn btn-secondary btn-sm" id="reset-project-btn">Reset Project</button>' +
       '</div>' +
       '<div class="card">' +
         '<div class="text-muted" style="font-size:13px">' +
+          '<strong>Slug:</strong> <span class="monospace" id="project-slug-value">' + escapeHtml(slug) + '</span>' +
+          '<button class="edit-slug-btn" id="edit-slug-btn" title="Rename slug">✎</button><br>' +
           '<strong>Plan path:</strong> <span class="monospace">' + escapeHtml(meta.plan_path || '—') + '</span><br>' +
           '<strong>Created:</strong> ' + escapeHtml(formatDate(meta.date_created)) + ' &nbsp; ' +
           '<strong>Updated:</strong> ' + escapeHtml(formatDate(meta.last_updated)) +
@@ -531,6 +542,174 @@ function renderProjectDetail(app, slug) {
         });
       });
     }
+
+    // Inline title edit
+    (function () {
+      var editBtn = document.getElementById('edit-title-btn');
+      var headingEl = document.getElementById('project-title-heading');
+      var breadcrumbEl = document.getElementById('breadcrumb-title');
+      if (!editBtn || !headingEl) return;
+
+      var currentTitle = displayTitle;
+
+      editBtn.addEventListener('click', function () {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'title-edit-input';
+        input.value = currentTitle;
+        headingEl.style.display = 'none';
+        editBtn.style.display = 'none';
+        headingEl.parentNode.insertBefore(input, headingEl.nextSibling);
+        input.focus();
+        input.select();
+
+        var inputDone = false;
+
+        function exitEdit() {
+          var errEl = document.getElementById('title-edit-error');
+          if (errEl) errEl.remove();
+          if (input.parentNode) input.parentNode.removeChild(input);
+          headingEl.style.display = '';
+          editBtn.style.display = '';
+        }
+
+        function doSave() {
+          var newTitle = input.value.trim();
+          if (!newTitle || newTitle === currentTitle) {
+            exitEdit();
+            return;
+          }
+          input.disabled = true;
+          API.renameProject(slug, newTitle).then(function () {
+            currentTitle = newTitle;
+            headingEl.textContent = newTitle;
+            if (breadcrumbEl) breadcrumbEl.textContent = newTitle;
+            exitEdit();
+          }).catch(function (err) {
+            input.disabled = false;
+            inputDone = false; // allow retry after failure
+            var errEl = document.getElementById('title-edit-error');
+            if (!errEl) {
+              errEl = document.createElement('div');
+              errEl.id = 'title-edit-error';
+              errEl.className = 'title-edit-error';
+              headingEl.parentNode.insertBefore(errEl, input.nextSibling);
+            }
+            errEl.textContent = 'Rename failed: ' + (err.message || String(err));
+          });
+        }
+
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            inputDone = true;
+            exitEdit();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (!inputDone) {
+              inputDone = true;
+              doSave();
+            }
+          }
+        });
+
+        input.addEventListener('blur', function () {
+          if (!inputDone) {
+            inputDone = true;
+            doSave();
+          }
+        });
+      });
+    })();
+
+    // Inline slug edit
+    (function () {
+      var editBtn = document.getElementById('edit-slug-btn');
+      var slugValueEl = document.getElementById('project-slug-value');
+      if (!editBtn || !slugValueEl) return;
+
+      var currentSlug = slug;
+      var SLUG_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+
+      editBtn.addEventListener('click', function () {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'slug-edit-input';
+        input.maxLength = 200;
+        input.value = currentSlug;
+        slugValueEl.style.display = 'none';
+        editBtn.style.display = 'none';
+        slugValueEl.parentNode.insertBefore(input, slugValueEl.nextSibling);
+        input.focus();
+        input.select();
+
+        var inputDone = false;
+
+        function showSlugError(msg) {
+          var errEl = document.getElementById('slug-edit-error');
+          if (!errEl) {
+            errEl = document.createElement('div');
+            errEl.id = 'slug-edit-error';
+            errEl.className = 'slug-edit-error';
+            input.parentNode.insertBefore(errEl, input.nextSibling);
+          }
+          errEl.textContent = msg;
+        }
+
+        function clearSlugError() {
+          var errEl = document.getElementById('slug-edit-error');
+          if (errEl) errEl.remove();
+        }
+
+        function exitSlugEdit() {
+          clearSlugError();
+          if (input.parentNode) input.parentNode.removeChild(input);
+          slugValueEl.style.display = '';
+          editBtn.style.display = '';
+        }
+
+        function doSlugSave() {
+          var newSlug = input.value.trim();
+          if (!newSlug || newSlug === currentSlug) {
+            exitSlugEdit();
+            return;
+          }
+          if (!SLUG_REGEX.test(newSlug)) {
+            showSlugError('Invalid slug: use lowercase letters, digits, and hyphens only (must start with a letter or digit).');
+            inputDone = false;
+            return;
+          }
+          input.disabled = true;
+          clearSlugError();
+          API.renameSlug(currentSlug, newSlug).then(function () {
+            window.location.hash = '#/projects/' + encodeURIComponent(newSlug);
+          }).catch(function (err) {
+            input.disabled = false;
+            inputDone = false;
+            showSlugError('Rename failed: ' + (err.message || String(err)));
+          });
+        }
+
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') {
+            inputDone = true;
+            exitSlugEdit();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (!inputDone) {
+              inputDone = true;
+              doSlugSave();
+            }
+          }
+        });
+
+        input.addEventListener('blur', function () {
+          if (!inputDone) {
+            inputDone = true;
+            doSlugSave();
+          }
+        });
+      });
+    })();
 
     // Health badge — async, non-blocking
     var healthBadge = document.getElementById('health-badge');

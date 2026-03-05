@@ -98,8 +98,8 @@ function buildCompletionGuidance(
  * Validates WP is IN_PROGRESS and no duplicate in-progress pipeline exists.
  */
 const StartPipelineSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -254,8 +254,8 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
  * Sets status, completion timestamp, summary, and optional fields.
  */
 const CompletePipelineSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -519,8 +519,8 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
  * its status to FAIL and recording the cancellation reason as the summary.
  */
 const CancelPipelineSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -589,8 +589,8 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
  * Allows agents to record progress notes without completing the pipeline.
  */
 const UpdatePipelineProgressSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -657,7 +657,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_start_pipeline',
     {
-      description: 'Start a new pipeline for a work package. REQUIRED params: project_path, work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type.',
+      description: 'Start a new pipeline for a work package. REQUIRED params: work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: StartPipelineSchema,
     },
     startPipeline as any
@@ -666,7 +666,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_complete_pipeline',
     {
-      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: project_path, work_package_id, type, agent_role ("Developer"|"QA"|"Reviewer"|"Documentation" or "Project Manager"), status (PASS or FAIL), summary (string or array). OPTIONAL: acceptance_criteria_updates (PRIMARY way to mark AC as met before COMPLETE), artifacts (files_modified, commit_hash), metrics (test_coverage, tests_passed/failed), comments (observations with auto-timestamping — timestamp is auto-filled if omitted). Must call ledger_start_pipeline first. On completion, response includes a NEXT STEP guidance block.',
+      description: 'Complete the most recent IN_PROGRESS pipeline of the specified type. REQUIRED params: work_package_id, type, agent_role ("Developer"|"QA"|"Reviewer"|"Documentation" or "Project Manager"), status (PASS or FAIL), summary (string or array). OPTIONAL: acceptance_criteria_updates (PRIMARY way to mark AC as met before COMPLETE), artifacts (files_modified, commit_hash), metrics (test_coverage, tests_passed/failed), comments (observations with auto-timestamping — timestamp is auto-filled if omitted). Must call ledger_start_pipeline first. On completion, response includes a NEXT STEP guidance block. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CompletePipelineSchema,
     },
     completePipeline as any
@@ -675,7 +675,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_cancel_pipeline',
     {
-      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: project_path, work_package_id, type, reason.',
+      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: work_package_id, type, reason. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CancelPipelineSchema,
     },
     cancelPipeline as any
@@ -684,7 +684,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_update_pipeline_progress',
     {
-      description: 'Update the summary of the most recent IN_PROGRESS pipeline without completing it. Allows agents to record partial progress notes mid-work. REQUIRED params: project_path, work_package_id, type, summary.',
+      description: 'Update the summary of the most recent IN_PROGRESS pipeline without completing it. Allows agents to record partial progress notes mid-work. REQUIRED params: work_package_id, type, summary. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: UpdatePipelineProgressSchema,
     },
     updatePipelineProgress as any

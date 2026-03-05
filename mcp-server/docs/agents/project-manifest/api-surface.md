@@ -14,7 +14,7 @@ The primary public API is the set of **MCP tools** registered by the server. Age
 
 ```typescript
 (args: { project_path?: string; cwd_path?: string }) => Promise<MCPResult>
-// Note: at least one of project_path or cwd_path is required.
+// Note: provide cwd_path (workspace root, preferred — auto-detects project) or project_path (fallback — use only if already known).
 ```
 
 Reads the root index and returns project overview. Includes self-healing logic (`computeHealedStatus`) that recomputes counters and status from actual work package data. Self-healing separates computation (pure function) from persistence (conditional write under lock). No disk write occurs if counters and status are already correct.
@@ -60,8 +60,8 @@ Scans the central ledger root directory and returns metadata for all projects. O
 
 ```typescript
 (args: {
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   agent_role: string;
   synthesis_file?: string;  // default: 'synthesis.md'
 }) => Promise<MCPResult>
@@ -103,8 +103,8 @@ Note: `cwd_path` must be a directory path, not a file path. The tool does NOT re
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string // WP-### format
 }) => Promise<MCPResult>
 ```
@@ -115,8 +115,8 @@ Reads and returns the full work package detail.
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   status?: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
   assigned_to?: string;
 }) => Promise<MCPResult>
@@ -128,8 +128,8 @@ Lists work package summaries from the root index with optional filters.
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   assigned_to: string;      // Accepted silently but IGNORED — WP always starts with assigned_to: null
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
@@ -149,8 +149,8 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   agent: string;
   override?: boolean;
@@ -167,8 +167,8 @@ Claims a `READY` work package by transitioning to `IN_PROGRESS`. Validates depen
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'CANCELLED';
   agent: string;
@@ -198,8 +198,8 @@ The `agent` field is required because the server checks which persona is attempt
 
 ```typescript
 (args: {
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string; // WP-### format
   pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: string;  // Must be "Project Manager"
@@ -218,8 +218,8 @@ The `agent` field is required because the server checks which persona is attempt
 
 ```typescript
 (args: {
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string; // WP-### format
   agent_role: string;      // Must be "Project Manager"
   operations: Array<
@@ -248,8 +248,8 @@ The `agent` field is required because the server checks which persona is attempt
 
 ```typescript
 (args: {
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
@@ -272,8 +272,8 @@ The `agent` field is required because the server checks which persona is attempt
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: string; // required — see mapping below
@@ -296,8 +296,8 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   agent_role: string; // required — see mapping below
@@ -355,8 +355,8 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   reason: string;
@@ -369,8 +369,8 @@ Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting 
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   summary: string[];
@@ -387,8 +387,8 @@ Appends to the summary array of the most recent `IN_PROGRESS` pipeline without c
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
   pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
   type: string; // e.g., "code-smell", "refactor", "debt"
@@ -403,8 +403,8 @@ Adds a comment to the most recent pipeline of the specified type. The `pipeline_
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   type: string; // e.g., "incident", "note", "decision"
   priority: 'low' | 'medium' | 'high';
   agent: string;
@@ -429,8 +429,8 @@ Adds a comment to the project-level comments array in the root index. For `incid
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
   max_results?: number; // default: 1 (single-action mode)
 }) => Promise<MCPResult>
@@ -448,8 +448,8 @@ Reads root index and work package details to recommend the next action(s) for an
 
 ```typescript
 (args: { 
-  project_path?: string; // at least one of project_path or cwd_path required
-  cwd_path?: string;
+  project_path?: string; // fallback — use only if already known from a previous tool response
+  cwd_path?: string; // preferred — auto-detects project
   current_agent: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult>
 ```
@@ -506,6 +506,21 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
 
 ## Storage API
 
+### `SlugConflictError`
+
+Named export from `src/storage/ledger-store.ts`. Thrown by `LedgerStore.renameSlug()` when the target slug directory already exists on disk.
+
+```typescript
+export class SlugConflictError extends Error {
+  constructor(slug: string);
+  // this.name === 'SlugConflictError' — ensures reliable instanceof checks across transpilation boundaries.
+}
+```
+
+Used by `gui/api.ts` `handleRenameProject` catch block (`err instanceof SlugConflictError`) to produce a typed `CONFLICT` API error. Co-located in `ledger-store.ts` (single thrower, single consumer) — no separate `errors.ts` file.
+
+---
+
 ### `LedgerStore`
 
 Central storage abstraction for ledger file I/O. Files are stored in the centralized ledger root at `{ledgerRoot}/{slug}/` — never inside plan folders.
@@ -553,6 +568,18 @@ class LedgerStore {
 
   // Meta methods
   writeProjectMeta(planFile: string, status?: string): Promise<void>;
+  // Sets the user-visible display title. Reads current meta, updates `title`
+  // while preserving `last_updated` unchanged, validates with ProjectMetaSchema,
+  // writes atomically.
+  updateTitle(title: string): Promise<ProjectMeta>;
+  // Renames the ledger storage directory on disk and patches `slug` in .meta.json.
+  // Does NOT touch `last_updated`. Must NOT be called inside withLock.
+  // Throws on: invalid slug (fails SAFE_SLUG_REGEX or length > 200), or target
+  // directory already exists (throws SlugConflictError). Contains a defensive
+  // same-slug guard (throws plain Error) that is unreachable from handleRenameProject
+  // — the API handler pre-checks newSlug === slug and short-circuits before this
+  // method is called. Returns updated ProjectMeta.
+  renameSlug(newSlug: string): Promise<ProjectMeta>;
 
   // Static
   static listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]>;
@@ -797,6 +824,11 @@ const ORCHESTRATING_ROLES: readonly ['Planner', 'Synthesis'];
 
 // String-literal union type derived from ORCHESTRATING_ROLES.
 type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
+
+// Pattern for valid ledger slugs: must start with a lowercase alphanumeric character,
+// followed by zero or more lowercase alphanumeric characters or hyphens. Max length 200.
+// Used by LedgerStore.renameSlug() (storage layer) and gui/api.ts (API layer).
+const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
 ```
 
 **Importers of `AGENT_ROLES`:**
@@ -804,6 +836,10 @@ type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
 - `src/tools/workflow-handoff.ts` — imports `AGENT_ROLES` from `'../utils/constants.js'`
 - `src/utils/agent-registry.ts` — imports `AGENT_ROLES` from `'./constants.js'`
 - `src/tools/work-package.ts` — imports `AGENT_ROLES`, `ORCHESTRATING_ROLES` from `'../utils/constants.js'`
+
+**Importers of `SAFE_SLUG_REGEX`:**
+- `src/storage/ledger-store.ts` — imports `SAFE_SLUG_REGEX` from `'../utils/constants.js'`; used in `renameSlug()` validation
+- `gui/api.ts` — imports `SAFE_SLUG_REGEX` from `'../src/utils/constants.js'`; used in `handleRenameProject` as a defence-in-depth early-reject guard before the slug reaches the storage layer
 
 **Importers of `PLAN_ARCHIVE_FILENAME` / `SYNTHESIS_ARCHIVE_FILENAME`:**
 - `gui/api.ts` — imports both; `PLAN_ARCHIVE_FILENAME` used in `handleGetPlanDocument` join() call, `SYNTHESIS_ARCHIVE_FILENAME` used in `handleGetSynthesisDocument` join() call
@@ -1312,7 +1348,7 @@ Pure async handler functions called by the HTTP server (`gui/server.ts`). All ha
 
 **Path-traversal guards:** two module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
-- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`).
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
 
 Both guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
@@ -1341,18 +1377,20 @@ export interface InsightEntry {
 // Per-project read failures are logged to stderr and skipped gracefully; returns [] when no comments exist.
 export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]>;
 
-// Enriched project summary — extends ProjectMeta with WP counters and resolved project name.
+// Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned by GET /api/projects. Fields default to 0 / null on per-project read failure so one
 // bad project never breaks the full response.
 export interface ProjectSummary extends ProjectMeta {
   total_work_packages: number;   // from root index; defaults to 0 on read failure
   pending_work_packages: number; // from root index; defaults to 0 on read failure
   project_name: string | null;   // from package.json → composer.json → pyproject.toml; null on failure
+  repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
 }
 
 // GET /api/projects — returns enriched project summaries from the centralized ledger.
-// Each entry extends ProjectMeta with WP counters and a resolved project name.
+// Each entry extends ProjectMeta with WP counters, a resolved project name, and repository_name.
 // Per-project enrichment is concurrent (Promise.all); failures per project are isolated.
+// project_name resolution order: manifest file → slug date-strip fallback → meta.title (wins if set).
 export async function handleListProjects(ledgerRoot: string): Promise<ProjectSummary[]>;
 
 // GET /api/projects/:slug — returns combined root index + meta
@@ -1370,6 +1408,38 @@ export async function handleGetWorkPackage(
   slug: string,
   wpId: string
 ): Promise<WorkPackageDetail>;
+
+// PATCH /api/projects/:slug — renames a project's title, slug, or both.
+//
+// Module-level schema (exported for tests):
+//   export const RenameBodySchema = z.object({
+//     title: z.string().min(1).max(200).optional(),
+//     slug:  z.string().min(1).max(200).optional(),
+//   }).refine(d => d.title !== undefined || d.slug !== undefined, {
+//     message: 'At least one of title or slug must be provided.',
+//   });
+//
+// Body: { title? }, { slug? }, or { title, slug } — at least one required.
+// Returns the updated ProjectMeta on success (200).
+//   – When slug is changed, ProjectMeta.slug carries the new value; the
+//     frontend uses this to navigate to #/projects/{newSlug}.
+// Throws VALIDATION_ERROR when body is empty, fields fail constraints, or slug
+//   does not match SAFE_SLUG_REGEX (^[a-z0-9][a-z0-9-]*$).
+// Throws NOT_FOUND when the project slug does not exist.
+// Throws CONFLICT when the target slug directory already exists on disk
+//   (catch block uses instanceof SlugConflictError — no string-prefix matching).
+// Operations: title first (LedgerStore.updateTitle()), then slug
+//   (LedgerStore.renameSlug()). Neither operation modifies last_updated.
+// Do not reuse the LedgerStore instance after renameSlug() — storageDir is stale.
+//
+// Same-slug no-op: sending { slug: currentSlug } returns HTTP 200 with unchanged
+//   metadata. The handler pre-checks newSlug === slug and materialises latestMeta
+//   via store.readProjectMeta() without calling renameSlug().
+export async function handleRenameProject(
+  ledgerRoot: string,
+  slug: string,
+  body: unknown
+): Promise<ProjectMeta>;
 
 // DELETE /api/projects/:slug — permanently removes a COMPLETE project; throws FORBIDDEN otherwise
 export async function handleDeleteProject(
@@ -1459,6 +1529,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 |--------|---------|--------|
 | GET | `/api/projects` | `handleListProjects` |
 | GET | `/api/projects/:slug` | `handleGetProject` |
+| PATCH | `/api/projects/:slug` | `handleRenameProject` (body parsed inline; placed before POST reset handler) |
 | GET | `/api/projects/:slug/work-packages` | `handleListWorkPackages` |
 | GET | `/api/projects/:slug/work-packages/:wpId` | `handleGetWorkPackage` |
 | GET | `/api/projects/:slug/plan` | `handleGetPlanDocument` |
@@ -1472,7 +1543,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 
 **Static file serving:** requests not starting with `/api/` are served from `gui/public/` (ESM path via `import.meta.url`). `/` → `index.html`. Unknown paths → 404.
 
-**CORS:** all responses include `Access-Control-Allow-Origin: http://localhost:{port}`, `Access-Control-Allow-Methods: GET, PUT, DELETE, OPTIONS`. OPTIONS preflight → 200 OK.
+**CORS:** all responses include `Access-Control-Allow-Origin: http://localhost:{port}`, `Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS`. OPTIONS preflight → 200 OK.
 
 **Error handling:**
 - `ApiError` codes map to HTTP status: `NOT_FOUND`→404, `FORBIDDEN`→403, `VALIDATION_ERROR`→400, other→500
@@ -1540,13 +1611,23 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 > **Known debt (low):** `.insights-filters` duplicates `.filter-bar` layout properties. The Reviewer approved retaining `.insights-filters` as a semantic distinction for now. A future cleanup WP should consolidate them into a single utility class.
 
+**`styles.css` — Inline title edit + Repository column classes** (added for WP-003):
+
+| Class | Role |
+|-------|------|
+| `.page-heading-wrapper` | `inline-flex` container wrapping the project detail `<h1>` and edit button; avoids taking the full row width |
+| `.edit-title-btn` | Small pencil (✎) button adjacent to the heading; hidden during edit mode |
+| `.title-edit-input` | Inline text input that replaces `<h1>` in edit mode; `font-size:1.5rem` + `font-weight:700` matches the `<h1>` exactly (zero layout shift); `max-width:600px` + `width:40ch` constrains overflow |
+| `.title-edit-error` | Inline error message div displayed below the input on API failure; cleared by `exitEdit()` when the user leaves edit mode |
+| `.repo-col` | Table data cell for the Repository column in the project list table |
+
 **`app.js` structure:**
-- **`API`** — async fetch wrappers for all 12 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`
+- **`API`** — async fetch wrappers for all 13 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`
 - **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/plan`, `#/projects/:slug/synthesis`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); the `/plan` and `/synthesis` matches are registered before the generic `/:slug` match to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 - **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`, `extractSynopsis(markdown)`
 - **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
-- **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug` and `data-name` attributes off `<tr>` elements (full slug + raw project name, both lowercased for case-insensitive match); delete button (COMPLETE only, `confirm()` dialog)
-- **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+- **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **Repository** (`repository_name` or `—`; rendered via `<td class="repo-col">`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug`, `data-name`, and `data-repo` attributes off `<tr>` elements (full slug + raw project name + repository name, all lowercased for case-insensitive match); `data-repo` is set to `escapeHtml(p.repository_name || '')` on the `<tr>` element; em-dash fallback uses `\u2014` Unicode escape; delete button (COMPLETE only, `confirm()` dialog)
+- **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); **title display:** `displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug` — used for both the `<h1>` heading and breadcrumb; **inline title edit:** heading is wrapped in `.page-heading-wrapper` (inline-flex) with an adjacent `.edit-title-btn` pencil button (✎); click pencil → replaces `<h1>` with `<input class="title-edit-input">` pre-filled with current title, auto-focused; Enter or blur triggers `doSave()` which calls `API.renameProject(slug, newTitle)` and updates the heading and breadcrumb on success; Escape triggers `exitEdit()` without touching the API; errors displayed in a `.title-edit-error` div (created once via `getElementById` + `createElement` to prevent duplicates on rapid retries); `inputDone` flag prevents blur+Enter double-save race; error path resets `inputDone = false` to permit retry; `currentTitle` is kept in sync with the last saved value so re-entering edit mode shows the latest title; project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
 - **`showResetModal(slug, diagnosis)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail()` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard)
 - **`renderPlan(app, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures

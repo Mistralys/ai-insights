@@ -32,8 +32,8 @@ import { embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector 
  * Returns actionable recommendations based on work package statuses and pipeline states.
  */
 const GetNextActionSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   agent_role: z
     .string()
     .describe(
@@ -1215,7 +1215,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_get_next_action',
     {
-      description: 'Get the next recommended action for your agent role. REQUIRED params: project_path, agent_role. OPTIONAL: max_results (default: 1). When max_results is 1 (default), returns a single action object. When max_results > 1, returns an array of up to that many actions under the "actions" key. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states.',
+      description: 'Get the next recommended action for your agent role. REQUIRED params: agent_role. OPTIONAL: max_results (default: 1). When max_results is 1 (default), returns a single action object. When max_results > 1, returns an array of up to that many actions under the "actions" key. Call this to determine what to do next. Returns an action type and reason based on current work package and pipeline states. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: GetNextActionSchema,
     },
     getNextAction as any

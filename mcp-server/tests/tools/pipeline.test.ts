@@ -1020,6 +1020,7 @@ const LENIENT_PLAN_PATH = join(tmpdir(), '2026-03-04-lenient-input');
 describe('completePipeline handler normalizes lenient inputs', () => {
   let tempLedgerRoot: string;
   let store: LedgerStore;
+  let originalArgv: string[];
 
   function makeRoot(): RootIndex {
     return {
@@ -1052,19 +1053,22 @@ describe('completePipeline handler normalizes lenient inputs', () => {
   }
 
   beforeEach(async () => {
-    tempLedgerRoot = await mkdtemp(LENIENT_PLAN_PATH + '-');
-    store = new LedgerStore(tempLedgerRoot);
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'lenient-input-'));
+    store = new LedgerStore(LENIENT_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
     await store.writeRootIndex(makeRoot());
     await store.writeWorkPackage('WP-001', makeWpWithImplPipeline());
   });
 
   afterEach(async () => {
+    process.argv = originalArgv;
     await rm(tempLedgerRoot, { recursive: true, force: true });
   });
 
   it('coerces a summary string to a single-element array', async () => {
     const result = await completePipeline({
-      project_path: tempLedgerRoot,
+      project_path: LENIENT_PLAN_PATH,
       work_package_id: 'WP-001',
       type: 'implementation',
       status: 'PASS',
@@ -1079,7 +1083,7 @@ describe('completePipeline handler normalizes lenient inputs', () => {
 
   it('auto-fills comment timestamps when omitted', async () => {
     const result = await completePipeline({
-      project_path: tempLedgerRoot,
+      project_path: LENIENT_PLAN_PATH,
       work_package_id: 'WP-001',
       type: 'implementation',
       status: 'PASS',

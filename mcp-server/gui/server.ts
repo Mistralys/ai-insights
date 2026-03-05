@@ -31,6 +31,7 @@ import {
   handleUpdateConfig,
   handleResetProject,
   handleGetProjectHealth,
+  handleRenameProject,
   ApiError,
 } from './api.js';
 
@@ -74,7 +75,7 @@ const MIME_TYPES: Record<string, string> = {
 function corsHeaders(port: number): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': `http://localhost:${port}`,
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
@@ -354,6 +355,31 @@ async function handleRequest(
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in GET /api/config: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // PATCH /api/projects/:slug — special case: requires body parsing
+  if (method === 'PATCH' && path.startsWith('/api/projects/')) {
+    const slug = decodeURIComponent(path.slice('/api/projects/'.length));
+    try {
+      const rawBody = await readBody(req);
+      let body: unknown;
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        sendError(res, 400, 'VALIDATION_ERROR', 'Invalid JSON body.', port);
+        return;
+      }
+      const result = await handleRenameProject(ledgerRoot, slug, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in PATCH /api/projects/:slug: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }

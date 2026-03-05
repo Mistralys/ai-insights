@@ -1,4 +1,4 @@
-import { readFile, access, readdir, copyFile } from 'fs/promises';
+import { readFile, access, readdir, copyFile, rename } from 'fs/promises';
 import { join } from 'path';
 import { constants } from 'fs';
 import { RootIndexSchema, type RootIndex } from '../schema/root-index.js';
@@ -10,7 +10,19 @@ import { ProjectMetaSchema, type ProjectMeta } from '../schema/project-meta.js';
 import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
 import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
+import { SAFE_SLUG_REGEX } from '../utils/constants.js';
 import { now } from '../utils/timestamp.js';
+
+/**
+ * Thrown by `LedgerStore.renameSlug()` when the target slug directory already
+ * exists on disk (i.e. the slug is taken by another project).
+ */
+export class SlugConflictError extends Error {
+  constructor(slug: string) {
+    super(`Slug already in use: "${slug}".`);
+    this.name = 'SlugConflictError';
+  }
+}
 
 /**
  * Central storage abstraction for ledger file I/O.
@@ -285,6 +297,82 @@ export class LedgerStore {
         `Project meta validation failed at ${path}: ${(error as Error).message}`
       );
     }
+  }
+
+  /**
+   * Sets the user-visible display title for the project.
+   * Reads the current meta, updates `title` only (preserves `last_updated`),
+   * validates, and writes atomically. Returns the updated ProjectMeta.
+   */
+  async updateTitle(title: string): Promise<ProjectMeta> {
+    const meta = await this.readProjectMeta();
+    const updated: ProjectMeta = ProjectMetaSchema.parse({
+      ...meta,
+      title,
+    });
+    await atomicWriteJson(this.metaPath(), updated);
+    return updated;
+  }
+
+  /**
+   * Renames the ledger storage directory and updates the `slug` field in `.meta.json`.
+   *
+   * Algorithm:
+   *   1. Validates `newSlug` against SAFE_SLUG_REGEX and the 200-char length cap.
+   *   2. Guards against a same-slug no-op and a target-directory conflict.
+   *   3. Calls `fs.rename(oldStorageDir, newStorageDir)` — atomic on POSIX, effectively
+   *      atomic on Windows for same-drive renames.
+   *   4. Reads `.meta.json` from the **new** path (old path is gone), patches `slug`,
+   *      and writes back with `atomicWriteJson`. Does **not** touch `last_updated`.
+   *
+   * Error conditions:
+   *   - `Invalid slug "…"` — pattern or length violation.
+   *   - `Slug is already "…"` — same-slug no-op.
+   *   - `Slug already in use: "…"` — target directory already exists.
+   *
+   * Lock behaviour: intentionally **not** wrapped in `withLock`. `withLock` creates
+   * `.lock` inside `storageDir`; holding that lock across `fs.rename` would move the
+   * lock file to the new path, causing `proper-lockfile` to fail to release at the
+   * original path. The same low-concurrency reasoning that justifies `updateTitle()`
+   * running lock-free applies here.
+   *
+   * ⚠️  After this method returns, the current `LedgerStore` instance is stale:
+   * `this.storageDir` and `this.slug` still point to the old (now-deleted) directory.
+   * The GUI reconstructs `LedgerStore` per-request, so this is safe in practice.
+   * Do not reuse the same instance after calling `renameSlug()`.
+   */
+  async renameSlug(newSlug: string): Promise<ProjectMeta> {
+    if (newSlug.length > 200 || !SAFE_SLUG_REGEX.test(newSlug)) {
+      throw new Error(
+        `Invalid slug "${newSlug}": must match ^[a-z0-9][a-z0-9-]*$ and be at most 200 characters.`
+      );
+    }
+    if (newSlug === this.slug) {
+      throw new Error(`Slug is already "${newSlug}"; no rename needed.`);
+    }
+    const newStorageDir = join(this.ledgerRoot, newSlug);
+    try {
+      await access(newStorageDir);
+      // If access() resolves, the directory exists — conflict.
+      throw new SlugConflictError(newSlug);
+    } catch (err: unknown) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr.code !== 'ENOENT') {
+        // Re-throw both our conflict error and unexpected fs errors.
+        throw err;
+      }
+      // ENOENT means the target does not exist — safe to proceed.
+    }
+    await rename(this.storageDir, newStorageDir);
+    const newMetaPath = join(newStorageDir, '.meta.json');
+    const rawMeta = JSON.parse(await readFile(newMetaPath, 'utf-8')) as Record<string, unknown>;
+    const updated: ProjectMeta = ProjectMetaSchema.parse({
+      ...rawMeta,
+      slug: newSlug,
+    });
+    await atomicWriteJson(newMetaPath, updated);
+    // NOTE: this instance is no longer valid after this return — see JSDoc above.
+    return updated;
   }
 
   // ==================== Archive Methods ====================

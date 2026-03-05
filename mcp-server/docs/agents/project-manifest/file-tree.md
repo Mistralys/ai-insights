@@ -81,7 +81,7 @@ mcp-server/
     ├── gui/                     # GUI and config module tests
     │   ├── api-reset.test.ts    # Integration tests for handleResetProject — dry_run, apply decisions, cancel, skip, error cases (13 tests)
     │   ├── config.test.ts       # Unit tests for src/gui/config.ts (cache, read, write, watcher lifecycle)
-    │   ├── api.test.ts          # Unit tests for gui/api.ts (all handlers, NOT_FOUND / FORBIDDEN / VALIDATION_ERROR guards)
+    │   ├── api.test.ts          # Unit tests for gui/api.ts (all handlers, NOT_FOUND / FORBIDDEN / VALIDATION_ERROR guards); includes handleRenameProject (7 cases: success, empty, max-length boundary, NOT_FOUND, path-traversal, persistence round-trip), handleListProjects repository_name and title-priority assertions
     │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse at runtime
     │
     ├── integration/             # End-to-end workflow tests
@@ -93,7 +93,7 @@ mcp-server/
     │   └── work-package-schema.test.ts  # Zod parse-level tests for PipelineSchema and WorkPackageDetailSchema new fields (22 tests)
     │
     ├── storage/                 # Storage layer tests
-    │   ├── ledger-store.test.ts
+    │   ├── ledger-store.test.ts # LedgerStore unit tests; includes updateTitle() — sets title, updates last_updated, persists to disk, overwrites previous title
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests

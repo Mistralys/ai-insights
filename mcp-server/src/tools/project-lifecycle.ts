@@ -93,8 +93,8 @@ async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
  * Includes self-healing logic that recomputes counters from actual WP data.
  */
 const GetProjectStatusSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
 });
 
 /**
@@ -558,11 +558,11 @@ const CompleteSynthesisSchema = z.object({
   project_path: z
     .string()
     .optional()
-    .describe('Absolute path to the project plan directory'),
+    .describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
   cwd_path: z
     .string()
     .optional()
-    .describe('Workspace root path — alternative to project_path for automatic project detection.'),
+    .describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   agent_role: z
     .string()
     .describe('The agent role completing synthesis (must be "Synthesis" or "Project Manager")'),
@@ -725,7 +725,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_get_project_status',
     {
-      description: 'Read project overview from the root index. REQUIRED params: project_path. Returns work package summaries, counters, and project status. Self-heals incorrect counters. Call this first to understand project state.',
+      description: 'Read project overview from the root index. Returns work package summaries, counters, and project status. Self-heals incorrect counters. Call this first to understand project state. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: GetProjectStatusSchema,
     },
     getProjectStatus as any
@@ -752,7 +752,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_complete_synthesis',
     {
-      description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: project_path, agent_role. Call this after generating the synthesis report.',
+      description: 'Mark synthesis as generated. Sets synthesis_generated=true on the root index and transitions project to COMPLETE if all WPs are done. REQUIRED params: agent_role. Call this after generating the synthesis report. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CompleteSynthesisSchema,
     },
     (args) => completeSynthesis(args)

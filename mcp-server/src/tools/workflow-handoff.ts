@@ -25,8 +25,8 @@ import { isTerminalStatus } from '../schema/validators.js';
  * the correct AGENT: and STATUS: handoff block for the current agent.
  */
 const GetHandoffStatusSchema = z.object({
-  project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
-  cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
+  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
   current_agent: z
     .string()
     .describe(
@@ -1121,7 +1121,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_get_handoff_status',
     {
-      description: 'Get the handoff status to determine if your work is done and which agent should work next. REQUIRED params: project_path, current_agent. Call this after completing your pipelines to check if work should be handed to the next agent in the workflow.',
+      description: 'Get the handoff status to determine if your work is done and which agent should work next. REQUIRED params: current_agent. Call this after completing your pipelines to check if work should be handed to the next agent in the workflow. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: GetHandoffStatusSchema,
     },
     getHandoffStatus as any

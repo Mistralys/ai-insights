@@ -1,8 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.9.1 - Zod Refine Empty Schema Fix
+## v1.9.2 - Independent Title / Slug Rename
+- MCP GUI: Added slug and title renaming.
+- MCP GUI: Added the repository folder column.
 - Tools: Fixed invisible arguments confusing agents.
-- Tools: Moved `project_path`/`cwd_path` mutual exclusivity enforcement from Zod schema to runtime validation.
+- Tools: Fixed confusing project path argument documentation.
 - Tests: Added regression guard for missing tool docs.
 
 ## v1.9.0 - VS Code Persona IDs
