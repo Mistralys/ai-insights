@@ -877,6 +877,11 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 **Implementation:** Both guards are module-private to `gui/api.ts` (not exported). They must not be bypassed or called after other parameter-dependent operations.
 
+**Acceptance criteria wording:** When writing AC for test cases that exercise `assertSafeSlug` rejection, use:
+> *"Invalid slug (e.g. path-traversal attempt) returns 404 NOT_FOUND."*
+
+Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection. (See [error-ledger.md](../../../../../history/error-ledger.md) — deviation recorded in 2026-03-04-project-reset-rework-1 synthesis.)
+
 ---
 
 ## Gotchas

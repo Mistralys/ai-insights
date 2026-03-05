@@ -29,6 +29,8 @@ import {
   handleGetInsights,
   handleGetConfig,
   handleUpdateConfig,
+  handleResetProject,
+  handleGetProjectHealth,
   ApiError,
 } from './api.js';
 
@@ -72,7 +74,7 @@ const MIME_TYPES: Record<string, string> = {
 function corsHeaders(port: number): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': `http://localhost:${port}`,
-    'Access-Control-Allow-Methods': 'GET, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
@@ -196,6 +198,17 @@ function matchRoute(
     return () => handleGetSynthesisDocument(ledgerRoot, slug);
   }
 
+  // GET /api/projects/:slug/health
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'health'
+  ) {
+    const slug = rest[1]!;
+    return () => handleGetProjectHealth(ledgerRoot, slug);
+  }
+
   // GET /api/projects/:slug
   if (method === 'GET' && rest.length === 2 && rest[0] === 'projects') {
     const slug = rest[1]!;
@@ -233,6 +246,10 @@ function matchRoute(
 
   // GET /api/config and PUT /api/config are handled before matchRoute() is called
   // (they require configPath which is not passed to this function)
+
+  // POST /api/projects/:slug/reset — handled separately in handleRequest()
+  // because it requires body parsing (like PUT /api/config).
+  // This comment serves as a route-map reference for maintainability.
 
   return null;
 }
@@ -341,6 +358,39 @@ async function handleRequest(
       }
     }
     return;
+  }
+
+  // POST /api/projects/:slug/reset — special case: requires body parsing
+  if (method === 'POST') {
+    const postSegments = path.split('/').filter(Boolean);
+    if (
+      postSegments.length === 4 &&
+      postSegments[0] === 'api' &&
+      postSegments[1] === 'projects' &&
+      postSegments[3] === 'reset'
+    ) {
+      const slug = decodeURIComponent(postSegments[2]!);
+      try {
+        const rawBody = await readBody(req);
+        let body: unknown;
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          sendError(res, 400, 'VALIDATION_ERROR', 'Invalid JSON body.', port);
+          return;
+        }
+        const result = await handleResetProject(ledgerRoot, slug, body);
+        sendJson(res, 200, result, port);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+        } else {
+          process.stderr.write(`[server] Unhandled error in POST /api/projects/:slug/reset: ${String(err)}\n`);
+          sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+        }
+      }
+      return;
+    }
   }
 
   // General API route matching

@@ -39,6 +39,9 @@ var API = (function () {
     getInsights:              function ()             { return request('GET',    '/insights'); },
     getPlanDocument:          function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/plan'); },
     getSynthesisDocument:     function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/synthesis'); },
+    analyzeProjectReset:      function (slug)         { return request('POST',   '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: true }); },
+    applyProjectReset:        function (slug, decisions) { return request('POST', '/projects/' + encodeURIComponent(slug) + '/reset', { dry_run: false, decisions: decisions }); },
+    getProjectHealth:         function (slug)         { return request('GET',    '/projects/' + encodeURIComponent(slug) + '/health'); },
   };
 })();
 
@@ -456,6 +459,8 @@ function renderProjectDetail(app, slug) {
       '<div class="page-header">' +
         '<h1>' + escapeHtml(slug) + '</h1>' +
         statusBadge(meta.status) +
+        '<span id="health-badge" class="health-badge">Checking\u2026</span>' +
+        '<button class="btn btn-secondary btn-sm" id="reset-project-btn">Reset Project</button>' +
       '</div>' +
       '<div class="card">' +
         '<div class="text-muted" style="font-size:13px">' +
@@ -504,9 +509,326 @@ function renderProjectDetail(app, slug) {
         if (href) window.location.hash = href;
       });
     });
+
+    // Reset Project button
+    var resetBtn = document.getElementById('reset-project-btn');
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function () {
+        resetBtn.disabled = true;
+        resetBtn.textContent = 'Analyzing…';
+        API.analyzeProjectReset(slug).then(function (diagnosis) {
+          resetBtn.disabled = false;
+          resetBtn.textContent = 'Reset Project';
+          if (diagnosis.work_packages_needing_reset === 0) {
+            alert('All work packages are healthy — no reset needed.');
+            return;
+          }
+          showResetModal(slug, diagnosis);
+        }).catch(function (err) {
+          resetBtn.disabled = false;
+          resetBtn.textContent = 'Reset Project';
+          alert('Analysis failed: ' + (err.message || String(err)));
+        });
+      });
+    }
+
+    // Health badge — async, non-blocking
+    var healthBadge = document.getElementById('health-badge');
+    if (healthBadge) {
+      API.getProjectHealth(slug).then(function (health) {
+        if (health.work_packages_needing_reset === 0) {
+          healthBadge.textContent = '\u2713 All pipelines complete';
+          healthBadge.className = 'health-badge healthy';
+        } else {
+          healthBadge.textContent = '\u26a0 ' + health.work_packages_needing_reset + ' WP' + (health.work_packages_needing_reset === 1 ? '' : 's') + ' need attention';
+          healthBadge.className = 'health-badge attention';
+        }
+      }).catch(function () {
+        // Silent failure — remove badge without blocking page
+        if (healthBadge.parentNode) healthBadge.parentNode.removeChild(healthBadge);
+      });
+    }
   }).catch(function (err) {
     showError(app, 'Failed to load project: ' + (err.message || String(err)));
   });
+}
+
+/* ----------------------------------------------------------
+   4c-ii. Reset Project Modal
+   ---------------------------------------------------------- */
+var PIPELINE_STAGES = ['implementation', 'qa', 'code-review', 'documentation'];
+
+function showResetModal(slug, diagnosis) {
+  // Remove any existing modal
+  var existing = document.getElementById('reset-modal-overlay');
+  if (existing) existing.remove();
+
+  var wps = diagnosis.work_packages || [];
+
+  // Build state: per-WP action + criteria checkbox
+  var state = {};
+  wps.forEach(function (wp) {
+    state[wp.work_package_id] = {
+      action: wp.current_status === 'CANCELLED' ? 'skip' : wp.suggested_action,
+      reset_criteria: wp.suggested_reset_criteria,
+      isCancelled: wp.current_status === 'CANCELLED',
+    };
+  });
+
+  function buildSummary() {
+    var resetCount = 0, skipCount = 0, cancelCount = 0;
+    Object.keys(state).forEach(function (id) {
+      if (state[id].action === 'reset') resetCount++;
+      else if (state[id].action === 'cancel') cancelCount++;
+      else skipCount++;
+    });
+    var parts = [];
+    if (resetCount > 0) parts.push(resetCount + ' will be reset');
+    if (skipCount > 0) parts.push(skipCount + ' skipped');
+    if (cancelCount > 0) parts.push(cancelCount + ' cancelled');
+    var statusNote = (resetCount > 0 || cancelCount > 0)
+      ? ' — Project status \u2192 IN_PROGRESS'
+      : '';
+    return parts.join(', ') + statusNote;
+  }
+
+  function stageBadge(stage, present) {
+    var cls = present ? 'reset-stage-badge reset-stage-present' : 'reset-stage-badge reset-stage-missing';
+    return '<span class="' + cls + '">' + escapeHtml(stage) + '</span>';
+  }
+
+  function buildWpRow(wp) {
+    var s = state[wp.work_package_id];
+    var id = wp.work_package_id;
+    var safeid = id.replace(/[^a-zA-Z0-9-]/g, '_');
+
+    // Stage badges
+    var presentSet = {};
+    (wp.pipeline_stages_present || []).forEach(function (st) { presentSet[st] = true; });
+    var stageBadges = PIPELINE_STAGES.map(function (st) {
+      return stageBadge(st, !!presentSet[st]);
+    }).join(' ');
+
+    if (s.isCancelled) {
+      return '<div class="reset-wp-row reset-wp-cancelled">' +
+        '<div class="reset-wp-header">' +
+          '<span class="monospace">' + escapeHtml(id) + '</span> ' +
+          statusBadge(wp.current_status) +
+        '</div>' +
+        '<div class="reset-wp-stages">' + stageBadges + '</div>' +
+        '<div class="text-muted" style="font-size:12px">CANCELLED — cannot be modified</div>' +
+      '</div>';
+    }
+
+    var expanded = s.action === 'reset' || wp.needs_reset;
+
+    // Collapsed summary line
+    var actionLabel = s.action === 'reset' ? 'Reset' : (s.action === 'cancel' ? 'Cancel' : 'Skip');
+    var collapsedSummary = escapeHtml(wp.reason);
+
+    var detailHtml =
+      '<div class="reset-wp-stages">' + stageBadges + '</div>' +
+      '<div class="reset-wp-reason text-muted">' + escapeHtml(wp.reason) + '</div>';
+
+    if (wp.pipeline_stages_missing.length > 0 && wp.next_required_stage) {
+      detailHtml +=
+        '<div class="reset-wp-diagnosis">Missing: ' + escapeHtml(wp.pipeline_stages_missing.join(', ')) +
+        ' \u2192 will resume at <strong>' + escapeHtml(wp.target_assigned_to || wp.next_required_stage) + '</strong></div>';
+    }
+
+    // Radio buttons
+    var radioName = 'action_' + safeid;
+    var radios =
+      '<label class="reset-radio"><input type="radio" name="' + radioName + '" value="reset"' + (s.action === 'reset' ? ' checked' : '') + '> Reset</label>' +
+      '<label class="reset-radio"><input type="radio" name="' + radioName + '" value="skip"' + (s.action === 'skip' ? ' checked' : '') + '> Skip</label>' +
+      '<label class="reset-radio"><input type="radio" name="' + radioName + '" value="cancel"' + (s.action === 'cancel' ? ' checked' : '') + '> Cancel</label>';
+
+    // Criteria checkbox (only visible when action === reset)
+    var criteriaHtml =
+      '<div class="reset-criteria-row" id="criteria_' + safeid + '" style="' + (s.action === 'reset' ? '' : 'display:none') + '">' +
+        '<label><input type="checkbox" class="form-check" id="criteria_cb_' + safeid + '"' + (s.reset_criteria ? ' checked' : '') + '> Reset acceptance criteria to unmet</label>' +
+      '</div>';
+
+    return '<div class="reset-wp-row' + (expanded ? ' reset-wp-expanded' : '') + '" data-wp-id="' + escapeHtml(id) + '">' +
+      '<div class="reset-wp-header reset-wp-toggle" data-target="detail_' + safeid + '">' +
+        '<span class="reset-wp-arrow">' + (expanded ? '\u25BC' : '\u25B6') + '</span> ' +
+        '<span class="monospace">' + escapeHtml(id) + '</span> ' +
+        statusBadge(wp.current_status) +
+        (wp.needs_reset ? ' <span class="badge badge-blocked" style="font-size:10px">NEEDS RESET</span>' : '') +
+        ' <span class="text-muted" style="font-size:12px;margin-left:auto">' + escapeHtml(actionLabel) + '</span>' +
+      '</div>' +
+      '<div class="reset-wp-detail" id="detail_' + safeid + '" style="' + (expanded ? '' : 'display:none') + '">' +
+        detailHtml +
+        '<div class="reset-wp-actions">' + radios + '</div>' +
+        criteriaHtml +
+      '</div>' +
+    '</div>';
+  }
+
+  var wpRowsHtml = wps.map(buildWpRow).join('');
+
+  var modalHtml =
+    '<div class="reset-modal-overlay" id="reset-modal-overlay">' +
+      '<div class="reset-modal">' +
+        '<div class="reset-modal-header">' +
+          '<h2>Reset Project \u2014 ' + escapeHtml(slug) + '</h2>' +
+          '<button class="reset-modal-close" id="reset-modal-close">\u00d7</button>' +
+        '</div>' +
+        '<div class="reset-modal-banner">' +
+          'Analysis found <strong>' + diagnosis.work_packages_needing_reset + '</strong> broken work package' +
+          (diagnosis.work_packages_needing_reset !== 1 ? 's' : '') +
+          ' out of <strong>' + wps.length + '</strong> total.' +
+        '</div>' +
+        '<div class="reset-bulk-controls">' +
+          '<button class="btn btn-secondary btn-sm" id="reset-bulk-broken">Reset All Broken</button> ' +
+          '<button class="btn btn-secondary btn-sm" id="reset-bulk-skip">Skip All</button>' +
+        '</div>' +
+        '<div class="reset-wp-list">' + wpRowsHtml + '</div>' +
+        '<div class="reset-modal-footer">' +
+          '<div class="reset-summary" id="reset-summary">' + buildSummary() + '</div>' +
+          '<div class="reset-modal-actions">' +
+            '<button class="btn btn-secondary" id="reset-cancel-btn">Cancel</button> ' +
+            '<button class="btn btn-primary" id="reset-apply-btn">Apply Reset</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+  var overlay = document.getElementById('reset-modal-overlay');
+
+  function updateSummary() {
+    var el = document.getElementById('reset-summary');
+    if (el) el.textContent = buildSummary();
+    // Enable/disable apply button
+    var hasAction = Object.keys(state).some(function (id) {
+      return state[id].action === 'reset' || state[id].action === 'cancel';
+    });
+    var applyBtn = document.getElementById('reset-apply-btn');
+    if (applyBtn) applyBtn.disabled = !hasAction;
+  }
+
+  function closeModal() {
+    if (overlay) overlay.remove();
+  }
+
+  // Close button
+  document.getElementById('reset-modal-close').addEventListener('click', closeModal);
+  document.getElementById('reset-cancel-btn').addEventListener('click', closeModal);
+
+  // Click overlay to close
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) closeModal();
+  });
+
+  // Expand/collapse toggles
+  overlay.querySelectorAll('.reset-wp-toggle').forEach(function (toggle) {
+    toggle.addEventListener('click', function () {
+      var targetId = this.getAttribute('data-target');
+      var detail = document.getElementById(targetId);
+      var arrow = this.querySelector('.reset-wp-arrow');
+      if (detail) {
+        var isVisible = detail.style.display !== 'none';
+        detail.style.display = isVisible ? 'none' : '';
+        if (arrow) arrow.textContent = isVisible ? '\u25B6' : '\u25BC';
+      }
+    });
+  });
+
+  // Bulk controls
+  document.getElementById('reset-bulk-broken').addEventListener('click', function () {
+    wps.forEach(function (wp) {
+      if (state[wp.work_package_id].isCancelled) return;
+      state[wp.work_package_id].action = wp.needs_reset ? 'reset' : 'skip';
+      state[wp.work_package_id].reset_criteria = wp.suggested_reset_criteria;
+    });
+    refreshRadios();
+    updateSummary();
+  });
+
+  document.getElementById('reset-bulk-skip').addEventListener('click', function () {
+    wps.forEach(function (wp) {
+      if (state[wp.work_package_id].isCancelled) return;
+      state[wp.work_package_id].action = 'skip';
+    });
+    refreshRadios();
+    updateSummary();
+  });
+
+  function refreshRadios() {
+    wps.forEach(function (wp) {
+      var s = state[wp.work_package_id];
+      if (s.isCancelled) return;
+      var safeid = wp.work_package_id.replace(/[^a-zA-Z0-9-]/g, '_');
+      var radios = document.querySelectorAll('input[name="action_' + safeid + '"]');
+      radios.forEach(function (r) { r.checked = (r.value === s.action); });
+      var criteriaRow = document.getElementById('criteria_' + safeid);
+      if (criteriaRow) criteriaRow.style.display = s.action === 'reset' ? '' : 'none';
+      var criteriaCb = document.getElementById('criteria_cb_' + safeid);
+      if (criteriaCb) criteriaCb.checked = s.reset_criteria;
+    });
+  }
+
+  // Wire up radio and checkbox change events
+  wps.forEach(function (wp) {
+    if (state[wp.work_package_id].isCancelled) return;
+    var safeid = wp.work_package_id.replace(/[^a-zA-Z0-9-]/g, '_');
+
+    var radios = document.querySelectorAll('input[name="action_' + safeid + '"]');
+    radios.forEach(function (r) {
+      r.addEventListener('change', function () {
+        state[wp.work_package_id].action = this.value;
+        var criteriaRow = document.getElementById('criteria_' + safeid);
+        if (criteriaRow) criteriaRow.style.display = this.value === 'reset' ? '' : 'none';
+        updateSummary();
+      });
+    });
+
+    var criteriaCb = document.getElementById('criteria_cb_' + safeid);
+    if (criteriaCb) {
+      criteriaCb.addEventListener('change', function () {
+        state[wp.work_package_id].reset_criteria = this.checked;
+      });
+    }
+  });
+
+  // Apply button
+  document.getElementById('reset-apply-btn').addEventListener('click', function () {
+    var applyBtn = this;
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Applying…';
+
+    var decisions = {};
+    Object.keys(state).forEach(function (id) {
+      var s = state[id];
+      if (s.isCancelled) return; // Don't include CANCELLED WPs in decisions
+      decisions[id] = { action: s.action };
+      if (s.action === 'reset') {
+        decisions[id].reset_criteria = s.reset_criteria;
+      }
+    });
+
+    API.applyProjectReset(slug, decisions).then(function (result) {
+      closeModal();
+      // Show brief success toast
+      var toast = document.createElement('div');
+      toast.className = 'success-banner';
+      toast.style.cssText = 'position:fixed;top:80px;right:24px;z-index:10001;max-width:400px;animation:fadeIn 0.2s';
+      toast.textContent = result.project_comment_added || 'Project reset applied successfully.';
+      document.body.appendChild(toast);
+      setTimeout(function () { toast.remove(); }, 4000);
+      // Refresh the project view
+      var app = document.getElementById('app');
+      if (app) renderProjectDetail(app, slug);
+    }).catch(function (err) {
+      applyBtn.disabled = false;
+      applyBtn.textContent = 'Apply Reset';
+      alert('Reset failed: ' + (err.message || String(err)));
+    });
+  });
+
+  updateSummary();
 }
 
 /* ----------------------------------------------------------

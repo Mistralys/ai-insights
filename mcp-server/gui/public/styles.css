@@ -810,3 +810,240 @@ input[type="number"].form-control {
   background: var(--color-bg);
   text-decoration: none;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   Reset Project Modal
+   ────────────────────────────────────────────────────────────── */
+.reset-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.reset-modal {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 720px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.reset-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.reset-modal-header h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.reset-modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.reset-modal-close:hover {
+  color: var(--color-text);
+}
+
+.reset-modal-banner {
+  padding: 12px 20px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.reset-bulk-controls {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  gap: 8px;
+}
+
+.reset-wp-list {
+  overflow-y: auto;
+  padding: 12px 20px;
+  flex: 1;
+}
+
+.reset-wp-row {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.reset-wp-row.reset-wp-cancelled {
+  opacity: 0.55;
+}
+
+.reset-wp-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.reset-wp-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.reset-wp-toggle:hover {
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  margin: -4px -6px;
+  padding: 4px 6px;
+}
+
+.reset-wp-arrow {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.reset-wp-detail {
+  padding-top: 4px;
+}
+
+.reset-wp-stages {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.reset-stage-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reset-stage-present {
+  background: #dcfce7;
+  color: var(--color-complete);
+}
+
+.reset-stage-missing {
+  background: #fee2e2;
+  color: var(--color-blocked);
+}
+
+.reset-wp-reason {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.reset-wp-diagnosis {
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+.reset-wp-actions {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+
+.reset-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.reset-radio input[type="radio"] {
+  accent-color: var(--color-ready);
+  cursor: pointer;
+}
+
+.reset-criteria-row {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding-top: 4px;
+}
+
+.reset-criteria-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.reset-modal-footer {
+  border-top: 1px solid var(--color-border);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reset-summary {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  flex: 1;
+}
+
+.reset-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ----------------------------------------------------------
+   Health Badge (project detail page header)
+   ---------------------------------------------------------- */
+.health-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-left: 8px;
+  white-space: nowrap;
+  background: #f1f5f9;
+  color: var(--color-text-muted);
+}
+
+.health-badge.healthy {
+  background: #dcfce7;
+  color: var(--color-complete);
+}
+
+.health-badge.attention {
+  background: #fef3c7;
+  color: var(--color-in-progress);
+}

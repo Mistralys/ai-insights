@@ -11,6 +11,8 @@ import { access, constants } from 'fs/promises';
 import { validatePlanPath, resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
 import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
+import { PIPELINE_TYPES } from '../utils/pipeline-maps.js';
+import { getPassedStages } from '../utils/project-reset.js';
 
 /**
  * Tool: detect_project
@@ -266,7 +268,43 @@ async function validatePipelineOrdering(
   return warnings;
 }
 
-async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
+/** Aggregate pipeline-stage completeness across all non-CANCELLED work packages. */
+async function computePipelineHealth(
+  rootIndex: RootIndex,
+  store: LedgerStore
+): Promise<{ wps_with_all_stages_pass: number; wps_missing_stages: number; total_stages_missing: number }> {
+  let wpsWithAllStagesPass = 0;
+  let wpsMissingStages = 0;
+  let totalStagesMissing = 0;
+
+  for (const wpSummary of rootIndex.work_packages) {
+    if (wpSummary.status === 'CANCELLED') continue;
+    try {
+      const wpDetail = await store.readWorkPackage(wpSummary.work_package_id);
+      const passed = getPassedStages(wpDetail);
+      const missing = PIPELINE_TYPES.length - passed.size;
+      if (missing === 0) {
+        wpsWithAllStagesPass++;
+      } else {
+        wpsMissingStages++;
+        totalStagesMissing += missing;
+      }
+    } catch {
+      // Skip unreadable WP detail files — health computation is non-fatal.
+    }
+  }
+
+  return {
+    wps_with_all_stages_pass: wpsWithAllStagesPass,
+    wps_missing_stages:       wpsMissingStages,
+    total_stages_missing:     totalStagesMissing,
+  };
+}
+
+async function getProjectStatus(
+  args: z.infer<typeof GetProjectStatusSchema>,
+  _ledgerRoot?: string
+) {
   let projectPath: string;
   try {
     projectPath = await resolveProjectPath(args);
@@ -274,7 +312,8 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
     return { content: [{ type: 'text' as const, text: `Error: ${(err as Error).message}` }], isError: true };
   }
 
-  const store = new LedgerStore(projectPath);
+  const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
+  const store = new LedgerStore(projectPath, ledgerRoot);
 
   try {
     // Read the root index
@@ -321,21 +360,23 @@ async function getProjectStatus(args: z.infer<typeof GetProjectStatusSchema>) {
 
       // Re-read to return the corrected data
       const corrected = await store.readRootIndex();
+      const pipelineHealthHealed = await computePipelineHealth(corrected, store);
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify(corrected, null, 2),
+            text: JSON.stringify({ ...corrected, pipeline_health: pipelineHealthHealed }, null, 2),
           },
         ],
       };
     }
 
+    const pipelineHealth = await computePipelineHealth(rootIndex, store);
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(rootIndex, null, 2),
+          text: JSON.stringify({ ...rootIndex, pipeline_health: pipelineHealth }, null, 2),
         },
       ],
     };
@@ -663,6 +704,7 @@ async function completeSynthesis(
 export const _internal = {
   completeSynthesis,
   initializeProject,
+  getProjectStatus,
 };
 
 /**

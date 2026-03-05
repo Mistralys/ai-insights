@@ -124,6 +124,7 @@ export const WorkPackageDetailSchema = z.object({
   rework_count: z.number().int().nonnegative().optional(),
   rework_counts: ReworkCountsSchema.optional(),
   status_changed_at: z.string().optional(),
+  reset_at: z.string().optional(),
   handoff_notes: z.array(HandoffNoteSchema).optional(),
 });
 export type WorkPackageDetail = z.infer<typeof WorkPackageDetailSchema>;

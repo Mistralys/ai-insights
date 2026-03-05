@@ -21,6 +21,18 @@ Reads the root index and returns project overview. Includes self-healing logic (
 
 When a write is triggered, the write callback also resets `synthesis_generated = false` if `corruptionDetected` is true (i.e. synthesis was flagged prematurely while pending WPs still exist). After the write, `validatePipelineOrdering` runs and emits any out-of-order pipeline timestamps as `project_comments` with `type: 'warning'`, `priority: 'low'`, `agent: 'system'`.
 
+The response JSON also includes a `pipeline_health` sub-object computed by reading all WP detail files:
+
+```typescript
+pipeline_health: {
+  wps_with_all_stages_pass: number;  // non-CANCELLED WPs with all 4 stages passing
+  wps_missing_stages: number;        // non-CANCELLED WPs with at least one stage missing
+  total_stages_missing: number;      // sum of missing stage counts across all wps_missing_stages WPs
+}
+```
+
+`CANCELLED` WPs are excluded from both `wps_with_all_stages_pass` and `wps_missing_stages`. Unreadable WP detail files are silently skipped — they contribute nothing to any count. This is a non-breaking additive field; consumers that do not expect it can ignore it.
+
 #### `ledger_initialize_project`
 
 ```typescript
@@ -662,6 +674,7 @@ interface WorkPackageDetail {
   rework_count?: number;  // Legacy scalar — read-only; used only by in-memory migration in readWorkPackage() for documents that pre-date rework_counts. No longer written by production code.
   rework_counts?: ReworkCounts;  // Per-pipeline-type rework map; lazily created on first rework (§16.2)
   status_changed_at?: string;  // ISO 8601 timestamp of the last status transition (§10b.1)
+  reset_at?: string;  // ISO 8601 timestamp set by applyProjectReset() on 'reset' actions only. Not set for 'cancel' or 'skip'. Distinguishes reset-recovery events from other status transitions.
   handoff_notes?: HandoffNote[];  // Notes appended via completePipeline's handoff_notes param
   pipelines: Pipeline[];
 }
@@ -963,6 +976,101 @@ function getDownstreamTypes(type: PipelineType): PipelineType[];
 function getUpstreamTypes(type: PipelineType): PipelineType[];
 ```
 
+### Project Reset — `src/utils/project-reset.ts`
+
+Provides the semi-intelligent project reset feature: a **pure analysis function** and an **async mutation function**.
+
+```typescript
+// ── Diagnosis types (exported) ──────────────────────────────────────────────
+
+export interface WpResetDiagnosis {
+  work_package_id: string;
+  current_status: string;
+  current_assigned_to: string | null;
+  pipeline_stages_present: string[];       // stages with a PASS pipeline
+  pipeline_stages_missing: string[];       // canonical stages lacking a PASS
+  next_required_stage: string | null;      // first missing stage, or null if all pass
+  target_assigned_to: string | null;       // agent for next_required_stage via PIPELINE_AGENT_MAP
+  needs_reset: boolean;                    // false for CANCELLED, healthy, BLOCKED, READY WPs
+  reason: string;                          // human-readable diagnosis note
+  suggested_action: 'reset' | 'skip';
+  suggested_reset_criteria: boolean;       // whether to clear AC met-flags on reset
+}
+
+export interface ProjectResetDiagnosis {
+  project_slug: string;
+  current_project_status: string;
+  work_packages: WpResetDiagnosis[];
+  work_packages_needing_reset: number;
+  work_packages_healthy: number;           // healthy + skipped-statuses (BLOCKED, READY, CANCELLED)
+  work_packages_skipped: number;           // CANCELLED WPs
+}
+
+// ── Decision types (exported) ───────────────────────────────────────────────
+
+export interface WpDecision {
+  action: 'reset' | 'skip' | 'cancel';
+  reset_criteria?: boolean;   // default: true — resets all acceptance_criteria.met flags
+}
+
+export interface ProjectResetResult {
+  diagnosis: ProjectResetDiagnosis;
+  applied: true;
+  work_packages_reset: string[];
+  work_packages_cancelled: string[];
+  work_packages_skipped: string[];
+  project_comment_added: string;           // ISO timestamp of the appended audit comment
+}
+
+// ── Helper utilities (exported) ─────────────────────────────────────────────
+
+// Returns the set of pipeline types that have at least one PASS pipeline on a WP.
+// Pure function — no I/O. Used internally by analyzeProjectForReset() and by
+// the getProjectStatus() tool (WP-003) to compute aggregate pipeline health.
+// Exported from src/utils/project-reset.ts so callers outside project-reset.ts
+// (e.g. project-lifecycle.ts) can reuse it without duplicating stage-scan logic.
+export function getPassedStages(wp: WorkPackageDetail): Set<string>;
+
+// ── Analysis (pure function — no I/O) ───────────────────────────────────────
+
+// Walks all work packages and returns a per-WP diagnosis.
+// Rules (in order):
+//   CANCELLED  → needs_reset:false, suggested_action:'skip'
+//   All 4 stages PASS + COMPLETE  → healthy
+//   IN_PROGRESS + assigned to correct agent  → healthy (skip)
+//   IN_PROGRESS + assigned to wrong agent   → needs_reset:true
+//   Any other status or incomplete stages   → needs_reset:true, next_required_stage = first missing
+//   BLOCKED / READY  → needs_reset:false, suggested_action:'skip'
+// Does NOT read from disk — caller must supply the pre-loaded rootIndex and workPackages.
+export function analyzeProjectForReset(
+  slug: string,
+  rootIndex: RootIndex,
+  workPackages: WorkPackageDetail[]
+): ProjectResetDiagnosis;
+
+// ── Mutation (async — writes under lock) ────────────────────────────────────
+
+// Applies user-confirmed per-WP decisions atomically inside a single withLock() scope.
+// For each WP:
+//   'reset'  → wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
+//              wp.status_changed_at updated, wp.reset_at set to the mutation timestamp;
+//              if reset_criteria !== false, all acceptance_criteria[].met = false;
+//              blocked_by removed.
+//   'cancel' → wp.status = 'CANCELLED', wp.status_changed_at updated. reset_at NOT set.
+//   'skip'   → WP file not written.
+// Missing entries in `decisions` default to 'skip'.
+// Stale-state guard: if wp.status changed since diagnosis was produced, the WP is
+// silently skipped (writes to stderr) to prevent clobbering concurrent changes.
+// Root index updates (all inside lock): pending_work_packages recomputed,
+// status → 'IN_PROGRESS', synthesis_generated → false, auto_handoff_depth → 0,
+// project_comment appended with ISO timestamp.
+export async function applyProjectReset(
+  store: LedgerStore,
+  diagnosis: ProjectResetDiagnosis,
+  decisions: Record<string, WpDecision>
+): Promise<ProjectResetResult>;
+```
+
 ---
 
 ## Internal Testing Utilities
@@ -1200,7 +1308,7 @@ Pure async handler functions called by the HTTP server (`gui/server.ts`). All ha
 
 **Path-traversal guards:** two module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
-- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all six slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument`, `handleGetSynthesisDocument`).
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
 
 Both guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
@@ -1286,6 +1394,35 @@ export async function handleGetConfig(configPath: string): Promise<GuiConfig>;
 
 // PUT /api/config — validates body (strips ledger_root), writes atomically, returns updated config
 export async function handleUpdateConfig(configPath: string, body: unknown): Promise<GuiConfig>;
+
+// POST /api/projects/:slug/reset — semi-intelligent project reset
+// Body (validated by ResetRequestSchema / Zod):
+//   { dry_run: boolean; decisions?: Record<string, { action: 'reset'|'skip'|'cancel'; reset_criteria?: boolean }> }
+// dry_run = true  → returns ProjectResetDiagnosis (no writes)
+// dry_run = false → decisions required (missing or empty → 400); returns ProjectResetResult
+// Slug validation: assertSafeSlug + ledgerDirExists; missing/invalid slug → 404
+// Handled via a **dedicated POST block** in server.ts (ahead of matchRoute()) because the
+// endpoint requires async body parsing via readBody().
+export async function handleResetProject(
+  ledgerRoot: string,
+  slug: string,
+  body: unknown
+): Promise<ProjectResetDiagnosis | ProjectResetResult>;
+
+// GET /api/projects/:slug/health — lightweight read-only pipeline health summary
+// Delegates to analyzeProjectForReset() — same logic as the reset modal dry-run path, zero duplication.
+// Returns a summary object; never writes any files.
+// Slug validation: assertSafeSlug + ledgerDirExists; missing/invalid slug → 404
+export interface ProjectHealthSummary {
+  work_packages_needing_reset: number;  // WPs that need reset (IN_PROGRESS/COMPLETE with missing stages)
+  work_packages_healthy: number;        // WPs with all stages passing or skipped (CANCELLED/BLOCKED/READY)
+  work_packages_skipped: number;        // CANCELLED WPs excluded from analysis
+  total_work_packages: number;          // raw count from root index
+}
+export async function handleGetProjectHealth(
+  ledgerRoot: string,
+  slug: string
+): Promise<ProjectHealthSummary>;
 ```
 
 **HTTP status code mapping** (implemented in `gui/server.ts`):
@@ -1322,10 +1459,12 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/projects/:slug/work-packages/:wpId` | `handleGetWorkPackage` |
 | GET | `/api/projects/:slug/plan` | `handleGetPlanDocument` |
 | GET | `/api/projects/:slug/synthesis` | `handleGetSynthesisDocument` |
+| GET | `/api/projects/:slug/health` | `handleGetProjectHealth` |
 | DELETE | `/api/projects/:slug` | `handleDeleteProject` |
 | GET | `/api/config` | `handleGetConfig` |
 | PUT | `/api/config` | `handleUpdateConfig` (body parsed inline) |
 | GET | `/api/insights` | `handleGetInsights` |
+| POST | `/api/projects/:slug/reset` | `handleResetProject` (body parsed via `readBody()`) |
 
 **Static file serving:** requests not starting with `/api/` are served from `gui/public/` (ESM path via `import.meta.url`). `/` → `index.html`. Unknown paths → 404.
 
@@ -1347,8 +1486,8 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | File | Purpose |
 |------|---------|
 | `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
-| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards |
-| `app.js` | Vanilla JS SPA: `API` client, `Router` (hash-based), utilities + 4 view render functions |
+| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards, reset modal |
+| `app.js` | Vanilla JS SPA: `API` client, `Router` (hash-based), utilities + 4 view render functions + reset modal (`showResetModal`) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
 
@@ -1375,6 +1514,22 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.synthesis-link-row` | Row wrapper for the **View synthesis →** link on the Project Detail page; `margin-bottom: 16px`; only rendered when `project.synthesis_generated === true` |
 | `.synthesis-link` | Pill-style inline link inside `.synthesis-link-row`; styled with `var(--color-primary)` foreground, `var(--color-border)` border, `var(--color-bg-card)` background; hover lightens to `var(--color-bg)` |
 
+**`styles.css` — Project reset modal classes** (added for WP-004):
+
+| Class | Role |
+|-------|------|
+| `.reset-modal-overlay` | Full-viewport semi-transparent backdrop; blocks interaction with the page behind the modal |
+| `.reset-modal` | Modal container; max-width 760 px, max-height 80 vh, scrollable; rendered in the document flow above the overlay |
+| `.reset-modal-header` | Modal title + close (×) button row |
+| `.reset-modal-banner` | Summary banner below the header; amber background (matching `.badge-in_progress` pattern) showing WP counts |
+| `.reset-bulk-controls` | Flex row for bulk-action buttons (Reset All Broken / Skip All) |
+| `.reset-wp-row` | Per-WP row with expand/collapse toggle, pipeline stage badges, action radios, and criteria checkbox |
+| `.reset-wp-cancelled` | Modifier applied to cancelled WPs; reduces opacity to 0.55 and disables pointer events |
+| `.reset-stage-badge` | Pill badge for a single pipeline stage name; combined with `.reset-stage-present` or `.reset-stage-missing` |
+| `.reset-stage-present` | Green variant — stage has a PASS pipeline |
+| `.reset-stage-missing` | Red variant — stage is absent or has no PASS |
+| `.reset-modal-footer` | Sticky footer with live summary text and Apply Reset / Cancel buttons |
+
 > **Resolved (WP-003):** `.priority-high/medium/low` hardcoded hex values have been promoted to `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background was updated from `#e2e8f0` to `var(--color-border)`.
 
 > **Resolved (WP-005):** `.comment-type` hardcoded `color: #475569` replaced with `var(--color-text-muted)`, keeping the full colour palette centralized in `:root`.
@@ -1382,12 +1537,13 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 > **Known debt (low):** `.insights-filters` duplicates `.filter-bar` layout properties. The Reviewer approved retaining `.insights-filters` as a semantic distinction for now. A future cleanup WP should consolidate them into a single utility class.
 
 **`app.js` structure:**
-- **`API`** — async fetch wrappers for all 10 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`
+- **`API`** — async fetch wrappers for all 12 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`
 - **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/plan`, `#/projects/:slug/synthesis`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); the `/plan` and `/synthesis` matches are registered before the generic `/:slug` match to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 - **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`, `extractSynopsis(markdown)`
 - **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
 - **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug` and `data-name` attributes off `<tr>` elements (full slug + raw project name, both lowercased for case-insensitive match); delete button (COMPLETE only, `confirm()` dialog)
-- **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); project header + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+- **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+- **`showResetModal(slug, diagnosis)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail()` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard)
 - **`renderPlan(app, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes

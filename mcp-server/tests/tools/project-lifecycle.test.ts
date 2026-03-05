@@ -11,8 +11,9 @@ import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import { computeHealedStatus, _internal, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
 
-const { completeSynthesis, initializeProject } = _internal;
+const { completeSynthesis, initializeProject, getProjectStatus } = _internal;
 import { LedgerStore } from '../../src/storage/ledger-store.js';
+import type { WorkPackageDetail } from '../../src/schema/work-package.js';
 
 const PLAN_PATH = join(tmpdir(), '2026-01-01-lifecycle-heal-test');
 
@@ -1103,5 +1104,150 @@ describe('completeSynthesis — _ledgerRoot defensive type guard (regression 202
     const text = (result as any)?.content?.[0]?.text ?? '';
     expect(/path.*argument.*must.*be.*type.*string/i.test(text)).toBe(false);
     expect(/received an instance of object/i.test(text)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getProjectStatus — pipeline_health sub-object
+// ---------------------------------------------------------------------------
+
+describe('getProjectStatus — pipeline_health', () => {
+  const HEALTH_PLAN = join(tmpdir(), '2026-03-04-lifecycle-pipeline-health-test');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(HEALTH_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  function makeWpDetail(
+    id: string,
+    status: WorkPackageDetail['status'],
+    passedStages: string[]
+  ): WorkPackageDetail {
+    return {
+      work_package_id: id,
+      work_package_file: `work/${id}.md`,
+      status,
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'Test', met: true }],
+      revision: 1,
+      pipelines: passedStages.map((type) => ({
+        type,
+        status: 'PASS' as const,
+        started_at: '2026-03-01T00:00:00Z',
+        completed_at: '2026-03-01T01:00:00Z',
+        summary: [`Completed ${type}`],
+      })),
+    };
+  }
+
+  async function writeProject(wps: WorkPackageDetail[]): Promise<void> {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: wps.length,
+      pending_work_packages: wps.filter((w) => !['COMPLETE', 'CANCELLED'].includes(w.status)).length,
+      work_packages: wps.map((w) => ({
+        work_package_id: w.work_package_id,
+        status: w.status,
+        assigned_to: w.assigned_to,
+        dependencies: [],
+        file: `${w.work_package_id}.json`,
+      })),
+      project_comments: [],
+    };
+    await handle.store.writeRootIndex(root);
+    for (const wp of wps) {
+      await handle.store.writeWorkPackage(wp.work_package_id, wp);
+    }
+  }
+
+  function parseHealth(result: any): { wps_with_all_stages_pass: number; wps_missing_stages: number; total_stages_missing: number } {
+    const text = result?.content?.[0]?.text ?? '{}';
+    const data = JSON.parse(text);
+    return data.pipeline_health;
+  }
+
+  it('returns wps_missing_stages: 0 for a healthy project (all 4 stages PASS)', async () => {
+    const allStages = ['implementation', 'qa', 'code-review', 'documentation'];
+    await writeProject([
+      makeWpDetail('WP-001', 'COMPLETE', allStages),
+      makeWpDetail('WP-002', 'COMPLETE', allStages),
+    ]);
+
+    const result = await getProjectStatus({ project_path: HEALTH_PLAN }, handle.ledgerRoot);
+    const health = parseHealth(result);
+
+    expect(health.wps_with_all_stages_pass).toBe(2);
+    expect(health.wps_missing_stages).toBe(0);
+    expect(health.total_stages_missing).toBe(0);
+  });
+
+  it('returns correct counts for a broken project (only implementation PASS)', async () => {
+    await writeProject([
+      makeWpDetail('WP-001', 'IN_PROGRESS', ['implementation']),
+      makeWpDetail('WP-002', 'IN_PROGRESS', ['implementation']),
+    ]);
+
+    const result = await getProjectStatus({ project_path: HEALTH_PLAN }, handle.ledgerRoot);
+    const health = parseHealth(result);
+
+    expect(health.wps_missing_stages).toBe(2);
+    expect(health.total_stages_missing).toBe(6); // 2 WPs × 3 missing stages each
+    expect(health.wps_with_all_stages_pass).toBe(0);
+  });
+
+  it('excludes CANCELLED WPs from both counts', async () => {
+    const allStages = ['implementation', 'qa', 'code-review', 'documentation'];
+    await writeProject([
+      makeWpDetail('WP-001', 'COMPLETE',   allStages),
+      makeWpDetail('WP-002', 'CANCELLED',  []),        // should be excluded
+    ]);
+
+    const result = await getProjectStatus({ project_path: HEALTH_PLAN }, handle.ledgerRoot);
+    const health = parseHealth(result);
+
+    expect(health.wps_with_all_stages_pass).toBe(1);  // only WP-001
+    expect(health.wps_missing_stages).toBe(0);
+    expect(health.total_stages_missing).toBe(0);
+  });
+
+  it('silently skips unreadable WP detail files', async () => {
+    // Write a root index referencing WP-001 but never write the WP file
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await handle.store.writeRootIndex(root);
+    // Intentionally do NOT write WP-001 detail file
+
+    const result = await getProjectStatus({ project_path: HEALTH_PLAN }, handle.ledgerRoot);
+    expect((result as any).isError).toBeFalsy();
+    const health = parseHealth(result);
+    // Skipped WP contributes nothing to counts
+    expect(health.wps_with_all_stages_pass).toBe(0);
+    expect(health.wps_missing_stages).toBe(0);
+    expect(health.total_stages_missing).toBe(0);
   });
 });

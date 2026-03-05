@@ -580,7 +580,15 @@ computeHealedStatus(rootIndex)  [pure function — no I/O]
   Return { totalWps, pendingWps, healedStatus, needsWrite, corruptionDetected }
   ↓
 If needsWrite is false:
-  Return rootIndex as-is (no disk write)
+  computePipelineHealth(rootIndex, store)  [outside lock — read-only, no write path]
+    Iterate rootIndex.work_packages; skip any with status === 'CANCELLED'
+    For each non-CANCELLED WP: store.readWorkPackage(wpId)
+      If readable: getPassedStages(wpDetail) → passed Set<string>
+        If passed.size === PIPELINE_TYPES.length (4): increment wps_with_all_stages_pass
+        Else: increment wps_missing_stages; add (4 − passed.size) to total_stages_missing
+      If unreadable: silently skip (catch{}, contributes nothing)
+    → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
+  Return { ...rootIndex, pipeline_health } to agent
   ↓
 If needsWrite is true:
   withLock(store.storageDir)
@@ -602,10 +610,12 @@ If needsWrite is true:
     non-decreasing. Any violation emitted as a project_comment { type:'warning', priority:'low',
     agent:'system' }. Read failures are silently skipped.
   ↓
-  Re-read and return corrected RootIndex to agent
+  computePipelineHealth(corrected, store)  [same as no-write path; uses corrected root index]
+    → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
+  Return { ...corrected, pipeline_health } to agent
 ```
 
-**Result:** Root index counters and project status are automatically corrected if they drift out of sync. The corruption mitigation prevents a premature `synthesis_generated` flag from causing a repeated-write loop on every `getProjectStatus` call. Pipeline ordering warnings are appended as system comments whenever healing was triggered. Disk writes only occur when corrections are needed and are always performed under lock with a fresh re-read to avoid race conditions.
+**Result:** Root index counters and project status are automatically corrected if they drift out of sync. The corruption mitigation prevents a premature `synthesis_generated` flag from causing a repeated-write loop on every `getProjectStatus` call. Pipeline ordering warnings are appended as system comments whenever healing was triggered. Disk writes only occur when corrections are needed and are always performed under lock with a fresh re-read to avoid race conditions. In all response paths, the response includes a `pipeline_health` sub-object reporting aggregate stage completeness across all non-CANCELLED WPs (see `ledger_get_project_status` in `api-surface.md` for the full schema).
 
 ---
 

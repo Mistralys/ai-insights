@@ -26,6 +26,16 @@ import type { RootIndex } from '../src/schema/root-index.js';
 import type { IncidentContext, WorkPackageDetail } from '../src/schema/work-package.js';
 import { getConfig, writeConfig } from '../src/gui/config.js';
 import type { GuiConfig } from '../src/gui/config.js';
+import {
+  analyzeProjectForReset,
+  applyProjectReset,
+  getPassedStages,
+} from '../src/utils/project-reset.js';
+import type {
+  WpDecision,
+  ProjectResetDiagnosis,
+  ProjectResetResult,
+} from '../src/utils/project-reset.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -497,4 +507,147 @@ export async function handleUpdateConfig(
   }
 
   return writeConfig(configPath, parseResult.data);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:slug/reset
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for the reset request body.
+ */
+const WpDecisionSchema = z.object({
+  action: z.enum(['reset', 'skip', 'cancel']),
+  reset_criteria: z.boolean().optional(),
+});
+
+const ResetRequestSchema = z.object({
+  dry_run: z.boolean(),
+  decisions: z.record(z.string(), WpDecisionSchema).optional(),
+});
+
+/**
+ * Handles project reset: analyze (dry_run=true) or apply (dry_run=false).
+ *
+ * - dry_run=true: Returns diagnosis with per-WP analysis and suggested actions.
+ * - dry_run=false: Requires `decisions` map. Applies per-WP reset/skip/cancel.
+ *
+ * Throws NOT_FOUND if the project does not exist.
+ * Throws VALIDATION_ERROR if the request body is invalid.
+ */
+export async function handleResetProject(
+  ledgerRoot: string,
+  slug: string,
+  body: unknown
+): Promise<ProjectResetDiagnosis | ProjectResetResult> {
+  assertSafeSlug(slug);
+
+  // Validate body
+  const parseResult = ResetRequestSchema.safeParse(body);
+  if (!parseResult.success) {
+    validationError('Invalid reset request body.', parseResult.error.issues);
+  }
+  const { dry_run, decisions } = parseResult.data;
+
+  const store = new LedgerStore(slug, ledgerRoot);
+
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  // Read root index and all WP details
+  let rootIndex: RootIndex;
+  try {
+    rootIndex = await store.readRootIndex();
+  } catch (err) {
+    notFound(`Project '${slug}' not found or corrupted: ${String(err)}`);
+  }
+
+  const wpDetails: WorkPackageDetail[] = [];
+  for (const wpSummary of rootIndex.work_packages) {
+    try {
+      const wp = await store.readWorkPackage(wpSummary.work_package_id);
+      wpDetails.push(wp);
+    } catch (err) {
+      process.stderr.write(
+        `[handleResetProject] Skipping WP "${wpSummary.work_package_id}": ${String(err)}\n`
+      );
+    }
+  }
+
+  // Analyze
+  const diagnosis = analyzeProjectForReset(slug, rootIndex, wpDetails);
+
+  if (dry_run) {
+    return diagnosis;
+  }
+
+  // Apply mode — decisions are required
+  if (!decisions || Object.keys(decisions).length === 0) {
+    validationError('Decisions map is required when dry_run is false.');
+  }
+
+  const result = await applyProjectReset(store, diagnosis, decisions as Record<string, WpDecision>);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/health
+// ---------------------------------------------------------------------------
+
+export interface ProjectHealthSummary {
+  work_packages_needing_reset: number;
+  work_packages_healthy: number;
+  work_packages_skipped: number;
+  total_work_packages: number;
+}
+
+/**
+ * Returns a lightweight health summary for the project.
+ *
+ * Delegates to the same `analyzeProjectForReset()` logic as the reset modal
+ * dry-run path — read-only, no writes, no locks required.
+ */
+export async function handleGetProjectHealth(
+  ledgerRoot: string,
+  slug: string
+): Promise<ProjectHealthSummary> {
+  assertSafeSlug(slug);
+
+  const store = new LedgerStore(slug, ledgerRoot);
+
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  let rootIndex: RootIndex;
+  try {
+    rootIndex = await store.readRootIndex();
+  } catch (err) {
+    notFound(`Project '${slug}' not found or corrupted: ${String(err)}`);
+  }
+
+  const wpDetails: WorkPackageDetail[] = (
+    await Promise.all(
+      rootIndex.work_packages.map(async (wpSummary) => {
+        try {
+          return await store.readWorkPackage(wpSummary.work_package_id);
+        } catch (err) {
+          process.stderr.write(
+            `[handleGetProjectHealth] Skipping WP "${wpSummary.work_package_id}": ${String(err)}\n`
+          );
+          return null;
+        }
+      })
+    )
+  ).filter((wp): wp is WorkPackageDetail => wp !== null);
+
+  const diagnosis = analyzeProjectForReset(slug, rootIndex, wpDetails);
+
+  return {
+    work_packages_needing_reset: diagnosis.work_packages_needing_reset,
+    work_packages_healthy:       diagnosis.work_packages_healthy,
+    work_packages_skipped:       diagnosis.work_packages_skipped,
+    total_work_packages:         rootIndex.work_packages.length,
+  };
 }

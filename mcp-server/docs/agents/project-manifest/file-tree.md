@@ -68,6 +68,7 @@ mcp-server/
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
 │       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
 │       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes)
+│       ├── project-reset.ts     # Semi-intelligent project reset — analysis (pure) + mutation; exports analyzeProjectForReset(), applyProjectReset(), and interfaces WpResetDiagnosis, ProjectResetDiagnosis, WpDecision, ProjectResetResult
 │       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
@@ -78,6 +79,7 @@ mcp-server/
     │   └── test-utils.ts        # injectLedgerDir() — injects --ledger-dir argv before a test; nowFloor() — returns current timestamp truncated to second precision
     │
     ├── gui/                     # GUI and config module tests
+    │   ├── api-reset.test.ts    # Integration tests for handleResetProject — dry_run, apply decisions, cancel, skip, error cases (13 tests)
     │   ├── config.test.ts       # Unit tests for src/gui/config.ts (cache, read, write, watcher lifecycle)
     │   ├── api.test.ts          # Unit tests for gui/api.ts (all handlers, NOT_FOUND / FORBIDDEN / VALIDATION_ERROR guards)
     │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse at runtime
@@ -113,6 +115,7 @@ mcp-server/
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
         ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes
+        ├── project-reset.test.ts  # Unit tests for analyzeProjectForReset() — all WP status branches, auto-cancelled exclusion, most-recent-wins, mixed project scenarios
         ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
         ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince
         └── wp-id.test.ts        # WP ID generation: variable-width, max-based incrementing
