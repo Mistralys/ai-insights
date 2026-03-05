@@ -100,8 +100,7 @@ mcp-server/
     │   ├── claim-guard.test.ts  # Assignment guard for ledger_claim_work_package
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts  # ledger_complete_synthesis, self-healing with synthesis_generated
-    │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT
-    │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
+    │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT    ├── schema-integrity.test.ts  # Regression guard: all 22 registered tool schemas produce non-empty JSON Schema properties (guards against .refine()/.transform() on outer ZodObject — see Constraint 63)    │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
     │   ├── work-package.test.ts
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts  # REWORK routing, Documentation FAIL routing, BLOCK_FOR_REWORK_LIMIT

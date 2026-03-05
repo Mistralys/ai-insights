@@ -924,6 +924,8 @@ function planFolderBasename(projectPath: string): string;
 
 // Resolves the project path from either an explicit project_path or a cwd_path.
 // Resolution order:
+//   0. If BOTH project_path and cwd_path are provided: throws Error(MUTUAL_EXCLUSIVITY_PATH_MSG).
+//      (Primary runtime guard — tool schemas are plain ZodObject; see constraint §57.)
 //   1. If project_path is provided: validates format via planFolderBasename(), returns it.
 //   2. If cwd_path is provided: calls LedgerStore.detectProjectByCwd(), returns plan_path on FOUND.
 //      Throws with a candidate list on AMBIGUOUS; throws on NOT_FOUND.
@@ -936,8 +938,10 @@ async function resolveProjectPath(args: {
 }): Promise<string>;
 
 // Zod refinement predicate: returns false if BOTH project_path and cwd_path are present.
-// Use with z.object({…}).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG })
-// on any schema that has both optional path fields. See constraint §57.
+// ⚠️ No longer used by any production tool file. Mutual exclusivity is now enforced at runtime
+// by resolveProjectPath() — see constraint §57. Retained for backward compatibility and test
+// coverage only. Do NOT use with .refine() on an outer z.object() schema — doing so converts
+// ZodObject → ZodEffects, causing the MCP SDK to emit empty JSON Schema for the tool.
 // Exported from src/utils/path-validator.ts.
 const mutuallyExclusivePaths: (args: { project_path?: string | null; cwd_path?: string | null }) => boolean;
 
