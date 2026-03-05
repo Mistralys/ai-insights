@@ -1,11 +1,9 @@
 # AI Insights Changelog
 
-## v1.7.2 - Ledger Bugfix and GUI Improvements
+## v1.7.1 - Ledger Bugfix and GUI Improvements
 - Ledger GUI: Renaming projects, repository name column.
 - Ledger: Fixed broken VS Code agent handoffs.
 - Ledger: Fixed project path handling.
-
-## v1.7.1 - Developer
 - Personas v3.7.1: Improved developer.
 
 ## v1.7.0 - CLI and more
