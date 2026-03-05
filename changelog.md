@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v1.7.1 - Developer
+- Personas v3.7.1: Improved developer.
+
 ## v1.7.0 - CLI and more
 - CLI: Added a handy CLI menu.
 - Personas: Fixed VS Code subagent call syntax.
