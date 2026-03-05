@@ -1125,19 +1125,19 @@ if (autoFinalizeResult === 'finalized') { /* ... */ }
 
 ---
 
-### 57. Mutual Exclusivity of `project_path` and `cwd_path` in Tool Schemas
+### 57. Mutual Exclusivity of `project_path` and `cwd_path` — Runtime Guard via `resolveProjectPath()`
 
-**Rule:** Every MCP tool schema that accepts both an optional `project_path` and an optional `cwd_path` field **must** include a `.refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG })` call to reject payloads that provide both.
+**Rule:** Mutual exclusivity of `project_path` and `cwd_path` is enforced at runtime by `resolveProjectPath()`, **not** by a Zod `.refine()` on the outer schema. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema.
 
 **Enforcement:**
-- The predicate `mutuallyExclusivePaths` and the message constant `MUTUAL_EXCLUSIVITY_PATH_MSG` are exported from `src/utils/path-validator.ts`.
-- The `.refine()` call is appended directly to the `z.object({ … })` definition, turning it into a `ZodEffects` type.
-- Because `ZodEffects` does not expose `.passthrough()`, the corresponding `server.registerTool` call **must** use the bare schema name (e.g. `inputSchema: GetWorkPackageSchema`) rather than `inputSchema: GetWorkPackageSchema.passthrough()`.
-- Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
-- `begin-work.ts` (`BeginWorkSchema`) follows the same rule even though it wraps `ledger_begin_work` rather than a `ledger_*` legacy tool.
+- `resolveProjectPath()` (`src/utils/path-validator.ts`) throws `Error(MUTUAL_EXCLUSIVITY_PATH_MSG)` at the top of its body when both `project_path` and `cwd_path` are truthy. Every tool handler that accepts both optional path fields calls `resolveProjectPath()` — the guard fires unconditionally.
+- The predicate `mutuallyExclusivePaths` and the constant `MUTUAL_EXCLUSIVITY_PATH_MSG` remain exported from `src/utils/path-validator.ts` for backward compatibility and test coverage. They are **not used in production tool files**.
+- Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt from this consideration. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
 
-**Example:**
+**Anti-pattern:**
 ```typescript
+// ❌ WRONG — .refine() converts ZodObject → ZodEffects. The MCP SDK cannot extract properties
+// from ZodEffects, resulting in empty { properties: {}, required: [] } in tools/list responses.
 const GetWorkPackageSchema = z.object({
   project_path: z.string().optional().describe('…'),
   cwd_path:     z.string().optional().describe('…'),
@@ -1146,7 +1146,19 @@ const GetWorkPackageSchema = z.object({
   .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 ```
 
-**Rationale:** Without this guard, callers may accidentally pass both fields. `resolveProjectPath` (in `path-validator.ts`) always prefers `project_path` over `cwd_path`, which silently ignores the `cwd_path`; adding the Zod refinement surfaces the confusion as an error at the schema layer rather than letting incorrect input succeed silently.
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — plain ZodObject; mutual exclusivity is enforced inside resolveProjectPath()
+const GetWorkPackageSchema = z.object({
+  project_path: z.string().optional().describe('…'),
+  cwd_path:     z.string().optional().describe('…'),
+  work_package_id: z.string().regex(/^WP-\d{3,}$/),
+});
+```
+
+**Rationale:** `.refine()` (and `.transform()`, `.superRefine()`) on the outer `z.object()` converts it from `ZodObject` to `ZodEffects`. The MCP SDK's `zodToJsonSchema` cannot extract properties from `ZodEffects` — every affected tool emits empty `{ properties: {}, required: [] }` in the `tools/list` response, preventing AI agents from passing arguments. Centralising the check in `resolveProjectPath()` keeps all tool schemas as plain `ZodObject` instances. (Background: 2026-03-05 Zod `.refine()` empty schema fix — 18 of 22 tools were affected.)
+
+**See also:** §63 for the general rule covering all outer-schema uses of `.refine()`, `.transform()`, and `.superRefine()`.
 
 ---
 
@@ -1304,6 +1316,93 @@ If neither condition holds, the call is rejected.
 Cannot begin work on WP-002: it is IN_PROGRESS and assigned to "Reviewer" but you are "Developer".
 Only the assigned agent or the legitimate pipeline-type owner may start a pipeline on an IN_PROGRESS work package.
 ```
+
+---
+
+### 63. Do Not Use `.refine()`, `.transform()`, or `.superRefine()` on Outer Tool Schemas
+
+**Rule:** Never chain `.refine()`, `.transform()`, or `.superRefine()` on the outer `z.object({...})` schema passed as `inputSchema` to `server.registerTool()`. These methods convert a `ZodObject` into a `ZodEffects` wrapper, which the MCP SDK's JSON Schema converter cannot introspect — it emits `{ properties: {}, required: [] }` instead of the actual field list.
+
+**Reason:** The MCP `tools/list` response uses the JSON Schema to populate the tool definition shown to AI clients. An empty `properties` object means the client cannot see any parameters, so agents cannot pass arguments to the tool. This bug silently affects all callers, including VS Code Copilot agent mode.
+
+**Correct pattern:** Move cross-field validation inside the handler function (or a helper it calls, such as `resolveProjectPath()`):
+
+```typescript
+// ✅ CORRECT — plain ZodObject; SDK emits correct properties
+const MyToolSchema = z.object({
+  project_path: z.string().optional(),
+  cwd_path: z.string().optional(),
+});
+
+async function myToolHandler(args: z.infer<typeof MyToolSchema>) {
+  // Mutual exclusivity enforced at runtime by resolveProjectPath()
+  const projectPath = await resolveProjectPath(args);
+  // ...
+}
+```
+
+**Anti-pattern:**
+
+```typescript
+// ❌ WRONG — .refine() converts ZodObject → ZodEffects
+// SDK emits { properties: {}, required: [] } — agent cannot pass arguments
+const MyToolSchema = z.object({
+  project_path: z.string().optional(),
+  cwd_path: z.string().optional(),
+}).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+```
+
+**Exception:** Field-level `.refine()` applied to an individual field definition (e.g., `z.string().refine(...)`, `plan_file: z.string().refine(v => v === 'plan.md', ...)`) is safe — the outer `z.object()` remains a `ZodObject`.
+
+**Regression guard:** `tests/tools/schema-integrity.test.ts` converts all 22 registered tool schemas to JSON Schema and asserts non-empty `properties`. This test fails if a `.refine()` / `.transform()` / `.superRefine()` is re-added to any outer schema.
+
+**Background:** Fixed in plan `2026-03-05-zod-refine-empty-schema`. All 18 affected tools previously emitted empty JSON Schemas due to this pattern.
+
+---
+
+### 64. Mock `McpServer` Intercept Pattern for Tool Metadata Tests
+
+**Rule:** When writing tests that need to inspect tool metadata (input schema shape, parameter constraints, tool descriptions) without spinning up a real MCP server, use the mock `McpServer` intercept pattern: create a plain object with a `registerTool` method that captures schemas into a `Map`, cast it `as unknown as McpServer`, and call each tool module's `register()` function with it in `beforeAll`.
+
+**Rationale:** This pattern exercises the exact production registration path — same `register()` call, same `inputSchema` reference — without a network socket or real server lifecycle. It is safe with `beforeAll` because `register()` calls are synchronous.
+
+**Correct pattern:**
+
+```typescript
+import { beforeAll, describe, it, expect } from 'vitest';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { register as registerPipeline } from '../../src/tools/pipeline.js';
+
+const capturedSchemas = new Map<string, z.ZodTypeAny>();
+
+const mockServer = {
+  registerTool: (
+    name: string,
+    config: { description: string; inputSchema: z.ZodTypeAny },
+    _handler: unknown
+  ) => {
+    capturedSchemas.set(name, config.inputSchema);
+  },
+} as unknown as McpServer;
+
+beforeAll(() => {
+  registerPipeline(mockServer);
+});
+
+describe('pipeline schemas', () => {
+  it('ledger_start_pipeline has non-empty properties', () => {
+    const schema = capturedSchemas.get('ledger_start_pipeline')!;
+    const json = zodToJsonSchema(schema) as { properties?: object };
+    expect(Object.keys(json.properties ?? {})).not.toHaveLength(0);
+  });
+});
+```
+
+**When to use:** Any test that needs to verify tool schema shape, description content, or parameter constraints without full server lifecycle overhead. See `tests/tools/schema-integrity.test.ts` for the canonical usage.
+
+**Note on `zod-to-json-schema`:** This package is currently a transitive dependency (via `@modelcontextprotocol/sdk`) and is not declared as an explicit `devDependency` in `mcp-server/package.json`. Tests relying on it work today, but if the SDK drops the transitive dep in a future update, imports will fail without a clear error. Prefer adding it explicitly when introducing new test files that import it directly.
 
 ---
 

@@ -1,15 +1,9 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.10.0 - Semi-Intelligent Project Reset & Pipeline Health
-- Reset: Added `analyzeProjectForReset()` — pure analysis utility that diagnoses broken projects (WPs prematurely completed with only `implementation` PASS) and returns per-WP diagnoses with suggested actions.
-- Reset: Added `applyProjectReset()` — locking mutation that transitions broken WPs back to `IN_PROGRESS` with correct pipeline stage and agent assignment, using `next_required_stage` and `PIPELINE_AGENT_MAP`.
-- Reset: Added `POST /api/projects/:slug/reset` endpoint supporting `dry_run: true` (analysis only) and `dry_run: false` (apply with per-WP decisions).
-- GUI: Added interactive Reset Project modal with per-WP pipeline stage indicators, pre-populated action selectors, and confirmation-required apply flow.
-- Schema: Added optional `reset_at: string` (ISO 8601) to `WorkPackageDetail` — set by `applyProjectReset()` on `reset` actions only, distinguishing recovery events from other status transitions.
-- GUI: Added `GET /api/projects/:slug/health` endpoint — read-only health summary delegating to `analyzeProjectForReset()`, returning `{ work_packages_needing_reset, work_packages_healthy, work_packages_skipped, total_work_packages }`.
-- GUI: Added persistent health badge on the project detail page — asynchronously loaded, shows green `✓ All pipelines complete` or amber `⚠ N WPs need attention`; silent failure if fetch errors.
-- MCP: Extended `ledger_get_project_status` response with a `pipeline_health` sub-object reporting `{ wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }` — CANCELLED WPs excluded, unreadable WP files silently skipped.
-- Tests: Added 12 new tests (1052 total across 35 test files).
+## v1.9.1 - Zod Refine Empty Schema Fix
+- Tools: Fixed invisible arguments confusing agents.
+- Tools: Moved `project_path`/`cwd_path` mutual exclusivity enforcement from Zod schema to runtime validation.
+- Tests: Added regression guard for missing tool docs.
 
 ## v1.9.0 - VS Code Persona IDs
 - MCP: More lenient parameters for the complete pipeline tool.

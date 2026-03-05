@@ -8,7 +8,7 @@ import { isTerminalStatus } from '../schema/validators.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
-import { validatePlanPath, resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { validatePlanPath, resolveProjectPath } from '../utils/path-validator.js';
 import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
 import { PIPELINE_TYPES } from '../utils/pipeline-maps.js';
@@ -95,8 +95,7 @@ async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
 const GetProjectStatusSchema = z.object({
   project_path: z.string().optional().describe('Absolute path to the plan directory (e.g., "f:\\project\\docs\\agents\\plans\\2026-02-16-feature")'),
   cwd_path: z.string().optional().describe('Workspace root path — alternative to project_path for automatic project detection.'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 /**
  * Pure function: computes the healed project status and counters from
@@ -572,8 +571,7 @@ const CompleteSynthesisSchema = z.object({
     .optional()
     .default(SYNTHESIS_ARCHIVE_FILENAME)
     .describe(`Filename of the synthesis document (default: "${SYNTHESIS_ARCHIVE_FILENAME}")`),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function completeSynthesis(
   args: z.infer<typeof CompleteSynthesisSchema>,

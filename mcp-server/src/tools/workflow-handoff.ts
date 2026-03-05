@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
-import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/path-validator.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle, getAgentId } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
@@ -32,8 +32,7 @@ const GetHandoffStatusSchema = z.object({
     .describe(
       'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
     ),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
   let projectPath: string;

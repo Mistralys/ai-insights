@@ -5,7 +5,7 @@ import { now } from '../utils/timestamp.js';
 import { withLock } from '../storage/file-lock.js';
 import type { PipelineComment, IncidentContext } from '../schema/work-package.js';
 import type { ProjectComment } from '../schema/root-index.js';
-import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/path-validator.js';
 import { PipelineTypeEnum } from '../utils/pipeline-maps.js';
 
 /**
@@ -29,8 +29,7 @@ const AddObservationSchema = z.object({
     ),
   priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   note: z.string().describe('Detailed description of the observation'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function addObservation(args: z.infer<typeof AddObservationSchema>) {
   let projectPath: string;
@@ -127,8 +126,7 @@ const AddProjectCommentSchema = z.object({
     .passthrough()
     .optional()
     .describe('REQUIRED when type is "incident". Provide os, tool, resolved fields at minimum.'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function addProjectComment(args: z.infer<typeof AddProjectCommentSchema>) {
   let projectPath: string;
