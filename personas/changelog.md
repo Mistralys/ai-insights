@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.7.1 - Developer
+- Developer v3.6.1: Compressed overly verbose operational protocol.
+
 ## v3.7.0 - ID Update
 - VS Code: Using IDs for agent handoffs in `runSubagent` tool.
 - Planner v1.3.2: Added ID.
