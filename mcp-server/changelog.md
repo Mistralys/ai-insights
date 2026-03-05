@@ -1,5 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.9.1 - Zod Refine Empty Schema Fix
+- Tools: Fixed invisible arguments confusing agents.
+- Tools: Moved `project_path`/`cwd_path` mutual exclusivity enforcement from Zod schema to runtime validation.
+- Tests: Added regression guard for missing tool docs.
+
 ## v1.9.0 - VS Code Persona IDs
 - MCP: More lenient parameters for the complete pipeline tool.
 - Personas: Added unique \id\ field to all ledger and standalone persona definitions.
