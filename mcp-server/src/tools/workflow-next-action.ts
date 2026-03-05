@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
-import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/path-validator.js';
 import { isTerminalStatus, canStartWorkPackage } from '../schema/validators.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import {
@@ -45,8 +45,7 @@ const GetNextActionSchema = z.object({
     .positive()
     .optional()
     .describe('Maximum number of actionable WPs to return (default: 1). When > 1, returns up to this many actions as an array under the "actions" key instead of a single action object. Useful for projects with many independent WPs.'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
   let projectPath: string;

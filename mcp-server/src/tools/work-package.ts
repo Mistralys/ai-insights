@@ -17,7 +17,7 @@ import {
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
 import { withLock } from '../storage/file-lock.js';
-import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/path-validator.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 
 /**
@@ -95,8 +95,7 @@ const GetWorkPackageSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
   let projectPath: string;
@@ -146,8 +145,7 @@ const ListWorkPackagesSchema = z.object({
     .optional()
     .describe('Optional filter by work package status'),
   assigned_to: z.string().optional().describe('Optional filter by assigned agent name'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
   let projectPath: string;
@@ -215,8 +213,7 @@ const CreateWorkPackageSchema = z.object({
   work_package_file: z
     .string()
     .describe('Relative path to the work package spec file (e.g., "work/WP-001.md")'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 /**
  * Cycle detection helper for createWorkPackage (§15.2).
@@ -422,8 +419,7 @@ const ClaimWorkPackageSchema = z.object({
     .boolean()
     .optional()
     .describe('Set to true to claim a WP assigned to a different agent. Without this flag, claiming a WP assigned to another agent will be rejected.'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 // Roles permitted to claim work packages via ledger_claim_work_package.
 // Planner, Synthesis, and other orchestrating roles operate outside the
@@ -578,8 +574,7 @@ const UpdateWorkPackageStatusSchema = z.object({
     .passthrough()
     .optional()
     .describe('Blocker details — REQUIRED when setting status to BLOCKED, omit otherwise'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 /**
  * Auto-cancels all IN_PROGRESS pipelines on a work package with a given reason.
@@ -1111,8 +1106,7 @@ const ResetReworkCountSchema = z.object({
     .enum(['implementation', 'qa', 'code-review', 'documentation'])
     .describe('Which pipeline type rework count to reset'),
   agent_role: z.string().describe('Must be "Project Manager"'),
-  reason: z.string().trim().min(1).describe('Mandatory reason for the reset (audit trail)'),})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+  reason: z.string().trim().min(1).describe('Mandatory reason for the reset (audit trail)'),});
 
 async function resetReworkCount(
   args: z.infer<typeof ResetReworkCountSchema>,
@@ -1254,8 +1248,7 @@ const UpdateAcceptanceCriteriaSchema = z.object({
     )
     .min(1)
     .describe('List of operations to apply'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function updateAcceptanceCriteria(
   args: z.infer<typeof UpdateAcceptanceCriteriaSchema>,

@@ -1594,7 +1594,7 @@ describe('getNextAction — cwd_path auto-detection (WP-005)', () => {
     }
   });
 
-  it('prefers project_path over cwd_path when both are provided', async () => {
+  it('returns an error when both project_path and cwd_path are provided', async () => {
     const wp = makeWorkPackageDetail({
       work_package_id: 'WP-001',
       status: 'READY',
@@ -1605,13 +1605,10 @@ describe('getNextAction — cwd_path auto-detection (WP-005)', () => {
     const originalArgv = [...process.argv];
     process.argv.push('--ledger-dir', handle.ledgerRoot);
     try {
-      // Pass both — project_path takes priority and should resolve correctly
-      const result = await parseResult(
-        _internal.getNextAction({ project_path: planPath, cwd_path: '/some/other/path', agent_role: 'Developer' })
-      );
-      // READY WP → CLAIM_WP action (project_path was used, not the invalid cwd_path)
-      expect(result.action).toBe('CLAIM_WP');
-      expect(result.work_package_id).toBe('WP-001');
+      // Passing both paths is now an error — mutual exclusivity is enforced in resolveProjectPath()
+      const rawResult = await _internal.getNextAction({ project_path: planPath, cwd_path: '/some/other/path', agent_role: 'Developer' });
+      expect((rawResult as any).isError).toBe(true);
+      expect((rawResult as any).content[0].text).toMatch(/project_path.*cwd_path|cwd_path.*project_path/i);
     } finally {
       process.argv = originalArgv;
     }

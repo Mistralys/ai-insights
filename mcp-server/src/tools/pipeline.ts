@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline, HandoffNote } from '../schema/work-package.js';
-import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/path-validator.js';
 import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
@@ -108,8 +108,7 @@ const StartPipelineSchema = z.object({
   agent_role: z
     .string()
     .describe('Your agent role. Must match the pipeline type owner: "Developer" for implementation, "QA" for qa, "Reviewer" for code-review, "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
   let projectPath: string;
@@ -310,8 +309,7 @@ const CompletePipelineSchema = z.object({
   agent_role: z
     .string()
     .describe('Your agent role. Must match the pipeline type owner: "Developer" for implementation, "QA" for qa, "Reviewer" for code-review, "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>) {
   // ── Normalize lenient inputs ──────────────────────────────────────────────
@@ -529,8 +527,7 @@ const CancelPipelineSchema = z.object({
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
   let projectPath: string;
@@ -600,8 +597,7 @@ const UpdatePipelineProgressSchema = z.object({
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
   summary: z.array(z.string()).describe('Updated summary strings to record as partial progress'),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 async function updatePipelineProgress(args: z.infer<typeof UpdatePipelineProgressSchema>) {
   let projectPath: string;

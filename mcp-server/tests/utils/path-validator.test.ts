@@ -196,6 +196,12 @@ describe('resolveProjectPath', () => {
     ).rejects.toThrow('No project found for cwd_path');
   });
 
+  it('throws when both project_path and cwd_path are provided', async () => {
+    await expect(
+      resolveProjectPath({ project_path: '/a', cwd_path: '/b' })
+    ).rejects.toThrow(MUTUAL_EXCLUSIVITY_PATH_MSG);
+  });
+
   it('throws when neither project_path nor cwd_path is provided', async () => {
     await expect(resolveProjectPath({})).rejects.toThrow(
       'Either project_path or cwd_path is required.'

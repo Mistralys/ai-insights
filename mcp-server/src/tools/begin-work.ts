@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { now } from '../utils/timestamp.js';
 import type { Pipeline } from '../schema/work-package.js';
-import { resolveProjectPath, mutuallyExclusivePaths, MUTUAL_EXCLUSIVITY_PATH_MSG } from '../utils/path-validator.js';
+import { resolveProjectPath } from '../utils/path-validator.js';
 import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
@@ -35,8 +35,7 @@ const BeginWorkSchema = z.object({
     .describe(
       'Your agent role identifier (e.g., "Developer", "QA"). Used for the claim guard and pipeline ownership validation.'
     ),
-})
-  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+});
 
 /**
  * beginWork: atomically claims a READY work package and starts its pipeline

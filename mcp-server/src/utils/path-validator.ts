@@ -65,6 +65,11 @@ export async function resolveProjectPath(args: {
   cwd_path?: string;
   [key: string]: unknown;
 }): Promise<string> {
+  // Mutual exclusivity guard (moved from Zod .refine() — see bug report 2026-03-05)
+  if (args.project_path && args.cwd_path) {
+    throw new Error(MUTUAL_EXCLUSIVITY_PATH_MSG);
+  }
+
   if (args.project_path) {
     // Validate format. planFolderBasename throws on invalid pattern.
     planFolderBasename(args.project_path);
