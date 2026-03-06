@@ -8,6 +8,7 @@
 - GUI: Fixed search input losing leading/trailing spaces after a sort click.
 - GUI: String column sort is now locale-deterministic across browser environments.
 - GUI: Corrected dark-mode contrast ratios.
+- GUI: Added work package count column.
 
 ## v1.10.0 - Dark Mode Dashboard
 - GUI: Added dark mode with toggle button (🌙 / ☀️) in the nav header.
