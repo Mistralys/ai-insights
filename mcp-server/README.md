@@ -292,6 +292,7 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - **Project name column** — resolves the human-readable name from `package.json`, `composer.json`, or `pyproject.toml` in the project root; shows `—` when none is found
 - **% Done column** — compact inline progress bar + percentage derived from `(done / total) × 100`; shows `—` for projects with no work packages
 - **Slug display** — date prefix (`YYYY-MM-DD-`) stripped in the cell; full slug accessible via browser tooltip (hover the link)
+- **Sortable columns** — click any column header in the Projects list (Project, Repository, % Done, Status, Created, Updated) to sort ascending or descending; active column displays a ↑ or ↓ arrow indicator; sort preference (column + direction) persists across page reloads via `localStorage` (keys `mcp-sort-key` / `mcp-sort-dir`); defaults to Updated descending
 - **Fulltext search** — text input in the filter bar instantly filters rows by slug or project name (combined with the status dropdown, case-insensitive)
 - Drill down into project and work package details
 - View project-level comments and incidents (sorted newest-first) on the Project Detail page

@@ -244,6 +244,37 @@ function renderProjectList(app) {
   var allProjects = [];
   var filterValue = 'ALL';
   var searchValue = '';
+  var searchRaw = '';
+
+  var SORT_KEY_STORAGE = 'mcp-sort-key';
+  var SORT_DIR_STORAGE = 'mcp-sort-dir';
+  var sortKey = localStorage.getItem(SORT_KEY_STORAGE) || 'last_updated';
+  var sortDir = localStorage.getItem(SORT_DIR_STORAGE) || 'desc';
+
+  function sortProjects(list, key, dir) {
+    var sign = dir === 'asc' ? 1 : -1;
+    return list.slice().sort(function (a, b) {
+      var av, bv;
+      if (key === 'done') {
+        av = a.total_work_packages > 0 ? (a.total_work_packages - a.pending_work_packages) / a.total_work_packages : 0;
+        bv = b.total_work_packages > 0 ? (b.total_work_packages - b.pending_work_packages) / b.total_work_packages : 0;
+        return sign * (av - bv);
+      }
+      if (key === 'date_created' || key === 'last_updated') {
+        av = a[key] ? new Date(a[key]).getTime() : 0;
+        bv = b[key] ? new Date(b[key]).getTime() : 0;
+        return sign * (av - bv);
+      }
+      // String columns: project, repository, status
+      var aStr = key === 'project'    ? (a.project_name    || '')
+               : key === 'repository' ? (a.repository_name || '')
+               :                        (a[key]            || '');
+      var bStr = key === 'project'    ? (b.project_name    || '')
+               : key === 'repository' ? (b.repository_name || '')
+               :                        (b[key]            || '');
+      return sign * aStr.localeCompare(bStr, 'en', { sensitivity: 'base' });
+    });
+  }
 
   function applyFilter() {
     var tbody = document.getElementById('projects-tbody');
@@ -266,11 +297,15 @@ function renderProjectList(app) {
     if (!projects.length) {
       return '<p class="text-muted mt-16">No projects found.</p>';
     }
-    var sorted = projects.slice().sort(function (a, b) {
-      var ta = a.last_updated ? new Date(a.last_updated).getTime() : 0;
-      var tb = b.last_updated ? new Date(b.last_updated).getTime() : 0;
-      return tb - ta;
-    });
+
+    function thSort(label, key) {
+      var isActive = sortKey === key;
+      var cls = 'sortable' + (isActive ? ' sort-' + sortDir : '');
+      var ariaSort = isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none';
+      return '<th class="' + cls + '" data-sort="' + key + '" aria-sort="' + ariaSort + '" tabindex="0" role="columnheader">' + label + '</th>';
+    }
+
+    var sorted = sortProjects(projects, sortKey, sortDir);
     var rows = sorted.map(function (p) {
       var deleteBtn = p.status === 'COMPLETE'
         ? '<button class="btn btn-danger btn-sm" data-action="delete" data-slug="' + escapeHtml(p.slug) + '">Delete</button>'
@@ -300,12 +335,12 @@ function renderProjectList(app) {
     return '<div class="table-wrapper">' +
       '<table>' +
       '<thead><tr>' +
-        '<th>Project</th>' +
-        '<th>Repository</th>' +
-        '<th>% Done</th>' +
-        '<th>Status</th>' +
-        '<th>Created</th>' +
-        '<th>Updated</th>' +
+        thSort('Project', 'project') +
+        thSort('Repository', 'repository') +
+        thSort('% Done', 'done') +
+        thSort('Status', 'status') +
+        thSort('Created', 'date_created') +
+        thSort('Updated', 'last_updated') +
         '<th>Actions</th>' +
       '</tr></thead>' +
       '<tbody id="projects-tbody">' + rows + '</tbody>' +
@@ -335,6 +370,45 @@ function renderProjectList(app) {
       '</div>' +
       buildTable(projects);
 
+    // Attach sort click listener on thead
+    var projectsTbody = document.getElementById('projects-tbody');
+    var thead = projectsTbody
+      ? projectsTbody.closest('table').querySelector('thead')
+      : null;
+    if (thead) {
+      thead.addEventListener('click', function (e) {
+        var th = e.target.closest('th[data-sort]');
+        if (!th) return;
+        var key = th.getAttribute('data-sort');
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          // Timestamps default descending; other columns default ascending
+          sortDir = (key === 'date_created' || key === 'last_updated') ? 'desc' : 'asc';
+        }
+        localStorage.setItem(SORT_KEY_STORAGE, sortKey);
+        localStorage.setItem(SORT_DIR_STORAGE, sortDir);
+        render(allProjects);
+      });
+      thead.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.key === ' ') e.preventDefault();
+        var th = e.target.closest('th[data-sort]');
+        if (!th) return;
+        var key = th.getAttribute('data-sort');
+        if (sortKey === key) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          sortDir = (key === 'date_created' || key === 'last_updated') ? 'desc' : 'asc';
+        }
+        localStorage.setItem(SORT_KEY_STORAGE, sortKey);
+        localStorage.setItem(SORT_DIR_STORAGE, sortDir);
+        render(allProjects);
+      });
+    }
+
     // Restore filter value after re-render
     var filterEl = document.getElementById('status-filter');
     if (filterEl) {
@@ -349,8 +423,9 @@ function renderProjectList(app) {
     // Restore search value after re-render
     var searchEl = document.getElementById('project-search');
     if (searchEl) {
-      searchEl.value = searchValue;
+      searchEl.value = searchRaw;
       searchEl.addEventListener('input', function () {
+        searchRaw = this.value;
         searchValue = this.value.toLowerCase().trim();
         applyFilter();
       });
@@ -499,7 +574,7 @@ function renderProjectDetail(app, slug) {
         }).join('')
       : '<p class="text-muted">No comments yet.</p>';
 
-    var displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug;
+    var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
     app.innerHTML =
       '<p class="breadcrumb"><a href="#/">Projects</a> / <span id="breadcrumb-title">' + escapeHtml(displayTitle) + '</span></p>' +
       '<div class="page-header">' +

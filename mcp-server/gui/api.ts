@@ -299,11 +299,13 @@ export async function handleListProjects(ledgerRoot: string): Promise<ProjectSum
 // GET /api/projects/:slug
 // ---------------------------------------------------------------------------
 
-export type ProjectDetail = RootIndex & { meta: ProjectMeta };
+export type ProjectDetail = RootIndex & { meta: ProjectMeta; project_name: string | null };
 
 /**
  * Returns the combined root index + meta for a project.
  * Throws NOT_FOUND if the project slug does not exist in the ledger.
+ * project_name resolution order: manifest file → slug date-strip fallback →
+ * meta.title (takes precedence when set).
  */
 export async function handleGetProject(
   ledgerRoot: string,
@@ -321,7 +323,25 @@ export async function handleGetProject(
       store.readRootIndex(),
       store.readProjectMeta(),
     ]);
-    return { ...rootIndex, meta };
+
+    // Resolve project_name using the same logic as handleListProjects.
+    let project_name: string | null = await readProjectName(meta.plan_path);
+
+    if (project_name === null) {
+      const match = slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
+      if (match) {
+        project_name = match[1]
+          .split('-')
+          .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+          .join(' ');
+      }
+    }
+
+    if (meta.title && meta.title.trim().length > 0) {
+      project_name = meta.title;
+    }
+
+    return { ...rootIndex, meta, project_name };
   } catch (err) {
     if (err instanceof ApiError) throw err;
     notFound(`Project '${slug}' not found or corrupted: ${String(err)}`);

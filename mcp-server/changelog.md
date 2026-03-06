@@ -1,12 +1,21 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.10.1 - GUI Projects List Sorting & Dark Mode Fixes
+- GUI: Added interactive column sorting to the Projects list.
+- GUI: Sort key and direction persist across page reloads via `localStorage`.
+- GUI: Timestamp columns default to descending on first click; all other columns default to ascending.
+- GUI: Sortable column headers are now keyboard-accessible via Tab and Enter/Space.
+- GUI: Fixed search input losing leading/trailing spaces after a sort click.
+- GUI: String column sort is now locale-deterministic across browser environments.
+- GUI: Corrected dark-mode contrast ratios.
+
 ## v1.10.0 - Dark Mode Dashboard
 - GUI: Added dark mode with toggle button (🌙 / ☀️) in the nav header.
 - MCP: Improved project detection based on time diffs.
 
 ## v1.9.2 - Independent Title / Slug Rename
-- MCP GUI: Added slug and title renaming.
-- MCP GUI: Added the repository folder column.
+- GUI: Added slug and title renaming.
+- GUI: Added the repository folder column.
 - Tools: Fixed invisible arguments confusing agents.
 - Tools: Fixed confusing project path argument documentation.
 - Tests: Added regression guard for missing tool docs.

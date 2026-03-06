@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v1.7.3 - Ledger GUI Improvements
+- Ledger GUI: Improved dark mode.
+- Ledger GUI: Added column sorting.
+
 ## v1.7.2 - Ledger Path Detection
 - Ledger: Improved project path detection.
 - Ledger GUI: Added dark mode.

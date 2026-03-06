@@ -26,6 +26,19 @@
   --color-priority-medium: #f39c12;
   --color-priority-low:    #95a5a6;
 
+  /* Link color */
+  --color-link: var(--color-ready);
+
+  /* Button primary background (separate from --color-ready so dark mode can darken it for white-text contrast) */
+  --color-btn-bg: var(--color-ready);
+
+  /* Button danger background (separate from --color-blocked so dark mode can darken it for white-text contrast) */
+  --color-btn-danger-bg: var(--color-blocked);
+
+  /* Badge text tokens — split from status tokens so dark mode can use brighter values */
+  --color-badge-ready-text:    var(--color-ready);
+  --color-badge-complete-text: var(--color-complete);
+
   /* Spacing */
   --radius:            6px;
   --radius-pill:       9999px;
@@ -38,12 +51,36 @@
 [data-theme="dark"] {
   --color-bg:          #0f172a;
   --color-surface:     #1e293b;
-  --color-border:      #334155;
+  --color-border:      #475569;
   --color-text:        #f1f5f9;
   --color-text-muted:  #94a3b8;
   --color-header-bg:   #0f172a;
   --color-header-text: #f1f5f9;
   --shadow:            0 1px 4px rgba(0, 0, 0, 0.4);
+
+  /* Brighter status colors for dark backgrounds */
+  --color-ready:       #3b82f6;       /* blue-500  — badge text & progress fills */
+  --color-in-progress: #f59e0b;       /* amber-400 — replaces dim amber-600 */
+  --color-complete:    #22c55e;       /* green-500 — replaces dim green-600 */
+  --color-blocked:     #f87171;       /* red-400   — replaces dim red-600 */
+
+  /* Link-specific color, brighter than button blue */
+  --color-link:        #60a5fa;       /* blue-400  — ~7.0:1 on #0f172a */
+
+  /* Button primary BG: must be dark enough for white text (WCAG AA ≥ 4.5:1) */
+  --color-btn-bg:      #1d4ed8;       /* blue-700  — ~6.7:1 with #ffffff */
+
+  /* Button danger BG: must be dark enough for white text */
+  --color-btn-danger-bg: #b91c1c;     /* red-700   — ~5.8:1 with #ffffff */
+
+  /* Badge text tokens: brighter than --color-ready/complete for dark badge backgrounds */
+  --color-badge-ready-text:    #93c5fd; /* blue-300  — ~5.8:1 on badge #1e3a5f */
+  --color-badge-complete-text: #86efac; /* green-300 — ~5.8:1 on badge #14532d */
+
+  /* Brighter priority colors for dark backgrounds */
+  --color-priority-high:   #f87171;   /* red-400 */
+  --color-priority-medium: #fbbf24;   /* amber-400 */
+  --color-priority-low:    #cbd5e1;   /* slate-300 — ~9.4:1 on #0f172a */
 }
 
 /* ----------------------------------------------------------
@@ -64,7 +101,7 @@ body {
 }
 
 a {
-  color: var(--color-ready);
+  color: var(--color-link);
   text-decoration: none;
 }
 
@@ -210,6 +247,24 @@ tbody tr.clickable {
 }
 
 /* ----------------------------------------------------------
+   Sortable column headers
+   ---------------------------------------------------------- */
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+th.sortable:hover {
+  color: var(--color-text);
+}
+th.sort-asc::after {
+  content: ' ↑';
+}
+th.sort-desc::after {
+  content: ' ↓';
+}
+
+/* ----------------------------------------------------------
    Cards / Panels
    ---------------------------------------------------------- */
 .card {
@@ -250,9 +305,9 @@ tbody tr.clickable {
 }
 
 .btn-primary {
-  background: var(--color-ready);
+  background: var(--color-btn-bg);
   color: #fff;
-  border-color: var(--color-ready);
+  border-color: var(--color-btn-bg);
 }
 
 .btn-secondary {
@@ -262,9 +317,9 @@ tbody tr.clickable {
 }
 
 .btn-danger {
-  background: var(--color-blocked);
+  background: var(--color-btn-danger-bg);
   color: #fff;
-  border-color: var(--color-blocked);
+  border-color: var(--color-btn-danger-bg);
 }
 
 .btn-sm {
@@ -1183,6 +1238,7 @@ input[type="number"].form-control {
 /* Badge backgrounds */
 [data-theme="dark"] .badge-ready {
   background: #1e3a5f;
+  color: var(--color-badge-ready-text);
 }
 
 [data-theme="dark"] .badge-in-progress,
@@ -1192,6 +1248,7 @@ input[type="number"].form-control {
 
 [data-theme="dark"] .badge-complete {
   background: #14532d;
+  color: var(--color-badge-complete-text);
 }
 
 [data-theme="dark"] .badge-blocked {
