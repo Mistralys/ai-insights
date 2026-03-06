@@ -260,6 +260,11 @@ function renderProjectList(app) {
         bv = b.total_work_packages > 0 ? (b.total_work_packages - b.pending_work_packages) / b.total_work_packages : 0;
         return sign * (av - bv);
       }
+      if (key === 'total_work_packages') {
+        av = a.total_work_packages || 0;
+        bv = b.total_work_packages || 0;
+        return sign * (av - bv);
+      }
       if (key === 'date_created' || key === 'last_updated') {
         av = a[key] ? new Date(a[key]).getTime() : 0;
         bv = b[key] ? new Date(b[key]).getTime() : 0;
@@ -318,9 +323,11 @@ function renderProjectList(app) {
       } else {
         doneCellHtml = '\u2014';
       }
+      var wpCount = p.total_work_packages != null ? String(p.total_work_packages) : '\u2014';
       return '<tr data-status="' + escapeHtml(p.status) + '" data-slug="' + escapeHtml(p.slug) + '" data-name="' + escapeHtml(p.project_name || '') + '" data-repo="' + escapeHtml(p.repository_name || '') + '">' +
         '<td><a href="#/projects/' + encodeURIComponent(p.slug) + '" title="' + escapeHtml(p.slug) + '">' + projectName + '</a></td>' +
         '<td class="repo-col">' + escapeHtml(p.repository_name || '\u2014') + '</td>' +
+        '<td class="num-col">' + wpCount + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
@@ -337,6 +344,7 @@ function renderProjectList(app) {
       '<thead><tr>' +
         thSort('Project', 'project') +
         thSort('Repository', 'repository') +
+        thSort('WPs', 'total_work_packages') +
         thSort('% Done', 'done') +
         thSort('Status', 'status') +
         thSort('Created', 'date_created') +

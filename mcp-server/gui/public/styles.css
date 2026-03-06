@@ -113,7 +113,7 @@ a:hover {
    Layout
    ---------------------------------------------------------- */
 .container {
-  max-width: 1200px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 0 24px;
 }
@@ -1190,6 +1190,19 @@ input[type="number"].form-control {
   font-size: 12px;
   margin-top: 3px;
   display: block;
+}
+
+/* ----------------------------------------------------------
+   Numeric column (WPs count, project list table)
+   ---------------------------------------------------------- */
+.num-col {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+th[data-sort="total_work_packages"] {
+  text-align: right;
 }
 
 /* ----------------------------------------------------------
