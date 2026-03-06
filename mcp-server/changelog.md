@@ -2,6 +2,7 @@
 
 ## v1.10.0 - Dark Mode Dashboard
 - GUI: Added dark mode with toggle button (🌙 / ☀️) in the nav header.
+- MCP: Improved project detection based on time diffs.
 
 ## v1.9.2 - Independent Title / Slug Rename
 - MCP GUI: Added slug and title renaming.

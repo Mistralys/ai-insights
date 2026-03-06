@@ -8,7 +8,7 @@ import { isTerminalStatus } from '../schema/validators.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
-import { validatePlanPath, resolveProjectPath } from '../utils/path-validator.js';
+import { validatePlanPath, resolveProjectPath, formatCandidateList } from '../utils/path-validator.js';
 import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
 import { PIPELINE_TYPES } from '../utils/pipeline-maps.js';
@@ -55,9 +55,7 @@ async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
   }
 
   if (result.status === 'AMBIGUOUS') {
-    const candidateList = result.candidates
-      .map((c) => `  - ${c.plan_path} (${c.slug})`)
-      .join('\n');
+    const candidateList = formatCandidateList(result.best, result.unlikely);
     return {
       content: [
         {

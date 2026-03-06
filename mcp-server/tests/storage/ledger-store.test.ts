@@ -402,17 +402,14 @@ describe('LedgerStore.detectProjectByCwd', () => {
     expect(result.status).toBe('NOT_FOUND');
   });
 
-  it('returns AMBIGUOUS with both candidates when two projects both match cwdPath', async () => {
-    // Plant both projects under the same artificial shared root so both match
-    // when cwdPath equals that shared root.
-    // We achieve this by using plan paths that share the same project root.
-    const sharedRoot = join(tmpdir(), 'shared-root');
+  it('auto-resolves to FOUND when one project has clearly more recent activity (> 6h gap)', async () => {
+    // Both projects share the same root so both are candidates, but D is 4 days
+    // newer than C — the gap >> 6h → best=[D], unlikely=[C], so D is auto-resolved.
+    const sharedRoot = join(tmpdir(), 'shared-root-gap');
     const planPathC = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-15-proj-c');
     const planPathD = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-d');
 
     const storeC = new LedgerStore(planPathC, tempLedgerRoot);
-    // Write meta directly with explicit timestamps so sort order is deterministic:
-    // C is older, D is newer — D must appear first in AMBIGUOUS candidates.
     await atomicWriteJson(storeC.metaPath(), {
       slug: '2026-02-15-proj-c',
       plan_path: planPathC,
@@ -429,18 +426,90 @@ describe('LedgerStore.detectProjectByCwd', () => {
       last_updated: '2026-03-05T10:00:00Z',
     });
 
-    // Both C and D derive the same project root (sharedRoot), so both match
+    const cwdPath = join(sharedRoot, 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    // Single best match → auto-resolved to FOUND
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe('2026-02-16-proj-d');
+    }
+  });
+
+  it('returns AMBIGUOUS with all candidates in "best" when activity timestamps are within 6 hours', async () => {
+    // Both projects share the same root and have timestamps 2 hours apart — no gap.
+    const sharedRoot = join(tmpdir(), 'shared-root-close');
+    const planPathE = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-15-proj-e');
+    const planPathF = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-f');
+
+    const storeE = new LedgerStore(planPathE, tempLedgerRoot);
+    await atomicWriteJson(storeE.metaPath(), {
+      slug: '2026-02-15-proj-e',
+      plan_path: planPathE,
+      status: 'IN_PROGRESS',
+      date_created: '2026-03-05T08:00:00Z',
+      last_updated: '2026-03-05T08:00:00Z',  // 2h before F
+    });
+    const storeF = new LedgerStore(planPathF, tempLedgerRoot);
+    await atomicWriteJson(storeF.metaPath(), {
+      slug: '2026-02-16-proj-f',
+      plan_path: planPathF,
+      status: 'READY',
+      date_created: '2026-03-05T10:00:00Z',
+      last_updated: '2026-03-05T10:00:00Z',
+    });
+
     const cwdPath = join(sharedRoot, 'src');
     const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
     expect(result.status).toBe('AMBIGUOUS');
     if (result.status === 'AMBIGUOUS') {
-      expect(result.candidates).toHaveLength(2);
-      // Order-agnostic membership check
-      const slugs = result.candidates.map((c) => c.slug).sort();
-      expect(slugs).toEqual(['2026-02-15-proj-c', '2026-02-16-proj-d']);
-      // D was written after C, so D has a later last_updated and must appear first
-      expect(result.candidates[0]!.slug).toBe('2026-02-16-proj-d');
-      expect(result.candidates[1]!.slug).toBe('2026-02-15-proj-c');
+      // Both are within 6h → both in best, none in unlikely
+      expect(result.best).toHaveLength(2);
+      expect(result.unlikely).toHaveLength(0);
+      // Most recent first
+      expect(result.best[0]!.slug).toBe('2026-02-16-proj-f');
+      expect(result.best[1]!.slug).toBe('2026-02-15-proj-e');
+    }
+  });
+
+  it('returns AMBIGUOUS with correct best/unlikely split at the 6-hour boundary', async () => {
+    // Three projects sharing the same root: G (most recent), H (1h older), I (8h older).
+    // G and H are within 6h of each other → best=[G,H]; I is > 6h behind H → unlikely=[I].
+    const sharedRoot = join(tmpdir(), 'shared-root-split');
+    const planPathG = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-15-proj-g');
+    const planPathH = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-h');
+    const planPathI = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-17-proj-i');
+
+    const storeG = new LedgerStore(planPathG, tempLedgerRoot);
+    await atomicWriteJson(storeG.metaPath(), {
+      slug: '2026-02-15-proj-g',
+      plan_path: planPathG,
+      status: 'IN_PROGRESS',
+      date_created: '2026-03-05T10:00:00Z',
+      last_updated: '2026-03-05T10:00:00Z',
+    });
+    const storeH = new LedgerStore(planPathH, tempLedgerRoot);
+    await atomicWriteJson(storeH.metaPath(), {
+      slug: '2026-02-16-proj-h',
+      plan_path: planPathH,
+      status: 'IN_PROGRESS',
+      date_created: '2026-03-05T09:00:00Z',
+      last_updated: '2026-03-05T09:00:00Z',  // 1h behind G
+    });
+    const storeI = new LedgerStore(planPathI, tempLedgerRoot);
+    await atomicWriteJson(storeI.metaPath(), {
+      slug: '2026-02-17-proj-i',
+      plan_path: planPathI,
+      status: 'READY',
+      date_created: '2026-03-05T01:00:00Z',
+      last_updated: '2026-03-05T01:00:00Z',  // 8h behind H
+    });
+
+    const cwdPath = join(sharedRoot, 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('AMBIGUOUS');
+    if (result.status === 'AMBIGUOUS') {
+      expect(result.best.map((c) => c.slug)).toEqual(['2026-02-15-proj-g', '2026-02-16-proj-h']);
+      expect(result.unlikely.map((c) => c.slug)).toEqual(['2026-02-17-proj-i']);
     }
   });
 

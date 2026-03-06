@@ -25,3 +25,30 @@ export function parseTimestamp(ts: string): Date {
   // in all JS environments (V8 handles both natively, but this is spec-safe).
   return new Date(ts.replace(' ', 'T'));
 }
+
+/**
+ * Returns a short human-readable relative time string, e.g. "21mn ago",
+ * "2h ago", "3d ago".  Used in AMBIGUOUS candidate listings.
+ *
+ * @param ts  - ISO timestamp string (as stored in project meta)
+ * @param ref - Reference point for "now"; defaults to the current wall clock
+ */
+export function formatRelativeTime(ts: string, ref: Date = new Date()): string {
+  const diffMs = ref.getTime() - parseTimestamp(ts).getTime();
+  // Clamp negative diffs (clock skew / future timestamps) to 0.
+  const ms = Math.max(0, diffMs);
+
+  const totalSeconds = Math.floor(ms / 1000);
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const totalHours   = Math.floor(totalMinutes / 60);
+  const totalDays    = Math.floor(totalHours   / 24);
+
+  if (totalMinutes < 1)  return 'just now';
+  if (totalHours   < 1)  return `${totalMinutes}mn ago`;
+  if (totalDays    < 1) {
+    const remMin = totalMinutes % 60;
+    return remMin > 0 ? `${totalHours}h ${remMin}mn ago` : `${totalHours}h ago`;
+  }
+  const remHours = totalHours % 24;
+  return remHours > 0 ? `${totalDays}d ${remHours}h ago` : `${totalDays}d ago`;
+}

@@ -1,5 +1,7 @@
 import { basename } from 'path';
 import { LedgerStore } from '../storage/ledger-store.js';
+import type { ProjectMeta } from '../schema/project-meta.js';
+import { formatRelativeTime } from './timestamp.js';
 
 // Pattern: YYYY-MM-DD followed by a hyphen and at least one character
 // Example: 2026-02-16-technical-debt-cleanup
@@ -84,9 +86,7 @@ export async function resolveProjectPath(args: {
     }
 
     if (result.status === 'AMBIGUOUS') {
-      const candidates = result.candidates
-        .map((c) => `  - ${c.plan_path} (${c.slug})`)
-        .join('\n');
+      const candidates = formatCandidateList(result.best, result.unlikely);
       throw new Error(
         `Multiple projects match the provided cwd_path. Pass explicit project_path to disambiguate.\n\nCandidates:\n${candidates}`
       );
@@ -116,3 +116,32 @@ export const mutuallyExclusivePaths = (args: {
 
 export const MUTUAL_EXCLUSIVITY_PATH_MSG =
   "Provide either 'project_path' or 'cwd_path', not both.";
+
+/**
+ * Formats an AMBIGUOUS candidate list into a human-readable string with
+ * "Best matches" and (optionally) "Unlikely" sections.
+ *
+ * @param best     - Candidates within the recent activity window
+ * @param unlikely - Candidates that were inactive for too long to be relevant
+ * @param now      - Reference point for relative time labels; defaults to current wall clock
+ */
+export function formatCandidateList(
+  best: ProjectMeta[],
+  unlikely: ProjectMeta[],
+  now: Date = new Date()
+): string {
+  const lines: string[] = [];
+  lines.push('Best matches:');
+  for (const c of best) {
+    const rel = formatRelativeTime(c.last_updated, now);
+    lines.push(`  - ${c.plan_path} (${c.slug}) — last active ${rel}`);
+  }
+  if (unlikely.length > 0) {
+    lines.push('');
+    lines.push('Unlikely (last active more than 6 hours before the best match):');
+    for (const c of unlikely) {
+      lines.push(`  - ${c.plan_path} (${c.slug})`);
+    }
+  }
+  return lines.join('\n');
+}

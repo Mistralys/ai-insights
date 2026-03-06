@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { now, parseTimestamp } from '../../src/utils/timestamp.js';
+import { now, parseTimestamp, formatRelativeTime } from '../../src/utils/timestamp.js';
 
 describe('now', () => {
   it('returns a string in YYYY-MM-DDTHH:MM:SSZ UTC format', () => {
@@ -70,5 +70,41 @@ describe('parseTimestamp', () => {
     const fromT = parseTimestamp('2026-01-01T00:00:00');
     const fromSpace = parseTimestamp('2026-01-01 00:00:00');
     expect(fromT.getTime()).toBe(fromSpace.getTime());
+  });
+});
+
+describe('formatRelativeTime', () => {
+  const ref = new Date('2026-03-06T12:00:00Z');
+
+  it('returns "just now" for differences under 1 minute', () => {
+    expect(formatRelativeTime('2026-03-06T11:59:30Z', ref)).toBe('just now');
+    expect(formatRelativeTime('2026-03-06T12:00:00Z', ref)).toBe('just now');
+  });
+
+  it('returns "Xmn ago" for differences under 1 hour', () => {
+    expect(formatRelativeTime('2026-03-06T11:39:00Z', ref)).toBe('21mn ago');
+    expect(formatRelativeTime('2026-03-06T11:01:00Z', ref)).toBe('59mn ago');
+  });
+
+  it('returns "Xh ago" when the remainder is 0 minutes', () => {
+    expect(formatRelativeTime('2026-03-06T10:00:00Z', ref)).toBe('2h ago');
+  });
+
+  it('returns "Xh Ymn ago" when there are remaining minutes', () => {
+    expect(formatRelativeTime('2026-03-06T09:30:00Z', ref)).toBe('2h 30mn ago');
+    expect(formatRelativeTime('2026-03-06T10:45:00Z', ref)).toBe('1h 15mn ago');
+  });
+
+  it('returns "Xd ago" when the remainder is 0 hours', () => {
+    expect(formatRelativeTime('2026-03-05T12:00:00Z', ref)).toBe('1d ago');
+    expect(formatRelativeTime('2026-03-04T12:00:00Z', ref)).toBe('2d ago');
+  });
+
+  it('returns "Xd Yh ago" when there are remaining hours', () => {
+    expect(formatRelativeTime('2026-03-05T06:00:00Z', ref)).toBe('1d 6h ago');
+  });
+
+  it('clamps future timestamps to "just now" instead of negative values', () => {
+    expect(formatRelativeTime('2026-03-06T13:00:00Z', ref)).toBe('just now');
   });
 });

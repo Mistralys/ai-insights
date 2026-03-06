@@ -8,6 +8,7 @@ import {
   resolveProjectPath,
   mutuallyExclusivePaths,
   MUTUAL_EXCLUSIVITY_PATH_MSG,
+  formatCandidateList,
 } from '../../src/utils/path-validator.js';
 
 describe('validatePlanPath', () => {
@@ -175,9 +176,11 @@ describe('resolveProjectPath', () => {
   it('throws with candidates list when cwd_path matches multiple projects (AMBIGUOUS)', async () => {
     vi.spyOn(LedgerStore, 'detectProjectByCwd').mockResolvedValueOnce({
       status: 'AMBIGUOUS',
-      candidates: [
-        { plan_path: '/a/docs/plans/2026-01-01-alpha', slug: '2026-01-01-alpha' },
-        { plan_path: '/a/docs/plans/2026-02-01-beta', slug: '2026-02-01-beta' },
+      best: [
+        { plan_path: '/a/docs/plans/2026-02-01-beta', slug: '2026-02-01-beta', status: 'IN_PROGRESS', date_created: '2026-03-05T10:00:00Z', last_updated: '2026-03-05T10:00:00Z' },
+      ],
+      unlikely: [
+        { plan_path: '/a/docs/plans/2026-01-01-alpha', slug: '2026-01-01-alpha', status: 'READY', date_created: '2026-02-01T10:00:00Z', last_updated: '2026-02-01T10:00:00Z' },
       ],
     } as any);
 
@@ -283,5 +286,65 @@ describe('MUTUAL_EXCLUSIVITY_PATH_MSG', () => {
     }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
 
     expect(TestSchema.safeParse({ cwd_path: '/workspace' }).success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatCandidateList
+// ---------------------------------------------------------------------------
+
+function makeMeta(slug: string, plan_path: string, last_updated = '2026-01-01T00:00:00Z') {
+  return { slug, plan_path, status: 'READY' as const, date_created: '2026-01-01T00:00:00Z', last_updated };
+}
+
+// Fixed reference point so relative-time labels are deterministic.
+const FIXED_NOW = new Date('2026-03-06T12:00:00Z');
+
+describe('formatCandidateList', () => {
+  it('lists only a "Best matches" section when unlikely is empty', () => {
+    const best = [makeMeta('2026-03-05-alpha', '/root/docs/plans/2026-03-05-alpha')];
+    const result = formatCandidateList(best, [], FIXED_NOW);
+    expect(result).toContain('Best matches:');
+    expect(result).toContain('2026-03-05-alpha');
+    expect(result).not.toContain('Unlikely');
+  });
+
+  it('includes an "Unlikely" section when unlikely candidates are present', () => {
+    const best = [makeMeta('2026-03-05-alpha', '/root/docs/plans/2026-03-05-alpha')];
+    const unlikely = [makeMeta('2026-01-01-old', '/root/docs/plans/2026-01-01-old')];
+    const result = formatCandidateList(best, unlikely, FIXED_NOW);
+    expect(result).toContain('Best matches:');
+    expect(result).toContain('2026-03-05-alpha');
+    expect(result).toContain('Unlikely');
+    expect(result).toContain('2026-01-01-old');
+  });
+
+  it('renders best entries before unlikely entries', () => {
+    const best = [makeMeta('2026-03-05-alpha', '/root/docs/plans/2026-03-05-alpha')];
+    const unlikely = [makeMeta('2026-01-01-old', '/root/docs/plans/2026-01-01-old')];
+    const result = formatCandidateList(best, unlikely, FIXED_NOW);
+    expect(result.indexOf('2026-03-05-alpha')).toBeLessThan(result.indexOf('2026-01-01-old'));
+  });
+
+  it('includes the plan_path of each candidate', () => {
+    const best = [makeMeta('2026-03-05-alpha', '/my/project/docs/plans/2026-03-05-alpha')];
+    const result = formatCandidateList(best, [], FIXED_NOW);
+    expect(result).toContain('/my/project/docs/plans/2026-03-05-alpha');
+  });
+
+  it('appends a relative time label to each best match entry', () => {
+    // 21 minutes before FIXED_NOW
+    const best = [makeMeta('2026-03-06-recent', '/root/docs/plans/2026-03-06-recent', '2026-03-06T11:39:00Z')];
+    const result = formatCandidateList(best, [], FIXED_NOW);
+    expect(result).toContain('last active 21mn ago');
+  });
+
+  it('does NOT append a time label to unlikely entries', () => {
+    const best = [makeMeta('2026-03-06-recent', '/root/docs/plans/2026-03-06-recent', '2026-03-06T11:39:00Z')];
+    const unlikely = [makeMeta('2026-01-01-old', '/root/docs/plans/2026-01-01-old', '2026-01-01T00:00:00Z')];
+    const result = formatCandidateList(best, unlikely, FIXED_NOW);
+    // The unlikely line should be a plain "  - path (slug)" with no time label
+    const unlikelyLine = result.split('\n').find(l => l.includes('2026-01-01-old'))!;
+    expect(unlikelyLine).not.toContain('last active');
   });
 });
