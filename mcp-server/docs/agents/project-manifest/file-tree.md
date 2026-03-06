@@ -24,9 +24,9 @@ mcp-server/
 │   ├── api.ts               # REST API route handlers (handleListProjects, handleGetProject, handleGetWorkPackage, handleGetPlanDocument, handleDeleteProject, handleGetConfig, handleUpdateConfig)
 │   ├── server.ts            # Standalone Node.js HTTP server (node:http); routes /api/* to api.ts handlers, serves static files from gui/public/; started via `npm run gui`
 │   └── public/              # Static assets served by gui/server.ts
-│       ├── index.html       # Dashboard SPA shell — nav header, main#app, loads styles.css + libs/marked.min.js + app.js
-│       ├── styles.css       # Full CSS: custom properties, status badges, tables, cards, forms, loading/error states, plan-content/plan-synopsis
-│       ├── app.js           # Vanilla JS SPA: API client, hash-based Router, 6 views (project list, project detail, plan viewer, WP detail, config, insights)
+│       ├── index.html       # Dashboard SPA shell — nav header (includes #theme-toggle button), main#app, FOUC-prevention inline <script> in <head>, loads styles.css + libs/marked.min.js + app.js
+│       ├── styles.css       # Full CSS: :root custom properties, [data-theme="dark"] override block, status badges, tables, cards, forms, loading/error states, plan-content/plan-synopsis, hardcoded-hex dark overrides for badges/banners/health
+│       ├── app.js           # Vanilla JS SPA: API module (section 1), Theme IIFE (section 2, localStorage key 'mcp-theme', defaults dark), hash-based Router (section 3), 6 views (project list, project detail, plan viewer, WP detail, config, insights)
 │       └── libs/
 │           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB); loaded before app.js; used by the plan viewer
 │

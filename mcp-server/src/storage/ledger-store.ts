@@ -11,7 +11,7 @@ import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
 import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
 import { SAFE_SLUG_REGEX } from '../utils/constants.js';
-import { now } from '../utils/timestamp.js';
+import { now, parseTimestamp } from '../utils/timestamp.js';
 
 /**
  * Thrown by `LedgerStore.renameSlug()` when the target slug directory already
@@ -509,16 +509,52 @@ export class LedgerStore {
     }
 
     if (matches.length > 1) {
-      return { status: 'AMBIGUOUS', candidates: matches };
+      // Sort by last_updated descending (most recently active first) and cap the list.
+      const sorted = [...matches].sort((a, b) =>
+        b.last_updated.localeCompare(a.last_updated)
+      );
+      const capped = sorted.slice(0, MAX_CANDIDATES);
+
+      // Split into "best" and "unlikely" at the first gap larger than the threshold.
+      let splitIndex = capped.length; // default: all are best
+      for (let i = 0; i < capped.length - 1; i++) {
+        const curr = parseTimestamp(capped[i]!.last_updated).getTime();
+        const next = parseTimestamp(capped[i + 1]!.last_updated).getTime();
+        if (curr - next > AMBIGUOUS_GAP_THRESHOLD_MS) {
+          splitIndex = i + 1;
+          break;
+        }
+      }
+
+      const best = capped.slice(0, splitIndex);
+      const unlikely = capped.slice(splitIndex);
+
+      // Single clear best match — treat it as unambiguous.
+      if (best.length === 1) {
+        return { status: 'FOUND', meta: best[0]! };
+      }
+
+      return { status: 'AMBIGUOUS', best, unlikely };
     }
 
     return { status: 'NOT_FOUND' };
   }
 }
 
+// ==================== Constants for detectProjectByCwd ====================
+
+/** Maximum number of candidates returned in an AMBIGUOUS result. */
+const MAX_CANDIDATES = 8;
+
+/**
+ * Minimum time gap (ms) between consecutive candidates that causes everything
+ * after the gap to be classified as "unlikely".  Defaults to 6 hours.
+ */
+const AMBIGUOUS_GAP_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+
 // ==================== Result Types for detectProjectByCwd ====================
 
 export type DetectProjectResult =
   | { status: 'FOUND'; meta: ProjectMeta }
   | { status: 'NOT_FOUND' }
-  | { status: 'AMBIGUOUS'; candidates: ProjectMeta[] };
+  | { status: 'AMBIGUOUS'; best: ProjectMeta[]; unlikely: ProjectMeta[] };

@@ -33,6 +33,20 @@
 }
 
 /* ----------------------------------------------------------
+   Dark theme — CSS variable overrides
+   ---------------------------------------------------------- */
+[data-theme="dark"] {
+  --color-bg:          #0f172a;
+  --color-surface:     #1e293b;
+  --color-border:      #334155;
+  --color-text:        #f1f5f9;
+  --color-text-muted:  #94a3b8;
+  --color-header-bg:   #0f172a;
+  --color-header-text: #f1f5f9;
+  --shadow:            0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ----------------------------------------------------------
    Reset & Base
    ---------------------------------------------------------- */
 *, *::before, *::after {
@@ -1131,4 +1145,111 @@ input[type="number"].form-control {
   font-size: 12px;
   color: var(--color-text-muted);
   white-space: nowrap;
+}
+
+/* ----------------------------------------------------------
+   Theme toggle button
+   ---------------------------------------------------------- */
+.theme-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  color: var(--color-header-text);
+  font-size: 18px;
+  line-height: 1;
+  opacity: 0.85;
+  margin-left: auto;
+  transition: opacity 0.15s;
+}
+
+.theme-toggle:hover {
+  opacity: 1;
+}
+
+.theme-toggle::before {
+  content: '\1F319'; /* 🌙 */
+}
+
+[data-theme="dark"] .theme-toggle::before {
+  content: '\2600\FE0F'; /* ☀️ */
+}
+
+/* ----------------------------------------------------------
+   Dark theme — hardcoded hex overrides
+   ---------------------------------------------------------- */
+
+/* Badge backgrounds */
+[data-theme="dark"] .badge-ready {
+  background: #1e3a5f;
+}
+
+[data-theme="dark"] .badge-in-progress,
+[data-theme="dark"] .badge-in_progress {
+  background: #451a03;
+}
+
+[data-theme="dark"] .badge-complete {
+  background: #14532d;
+}
+
+[data-theme="dark"] .badge-blocked {
+  background: #450a0a;
+}
+
+/* Table row hover */
+[data-theme="dark"] tbody tr:hover {
+  background: var(--color-surface);
+}
+
+/* Error / success banners */
+[data-theme="dark"] .error-banner {
+  background: #450a0a;
+  border-color: #7f1d1d;
+}
+
+[data-theme="dark"] .success-banner {
+  background: #14532d;
+  border-color: #166534;
+}
+
+/* Reset modal warning banner */
+[data-theme="dark"] .reset-modal-banner {
+  background: #451a03;
+  color: #fbbf24;
+}
+
+/* Reset stage badges */
+[data-theme="dark"] .reset-stage-present {
+  background: #14532d;
+}
+
+[data-theme="dark"] .reset-stage-missing {
+  background: #450a0a;
+}
+
+/* Health badges */
+[data-theme="dark"] .health-badge {
+  background: #334155;
+}
+
+[data-theme="dark"] .health-badge.healthy {
+  background: #14532d;
+}
+
+[data-theme="dark"] .health-badge.attention {
+  background: #451a03;
+}
+
+/* Form controls in filter bars */
+[data-theme="dark"] .filter-bar select,
+[data-theme="dark"] .insights-filters select {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+[data-theme="dark"] .filter-bar input[type="text"] {
+  background: var(--color-surface);
+  color: var(--color-text);
 }

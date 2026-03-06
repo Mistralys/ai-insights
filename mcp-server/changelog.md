@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.10.0 - Dark Mode Dashboard
+- GUI: Added dark mode with toggle button (🌙 / ☀️) in the nav header.
+
 ## v1.9.2 - Independent Title / Slug Rename
 - MCP GUI: Added slug and title renaming.
 - MCP GUI: Added the repository folder column.

@@ -411,9 +411,23 @@ describe('LedgerStore.detectProjectByCwd', () => {
     const planPathD = join(sharedRoot, 'docs', 'agents', 'plans', '2026-02-16-proj-d');
 
     const storeC = new LedgerStore(planPathC, tempLedgerRoot);
-    await storeC.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'IN_PROGRESS');
+    // Write meta directly with explicit timestamps so sort order is deterministic:
+    // C is older, D is newer — D must appear first in AMBIGUOUS candidates.
+    await atomicWriteJson(storeC.metaPath(), {
+      slug: '2026-02-15-proj-c',
+      plan_path: planPathC,
+      status: 'IN_PROGRESS',
+      date_created: '2026-03-01T10:00:00Z',
+      last_updated: '2026-03-01T10:00:00Z',
+    });
     const storeD = new LedgerStore(planPathD, tempLedgerRoot);
-    await storeD.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'READY');
+    await atomicWriteJson(storeD.metaPath(), {
+      slug: '2026-02-16-proj-d',
+      plan_path: planPathD,
+      status: 'READY',
+      date_created: '2026-03-05T10:00:00Z',
+      last_updated: '2026-03-05T10:00:00Z',
+    });
 
     // Both C and D derive the same project root (sharedRoot), so both match
     const cwdPath = join(sharedRoot, 'src');
@@ -421,8 +435,12 @@ describe('LedgerStore.detectProjectByCwd', () => {
     expect(result.status).toBe('AMBIGUOUS');
     if (result.status === 'AMBIGUOUS') {
       expect(result.candidates).toHaveLength(2);
+      // Order-agnostic membership check
       const slugs = result.candidates.map((c) => c.slug).sort();
       expect(slugs).toEqual(['2026-02-15-proj-c', '2026-02-16-proj-d']);
+      // D was written after C, so D has a later last_updated and must appear first
+      expect(result.candidates[0]!.slug).toBe('2026-02-16-proj-d');
+      expect(result.candidates[1]!.slug).toBe('2026-02-15-proj-c');
     }
   });
 

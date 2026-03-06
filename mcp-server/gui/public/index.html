@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Server Dashboard</title>
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    (function () {
+      var saved = localStorage.getItem('mcp-theme');
+      if (saved !== 'light') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
 </head>
 <body>
   <header>
@@ -13,6 +21,7 @@
         <a href="#/">Projects</a>
         <a href="#/insights">Insights</a>
         <a href="#/config">Configuration</a>
+        <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Toggle dark mode"></button>
       </nav>
     </div>
   </header>

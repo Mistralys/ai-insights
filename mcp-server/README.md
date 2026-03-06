@@ -300,6 +300,7 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - Delete completed projects permanently
 - Toggle auto-handoff and adjust the max handoff depth at runtime (no restart required)
+- **Dark mode** — theme toggle button (🌙 / ☀️) in the nav header persists the preference to `localStorage`; defaults to dark on first visit. FOUC-prevention inline script in `<head>` applies the saved theme before first paint
 
 > The GUI server is a **separate process** from the MCP server. Both can run simultaneously and share the same ledger directory. The MCP server monitors `gui-config.json` for configuration changes via `fs.watch()` — changes take effect immediately without restarting.
 

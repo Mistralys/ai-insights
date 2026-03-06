@@ -136,6 +136,11 @@ The GUI is implemented as a **separate HTTP server process** from the MCP server
 - `gui/api.ts` — Pure async handler functions (one per REST endpoint)
 - `gui/public/` — Static dashboard assets (no build step)
 
+**Theme / Dark Mode:**
+- `styles.css` exposes a `[data-theme="dark"]` attribute block immediately after `:root`, overriding all 8 CSS custom properties. A separate hardcoded-hex overrides section covers badge variants, table hover, banners, health badges, and filter form controls.
+- `index.html` contains a synchronous FOUC-prevention `<script>` in `<head>` that applies the saved theme before first paint (defaults to dark; light only if `localStorage` key `mcp-theme` is explicitly `'light'`).
+- `app.js` `Theme` IIFE (section 2) manages `localStorage` persistence and wires the `#theme-toggle` button. `Theme.init()` is called before `Router.init()` in the bootstrap sequence.
+
 ---
 
 ### 8. **Runtime Config Monitoring**
