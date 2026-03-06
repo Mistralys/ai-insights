@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v1.7.2 - Ledger Path Detection
+- Ledger: Improved project path detection.
+- Ledger GUI: Added dark mode.
+
 ## v1.7.1 - Ledger Bugfix and GUI Improvements
 - Ledger GUI: Renaming projects, repository name column.
 - Ledger: Fixed broken VS Code agent handoffs.
