@@ -202,11 +202,6 @@ main {
   color: #6b7280;
 }
 
-/* Muted styling for archived project rows */
-tr[data-status="ARCHIVED"] {
-  opacity: 0.65;
-}
-
 /* ----------------------------------------------------------
    Tables
    ---------------------------------------------------------- */
