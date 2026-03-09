@@ -75,7 +75,9 @@ export async function runAutoArchive(
       const store = new LedgerStore(meta.plan_path, ledgerRoot);
       await withLock(store.storageDir, async () => {
         const rootIndex = await store.readRootIndex();
-        await store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' });
+        // Auto-archiving is administrative — preserve last_updated so the
+        // project's visible activity time is not distorted.
+        await store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' }, { preserveLastUpdated: true });
       });
       archived.push(meta.slug);
       process.stderr.write(

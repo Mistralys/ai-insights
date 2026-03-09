@@ -172,10 +172,13 @@ export class LedgerStore {
   /**
    * Writes the root index after validation and automatically syncs .meta.json.
    *
-   * @param data - Root index data to write
+   * @param data    - Root index data to write
+   * @param options - Optional flags; set `preserveLastUpdated: true` for
+   *                  administrative status transitions (archive / unarchive)
+   *                  that must not alter the project's visible activity time.
    * @throws Error if validation fails or write fails
    */
-  async writeRootIndex(data: RootIndex): Promise<void> {
+  async writeRootIndex(data: RootIndex, options?: { preserveLastUpdated?: boolean }): Promise<void> {
     // Validate before writing
     const validated = RootIndexSchema.parse(data);
 
@@ -185,7 +188,7 @@ export class LedgerStore {
     await this.writeProjectMeta('', validated.status, {
       total_work_packages: validated.total_work_packages,
       pending_work_packages: validated.pending_work_packages,
-    });
+    }, options);
   }
 
   /**
@@ -250,12 +253,15 @@ export class LedgerStore {
 
   /**
    * Creates or updates the project's .meta.json file.
-   * On first write: populates all fields. On subsequent writes: updates status and last_updated.
+   * On first write: populates all fields. On subsequent writes: updates status and last_updated
+   * (unless `options.preserveLastUpdated` is true, in which case the existing value is kept).
    * Must be called within the project lock when triggered from a root-index write.
    *
-   * @param planFile - Plan file name (used only on first write; ignored on updates)
-   * @param status - Optional status override; defaults to existing status or IN_PROGRESS
+   * @param planFile     - Plan file name (used only on first write; ignored on updates)
+   * @param status       - Optional status override; defaults to existing status or IN_PROGRESS
    * @param cacheUpdates - Optional WP counter / enrichment fields to write into the cache
+   * @param options      - Set `preserveLastUpdated: true` to retain the existing timestamp
+   *                       (use for admin operations: archive, unarchive, cache refresh).
    */
   async writeProjectMeta(
     planFile: string,
@@ -265,7 +271,8 @@ export class LedgerStore {
       pending_work_packages?: number;
       project_name?: string | null;
       repository_name?: string | null;
-    }
+    },
+    options?: { preserveLastUpdated?: boolean }
   ): Promise<void> {
     const path = this.metaPath();
     let existing: Partial<ProjectMeta> = {};
@@ -278,12 +285,18 @@ export class LedgerStore {
     }
 
     const timestamp = now();
+    // Preserve the existing last_updated for administrative operations (archive,
+    // unarchive, enrichment cache refresh) that should not distort sort order.
+    const lastUpdated =
+      options?.preserveLastUpdated && existing.last_updated
+        ? existing.last_updated
+        : timestamp;
     const meta = ProjectMetaSchema.parse({
       slug: existing.slug ?? this.slug,
       plan_path: existing.plan_path ?? this.planPath,
       status: (status ?? existing.status ?? 'IN_PROGRESS') as ProjectMeta['status'],
       date_created: existing.date_created ?? timestamp,
-      last_updated: timestamp,
+      last_updated: lastUpdated,
       ...(existing.title !== undefined ? { title: existing.title } : {}),
       // Preserve existing cache fields unless overridden by cacheUpdates
       ...(existing.total_work_packages !== undefined ? { total_work_packages: existing.total_work_packages } : {}),

@@ -268,16 +268,32 @@ export async function handleListProjects(
 
       const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
 
+      // Derive project name from slug first — takes precedence over any repo
+      // manifest file (package.json etc.), which would return the repository
+      // name rather than the individual plan's name. Strips the YYYY-MM-DD-
+      // date prefix and title-cases the remainder, e.g.
+      // "2026-02-27-gui-enhancements" → "Gui Enhancements".
+      const slugMatch = meta.slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
+      if (slugMatch) {
+        project_name = slugMatch[1]
+          .split('-')
+          .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+          .join(' ');
+      }
+
       // FAST PATH: use cached enrichment values from .meta.json when available.
       // Falls back to I/O-based enrichment for legacy meta files that pre-date
-      // the enrichment cache (WP-006).
+      // the enrichment cache (WP-006). The cached project_name is only used
+      // when slug derivation produced no name (non-date-prefixed slugs).
       if (
         meta.total_work_packages !== undefined &&
         meta.project_name !== undefined
       ) {
         total_work_packages = meta.total_work_packages;
         pending_work_packages = meta.pending_work_packages ?? 0;
-        project_name = meta.project_name;
+        if (project_name === null) {
+          project_name = meta.project_name;
+        }
       } else {
         const store = new LedgerStore(meta.slug, ledgerRoot);
 
@@ -292,25 +308,15 @@ export async function handleListProjects(
             }
           })(),
           (async () => {
-            project_name = await readProjectName(projectRoot);
+            // Only read the repo manifest when slug derivation produced no name.
+            if (project_name === null) {
+              project_name = await readProjectName(projectRoot);
+            }
           })(),
         ]);
       }
 
-      // Infer project name from slug when no manifest file was found.
-      // Strips the YYYY-MM-DD- date prefix and title-cases the remainder,
-      // e.g. "2026-02-27-gui-enhancements" → "Gui Enhancements".
-      if (project_name === null) {
-        const match = meta.slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
-        if (match) {
-          project_name = match[1]
-            .split('-')
-            .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-            .join(' ');
-        }
-      }
-
-      // Persisted title takes precedence over auto-detected manifest names.
+      // Persisted title takes precedence over all auto-detected names.
       if (meta.title && meta.title.trim().length > 0) {
         project_name = meta.title;
       }
@@ -440,18 +446,21 @@ export async function handleGetProject(
       store.readProjectMeta(),
     ]);
 
-    // Resolve project_name using the same logic as handleListProjects.
-    const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
-    let project_name: string | null = await readProjectName(projectRoot);
+    // Resolve project_name using the same logic as handleListProjects:
+    // slug derivation first, repo manifest only as a last resort.
+    let project_name: string | null = null;
+
+    const slugMatch = slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
+    if (slugMatch) {
+      project_name = slugMatch[1]
+        .split('-')
+        .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+        .join(' ');
+    }
 
     if (project_name === null) {
-      const match = slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
-      if (match) {
-        project_name = match[1]
-          .split('-')
-          .map((w) => (w.length > 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-          .join(' ');
-      }
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+      project_name = await readProjectName(projectRoot);
     }
 
     if (meta.title && meta.title.trim().length > 0) {
@@ -605,7 +614,9 @@ export async function handleArchiveProject(
 
   await withLock(store.storageDir, async () => {
     const rootIndex = await store.readRootIndex();
-    await store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' });
+    // Archiving is an administrative action — preserve last_updated so the
+    // project's visible activity time is not distorted.
+    await store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' }, { preserveLastUpdated: true });
   });
 
   return { archived: true, slug };
@@ -648,7 +659,9 @@ export async function handleUnarchiveProject(
 
   await withLock(store.storageDir, async () => {
     const rootIndex = await store.readRootIndex();
-    await store.writeRootIndex({ ...rootIndex, status: 'COMPLETE' });
+    // Unarchiving is an administrative action — preserve last_updated so the
+    // project's visible activity time is not distorted.
+    await store.writeRootIndex({ ...rootIndex, status: 'COMPLETE' }, { preserveLastUpdated: true });
   });
 
   return { unarchived: true, slug };

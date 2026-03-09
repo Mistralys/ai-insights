@@ -126,7 +126,7 @@ describe('gui/api.ts', () => {
       expect(slugs).toContain('2026-01-02-beta');
     });
 
-    it('WP-006: uses cached enrichment values when total_work_packages and project_name are present in .meta.json', async () => {
+    it('WP-006: uses cached enrichment WP counts when total_work_packages and project_name are present in .meta.json; slug-derived name takes priority over cached project_name', async () => {
       const store = await createProject(ledgerRoot, '2026-02-01-cached-project', {
         total_work_packages: 7,
         pending_work_packages: 3,
@@ -144,7 +144,8 @@ describe('gui/api.ts', () => {
       expect(summary).toBeDefined();
       expect(summary!.total_work_packages).toBe(7);
       expect(summary!.pending_work_packages).toBe(3);
-      expect(summary!.project_name).toBe('cached-project-name');
+      // Slug-derived name takes priority: '2026-02-01-cached-project' → 'Cached Project'
+      expect(summary!.project_name).toBe('Cached Project');
     });
 
     it('WP-006: falls back to I/O enrichment for legacy meta without cache fields', async () => {
@@ -1059,16 +1060,12 @@ describe('gui/api.ts', () => {
       expect(result.total).toBe(0);
     });
 
-    it('search matches project_name substring', async () => {
-      const store = await createProject(ledgerRoot, '2026-01-01-pname-search');
-      await store.writeProjectMeta('plan.md', 'IN_PROGRESS', {
-        total_work_packages: 0,
-        pending_work_packages: 0,
-        project_name: 'UniqueSearchableName',
-        repository_name: null,
-      });
+    it('search matches project_name substring (slug-derived name uses spaces, slug uses hyphens)', async () => {
+      // '2026-01-01-pname-search' → slug-derived project_name = 'Pname Search'
+      // Searching 'pname search' matches project_name but NOT the raw slug (which has hyphens).
+      await createProject(ledgerRoot, '2026-01-01-pname-search');
 
-      const result = await handleListProjects(ledgerRoot, { status: 'ALL', search: 'uniquesearchable' });
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', search: 'pname search' });
       const slugs = result.projects.map((p) => p.slug);
       expect(slugs).toContain('2026-01-01-pname-search');
     });
