@@ -46,6 +46,7 @@
 - To trigger personas, use `**Identity: Senior Software Architect.**`. The `Identity:` syntax acts as a permanent attribute, rather than a conversational instruction ("You are xxx").
 - LLM API Keys: Use during development, then rotate when done.
 - Reviewing application logic: Let an agent create a full, language-agnostic specification, then review this by multiple agents and web LLMs. Ask your agent to synthesize the findings, then create a plan to fix the issues. Repeat this process with a new specification when done, until the logic is solid.
+- VS Code running an MCP is window-specific.
 
 ## My AI Journey Milestones
 
