@@ -1,5 +1,9 @@
 # AI Insights Changelog
 
+## v1.7.4 - Ledger GUI Improvements
+- Ledger GUI: Added project archiving.
+- Ledger GUI: Added work package count column.
+
 ## v1.7.3 - Ledger GUI Improvements
 - Ledger GUI: Improved dark mode.
 - Ledger GUI: Added the work package count column.
