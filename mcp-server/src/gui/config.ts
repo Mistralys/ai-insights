@@ -21,10 +21,19 @@ import { atomicWriteJson } from '../storage/atomic-writer.js';
 export const GuiConfigSchema = z.object({
   auto_handoff_enabled: z.boolean().default(true),
   max_handoff_depth: z.number().int().min(1).default(50),
+  auto_archive_days: z.number().int().min(0).default(6),
   ledger_root: z.string().default(''),
 });
 
 export type GuiConfig = z.infer<typeof GuiConfigSchema>;
+
+/**
+ * Partial update schema for incoming config PUT bodies.
+ * ledger_root is intentionally omitted — it is read-only in the GUI.
+ * Derived from GuiConfigSchema to guarantee it always tracks additions to the full schema.
+ */
+export const GuiConfigPartialSchema = GuiConfigSchema.omit({ ledger_root: true }).partial();
+export type GuiConfigPartial = z.infer<typeof GuiConfigPartialSchema>;
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -33,6 +42,7 @@ export type GuiConfig = z.infer<typeof GuiConfigSchema>;
 export const DEFAULT_CONFIG: GuiConfig = {
   auto_handoff_enabled: true,
   max_handoff_depth: 50,
+  auto_archive_days: 6,
   ledger_root: '',
 };
 

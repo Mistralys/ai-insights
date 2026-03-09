@@ -1,12 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.10.1 - GUI Projects List Sorting & Dark Mode Fixes
-- GUI: Added interactive column sorting to the Projects list.
-- GUI: Sort key and direction persist across page reloads via `localStorage`.
-- GUI: Timestamp columns default to descending on first click; all other columns default to ascending.
-- GUI: Sortable column headers are now keyboard-accessible via Tab and Enter/Space.
-- GUI: Fixed search input losing leading/trailing spaces after a sort click.
-- GUI: String column sort is now locale-deterministic across browser environments.
+## v1.11.0 - GUI Improvements
+- GUI: Per-row action buttons replaced with a kebab-menu.
+- Backend: Added endpoint to mark all active work packages and the project index as COMPLETE.
+- GUI: Split app.js monolith into 9 focused modules.
+- GUI: Added interactive column sorting, keyboard-accessible.
+- GUI: Fixed search input losing spaces after a sort click.
+- GUI: Fixed string column sort to be locale-deterministic.
 - GUI: Corrected dark-mode contrast ratios.
 - GUI: Added work package count column.
 

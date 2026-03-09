@@ -19,23 +19,27 @@ import { rm, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
+import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath } from '../src/utils/ledger-root.js';
+import { readProjectName } from '../src/utils/read-project-name.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
 import type { IncidentContext, WorkPackageDetail } from '../src/schema/work-package.js';
-import { getConfig, writeConfig } from '../src/gui/config.js';
+import { getConfig, writeConfig, GuiConfigPartialSchema } from '../src/gui/config.js';
 import type { GuiConfig } from '../src/gui/config.js';
 import {
   analyzeProjectForReset,
   applyProjectReset,
   getPassedStages,
+  markProjectComplete,
 } from '../src/utils/project-reset.js';
 import type {
   WpDecision,
   ProjectResetDiagnosis,
   ProjectResetResult,
+  MarkProjectCompleteResult,
 } from '../src/utils/project-reset.js';
 
 // ---------------------------------------------------------------------------
@@ -162,60 +166,6 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
 // GET /api/projects
 // ---------------------------------------------------------------------------
 
-/**
- * Resolves the human-readable project name from the managed workspace's
- * manifest file. Tries package.json → composer.json → pyproject.toml in
- * order. Returns null if no file is found or any parse/read fails.
- */
-async function readProjectName(planPath: string): Promise<string | null> {
-  // 1. Try package.json
-  try {
-    const raw = await readFile(join(planPath, 'package.json'), 'utf-8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      'name' in parsed &&
-      typeof (parsed as Record<string, unknown>).name === 'string' &&
-      (parsed as Record<string, string>).name.trim() !== ''
-    ) {
-      return (parsed as Record<string, string>).name;
-    }
-  } catch {
-    // fall through
-  }
-
-  // 2. Try composer.json
-  try {
-    const raw = await readFile(join(planPath, 'composer.json'), 'utf-8');
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      'name' in parsed &&
-      typeof (parsed as Record<string, unknown>).name === 'string' &&
-      (parsed as Record<string, string>).name.trim() !== ''
-    ) {
-      return (parsed as Record<string, string>).name;
-    }
-  } catch {
-    // fall through
-  }
-
-  // 3. Try pyproject.toml (best-effort regex)
-  try {
-    const raw = await readFile(join(planPath, 'pyproject.toml'), 'utf-8');
-    const match = raw.match(/name\s*=\s*"([^"]+)"/);
-    if (match && match[1].trim() !== '') {
-      return match[1];
-    }
-  } catch {
-    // fall through
-  }
-
-  return null;
-}
-
 export interface ProjectSummary extends ProjectMeta {
   total_work_packages: number;
   pending_work_packages: number;
@@ -223,40 +173,129 @@ export interface ProjectSummary extends ProjectMeta {
   repository_name: string | null;
 }
 
+/** Fields that the project list can be sorted by. */
+export type ProjectSortField =
+  | 'project'
+  | 'repository'
+  | 'status'
+  | 'total_work_packages'
+  | 'done'
+  | 'date_created'
+  | 'last_updated';
+
+/** Raw query parameters accepted by GET /api/projects. */
+export interface ProjectListParams {
+  page?: number | string;
+  limit?: number | string;
+  /** 'ACTIVE' (default), 'ALL', or a specific ProjectStatus value. */
+  status?: string;
+  /** Case-insensitive substring match on slug, project_name, repository_name. */
+  search?: string;
+  /** Sort column. Defaults to 'last_updated'. */
+  sort?: string;
+  /** 'asc' or 'desc'. Defaults to 'desc'. */
+  dir?: string;
+}
+
+/** Paginated response envelope returned by handleListProjects. */
+export interface ProjectListEnvelope {
+  projects: ProjectSummary[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+  /** Per-status counts computed from the search-filtered set (before status filter). */
+  status_counts: Record<string, number>;
+}
+
+const SORT_FIELDS = new Set<ProjectSortField>([
+  'project',
+  'repository',
+  'status',
+  'total_work_packages',
+  'done',
+  'date_created',
+  'last_updated',
+]);
+
+const VALID_STATUS_FILTERS = new Set([
+  'ACTIVE', 'ALL', 'READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED', 'ARCHIVED', 'CANCELLED',
+]);
+
 /**
- * Returns the full list of enriched project summaries from the centralized
- * ledger. Each entry extends ProjectMeta with WP counters, project name, and
- * repository_name derived from the project root directory.
+ * Returns a paginated envelope of enriched project summaries.
+ *
+ * Processing pipeline:
+ *  1. Enrich all projects (cache fast-path from .meta.json when available).
+ *  2. Apply search filter to the full list.
+ *  3. Compute status_counts from the search-filtered set (before status filter).
+ *  4. Apply status filter.
+ *  5. Sort.
+ *  6. Paginate (slice) and return the envelope.
+ *
  * project_name resolution order: manifest file → slug date-strip fallback →
  * meta.title (takes precedence when set).
  * Per-project read failures are isolated so one bad project never breaks
  * the entire response.
  */
-export async function handleListProjects(ledgerRoot: string): Promise<ProjectSummary[]> {
-  const projects = await LedgerStore.listAllProjects(ledgerRoot);
+export async function handleListProjects(
+  ledgerRoot: string,
+  rawParams: ProjectListParams = {}
+): Promise<ProjectListEnvelope> {
+  // --- Validate and sanitise params ---
+  const page = Math.max(1, Math.floor(Number(rawParams.page) || 1));
+  const limitRaw = rawParams.limit !== undefined ? Math.floor(Number(rawParams.limit)) : 50;
+  const limit = Math.min(200, Math.max(1, isNaN(limitRaw) ? 50 : limitRaw));
+  const statusFilter =
+    rawParams.status !== undefined && VALID_STATUS_FILTERS.has(rawParams.status)
+      ? rawParams.status
+      : 'ACTIVE';
+  const search = (rawParams.search ?? '').trim();
+  const sortRaw = rawParams.sort ?? '';
+  const sort: ProjectSortField = SORT_FIELDS.has(sortRaw as ProjectSortField)
+    ? (sortRaw as ProjectSortField)
+    : 'last_updated';
+  const dir: 'asc' | 'desc' = rawParams.dir === 'asc' ? 'asc' : 'desc';
 
-  const summaries = await Promise.all(
-    projects.map(async (meta): Promise<ProjectSummary> => {
+  const allProjects = await LedgerStore.listAllProjects(ledgerRoot);
+
+  // --- Enrich all projects ---
+  const enrichedAll = await Promise.all(
+    allProjects.map(async (meta): Promise<ProjectSummary> => {
       let total_work_packages = 0;
       let pending_work_packages = 0;
       let project_name: string | null = null;
 
-      const store = new LedgerStore(meta.slug, ledgerRoot);
+      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
 
-      await Promise.all([
-        (async () => {
-          try {
-            const rootIndex = await store.readRootIndex();
-            total_work_packages = rootIndex.total_work_packages ?? 0;
-            pending_work_packages = rootIndex.pending_work_packages ?? 0;
-          } catch {
-            // default to 0
-          }
-        })(),
-        (async () => {
-          project_name = await readProjectName(meta.plan_path);
-        })(),
-      ]);
+      // FAST PATH: use cached enrichment values from .meta.json when available.
+      // Falls back to I/O-based enrichment for legacy meta files that pre-date
+      // the enrichment cache (WP-006).
+      if (
+        meta.total_work_packages !== undefined &&
+        meta.project_name !== undefined
+      ) {
+        total_work_packages = meta.total_work_packages;
+        pending_work_packages = meta.pending_work_packages ?? 0;
+        project_name = meta.project_name;
+      } else {
+        const store = new LedgerStore(meta.slug, ledgerRoot);
+
+        await Promise.all([
+          (async () => {
+            try {
+              const rootIndex = await store.readRootIndex();
+              total_work_packages = rootIndex.total_work_packages ?? 0;
+              pending_work_packages = rootIndex.pending_work_packages ?? 0;
+            } catch {
+              // default to 0
+            }
+          })(),
+          (async () => {
+            project_name = await readProjectName(projectRoot);
+          })(),
+        ]);
+      }
 
       // Infer project name from slug when no manifest file was found.
       // Strips the YYYY-MM-DD- date prefix and title-cases the remainder,
@@ -277,7 +316,6 @@ export async function handleListProjects(ledgerRoot: string): Promise<ProjectSum
       }
 
       // Derive repository_name from the project root directory name.
-      const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
       const repository_name = projectRoot
         ? (projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? null)
         : null;
@@ -292,7 +330,85 @@ export async function handleListProjects(ledgerRoot: string): Promise<ProjectSum
     })
   );
 
-  return summaries;
+  // --- Step 2: Search filter (applied to full list, before status filter) ---
+  const searchLower = search.toLowerCase();
+  const searchFiltered = searchLower
+    ? enrichedAll.filter(
+        (p) =>
+          p.slug.toLowerCase().includes(searchLower) ||
+          (p.project_name ?? '').toLowerCase().includes(searchLower) ||
+          (p.repository_name ?? '').toLowerCase().includes(searchLower)
+      )
+    : enrichedAll;
+
+  // --- Step 3: Compute status_counts from search-filtered set (before status filter) ---
+  const status_counts: Record<string, number> = {};
+  for (const p of searchFiltered) {
+    status_counts[p.status] = (status_counts[p.status] ?? 0) + 1;
+  }
+
+  // --- Step 4: Status filter ---
+  const filtered =
+    statusFilter === 'ALL'
+      ? searchFiltered
+      : statusFilter === 'ACTIVE'
+        ? searchFiltered.filter((p) => p.status !== 'ARCHIVED')
+        : searchFiltered.filter((p) => p.status === statusFilter);
+
+  // --- Step 5: Sort ---
+  const sorted = [...filtered].sort((a, b) => {
+    let aVal: string | number;
+    let bVal: string | number;
+    switch (sort) {
+      case 'project':
+        aVal = (a.project_name ?? a.slug).toLowerCase();
+        bVal = (b.project_name ?? b.slug).toLowerCase();
+        break;
+      case 'repository':
+        aVal = (a.repository_name ?? '').toLowerCase();
+        bVal = (b.repository_name ?? '').toLowerCase();
+        break;
+      case 'status':
+        aVal = a.status;
+        bVal = b.status;
+        break;
+      case 'total_work_packages':
+        aVal = a.total_work_packages;
+        bVal = b.total_work_packages;
+        break;
+      case 'done':
+        aVal = a.total_work_packages - a.pending_work_packages;
+        bVal = b.total_work_packages - b.pending_work_packages;
+        break;
+      case 'date_created':
+        aVal = a.date_created ?? '';
+        bVal = b.date_created ?? '';
+        break;
+      case 'last_updated':
+      default:
+        aVal = a.last_updated ?? '';
+        bVal = b.last_updated ?? '';
+        break;
+    }
+    if (aVal < bVal) return dir === 'asc' ? -1 : 1;
+    if (aVal > bVal) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // --- Step 6: Paginate ---
+  const total = sorted.length;
+  const total_pages = Math.max(1, Math.ceil(total / limit));
+  const start = (page - 1) * limit;
+  const pageSlice = sorted.slice(start, start + limit);
+
+  return {
+    projects: pageSlice,
+    total,
+    page,
+    limit,
+    total_pages,
+    status_counts,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +441,8 @@ export async function handleGetProject(
     ]);
 
     // Resolve project_name using the same logic as handleListProjects.
-    let project_name: string | null = await readProjectName(meta.plan_path);
+    const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
+    let project_name: string | null = await readProjectName(projectRoot);
 
     if (project_name === null) {
       const match = slug.match(/^\d{4}-\d{2}-\d{2}-(.+)$/);
@@ -441,14 +558,138 @@ export async function handleDeleteProject(
 
   // TypeScript: meta is always assigned here because the catch above throws via notFound()
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  if (meta!.status !== 'COMPLETE') {
-    forbidden('Only COMPLETE projects can be deleted.');
+  if (!['COMPLETE', 'ARCHIVED'].includes(meta!.status)) {
+    forbidden('Only COMPLETE or ARCHIVED projects can be deleted.');
   }
 
   const projectDir = join(ledgerRoot, slug);
   await rm(projectDir, { recursive: true, force: true });
 
   return { deleted: true, slug };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:slug/archive
+// ---------------------------------------------------------------------------
+
+export type ArchiveProjectResult = { archived: true; slug: string };
+
+/**
+ * Transitions a COMPLETE project to ARCHIVED status.
+ * Updates both .meta.json and project-ledger.json within a single lock scope.
+ * Throws NOT_FOUND if the project does not exist.
+ * Throws VALIDATION_ERROR if the project is not in COMPLETE status.
+ */
+export async function handleArchiveProject(
+  ledgerRoot: string,
+  slug: string
+): Promise<ArchiveProjectResult> {
+  assertSafeSlug(slug);
+  const store = new LedgerStore(slug, ledgerRoot);
+
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  let meta: ProjectMeta;
+  try {
+    meta = await store.readProjectMeta();
+  } catch {
+    notFound(`Project '${slug}' not found or has no metadata.`);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  if (meta!.status !== 'COMPLETE') {
+    validationError(`Cannot archive project '${slug}': status is '${meta!.status}', expected 'COMPLETE'.`);
+  }
+
+  await withLock(store.storageDir, async () => {
+    const rootIndex = await store.readRootIndex();
+    await store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' });
+  });
+
+  return { archived: true, slug };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:slug/unarchive
+// ---------------------------------------------------------------------------
+
+export type UnarchiveProjectResult = { unarchived: true; slug: string };
+
+/**
+ * Transitions an ARCHIVED project back to COMPLETE status.
+ * Updates both .meta.json and project-ledger.json within a single lock scope.
+ * Throws NOT_FOUND if the project does not exist.
+ * Throws VALIDATION_ERROR if the project is not in ARCHIVED status.
+ */
+export async function handleUnarchiveProject(
+  ledgerRoot: string,
+  slug: string
+): Promise<UnarchiveProjectResult> {
+  assertSafeSlug(slug);
+  const store = new LedgerStore(slug, ledgerRoot);
+
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  let meta: ProjectMeta;
+  try {
+    meta = await store.readProjectMeta();
+  } catch {
+    notFound(`Project '${slug}' not found or has no metadata.`);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  if (meta!.status !== 'ARCHIVED') {
+    validationError(`Cannot unarchive project '${slug}': status is '${meta!.status}', expected 'ARCHIVED'.`);
+  }
+
+  await withLock(store.storageDir, async () => {
+    const rootIndex = await store.readRootIndex();
+    await store.writeRootIndex({ ...rootIndex, status: 'COMPLETE' });
+  });
+
+  return { unarchived: true, slug };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:slug/complete
+// ---------------------------------------------------------------------------
+
+/**
+ * Forces every non-CANCELLED work package and the project to COMPLETE status.
+ *
+ * Throws NOT_FOUND  if the project does not exist.
+ * Throws FORBIDDEN  if the project is currently ARCHIVED (unarchive first).
+ *
+ * STDIO discipline: this function never writes to process.stdout.
+ */
+export async function handleMarkProjectComplete(
+  ledgerRoot: string,
+  slug: string
+): Promise<MarkProjectCompleteResult> {
+  assertSafeSlug(slug);
+  const store = new LedgerStore(slug, ledgerRoot);
+
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  let rootIndex: RootIndex;
+  try {
+    rootIndex = await store.readRootIndex();
+  } catch (err) {
+    notFound(`Project '${slug}' not found or corrupted: ${String(err)}`);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  if (rootIndex!.status === 'ARCHIVED') {
+    forbidden('Cannot mark an archived project as complete. Unarchive it first.');
+  }
+
+  return markProjectComplete(store, slug);
 }
 
 // ---------------------------------------------------------------------------
@@ -521,15 +762,6 @@ export async function handleGetConfig(_configPath: string): Promise<GuiConfig> {
 // ---------------------------------------------------------------------------
 // PUT /api/config
 // ---------------------------------------------------------------------------
-
-/**
- * Partial-update schema for incoming config PUT bodies.
- * ledger_root is intentionally omitted — it is read-only in the GUI.
- */
-const GuiConfigPartialSchema = z.object({
-  auto_handoff_enabled: z.boolean().optional(),
-  max_handoff_depth: z.number().int().min(1).optional(),
-});
 
 /**
  * Validates and persists an incoming config update.

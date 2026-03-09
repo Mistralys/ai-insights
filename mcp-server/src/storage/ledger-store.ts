@@ -181,8 +181,11 @@ export class LedgerStore {
 
     const path = this.rootIndexPath();
     await atomicWriteJson(path, validated);
-    // Auto-sync .meta.json after every root index write
-    await this.writeProjectMeta('', validated.status);
+    // Auto-sync .meta.json after every root index write — include WP counters
+    await this.writeProjectMeta('', validated.status, {
+      total_work_packages: validated.total_work_packages,
+      pending_work_packages: validated.pending_work_packages,
+    });
   }
 
   /**
@@ -235,8 +238,11 @@ export class LedgerStore {
       // Write both atomically (within the same lock)
       await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
       await atomicWriteJson(this.rootIndexPath(), validatedRoot);
-      // Auto-sync .meta.json inside the same lock scope
-      await this.writeProjectMeta('', validatedRoot.status);
+      // Auto-sync .meta.json inside the same lock scope — include WP counters
+      await this.writeProjectMeta('', validatedRoot.status, {
+        total_work_packages: validatedRoot.total_work_packages,
+        pending_work_packages: validatedRoot.pending_work_packages,
+      });
     });
   }
 
@@ -249,8 +255,18 @@ export class LedgerStore {
    *
    * @param planFile - Plan file name (used only on first write; ignored on updates)
    * @param status - Optional status override; defaults to existing status or IN_PROGRESS
+   * @param cacheUpdates - Optional WP counter / enrichment fields to write into the cache
    */
-  async writeProjectMeta(planFile: string, status?: string): Promise<void> {
+  async writeProjectMeta(
+    planFile: string,
+    status?: string,
+    cacheUpdates?: {
+      total_work_packages?: number;
+      pending_work_packages?: number;
+      project_name?: string | null;
+      repository_name?: string | null;
+    }
+  ): Promise<void> {
     const path = this.metaPath();
     let existing: Partial<ProjectMeta> = {};
 
@@ -269,6 +285,16 @@ export class LedgerStore {
       date_created: existing.date_created ?? timestamp,
       last_updated: timestamp,
       ...(existing.title !== undefined ? { title: existing.title } : {}),
+      // Preserve existing cache fields unless overridden by cacheUpdates
+      ...(existing.total_work_packages !== undefined ? { total_work_packages: existing.total_work_packages } : {}),
+      ...(existing.pending_work_packages !== undefined ? { pending_work_packages: existing.pending_work_packages } : {}),
+      ...(existing.project_name !== undefined ? { project_name: existing.project_name } : {}),
+      ...(existing.repository_name !== undefined ? { repository_name: existing.repository_name } : {}),
+      // Apply overrides from cacheUpdates (undefined values skip the field)
+      ...(cacheUpdates?.total_work_packages !== undefined ? { total_work_packages: cacheUpdates.total_work_packages } : {}),
+      ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
+      ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
+      ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
     });
 
     await atomicWriteJson(path, meta);
@@ -500,6 +526,8 @@ export class LedgerStore {
         normalizedCwd === normalizedRoot ||
         normalizedCwd.startsWith(normalizedRoot + '/')
       ) {
+        // Skip archived projects — agents should not accidentally work on them
+        if (meta.status === 'ARCHIVED') continue;
         matches.push(meta);
       }
     }

@@ -453,3 +453,71 @@ export async function applyProjectReset(
     project_comment_added: `Project reset applied. ${resetIds.length} reset, ${cancelledIds.length} cancelled, ${skippedIds.length} skipped.`,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Mark as Complete (mutation function — performs I/O under lock)
+// ---------------------------------------------------------------------------
+
+export interface MarkProjectCompleteResult {
+  marked_complete: true;
+  work_packages_completed: string[];
+  project_comment_added: string;
+}
+
+/**
+ * Forces every non-CANCELLED work package and the project itself to COMPLETE
+ * status in a single lock scope.
+ *
+ * Use this as a bulk "finish" action when a project is done but its WP
+ * pipeline state is inconsistent or incomplete.
+ *
+ * STDIO discipline: this function never writes to process.stdout.
+ */
+export async function markProjectComplete(
+  store: LedgerStore,
+  slug: string
+): Promise<MarkProjectCompleteResult> {
+  void slug; // slug is held on the store; kept for call-site clarity
+  const completedIds: string[] = [];
+
+  await withLock(store.storageDir, async () => {
+    const rootIndex = await store.readRootIndex();
+    const timestamp = now();
+
+    for (const wpSummary of rootIndex.work_packages) {
+      if (wpSummary.status === 'CANCELLED') continue;
+
+      const wp = await store.readWorkPackage(wpSummary.work_package_id);
+      wp.status = 'COMPLETE';
+      wp.status_changed_at = timestamp;
+      await store.writeWorkPackage(wpSummary.work_package_id, wp);
+      completedIds.push(wpSummary.work_package_id);
+
+      wpSummary.status = 'COMPLETE';
+    }
+
+    rootIndex.status = 'COMPLETE';
+    rootIndex.pending_work_packages = 0;
+    rootIndex.last_updated = timestamp;
+
+    const note = `Marked project as complete via GUI. ${completedIds.length} work package(s) set to COMPLETE: ${completedIds.join(', ')}.`;
+
+    rootIndex.project_comments.push({
+      type: 'admin_action',
+      priority: 'low',
+      timestamp,
+      agent: 'GUI',
+      note,
+    });
+
+    await store.writeRootIndex(rootIndex);
+  });
+
+  const note = `Marked project as complete via GUI. ${completedIds.length} work package(s) set to COMPLETE: ${completedIds.join(', ')}.`;
+
+  return {
+    marked_complete: true,
+    work_packages_completed: completedIds,
+    project_comment_added: note,
+  };
+}

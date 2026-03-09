@@ -522,6 +522,51 @@ describe('LedgerStore.detectProjectByCwd', () => {
       expect(result.meta.slug).toBe('2026-02-16-beta');
     }
   });
+
+  // --- ARCHIVED project exclusion ---
+
+  it('returns NOT_FOUND when the only matching project is ARCHIVED', async () => {
+    // Project A with ARCHIVED status
+    const storeA = new LedgerStore(planPathA, tempLedgerRoot);
+    await storeA.writeProjectMeta(PLAN_ARCHIVE_FILENAME, 'ARCHIVED');
+
+    const cwdPath = join(tmpdir(), 'project-a', 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('NOT_FOUND');
+  });
+
+  it('skips archived projects and returns the non-archived one when both share a root', async () => {
+    // Project A: ARCHIVED; Project B: IN_PROGRESS, both share tmpdir() root.
+    // We need two projects under the same root by using slightly different plan paths.
+    const sharedRoot2 = join(tmpdir(), 'shared-root-archive');
+    const planPathX = join(sharedRoot2, 'docs', 'agents', 'plans', '2026-01-01-archived');
+    const planPathY = join(sharedRoot2, 'docs', 'agents', 'plans', '2026-01-02-active');
+
+    const storeX = new LedgerStore(planPathX, tempLedgerRoot);
+    await atomicWriteJson(storeX.metaPath(), {
+      slug: '2026-01-01-archived',
+      plan_path: planPathX,
+      status: 'ARCHIVED',
+      date_created: '2026-01-01T10:00:00Z',
+      last_updated: '2026-01-01T10:00:00Z',
+    });
+
+    const storeY = new LedgerStore(planPathY, tempLedgerRoot);
+    await atomicWriteJson(storeY.metaPath(), {
+      slug: '2026-01-02-active',
+      plan_path: planPathY,
+      status: 'IN_PROGRESS',
+      date_created: '2026-01-02T10:00:00Z',
+      last_updated: '2026-01-02T10:00:00Z',
+    });
+
+    const cwdPath = join(sharedRoot2, 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe('2026-01-02-active');
+    }
+  });
 });
 
 // ==================== updateTitle ====================

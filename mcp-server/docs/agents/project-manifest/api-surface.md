@@ -42,7 +42,7 @@ pipeline_health: {
 }) => Promise<MCPResult>
 ```
 
-Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
+Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
 
 **`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
 
@@ -50,11 +50,14 @@ Creates a new project ledger with root index and centralized storage directory. 
 
 ```typescript
 (args: {
-  status?: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+  status?: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'ARCHIVED';
+  include_archived?: boolean;  // default: false
 }) => Promise<MCPResult>
 ```
 
 Scans the central ledger root directory and returns metadata for all projects. Optionally filters by status. Projects with missing or invalid `.meta.json` are silently skipped.
+
+**ARCHIVED exclusion (default behavior):** When `include_archived` is `false` (the default), ARCHIVED projects are excluded from results unless an explicit `status: 'ARCHIVED'` filter is set. An explicit `status` filter always takes precedence — so `{ status: 'ARCHIVED' }` returns only archived projects regardless of `include_archived`. Pass `include_archived: true` to include archived projects alongside non-archived ones in an unfiltered listing.
 
 #### `ledger_complete_synthesis`
 
@@ -567,7 +570,20 @@ class LedgerStore {
   // Non-ENOENT errors (e.g. EACCES, ENOSPC, EISDIR) are re-thrown to the caller.
 
   // Meta methods
-  writeProjectMeta(planFile: string, status?: string): Promise<void>;
+  // Reads current meta, merges status + optional cacheUpdates (field-preservation: existing cache
+  // fields are preserved unless overridden), validates with ProjectMetaSchema, writes atomically.
+  // cacheUpdates fields use `undefined` as a skip sentinel, `null` as an explicit written value for
+  // nullable string fields (project_name, repository_name).
+  writeProjectMeta(
+    planFile: string,
+    status?: string,
+    cacheUpdates?: {
+      total_work_packages?: number;
+      pending_work_packages?: number;
+      project_name?: string | null;
+      repository_name?: string | null;
+    }
+  ): Promise<void>;
   // Sets the user-visible display title. Reads current meta, updates `title`
   // while preserving `last_updated` unchanged, validates with ProjectMetaSchema,
   // writes atomically.
@@ -594,6 +610,11 @@ type DetectProjectResult =
   | { status: 'FOUND'; meta: ProjectMeta }
   | { status: 'NOT_FOUND' }
   | { status: 'AMBIGUOUS'; candidates: ProjectMeta[] };
+
+// Note: detectProjectByCwd silently skips ARCHIVED projects during the candidate scan.
+// An archived project whose codebase path matches cwd_path will never be returned as FOUND.
+// Explicit project_path access (e.g. via ledger_get_project_status) is unaffected and still works
+// on archived projects — only auto-detection via cwd is suppressed.
 ```
 
 ---
@@ -630,10 +651,15 @@ Exported from `src/schema/project-meta.ts`. Represents the per-project `.meta.js
 interface ProjectMeta {
   slug: string;          // Plan folder basename, e.g. "2026-02-16-feature"
   plan_path: string;     // Original absolute project_path
-  status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+  status: ProjectStatus;  // Zod-validated via the shared ProjectStatus enum from src/schema/enums.ts — not an inline z.enum(). Values: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'ARCHIVED'
   date_created: string;  // ISO timestamp
   last_updated: string;  // ISO timestamp
   title?: string;        // Optional, derived from plan_file content
+  // Enrichment cache fields (all optional — absent in legacy .meta.json files created before WP-006)
+  total_work_packages?: number;   // Synced by writeRootIndex and updateWorkPackageWithSync on every root index write
+  pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
+  project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
+  repository_name?: string | null; // Derived from inferProjectRootFromPlanPath(plan_path); null if not detectable
 }
 ```
 
@@ -642,7 +668,7 @@ Schema: `ProjectMetaSchema` (Zod).
 ### Core Types
 
 ```typescript
-type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
+type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'ARCHIVED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
 type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis'; // Exported from src/utils/constants.ts; canonical string-literal union for all valid agent role names.
@@ -1016,6 +1042,20 @@ function getDownstreamTypes(type: PipelineType): PipelineType[];
 function getUpstreamTypes(type: PipelineType): PipelineType[];
 ```
 
+### Project Name Resolution — `src/utils/read-project-name.ts`
+
+Shared utility extracted in WP-006 to eliminate the ~55-line duplicate in `gui/api.ts`.
+
+```typescript
+// Probes the managed workspace for a human-readable project name.
+// Resolution order: package.json → name, composer.json → name, pyproject.toml → [tool.poetry].name
+// Returns null if none of the manifest files exist or contain a usable name.
+// projectRoot: absolute path to the managed project root (derived from inferProjectRootFromPlanPath()).
+// Exported from src/utils/read-project-name.ts. Used by gui/api.ts (handleListProjects, handleGetProject)
+// and src/tools/project-lifecycle.ts (initializeProject enrichment write).
+function readProjectName(projectRoot: string): Promise<string | null>;
+```
+
 ### Project Reset — `src/utils/project-reset.ts`
 
 Provides the semi-intelligent project reset feature: a **pure analysis function** and an **async mutation function**.
@@ -1109,6 +1149,29 @@ export async function applyProjectReset(
   diagnosis: ProjectResetDiagnosis,
   decisions: Record<string, WpDecision>
 ): Promise<ProjectResetResult>;
+
+// ── Mark as complete (mutation function — performs I/O under lock) ──────────
+
+// Forces every non-CANCELLED work package and the project itself to COMPLETE
+// status in a single lock scope. Updates WP detail files, root index
+// (status=COMPLETE, pending_work_packages=0, last_updated), and appends an
+// admin_action project comment before calling store.writeRootIndex() (which
+// auto-syncs .meta.json). CANCELLED WPs are skipped entirely.
+//
+// The `slug` parameter is accepted for call-site clarity but is already bound
+// on the LedgerStore (`void slug;` inside the function body).
+//
+// STDIO discipline: never writes to process.stdout.
+// Exported from src/utils/project-reset.ts. Used by gui/api.ts (handleMarkProjectComplete).
+export interface MarkProjectCompleteResult {
+  marked_complete: true;
+  work_packages_completed: string[];   // IDs of WPs set to COMPLETE (CANCELLED excluded)
+  project_comment_added: string;       // note string appended as project_comments entry
+}
+export async function markProjectComplete(
+  store: LedgerStore,
+  slug: string
+): Promise<MarkProjectCompleteResult>;
 ```
 
 ---
@@ -1305,9 +1368,10 @@ export type GuiConfig = {
   auto_handoff_enabled: boolean;  // When false, buildHandoffResponse() skips auto-handoff
   max_handoff_depth: number;      // Maximum auto-handoff chain depth (default 50)
   ledger_root: string;            // Resolved ledger root path (display-only in GUI)
+  auto_archive_days: number;      // Days after COMPLETE before auto-archiving (0 = disabled; default 6)
 };
 
-export const DEFAULT_CONFIG: GuiConfig;  // { auto_handoff_enabled: true, max_handoff_depth: 50, ledger_root: '' }
+export const DEFAULT_CONFIG: GuiConfig;  // { auto_handoff_enabled: true, max_handoff_depth: 50, ledger_root: '', auto_archive_days: 6 }
 
 // Returns the current in-memory config. Never reads disk. Synchronous.
 export function getConfig(): GuiConfig;
@@ -1326,6 +1390,12 @@ export function startConfigWatcher(configPath: string): void;
 
 // Closes the active FSWatcher. Safe to call multiple times (no-op if not watching).
 export function stopConfigWatcher(): void;
+
+// Derived partial schema for GUI config PUT requests (gui/api.ts → handleUpdateConfig).
+// Defined as GuiConfigSchema.omit({ ledger_root: true }).partial() — guarantees it automatically
+// tracks GuiConfigSchema when new fields are added; ledger_root is excluded (read-only in GUI).
+export const GuiConfigPartialSchema: ZodObject<...>;
+export type GuiConfigPartial = Partial<Omit<GuiConfig, 'ledger_root'>>;
 ```
 
 **Config file location:** `{ledgerRoot}/gui-config.json`
@@ -1340,6 +1410,71 @@ startConfigWatcher(configPath);          // watch for GUI-driven changes
 
 ---
 
+## Auto-Archive Module
+
+### `src/gui/auto-archive.ts` — background archival service
+
+Scans for stale COMPLETE projects and transitions them to ARCHIVED status automatically.
+Called once on GUI server startup and then on a repeating interval.
+
+**STDIO discipline:** all output uses `process.stderr.write` — safe for MCP server contexts where stdout is the protocol channel.
+
+```typescript
+/**
+ * Scans all projects and archives eligible COMPLETE ones.
+ *
+ * Eligibility: status === 'COMPLETE' AND last_updated older than maxAgeDays days.
+ * maxAgeDays === 0 → immediate no-op, returns [].
+ * Per-project failures are caught and logged; the scan always continues.
+ *
+ * @param ledgerRoot  Absolute path to the ledger root directory.
+ * @param maxAgeDays  Age threshold in days. 0 disables archiving.
+ * @returns           Slugs archived in this run.
+ */
+export async function runAutoArchive(
+  ledgerRoot: string,
+  maxAgeDays: number
+): Promise<string[]>;
+
+/**
+ * Starts the background auto-archive timer.
+ *
+ * Reads auto_archive_days from getConfig() on each tick (runtime config changes
+ * are respected without restarting the server). Runs tick() immediately on
+ * startup, then every intervalMs milliseconds (default: 600 000 — 10 min).
+ *
+ * Idempotent: calling while a timer is already running is a no-op.
+ * Call stopAutoArchiveTimer() first to restart with new settings.
+ *
+ * @param ledgerRoot  Absolute path to the ledger root directory.
+ * @param intervalMs  Polling interval in milliseconds. Default: 600 000 (10 min).
+ */
+export function startAutoArchiveTimer(ledgerRoot: string, intervalMs?: number): void;
+
+/**
+ * Stops the auto-archive interval timer. Safe to call multiple times (no-op if not running).
+ */
+export function stopAutoArchiveTimer(): void;
+
+/**
+ * For testing only: resets the internal timer handle to null without clearing a
+ * running interval. Always call stopAutoArchiveTimer() before _resetTimerForTesting()
+ * in test teardown.
+ * @internal
+ */
+export function _resetTimerForTesting(): void;
+```
+
+**Eligibility check (inside `runAutoArchive`):**
+1. `status !== 'COMPLETE'` → skip.
+2. `last_updated` unparseable → skip with stderr warning.
+3. `Date.now() - lastUpdatedMs < maxAgeDays * 24 * 60 * 60 * 1000` → skip (not old enough).
+4. Otherwise: acquire `withLock(store.storageDir)`, write `ARCHIVED` status to both root index and `.meta.json`, add slug to result array.
+
+**Live-config tick pattern:** the tick closure calls `getConfig().auto_archive_days` on every execution, so a GUI-side change to `auto_archive_days` takes effect on the next interval without a server restart.
+
+---
+
 ## GUI API Module
 
 ### `gui/api.ts` — REST API route handlers
@@ -1348,7 +1483,7 @@ Pure async handler functions called by the HTTP server (`gui/server.ts`). All ha
 
 **Path-traversal guards:** two module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
-- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`).
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
 
 Both guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
@@ -1378,7 +1513,7 @@ export interface InsightEntry {
 export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntry[]>;
 
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
-// Returned by GET /api/projects. Fields default to 0 / null on per-project read failure so one
+// Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one
 // bad project never breaks the full response.
 export interface ProjectSummary extends ProjectMeta {
   total_work_packages: number;   // from root index; defaults to 0 on read failure
@@ -1387,11 +1522,42 @@ export interface ProjectSummary extends ProjectMeta {
   repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
 }
 
-// GET /api/projects — returns enriched project summaries from the centralized ledger.
-// Each entry extends ProjectMeta with WP counters, a resolved project name, and repository_name.
-// Per-project enrichment is concurrent (Promise.all); failures per project are isolated.
-// project_name resolution order: manifest file → slug date-strip fallback → meta.title (wins if set).
-export async function handleListProjects(ledgerRoot: string): Promise<ProjectSummary[]>;
+// Validated query parameters for GET /api/projects (WP-007).
+// All fields are optional — unrecognised or missing values fall back to listed defaults.
+export type ProjectSortField = 'last_updated' | 'date_created' | 'title' | 'slug' | 'status' | 'done';
+export interface ProjectListParams {
+  page?: number | string;          // default 1; clamped >=1
+  limit?: number | string;         // default 50; clamped [1,200]; 0 treated as 1
+  status?: string;                  // 'ACTIVE' (default) | 'ALL' | any ProjectStatus value
+  search?: string;                  // case-insensitive substring match on slug, project_name, repository_name
+  sort?: ProjectSortField;          // default 'last_updated'
+  dir?: 'asc' | 'desc';            // default 'desc'
+}
+
+// Paginated response envelope for GET /api/projects (WP-007).
+export interface ProjectListEnvelope {
+  projects: ProjectSummary[];       // current page slice
+  total: number;                    // total matching projects after search + status filters
+  page: number;                     // current page number (1-based)
+  limit: number;                    // effective page size
+  total_pages: number;              // Math.max(1, Math.ceil(total/limit))
+  status_counts: Record<string, number>; // per-status counts computed from search-filtered set BEFORE status filter
+}
+
+// GET /api/projects — returns a paginated envelope of enriched project summaries.
+// Processing pipeline (in order):
+//   1. Enrich all projects (WP counters, project_name, repository_name)
+//   2. Apply search filter (case-insensitive substring on slug, project_name, repository_name)
+//   3. Compute status_counts from search-filtered set (BEFORE status filter — supports badge counts)
+//   4. Apply status filter (ACTIVE excludes only ARCHIVED; ALL includes everything; specific status = exact match)
+//   5. Sort by sort+dir
+//   6. Paginate: page/limit → return projects slice + envelope metadata
+// Cache fast-path (WP-006): if meta.total_work_packages !== undefined && meta.project_name !== undefined,
+// the handler skips per-project root index + manifest file reads. Falls back to I/O for legacy .meta.json.
+export async function handleListProjects(
+  ledgerRoot: string,
+  rawParams?: ProjectListParams
+): Promise<ProjectListEnvelope>;
 
 // GET /api/projects/:slug — returns combined root index + meta
 export async function handleGetProject(ledgerRoot: string, slug: string): Promise<ProjectDetail>;
@@ -1441,11 +1607,37 @@ export async function handleRenameProject(
   body: unknown
 ): Promise<ProjectMeta>;
 
-// DELETE /api/projects/:slug — permanently removes a COMPLETE project; throws FORBIDDEN otherwise
+// DELETE /api/projects/:slug — permanently removes a COMPLETE or ARCHIVED project; throws FORBIDDEN for any other status
 export async function handleDeleteProject(
   ledgerRoot: string,
   slug: string
 ): Promise<{ deleted: true; slug: string }>;
+
+// POST /api/projects/:slug/archive — transitions a COMPLETE project to ARCHIVED status.
+// Both .meta.json and project-ledger.json are updated atomically within a single withLock scope.
+// Throws NOT_FOUND if the project does not exist.
+// Throws VALIDATION_ERROR (400) if the project's current status is not COMPLETE.
+export type ArchiveProjectResult = { archived: true; slug: string };
+export async function handleArchiveProject(ledgerRoot: string, slug: string): Promise<ArchiveProjectResult>;
+
+// POST /api/projects/:slug/unarchive — transitions an ARCHIVED project back to COMPLETE status.
+// Both .meta.json and project-ledger.json are updated atomically within a single withLock scope.
+// Throws NOT_FOUND if the project does not exist.
+// Throws VALIDATION_ERROR (400) if the project's current status is not ARCHIVED.
+export type UnarchiveProjectResult = { unarchived: true; slug: string };
+export async function handleUnarchiveProject(ledgerRoot: string, slug: string): Promise<UnarchiveProjectResult>;
+
+// POST /api/projects/:slug/complete — forces all non-CANCELLED WPs and the project itself to COMPLETE status.
+// All WP detail files and the root index are updated atomically within a single withLock scope.
+// Appends an admin_action project comment (agent: 'GUI') recording the action.
+// Throws NOT_FOUND if the project does not exist.
+// Throws FORBIDDEN (403) if the project is currently ARCHIVED (unarchive first).
+export interface MarkProjectCompleteResult {
+  marked_complete: true;
+  work_packages_completed: string[];   // IDs of WPs set to COMPLETE (CANCELLED WPs excluded)
+  project_comment_added: string;       // note string appended as project_comments entry
+}
+export async function handleMarkProjectComplete(ledgerRoot: string, slug: string): Promise<MarkProjectCompleteResult>;
 
 // GET /api/projects/:slug/plan — returns the archived plan.md content for the project
 // Reads from the centralized storage directory (archived copy, not the original planPath).
@@ -1521,7 +1713,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 - `--port <n>` — listen port (default: `3420`)
 - `--ledger-dir <path>` — ledger root path; delegates to `resolveLedgerRoot()` which reads from `process.argv`
 
-**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `createServer()` → `listen(port)`
+**Startup sequence:** parse CLI args → `resolveLedgerRoot()` → `readConfigFromDisk(configPath)` → `startConfigWatcher()` → `startAutoArchiveTimer(ledgerRoot)` → `createServer()` → `listen(port)`
 
 **API route table:**
 
@@ -1536,6 +1728,9 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/projects/:slug/synthesis` | `handleGetSynthesisDocument` |
 | GET | `/api/projects/:slug/health` | `handleGetProjectHealth` |
 | DELETE | `/api/projects/:slug` | `handleDeleteProject` |
+| POST | `/api/projects/:slug/archive` | `handleArchiveProject` |
+| POST | `/api/projects/:slug/unarchive` | `handleUnarchiveProject` |
+| POST | `/api/projects/:slug/complete` | `handleMarkProjectComplete` |
 | GET | `/api/config` | `handleGetConfig` |
 | PUT | `/api/config` | `handleUpdateConfig` (body parsed inline) |
 | GET | `/api/insights` | `handleGetInsights` |
@@ -1561,7 +1756,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | File | Purpose |
 |------|---------|
 | `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
-| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards, reset modal |
+| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards, reset modal, action menu dropdown |
 | `app.js` | Vanilla JS SPA: `API` client, `Router` (hash-based), utilities + 4 view render functions + reset modal (`showResetModal`) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
@@ -1621,14 +1816,25 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.title-edit-error` | Inline error message div displayed below the input on API failure; cleared by `exitEdit()` when the user leaves edit mode |
 | `.repo-col` | Table data cell for the Repository column in the project list table |
 
+**`styles.css` — Project action menu classes** (added for WP-001):
+
+| Class | Role |
+|-------|------|
+| `.action-menu-wrapper` | `position:relative` container wrapping the ⋮ trigger and the floating menu; receives `.is-open` modifier while the menu is open |
+| `.action-menu-btn` | ⋮ kebab trigger button; small, minimal styling; receives `aria-haspopup=menu` and `aria-expanded` from JS |
+| `.action-menu` | Absolutely-positioned dropdown list; hidden by default (`display:none`); uses `var(--color-bg-card)` surface, `var(--color-border)` border, `var(--radius)` rounding, and a drop shadow |
+| `.action-menu-wrapper.is-open .action-menu` | Overrides `display:none` → `block` when the wrapper has the `.is-open` modifier |
+| `.action-menu-item` | Individual row inside `.action-menu`; `display:block`, full width, left-aligned; hover uses `var(--color-bg)` background; anchors and buttons share identical visual treatment |
+| `.action-menu-item.danger` | Modifier for destructive actions (Delete); foreground set to `var(--color-btn-danger-bg)` |
+
 **`app.js` structure:**
-- **`API`** — async fetch wrappers for all 13 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`
+- **`API`** — async fetch wrappers for all 14 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`
 - **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/plan`, `#/projects/:slug/synthesis`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); the `/plan` and `/synthesis` matches are registered before the generic `/:slug` match to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 - **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`, `extractSynopsis(markdown)`
 - **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
-- **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **Repository** (`repository_name` or `—`; rendered via `<td class="repo-col">`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug`, `data-name`, and `data-repo` attributes off `<tr>` elements (full slug + raw project name + repository name, all lowercased for case-insensitive match); `data-repo` is set to `escapeHtml(p.repository_name || '')` on the `<tr>` element; em-dash fallback uses `\u2014` Unicode escape; delete button (COMPLETE only, `confirm()` dialog)
+- **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **Repository** (`repository_name` or `—`; rendered via `<td class="repo-col">`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug`, `data-name`, and `data-repo` attributes off `<tr>` elements (full slug + raw project name + repository name, all lowercased for case-insensitive match); `data-repo` is set to `escapeHtml(p.repository_name || '')` on the `<tr>` element; em-dash fallback uses `\u2014` Unicode escape; **Actions** column uses a single ⋮ kebab button per row (`.action-menu-wrapper` / `.action-menu-btn` / `.action-menu`) rather than per-row inline buttons; dropdown items: **View** (`<a role=menuitem>`), conditional **Archive** / **Unarchive** (`<button role=menuitem data-action=archive|unarchive>`), **Delete** (`<button class=danger role=menuitem data-action=delete>` — always rendered regardless of status; backend still enforces COMPLETE/ARCHIVED guard); open/close state tracked via `openMenuWrapper` + `closeOpenMenu()` closure-scope variables; a document `mousedown` sentinel (installed once per `renderProjectList` call via `docHandlerInstalled` flag) and a `scroll` listener on `.table-wrapper` close any open menu on outside interaction; opening a second menu closes the first; `aria-haspopup='menu'` and `aria-expanded` wired to trigger button
 - **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); **title display:** `displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug` — used for both the `<h1>` heading and breadcrumb; **inline title edit:** heading is wrapped in `.page-heading-wrapper` (inline-flex) with an adjacent `.edit-title-btn` pencil button (✎); click pencil → replaces `<h1>` with `<input class="title-edit-input">` pre-filled with current title, auto-focused; Enter or blur triggers `doSave()` which calls `API.renameProject(slug, newTitle)` and updates the heading and breadcrumb on success; Escape triggers `exitEdit()` without touching the API; errors displayed in a `.title-edit-error` div (created once via `getElementById` + `createElement` to prevent duplicates on rapid retries); `inputDone` flag prevents blur+Enter double-save race; error path resets `inputDone = false` to permit retry; `currentTitle` is kept in sync with the last saved value so re-entering edit mode shows the latest title; project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
-- **`showResetModal(slug, diagnosis)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail()` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard)
+- **`showResetModal(slug, diagnosis)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail()` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard); **mark-complete mode:** a **Mark All as Complete** button (`btn-warning`, `id=reset-mark-complete-btn`) in the bulk-controls bar toggles a closure-scoped `markCompleteMode` boolean; when active, the button relabels itself to **Cancel Override** (gains `.active` class), the apply button label changes to **Mark as Complete**, and `buildSummary()` returns a ⚠ warning text describing the forced-COMPLETE operation; confirm path invokes `API.markProjectComplete(slug)` → `closeModal()` + success toast + `renderProjectDetail()` re-render; error path shows an error toast; clicking Cancel Override reverts `markCompleteMode` to `false` and restores all prior labels; normal Apply Reset flow is unaffected when `markCompleteMode` is `false`; apply button is disabled at the start of both confirm branches to prevent double-submit
 - **`renderPlan(app, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes

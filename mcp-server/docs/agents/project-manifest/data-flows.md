@@ -1011,3 +1011,141 @@ project.synthesis_generated === true?
 - The synthesis link is driven by `project.synthesis_generated` (already in the `GET /api/projects/:slug` response — no extra HTTP call).
 - The "not available" empty state handles projects where `synthesis_generated` is `true` but `synthesis.md` was not archived (e.g. race or skipped archival).
 - `.synthesis-content` shares all typography CSS rules with `.plan-content` via multi-selector (DRY — no duplicated rules).
+
+---
+
+## Flow 12: Auto-Archive Background Service
+
+**Entry Point:** `gui/server.ts` startup (and every 10 minutes thereafter)
+
+### Flow 12a: Timer initialization (server startup)
+
+```
+gui/server.ts main()
+  ↓
+readConfigFromDisk(configPath)    ← populates in-memory config cache
+startConfigWatcher(configPath)    ← watches for GUI-driven config changes
+  ↓
+startAutoArchiveTimer(ledgerRoot)
+  ↓
+  _intervalHandle !== null?
+    YES → no-op (idempotency guard)
+    NO  →
+      tick()              ← runs immediately on startup
+      setInterval(tick, 600_000)   ← then every 10 minutes
+```
+
+### Flow 12b: Single archive scan tick
+
+```
+tick()
+  ↓
+getConfig().auto_archive_days   ← reads live in-memory config (no disk I/O)
+  ↓
+auto_archive_days === 0?
+  YES → return (archiving disabled)
+  NO  →
+    runAutoArchive(ledgerRoot, maxAgeDays)
+      ↓
+      LedgerStore.listAllProjects(ledgerRoot)
+        → readdir(storage/ledger/)
+        → parse each .meta.json
+      ↓
+      For each ProjectMeta:
+        status !== 'COMPLETE'? → skip
+        last_updated unparseable? → skip + stderr warning
+        ageMs < thresholdMs? → skip (not stale enough)
+        ↓ (eligible)
+        withLock(store.storageDir, async () => {
+          store.readRootIndex()
+          store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' })
+            → atomicWriteJson(project-ledger.json)
+            → store.writeProjectMeta()   ← synced automatically
+              → atomicWriteJson(.meta.json)
+        })
+        ↓
+        archived.push(meta.slug)
+        process.stderr.write('[auto-archive] Archived ...')
+
+      Any per-project error → caught, logged to stderr, scan continues
+      ↓
+      Return archived[]
+```
+
+**Key properties:**
+- `maxAgeDays === 0` short-circuits before any disk I/O (no `listAllProjects` call).
+- Per-project errors are isolated — one corrupted project never aborts the full scan.
+- Both `.meta.json` and `project-ledger.json` are updated atomically inside a single `withLock` scope.
+- Timer reads `getConfig()` on every tick; changing `auto_archive_days` in the GUI takes effect on the next interval without restarting the server.
+- Only `COMPLETE` projects are eligible — `IN_PROGRESS`, `READY`, `BLOCKED`, and already-`ARCHIVED` projects are never touched.
+- All output (archived confirmations, skips, errors) goes to `stderr` only.
+
+---
+
+## Flow 13: GUI — Paginated Project Listing
+
+**Entry Point:** Browser or client sends `GET /api/projects` (with optional query params)
+
+```
+GET /api/projects?page=1&limit=50&status=ACTIVE&search=&sort=last_updated&dir=desc
+  ↓
+gui/server.ts
+  → URLSearchParams.parse(request.url query string)
+  → handleListProjects(ledgerRoot, rawParams)
+  ↓
+gui/api.ts — handleListProjects processing pipeline:
+
+  Step 1: Enrich all projects
+    LedgerStore.listAllProjects(ledgerRoot)   ← readdir + .meta.json parse
+    For each ProjectMeta (concurrent Promise.all):
+      Cache fast-path (WP-006):
+        meta.total_work_packages defined AND meta.project_name defined?
+          YES → use cached values directly (no disk I/O)
+          NO  → readRootIndex() + readManifestFile() → enrich + write cache to .meta.json
+    → ProjectSummary[]
+  ↓
+  Step 2: Search filter (if search param present)
+    case-insensitive string.includes() on slug, project_name, repository_name
+    → filtered ProjectSummary[]
+  ↓
+  Step 3: Compute status_counts
+    Reduce filtered set (BEFORE status filter) into Record<status, count>
+    → e.g. { COMPLETE: 12, IN_PROGRESS: 3, ARCHIVED: 5 }
+  ↓
+  Step 4: Status filter
+    ACTIVE  → exclude only status === 'ARCHIVED'
+    ALL     → include everything
+    specific value → include only exact status match
+  ↓
+  Step 5: Sort (by sort+dir params)
+    'last_updated' | 'date_created' | 'title' | 'slug' | 'status' | 'done'
+    string fields use localeCompare; desc default
+  ↓
+  Step 6: Paginate
+    start = (page - 1) * limit
+    projects = sorted.slice(start, start + limit)
+    total_pages = Math.max(1, Math.ceil(total / limit))
+  ↓
+  Return ProjectListEnvelope {
+    projects: ProjectSummary[];  // page slice only
+    total: number;               // post-filter count
+    page: number;
+    limit: number;
+    total_pages: number;
+    status_counts: Record<string, number>;
+  }
+```
+
+**Param validation (before pipeline runs):**
+- `page`: parseInt; NaN or <1 → clamped to 1
+- `limit`: parseInt; NaN → 50; 0 → 1; >200 → 200
+- `status`: must be in `VALID_STATUS_FILTERS` Set; unknown → 'ACTIVE'
+- `sort`: must be in `SORT_FIELDS` Set; unknown → 'last_updated'
+- `dir`: must be 'asc' or 'desc'; otherwise → 'desc'
+- `search`: trimmed; empty → no filter applied
+
+**Key properties:**
+- `status_counts` reflects the search-filtered universe (not the status-filtered page). Supports UI badge counts that show totals per status regardless of active filter.
+- Per-project enrichment failures are isolated; one unreadable project never breaks the full response.
+- Out-of-range page returns empty `projects[]` with `total` and `total_pages` still correctly set.
+- The entire enrichment step runs in memory; pagination is applied last (no streaming).

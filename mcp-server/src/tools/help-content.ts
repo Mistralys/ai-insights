@@ -631,8 +631,13 @@ STATUS: <status>
 List all projects tracked in the centralized ledger.
 Operates at the ledger-root level — no \`project_path\` required.
 
+> **Note:** Archived projects are **excluded by default**. Use \`include_archived: true\` to include them,
+> or filter directly with \`status: "ARCHIVED"\`. Agents should not work on archived projects —
+> archive them only after synthesis is complete.
+
 ## Optional Parameters
-- **status** (string): Filter by project status — "READY", "IN_PROGRESS", "COMPLETE", or "BLOCKED"
+- **status** (string): Filter by project status — "READY", "IN_PROGRESS", "COMPLETE", "BLOCKED", or "ARCHIVED"
+- **include_archived** (boolean): When \`true\`, includes ARCHIVED projects in the results. Default: \`false\`.
 
 ## Examples
 \`\`\`json
@@ -640,6 +645,12 @@ Operates at the ledger-root level — no \`project_path\` required.
 \`\`\`
 \`\`\`json
 { "status": "IN_PROGRESS" }
+\`\`\`
+\`\`\`json
+{ "include_archived": true }
+\`\`\`
+\`\`\`json
+{ "status": "ARCHIVED" }
 \`\`\`
 
 ## Returns

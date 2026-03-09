@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Project-level status enum matching project-ledger-schema.md
  */
-export const ProjectStatus = z.enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED']);
+export const ProjectStatus = z.enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED', 'ARCHIVED']);
 export type ProjectStatus = z.infer<typeof ProjectStatus>;
 
 /**

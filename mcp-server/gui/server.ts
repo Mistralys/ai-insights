@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot } from '../src/utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
+import { startAutoArchiveTimer } from '../src/gui/auto-archive.js';
 import {
   handleListProjects,
   handleGetProject,
@@ -32,6 +33,9 @@ import {
   handleResetProject,
   handleGetProjectHealth,
   handleRenameProject,
+  handleArchiveProject,
+  handleUnarchiveProject,
+  handleMarkProjectComplete,
   ApiError,
 } from './api.js';
 
@@ -174,7 +178,18 @@ function matchRoute(
 
   // GET /api/projects
   if (method === 'GET' && rest.length === 1 && rest[0] === 'projects') {
-    return () => handleListProjects(ledgerRoot);
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const params = {
+      page: sp.get('page') ?? undefined,
+      limit: sp.get('limit') ?? undefined,
+      status: sp.get('status') ?? undefined,
+      search: sp.get('search') ?? undefined,
+      sort: sp.get('sort') ?? undefined,
+      dir: sp.get('dir') ?? undefined,
+    };
+    return () => handleListProjects(ledgerRoot, params);
   }
 
   // GET /api/projects/:slug/plan
@@ -243,6 +258,39 @@ function matchRoute(
   if (method === 'DELETE' && rest.length === 2 && rest[0] === 'projects') {
     const slug = rest[1]!;
     return () => handleDeleteProject(ledgerRoot, slug);
+  }
+
+  // POST /api/projects/:slug/archive
+  if (
+    method === 'POST' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'archive'
+  ) {
+    const slug = rest[1]!;
+    return () => handleArchiveProject(ledgerRoot, slug);
+  }
+
+  // POST /api/projects/:slug/unarchive
+  if (
+    method === 'POST' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'unarchive'
+  ) {
+    const slug = rest[1]!;
+    return () => handleUnarchiveProject(ledgerRoot, slug);
+  }
+
+  // POST /api/projects/:slug/complete
+  if (
+    method === 'POST' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'complete'
+  ) {
+    const slug = rest[1]!;
+    return () => handleMarkProjectComplete(ledgerRoot, slug);
   }
 
   // GET /api/config and PUT /api/config are handled before matchRoute() is called
@@ -451,6 +499,10 @@ async function main(): Promise<void> {
   // Populate config cache from disk (defaults used if file missing)
   await readConfigFromDisk(configPath);
   startConfigWatcher(configPath);
+
+  // Start the auto-archive background service. Reads auto_archive_days from
+  // config; no-op if the setting is 0.
+  startAutoArchiveTimer(ledgerRoot);
 
   const server = createServer((req, res) => {
     handleRequest(req, res, ledgerRoot, configPath, port).catch((err) => {

@@ -13,6 +13,8 @@ import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
 import { PIPELINE_TYPES } from '../utils/pipeline-maps.js';
 import { getPassedStages } from '../utils/project-reset.js';
+import { readProjectName } from '../utils/read-project-name.js';
+import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
 
 /**
  * Tool: detect_project
@@ -478,8 +480,26 @@ async function initializeProject(
     // 4. Write root index (atomicWriteJson will create storageDir via mkdir -p)
     await store.writeRootIndex(rootIndex);
 
-    // 5. Write .meta.json so the project is immediately visible via ledger_list_projects
-    await store.writeProjectMeta(args.plan_file);
+    // 5. Write initial .meta.json with enrichment cache fields (non-fatal)
+    let enrichmentCached = false;
+    try {
+      const projectRoot = inferProjectRootFromPlanPath(args.project_path);
+      const projectName = await readProjectName(projectRoot);
+      const repositoryName = projectRoot
+        ? (projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? null)
+        : null;
+      await store.writeProjectMeta(args.plan_file, 'READY', {
+        total_work_packages: 0,
+        pending_work_packages: 0,
+        project_name: projectName,
+        repository_name: repositoryName,
+      });
+      enrichmentCached = true;
+    } catch (enrichErr) {
+      process.stderr.write(
+        `[initializeProject] meta enrichment failed (project still created): ${(enrichErr as Error).message}\n`
+      );
+    }
 
     // 6. Archive the plan document into the ledger storage directory (best-effort)
     const archiveResult = await store.archiveDocuments([args.plan_file]);
@@ -490,6 +510,7 @@ async function initializeProject(
           type: 'text' as const,
           text: JSON.stringify({
             ...rootIndex,
+            enrichment_cached: enrichmentCached,
             archived_documents: archiveResult.archived,
             archive_skipped: archiveResult.skipped.length > 0 ? archiveResult.skipped : undefined,
           }, null, 2),
@@ -517,14 +538,22 @@ async function initializeProject(
  */
 const ListProjectsSchema = z.object({
   status: WorkPackageStatus.optional().describe('Optional filter: only return projects with this status'),
+  include_archived: z.boolean().optional().default(false).describe('When true, includes ARCHIVED projects in results. By default, ARCHIVED projects are excluded.'),
 });
 
-async function listProjects(args: z.infer<typeof ListProjectsSchema>) {
+async function listProjects(args: z.infer<typeof ListProjectsSchema>, _ledgerRoot?: string) {
   try {
-    const projects = await LedgerStore.listAllProjects();
-    const filtered = args.status
-      ? projects.filter((p) => p.status === args.status)
-      : projects;
+    const projects = await LedgerStore.listAllProjects(_ledgerRoot);
+    let filtered = projects;
+
+    // Filter by explicit status first (takes precedence over include_archived)
+    if (args.status) {
+      filtered = filtered.filter((p) => p.status === args.status);
+    } else if (!args.include_archived) {
+      // Default: exclude ARCHIVED unless include_archived: true or status: 'ARCHIVED' is set
+      filtered = filtered.filter((p) => p.status !== 'ARCHIVED');
+    }
+
     return {
       content: [
         {
@@ -701,6 +730,7 @@ export const _internal = {
   completeSynthesis,
   initializeProject,
   getProjectStatus,
+  listProjects,
 };
 
 /**
@@ -741,7 +771,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_list_projects',
     {
-      description: 'List all projects tracked in the centralized ledger with their current status, dates, and plan paths. OPTIONAL params: status (filter by READY/IN_PROGRESS/COMPLETE/BLOCKED).',
+      description: 'List all projects tracked in the centralized ledger with their current status, dates, and plan paths. OPTIONAL params: status (filter by READY/IN_PROGRESS/COMPLETE/BLOCKED/ARCHIVED). Archived projects are excluded by default — pass include_archived: true to include them, or status: "ARCHIVED" to list only archived projects.',
       inputSchema: ListProjectsSchema.passthrough(),
     },
     listProjects as any
