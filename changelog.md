@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v1.7.5 - Ledger GUI Fix
+- Ledger GUI: Fixed archiving projects changing their last updated time.
+
 ## v1.7.4 - Ledger GUI Improvements
 - Ledger GUI: Added project archiving.
 - Ledger GUI: Added work package count column.

@@ -1,5 +1,9 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.11.1 - GUI Fix
+- GUI: Fixed archiving projects changing their last updated time.
+- GUI: Removed the grayed out style of archived projects.
+
 ## v1.11.0 - GUI Improvements
 - GUI: Per-row action buttons replaced with a kebab-menu.
 - Backend: Added endpoint to mark all active work packages and the project index as COMPLETE.
