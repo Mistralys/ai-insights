@@ -58,6 +58,19 @@
 
 ---
 
+## Log-Prefix Convention
+
+The build script (`scripts/build-personas.js`) uses four bracket-prefixed severity levels for all console output. Use these prefixes consistently for any `console.log` / `console.error` calls added to the build script in the future.
+
+| Prefix | Meaning | Example usage |
+|--------|---------|---------------|
+| `[info]` | Informational — runtime context, no action needed | Suite default announcement at startup |
+| `[WARN]` | Warning — recoverable issue, output may still be valid | Unresolved template markers (non-strict mode) |
+| `[STRICT]` | Strict-mode failure — gates CI exit code | Unresolved markers when `--strict` is active |
+| `[ERROR]` | Fatal — build cannot continue | Missing content file, invalid YAML |
+
+---
+
 ## Naming & File Conventions
 
 10. **Persona files follow the `N-name.md` pattern** (e.g., `3-developer.md`). The number prefix matches the agent's `number` field (1–7) and determines pipeline ordering. This pattern applies to both output directories (`ledger/vs-code/`, `ledger/claude-code/`).

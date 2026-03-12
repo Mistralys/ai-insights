@@ -412,6 +412,26 @@ function validateCcFileName(persona, suite) {
 // Frontmatter templates
 // ---------------------------------------------------------------------------
 
+/**
+ * Shared CC-specific frontmatter fields.
+ * Used by both FRONTMATTER_LEDGER_CC and FRONTMATTER_STANDALONE_CC
+ * to avoid verbatim duplication of these three fields.
+ *
+ * @note This helper is intentionally monomorphic — it returns the same
+ * fields regardless of suite context (ledger vs. standalone). If ledger
+ * and standalone CC frontmatter ever diverge (e.g., different
+ * permissionMode defaults, or a suite-specific field), this function
+ * will need to accept a suite parameter or be split into per-suite
+ * variants. See 2026-03-10-persona-build-hardening synthesis §3.
+ *
+ * @returns {string} Multi-line YAML fragment (no leading/trailing newline)
+ */
+function ccFrontmatterFields() {
+  return `permissionMode: {{cc_permission_mode}}
+model: '{{cc_model}}'
+memory: {{cc_memory}}`;
+}
+
 // LEDGER — WP-002 added id: field; remaining fields are the pre-WP-002 baseline
 const FRONTMATTER_LEDGER_VSCODE = `---
 id: {{id}}
@@ -433,9 +453,7 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: {{cc_tools_json}}
-permissionMode: {{cc_permission_mode}}
-model: {{cc_model}}
-memory: {{cc_memory}}
+${ccFrontmatterFields()}
 mcpServers:
   - {{mcp_server_name}}
 ---`;
@@ -459,9 +477,7 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: [{{cc_tools_list}}]
-permissionMode: {{cc_permission_mode}}
-model: {{cc_model}}
-memory: {{cc_memory}}
+${ccFrontmatterFields()}
 ---`;
 
 // ---------------------------------------------------------------------------

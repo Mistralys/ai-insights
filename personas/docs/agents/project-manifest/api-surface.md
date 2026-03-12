@@ -45,6 +45,7 @@ The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
 | `serializeTools` | `(tools: string[]) → string` | Serializes a tools array to YAML flow format **with** outer brackets: `['vscode', 'execute', ...]`. Used in ledger frontmatter. |
 | `serializeToolsList` | `(tools: string[]) → string` | Serializes a tools array **without** outer brackets: `'vscode', 'execute', ...`. Used inside `[…]` literals in standalone frontmatter templates. |
 | `validateCcFileName` | `(persona: Object, suite: string) → void` | Validates that a persona object has a `cc_file_name` field set. Exits with code 1 and prints an error if the field is missing. Called before any Claude Code output is written. |
+| `ccFrontmatterFields` | `() → string` | Returns the three shared Claude Code frontmatter fields (`permissionMode`, `model`, `memory`) as a YAML fragment string with no leading or trailing newlines. Interpolated into both `FRONTMATTER_LEDGER_CC` and `FRONTMATTER_STANDALONE_CC` template literals to eliminate verbatim duplication. |
 | `buildForTarget` | `(suite: string, target: 'vscode' \| 'claude-code') → void` | Executes one complete build pass for the given suite + target combination. Loads suite config, reads `_shared.yaml`, loads merged partials, discovers persona YAMLs, selects the correct frontmatter template, and writes all persona files to the appropriate output directory. |
 
 ### Template Processing Order
@@ -197,7 +198,7 @@ tools: {{tools_json}}
 
 ### Ledger — Claude Code (`FRONTMATTER_LEDGER_CC`)
 
-Written to `personas/ledger/claude-code/`. Identical to the pre-WP-004 baseline.
+Written to `personas/ledger/claude-code/`. The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
 
 ```yaml
 ---
@@ -208,9 +209,7 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: {{cc_tools_json}}
-permissionMode: {{cc_permission_mode}}
-model: {{cc_model}}
-memory: {{cc_memory}}
+${ccFrontmatterFields()}
 mcpServers:
   - {{mcp_server_name}}
 ---
@@ -235,7 +234,7 @@ tools: [{{tools_list}}]
 
 ### Standalone — Claude Code (`FRONTMATTER_STANDALONE_CC`)
 
-Written to `personas/standalone/claude-code/`. No `role`, no `mcpServers`. `cc_name` is the plain kebab slug (no numeric prefix).
+Written to `personas/standalone/claude-code/`. No `role`, no `mcpServers`. `cc_name` is the plain kebab slug (no numeric prefix). The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
 
 ```yaml
 ---
@@ -245,9 +244,7 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: [{{cc_tools_list}}]
-permissionMode: {{cc_permission_mode}}
-model: {{cc_model}}
-memory: {{cc_memory}}
+${ccFrontmatterFields()}
 ---
 ```
 
