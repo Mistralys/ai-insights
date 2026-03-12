@@ -1,7 +1,9 @@
 # AI Insights Changelog
 
 ## v1.7.6 - Persona Models
-- Personas: The ledger personas now have fixed models set.
+- Personas: Added per-persona model field.
+- Personas: Planner and Project Manager use Claude Opus 4.6.
+- CLI: Added a pause after each action in the interactive menu.
 
 ## v1.7.5 - Ledger GUI Fix & CTX Architect
 - Ledger GUI: Fixed archiving projects changing their last updated time.
