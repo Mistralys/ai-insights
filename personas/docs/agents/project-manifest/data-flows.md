@@ -92,9 +92,7 @@ context = {
   author:              _shared.author,
   last_updated:        _shared.last_updated,
   mcp_server_name:     _shared.mcp_server_name,   // ledger only
-  default_model:       _shared.default_model,      // consumed in Layer 3
   cc_permission_mode:  _shared.cc_permission_mode,
-  cc_model:            _shared.cc_model,           // overridden in Layer 3
   cc_memory:           _shared.cc_memory,
 
   // Layer 2: Per-persona metadata (all fields from N-name.yaml or slug.yaml)
