@@ -1,5 +1,10 @@
 # Personas Changelog
 
+## v3.7.2 - Build Hardening (2026-03-10)
+- Build: Extracted shared Claude Code frontmatter fields (`permissionMode`, `model`, `memory`) into `ccFrontmatterFields()` helper to eliminate verbatim duplication between `FRONTMATTER_LEDGER_CC` and `FRONTMATTER_STANDALONE_CC`.
+- Docs: Added Log-Prefix Convention section to `constraints.md` documenting `[info]`, `[WARN]`, `[STRICT]`, `[ERROR]` severity prefixes.
+- Docs: Updated `api-surface.md` frontmatter templates to reflect `ccFrontmatterFields()` extraction.
+
 ## v3.7.1 - Developer
 - Developer v3.6.1: Compressed overly verbose operational protocol.
 
