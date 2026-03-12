@@ -680,6 +680,39 @@ async function runSetup(args) {
   if (passed < total) process.exit(1);
 }
 
+// ─── Wait-for-key helper ──────────────────────────────────────────────────────
+
+/**
+ * Display a prompt and wait for the user to press any key.
+ * Used after blocking commands so their output stays visible before the menu
+ * re-renders and clears the screen.
+ */
+function waitForKey(prompt = '\n  Press any key to continue…') {
+  return new Promise((resolve) => {
+    process.stdout.write(C.dim(prompt));
+    readline.emitKeypressEvents(process.stdin);
+    let rawSet = false;
+    try { process.stdin.setRawMode(true); rawSet = true; } catch {}
+    process.stdin.resume();
+
+    function done() {
+      process.stdin.removeAllListeners('keypress');
+      if (rawSet) try { process.stdin.setRawMode(false); } catch {}
+      process.stdin.pause();
+      console.log('');
+      resolve();
+    }
+
+    process.stdin.on('keypress', (ch, key) => {
+      if (key && key.ctrl && key.name === 'c') {
+        done();
+        process.exit(0);
+      }
+      done();
+    });
+  });
+}
+
 // ─── Interactive main menu ────────────────────────────────────────────────────
 
 const BANNER_LINES = [
@@ -757,11 +790,12 @@ function showInteractiveMenu() {
         process.exit(0);
       }
 
-      // 'h' → show help, then re-render menu
+      // 'h' → show help, pause for user, then re-render menu
       if (ch === 'h') {
         restoreTerminal();
         console.log('');
         printHelp();
+        await waitForKey('\n  Press any key to return to menu…');
         setImmediate(() => showInteractiveMenu());
         return;
       }
@@ -782,11 +816,12 @@ function showInteractiveMenu() {
         // Long-running: runLongScript manages process exit when child exits
         cmd.run([]);
       } else {
-        // Blocking command: run it, then re-show menu
+        // Blocking command: run it, pause for user, then re-show menu
         try {
           const result = cmd.run([]);
           if (result && typeof result.then === 'function') await result;
         } catch { /* errors are already logged inside command implementations */ }
+        await waitForKey('\n  Press any key to return to menu…');
         setImmediate(() => showInteractiveMenu());
       }
 
