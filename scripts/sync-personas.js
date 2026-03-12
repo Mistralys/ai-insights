@@ -119,7 +119,7 @@ function parseFrontmatter(filePath) {
 
 /**
  * Validate VS Code persona frontmatter: requires role (in KNOWN_ROLES),
- * name, and vs_file_name fields.
+ * name, vs_file_name, id, and model fields.
  * @param {string} dir - Absolute path to personas/ledger/vs-code/
  */
 function validateVSCodeFrontmatter(dir) {
