@@ -1,0 +1,29 @@
+slug: ctx-architect
+name: "CTX Architect"
+description: "Design, generate, and maintain CTX Generator context documentation configurations — from root project setup to per-module configs."
+vs_file_name: ctx-architect.agent.md
+id: standalone-ctx-architect
+cc_file_name: ctx-architect.md
+version: "1.0.0"
+last_updated: "2026-03-12"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Write
+  - Grep
+  - Glob
+  - Task
+  - WebFetch
+  - WebSearch
