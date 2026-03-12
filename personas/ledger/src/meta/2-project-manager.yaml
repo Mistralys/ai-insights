@@ -1,5 +1,6 @@
 number: 2
 role: Project Manager
+model: "Claude Opus 4.6"
 vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md

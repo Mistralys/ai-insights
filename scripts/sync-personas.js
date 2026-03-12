@@ -163,6 +163,11 @@ function validateVSCodeFrontmatter(dir) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'id:' field${colors.reset}`);
       warningCount++;
     }
+
+    if (!fields.model) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'model:' field${colors.reset}`);
+      warningCount++;
+    }
   }
 
   if (warningCount === 0) {

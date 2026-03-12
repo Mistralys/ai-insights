@@ -1,5 +1,6 @@
 number: 1
 role: Planner
+model: "Claude Opus 4.6"
 vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
