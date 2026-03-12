@@ -50,7 +50,7 @@ This is a structured multi-agent workflow for systematic software development. I
 
 Agents 2–7 depend on the **project-ledger MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
 
-> **Server name is configurable.** The personas reference the server by the name defined in `_shared.yaml` → `mcp_server_name` (default: `project-ledger`). If your `.mcp.json` uses a different key, update `mcp_server_name` in `personas/ledger/src/meta/_shared.yaml` and rebuild.
+> **Server name is configurable.** The personas reference the server by the name defined in `_shared.yaml` → `mcp_server_name` (default: `central_pm`). If your `.mcp.json` uses a different key, update `mcp_server_name` in `personas/ledger/src/meta/_shared.yaml` and rebuild.
 
 **For setup instructions, see the [MCP Server Documentation](../../mcp-server/README.md).**
 

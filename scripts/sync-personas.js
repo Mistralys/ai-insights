@@ -119,7 +119,7 @@ function parseFrontmatter(filePath) {
 
 /**
  * Validate VS Code persona frontmatter: requires role (in KNOWN_ROLES),
- * name, and vs_file_name fields.
+ * name, vs_file_name, id, and model fields.
  * @param {string} dir - Absolute path to personas/ledger/vs-code/
  */
 function validateVSCodeFrontmatter(dir) {
@@ -161,6 +161,11 @@ function validateVSCodeFrontmatter(dir) {
 
     if (!fields.id) {
       console.warn(`${colors.yellow}⚠ ${relPath}: missing 'id:' field${colors.reset}`);
+      warningCount++;
+    }
+
+    if (!fields.model) {
+      console.warn(`${colors.yellow}⚠ ${relPath}: missing 'model:' field${colors.reset}`);
       warningCount++;
     }
   }

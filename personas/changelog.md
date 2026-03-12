@@ -1,5 +1,13 @@
 # Personas Changelog
 
+## v3.7.3 - Per-Persona Model Field
+- Ledger: Added `default_model: "Claude Sonnet 4.6"` to `_shared.yaml` as suite-wide model default.
+- Ledger: Planner (1) and Project Manager (2) now specify `model: "Claude Opus 4.6"` in per-persona YAML; Agents 3–7 inherit `default_model`.
+- Build: Added `model: '{{model}}'` to `FRONTMATTER_LEDGER_VSCODE` template.
+- Build: Added model resolution chain in `buildForTarget()`: per-persona `model` → `default_model` → `cc_model` → `'inherit'`.
+- Build: Unified `cc_model` derivation — now resolved from the computed `model` value rather than passing through `_shared.cc_model` directly.
+- Docs: Documented `default_model`, `model`, and `cc_model` resolution chain across manifest API surface, constraints, and data-flows.
+
 ## v3.7.2 - CTX Architect Persona
 - CTX Architect v1.0.0: New standalone persona for CTX Generator documentation workflows.
 - Build: Extracted shared Claude Code frontmatter fields into a helper to eliminate duplication.

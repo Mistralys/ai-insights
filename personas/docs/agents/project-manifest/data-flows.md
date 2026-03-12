@@ -93,7 +93,6 @@ context = {
   last_updated:        _shared.last_updated,
   mcp_server_name:     _shared.mcp_server_name,   // ledger only
   cc_permission_mode:  _shared.cc_permission_mode,
-  cc_model:            _shared.cc_model,
   cc_memory:           _shared.cc_memory,
 
   // Layer 2: Per-persona metadata (all fields from N-name.yaml or slug.yaml)
@@ -101,6 +100,7 @@ context = {
 
   // Layer 3: Computed values (cannot be overridden by YAML)
   version,             // persona.version ?? _shared.default_version
+  model,               // persona.model !== undefined ? persona.model : (_shared.default_model || _shared.cc_model || 'inherit')
   total,               // _shared.roster.length (ledger: 7; standalone: not used)
   tools_json,          // serializeTools(persona.tools)         — ledger only
   tools_list,          // serializeToolsList(persona.tools)     — standalone
@@ -110,6 +110,7 @@ context = {
   mcp_tools_table,     // renderMcpToolsTable(persona.mcp_tools) or '' — ledger only
   cc_name,             // persona.cc_file_name.replace(/\.md$/, '') — all suites
   cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation") — ledger
+  cc_model,            // persona.cc_model !== undefined ? persona.cc_model : resolved model  (resolved model already incorporates _shared.cc_model as a fallback step)
 
   // Layer 4: Target-pass flags (set by buildForTarget)
   target_vscode,       // true when target = 'vscode'

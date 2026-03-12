@@ -437,6 +437,7 @@ const FRONTMATTER_LEDGER_VSCODE = `---
 id: {{id}}
 name: '{{number}} - {{role}} v{{version}}'
 description: 'Step {{number}}/{{total}} in the agent workflow.'
+model: '{{model}}'
 role: {{role}}
 author: {{author}}
 version: {{version}}
@@ -563,6 +564,20 @@ function buildForTarget(suite, target) {
       ? persona.version
       : sharedMeta.default_version;
 
+    const model = persona.model !== undefined
+      ? persona.model
+      // sharedMeta.cc_model is a legacy bridge field for configs that predate
+      // default_model; for most suites only one of the two will be present.
+      : (sharedMeta.default_model || sharedMeta.cc_model || 'inherit');
+
+    if (personaMode === 'numbered' && model === 'inherit') {
+      console.warn(`[WARN] ${suite}/${yamlFile}: model resolved to 'inherit' — check default_model in _shared.yaml`);
+    }
+
+    const ccModel = persona.cc_model !== undefined
+      ? persona.cc_model
+      : model;
+
     // Numbered-mode computed fields (ledger)
     let total           = undefined;
     let roster_rendered = '';
@@ -609,23 +624,26 @@ function buildForTarget(suite, target) {
       cc_name = persona.cc_file_name.replace(/\.md$/, '');
     }
 
+    // For standalone personas, append version to the display name so the YAML
+    // only needs to carry the base name without a version suffix.
+    const standaloneNameOverride = (personaMode === 'standalone' && persona.name)
+      ? { name: `${persona.name} v${version}` }
+      : {};
+
     const context = {
       // Shared metadata fields
       author:             sharedMeta.author,
       last_updated:       sharedMeta.last_updated,
       mcp_server_name:    sharedMeta.mcp_server_name,
       cc_permission_mode: sharedMeta.cc_permission_mode,
-      cc_model:           sharedMeta.cc_model,
       cc_memory:          sharedMeta.cc_memory,
       // Per-persona fields (spread; may override shared where keys collide)
       ...persona,
-      // Computed / derived
+      // Computed / derived (must follow ...persona spread to prevent clobbering)
       version,
-      // For standalone personas: auto-append version to base name so the YAML
-      // only needs to carry the display name without a version suffix.
-      ...(personaMode === 'standalone' && persona.name
-        ? { name: `${persona.name} v${version}` }
-        : {}),
+      model,
+      cc_model:           ccModel,
+      ...standaloneNameOverride,
       total,
       tools_json,
       cc_tools_json,
