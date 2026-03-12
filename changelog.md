@@ -1,5 +1,8 @@
 # AI Insights Changelog
 
+## v1.7.6 - CTX Architect Persona
+- Personas: Added the new standalone CTX Architect persona.
+
 ## v1.7.5 - Ledger GUI Fix
 - Ledger GUI: Fixed archiving projects changing their last updated time.
 

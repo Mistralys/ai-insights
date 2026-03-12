@@ -245,7 +245,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 |------|---------|  
 | `scripts/cli.js` | **Interactive command center + direct CLI** for all workspace operations. Replaces `setup-orchestrator.js` as the user-facing entry point. |
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
-| `scripts/build-personas.js` | Assemble 34 persona files (7 ledger + 10 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
+| `scripts/build-personas.js` | Assemble 36 persona files (7 ledger + 11 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
 | `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
 | `scripts/install-hooks.js` | One-time setup: sets `git config core.hooksPath .githooks` to activate the pre-commit persona freshness guard |

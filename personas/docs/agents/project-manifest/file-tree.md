@@ -83,37 +83,57 @@ personas/                          # Sub-project root (has own package.json)
 ├── standalone/                    # Special-purpose personas (not part of the 7-stage workflow)
 │   ├── vs-code/                   # ← GENERATED — VS Code target output (--suite standalone --target vscode)
 │   │   ├── agents-md-curator.md   #   Uses FRONTMATTER_STANDALONE_VSCODE (no role, includes vs_file_name)
+│   │   ├── changelog-curator.md
+│   │   ├── composer-curator.md
+│   │   ├── ctx-architect.md
 │   │   ├── manifest-curator.md
 │   │   ├── module-intent-architect.md
+│   │   ├── orchestrator-runner.md
 │   │   ├── readme-curator.md
 │   │   ├── researcher.md
-│   │   └── unit-test-auditor.md
+│   │   ├── unit-test-auditor.md
+│   │   └── whatsnew-curator.md
 │   │
 │   ├── claude-code/               # ← GENERATED — Claude Code target output (--suite standalone --target claude-code)
 │   │   ├── agents-md-curator.md   #   Uses FRONTMATTER_STANDALONE_CC (plain kebab name, no role, no mcpServers)
-│   │   ├── manifest-curator.md    #   Body content byte-for-byte identical to VS Code counterpart
+│   │   ├── changelog-curator.md   #   Body content byte-for-byte identical to VS Code counterpart
+│   │   ├── composer-curator.md
+│   │   ├── ctx-architect.md
+│   │   ├── manifest-curator.md
 │   │   ├── module-intent-architect.md
+│   │   ├── orchestrator-runner.md
 │   │   ├── readme-curator.md
 │   │   ├── researcher.md
-│   │   └── unit-test-auditor.md
+│   │   ├── unit-test-auditor.md
+│   │   └── whatsnew-curator.md
 │   │
 │   └── src/                       # Template sources — edit THESE, then build
 │       ├── meta/                  # YAML metadata
 │       │   ├── _shared.yaml       # Shared: author, CC defaults (no mcp_server_name, no roster)
-│       │   ├── researcher.yaml    # Per-persona: slug, name, description, vs_file_name, cc_file_name, version, tools
+│       │   ├── agents-md-curator.yaml
+│       │   ├── changelog-curator.yaml
+│       │   ├── composer-curator.yaml
+│       │   ├── ctx-architect.yaml
 │       │   ├── manifest-curator.yaml
 │       │   ├── module-intent-architect.yaml  # Has explicit cc_tools override (no TodoRead/TodoWrite)
+│       │   ├── orchestrator-runner.yaml
 │       │   ├── readme-curator.yaml
-│       │   ├── agents-md-curator.yaml
-│       │   └── unit-test-auditor.yaml
+│       │   ├── researcher.yaml    # Per-persona: slug, name, description, vs_file_name, cc_file_name, version, tools
+│       │   ├── unit-test-auditor.yaml
+│       │   └── whatsnew-curator.yaml
 │       │
 │       └── content/               # Per-slug body templates (body content only, no frontmatter)
-│           ├── researcher.md
+│           ├── agents-md-curator.md
+│           ├── changelog-curator.md
+│           ├── composer-curator.md
+│           ├── ctx-architect.md
 │           ├── manifest-curator.md
 │           ├── module-intent-architect.md
+│           ├── orchestrator-runner.md
 │           ├── readme-curator.md
-│           ├── agents-md-curator.md
-│           └── unit-test-auditor.md
+│           ├── researcher.md
+│           ├── unit-test-auditor.md
+│           └── whatsnew-curator.md
 │
 └── docs/
     └── agents/
