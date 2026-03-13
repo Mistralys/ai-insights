@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.11.2 - GUI Archive Fix
+- GUI: Fixed the "Archive" row action displaying the alert twice.
+
 ## v1.11.1 - GUI Fix
 - GUI: Fixed archiving projects changing their last updated time.
 - GUI: Removed the grayed out style of archived projects.
