@@ -29,8 +29,6 @@ function renderProjectList(app) {
 
   // ── Action menu (kebab dropdown) state ──
   var openMenuWrapper = null;
-  var docHandlerInstalled = false;
-  var portalHandlerInstalled = false;
 
   // Create or reuse the shared menu portal (appended once to <body>)
   var menuPortal = (function () {
@@ -331,8 +329,8 @@ function renderProjectList(app) {
     });
 
     // Close-on-outside-click (registered once per session)
-    if (!docHandlerInstalled) {
-      docHandlerInstalled = true;
+    if (!document._projectListDocHandlerInstalled) {
+      document._projectListDocHandlerInstalled = true;
       document.addEventListener('mousedown', function (e) {
         if (!e.target.closest('.action-menu-wrapper') && !e.target.closest('#action-menu-portal')) {
           closeOpenMenu();
@@ -349,8 +347,8 @@ function renderProjectList(app) {
     }
 
     // Portal action handler (delete / archive / unarchive) — registered once
-    if (!portalHandlerInstalled) {
-      portalHandlerInstalled = true;
+    if (!menuPortal._handlerInstalled) {
+      menuPortal._handlerInstalled = true;
       menuPortal.addEventListener('click', function (e) {
         var item = e.target.closest('[data-portal-action]');
         if (!item) return;
