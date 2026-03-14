@@ -76,6 +76,7 @@ function createWorkPackage(root, wpData, agentRole):
     status: initialStatus,
     assigned_to: null,
     dependencies: wpData.dependencies,
+    active_pipeline_stages: wpData.active_pipeline_stages ?? null,
     file: wpDetail.work_package_file
   })
   root.total_work_packages = root.work_packages.length

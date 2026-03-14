@@ -2,8 +2,22 @@
 
 > **Purpose:** Language-agnostic specification of the 9-agent dynamic pipeline workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
 
-**Version:** 2.0.0  
-**Date:** 2026-03-08
+**Version:** 2.1.0  
+**Date:** 2026-03-14
+
+---
+
+## Changelog
+
+### v2.1.0 - Agent Extension
+- Additional agents in the workflow.
+- Review cycle 1.
+
+### v2.0.0 - Fully Reviewed
+- Fully LLM-reviewed and solid after 20+ cycles.
+
+### v1.0.0 - Initial Version
+- As extracted from the Ledger MCP logic.
 
 ---
 

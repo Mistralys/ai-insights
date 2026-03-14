@@ -61,7 +61,7 @@
 - WP summaries in the root index are a **subset** of WP detail data
 - Summaries must always match corresponding detail files
 - Dual-file atomic updates enforce this invariant
-- Fields that must stay in sync: `work_package_id`, `status`, `assigned_to`, `dependencies`
+- Fields that must stay in sync: `work_package_id`, `status`, `assigned_to`, `dependencies`, `active_pipeline_stages`
 
 ### 21.10 Documentation-Only COMPLETE Guard
 

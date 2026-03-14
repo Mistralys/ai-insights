@@ -46,12 +46,16 @@ Stored in the root index for fast listing without loading detail files.
 
 ```
 WorkPackageSummary {
-  work_package_id:  string    // Format: "WP-###" (3+ digits)
-  status:           WorkPackageStatus
-  assigned_to:      string    // Agent role name
-  dependencies:     string[]  // List of WP IDs this WP depends on
-  file:             string    // Path to detail file
+  work_package_id:        string           // Format: "WP-###" (3+ digits)
+  status:                 WorkPackageStatus
+  assigned_to:            string           // Agent role name
+  dependencies:           string[]         // List of WP IDs this WP depends on
+  active_pipeline_stages: PipelineType[]?  // Mirrors detail field (§3.3); defaults to MANDATORY_PIPELINE_TYPES when absent
+  file:                   string           // Path to detail file
 }
+```
+
+> **Routing optimization:** `active_pipeline_stages` is included in the summary so that handoff and recommendation functions can filter WPs by optional stage membership (e.g., Security Auditor and Release Engineer scope checks) without loading detail files. The value is set at WP creation time and is immutable thereafter (see [§21.55](edge-cases.md#2155-optional-pipeline-stage-backward-compatibility)).
 ```
 
 ### 3.3 Work Package Detail

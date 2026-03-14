@@ -172,14 +172,9 @@ if any non-terminal, non-dependency-blocked WP with "release-engineering" in act
    has FAIL release-engineering pipeline (most recent):
   return IN_PROGRESS               (Release Engineer self-reworks)
 
-// WPs still in earlier pipeline stages
-needsUpstreamWork = non-terminal, non-blocked WPs with "release-engineering" in activeStages without PASS code-review
-if needsUpstreamWork is not empty:
-  if all needsUpstreamWork are dependency-blocked:
-    return WAIT
-  else:
-    return READY_FOR_DEVELOPER
-
+// WPs still in earlier pipeline stages — defer to orchestrator polling
+// (Release Engineer cannot dispatch to the correct upstream agent;
+//  returning READY_FOR_DEVELOPER would misroute WPs needing QA/Reviewer)
 if all WPs are terminal:
   return READY_FOR_SYNTHESIS
 
@@ -187,6 +182,8 @@ return WAIT
 ```
 
 > **Self-rework pattern:** Release Engineer follows the same self-rework pattern as Documentation — release-engineering FAIL routes to Release Engineer itself (§9.3). Escalation for code-level issues uses the BLOCKED mechanism with a `technical` blocker, identical to the Documentation escalation path (§21.24).
+
+> **Upstream catch-all removed (v2.0.0):** Prior versions included a catch-all `READY_FOR_DEVELOPER` for WPs awaiting earlier pipeline stages. This was removed because the Release Engineer cannot accurately dispatch to the correct upstream agent — a WP awaiting `code-review` would be misrouted to Developer instead of Reviewer, causing the auto-handoff chain to terminate at Developer → WAIT. The orchestrator's hub-and-spoke polling (or the supervisor) is responsible for routing WPs to the correct upstream agent.
 
 #### Documentation Handoff
 
@@ -208,19 +205,25 @@ if readyForDocs is not empty:
 if any non-terminal, non-dependency-blocked WP has FAIL documentation pipeline (most recent):
   return IN_PROGRESS               (Documentation self-reworks)
 
-// WPs still in earlier pipeline stages (no PASS on effective upstream stage yet)
-needsUpstreamWork = non-terminal, non-blocked WPs without PASS effectiveUpstream
-if needsUpstreamWork is not empty:
-  if all needsUpstreamWork are dependency-blocked:
-    return WAIT                    (nothing actionable until dependencies resolve)
-  else:
-    return READY_FOR_DEVELOPER     (unblocked WPs need earlier-stage work)
-
+// WPs still in earlier pipeline stages — defer to orchestrator polling
+// (Documentation cannot dispatch to the correct upstream agent;
+//  returning READY_FOR_DEVELOPER would misroute WPs needing QA/Reviewer/etc.)
 if all WPs are terminal:
   return READY_FOR_SYNTHESIS
 
 return WAIT
 ```
+
+> **Upstream catch-all removed (v2.0.0):** Same rationale as the Release Engineer handoff — the Documentation agent cannot accurately dispatch to the correct upstream agent. WPs needing earlier-stage work are left for the orchestrator to route via polling.
+
+#### Synthesis Handoff
+
+```
+// Synthesis is the terminal stage — no onward routing
+return WAIT   // Chain terminates; project COMPLETE status is the orchestrator's stop signal
+```
+
+> **Design note:** The Synthesis agent's handoff always returns `WAIT`. After `completeSynthesis` (§19.1) sets the project to `COMPLETE`, no further handoff is evaluated (§18.6 skips auto-handoff for `COMPLETE` status). This block exists for completeness — implementations that enumerate all agent handoff functions will not encounter a null/undefined case for Synthesis.
 
 #### Project Manager Handoff
 
