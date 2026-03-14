@@ -2,12 +2,18 @@
 
 > **Purpose:** Language-agnostic specification of the 9-agent dynamic pipeline workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
 
-**Version:** 2.1.0  
+**Version:** 2.2.0  
 **Date:** 2026-03-14
 
 ---
 
 ## Changelog
+
+### v2.2.0 - Audit Fixes
+- Fixed first-run stage-skipping exploit: upstream rework check is now unconditional, no longer gated by `effectiveSamePipelines` being non-empty (§11.1, §11.1.1).
+- Fixed dangling `IN_PROGRESS` pipelines on `COMPLETE`: added guard rejecting the transition when any pipeline is still `IN_PROGRESS` (§10b.1).
+- Removed `hasDownstreamFail` wrapper from re-validation guard: `hasUpstreamRework` alone correctly distinguishes self-rework from genuine upstream invalidation, eliminating the documented "Known limitation — WP reopen scenario" (§11.1, §11.1.1, §21.22).
+- Updated §21.42 and §21.48 references to reflect the improved re-validation guard coverage.
 
 ### v2.1.0 - Agent Extension
 - Additional agents in the workflow.
@@ -29,7 +35,8 @@
 | 2 | [State Machines](state-machines.md) | Project Lifecycle, Work Package State Machine, Pipeline State Machine |
 | 3 | [Pipeline Routing](pipeline-routing.md) | Pipeline Ordering & Prerequisites, Pipeline Routing Maps |
 | 4 | [Operations](operations.md) | Work Package Creation, Work Package Claiming, Updating Work Package Status, Starting a Pipeline, Completing a Pipeline |
-| 5 | [Handoff & Recommendations](handoff-and-recommendations.md) | Handoff Logic, Next-Action Recommendation Engine |
+| 5a | [Handoff Logic](handoff.md) | Per-Agent Handoff Functions, Evaluation Order, Dependency-Blocked WP Exclusion, Next Agent Resolution |
+| 5b | [Recommendation Engine](recommendations.md) | Common Pre-checks, Role-Specific Action Logic, Helper Algorithms |
 | 6 | [Dependencies & Rework](dependencies-and-rework.md) | Dependency Management, Rework & Circuit Breaker |
 | 7 | [Auxiliary Systems](auxiliary-systems.md) | Self-Healing, Auto-Handoff Depth Counter, Synthesis Completion, Concurrency Model |
 | 8 | [Edge Cases](edge-cases.md) | Edge Cases & Invariants |
@@ -57,8 +64,8 @@ Use the original section numbers to find content across the split files:
 | 10b | Updating Work Package Status | [operations.md](operations.md) |
 | 11 | Starting a Pipeline | [operations.md](operations.md) |
 | 12 | Completing a Pipeline | [operations.md](operations.md) |
-| 13 | Handoff Logic | [handoff-and-recommendations.md](handoff-and-recommendations.md) |
-| 14 | Next-Action Recommendation Engine | [handoff-and-recommendations.md](handoff-and-recommendations.md) |
+| 13 | Handoff Logic | [handoff.md](handoff.md) |
+| 14 | Next-Action Recommendation Engine | [recommendations.md](recommendations.md) |
 | 15 | Dependency Management | [dependencies-and-rework.md](dependencies-and-rework.md) |
 | 16 | Rework & Circuit Breaker | [dependencies-and-rework.md](dependencies-and-rework.md) |
 | 17 | Self-Healing | [auxiliary-systems.md](auxiliary-systems.md) |

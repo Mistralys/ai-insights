@@ -256,6 +256,9 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
     // IN_PROGRESS documentation pipeline overlaps with a new implementation
     // pipeline — a scenario that requires two agents acting on the same WP
     // simultaneously outside the recommended flow.
+    // Guard: No IN_PROGRESS pipelines allowed on COMPLETE
+    if wp.pipelines.any(p => p.status == "IN_PROGRESS"):
+      ERROR("Cannot mark COMPLETE: IN_PROGRESS pipelines exist on this WP")
 
   if targetStatus == "BLOCKED":
     BLOCKED_HANDLING:
@@ -391,8 +394,8 @@ function startPipeline(wp, root, pipelineType, agentRole):
       ERROR("Requires PASS {prerequisite} pipeline first")
   
   // Guard: Re-validation after upstream rework (prevents skipping stages)
-  // If a downstream pipeline previously FAILed, verify the prerequisite
-  // PASSed AFTER the most recent pipeline of the current type completed.
+  // Two-layer check: (1) unconditional upstream rework detection, then
+  // (2) temporal consistency for same-type re-runs (self-rework allowance).
   // Use filtered list (excluding auto-cancelled) for temporal baseline,
   // consistent with the §21.27 invariant that auto-cancelled pipelines are
   // excluded from quality-related decisions.
@@ -400,37 +403,39 @@ function startPipeline(wp, root, pipelineType, agentRole):
   effectiveSamePipelines = samePipelines.filter(p => NOT p.auto_cancelled)
   if prerequisite is not null:
     prereqPass = prereqPipelines.last()   // Already confirmed PASS above
+
+    // --- Upstream rework check (applies regardless of prior runs) ---
+    // Detects if any pipeline upstream of the current type was started
+    // AFTER the prerequisite PASSed — indicating stale prerequisite.
+    // This check is decoupled from effectiveSamePipelines so it also
+    // catches first-run stage-skipping (e.g., code-review starting for
+    // the first time while a new implementation is in progress).
+    upstreamTypes = getUpstreamTypes(pipelineType, activeStages)
+    hasUpstreamRework = upstreamTypes.any(type =>
+      wp.pipelines.any(p => p.type == type
+        AND p.started_at > prereqPass.completed_at))
+    if hasUpstreamRework:
+      ERROR("Prerequisite {prerequisite} must re-PASS after upstream rework. "
+            + "An upstream pipeline was started after the most recent "
+            + "{prerequisite} PASS.")
+
+    // --- Temporal consistency check (same-type re-runs only) ---
+    // When the current pipeline type has been run before, verify the
+    // prerequisite PASSed AFTER the most recent effective run. This
+    // catches scenarios where the prerequisite is temporally stale
+    // relative to prior runs of this type, even without upstream rework
+    // (defense-in-depth).
     if effectiveSamePipelines is not empty:
       lastSame = effectiveSamePipelines.last()
       if prereqPass.completed_at is not null
          AND lastSame.completed_at is not null
          AND prereqPass.completed_at < lastSame.completed_at:
-        // Prerequisite passed BEFORE the current pipeline type last ran
-        // (regardless of whether lastSame is PASS or FAIL).
-        // Check for a FAIL downstream of the prerequisite — this includes
-        // the current pipeline type itself, since it is downstream of its own
-        // prerequisite. Using `prerequisite` (not `pipelineType`) is intentional:
-        // getDownstreamTypes(prerequisite, activeStages) includes the current
-        // type, so a FAIL of the current type (e.g., review-1 FAIL) is
-        // correctly detected. The activeStages parameter ensures only active
-        // stages are considered downstream.
-        if hasDownstreamFail(wp.pipelines, prerequisite, activeStages):
-          // Upstream activity check: Only block if actual upstream rework occurred.
-          // Without this, self-rework of a pipeline type (e.g., documentation
-          // retrying after its own FAIL) would be incorrectly blocked — the
-          // downstream fail is the current type itself, not evidence of stale
-          // upstream work. See §8.5 for getUpstreamTypes.
-          upstreamTypes = getUpstreamTypes(pipelineType, activeStages)
-          hasUpstreamRework = upstreamTypes.any(type =>
-            wp.pipelines.any(p => p.type == type
-              AND p.started_at > prereqPass.completed_at))
-          if NOT hasUpstreamRework:
-            // No upstream pipeline was started after the prerequisite PASSed.
-            // The prerequisite is still valid — allow the pipeline to start.
-            pass    // skip guard
-          else:
-            ERROR("Prerequisite {prerequisite} must re-PASS after upstream rework. "
-                  + "Most recent {prerequisite} PASS predates the last {pipelineType} run.")
+        // Prerequisite passed BEFORE the current pipeline type last ran.
+        // Since hasUpstreamRework was already checked above, reaching here
+        // means no upstream rework occurred — this is a self-rework
+        // scenario (e.g., documentation retrying after its own FAIL).
+        // Allow the pipeline to start.
+        pass    // skip guard — prerequisite still valid for self-rework
   
   // Guard: Agent role validation
   expectedRole = PIPELINE_AGENT_MAP[pipelineType]
@@ -488,29 +493,38 @@ The re-validation guard (added after the prerequisite check) prevents a subtle s
 3. Without the guard, `startPipeline(type=code-review)` would succeed — qa-1 is PASS
 4. But qa-1 validated impl-1, not impl-2. QA has been **bypassed**.
 
-The guard detects that the prerequisite (QA) PASSed *before* the last run of the current pipeline type (code-review, which FAILed as review-1), and that a downstream FAIL exists for `code-review` itself (review-1 FAIL), requiring QA to re-PASS first.
+The guard detects that the prerequisite (QA) PASSed *before* any upstream pipeline was started after that PASS — indicating the prerequisite validated stale output and must re-PASS first.
 
-The guard includes an **upstream activity check** to prevent false positives during self-rework. After detecting a temporal gap and a downstream FAIL, the guard verifies that at least one pipeline *upstream* of the current type (via `getUpstreamTypes` §8.5) was started after the prerequisite PASSed. If no upstream activity occurred, the prerequisite is still valid — the downstream FAIL is the current type's own failure, not evidence of stale upstream work.
+The guard operates in two layers:
+
+1. **Upstream rework check (unconditional):** Regardless of whether the current pipeline type has ever run, the guard checks whether any pipeline *upstream* of the current type (via `getUpstreamTypes` §8.5) was started after the prerequisite PASSed. If so, the prerequisite is stale and must re-PASS. This catches both first-run stage-skipping (e.g., code-review starting for the first time while a new implementation pipeline is in progress) and rework-induced staleness.
+
+2. **Temporal consistency check (same-type re-runs only):** When the current pipeline type has been run before, the guard additionally verifies the prerequisite PASSed *after* the most recent effective run. If the prerequisite is temporally stale but no upstream rework occurred, this is a self-rework scenario (e.g., documentation retrying after its own FAIL) and the guard allows the pipeline to start.
+
+**First-run stage-skipping example (code-review never run):**
+1. impl-1 PASS → qa-1 PASS → Developer starts impl-2 (rework)
+2. Reviewer calls `startPipeline(type=code-review)` for the first time
+3. Prerequisite check: `resolvePrerequisite("code-review")` = `"qa"` → qa-1 is PASS → passes
+4. Upstream rework check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
 
 **Self-rework example (documentation):**
 1. impl-1 PASS → qa-1 PASS → review-1 PASS → doc-1 **FAIL**
 2. Documentation retries: `startPipeline(type=documentation)`
-3. Temporal check fires (review-1 PASS predates doc-1 completion)
-4. `hasDownstreamFail("code-review")` returns true (doc-1 is FAIL)
-5. Upstream activity check: `getUpstreamTypes("documentation")` = `[impl, qa, code-review]` — none started after review-1 PASSed → **no upstream rework** → guard does **not** fire ✓
+3. Upstream rework check: `getUpstreamTypes("documentation")` = `[impl, qa, code-review]` — none started after review-1 PASSed → **no upstream rework** → guard does **not** fire ✓
 
 **Stage-skipping example (code-review after upstream rework):**
 1. impl-1 PASS → qa-1 PASS → review-1 **FAIL** → impl-2 **PASS**
 2. `startPipeline(type=code-review)` attempted
-3. Temporal check fires (qa-1 PASS predates review-1 completion)
-4. `hasDownstreamFail("qa")` returns true (review-1 is FAIL)
-5. Upstream activity check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
+3. Upstream rework check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
 
-> **Note on the `lastSame.status` check:** The guard intentionally does **not** restrict on `lastSame.status == "PASS"`. When `lastSame` is FAIL (as in review-1 above), the prerequisite temporal check is equally critical — the stale PASS of the prerequisite (qa-1) must not be accepted just because the current pipeline type previously FAILed.
+**WP reopen example (all prior pipelines PASS):**
+1. All pipelines PASS → WP COMPLETE → Reopen → Developer starts impl-2 PASS
+2. Reviewer calls `startPipeline(type=code-review)`
+3. Upstream rework check: `getUpstreamTypes("code-review")` = `[impl, qa]` — impl-2 started after qa-1 PASSed → **upstream rework detected** → guard fires ✓
 
-> **Known limitation — WP reopen scenario:** After a COMPLETE → IN_PROGRESS reopen (§6.2), all prior pipelines are PASS (the WP completed successfully in its previous revision). Since no downstream FAIL exists, `hasDownstreamFail` returns `false` and the re-validation guard never fires. This means a stale prerequisite PASS (e.g., qa-1 from the previous revision) can satisfy the prerequisite check for a later pipeline type (e.g., code-review), even after a new implementation pipeline has started. The **recommendation engine** correctly advises QA/Reviewer/Documentation to re-engage via `hasNewUpstreamPassSince` (§14.6), but the re-validation guard — positioned as the *hard enforcement counterpart* — does not catch this case. Implementations that require stronger guarantees MAY add a supplementary guard: "if `wp.revision > 0` and the most recent effective pipeline of the current type completed before the COMPLETE → IN_PROGRESS transition, require the prerequisite to re-PASS." See also [§21.48](edge-cases.md#2148-consolidated-reopen-workflow-guidance) for the expected PM workflow after reopening a WP.
+> **Note on the `lastSame.status` check:** The temporal consistency check (layer 2) intentionally does **not** restrict on `lastSame.status == "PASS"`. When `lastSame` is FAIL (as in review-1 above), the prerequisite temporal check is equally critical — the stale PASS of the prerequisite (qa-1) must not be accepted just because the current pipeline type previously FAILed.
 
-> **Interaction with recommendation engine:** The `hasNewUpstreamPassSince` function (§14.6) advises agents to re-engage after upstream rework. The re-validation guard is the **hard enforcement** counterpart — it prevents direct tool calls from bypassing the recommended flow. Note that the guard has a known gap in the WP reopen scenario (see preceding note).
+> **Interaction with recommendation engine:** The `hasNewUpstreamPassSince` function (§14.6) advises agents to re-engage after upstream rework. The re-validation guard is the **hard enforcement** counterpart — it prevents direct tool calls from bypassing the recommended flow. The guard now covers all scenarios including WP reopens and first-run pipeline starts.
 
 ### 11.1.2 Agent Role Validation
 
