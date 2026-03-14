@@ -109,11 +109,11 @@ effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 20)
 | 8 WPs | 160 | 8 × 20 = 160 |
 
 The `× 20` multiplier accounts for:
-- **4 happy-path handoffs** per WP (Dev → QA → Reviewer → Doc)
-- **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → Review chain)
-- **~7–11 headroom** per WP for atypical rework or blocker resolution
+- **4–6 happy-path handoffs** per WP (Dev → QA → [Security Auditor] → Reviewer → [Release Engineer] → Doc; 4 for the default mandatory pipeline, up to 6 when both optional stages are active)
+- **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA/security-audit → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → [Security Audit] → Review chain)
+- **~5–10 headroom** per WP for atypical rework, blocker resolution, or self-rework cycles (Release Engineering, Documentation)
 
-> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 20` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 3` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
+> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 20` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 3` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Security Auditor → Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
 
 > **Design intent:** The auto-handoff depth counter is a **safeguard against infinite loops**, not a throttle. The effective maximum should be high enough that a legitimate project completes without ever hitting it. If the counter is reached, it indicates a pathological loop — not normal workflow activity.
 

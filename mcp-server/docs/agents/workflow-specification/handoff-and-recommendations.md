@@ -66,13 +66,15 @@ if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline
 // Only reached when upstream has NOT re-PASSed since the QA FAIL.
 if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
-if WPs with PASS QA but no review started:
-  // "No review started" includes re-engagement: no review yet OR
-  // hasNewUpstreamPassSince("qa", "code-review") for review re-run needs
+
+// Dynamic next-stage routing after PASS QA
+// nextAgent = resolveNextAgent("qa", wp.active_pipeline_stages)
+//   → "Security Auditor" when security-audit is active, "Reviewer" otherwise
+if WPs with PASS QA but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
-    return READY_FOR_REVIEW      (unblocked WPs ready for next stage)
+    return readyStatusForAgent[nextAgent]  (READY_FOR_SECURITY_AUDIT or READY_FOR_REVIEW)
 if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "QA":
@@ -86,23 +88,27 @@ return WAIT                      (no actionable work for QA)
 
 ```
 // Re-engagement check (before FAIL short-circuit — see QA handoff rationale)
-// If Reviewer previously FAILed but QA has since re-PASSed,
+// If Reviewer previously FAILed but the effective upstream has since re-PASSed,
 // Reviewer should re-engage rather than routing back to Developer.
+// effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)
+//   → "security-audit" when active, "qa" otherwise
 if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline
-   AND hasNewUpstreamPassSince(wp.pipelines, "qa", "code-review") is true:
+   AND hasNewUpstreamPassSince(wp.pipelines, effectiveUpstream, "code-review") is true:
   return IN_PROGRESS             (Reviewer should re-engage after upstream rework)
 
 // FAIL conditions (§13.2 short-circuit semantics)
 // Only reached when upstream has NOT re-PASSed since the review FAIL.
 if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
-if WPs with PASS code-review but no docs started:
-  // "No docs started" includes re-engagement: no docs yet OR
-  // hasNewUpstreamPassSince("code-review", "documentation") for doc re-run needs
+
+// Dynamic next-stage routing after PASS code-review
+// nextAgent = resolveNextAgent("code-review", wp.active_pipeline_stages)
+//   → "Release Engineer" when release-engineering is active, "Documentation" otherwise
+if WPs with PASS code-review but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
-    return READY_FOR_DOCS        (unblocked WPs ready for next stage)
+    return readyStatusForAgent[nextAgent]  (READY_FOR_RELEASE_ENGINEERING or READY_FOR_DOCS)
 if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "Reviewer":
@@ -111,14 +117,87 @@ return WAIT                      (no actionable work for Reviewer)
 ```
 
 > **Re-engagement before FAIL rationale (v1.2.0):** Identical to the QA handoff rationale. After `review-1 FAIL → impl-2 PASS → qa-2 PASS`, the handoff now returns `IN_PROGRESS` for Reviewer (re-engagement) instead of `READY_FOR_DEVELOPER` (stale FAIL routing). See QA Handoff rationale for the full explanation.
+>
+> **Dynamic upstream (v2.0.0):** The re-engagement check uses `resolvePrerequisite("code-review", wp.active_pipeline_stages)` to determine the effective upstream — `"security-audit"` when the WP includes the optional security-audit stage, `"qa"` otherwise. Similarly, the next-stage routing uses `resolveNextAgent` to determine whether PASS code-review flows to Release Engineer or Documentation.
+
+#### Security Auditor Handoff
+
+Only active for WPs that include `security-audit` in their `active_pipeline_stages`.
+
+```
+// Re-engagement check (before FAIL short-circuit — same pattern as QA/Reviewer)
+if any non-terminal, non-dependency-blocked WP with "security-audit" in activeStages
+   has a FAIL security-audit pipeline
+   AND hasNewUpstreamPassSince(wp.pipelines, "qa", "security-audit") is true:
+  return IN_PROGRESS             (Security Auditor should re-engage after upstream rework)
+
+// FAIL conditions (§13.2 short-circuit semantics)
+if any non-terminal, non-dependency-blocked WP with "security-audit" in activeStages
+   has a FAIL security-audit pipeline routed to Developer:
+  return READY_FOR_DEVELOPER     (Developer must fix security issues)
+
+// WPs with PASS security-audit ready for next stage
+if WPs with "security-audit" in activeStages have PASS security-audit but no code-review started:
+  if all such WPs are dependency-blocked:
+    return WAIT
+  else:
+    return READY_FOR_REVIEW
+
+if all WPs are terminal:
+  return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "Security Auditor":
+  return IN_PROGRESS
+return WAIT
+```
+
+> **Scope filter:** The Security Auditor handoff only considers WPs where `security-audit` is in `active_pipeline_stages`. WPs without the optional security-audit stage are invisible to this handoff function, even if they have FAIL pipelines routed to Developer.
+
+#### Release Engineer Handoff
+
+Only active for WPs that include `release-engineering` in their `active_pipeline_stages`.
+
+```
+// WPs ready for release engineering (PASS code-review, no release-engineering pipeline yet or new upstream pass)
+readyForRelease = non-terminal WPs with "release-engineering" in activeStages where hasPassCodeReview AND (
+  no release-engineering pipeline yet OR hasNewUpstreamPassSince("code-review", "release-engineering")
+)
+if readyForRelease is not empty:
+  if all readyForRelease are dependency-blocked:
+    skip
+  else:
+    return IN_PROGRESS             (Release Engineer continues release work)
+
+// Release engineering FAIL → self-rework (not forwarded to Developer)
+if any non-terminal, non-dependency-blocked WP with "release-engineering" in activeStages
+   has FAIL release-engineering pipeline (most recent):
+  return IN_PROGRESS               (Release Engineer self-reworks)
+
+// WPs still in earlier pipeline stages
+needsUpstreamWork = non-terminal, non-blocked WPs with "release-engineering" in activeStages without PASS code-review
+if needsUpstreamWork is not empty:
+  if all needsUpstreamWork are dependency-blocked:
+    return WAIT
+  else:
+    return READY_FOR_DEVELOPER
+
+if all WPs are terminal:
+  return READY_FOR_SYNTHESIS
+
+return WAIT
+```
+
+> **Self-rework pattern:** Release Engineer follows the same self-rework pattern as Documentation — release-engineering FAIL routes to Release Engineer itself (§9.3). Escalation for code-level issues uses the BLOCKED mechanism with a `technical` blocker, identical to the Documentation escalation path (§21.24).
 
 #### Documentation Handoff
 
 ```
-// WPs ready for documentation (PASS code-review, no doc pipeline yet or new upstream pass)
-readyForDocs = non-terminal WPs where hasPassCodeReview AND (
-  no documentation pipeline yet OR hasNewUpstreamPassSince("code-review", "documentation")
+// WPs ready for documentation — the effective upstream stage is determined
+// dynamically: "release-engineering" if active, otherwise "code-review".
+readyForDocs = non-terminal WPs where hasPassEffectiveUpstream AND (
+  no documentation pipeline yet OR hasNewUpstreamPassSince(effectiveUpstream, "documentation")
 )
+// Where effectiveUpstream = resolvePrerequisite("documentation", wp.active_pipeline_stages)
+// Where hasPassEffectiveUpstream = most recent pipeline of effectiveUpstream type is PASS
 if readyForDocs is not empty:
   if all readyForDocs are dependency-blocked:
     skip                           (fall through to check earlier-stage WPs)
@@ -129,8 +208,8 @@ if readyForDocs is not empty:
 if any non-terminal, non-dependency-blocked WP has FAIL documentation pipeline (most recent):
   return IN_PROGRESS               (Documentation self-reworks)
 
-// WPs still in earlier pipeline stages (no PASS code-review yet)
-needsUpstreamWork = non-terminal, non-blocked WPs without PASS code-review
+// WPs still in earlier pipeline stages (no PASS on effective upstream stage yet)
+needsUpstreamWork = non-terminal, non-blocked WPs without PASS effectiveUpstream
 if needsUpstreamWork is not empty:
   if all needsUpstreamWork are dependency-blocked:
     return WAIT                    (nothing actionable until dependencies resolve)
@@ -168,7 +247,7 @@ if all WPs have terminal status:
 return WAIT
 ```
 
-> **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
+> **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Security Auditor"` → `READY_FOR_SECURITY_AUDIT`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Release Engineer"` → `READY_FOR_RELEASE_ENGINEERING`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
 
 ### 13.2 Handoff Evaluation Order
 
@@ -195,12 +274,14 @@ function nextAgentFromStatus(status, currentAgent):
   
   // Map READY_FOR_* statuses to agent roles
   mapping = {
-    "READY_FOR_PM":        "Project Manager",
-    "READY_FOR_DEVELOPER": "Developer",
-    "READY_FOR_QA":        "QA",
-    "READY_FOR_REVIEW":    "Reviewer",
-    "READY_FOR_DOCS":      "Documentation",
-    "READY_FOR_SYNTHESIS": "Synthesis"
+    "READY_FOR_PM":                   "Project Manager",
+    "READY_FOR_DEVELOPER":            "Developer",
+    "READY_FOR_QA":                   "QA",
+    "READY_FOR_SECURITY_AUDIT":       "Security Auditor",
+    "READY_FOR_REVIEW":               "Reviewer",
+    "READY_FOR_RELEASE_ENGINEERING":  "Release Engineer",
+    "READY_FOR_DOCS":                 "Documentation",
+    "READY_FOR_SYNTHESIS":            "Synthesis"
   }
   return mapping[status] ?? null
 ```
@@ -310,7 +391,7 @@ Priority order:
 2. **RESUME_OR_CANCEL**: WP has stale IN_PROGRESS `implementation` pipeline (>24h)
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `implementation` pipeline — the Developer has work in progress
 4. **REWORK** (direct): WP where most recent `implementation` pipeline is FAIL
-5. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa` or `code-review` pipeline is FAIL — **AND** the downstream failure reflects the current implementation (`hasDownstreamReengagedSince("implementation")` is true, §14.13 — the downstream agent validated the latest implementation PASS and still FAILed). Documentation FAIL is excluded (routes to Documentation self-rework).
+5. **REWORK** (downstream-triggered): WP where most recent `implementation` is PASS but a downstream pipeline whose FAIL routes to Developer (per `FAIL_ROUTING_MAP` §9.3) has FAILed — i.e., most recent `qa`, `security-audit`, or `code-review` pipeline is FAIL — **AND** the downstream failure reflects the current implementation (`hasDownstreamReengagedSince("implementation")` is true, §14.13 — the downstream agent validated the latest implementation PASS and still FAILed). Documentation and release-engineering FAILs are excluded (route to self-rework).
 5b. **WAIT_FOR_DOWNSTREAM**: WP where most recent `implementation` is PASS, a downstream pipeline whose FAIL routes to Developer has FAILed, but the downstream failure is stale (`hasDownstreamReengagedSince("implementation")` is false) — the Developer has delivered a new implementation PASS that the downstream agent has not yet validated. The Developer should wait rather than starting redundant rework.
 6. **IMPLEMENT**: WP that is IN_PROGRESS, has no implementation pipeline yet
 7. **CLAIM_WP**: WP that is READY, all dependencies satisfied, and either unassigned or assigned to "Developer"
@@ -342,27 +423,35 @@ function getDeveloperAction(root, store):
     if WP is dependency-blocked: skip
     return REWORK
   
-  // Priority 5: Downstream-triggered rework (impl PASS, but QA or review FAIL)
+  // Priority 5: Downstream-triggered rework (impl PASS, but QA/security-audit/review FAIL)
   // Only check types whose FAIL routes to Developer per FAIL_ROUTING_MAP (§9.3).
-  // Documentation FAIL routes to Documentation (self-rework) and is excluded.
+  // Documentation and release-engineering FAILs route to self-rework and are excluded.
   // Temporal guard: skip if the Developer has already delivered a fix (new
   // implementation PASS) but the downstream agent has not yet re-engaged
   // to validate it (see §14.13, §21.52).
-  developerReworkTypes = ["qa", "code-review"]
-  for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
-    if WP is dependency-blocked: skip
-    if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
-      continue    // Developer's fix delivered; downstream hasn't re-engaged yet
-    return REWORK with downstream_triggered = true
+  // Note: Only check security-audit for WPs where it is active.
+  developerReworkTypes = ["qa", "code-review"]   // Always checked
+  for each IN_PROGRESS WP:
+    activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+    wpReworkTypes = developerReworkTypes
+    if "security-audit" in activeStages:
+      wpReworkTypes = ["qa", "security-audit", "code-review"]
+    if any type in wpReworkTypes has isMostRecentPipelineFail(type):
+      if WP is dependency-blocked: skip
+      if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
+        continue    // Developer's fix delivered; downstream hasn't re-engaged yet
+      return REWORK with downstream_triggered = true
   
   // Priority 5b: Delivered rework awaiting downstream re-engagement
-  // WPs that matched the downstream-fail condition above but were skipped by the
-  // temporal guard. The Developer should wait rather than churning through redundant
-  // implementation cycles.
-  for each IN_PROGRESS WP where any type in developerReworkTypes has isMostRecentPipelineFail(type):
-    if WP is dependency-blocked: skip
-    if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
-      return WAIT_FOR_DOWNSTREAM with wp.id
+  for each IN_PROGRESS WP:
+    activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+    wpReworkTypes = developerReworkTypes
+    if "security-audit" in activeStages:
+      wpReworkTypes = ["qa", "security-audit", "code-review"]
+    if any type in wpReworkTypes has isMostRecentPipelineFail(type):
+      if WP is dependency-blocked: skip
+      if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
+        return WAIT_FOR_DOWNSTREAM with wp.id
   
   // Priority 6: Fresh implementation needed
   for each IN_PROGRESS WP with no implementation pipeline yet:
@@ -400,11 +489,11 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 Same pattern, applied to `code-review` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[code-review] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation` or `qa`) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Reviewer should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("code-review", wp.active_pipeline_stages)` — at minimum `implementation` and `qa`, plus `security-audit` when active) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Reviewer should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `code-review` pipeline
-4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("qa", "code-review")` is true — QA re-passed after previous review; Reviewer should re-engage regardless of previous review result
-5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince("qa", "code-review")` — Reviewer cannot act; Developer must fix and re-pass implementation + QA first
+4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` is true — where `effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)` (i.e., `"security-audit"` when active, `"qa"` otherwise). Upstream re-passed after previous review; Reviewer should re-engage regardless of previous review result
+5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` — Reviewer cannot act; upstream agents must fix and re-pass first
 6. **RUN_REVIEW** (first run): WP with PASS QA and no review pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Reviewer" with all dependencies satisfied (post auto-unblock scenario)
 
@@ -415,7 +504,7 @@ Same pattern, applied to `code-review` pipelines:
 Same pattern, applied to `documentation` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[documentation] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation`, `qa`, or `code-review`) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Documentation should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("documentation", wp.active_pipeline_stages)` — at minimum `implementation`, `qa`, and `code-review`, plus `security-audit` and/or `release-engineering` when active) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Documentation should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale documentation pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `documentation` pipeline
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
@@ -424,12 +513,47 @@ Same pattern, applied to `documentation` pipelines:
 
 > **UPDATE_CRITERIA rework tracking note:** If the Documentation agent chooses to start a new documentation pipeline to address unmet criteria (rather than updating criteria or escalating), this creates a pipeline that is **not tracked as rework** — the most recent documentation pipeline is PASS (not FAIL) and no downstream FAIL exists, so `needsRework = false` in `startPipeline` (§11.1) and `rework_counts.documentation` is not incremented. This is internally consistent (the prior pipeline succeeded; the new one addresses remaining criteria, not a failure) but may be surprising. Implementations that want to track these "criteria-driven re-runs" separately MAY add a distinct counter or metric; the core specification treats them as normal pipeline starts.
 
-6. **WRITE_DOCS**: WP with PASS code-review and no docs yet, OR `hasNewUpstreamPassSince("code-review", "documentation")`
+6. **WRITE_DOCS**: WP where effective upstream stage has PASS and no docs yet, OR `hasNewUpstreamPassSince(effectiveUpstream, "documentation")` — where `effectiveUpstream = resolvePrerequisite("documentation", wp.active_pipeline_stages)` (i.e., `"release-engineering"` when active, `"code-review"` otherwise)
 7. **CLAIM_WP**: READY WP assigned to "Documentation" with all dependencies satisfied (post auto-unblock scenario)
 
 > **Note on handoff vs. recommendation priority:** The Documentation handoff function (§13.1) checks ready-for-docs WPs before FAIL self-rework, while this recommendation engine checks FAIL self-rework (priority 4) before WRITE_DOCS (priority 6). This is intentional: handoff answers "who should act next?" (new-work-first bias to avoid idle agents), while the recommendation engine answers "what should I do?" (fix-failures-first bias to prevent broken WPs from accumulating). Implementations should not attempt to unify these orderings.
 >
 > **Auto-handoff implication:** Because auto-handoff (§18) uses handoff status, the Documentation agent may be invoked via auto-handoff for a new-docs WP while it has a FAIL documentation pipeline on another WP. The receiving agent's `getNextAction` will then recommend REWORK (priority 4) instead of the work the handoff intended. This may cause a wasted handoff cycle — the agent resolves the FAIL rather than the new-docs WP. This is acceptable: the REWORK takes priority regardless of how the agent was invoked, and the new-docs WP will be picked up in the next cycle. Implementations should not special-case the recommendation engine based on handoff context.
+
+### 14.5b Security Auditor Action Logic
+
+Only active for WPs that include `security-audit` in their `active_pipeline_stages`. WPs without the optional stage are invisible to this agent's recommendation engine.
+
+Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
+
+1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[security-audit] >= MAX_REWORK_COUNT`
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation` or `qa`) has `rework_counts[type] >= MAX_REWORK_COUNT` — the upstream pipeline is circuit-broken; Security Auditor should not run against stale implementation/QA results. Returns `WAIT` with a note indicating the upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+2. **RESUME_OR_CANCEL**: stale security-audit pipeline
+3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `security-audit` pipeline
+4. **RUN_SECURITY_AUDIT** (re-engagement after rework): WP has at least one prior `security-audit` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("qa", "security-audit")` is true — QA re-passed after previous security audit; Security Auditor should re-engage
+5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince("qa", "security-audit")` — Security Auditor cannot act; Developer must fix and re-pass implementation + QA first
+6. **RUN_SECURITY_AUDIT** (first run): WP with PASS qa and no security-audit pipeline yet
+7. **CLAIM_WP**: READY WP assigned to "Security Auditor" with all dependencies satisfied
+
+> **Scope filter:** The Security Auditor's `getNextAction` only considers WPs where `"security-audit"` is in `active_pipeline_stages`. WPs with only the default 4 mandatory stages are excluded from all priority checks, as the Security Auditor has no work to do on those WPs.
+
+### 14.5c Release Engineer Action Logic
+
+Only active for WPs that include `release-engineering` in their `active_pipeline_stages`. WPs without the optional stage are invisible to this agent's recommendation engine.
+
+Same self-rework pattern as Documentation (§14.5), applied to `release-engineering` pipelines:
+
+1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[release-engineering] >= MAX_REWORK_COUNT`
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("release-engineering", wp.active_pipeline_stages)` — at minimum `implementation`, `qa`, and `code-review`, plus `security-audit` when active) has `rework_counts[type] >= MAX_REWORK_COUNT`. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+2. **RESUME_OR_CANCEL**: stale release-engineering pipeline
+3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `release-engineering` pipeline
+4. **REWORK**: most recent release-engineering is FAIL (self-rework — Release Engineer fixes release/packaging issues)
+5. **RUN_RELEASE_ENGINEERING**: WP with PASS code-review and no release-engineering pipeline yet, OR `hasNewUpstreamPassSince("code-review", "release-engineering")`
+6. **CLAIM_WP**: READY WP assigned to "Release Engineer" with all dependencies satisfied
+
+> **Self-rework pattern:** Release Engineer follows the same self-rework pattern as Documentation — release-engineering FAIL routes back to Release Engineer itself. The escalation path for code-level issues discovered during release engineering uses the BLOCKED mechanism with a `technical` blocker, consistent with the Documentation escalation path (§21.24).
+>
+> **Scope filter:** The Release Engineer's `getNextAction` only considers WPs where `"release-engineering"` is in `active_pipeline_stages`.
 
 ### 14.6 `hasNewUpstreamPassSince` Algorithm
 
@@ -592,7 +716,7 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
   // Check if any downstream pipeline type (whose FAIL routes to Developer)
   // has started AT or AFTER the upstream PASS completed.
   // This indicates the downstream agent has re-engaged to validate the fix.
-  developerReworkTypes = ["qa", "code-review"]
+  developerReworkTypes = ["qa", "security-audit", "code-review"]
   for each dsType in developerReworkTypes:
     dsPipelines = pipelines
       .filter(p => p.type == dsType AND NOT p.auto_cancelled)

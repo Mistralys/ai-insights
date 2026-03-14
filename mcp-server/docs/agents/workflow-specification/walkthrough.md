@@ -20,6 +20,8 @@ A typical project follows this sequence:
 
 ### Phase 2: Implementation Cycle (Per Work Package)
 
+Shows the default 4-stage mandatory pipeline. Optional stages (`security-audit`, `release-engineering`) are inserted at their canonical positions when included in the WP's `active_pipeline_stages` — see Phase 2d below.
+
 ```
 4. Developer claims WP (ledger_claim_work_package)
    - READY → IN_PROGRESS
@@ -34,13 +36,13 @@ A typical project follows this sequence:
    - WP.assigned_to = "QA"
    
 8. QA completes QA (ledger_complete_pipeline type=qa status=PASS)
-   - Handoff note created: QA → Reviewer
+   - Handoff note created: QA → next active stage (Reviewer or Security Auditor)
    
 9. Reviewer starts code-review pipeline (ledger_start_pipeline type=code-review)
    - WP.assigned_to = "Reviewer"
    
 10. Reviewer completes review (ledger_complete_pipeline type=code-review status=PASS)
-    - Handoff note created: Reviewer → Documentation
+    - Handoff note created: Reviewer → next active stage (Documentation or Release Engineer)
     
 11. Documentation starts documentation pipeline (ledger_start_pipeline type=documentation)
     - WP.assigned_to = "Documentation"
@@ -108,6 +110,26 @@ PM or Documentation decides WP needs more work:
 
 Multiple independent WPs (no mutual dependencies) can progress through the pipeline simultaneously. The batch action tool (`ledger_get_next_actions`) returns all actionable WPs for an agent, enabling parallel processing.
 
+### Phase 2d: Full 6-Stage Pipeline (Optional Stages Active)
+
+When a WP includes `security-audit` and `release-engineering` in its `active_pipeline_stages`:
+
+```
+Developer (implementation) → QA (qa) → Security Auditor (security-audit)
+  → Reviewer (code-review) → Release Engineer (release-engineering)
+  → Documentation (documentation) → COMPLETE
+```
+
+The additional steps between QA and Reviewer (Security Auditor) and between Reviewer and Documentation (Release Engineer) follow the same pattern:
+- Security Auditor claims, starts `security-audit` pipeline, completes PASS/FAIL
+  - FAIL → Developer (same rework loop as QA/Reviewer FAILs)
+  - PASS → handoff to Reviewer
+- Release Engineer claims, starts `release-engineering` pipeline, completes PASS/FAIL
+  - FAIL → Release Engineer (self-rework, same pattern as Documentation)
+  - PASS → handoff to Documentation
+
+Optional stages are skipped entirely when not in `active_pipeline_stages` — `resolveNextAgent` (§9.2) walks the canonical ordering to find the next active stage.
+
 ---
 
 ## Appendix A: Constant Reference
@@ -131,10 +153,12 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | `IMPLEMENT` | Developer | WP needs implementation |
 | `RUN_QA` | QA | WP needs QA validation |
 | `RUN_REVIEW` | Reviewer | WP needs code review |
+| `RUN_SECURITY_AUDIT` | Security Auditor | WP needs security audit (only for WPs with `security-audit` in `active_pipeline_stages`) |
+| `RUN_RELEASE_ENGINEERING` | Release Engineer | WP needs release engineering (only for WPs with `release-engineering` in `active_pipeline_stages`) |
 | `WRITE_DOCS` | Documentation | WP needs documentation |
-| `REWORK` | Developer/Documentation | Most recent pipeline FAIL (direct self-rework), or downstream pipeline FAIL routed to this agent (downstream-triggered rework — Developer only, see §14.2) |
-| `WAIT_FOR_REWORK` | QA/Reviewer | Most recent pipeline FAIL AND no upstream re-pass detected (`hasNewUpstreamPassSince` is false); another agent must fix first |
-| `WAIT_FOR_DOWNSTREAM` | Developer | Most recent implementation is PASS, a downstream pipeline (QA/review) has FAILed, but the downstream agent has not yet re-engaged since the Developer's fix (`hasDownstreamReengagedSince` §14.13 is false). Developer should wait rather than starting redundant rework. See [§21.52](edge-cases.md#2152-developer-downstream-rework-churn-prevention). |
+| `REWORK` | Developer/Documentation/Release Engineer | Most recent pipeline FAIL (direct self-rework), or downstream pipeline FAIL routed to this agent (downstream-triggered rework — Developer only, see §14.2) |
+| `WAIT_FOR_REWORK` | QA/Security Auditor/Reviewer | Most recent pipeline FAIL AND no upstream re-pass detected (`hasNewUpstreamPassSince` is false); another agent must fix first |
+| `WAIT_FOR_DOWNSTREAM` | Developer | Most recent implementation is PASS, a downstream pipeline (QA/security-audit/code-review) has FAILed, but the downstream agent has not yet re-engaged since the Developer's fix (`hasDownstreamReengagedSince` §14.13 is false). Developer should wait rather than starting redundant rework. See [§21.52](edge-cases.md#2152-developer-downstream-rework-churn-prevention). |
 | `WAIT` | Any | No actionable work available |
 | `RESUME_OR_CANCEL` | Any | Stale pipeline detected; decide whether to resume or cancel |
 | `BLOCK_FOR_REWORK_LIMIT` | Any pipeline owner | Per-pipeline rework limit reached; requires human intervention |
@@ -153,11 +177,13 @@ Multiple independent WPs (no mutual dependencies) can progress through the pipel
 | Create WP | Dependency not found | Referenced WP ID does not exist |
 | Create WP | Dependency cycle | Adding these dependencies would create a circular dependency |
 | Create WP | Empty criteria | At least one acceptance criterion required |
+| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, missing mandatory stages, duplicates, or violates canonical ordering (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
 | Claim WP | Wrong status | WP must be READY |
 | Claim WP | Dependencies not met | All deps must be terminal |
 | Claim WP | Assigned to other | Override required (PM or assignee only) |
 | Claim WP | Non-pipeline agent | Only pipeline-owning agents and PM may claim (see [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
 | Start Pipeline | WP not IN_PROGRESS | Pipeline requires active WP |
+| Start Pipeline | Pipeline type not active | `pipelineType` not in WP's `active_pipeline_stages` |
 | Start Pipeline | Duplicate IN_PROGRESS | Same type already active |
 | Start Pipeline | Prerequisite not met | Previous stage must be PASS |
 | Start Pipeline | Missing agent role | `agentRole` parameter is required |

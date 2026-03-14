@@ -10,7 +10,7 @@
 |------|-----------|
 | **Agent** | An AI persona with a specific role in the workflow |
 | **Work Package (WP)** | A discrete, trackable unit of work with acceptance criteria |
-| **Pipeline** | A single pass of a specific activity (implementation, QA, code-review, documentation) on a work package |
+| **Pipeline** | A single pass of a specific activity (implementation, QA, security-audit, code-review, release-engineering, documentation) on a work package |
 | **Handoff** | The transition of control from one agent to another |
 | **Root Index** | The project-level metadata file containing WP summaries and project status |
 | **Terminal Status** | A state from which no outward transitions are normally allowed. `CANCELLED` is strictly terminal. `COMPLETE` is *normally terminal* but may be reopened (see [§6.2](state-machines.md#62-transition-table)). |
@@ -58,19 +58,23 @@ WorkPackageSummary {
 
 ```
 WorkPackageDetail {
-  work_package_id:     string
-  work_package_file:   string
-  status:              WorkPackageStatus
-  assigned_to:         string
-  dependencies:        string[]
-  blocked_by:          Blocker?
-  acceptance_criteria:  AcceptanceCriterion[]  // min 1 entry
-  revision:            integer                 // Incremented on COMPLETE → IN_PROGRESS
-  rework_counts:       ReworkCounts?            // Per-pipeline-type rework counters
-  status_changed_at:   timestamp?              // Updated on every status transition (see §14.12)
-  handoff_notes:       HandoffNote[]?
-  pipelines:           Pipeline[]
+  work_package_id:         string
+  work_package_file:       string
+  status:                  WorkPackageStatus
+  assigned_to:             string
+  dependencies:            string[]
+  blocked_by:              Blocker?
+  acceptance_criteria:     AcceptanceCriterion[]  // min 1 entry
+  revision:                integer                 // Incremented on COMPLETE → IN_PROGRESS
+  rework_counts:           ReworkCounts?            // Per-pipeline-type rework counters
+  active_pipeline_stages:  PipelineType[]?          // Optional; defaults to MANDATORY_PIPELINE_TYPES when absent
+  status_changed_at:       timestamp?              // Updated on every status transition (see §14.12)
+  handoff_notes:           HandoffNote[]?
+  pipelines:               Pipeline[]
 }
+```
+
+> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `MANDATORY_PIPELINE_TYPES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1) and must include all mandatory types. See §9b.1 for validation rules.
 ```
 
 **WorkPackageStatus** = `READY` | `IN_PROGRESS` | `COMPLETE` | `BLOCKED` | `CANCELLED`
@@ -91,7 +95,7 @@ Pipeline {
 }
 ```
 
-**PipelineType** = `implementation` | `qa` | `code-review` | `documentation`
+**PipelineType** = `implementation` | `qa` | `security-audit` | `code-review` | `release-engineering` | `documentation`
 
 **PipelineStatus** = `IN_PROGRESS` | `PASS` | `FAIL`
 
@@ -116,10 +120,12 @@ Blocker {
 BlockerType = "dependency" | "decision" | "external" | "technical"
 
 ReworkCounts {
-  implementation:  integer?    // Default: 0
-  qa:              integer?    // Default: 0
-  code-review:     integer?    // Default: 0
-  documentation:   integer?    // Default: 0
+  implementation:       integer?    // Default: 0
+  qa:                   integer?    // Default: 0
+  security-audit:       integer?    // Default: 0 (only present when stage is active)
+  code-review:          integer?    // Default: 0
+  release-engineering:  integer?    // Default: 0 (only present when stage is active)
+  documentation:        integer?    // Default: 0
 }
 
 HandoffNote {
@@ -173,29 +179,45 @@ IncidentContext {
 
 ## 4. Agent Roles
 
-Seven roles, in workflow order:
+Nine roles, in workflow order:
 
 | # | Role | Responsibility |
 |---|------|---------------|
 | 1 | **Planner** | Creates the implementation plan document |
-| 2 | **Project Manager** | Decomposes plan into work packages, initializes ledger, manages blockers |
+| 2 | **Project Manager** | Decomposes plan into work packages, initializes ledger, manages blockers, selects active pipeline stages per WP |
 | 3 | **Developer** | Implements work packages (owns `implementation` pipeline) |
 | 4 | **QA** | Validates implementation (owns `qa` pipeline) |
-| 5 | **Reviewer** | Code quality & architecture review (owns `code-review` pipeline) |
-| 6 | **Documentation** | Updates documentation, marks WP COMPLETE (owns `documentation` pipeline) |
-| 7 | **Synthesis** | Generates final project report when all WPs are terminal |
+| 5 | **Security Auditor** | Security review & threat analysis (owns `security-audit` pipeline) — *optional stage* |
+| 6 | **Reviewer** | Code quality & architecture review (owns `code-review` pipeline) |
+| 7 | **Release Engineer** | Release curation & version management (owns `release-engineering` pipeline) — *optional stage* |
+| 8 | **Documentation** | Updates documentation, marks WP COMPLETE (owns `documentation` pipeline) |
+| 9 | **Synthesis** | Generates final project report when all WPs are terminal |
 
-The canonical role list is: `["Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"]`
+The canonical role list is: `["Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"]`
+
+> **Optional roles:** Security Auditor (#5) and Release Engineer (#7) are only engaged when their corresponding pipeline types are included in a work package's `active_pipeline_stages`. When these stages are not active, the pipeline skips directly from QA to Reviewer (skipping security-audit) and from Reviewer to Documentation (skipping release-engineering).
 
 ### 4.1 Pipeline Ownership
 
-Only four of the seven roles own pipeline types:
+Six of the nine roles own pipeline types:
 
-| Pipeline Type | Owning Agent |
-|--------------|-------------|
-| `implementation` | Developer |
-| `qa` | QA |
-| `code-review` | Reviewer |
-| `documentation` | Documentation |
+| Pipeline Type | Owning Agent | Required? |
+|--------------|-------------|----------|
+| `implementation` | Developer | Always |
+| `qa` | QA | Always |
+| `security-audit` | Security Auditor | Optional |
+| `code-review` | Reviewer | Always |
+| `release-engineering` | Release Engineer | Optional |
+| `documentation` | Documentation | Always |
 
 Planner, Project Manager, and Synthesis do not own any pipeline type.
+
+### 4.2 Pipeline Stage Categories
+
+```
+MANDATORY_PIPELINE_TYPES = ["implementation", "qa", "code-review", "documentation"]
+OPTIONAL_PIPELINE_TYPES  = ["security-audit", "release-engineering"]
+CANONICAL_PIPELINE_ORDERING = ["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]
+```
+
+The canonical ordering defines the fixed sequence in which pipeline types execute. A work package's `active_pipeline_stages` is always a subsequence of this ordering — stages can be omitted (optional stages only), but never reordered.

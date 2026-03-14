@@ -1,9 +1,9 @@
 # Agent Workflow Specification
 
-> **Purpose:** Language-agnostic specification of the 7-stage agent workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
+> **Purpose:** Language-agnostic specification of the 9-agent dynamic pipeline workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
 
-**Version:** 1.3.1  
-**Date:** 2026-02-27
+**Version:** 2.0.0  
+**Date:** 2026-03-08
 
 ---
 
@@ -61,18 +61,20 @@ Use the original section numbers to find content across the split files:
 
 ## 1. Overview
 
-The workflow orchestrates **seven specialized agent roles** to execute software development tasks. A **centralized ledger** persists project state, enabling agents to collaborate across independent sessions without losing context.
+The workflow orchestrates **nine specialized agent roles** to execute software development tasks. A **centralized ledger** persists project state, enabling agents to collaborate across independent sessions without losing context.
 
 The core progression is:
 
 ```
-Planner → Project Manager → Developer → QA → Reviewer → Documentation → Synthesis
+Planner → Project Manager → Developer → QA → [Security Auditor] → Reviewer → [Release Engineer] → Documentation → Synthesis
 ```
 
-Work is organized into **work packages** (WPs), each of which progresses through a fixed sequence of **pipelines**:
+Bracketed stages are **optional** — the Project Manager selects which pipeline stages are active for each work package at creation time via the `active_pipeline_stages` field. The four mandatory stages (`implementation`, `qa`, `code-review`, `documentation`) are always present.
+
+Work is organized into **work packages** (WPs), each of which progresses through a configurable sequence of **pipelines**:
 
 ```
-implementation → qa → code-review → documentation
+implementation → qa → [security-audit] → code-review → [release-engineering] → documentation
 ```
 
-Each pipeline is owned by a single agent role. Failures route back for rework. The system enforces ordering, validates transitions, and manages handoffs automatically.
+Each pipeline is owned by a single agent role. Failures route back for rework (to Developer for QA/security-audit/code-review FAILs; to self for documentation/release-engineering FAILs). The system enforces ordering, validates transitions, and manages handoffs automatically. Dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`) adapt the pipeline chain per WP based on its active stages.

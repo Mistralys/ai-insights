@@ -66,6 +66,7 @@ function createWorkPackage(root, wpData, agentRole):
     blocked_by: blockedBy,
     acceptance_criteria: wpData.acceptance_criteria,
     revision: 0,
+    active_pipeline_stages: wpData.active_pipeline_stages ?? null,  // See §9b.2
     pipelines: []
   }
 
@@ -88,6 +89,45 @@ function createWorkPackage(root, wpData, agentRole):
 ```
 
 > **No agent guard (§21.50):** Unlike `claimWorkPackage` (§10.1) and `startPipeline` (§11.1), WP creation does not enforce an agent role guard. In practice only the PM creates WPs; implementations that require stricter control MAY add a guard.
+
+### 9b.2 Active Pipeline Stages Validation
+
+When `active_pipeline_stages` is provided during WP creation:
+
+1. **All entries must be valid `PipelineType` values** — reject unknown pipeline type strings
+2. **All mandatory stages must be included** — `MANDATORY_PIPELINE_TYPES` (`["implementation", "qa", "code-review", "documentation"]`) must all be present in the provided list
+3. **List must be a subsequence of `CANONICAL_PIPELINE_ORDERING`** — the stages must appear in the same relative order as the canonical ordering. Reordering is never permitted.
+4. **No duplicates** — each pipeline type may appear at most once
+
+When `active_pipeline_stages` is omitted or `null`, it defaults to `MANDATORY_PIPELINE_TYPES` at read time (not stored as an explicit value). This ensures full backward compatibility with existing ledger files created before this field existed.
+
+```
+function validateActiveStages(stages):
+  if stages is null:
+    return    // null/absent is valid — uses default
+
+  // Rule 1: Valid types
+  for each stage in stages:
+    if stage not in CANONICAL_PIPELINE_ORDERING:
+      ERROR("Unknown pipeline type: {stage}")
+
+  // Rule 2: Mandatory stages present
+  for each mandatory in MANDATORY_PIPELINE_TYPES:
+    if mandatory not in stages:
+      ERROR("Mandatory pipeline stage '{mandatory}' must be included")
+
+  // Rule 3: Subsequence of canonical ordering
+  lastIndex = -1
+  for each stage in stages:
+    index = CANONICAL_PIPELINE_ORDERING.indexOf(stage)
+    if index <= lastIndex:
+      ERROR("Active stages must follow canonical ordering")
+    lastIndex = index
+
+  // Rule 4: No duplicates
+  if stages.length != unique(stages).length:
+    ERROR("Duplicate pipeline type in active_pipeline_stages")
+```
 
 ---
 
@@ -332,12 +372,18 @@ function startPipeline(wp, root, pipelineType, agentRole):
   if wp.status != "IN_PROGRESS":
     ERROR("WP status must be IN_PROGRESS")
   
+  // Guard: Pipeline type must be in the WP's active stages
+  activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+  if pipelineType not in activeStages:
+    ERROR("Pipeline type '{pipelineType}' is not active for this work package. "
+          + "Active stages: {activeStages}")
+  
   // Guard: No duplicate IN_PROGRESS pipeline of same type  
   if hasDuplicateInProgress(wp, pipelineType):
     ERROR("Duplicate in-progress pipeline")
   
-  // Guard: Prerequisites must be met
-  prerequisite = PIPELINE_PREREQUISITES[pipelineType]
+  // Guard: Prerequisites must be met (dynamic resolution — §8.1.1)
+  prerequisite = resolvePrerequisite(pipelineType, activeStages)
   if prerequisite is not null:
     prereqPipelines = wp.pipelines.filter(p => p.type == prerequisite)
     if prereqPipelines is empty OR prereqPipelines.last().status != "PASS":
@@ -363,19 +409,17 @@ function startPipeline(wp, root, pipelineType, agentRole):
         // Check for a FAIL downstream of the prerequisite — this includes
         // the current pipeline type itself, since it is downstream of its own
         // prerequisite. Using `prerequisite` (not `pipelineType`) is intentional:
-        // getDownstreamTypes(prerequisite) includes the current type, so a FAIL
-        // of the current type (e.g., review-1 FAIL) is correctly detected.
-        // Note: hasDownstreamFail checks types *downstream* of position, not
-        // the position itself (see §8.4). The prerequisite type is included in
-        // the result only when the current type == prerequisite, which cannot
-        // happen (a pipeline cannot be its own prerequisite per §8.1).
-        if hasDownstreamFail(wp.pipelines, prerequisite):
+        // getDownstreamTypes(prerequisite, activeStages) includes the current
+        // type, so a FAIL of the current type (e.g., review-1 FAIL) is
+        // correctly detected. The activeStages parameter ensures only active
+        // stages are considered downstream.
+        if hasDownstreamFail(wp.pipelines, prerequisite, activeStages):
           // Upstream activity check: Only block if actual upstream rework occurred.
           // Without this, self-rework of a pipeline type (e.g., documentation
           // retrying after its own FAIL) would be incorrectly blocked — the
           // downstream fail is the current type itself, not evidence of stale
           // upstream work. See §8.5 for getUpstreamTypes.
-          upstreamTypes = getUpstreamTypes(pipelineType)
+          upstreamTypes = getUpstreamTypes(pipelineType, activeStages)
           hasUpstreamRework = upstreamTypes.any(type =>
             wp.pipelines.any(p => p.type == type
               AND p.started_at > prereqPass.completed_at))
@@ -404,10 +448,14 @@ function startPipeline(wp, root, pipelineType, agentRole):
   // (effectiveSamePipelines already computed above in re-validation guard —
   // auto-cancelled pipelines excluded per §21.27)
   isDirectRework = effectiveSamePipelines is not empty AND effectiveSamePipelines.last().status == "FAIL"
-  isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType)
+  isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType, activeStages)
   
   if isDirectRework OR isDownstreamRework:
-    counts = wp.rework_counts ?? { implementation: 0, qa: 0, code-review: 0, documentation: 0 }
+    counts = wp.rework_counts ?? {}
+    // Initialize missing entries to 0 for active stages only
+    for each stage in activeStages:
+      if counts[stage] is undefined:
+        counts[stage] = 0
     counts[pipelineType] = (counts[pipelineType] ?? 0) + 1
     wp.rework_counts = counts
     
@@ -491,10 +539,11 @@ The `rework_counts` map is absent (`null`/`undefined`) until the first rework on
 ### 11.3 Downstream Fail Detection
 
 ```
-function hasDownstreamFail(pipelines, pipelineType):
-  // Get the ordered list of downstream pipeline types
-  downstreamTypes = getDownstreamTypes(pipelineType)
-  // e.g., for "implementation": ["qa", "code-review", "documentation"]
+function hasDownstreamFail(pipelines, pipelineType, activeStages?):
+  // Get the ordered list of downstream pipeline types (filtered to active stages)
+  downstreamTypes = getDownstreamTypes(pipelineType, activeStages)
+  // e.g., for "implementation" with default stages: ["qa", "code-review", "documentation"]
+  // e.g., for "implementation" with all stages: ["qa", "security-audit", "code-review", "release-engineering", "documentation"]
   
   for each dsType in downstreamTypes:
     // Exclude auto-cancelled pipelines — they represent external interruptions
@@ -572,13 +621,14 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
   // Handoff notes
   if opts.handoff_notes is provided:
     // Use actual agent when PM override is active for accurate audit trail.
-    // Routing (to_agent) still uses the standard routing maps.
+    // Routing (to_agent) still uses the standard routing maps/functions.
     if agentRole != expectedRole:
       fromAgent = agentRole
     else:
       fromAgent = PIPELINE_AGENT_MAP[pipelineType]
+    activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
     if status == "PASS":
-      toAgent = NEXT_AGENT_MAP[pipelineType]
+      toAgent = resolveNextAgent(pipelineType, activeStages)   // §9.2
     else:  // FAIL
       toAgent = FAIL_ROUTING_MAP[pipelineType]
     
@@ -595,18 +645,24 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
 
 ### 12.2 Handoff Note Routing Summary
 
-```
-On PASS:
-  implementation → QA
-  qa             → Reviewer
-  code-review    → Documentation
-  documentation  → Synthesis
+PASS routing is **dynamic** — it depends on the WP's `active_pipeline_stages` and is computed by `resolveNextAgent` (§9.2). FAIL routing is **static** via `FAIL_ROUTING_MAP` (§9.3).
 
-On FAIL:
-  implementation → Developer (self-rework)
-  qa             → Developer
-  code-review    → Developer
-  documentation  → Documentation (self-rework)
+```
+On PASS (default 4 stages):          On PASS (all 6 stages):
+  implementation → QA                  implementation    → QA
+  qa             → Reviewer            qa                → Security Auditor
+  code-review    → Documentation       security-audit    → Reviewer
+  documentation  → Synthesis           code-review       → Release Engineer
+                                       release-engineering → Documentation
+                                       documentation     → Synthesis
+
+On FAIL (always static):
+  implementation       → Developer (self-rework)
+  qa                   → Developer
+  security-audit       → Developer
+  code-review          → Developer
+  release-engineering  → Release Engineer (self-rework)
+  documentation        → Documentation (self-rework)
 ```
 
 ### 12.3 Acceptance Criteria Merge Semantics

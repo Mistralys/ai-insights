@@ -67,9 +67,9 @@
 
 Only the Documentation agent can mark a WP as COMPLETE. Additionally, the most recent `documentation` pipeline must have PASS status, **and** that PASS must post-date the most recent `implementation` pipeline's `started_at` timestamp. This freshness check prevents a stale documentation PASS (from before a WP reopen) from satisfying the COMPLETE guard. Together these enforce the full pipeline chain:
 ```
-Developer → QA → Reviewer → Documentation → COMPLETE
+Developer → QA → [Security Auditor] → Reviewer → [Release Engineer] → Documentation → COMPLETE
 ```
-No agent can skip stages, Documentation cannot mark COMPLETE without having completed its own pipeline successfully, and a WP reopen invalidates any prior documentation PASS.
+Optional stages (in brackets) are skipped when not in the WP's `active_pipeline_stages`. No agent can skip active stages, Documentation cannot mark COMPLETE without having completed its own pipeline successfully, and a WP reopen invalidates any prior documentation PASS.
 
 > **Absent implementation pipeline:** If no `implementation` pipeline exists on the WP (which would require bypassing the normal pipeline ordering — see §8.1), the freshness check passes vacuously. The guard's purpose is to detect stale documentation after a WP reopen; without an implementation pipeline, there is no reopen reference point to compare against. Implementations MAY treat this as an invariant violation and reject the transition, but the core specification does not require it.
 
@@ -113,7 +113,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 ### 21.16 Per-Pipeline Rework Counts
 
 - The `rework_counts` map tracks rework cycles independently per pipeline type
-- Documentation self-rework does not consume the implementation rework budget
+- Documentation and release-engineering self-rework do not consume the implementation rework budget — they increment only `rework_counts.documentation` and `rework_counts.release-engineering` respectively
 - Downstream-triggered rework (e.g., QA fails → Developer restarts implementation) increments the **pipeline type being started** (implementation), not the pipeline that failed (qa)
 - In a QA-fail rework chain, both `rework_counts.implementation` and `rework_counts.qa` increment per cycle — each counter independently tracks how many times that pipeline type has been retried (see [§11.2](operations.md#112-rework-count-semantics))
 - Legacy `rework_count` scalar is migrated to `rework_counts.implementation` on first write
@@ -309,7 +309,7 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 - When the Project Manager uses the override to complete a pipeline (§12.1, §12.4), the handoff note's `from_agent` is set to `"Project Manager"` (the actual acting agent), not the pipeline owner
 - This ensures the audit trail accurately reflects who took the action, which is especially important for operational recovery scenarios (e.g., PM force-failing a stale pipeline)
-- The `to_agent` field still uses the standard routing maps (`NEXT_AGENT_MAP` for PASS, `FAIL_ROUTING_MAP` for FAIL), preserving correct routing semantics
+- The `to_agent` field still uses the standard routing maps (`resolveNextAgent` §9.2 for PASS, `FAIL_ROUTING_MAP` §9.3 for FAIL), preserving correct routing semantics
 - In non-override scenarios, `from_agent` remains the pipeline owner per `PIPELINE_AGENT_MAP`, which is the expected behavior
 
 ### 21.42 Transitive Cascade Reblock Limitation
@@ -370,7 +370,7 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
    - Add or update the WP's `blocked_by` if the rework depends on external factors
 2. **Pipeline agents re-engage:** Once the PM has set up the rework context:
    - The Developer should be routed to the WP (via handoff or recommendation engine) to start a new implementation pipeline
-   - QA, Reviewer, and Documentation should re-engage in sequence after implementation re-PASSes. The recommendation engine's `hasNewUpstreamPassSince` ([§14.6](handoff-and-recommendations.md#146-hasnewupstreampasssince-algorithm)) correctly detects the new upstream PASS and advises re-engagement, but the re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) does not provide hard enforcement for the WP reopen case (see "Known limitation — WP reopen scenario" in §11.1.1)
+   - QA, Security Auditor (when active), Reviewer, Release Engineer (when active), and Documentation should re-engage in sequence after implementation re-PASSes. The recommendation engine's `hasNewUpstreamPassSince` ([§14.6](handoff-and-recommendations.md#146-hasnewupstreampasssince-algorithm)) correctly detects the new upstream PASS and advises re-engagement, but the re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) does not provide hard enforcement for the WP reopen case (see "Known limitation — WP reopen scenario" in §11.1.1)
 3. **Without PM intervention:** If the PM (or Documentation agent who initiated the reopen) does not set up rework context:
    - All prior pipelines remain PASS — no agent receives rework/implement recommendations
    - The Documentation agent receives `FINALIZE_WP` (§14.5) because all acceptance criteria are still met and the old documentation PASS satisfies the freshness check against the old implementation start
@@ -382,7 +382,7 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
 
 ### 21.49 Agent Role Guard on Work Package Claiming
 
-- The `claimWorkPackage` function ([§10.1](operations.md#101-algorithm)) restricts claiming to **pipeline-owning agents** (Developer, QA, Reviewer, Documentation) and the **Project Manager**
+- The `claimWorkPackage` function ([§10.1](operations.md#101-algorithm)) restricts claiming to **pipeline-owning agents** (Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation) and the **Project Manager**
 - Non-pipeline agents (Planner, Synthesis) cannot claim WPs — they have no pipeline types to start (§4.1), so a WP claimed by them would be stranded in IN_PROGRESS with no pipeline activity until the PM notices via `REVIEW_ABANDONED` ([§14.1.2](handoff-and-recommendations.md#1412-project-manager-action-logic))
 - This guard is consistent with the spec's enforcement philosophy: pipeline agent guards exist on `startPipeline` ([§11.1.2](operations.md#1112-agent-role-validation)) and `completePipeline` ([§12.4](operations.md#124-agent-role-validation-on-completion)), and the claiming guard extends this to the entry point of the WP lifecycle
 - The PM is permitted to claim on behalf of any pipeline-owning agent (e.g., re-claiming an abandoned WP), consistent with the PM override pattern used throughout the spec
@@ -420,10 +420,12 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
 - The circuit breaker (§16.3) is evaluated **per pipeline type** — reaching the limit on `implementation` does not directly block `qa`, `code-review`, or `documentation` rework. However, when an upstream pipeline is circuit-broken, downstream agents performing new work against a stale upstream PASS produces wasted effort: the downstream pipeline will likely FAIL, incrementing the downstream rework counter without any possibility of upstream correction through normal channels
 - **Example:** `rework_counts.implementation` reaches `MAX_REWORK_COUNT` (5). `startPipeline(type=implementation)` is now rejected. But QA's `getNextAction` still returns `RUN_QA` (re-engagement or first run) because QA's priority checks only examine whether the most recent `implementation` pipeline is PASS — they do not verify that implementation can still be reworked if QA fails. QA runs, fails (the underlying implementation issue persists), and `rework_counts.qa` increments. This repeats until `rework_counts.qa` also reaches 5, wasting up to 5 QA cycles
 - **Resolution:** The recommendation engine for downstream agents (QA §14.3, Reviewer §14.4, Documentation §14.5) includes a **WAIT_FOR_UPSTREAM_REWORK_LIMIT** priority (1b), evaluated immediately after the agent's own rework limit check (priority 1). This check examines `rework_counts` for all pipeline types upstream of the current agent's owned type (using `getUpstreamTypes` §8.5). If any upstream type has reached `MAX_REWORK_COUNT`, the agent receives `WAIT` with a diagnostic note identifying the circuit-broken upstream type, rather than a `RUN_*` recommendation
-- **Upstream type resolution per agent:**
+- **Upstream type resolution per agent** (dynamically determined via `getUpstreamTypes(ownedType, wp.active_pipeline_stages)`):
   - **QA** checks: `implementation`
-  - **Reviewer** checks: `implementation`, `qa`
-  - **Documentation** checks: `implementation`, `qa`, `code-review`
+  - **Security Auditor** checks: `implementation`, `qa`
+  - **Reviewer** checks: `implementation`, `qa` (plus `security-audit` when active)
+  - **Release Engineer** checks: `implementation`, `qa`, `code-review` (plus `security-audit` when active)
+  - **Documentation** checks: `implementation`, `qa`, `code-review` (plus `security-audit` and/or `release-engineering` when active)
 - The PM's `REVIEW_REWORK_LIMIT` action (§14.1.2 priority 2) already surfaces circuit-broken WPs for PM intervention (cancel or restructure). The upstream propagation prevents downstream agents from doing useless work while the PM decides
 - This does **not** affect `startPipeline` guards — the `startPipeline` function (§11.1) continues to enforce the circuit breaker only on the pipeline type being started, not on upstream types. The propagation is advisory (recommendation engine only), consistent with the spec's pattern of soft enforcement via recommendations and hard enforcement via tool guards
 ### 21.54 Canonical "Dependency-Blocked" Definition
@@ -437,3 +439,18 @@ This definition checks the `blocked_by` metadata, not the `dependencies` array. 
 The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different criterion: it checks whether all entries in the `dependencies` array are terminal, regardless of `blocked_by.type`. These two definitions intentionally differ — auto-unblock is structural (based on the dependency graph), while handoff/recommendation filtering is metadata-based (based on the recorded blocker type).
 
 > **Implementation note:** When filtering "non-dependency-blocked" WPs in handoff and recommendation functions, use `wp.status != "BLOCKED" OR wp.blocked_by.type != "dependency"`. Do not substitute a check against the `dependencies` array — this would miss WPs blocked by PM-set dependency blockers that do not correspond to formal dependencies.
+
+### 21.55 Optional Pipeline Stage Backward Compatibility
+
+- WPs created before v2.0.0 (or created without specifying `active_pipeline_stages`) default to the 4 mandatory stages: `["implementation", "qa", "code-review", "documentation"]`
+- When `active_pipeline_stages` is `null` or absent, all dynamic functions (`resolvePrerequisite`, `resolveNextAgent`, `getUpstreamTypes`, `getDownstreamTypes`) fall back to the mandatory-only behavior — equivalent to the static routing of v1.x
+- Optional stages (`security-audit`, `release-engineering`) only become active when explicitly included in the WP's `active_pipeline_stages` at creation time
+- Pipeline agents for optional stages (Security Auditor, Release Engineer) filter their recommendation and handoff logic to only consider WPs where their owned stage is in `active_pipeline_stages`. WPs without their stage are invisible to these agents
+- **No mid-flight stage addition:** `active_pipeline_stages` is set at WP creation and cannot be modified thereafter. If the PM discovers mid-project that a WP needs security auditing, the PM must cancel and recreate the WP with the correct stages (losing pipeline history), or manually route work via project comments and PM overrides. This limitation is consistent with the immutable-dependencies design (§15.2) and keeps the pipeline routing deterministic throughout a WP's lifecycle
+- **Mixed-stage projects:** A single project may contain WPs with different `active_pipeline_stages` configurations. For example, security-critical WPs may include `security-audit` while documentation-only WPs use the 4 mandatory stages. Each WP's routing is independent — the pipeline ordering is per-WP, not per-project
+
+### 21.56 Release Engineering FAIL Self-Referential Handoff
+
+- When a release-engineering pipeline FAILs, the `FAIL_ROUTING_MAP` routes to Release Engineer (self-rework), producing a handoff note where `from_agent == to_agent == "Release Engineer"`
+- This follows the same self-referential handoff pattern as Documentation (§21.29) — the note serves as an audit trail and provides failure context for new Release Engineer instances in multi-session workflows
+- The escalation path for code-level issues discovered during release engineering uses the BLOCKED mechanism with a `technical` blocker, consistent with the Documentation escalation path (§21.24)
