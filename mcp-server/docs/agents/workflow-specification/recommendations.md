@@ -42,7 +42,7 @@ Priority order:
 2. **REVIEW_REWORK_LIMIT**: Any WP has `rework_counts[*] >= MAX_REWORK_COUNT` — PM must cancel or restructure
 3. **REVIEW_STALE**: Any WP has a stale IN_PROGRESS pipeline (>24h) — PM should coordinate with the assigned agent
 3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) AND the WP has been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` (measured via `root.last_updated` for the WP's claiming transition or, if available, the WP detail's most recent status-change timestamp) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
-3c. **REPAIR_ORPHAN_BLOCKED**: Any WP is BLOCKED with a `dependency` blocker (or absent blocker type) but all its formal dependencies are terminal — the WP should have been auto-unblocked by `propagateDependencyUnblock` (§15.4) but wasn't, likely due to a crash during the cascade lock gap (§20.4). PM should auto-repair (transition to READY) or manually unblock.
+3c. **REPAIR_ORPHAN_BLOCKED**: Any WP is BLOCKED with a `dependency` blocker (or absent blocker type) but all its formal dependencies are terminal — the WP should have been auto-unblocked by `propagateDependencyUnblock` (§15.4) but wasn't, likely due to an interruption during the cascade lock gap (§20.4). PM should transition it to READY or manually unblock.
 4. **CREATE_WORK_PACKAGES**: No WPs exist yet (also covered by §14.1 common pre-check)
 5. **WAIT**: No actionable items
 
@@ -63,29 +63,15 @@ function getPMAction(root, store):
   for each IN_PROGRESS WP with any stale pipeline:
     return REVIEW_STALE with wp.id, pipeline type, age
   
-  // Priority 3b: Abandoned WPs (claimed but no pipeline activity)
-  // Grace period: only flag if the WP has been IN_PROGRESS for at least
-  // STALE_PIPELINE_HOURS, to avoid false positives on freshly claimed WPs.
-  // Use the WP detail's last status-change timestamp or, as a fallback,
-  // compare root.last_updated against the staleness threshold.
+  // Priority 3b: Abandoned WPs (see notes below)
   for each IN_PROGRESS WP with no IN_PROGRESS pipeline:
-    // Use mostRecentEffectivePipeline (§14.11) to exclude auto-cancelled pipelines,
-    // whose completed_at reflects cascade reblock time, not real work activity.
     effectivePipeline = mostRecentEffectivePipeline(wp)
     if wp.pipelines is empty OR effectivePipeline is null OR effectivePipeline.completed_at < (now() - STALE_PIPELINE_HOURS):
       if wpClaimedDuration(wp) < STALE_PIPELINE_HOURS:
-        continue    // Grace period — WP was recently claimed
+        continue
       return REVIEW_ABANDONED with wp.id, wp.assigned_to
   
-  // Priority 3c: Orphan-blocked WPs (cascade lock gap recovery — §21.20)
-  // Detect WPs that should have been auto-unblocked but weren't (e.g., crash
-  // during the lock gap between the main update and cascade execution).
-  // ⚠ Corruption caveat: If blocked_by is null due to data corruption
-  // (rather than a missing dependency blocker), this check may incorrectly
-  // auto-repair a WP that should have a non-dependency blocker (e.g.,
-  // technical). The condition targets the cascade-crash scenario specifically;
-  // other corruption patterns may produce false positives. The PM should
-  // verify the WP's blocking reason before confirming the repair.
+  // Priority 3c: Orphan-blocked WPs (see notes below)
   for each WP with status == "BLOCKED":
     wpDetail = readWorkPackage(wp.id)
     if wpDetail.blocked_by is null OR wpDetail.blocked_by.type == "dependency":
@@ -98,6 +84,10 @@ function getPMAction(root, store):
   
   return WAIT
 ```
+
+> **Priority 3b notes:** Grace period — only flag if the WP has been IN_PROGRESS for at least `STALE_PIPELINE_HOURS`, to avoid false positives on freshly claimed WPs. Uses the WP detail's last status-change timestamp or, as a fallback, compares `root.last_updated` against the staleness threshold. `mostRecentEffectivePipeline` (§14.11) excludes auto-cancelled pipelines, whose `completed_at` reflects cascade reblock time, not real work activity.
+>
+> **Priority 3c notes (§21.20):** Detects WPs that should have been auto-unblocked by `propagateDependencyUnblock` (§15.4) but weren't — e.g., due to a process interruption during the cascade lock gap (§20.4). **Data-integrity caveat:** If `blocked_by` is null due to data-integrity issues (rather than a missing dependency entry), this check may incorrectly transition a WP that should have a non-dependency hold (e.g., technical). The condition targets the cascade-interruption scenario specifically; other data anomalies may produce false positives. The PM should verify the WP's hold reason before confirming the repair.
 
 ### 14.2 Developer Action Logic
 
@@ -128,25 +118,13 @@ function getDeveloperAction(root, store):
   for each IN_PROGRESS WP with active (non-stale) implementation pipeline:
     return CONTINUE_PIPELINE with wp.id, pipeline info
   
-  // Priority 4: Direct rework (most recent implementation is FAIL)
-  // ⚠ ORDERING DEPENDENCY: This priority MUST remain above priority 5.
-  // Priority 5 only checks downstream pipeline types (qa, code-review);
-  // a direct implementation FAIL is not caught by priority 5's
-  // isMostRecentPipelineFail check on downstream types. If priorities
-  // 4 and 5 were reordered, direct implementation FAILs would fall
-  // through to priority 6/7 instead of being caught as rework.
+  // Priority 4: Direct rework — see ordering note below
   for each IN_PROGRESS WP where isMostRecentPipelineFail("implementation"):
     if WP is dependency-blocked: skip
     return REWORK
   
-  // Priority 5: Downstream-triggered rework (impl PASS, but QA/security-audit/review FAIL)
-  // Only check types whose FAIL routes to Developer per FAIL_ROUTING_MAP (§9.3).
-  // Documentation and release-engineering FAILs route to self-rework and are excluded.
-  // Temporal guard: skip if the Developer has already delivered a fix (new
-  // implementation PASS) but the downstream agent has not yet re-engaged
-  // to validate it (see §14.13, §21.52).
-  // Note: Only check security-audit for WPs where it is active.
-  developerReworkTypes = ["qa", "code-review"]   // Always checked
+  // Priority 5: Downstream-triggered rework — see routing note below
+  developerReworkTypes = ["qa", "code-review"]
   for each IN_PROGRESS WP:
     activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
     wpReworkTypes = developerReworkTypes
@@ -155,7 +133,7 @@ function getDeveloperAction(root, store):
     if any type in wpReworkTypes has isMostRecentPipelineFail(type):
       if WP is dependency-blocked: skip
       if NOT hasDownstreamReengagedSince(wp.pipelines, "implementation"):
-        continue    // Developer's fix delivered; downstream hasn't re-engaged yet
+        continue
       return REWORK with downstream_triggered = true
   
   // Priority 5b: Delivered rework awaiting downstream re-engagement
@@ -183,12 +161,16 @@ function getDeveloperAction(root, store):
   return WAIT
 ```
 
+> **Priority 4 ordering dependency:** Priority 4 MUST remain above priority 5. Priority 5 only checks downstream pipeline types (qa, code-review); a direct implementation FAIL is not caught by priority 5's `isMostRecentPipelineFail` check on downstream types. If priorities 4 and 5 were reordered, direct implementation FAILs would fall through to priority 6/7 instead of being caught as rework.
+>
+> **Priority 5 routing notes:** Only check types whose FAIL routes to Developer per `FAIL_ROUTING_MAP` (§9.3). Documentation and release-engineering FAILs route to self-rework and are excluded. Temporal guard: skip if the Developer has already delivered a fix (new implementation PASS) but the downstream agent has not yet re-engaged to validate it (see §14.13, §21.52). Only check `security-audit` for WPs where it is active.
+
 ### 14.3 QA Action Logic
 
 Same priority pattern as Developer, applied to `qa` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[qa] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: WP has `rework_counts[implementation] >= MAX_REWORK_COUNT` — the upstream pipeline is circuit-broken; QA should not run against a stale implementation that can no longer be reworked. Returns `WAIT` with a note indicating the upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: WP has `rework_counts[implementation] >= MAX_REWORK_COUNT` — the upstream pipeline is rework-limited; QA should not run against a stale implementation that can no longer be reworked. Returns `WAIT` with a note indicating the upstream rework limiter is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale QA pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `qa` pipeline
 4. **RUN_QA** (re-engagement after rework): WP has at least one prior `qa` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
@@ -205,7 +187,7 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 Same pattern, applied to `code-review` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[code-review] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("code-review", wp.active_pipeline_stages)` — at minimum `implementation` and `qa`, plus `security-audit` when active) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Reviewer should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("code-review", wp.active_pipeline_stages)` — at minimum `implementation` and `qa`, plus `security-audit` when active) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is rework-limited; Reviewer should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream rework limiter is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `code-review` pipeline
 4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` is true — where `effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)` (i.e., `"security-audit"` when active, `"qa"` otherwise). Upstream re-passed after previous review; Reviewer should re-engage regardless of previous review result
@@ -220,7 +202,7 @@ Same pattern, applied to `code-review` pipelines:
 Same pattern, applied to `documentation` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[documentation] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("documentation", wp.active_pipeline_stages)` — at minimum `implementation`, `qa`, and `code-review`, plus `security-audit` and/or `release-engineering` when active) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is circuit-broken; Documentation should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("documentation", wp.active_pipeline_stages)` — at minimum `implementation`, `qa`, and `code-review`, plus `security-audit` and/or `release-engineering` when active) has `rework_counts[type] >= MAX_REWORK_COUNT` — an upstream pipeline is rework-limited; Documentation should not run against results that can no longer be reworked through normal channels. Returns `WAIT` with a note indicating which upstream rework limiter is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale documentation pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `documentation` pipeline
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
@@ -243,7 +225,7 @@ Only active for WPs that include `security-audit` in their `active_pipeline_stag
 Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[security-audit] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation` or `qa`) has `rework_counts[type] >= MAX_REWORK_COUNT` — the upstream pipeline is circuit-broken; Security Auditor should not run against stale implementation/QA results. Returns `WAIT` with a note indicating the upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation` or `qa`) has `rework_counts[type] >= MAX_REWORK_COUNT` — the upstream pipeline is rework-limited; Security Auditor should not run against stale implementation/QA results. Returns `WAIT` with a note indicating the upstream rework limiter is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale security-audit pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `security-audit` pipeline
 4. **RUN_SECURITY_AUDIT** (re-engagement after rework): WP has at least one prior `security-audit` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("qa", "security-audit")` is true — QA re-passed after previous security audit; Security Auditor should re-engage
@@ -260,7 +242,7 @@ Only active for WPs that include `release-engineering` in their `active_pipeline
 Same self-rework pattern as Documentation (§14.5), applied to `release-engineering` pipelines:
 
 1. **BLOCK_FOR_REWORK_LIMIT**: WP has `rework_counts[release-engineering] >= MAX_REWORK_COUNT`
-1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("release-engineering", wp.active_pipeline_stages)` — at minimum `implementation`, `qa`, and `code-review`, plus `security-audit` when active) has `rework_counts[type] >= MAX_REWORK_COUNT`. Returns `WAIT` with a note indicating which upstream circuit breaker is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
+1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (determined dynamically via `getUpstreamTypes("release-engineering", wp.active_pipeline_stages)` — at minimum `implementation`, `qa`, and `code-review`, plus `security-audit` when active) has `rework_counts[type] >= MAX_REWORK_COUNT`. Returns `WAIT` with a note indicating which upstream rework limiter is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale release-engineering pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `release-engineering` pipeline
 4. **REWORK**: most recent release-engineering is FAIL (self-rework — Release Engineer fixes release/packaging issues)
@@ -277,7 +259,6 @@ Determines whether a downstream agent should (re-)engage after an upstream rewor
 
 ```pseudocode
 function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
-  // Find most recent upstream PASS
   upstreamPass = pipelines
     .filter(p => p.type == upstreamType AND p.status == "PASS")
     .last()
@@ -285,39 +266,26 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
   if upstreamPass is null:
     return false              // Upstream not yet passed
   
-  // Find most recent downstream pipeline (any status), excluding auto-cancelled
-  // (auto-cancelled pipelines are external interruptions, not quality signals)
+  // Exclude auto-cancelled pipelines (see notes below)
   downstreamLatest = pipelines
     .filter(p => p.type == downstreamType AND NOT p.auto_cancelled)
     .last()
   
   if downstreamLatest is null:
-    return true               // First run — trigger
-  
-  // NOTE: The `true` return when no downstream pipeline exists means that
-  // callers using `hasNewUpstreamPassSince` with an OR-ed "no downstream yet"
-  // condition have a redundant first disjunct — the function already returns
-  // `true` for first-run scenarios. This is intentional: the function's
-  // contract is "should the downstream (re-)engage?", which is always yes
-  // when no downstream pipeline has ever run. Callers that need to distinguish
-  // "first run" from "re-engagement after rework" must add an explicit
-  // prior-pipeline-exists guard (see §14.3 priority 4 and §14.4 priority 4
-  // for examples of this pattern).
+    return true               // First run — should engage
 
-  // Both timestamps must be present
   if upstreamPass.completed_at is null OR downstreamLatest.started_at is null:
     log warning: "Missing timestamp in pipeline comparison for WP {wp.id}; "
-                 + "defaulting to false (no rework trigger). "
-                 + "This indicates a data integrity issue."
-    return false              // Conservative: don't trigger without timestamps
-    // NOTE: This conservative default may cause the downstream agent to
-    // permanently receive WAIT_FOR_REWORK instead of RUN_* (re-engagement),
-    // effectively blocking progress until timestamps are repaired.
-    // See §21.18 for the full implications and recommended mitigations.
+                 + "defaulting to false. This indicates a data integrity issue."
+    return false              // Conservative: don't proceed without timestamps
   
-  // Upstream completed AT or AFTER downstream started → rework cycle
+  // Upstream completed AT or AFTER downstream started — rework cycle
   return upstreamPass.completed_at >= downstreamLatest.started_at
 ```
+
+> **First-run `true` return:** The `true` return when no downstream pipeline exists means that callers using `hasNewUpstreamPassSince` with an OR-ed "no downstream yet" condition have a redundant first disjunct — the function already returns `true` for first-run scenarios. This is intentional: the function's contract is "should the downstream (re-)engage?", which is always yes when no downstream pipeline has ever run. Callers that need to distinguish "first run" from "re-engagement after rework" must add an explicit prior-pipeline-exists guard (see §14.3 priority 4 and §14.4 priority 4 for examples of this pattern).
+>
+> **Missing-timestamp fallback:** This conservative default may cause the downstream agent to permanently receive WAIT_FOR_REWORK instead of RUN_* (re-engagement), effectively stalling progress until timestamps are repaired. See §21.18 for the full implications and recommended mitigations.
 
 > **`>=` comparison note:** The `>=` operator (rather than `>`) is intentionally conservative. If both timestamps are identical (possible with low-resolution clocks or in tests), the function returns `true` — treating coincident events as requiring re-engagement. This may cause a single extra pipeline cycle in edge cases but ensures that borderline timing never silently skips a re-validation.
 
@@ -327,12 +295,13 @@ function hasNewUpstreamPassSince(pipelines, upstreamType, downstreamType):
 
 ```pseudocode
 function isMostRecentPipelineFail(pipelines, pipelineType):
-  // Exclude auto-cancelled pipelines — external interruptions are not quality failures
   matching = pipelines.filter(p => p.type == pipelineType AND NOT p.auto_cancelled)
   if matching is empty:
     return false
   return matching.last().status == "FAIL"
 ```
+
+Auto-cancelled pipelines are excluded because they represent external interruptions, not quality signals.
 
 | Pipeline History | Result |
 |-----------------|--------|
@@ -356,7 +325,7 @@ function isStalePipeline(pipeline):
   return ageHours > STALE_PIPELINE_HOURS
 ```
 
-> **Known limitation:** Stale pipeline detection only triggers when an agent of the appropriate role calls `getNextAction`. If an agent crashes 1 hour into a pipeline, the WP sits idle until either (a) the 24-hour threshold is reached and another agent of the same role queries, or (b) a different agent notices the WP is not progressing.
+> **Known limitation:** Stale pipeline detection only triggers when an agent of the appropriate role calls `getNextAction`. If an agent terminates unexpectedly 1 hour into a pipeline, the WP sits idle until either (a) the 24-hour threshold is reached and another agent of the same role queries, or (b) a different agent notices the WP is not progressing.
 >
 > **Mitigation:** Implementations may optionally expose a "check stale now" action for the Project Manager role, allowing the PM to trigger stale detection on demand. This does not change the state machine — it simply allows the PM to invoke the stale-check logic at any time rather than waiting for the threshold.
 
@@ -395,25 +364,21 @@ Returns how long a WP has been in its current IN_PROGRESS state. Used by the PM'
 
 ```pseudocode
 function wpClaimedDuration(wp):
-  // Prefer WP detail's last status-change timestamp if tracked by the implementation.
-  // Fallback: use the WP's most recent pipeline start or the root index's last_updated
-  // as a proxy for when the WP was claimed.
   if wp.status_changed_at is not null:
     return now() - wp.status_changed_at
   
-  // Fallback: find the earliest pipeline started_at on the WP as a lower bound.
-  // If no pipelines exist (the scenario we're detecting), fall back to root.last_updated.
+  // Fallback: earliest pipeline started_at as a lower bound
   allPipelines = wp.pipelines.filter(p => p.started_at is not null)
   if allPipelines is not empty:
     return now() - allPipelines.first().started_at
   
-  // Final fallback: root.last_updated (imprecise but conservative)
+  // Final fallback (imprecise — see note below)
   return now() - root.last_updated
 ```
 
 > **Implementation note:** The `status_changed_at` field is part of the `WorkPackageDetail` schema (§3.3) as an optional field. Implementations MUST update this field on every WP status transition (inside `updateWorkPackageStatus` §10b.1 and `claimWorkPackage` §10.1) to ensure accurate claimed-duration tracking. When the field is absent (e.g., WPs created before the field was added), the fallback heuristics above provide reasonable approximations.
 >
-> **⚠ Fallback accuracy warning:** When `status_changed_at` is absent and no pipelines exist — the exact scenario `REVIEW_ABANDONED` is designed to detect — the final fallback `now() - root.last_updated` is used. Since `root.last_updated` is updated by *any* project operation (e.g., completing a pipeline on an unrelated WP), a project with ongoing activity on other WPs will continuously refresh `root.last_updated`, making the abandoned WP's claimed duration appear short. This can suppress `REVIEW_ABANDONED` detection indefinitely on active projects. Implementations MUST populate the `status_changed_at` field (§3.3) rather than depending on the fallback heuristic.
+> **Fallback accuracy warning:** When `status_changed_at` is absent and no pipelines exist — the exact scenario `REVIEW_ABANDONED` is designed to detect — the final fallback `now() - root.last_updated` is used. Since `root.last_updated` is updated by *any* project operation (e.g., completing a pipeline on an unrelated WP), a project with ongoing activity on other WPs will continuously refresh `root.last_updated`, making the abandoned WP's claimed duration appear short. This can suppress `REVIEW_ABANDONED` detection indefinitely on active projects. Implementations MUST populate the `status_changed_at` field (§3.3) rather than depending on the fallback heuristic.
 
 ### 14.13 `hasDownstreamReengagedSince` Algorithm
 
@@ -421,17 +386,13 @@ Determines whether the downstream agent (whose FAIL triggered Developer rework) 
 
 ```pseudocode
 function hasDownstreamReengagedSince(pipelines, upstreamType):
-  // Find most recent upstream PASS (excluding auto-cancelled)
   upstreamPass = pipelines
     .filter(p => p.type == upstreamType AND p.status == "PASS" AND NOT p.auto_cancelled)
     .last()
   
   if upstreamPass is null OR upstreamPass.completed_at is null:
-    return false              // No upstream PASS to compare against
-  
-  // Check if any downstream pipeline type (whose FAIL routes to Developer)
-  // has started AT or AFTER the upstream PASS completed.
-  // This indicates the downstream agent has re-engaged to validate the fix.
+    return false
+
   developerReworkTypes = ["qa", "security-audit", "code-review"]
   for each dsType in developerReworkTypes:
     dsPipelines = pipelines
@@ -440,9 +401,9 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
       mostRecent = dsPipelines.last()
       if mostRecent.started_at is not null
          AND mostRecent.started_at >= upstreamPass.completed_at:
-        return true            // Downstream has re-engaged since the fix
+        return true
   
-  return false                  // No downstream re-engagement detected
+  return false
 ```
 
 | Scenario | Result |
