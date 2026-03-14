@@ -52,12 +52,12 @@ WorkPackageSummary {
   status:                 WorkPackageStatus
   assigned_to:            string           // Agent role name
   dependencies:           string[]         // List of WP IDs this WP depends on
-  active_pipeline_stages: PipelineType[]?  // Mirrors detail field (§3.3); defaults to MANDATORY_PIPELINE_TYPES when absent
+  active_pipeline_stages: PipelineType[]?  // Mirrors detail field (§3.3); defaults to DEFAULT_PIPELINE_STAGES when absent
   file:                   string           // Path to detail file
 }
 ```
 
-> **Routing optimization:** `active_pipeline_stages` is included in the summary so that handoff and recommendation functions can filter WPs by optional stage membership (e.g., Security Auditor and Release Engineer scope checks) without loading detail files. The value is set at WP creation time and is immutable thereafter (see [§21.55](edge-cases.md#2155-optional-pipeline-stage-backward-compatibility)).
+> **Routing optimization:** `active_pipeline_stages` is included in the summary so that handoff and recommendation functions can filter WPs by stage membership (e.g., agents only see WPs where their owned stage is active) without loading detail files. The value is set at WP creation time and is immutable thereafter (see [§21.55](edge-cases.md#2155-pipeline-stage-backward-compatibility)).
 ```
 
 ### 3.3 Work Package Detail
@@ -73,14 +73,14 @@ WorkPackageDetail {
   acceptance_criteria:     AcceptanceCriterion[]  // min 1 entry
   revision:                integer                 // Incremented on COMPLETE → IN_PROGRESS
   rework_counts:           ReworkCounts?            // Per-pipeline-type rework counters
-  active_pipeline_stages:  PipelineType[]?          // Optional; defaults to MANDATORY_PIPELINE_TYPES when absent
+  active_pipeline_stages:  PipelineType[]?          // Optional; defaults to DEFAULT_PIPELINE_STAGES when absent
   status_changed_at:       timestamp?              // Updated on every status transition (see §14.12)
   handoff_notes:           HandoffNote[]?
   pipelines:               Pipeline[]
 }
 ```
 
-> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `MANDATORY_PIPELINE_TYPES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1) and must include all mandatory types. See §9b.1 for validation rules.
+> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1). The Project Manager may compose any valid subsequence — there is no mandatory/optional distinction. See §9b.2 for validation rules including soft guardrails.
 ```
 
 **WorkPackageStatus** = `READY` | `IN_PROGRESS` | `COMPLETE` | `BLOCKED` | `CANCELLED`
@@ -193,37 +193,51 @@ Nine roles, in workflow order:
 | 2 | **Project Manager** | Decomposes plan into work packages, initializes ledger, manages blockers, selects active pipeline stages per WP |
 | 3 | **Developer** | Implements work packages (owns `implementation` pipeline) |
 | 4 | **QA** | Validates implementation (owns `qa` pipeline) |
-| 5 | **Security Auditor** | Security review & threat analysis (owns `security-audit` pipeline) — *optional stage* |
+| 5 | **Security Auditor** | Security review & threat analysis (owns `security-audit` pipeline) |
 | 6 | **Reviewer** | Code quality & architecture review (owns `code-review` pipeline) |
-| 7 | **Release Engineer** | Release curation & version management (owns `release-engineering` pipeline) — *optional stage* |
-| 8 | **Documentation** | Updates documentation, marks WP COMPLETE (owns `documentation` pipeline) |
+| 7 | **Release Engineer** | Release curation & version management (owns `release-engineering` pipeline) |
+| 8 | **Documentation** | Updates documentation (owns `documentation` pipeline) |
 | 9 | **Synthesis** | Generates final project report when all WPs are terminal |
 
 The canonical role list is: `["Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"]`
 
-> **Optional roles:** Security Auditor (#5) and Release Engineer (#7) are only engaged when their corresponding pipeline types are included in a work package's `active_pipeline_stages`. When these stages are not active, the pipeline skips directly from QA to Reviewer (skipping security-audit) and from Reviewer to Documentation (skipping release-engineering).
+> **Composable stages:** All six pipeline stages are PM-composable — the Project Manager selects any valid subsequence of the canonical ordering for each WP at creation time. Agents are only engaged when their corresponding pipeline type is included in a WP's `active_pipeline_stages`. Inactive stages are skipped by the dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`). The "last active stage" agent — whichever stage appears last in the WP's active ordering — is the agent that can mark the WP as COMPLETE (see [§6.2](state-machines.md#62-transition-table)).
 
 ### 4.1 Pipeline Ownership
 
 Six of the nine roles own pipeline types:
 
-| Pipeline Type | Owning Agent | Required? |
-|--------------|-------------|----------|
-| `implementation` | Developer | Always |
-| `qa` | QA | Always |
-| `security-audit` | Security Auditor | Optional |
-| `code-review` | Reviewer | Always |
-| `release-engineering` | Release Engineer | Optional |
-| `documentation` | Documentation | Always |
+| Pipeline Type | Owning Agent |
+|--------------|-------------|
+| `implementation` | Developer |
+| `qa` | QA |
+| `security-audit` | Security Auditor |
+| `code-review` | Reviewer |
+| `release-engineering` | Release Engineer |
+| `documentation` | Documentation |
 
-Planner, Project Manager, and Synthesis do not own any pipeline type.
+All six stages are PM-composable — no stage is inherently mandatory or optional. The default set (`DEFAULT_PIPELINE_STAGES`) provides backward compatibility. Planner, Project Manager, and Synthesis do not own any pipeline type.
 
-### 4.2 Pipeline Stage Categories
+### 4.2 Pipeline Stage Constants
 
 ```
-MANDATORY_PIPELINE_TYPES = ["implementation", "qa", "code-review", "documentation"]
-OPTIONAL_PIPELINE_TYPES  = ["security-audit", "release-engineering"]
+DEFAULT_PIPELINE_STAGES     = ["implementation", "qa", "code-review", "documentation"]
 CANONICAL_PIPELINE_ORDERING = ["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]
 ```
 
-The canonical ordering defines the fixed sequence in which pipeline types execute. A work package's `active_pipeline_stages` is always a subsequence of this ordering — stages can be omitted (optional stages only), but never reordered.
+`CANONICAL_PIPELINE_ORDERING` defines the fixed sequence in which pipeline types execute. A work package's `active_pipeline_stages` is always a subsequence of this ordering — any stage may be omitted, but the relative order must never change.
+
+`DEFAULT_PIPELINE_STAGES` is the backward-compatible default applied when `active_pipeline_stages` is absent or `null`. It corresponds to the 4-stage chain used by all ledgers created before composable stages were introduced.
+
+> **Removed constants:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. All six stages are now PM-composable — the PM selects any valid subsequence of the canonical ordering. The validation function ([§9b.2](operations.md#9b2-active-pipeline-stages-validation)) enforces structural correctness (valid types, no duplicates, canonical order) and emits soft guardrail warnings for unusual compositions, but does not reject any particular subset.
+
+**Common composition patterns:**
+
+| Pattern | `active_pipeline_stages` | Use Case |
+|---------|-------------------------|----------|
+| Default (4 stages) | `["implementation", "qa", "code-review", "documentation"]` | Standard development WP |
+| Full (6 stages) | `["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]` | Security-critical release |
+| Documentation-only | `["documentation"]` | Pure documentation task |
+| Verification-only | `["implementation", "qa", "code-review"]` | Spike/prototype; no docs needed |
+| Security-focused | `["implementation", "qa", "security-audit", "code-review", "documentation"]` | Security audit without release engineering |
+| Quick fix | `["implementation", "qa", "documentation"]` | Fast-track fix; skip code review |

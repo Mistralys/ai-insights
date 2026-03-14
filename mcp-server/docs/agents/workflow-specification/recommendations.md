@@ -126,7 +126,7 @@ function getDeveloperAction(root, store):
   // Priority 5: Downstream-triggered rework — see routing note below
   developerReworkTypes = ["qa", "code-review"]
   for each IN_PROGRESS WP:
-    activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+    activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
     wpReworkTypes = developerReworkTypes
     if "security-audit" in activeStages:
       wpReworkTypes = ["qa", "security-audit", "code-review"]
@@ -138,7 +138,7 @@ function getDeveloperAction(root, store):
   
   // Priority 5b: Delivered rework awaiting downstream re-engagement
   for each IN_PROGRESS WP:
-    activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+    activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
     wpReworkTypes = developerReworkTypes
     if "security-audit" in activeStages:
       wpReworkTypes = ["qa", "security-audit", "code-review"]
@@ -206,8 +206,8 @@ Same pattern, applied to `documentation` pipelines:
 2. **RESUME_OR_CANCEL**: stale documentation pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `documentation` pipeline
 4. **REWORK**: most recent documentation is FAIL (rework action = REWORK — Documentation self-reworks)
-5. **FINALIZE_WP**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, all acceptance criteria are met, and the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check). The Documentation agent should mark the WP as COMPLETE.
-5b. **UPDATE_CRITERIA**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, the documentation PASS post-dates the most recent `implementation` pipeline start (freshness check passed), but NOT all acceptance criteria are `met: true`. The Documentation agent should update criteria (mark as met), rework documentation to address remaining criteria, or — if the unmet criteria are caused by underlying code issues rather than documentation gaps — set the WP to BLOCKED with a `technical` blocker to escalate to the Project Manager (see §21.24).
+5. **FINALIZE_WP**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, all acceptance criteria are met, and the freshness check passes (documentation PASS post-dates the most recent first-active-stage pipeline start — see §6.2.1). The Documentation agent should mark the WP as COMPLETE.
+5b. **UPDATE_CRITERIA**: WP is IN_PROGRESS, most recent `documentation` pipeline is PASS, the freshness check passes, but NOT all acceptance criteria are `met: true`. The Documentation agent should update criteria (mark as met), rework documentation to address remaining criteria, or — if the unmet criteria are caused by underlying code issues rather than documentation gaps — set the WP to BLOCKED with a `technical` blocker to escalate to the Project Manager (see §21.24).
 
 > **UPDATE_CRITERIA rework tracking note:** If the Documentation agent chooses to start a new documentation pipeline to address unmet criteria (rather than updating criteria or escalating), this creates a pipeline that is **not tracked as rework** — the most recent documentation pipeline is PASS (not FAIL) and no downstream FAIL exists, so `needsRework = false` in `startPipeline` (§11.1) and `rework_counts.documentation` is not incremented. This is internally consistent (the prior pipeline succeeded; the new one addresses remaining criteria, not a failure) but may be surprising. Implementations that want to track these "criteria-driven re-runs" separately MAY add a distinct counter or metric; the core specification treats them as normal pipeline starts.
 
@@ -218,9 +218,18 @@ Same pattern, applied to `documentation` pipelines:
 >
 > **Auto-handoff implication:** Because auto-handoff (§18) uses handoff status, the Documentation agent may be invoked via auto-handoff for a new-docs WP while it has a FAIL documentation pipeline on another WP. The receiving agent's `getNextAction` will then recommend REWORK (priority 4) instead of the work the handoff intended. This may cause a wasted handoff cycle — the agent resolves the FAIL rather than the new-docs WP. This is acceptable: the REWORK takes priority regardless of how the agent was invoked, and the new-docs WP will be picked up in the next cycle. Implementations should not special-case the recommendation engine based on handoff context.
 
+### 14.5a Generalized FINALIZE_WP for Non-Documentation Terminal Agents
+
+When a WP's last active stage is not `documentation` (e.g., `code-review` for a verification-only WP), the **FINALIZE_WP** and **UPDATE_CRITERIA** actions are emitted by the agent owning that last active stage instead of Documentation. The conditions are identical to §14.5 priorities 5/5b, generalized via the §6.2.1 helpers:
+
+- **FINALIZE_WP**: WP is IN_PROGRESS, most recent `lastActiveStage(wp)` pipeline is PASS, all acceptance criteria are met, freshness check passes. The terminal agent should mark the WP as COMPLETE.
+- **UPDATE_CRITERIA**: Same as above but acceptance criteria are not fully met.
+
+Each pipeline-owning agent's `getNextAction` implementation SHOULD check whether it is the terminal agent for a given WP (i.e., `resolveNextAgent(ownedPipelineType, wp.active_pipeline_stages) == "Synthesis"`) and, if so, include FINALIZE_WP/UPDATE_CRITERIA at the appropriate priority level.
+
 ### 14.5b Security Auditor Action Logic
 
-Only active for WPs that include `security-audit` in their `active_pipeline_stages`. WPs without the optional stage are invisible to this agent's recommendation engine.
+Only active for WPs that include `security-audit` in their `active_pipeline_stages`. WPs without this stage are invisible to this agent's recommendation engine.
 
 Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
 
@@ -233,11 +242,11 @@ Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
 6. **RUN_SECURITY_AUDIT** (first run): WP with PASS qa and no security-audit pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Security Auditor" with all dependencies satisfied
 
-> **Scope filter:** The Security Auditor's `getNextAction` only considers WPs where `"security-audit"` is in `active_pipeline_stages`. WPs with only the default 4 mandatory stages are excluded from all priority checks, as the Security Auditor has no work to do on those WPs.
+> **Scope filter:** The Security Auditor's `getNextAction` only considers WPs where `"security-audit"` is in `active_pipeline_stages`. WPs with only the default stages are excluded from all priority checks, as the Security Auditor has no work to do on those WPs.
 
 ### 14.5c Release Engineer Action Logic
 
-Only active for WPs that include `release-engineering` in their `active_pipeline_stages`. WPs without the optional stage are invisible to this agent's recommendation engine.
+Only active for WPs that include `release-engineering` in their `active_pipeline_stages`. WPs without this stage are invisible to this agent's recommendation engine.
 
 Same self-rework pattern as Documentation (§14.5), applied to `release-engineering` pipelines:
 

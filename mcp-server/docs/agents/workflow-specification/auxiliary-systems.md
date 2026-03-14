@@ -109,7 +109,7 @@ effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 20)
 | 8 WPs | 160 | 8 × 20 = 160 |
 
 The `× 20` multiplier accounts for:
-- **4–6 happy-path handoffs** per WP (Dev → QA → [Security Auditor] → Reviewer → [Release Engineer] → Doc; 4 for the default mandatory pipeline, up to 6 when both optional stages are active)
+- **4–6 happy-path handoffs** per WP (Dev → QA → Security Auditor → Reviewer → Release Engineer → Doc; varies by active stages — 4 for the default pipeline, up to 6 when all stages are active)
 - **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA/security-audit → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → [Security Audit] → Review chain)
 - **~5–10 headroom** per WP for atypical rework, blocker resolution, or self-rework cycles (Release Engineering, Documentation)
 

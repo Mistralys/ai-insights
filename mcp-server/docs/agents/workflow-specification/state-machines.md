@@ -76,12 +76,14 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ READY         → CANCELLED      │ Agent must be "Project Manager"                  │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ IN_PROGRESS   → COMPLETE       │ All acceptance criteria met = true               │
-│               │                │ Most recent `documentation` pipeline is PASS     │
-│               │                │ Doc PASS must post-date most recent              │
-│               │                │ `implementation` pipeline start (freshness check;│
-│               │                │ passes vacuously if no implementation pipeline   │
-│               │                │ exists — see §21.10)                             │
-│               │                │ Agent must be "Documentation"                    │
+│               │                │ Most recent pipeline of the WP's **last active    │
+│               │                │ stage** is PASS                                   │
+│               │                │ That PASS must post-date the most recent          │
+│               │                │ pipeline start of the WP's **first active stage** │
+│               │                │ (freshness check; passes vacuously if no pipeline │
+│               │                │ of the first active stage exists — see §21.10)    │
+│               │                │ Agent must own the WP's **last active stage**     │
+│               │                │ (i.e. PIPELINE_AGENT_MAP[lastActiveStage])        │
 │ IN_PROGRESS   → READY          │ No IN_PROGRESS pipelines on the WP              │
 │               │                │ Agent must be "Project Manager" or current       │
 │               │                │ assignee (wp.assigned_to)                        │
@@ -103,7 +105,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │ BLOCKED       → CANCELLED      │ Agent must be "Project Manager"                  │
 ├───────────────┼────────────────┼──────────────────────────────────────────────────┤
 │ COMPLETE      → IN_PROGRESS    │ Agent must be "Project Manager" or               │
-│               │                │ "Documentation"                                  │
+│               │                │ agent owning the WP's last active stage           │
 │               │                │ Increments revision counter                      │
 │               │                │ Resets rework_counts to absent (see §21.44)      │
 │               │                │ Resets project synthesis_generated to false       │
@@ -119,17 +121,35 @@ Project status updates are **implicit** — they happen as side effects of WP op
 
 Same-state transitions (e.g., READY → READY) are always valid (no-op) **except for transitions to guarded or terminal states**. Specifically:
 - `CANCELLED → CANCELLED` is **not valid** — CANCELLED is strictly terminal with no outward transitions, including self-transitions (see [§21.32](edge-cases.md#2132-cancelled-self-transition-prohibition))
-- `COMPLETE → COMPLETE` still requires the Documentation agent guard (agent identity check only — the full completion guards of acceptance criteria, documentation pipeline PASS, and freshness check are **not** re-evaluated for same-state no-ops)
+- `COMPLETE → COMPLETE` still requires the last-active-stage agent guard (agent identity check only — the full completion guards of acceptance criteria, last-active-stage pipeline PASS, and freshness check are **not** re-evaluated for same-state no-ops)
 - `BLOCKED → BLOCKED` still requires a `blocked_by` object; the new blocker **replaces** the existing one
 - All other same-state transitions are pure no-ops that skip validation
 
-> **Same-state behavioral asymmetry:** `BLOCKED → BLOCKED` and `COMPLETE → COMPLETE` are both listed as same-state transitions, but they differ fundamentally in semantics. `BLOCKED → BLOCKED` is a **substantive operation** — it replaces the `blocked_by` payload, requires agent guards (PM or assignee), and enforces blocker-type transition rules (see §6.2 replacement rule). `COMPLETE → COMPLETE` is a **pure no-op** — only the agent identity is checked; no data is modified. The asymmetry arises because BLOCKED carries mutable metadata (`blocked_by`) that same-state transitions can validly update, whereas COMPLETE has no analogous mutable field that a same-state call would change.
+> **Same-state behavioral asymmetry:** `BLOCKED → BLOCKED` and `COMPLETE → COMPLETE` are both listed as same-state transitions, but they differ fundamentally in semantics. `BLOCKED → BLOCKED` is a **substantive operation** — it replaces the `blocked_by` payload, requires agent guards (PM or assignee), and enforces blocker-type transition rules (see §6.2 replacement rule). `COMPLETE → COMPLETE` is a **pure no-op** — only the agent identity is checked (must be the last-active-stage agent or PM); no data is modified. The asymmetry arises because BLOCKED carries mutable metadata (`blocked_by`) that same-state transitions can validly update, whereas COMPLETE has no analogous mutable field that a same-state call would change.
 
 > **BLOCKED → BLOCKED agent guard:** The `BLOCKED → BLOCKED` same-state transition requires the agent to be the **Project Manager** or the **current assignee** (`wp.assigned_to`). This prevents arbitrary agents from modifying blockers on WPs they do not own, consistent with the agent guard philosophy applied to other transitions.
 >
 > **BLOCKED → BLOCKED replacement rule:** A `dependency` blocker **cannot** be overwritten with a non-dependency type (`decision`, `external`, `technical`) **unless the agent is the Project Manager**. This prevents auto-unblock logic (§15.4) from silently skipping a WP that was originally blocked by a dependency. The PM exception allows recording non-dependency blockers discovered after the initial dependency block; the PM accepts responsibility for managing the auto-unblock implications (the `dependency` auto-unblock will no longer fire for this WP). All other blocker-type changes are allowed (e.g., `technical` → `decision`, `external` → `dependency`).
 >
 > **⚠ Permission asymmetry — non-dependency → dependency re-classification:** The replacement rule is asymmetric: overwriting `dependency` with a non-dependency type requires PM, but overwriting a non-dependency type with `dependency` is allowed by any authorized agent (PM or assignee). This means an assignee can make a WP eligible for auto-unblock (§15.4) by re-classifying a PM-managed `technical` or `decision` blocker as `dependency`. If the referenced dependency has already reached terminal status, the re-classification does not trigger auto-unblock (see [§21.17](edge-cases.md#2117-blocked--blocked-blocker-replacement) for the latency issue), but a future dependency completion would auto-unblock the WP — potentially bypassing the PM's intended manual-resolution workflow. Implementations that require stricter control MAY extend the replacement rule to also require PM for non-dependency → `dependency` re-classification.
+
+#### 6.2.1 Dynamic COMPLETE Guard Helpers
+
+The COMPLETE guard references the WP's **first active stage** and **last active stage**. These are computed from `active_pipeline_stages`:
+
+```
+function firstActiveStage(wp):
+  stages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+  return stages[0]
+
+function lastActiveStage(wp):
+  stages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+  return stages[stages.length - 1]
+```
+
+The **terminal agent** — the agent allowed to mark the WP as COMPLETE — is `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`. For a default WP this is Documentation; for a documentation-only WP (`["documentation"]`) it is also Documentation; for a verification-only WP (`["implementation", "qa", "code-review"]`) it is Reviewer.
+
+The **freshness check** compares the most recent PASS of `lastActiveStage` against the most recent `started_at` of `firstActiveStage`. This generalizes the former documentation-vs-implementation comparison. When the first and last active stages are the same (single-stage WP), the freshness check passes vacuously — there is no earlier stage to compare against.
 
 ### 6.3 State Diagram
 
@@ -151,7 +171,7 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
         └────────┬─────────┘
                  ▼
         ┌────────────────┐
-        │    COMPLETE     ├──► IN_PROGRESS (reopen: PM or Doc)
+        │    COMPLETE     ├──► IN_PROGRESS (reopen: PM or last-active-stage agent)
         │  (normally      ├──► CANCELLED (PM only; no cascade)
         │   terminal)     │
         └─────────────────┘
@@ -162,9 +182,9 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 
 > **Complete transition list** (all transitions from §6.2, for verification):
 > - **READY →** IN_PROGRESS (claim), BLOCKED (any agent; requires blocker), CANCELLED (PM only)
-> - **IN_PROGRESS →** COMPLETE (Doc only), READY (unclaim), BLOCKED (any agent; requires blocker; auto-cancels pipelines), CANCELLED (PM only)
+> - **IN_PROGRESS →** COMPLETE (last-active-stage agent only), READY (unclaim), BLOCKED (any agent; requires blocker; auto-cancels pipelines), CANCELLED (PM only)
 > - **BLOCKED →** IN_PROGRESS (PM/assignee/system), READY (auto-unblock only), CANCELLED (PM only)
-> - **COMPLETE →** IN_PROGRESS (reopen: PM or Doc), CANCELLED (PM only; no cascade)
+> - **COMPLETE →** IN_PROGRESS (reopen: PM or last-active-stage agent), CANCELLED (PM only; no cascade)
 > - **CANCELLED →** *(none; strictly terminal)*
 
 ### 6.4 Counter Updates on Transitions
@@ -184,13 +204,13 @@ Same-state transitions (e.g., READY → READY) are always valid (no-op) **except
 | Transition | Allowed Agents |
 |------------|---------------|
 | READY → IN_PROGRESS (claim) | Pipeline-owning agents (Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation), "Project Manager" (see [§10.1](operations.md#101-algorithm), [§21.49](edge-cases.md#2149-agent-role-guard-on-work-package-claiming)) |
-| → COMPLETE | "Documentation" (or "Documentation Agent"), or "Project Manager" for same-state `COMPLETE → COMPLETE` only — for same-state `COMPLETE → COMPLETE`, only the agent identity check is enforced; the full completion guards (acceptance criteria, documentation pipeline PASS, freshness check) are **not** re-evaluated (see §6.2 same-state transition rules). The PM is permitted for same-state COMPLETE because it is a pure no-op (no data modification); the PM is **not** permitted for `IN_PROGRESS → COMPLETE` (that remains Documentation-only). |
+| → COMPLETE | Agent owning the WP's last active stage (computed as `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`), or "Project Manager" for same-state `COMPLETE → COMPLETE` only — for same-state `COMPLETE → COMPLETE`, only the agent identity check is enforced; the full completion guards (acceptance criteria, last-active-stage pipeline PASS, freshness check) are **not** re-evaluated (see §6.2 same-state transition rules). The PM is permitted for same-state COMPLETE because it is a pure no-op (no data modification); the PM is **not** permitted for `IN_PROGRESS → COMPLETE` (that remains last-active-stage-agent-only). |
 | → CANCELLED | "Project Manager" (or "Project Manager Agent") |
 | BLOCKED → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), current assignee, system (auto-repair) |
 | BLOCKED → READY | System only (auto-unblock via §15.4 — no manual agent guard) |
 | BLOCKED → BLOCKED | "Project Manager" (or "Project Manager Agent"), current assignee |
 | IN_PROGRESS → READY | "Project Manager" (or "Project Manager Agent"), current assignee |
-| COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), "Documentation" (or "Documentation Agent") |
+| COMPLETE → IN_PROGRESS | "Project Manager" (or "Project Manager Agent"), agent owning the WP's last active stage |
 
 > **Design note — no agent guard on → BLOCKED transitions:** The `READY → BLOCKED` and `IN_PROGRESS → BLOCKED` transitions intentionally have **no agent role restriction**. Any of the nine agent roles may block a WP by providing a `blocked_by` object. This is a deliberate design choice: any agent may discover a blocker during its work (e.g., a Developer encountering an external dependency, a QA agent discovering a technical issue). Restricting blocking to specific roles would force agents to complete their current pipeline with FAIL and add handoff notes requesting the PM to block — adding latency and complexity without a safety benefit. The `blocked_by` object (§21.11) is required for all → BLOCKED transitions, providing an audit trail of who blocked and why. The `BLOCKED → BLOCKED` replacement rule (§6.2) and `BLOCKED → IN_PROGRESS` agent guard (§6.5) ensure that *resolving* or *modifying* blockers remains restricted to authorized agents (PM/assignee/system).
 

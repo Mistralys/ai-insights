@@ -70,6 +70,17 @@ function createWorkPackage(root, wpData, agentRole):
     pipelines: []
   }
 
+  // --- Soft guardrail warnings (§9b.2) ---
+  warnings = validateActiveStages(wpData.active_pipeline_stages)
+  for each warning in warnings:
+    root.project_comments.append(ProjectComment {
+      type: "warning",
+      priority: "low",
+      timestamp: now(),
+      agent: agentRole ?? "system",
+      note: warning
+    })
+
   // --- Update root index ---
   root.work_packages.append(WorkPackageSummary {
     work_package_id: wpId,
@@ -93,31 +104,36 @@ function createWorkPackage(root, wpData, agentRole):
 
 ### 9b.2 Active Pipeline Stages Validation
 
-When `active_pipeline_stages` is provided during WP creation:
+When `active_pipeline_stages` is provided during WP creation, validation enforces structural correctness with **hard rejects** and emits **soft guardrail warnings** for unusual compositions. The PM retains full authority to compose any valid subsequence.
+
+#### Hard Rejects (block creation)
 
 1. **All entries must be valid `PipelineType` values** — reject unknown pipeline type strings
-2. **All mandatory stages must be included** — `MANDATORY_PIPELINE_TYPES` (`["implementation", "qa", "code-review", "documentation"]`) must all be present in the provided list
-3. **List must be a subsequence of `CANONICAL_PIPELINE_ORDERING`** — the stages must appear in the same relative order as the canonical ordering. Reordering is never permitted.
-4. **No duplicates** — each pipeline type may appear at most once
+2. **List must be a subsequence of `CANONICAL_PIPELINE_ORDERING`** — the stages must appear in the same relative order as the canonical ordering. Reordering is never permitted.
+3. **No duplicates** — each pipeline type may appear at most once
+4. **Non-empty** — at least one stage must be included
 
-When `active_pipeline_stages` is omitted or `null`, it defaults to `MANDATORY_PIPELINE_TYPES` at read time (not stored as an explicit value). This ensures full backward compatibility with existing ledger files created before this field existed.
+#### Soft Guardrails (emit warning project comments, do not block creation)
+
+5. **Implementation without QA** — if `implementation` is present but `qa` is absent, warn: `"WP has implementation without QA — consider adding qa for quality assurance"`
+6. **Single-stage chain** — if exactly one stage is provided, warn: `"WP has a single-stage pipeline ({stage}) — verify this is intentional"`
+7. **Non-default composition** — if the provided list differs from `DEFAULT_PIPELINE_STAGES` and is not the full 6-stage list, warn: `"WP uses a custom pipeline composition: [{stages}] — ensure this matches the work package's intent"`
+
+When `active_pipeline_stages` is omitted or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` at read time (not stored as an explicit value). This ensures full backward compatibility with existing ledger files created before this field existed.
 
 ```
 function validateActiveStages(stages):
+  warnings = []
+  
   if stages is null:
-    return    // null/absent is valid — uses default
+    return warnings    // null/absent is valid — uses default
 
   // Rule 1: Valid types
   for each stage in stages:
     if stage not in CANONICAL_PIPELINE_ORDERING:
       ERROR("Unknown pipeline type: {stage}")
 
-  // Rule 2: Mandatory stages present
-  for each mandatory in MANDATORY_PIPELINE_TYPES:
-    if mandatory not in stages:
-      ERROR("Mandatory pipeline stage '{mandatory}' must be included")
-
-  // Rule 3: Subsequence of canonical ordering
+  // Rule 2: Subsequence of canonical ordering
   lastIndex = -1
   for each stage in stages:
     index = CANONICAL_PIPELINE_ORDERING.indexOf(stage)
@@ -125,10 +141,30 @@ function validateActiveStages(stages):
       ERROR("Active stages must follow canonical ordering")
     lastIndex = index
 
-  // Rule 4: No duplicates
+  // Rule 3: No duplicates
   if stages.length != unique(stages).length:
     ERROR("Duplicate pipeline type in active_pipeline_stages")
+
+  // Rule 4: Non-empty
+  if stages.length == 0:
+    ERROR("active_pipeline_stages must contain at least one stage")
+
+  // Soft guardrail 5: Implementation without QA
+  if "implementation" in stages AND "qa" not in stages:
+    warnings.append("WP has implementation without QA — consider adding qa for quality assurance")
+
+  // Soft guardrail 6: Single-stage chain
+  if stages.length == 1:
+    warnings.append("WP has a single-stage pipeline ({stages[0]}) — verify this is intentional")
+
+  // Soft guardrail 7: Non-default composition
+  if stages != DEFAULT_PIPELINE_STAGES AND stages != CANONICAL_PIPELINE_ORDERING:
+    warnings.append("WP uses a custom pipeline composition: [{stages}] — ensure this matches the work package's intent")
+
+  return warnings
 ```
+
+> **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
 
 ---
 
@@ -214,8 +250,9 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
     if currentStatus == "BLOCKED":
       goto BLOCKED_HANDLING    // Substantive: replace blocked_by (§6.2, §21.17)
     if currentStatus == "COMPLETE":
-      if agentRole not in ["Documentation", "Project Manager"]:
-        ERROR("COMPLETE → COMPLETE requires Documentation or PM")
+      terminalAgent = PIPELINE_AGENT_MAP[lastActiveStage(wp)]  // §6.2.1
+      if agentRole not in [terminalAgent, "Project Manager"]:
+        ERROR("COMPLETE → COMPLETE requires {terminalAgent} or PM")
       release lock
       return    // Agent check only — no data modification (§6.2 same-state note)
     release lock
@@ -226,7 +263,7 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
     ERROR("Invalid transition: {currentStatus} → {targetStatus}")
 
   // --- Agent guards (§6.5) ---
-  validateAgentGuard(currentStatus, targetStatus, agentRole, wp.assigned_to)
+  validateAgentGuard(currentStatus, targetStatus, agentRole, wp.assigned_to, wp)
 
   // --- Transition-specific guards and side effects ---
 
@@ -234,24 +271,27 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
     // Full completion guards (§6.2, §21.10)
     if not wp.acceptance_criteria.every(ac => ac.met == true):
       ERROR("Not all acceptance criteria are met")
-    docPipelines = wp.pipelines.filter(p => p.type == "documentation")
-    if docPipelines is empty OR docPipelines.last().status != "PASS":
-      ERROR("Most recent documentation pipeline must be PASS")
+    lastStage = lastActiveStage(wp)                    // §6.2.1
+    lastStagePipelines = wp.pipelines.filter(p => p.type == lastStage)
+    if lastStagePipelines is empty OR lastStagePipelines.last().status != "PASS":
+      ERROR("Most recent {lastStage} pipeline must be PASS")
     // Freshness check (§21.10)
-    implPipelines = wp.pipelines.filter(p => p.type == "implementation")
-    if implPipelines is not empty:
-      if docPipelines.last().completed_at < implPipelines.last().started_at:
-        ERROR("Documentation PASS predates most recent implementation start (freshness)")
+    firstStage = firstActiveStage(wp)                  // §6.2.1
+    if firstStage != lastStage:                        // Single-stage: vacuous pass
+      firstStagePipelines = wp.pipelines.filter(p => p.type == firstStage)
+      if firstStagePipelines is not empty:
+        if lastStagePipelines.last().completed_at < firstStagePipelines.last().started_at:
+          ERROR("{lastStage} PASS predates most recent {firstStage} start (freshness)")
     // NOTE: This comparison is intentionally asymmetric — it compares the
-    // documentation pipeline's completed_at against the implementation
-    // pipeline's started_at (not completed_at). A documentation PASS that
-    // occurs after an implementation starts but before it completes would
-    // satisfy this check, even though the documentation validated pre-rework
+    // last-active-stage pipeline's completed_at against the first-active-stage
+    // pipeline's started_at (not completed_at). A terminal-stage PASS that
+    // occurs after a first-stage pipeline starts but before it completes would
+    // satisfy this check, even though the terminal stage validated pre-rework
     // output. In practice, the pipeline ordering prerequisites (§8.1) prevent
-    // this race: a documentation pipeline cannot start without a PASS
-    // code-review, which requires a PASS QA, which requires a PASS
-    // implementation. A new implementation pipeline invalidates the
-    // prerequisite chain, so no new documentation pipeline can start until
+    // this race: a later-stage pipeline cannot start without a PASS from its
+    // prerequisite, which chains back to the first active stage. A new
+    // first-stage pipeline invalidates the prerequisite chain, so no new
+    // terminal-stage pipeline can start until the full chain re-PASSes.
     // the full chain re-PASSes. The asymmetry only matters if an existing
     // IN_PROGRESS documentation pipeline overlaps with a new implementation
     // pipeline — a scenario that requires two agents acting on the same WP
@@ -332,12 +372,13 @@ function updateWorkPackageStatus(wp, root, targetStatus, agentRole, opts):
 ### 10b.2 Agent Guard Helper
 
 ```
-function validateAgentGuard(from, to, agentRole, assignedTo):
+function validateAgentGuard(from, to, agentRole, assignedTo, wp):
   PM = "Project Manager"
+  terminalAgent = PIPELINE_AGENT_MAP[lastActiveStage(wp)]  // §6.2.1
 
   if to == "COMPLETE":
-    if agentRole not in ["Documentation", PM]:
-      ERROR("Only Documentation (or PM) can mark COMPLETE")
+    if agentRole not in [terminalAgent, PM]:
+      ERROR("Only {terminalAgent} (or PM) can mark COMPLETE")
   else if to == "CANCELLED":
     if agentRole != PM:
       ERROR("Only Project Manager can cancel a WP")
@@ -351,8 +392,8 @@ function validateAgentGuard(from, to, agentRole, assignedTo):
     if agentRole != PM AND agentRole != assignedTo:
       ERROR("Unclaim requires PM or current assignee")
   else if from == "COMPLETE" AND to == "IN_PROGRESS":
-    if agentRole not in [PM, "Documentation"]:
-      ERROR("Reopen requires PM or Documentation")
+    if agentRole not in [PM, terminalAgent]:
+      ERROR("Reopen requires PM or {terminalAgent}")
 
   // → BLOCKED: no agent guard (§6.5 design note)
   // READY → IN_PROGRESS: use claimWorkPackage (§10.1), not this function
@@ -377,7 +418,7 @@ function startPipeline(wp, root, pipelineType, agentRole):
     ERROR("WP status must be IN_PROGRESS")
   
   // Guard: Pipeline type must be in the WP's active stages
-  activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+  activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
   if pipelineType not in activeStages:
     ERROR("Pipeline type '{pipelineType}' is not active for this work package. "
           + "Active stages: {activeStages}")
@@ -641,11 +682,11 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
       fromAgent = agentRole
     else:
       fromAgent = PIPELINE_AGENT_MAP[pipelineType]
-    activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+    activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
     if status == "PASS":
       toAgent = resolveNextAgent(pipelineType, activeStages)   // §9.2
     else:  // FAIL
-      toAgent = FAIL_ROUTING_MAP[pipelineType]
+      toAgent = resolveFailAgent(pipelineType, activeStages)   // §9.3.1
     
     handoffNote = HandoffNote {
       from_agent: fromAgent,
@@ -655,12 +696,22 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
     }
     wp.handoff_notes = (wp.handoff_notes ?? []).append(handoffNote)
   
+  // Artifact completeness soft warning
+  if status == "PASS" AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
+    root.project_comments.append(ProjectComment {
+      type: "warning",
+      priority: "low",
+      timestamp: now(),
+      agent: agentRole,
+      note: "Pipeline {pipelineType} on {wp.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability"
+    })
+
   root.last_updated = now()
 ```
 
 ### 12.2 Handoff Note Routing Summary
 
-PASS routing is **dynamic** — it depends on the WP's `active_pipeline_stages` and is computed by `resolveNextAgent` (§9.2). FAIL routing is **static** via `FAIL_ROUTING_MAP` (§9.3).
+PASS routing is **dynamic** — it depends on the WP's `active_pipeline_stages` and is computed by `resolveNextAgent` (§9.2). FAIL routing uses the static `FAIL_ROUTING_MAP` (§9.3) with a **dynamic fallback** via `resolveFailAgent` (§9.3.1) when the standard target's stage is not active.
 
 ```
 On PASS (default 4 stages):          On PASS (all 6 stages):
@@ -671,13 +722,16 @@ On PASS (default 4 stages):          On PASS (all 6 stages):
                                        release-engineering → Documentation
                                        documentation     → Synthesis
 
-On FAIL (always static):
+On FAIL (default — standard targets active):
   implementation       → Developer (self-rework)
   qa                   → Developer
   security-audit       → Developer
   code-review          → Developer
   release-engineering  → Release Engineer (self-rework)
   documentation        → Documentation (self-rework)
+
+On FAIL (fallback — standard target's stage not active):
+  Route to first active stage's agent (see §9.3.1)
 ```
 
 ### 12.3 Acceptance Criteria Merge Semantics

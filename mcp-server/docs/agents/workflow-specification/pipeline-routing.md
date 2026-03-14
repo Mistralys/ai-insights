@@ -6,25 +6,31 @@
 
 ## 8. Pipeline Ordering & Prerequisites
 
-Pipelines within a work package follow a **canonical ordering** of six stages, of which four are mandatory and two are optional:
+Pipelines within a work package follow a **canonical ordering** of six stages. The Project Manager selects which stages are active for each WP at creation time:
 
 ```
-Canonical:  implementation → qa → [security-audit] → code-review → [release-engineering] → documentation
+Canonical:  implementation → qa → security-audit → code-review → release-engineering → documentation
 ```
 
-Stages in brackets are **optional** — they are only active when included in the work package's `active_pipeline_stages` field ([§3.3](data-model.md#33-work-package-detail)). When optional stages are inactive, the pipeline chain skips them. For example, a WP with neither optional stage active follows the original 4-stage chain:
+The PM may compose **any valid subsequence** of this ordering. Inactive stages are skipped by the dynamic routing functions. For example, the default 4-stage chain:
 
 ```
 Default:    implementation → qa → code-review → documentation
 ```
 
-A WP with both optional stages active follows the full 6-stage chain:
+A WP with all six stages active follows the full chain:
 
 ```
 Full:       implementation → qa → security-audit → code-review → release-engineering → documentation
 ```
 
-The active stages for a WP are always a **subsequence** of the canonical ordering — stages can be omitted (optional stages only), but never reordered. See [§4.2](data-model.md#42-pipeline-stage-categories) for the constant definitions.
+A documentation-only WP has a single stage:
+
+```
+Doc-only:   documentation
+```
+
+The active stages for a WP are always a **subsequence** of the canonical ordering — stages can be omitted, but never reordered. See [§4.2](data-model.md#42-pipeline-stage-constants) for the constant definitions and common composition patterns.
 
 ### 8.1 Prerequisites Map
 
@@ -39,13 +45,13 @@ The **static** prerequisites map defines the canonical prerequisite for each pip
 | `release-engineering` | `code-review` |
 | `documentation` | `release-engineering` |
 
-Because optional stages may be inactive, the **effective** prerequisite for a given pipeline type depends on the work package's `active_pipeline_stages`. The `resolvePrerequisite` function dynamically computes the correct prerequisite by walking backward through the canonical ordering until it finds an active predecessor:
+Because inactive stages are skipped, the **effective** prerequisite for a given pipeline type depends on the work package's `active_pipeline_stages`. The `resolvePrerequisite` function dynamically computes the correct prerequisite by walking backward through the canonical ordering until it finds an active predecessor:
 
 #### 8.1.1 Dynamic Prerequisite Resolution
 
 ```
 function resolvePrerequisite(pipelineType, activeStages):
-  // activeStages defaults to MANDATORY_PIPELINE_TYPES when absent/null
+  // activeStages defaults to DEFAULT_PIPELINE_STAGES when absent/null
   ordering = CANONICAL_PIPELINE_ORDERING
   index = ordering.indexOf(pipelineType)
   
@@ -75,7 +81,7 @@ function resolvePrerequisite(pipelineType, activeStages):
 
 ```
 function canStartPipeline(wp, pipelineType):
-  activeStages = wp.active_pipeline_stages ?? MANDATORY_PIPELINE_TYPES
+  activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
   prerequisite = resolvePrerequisite(pipelineType, activeStages)
   if prerequisite is null:
     return true
@@ -179,7 +185,7 @@ function getUpstreamTypes(pipelineType, activeStages?):
 
 ## 9. Pipeline Routing Maps
 
-Four maps control how agents are assigned and how failures/successes are routed. `PIPELINE_AGENT_MAP`, `FAIL_ROUTING_MAP`, and `AGENT_PIPELINE_MAP` are static (they cover all 6 pipeline types). `NEXT_AGENT_MAP` is replaced by the dynamic `resolveNextAgent` function because the next agent depends on which optional stages are active.
+Four maps control how agents are assigned and how failures/successes are routed. `PIPELINE_AGENT_MAP`, `FAIL_ROUTING_MAP`, and `AGENT_PIPELINE_MAP` are static (they cover all 6 pipeline types). `NEXT_AGENT_MAP` is replaced by the dynamic `resolveNextAgent` function because the next agent depends on which stages are active.
 
 ### 9.1 PIPELINE_AGENT_MAP
 
@@ -200,7 +206,7 @@ In previous versions of this specification, `NEXT_AGENT_MAP` was a static map. W
 
 ```
 function resolveNextAgent(pipelineType, activeStages):
-  // activeStages defaults to MANDATORY_PIPELINE_TYPES when absent/null
+  // activeStages defaults to DEFAULT_PIPELINE_STAGES when absent/null
   ordering = CANONICAL_PIPELINE_ORDERING
   agentMap = PIPELINE_AGENT_MAP
   index = ordering.indexOf(pipelineType)
@@ -219,20 +225,22 @@ function resolveNextAgent(pipelineType, activeStages):
 
 **Effective routing examples:**
 
-| Pipeline Type | Default (4 stages) | All 6 stages |
-|--------------|-------------------|--------------|
-| `implementation` | QA | QA |
-| `qa` | Reviewer | Security Auditor |
-| `security-audit` | *(not active)* | Reviewer |
-| `code-review` | Documentation | Release Engineer |
-| `release-engineering` | *(not active)* | Documentation |
-| `documentation` | Synthesis | Synthesis |
+| Pipeline Type | Default (4 stages) | All 6 stages | Doc-only | Verification-only (impl/qa/review) |
+|--------------|-------------------|--------------|----------|------------------------------------|
+| `implementation` | QA | QA | *(not active)* | QA |
+| `qa` | Reviewer | Security Auditor | *(not active)* | Reviewer |
+| `security-audit` | *(not active)* | Reviewer | *(not active)* | *(not active)* |
+| `code-review` | Documentation | Release Engineer | *(not active)* | Synthesis |
+| `release-engineering` | *(not active)* | Documentation | *(not active)* | *(not active)* |
+| `documentation` | Synthesis | Synthesis | Synthesis | *(not active)* |
 
-> **Backward compatibility:** When `activeStages` contains only the 4 mandatory types, `resolveNextAgent` produces the same results as the original static `NEXT_AGENT_MAP`.
+> **Terminal routing:** When `resolveNextAgent` returns `"Synthesis"`, it means there are no more active pipeline stages. This is the signal that the current stage is the **last active stage** — its owning agent is the terminal agent for this WP (see [§6.2.1](state-machines.md#621-dynamic-complete-guard-helpers)).
+
+> **Backward compatibility:** When `activeStages` contains only the 4 default types (`DEFAULT_PIPELINE_STAGES`), `resolveNextAgent` produces the same results as the original static `NEXT_AGENT_MAP`.
 
 ### 9.3 FAIL_ROUTING_MAP
 
-Maps pipeline type to the agent responsible for fixing failures. Used for handoff notes on FAIL. This map is static because fail routing does not depend on which optional stages are active — failures always route to a specific agent.
+Maps pipeline type to the agent responsible for fixing failures. Used for handoff notes on FAIL. The base map is static:
 
 | Pipeline Type | Rework Agent (on FAIL) |
 |--------------|------------------------|
@@ -242,6 +250,28 @@ Maps pipeline type to the agent responsible for fixing failures. Used for handof
 | `code-review` | Developer |
 | `release-engineering` | Release Engineer (self-rework) |
 | `documentation` | Documentation (self-rework) |
+
+#### 9.3.1 FAIL Routing Fallback
+
+When the standard FAIL target's owned pipeline stage is **not active** in the WP's `active_pipeline_stages`, the routing falls back to the agent owning the WP's **first active stage**:
+
+```
+function resolveFailAgent(pipelineType, activeStages):
+  activeStages = activeStages ?? DEFAULT_PIPELINE_STAGES
+  standardTarget = FAIL_ROUTING_MAP[pipelineType]
+  targetStage = AGENT_PIPELINE_MAP[standardTarget]
+  
+  if targetStage in activeStages:
+    return standardTarget
+  
+  // Fallback: route to first active stage's agent
+  firstStage = activeStages[0]
+  return PIPELINE_AGENT_MAP[firstStage]
+```
+
+In practice, this fallback only triggers for unusual compositions where the standard fail target's stage was omitted (e.g., a WP with `["qa", "code-review"]` where a `qa` FAIL would normally route to Developer, but `implementation` is not active — the fallback routes to QA itself for self-rework). For all standard compositions (including the default 4 stages and full 6 stages), the base FAIL_ROUTING_MAP applies directly.
+
+> **Self-referential fallback:** When the fallback routes to the same agent that completed the failing pipeline (e.g., QA FAIL → QA when Developer's stage is not active), this produces a self-rework handoff note. This follows the same self-referential handoff pattern as Documentation (§21.29) and Release Engineering (§21.56).
 
 > **Failure routing rationale:**
 > - **Security Auditor (`security-audit`)** failures route to Developer because security issues are typically code-level fixes, consistent with the QA and code-review failure routing pattern.

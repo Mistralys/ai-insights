@@ -20,7 +20,7 @@ A typical project follows this sequence:
 
 ### Phase 2: Implementation Cycle (Per Work Package)
 
-Shows the default 4-stage mandatory pipeline. Optional stages (`security-audit`, `release-engineering`) are inserted at their canonical positions when included in the WP's `active_pipeline_stages` — see Phase 2d below.
+Shows the default 4-stage pipeline (`DEFAULT_PIPELINE_STAGES`). Additional stages are inserted at their canonical positions when included in the WP's `active_pipeline_stages` — see Phase 2d below.
 
 ```
 4. Developer claims WP (ledger_claim_work_package)
@@ -110,9 +110,9 @@ PM or Documentation decides WP needs more work:
 
 Multiple independent WPs (no mutual dependencies) can progress through the pipeline simultaneously. The batch action tool (`ledger_get_next_actions`) returns all actionable WPs for an agent, enabling parallel processing.
 
-### Phase 2d: Full 6-Stage Pipeline (Optional Stages Active)
+### Phase 2d: Full 6-Stage Pipeline (All Stages Active)
 
-When a WP includes `security-audit` and `release-engineering` in its `active_pipeline_stages`:
+When a WP includes all six stages in its `active_pipeline_stages`:
 
 ```
 Developer (implementation) → QA (qa) → Security Auditor (security-audit)
@@ -128,7 +128,7 @@ The additional steps between QA and Reviewer (Security Auditor) and between Revi
   - FAIL → Release Engineer (self-rework, same pattern as Documentation)
   - PASS → handoff to Documentation
 
-Optional stages are skipped entirely when not in `active_pipeline_stages` — `resolveNextAgent` (§9.2) walks the canonical ordering to find the next active stage.
+Inactive stages are skipped entirely when not in `active_pipeline_stages` — `resolveNextAgent` (§9.2) walks the canonical ordering to find the next active stage.
 
 ---
 
@@ -136,6 +136,8 @@ Optional stages are skipped entirely when not in `active_pipeline_stages` — `r
 
 | Constant | Default Value | Description |
 |----------|--------------|-------------|
+| `DEFAULT_PIPELINE_STAGES` | `["implementation", "qa", "code-review", "documentation"]` | Default active stages when `active_pipeline_stages` is absent/null. Backward-compatible with pre-composable-stages ledgers. See [§4.2](data-model.md#42-pipeline-stage-constants) |
+| `CANONICAL_PIPELINE_ORDERING` | `["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]` | Fixed ordering of all six pipeline types. All `active_pipeline_stages` must be subsequences of this. See [§4.2](data-model.md#42-pipeline-stage-constants) |
 | `STALE_PIPELINE_HOURS` | 24 | Hours before a pipeline is considered stale |
 | `MAX_REWORK_COUNT` | 5 | Maximum rework cycles before circuit breaker |
 | `MAX_HANDOFF_DEPTH` | 50 | Static floor for auto-handoff chain depth (runtime-configurable). Effective max = `max(50, total_work_packages × 20)` — see [§18.2.1](auxiliary-systems.md#1821-dynamic-effective-maximum) |
@@ -164,8 +166,8 @@ Optional stages are skipped entirely when not in `active_pipeline_stages` — `r
 | `BLOCK_FOR_REWORK_LIMIT` | Any pipeline owner | Per-pipeline rework limit reached; requires human intervention |
 | `CONTINUE_PIPELINE` | Any pipeline owner | Active (non-stale) IN_PROGRESS pipeline exists for this agent's pipeline type; continue current work |
 | `CLAIM_WP` | Any pipeline owner | READY WP available to claim (dependencies satisfied, unassigned or assigned to this agent) |
-| `FINALIZE_WP` | Documentation | Documentation pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE |
-| `UPDATE_CRITERIA` | Documentation | Documentation pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria, rework documentation, or escalate via BLOCKED with `technical` blocker (§21.24) |
+| `FINALIZE_WP` | Terminal agent (last-active-stage owner) | Last-active-stage pipeline PASS, all acceptance criteria met, freshness check passed; mark WP as COMPLETE. For default WPs this is Documentation; for verification-only WPs this is Reviewer; etc. (see §6.2.1) |
+| `UPDATE_CRITERIA` | Terminal agent (last-active-stage owner) | Last-active-stage pipeline PASS and freshness check passed, but acceptance criteria not fully met; update criteria, rework, or escalate via BLOCKED with `technical` blocker (§21.24) |
 | `REPAIR_TIMESTAMPS` | PM | Null timestamp detected on a pipeline where `started_at` or `completed_at` should be present; data integrity issue blocking downstream agent progress (see [§21.18](edge-cases.md#2118-null-timestamp-data-integrity)). Recommended (SHOULD) — not all implementations may emit this action. |
 | `REPAIR_ORPHAN_BLOCKED` | PM | WP is BLOCKED with a `dependency` blocker but all dependencies are terminal; inconsistent state from cascade lock gap or interrupted operation (see [§21.20](edge-cases.md#2120-cascade-lock-gap-recovery)). Recommended (SHOULD) — implementations may auto-repair instead. |
 
@@ -177,7 +179,7 @@ Optional stages are skipped entirely when not in `active_pipeline_stages` — `r
 | Create WP | Dependency not found | Referenced WP ID does not exist |
 | Create WP | Dependency cycle | Adding these dependencies would create a circular dependency |
 | Create WP | Empty criteria | At least one acceptance criterion required |
-| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, missing mandatory stages, duplicates, or violates canonical ordering (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
+| Create WP | Invalid active stages | `active_pipeline_stages` contains invalid types, empty array, duplicates, or violates canonical ordering (see [§9b.2](operations.md#9b2-active-pipeline-stages-validation)) |
 | Claim WP | Wrong status | WP must be READY |
 | Claim WP | Dependencies not met | All deps must be terminal |
 | Claim WP | Assigned to other | Override required (PM or assignee only) |
@@ -198,8 +200,8 @@ Optional stages are skipped entirely when not in `active_pipeline_stages` — `r
 | Unclaim WP | Wrong agent | Only PM or current assignee can unclaim |
 | Update Status | Invalid transition | State machine violation |
 | Update Status | Criteria not met | COMPLETE requires all criteria met |
-| Update Status | Pipeline not passed | COMPLETE requires most recent documentation pipeline PASS |
-| Update Status | Wrong agent | Only specific agents for specific transitions |
+| Update Status | Pipeline not passed | COMPLETE requires most recent pipeline of WP's last active stage to be PASS (see [§6.2.1](state-machines.md#621-dynamic-complete-guard-helpers)) |
+| Update Status | Wrong agent | Only specific agents for specific transitions (COMPLETE: last-active-stage agent; see [§6.5](state-machines.md#65-agent-guards)) |
 | Update Status | Missing blocker | BLOCKED requires blocked_by object |
 | Update Status | Wrong agent (BLOCKED→BLOCKED) | Only PM or current assignee can modify blockers |
 | Detect Project | Not found | No project matches the given path |
@@ -207,3 +209,12 @@ Optional stages are skipped entirely when not in `active_pipeline_stages` — `r
 | Complete Synthesis | WPs pending | Cannot complete synthesis while work packages are still pending |
 | Complete Synthesis | No WPs | Cannot complete synthesis with zero work packages |
 | Complete Synthesis | Wrong agent | Only Synthesis agent (or PM override) can complete synthesis |
+
+### Soft Warnings (project comments, non-blocking)
+
+| Operation | Warning Condition | Description |
+|-----------|------------------|-------------|
+| Create WP | Implementation without QA | `active_pipeline_stages` includes `implementation` but not `qa` (§9b.2 rule 5) |
+| Create WP | Single-stage chain | `active_pipeline_stages` has exactly one entry (§9b.2 rule 6) |
+| Create WP | Non-default composition | `active_pipeline_stages` differs from both `DEFAULT_PIPELINE_STAGES` and `CANONICAL_PIPELINE_ORDERING` (§9b.2 rule 7) |
+| Complete Pipeline | Missing artifacts | PASS with empty/absent `artifacts.files_modified` (§12.1, [§21.64](edge-cases.md#2164-artifact-declaration-soft-warning)) |

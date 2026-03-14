@@ -290,7 +290,7 @@ function resetReworkCount(wp, root, pipelineType, agentRole, reason):
 
 ### 16.4 Rework Flow
 
-The canonical 6-stage pipeline, with optional stages shown in brackets. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
+The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
 
 ```
                     ┌───────────┐
@@ -345,4 +345,4 @@ The canonical 6-stage pipeline, with optional stages shown in brackets. Stages n
 
 > **FAIL routing summary:** QA, Security Audit, and Code Review FAILs route to Developer (`rework_counts.implementation++`). Release Engineering and Documentation FAILs route to self-rework (`rework_counts.release-engineering++` and `rework_counts.documentation++` respectively). Each rework budget is independent — reaching the circuit breaker limit on one pipeline type does not block other pipeline types (§16.3).
 >
-> **Optional stage skipping:** When security-audit or release-engineering is not in a WP's `active_pipeline_stages`, the corresponding box in the diagram is skipped entirely — PASS from the preceding stage flows directly to the next active stage via `resolveNextAgent` (§9.2).
+> **Stage skipping:** When a stage is not in a WP's `active_pipeline_stages`, the corresponding box in the diagram is skipped entirely — PASS from the preceding stage flows directly to the next active stage via `resolveNextAgent` (§9.2).

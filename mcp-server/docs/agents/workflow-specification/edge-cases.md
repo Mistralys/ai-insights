@@ -63,15 +63,24 @@
 - Dual-file atomic updates enforce this invariant
 - Fields that must stay in sync: `work_package_id`, `status`, `assigned_to`, `dependencies`, `active_pipeline_stages`
 
-### 21.10 Documentation-Only COMPLETE Guard
+### 21.10 Generalized COMPLETE Guard
 
-Only the Documentation agent can mark a WP as COMPLETE. Additionally, the most recent `documentation` pipeline must have PASS status, **and** that PASS must post-date the most recent `implementation` pipeline's `started_at` timestamp. This freshness check prevents a stale documentation PASS (from before a WP reopen) from satisfying the COMPLETE guard. Together these enforce the full pipeline chain:
-```
-Developer → QA → [Security Auditor] → Reviewer → [Release Engineer] → Documentation → COMPLETE
-```
-Optional stages (in brackets) are skipped when not in the WP's `active_pipeline_stages`. No agent can skip active stages, Documentation cannot mark COMPLETE without having completed its own pipeline successfully, and a WP reopen invalidates any prior documentation PASS.
+Only the agent owning the WP's **last active stage** can mark a WP as COMPLETE. The last active stage is determined by `lastActiveStage(wp)` (§6.2.1) — the final entry in the WP's `active_pipeline_stages` (or `DEFAULT_PIPELINE_STAGES` when absent). The terminal agent is `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`.
 
-> **Absent implementation pipeline:** If no `implementation` pipeline exists on the WP (which would require bypassing the normal pipeline ordering — see §8.1), the freshness check passes vacuously. The guard's purpose is to detect stale documentation after a WP reopen; without an implementation pipeline, there is no reopen reference point to compare against. Implementations MAY treat this as an invariant violation and reject the transition, but the core specification does not require it.
+Additionally, the most recent pipeline of the last active stage must have PASS status, **and** that PASS must post-date the most recent pipeline start of the WP's **first active stage** (`firstActiveStage(wp)` — §6.2.1). This freshness check prevents a stale PASS (from before a WP reopen) from satisfying the COMPLETE guard. The effective pipeline chain is the WP's `active_pipeline_stages` — any valid subsequence of the canonical ordering:
+
+```
+Default:         Developer → QA → Reviewer → Documentation → COMPLETE
+Full:            Developer → QA → Security Auditor → Reviewer → Release Engineer → Documentation → COMPLETE
+Doc-only:        Documentation → COMPLETE
+Verification:    Developer → QA → Reviewer → COMPLETE
+```
+
+No agent can skip active stages. The terminal agent cannot mark COMPLETE without having completed its own pipeline successfully, and a WP reopen invalidates any prior terminal-stage PASS.
+
+> **Single-stage WPs:** When `firstActiveStage == lastActiveStage` (e.g., documentation-only WP `["documentation"]`), the freshness check passes vacuously — there is no earlier stage to compare against. The PASS of the single stage is sufficient.
+
+> **Absent first-active-stage pipeline:** If no pipeline of the first active stage exists on the WP (which would require bypassing the normal pipeline ordering — see §8.1), the freshness check passes vacuously. The guard's purpose is to detect stale terminal-stage PASS after a WP reopen; without a first-active-stage pipeline, there is no reopen reference point to compare against. Implementations MAY treat this as an invariant violation and reject the transition, but the core specification does not require it.
 
 ### 21.11 Transition to BLOCKED Requires Blocker
 
@@ -250,11 +259,11 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 - The batch action system (§14.9) may return `CONTINUE_PIPELINE` for one WP alongside rework/new-work actions for other WPs, enabling the agent to see the full picture
 - If upstream rework has occurred while the pipeline is active (detectable via `hasNewUpstreamPassSince`), the active pipeline may be validating stale results. The recommendation engine does not prescribe cancellation — the agent should evaluate whether to complete with FAIL and restart, or finish and re-validate
 
-### 21.34 Documentation PASS to COMPLETE Finalization Gap
+### 21.34 Terminal-Stage PASS to COMPLETE Finalization Gap
 
-- After a documentation pipeline PASSes, the WP remains IN_PROGRESS until the Documentation agent explicitly calls `updateWorkPackageStatus(COMPLETE)`
-- The `FINALIZE_WP` recommendation (§14.5) bridges this gap by advising the Documentation agent to mark the WP as COMPLETE when all conditions are satisfied (documentation PASS, all acceptance criteria met, freshness check passed)
-- Without `FINALIZE_WP`, a Documentation agent that completes the documentation pipeline but forgets to update the WP status would leave the WP stranded in IN_PROGRESS with no further recommendations
+- After the WP's last active stage pipeline PASSes, the WP remains IN_PROGRESS until the terminal agent (the agent owning the last active stage — see §6.2.1) explicitly calls `updateWorkPackageStatus(COMPLETE)`
+- The `FINALIZE_WP` recommendation (§14.5, §14.5a) bridges this gap by advising the terminal agent to mark the WP as COMPLETE when all conditions are satisfied (last-active-stage PASS, all acceptance criteria met, freshness check passed)
+- Without `FINALIZE_WP`, an agent that completes the terminal pipeline but forgets to update the WP status would leave the WP stranded in IN_PROGRESS with no further recommendations
 - Self-healing (§17) does not catch this case because the WP is legitimately IN_PROGRESS — the gap is at the recommendation level, not the state level
 
 ### 21.35 Single Blocker Metadata Limitation
@@ -341,8 +350,8 @@ Both `BLOCKED → IN_PROGRESS` and `BLOCKED → READY` automatically clear the `
 
 ### 21.45 Reopened WP Can Re-Complete Without New Pipeline Work
 
-- After COMPLETE → IN_PROGRESS, if no new `implementation` pipeline starts, the old documentation PASS may still satisfy the freshness check (it post-dates the old implementation start). If all acceptance criteria remain `met: true`, the Documentation agent can immediately call `updateWorkPackageStatus(COMPLETE)` without any substantive rework
-- This is **by design**: the PM or Documentation agent who reopened the WP is responsible for setting up meaningful rework — e.g., by modifying acceptance criteria, starting a new pipeline, or adding handoff notes describing the required changes. The state machine enforces structural integrity (pipeline ordering, agent guards, freshness) but does not enforce that "useful work was done"
+- After COMPLETE → IN_PROGRESS, if no new first-active-stage pipeline starts, the old last-active-stage PASS may still satisfy the freshness check (it post-dates the old first-active-stage start). If all acceptance criteria remain `met: true`, the terminal agent can immediately call `updateWorkPackageStatus(COMPLETE)` without any substantive rework
+- This is **by design**: the PM or terminal agent who reopened the WP is responsible for setting up meaningful rework — e.g., by modifying acceptance criteria, starting a new pipeline, or adding handoff notes describing the required changes. The state machine enforces structural integrity (pipeline ordering, agent guards, freshness) but does not enforce that "useful work was done"
 - **Mitigation:** If implementations want to prevent no-op re-completions, they MAY add a guard requiring at least one pipeline started after the COMPLETE → IN_PROGRESS transition. This is an optional enhancement beyond the core specification
 
 ### 21.46 PM Handoff Single-Return for Multiple READY WPs
@@ -373,13 +382,13 @@ The following describes the expected PM/agent workflow after a COMPLETE → IN_P
 2. **Pipeline agents re-engage:** Once the PM has set up the rework context:
    - The Developer should be routed to the WP (via handoff or recommendation engine) to start a new implementation pipeline
    - QA, Security Auditor (when active), Reviewer, Release Engineer (when active), and Documentation should re-engage in sequence after implementation re-PASSes. Both the recommendation engine's `hasNewUpstreamPassSince` ([§14.6](recommendations.md#146-hasnewupstreampasssince-algorithm)) and the re-validation guard ([§11.1.1](operations.md#1111-re-validation-guard)) correctly handle the WP reopen case — the guard's upstream rework check detects the new implementation pipeline and blocks downstream stages from starting with stale prerequisites
-3. **Without PM intervention:** If the PM (or Documentation agent who initiated the reopen) does not set up rework context:
+3. **Without PM intervention:** If the PM (or terminal agent who initiated the reopen) does not set up rework context:
    - All prior pipelines remain PASS — no agent receives rework/implement recommendations
-   - The Documentation agent receives `FINALIZE_WP` (§14.5) because all acceptance criteria are still met and the old documentation PASS satisfies the freshness check against the old implementation start
+   - The terminal agent receives `FINALIZE_WP` (§14.5, §14.5a) because all acceptance criteria are still met and the old last-active-stage PASS satisfies the freshness check against the old first-active-stage start
    - The WP can be immediately re-completed without any new pipeline work — a "no-op reopen"
 
 - **Mitigation for no-op reopens:** Implementations that want to prevent this MAY add a guard requiring at least one pipeline started after the COMPLETE → IN_PROGRESS transition before allowing the WP to transition back to COMPLETE. This is an optional enhancement beyond the core specification (see §21.45)
-- **Documentation-initiated reopens:** When the Documentation agent (rather than the PM) reopens a WP, the same structural side effects apply (revision increment, rework count reset, synthesis invalidation, cascade reblock of dependents — potentially cancelling their in-flight pipelines). Because the cascade damage to dependents is irreversible (auto-cancelled pipelines and lost in-progress work), a no-op reopen is particularly harmful. The Documentation agent **MUST** perform at least one of: (a) mark one or more acceptance criteria as `met: false` to prevent immediate re-completion, (b) add handoff notes explaining the documentation-related issue that prompted the reopen, or (c) set the WP to BLOCKED with a `technical` blocker if the issue requires code changes. Without any of these actions, the recommendation engine will immediately offer `FINALIZE_WP` (§14.5) — making the reopen a no-op (§21.45) while dependents have already suffered cascade damage. Implementations SHOULD enforce this by requiring at least one acceptance criterion to be set to `met: false` as part of a Documentation-initiated COMPLETE → IN_PROGRESS transition.
+- **Terminal-agent-initiated reopens:** When the terminal agent (rather than the PM) reopens a WP, the same structural side effects apply (revision increment, rework count reset, synthesis invalidation, cascade reblock of dependents — potentially cancelling their in-flight pipelines). Because the cascade damage to dependents is irreversible (auto-cancelled pipelines and lost in-progress work), a no-op reopen is particularly harmful. The terminal agent **MUST** perform at least one of: (a) mark one or more acceptance criteria as `met: false` to prevent immediate re-completion, (b) add handoff notes explaining the issue that prompted the reopen, or (c) set the WP to BLOCKED with a `technical` blocker if the issue requires code changes. Without any of these actions, the recommendation engine will immediately offer `FINALIZE_WP` (§14.5, §14.5a) — making the reopen a no-op (§21.45) while dependents have already suffered cascade damage. Implementations SHOULD enforce this by requiring at least one acceptance criterion to be set to `met: false` as part of a terminal-agent-initiated COMPLETE → IN_PROGRESS transition.
 - **Related edge cases:** §21.34 (FINALIZE_WP gap), §21.44 (rework count reset), §21.45 (re-completion without new work), [§11.1.1](operations.md#1111-re-validation-guard) (re-validation guard WP reopen limitation)
 
 ### 21.49 Agent Role Guard on Work Package Claiming
@@ -442,14 +451,14 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 
 > **Implementation note:** When filtering "non-dependency-blocked" WPs in handoff and recommendation functions, use `wp.status != "BLOCKED" OR wp.blocked_by.type != "dependency"`. Do not substitute a check against the `dependencies` array — this would miss WPs blocked by PM-set dependency blockers that do not correspond to formal dependencies.
 
-### 21.55 Optional Pipeline Stage Backward Compatibility
+### 21.55 Pipeline Stage Backward Compatibility
 
-- WPs created before v2.0.0 (or created without specifying `active_pipeline_stages`) default to the 4 mandatory stages: `["implementation", "qa", "code-review", "documentation"]`
-- When `active_pipeline_stages` is `null` or absent, all dynamic functions (`resolvePrerequisite`, `resolveNextAgent`, `getUpstreamTypes`, `getDownstreamTypes`) fall back to the mandatory-only behavior — equivalent to the static routing of v1.x
-- Optional stages (`security-audit`, `release-engineering`) only become active when explicitly included in the WP's `active_pipeline_stages` at creation time
-- Pipeline agents for optional stages (Security Auditor, Release Engineer) filter their recommendation and handoff logic to only consider WPs where their owned stage is in `active_pipeline_stages`. WPs without their stage are invisible to these agents
-- **No mid-flight stage addition:** `active_pipeline_stages` is set at WP creation and cannot be modified thereafter. If the PM discovers mid-project that a WP needs security auditing, the PM must cancel and recreate the WP with the correct stages (losing pipeline history), or manually route work via project comments and PM overrides. This limitation is consistent with the immutable-dependencies design (§15.2) and keeps the pipeline routing deterministic throughout a WP's lifecycle
-- **Mixed-stage projects:** A single project may contain WPs with different `active_pipeline_stages` configurations. For example, security-critical WPs may include `security-audit` while documentation-only WPs use the 4 mandatory stages. Each WP's routing is independent — the pipeline ordering is per-WP, not per-project
+- WPs created before composable stages (or created without specifying `active_pipeline_stages`) default to `DEFAULT_PIPELINE_STAGES`: `["implementation", "qa", "code-review", "documentation"]`
+- When `active_pipeline_stages` is `null` or absent, all dynamic functions (`resolvePrerequisite`, `resolveNextAgent`, `resolveFailAgent`, `getUpstreamTypes`, `getDownstreamTypes`, `firstActiveStage`, `lastActiveStage`) fall back to the default stages — equivalent to the static routing of v1.x
+- Stages only become active when explicitly included in the WP's `active_pipeline_stages` at creation time
+- Pipeline agents filter their recommendation and handoff logic to only consider WPs where their owned stage is in `active_pipeline_stages`. WPs without their stage are invisible to these agents
+- **No mid-flight stage addition:** `active_pipeline_stages` is set at WP creation and cannot be modified thereafter. If the PM discovers mid-project that a WP needs additional stages, the PM must cancel and recreate the WP with the correct stages (losing pipeline history), or manually route work via project comments and PM overrides. This limitation is consistent with the immutable-dependencies design (§15.2) and keeps the pipeline routing deterministic throughout a WP's lifecycle
+- **Mixed-stage projects:** A single project may contain WPs with different `active_pipeline_stages` configurations. For example, security-critical WPs may include all 6 stages while documentation-only WPs use `["documentation"]`. Each WP's routing is independent — the pipeline ordering is per-WP, not per-project
 
 ### 21.56 Release Engineering FAIL Self-Referential Handoff
 
@@ -480,8 +489,53 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 > This section extends the transitive cascade limitation documented in §21.42 with a concrete staleness propagation scenario and recommended mitigation.
 
 - **Scenario:** Consider a dependency chain WP-001 → WP-002 → WP-003, where all three have completed their full pipeline chains. WP-001 is reopened (COMPLETE → IN_PROGRESS). Cascade reblock (§15.5) blocks WP-002 (direct dependent) and auto-cancels its in-flight pipelines. WP-003 (transitive dependent) is **not** reblocked — its pipeline PASSes remain intact
-- **The compounding gap:** WP-003's existing pipeline PASSes (e.g., QA PASS, code-review PASS) validated output that transitively depended on WP-001's now-stale deliverables. All intra-WP guards — the re-validation guard (§11.1.1), `hasNewUpstreamPassSince` (§14.6), and the Documentation freshness check (§21.10) — operate within a single WP's pipeline history. None can detect that WP-003's prerequisites are stale due to a **cross-WP** dependency change
+- **The compounding gap:** WP-003's existing pipeline PASSes (e.g., QA PASS, code-review PASS) validated output that transitively depended on WP-001's now-stale deliverables. All intra-WP guards — the re-validation guard (§11.1.1), `hasNewUpstreamPassSince` (§14.6), and the COMPLETE guard freshness check (§21.10) — operate within a single WP's pipeline history. None can detect that WP-003's prerequisites are stale due to a **cross-WP** dependency change
 - **Why the existing guards are insufficient:** After WP-001 re-completes and WP-002 is unblocked, re-completes its pipeline chain, and itself reaches terminal status, WP-003 is also unblocked. At this point, WP-003's pipeline history shows PASS results from the pre-reopen era. Within WP-003, no upstream pipeline was restarted (the rework happened in WP-001 and WP-002), so the re-validation guard's upstream rework check finds nothing. The recommendation engine sees satisfied prerequisites and may offer `FINALIZE_WP` or next-stage pipeline starts based on stale PASSes
 - **Impact scales with chain depth:** In longer chains (A → B → C → D), nodes further from the reopened WP accumulate more undetected staleness. This is bounded by the DAG — a WP cannot reach COMPLETE while any dependency is non-terminal — but the quality of intermediate pipeline PASSes degrades with distance from the reopened node
 - **Recommended mitigation — `completePipeline` dependency freshness check:** Before accepting a PASS result in `completePipeline` (§12.1), implementations SHOULD verify that all entries in the WP's `dependencies` array are in a terminal status and that each dependency's `last_updated` timestamp predates the current pipeline's `started_at`. If a dependency was re-completed after the pipeline started (indicating the pipeline validated pre-reopen deliverables), the implementation SHOULD emit a `"warning"` project comment and optionally reject the PASS with an `auto_cancelled = true` FAIL. This adds minor overhead to every pipeline completion but catches cross-WP staleness that intra-WP guards cannot detect
 - **Alternative — recursive cascade reblock:** As documented in §21.42, implementations MAY extend `propagateDependencyReblock` with recursive traversal to reblock all transitive dependents. This is a more aggressive approach that eliminates the staleness window entirely at the cost of broader state disruption (auto-cancelling pipelines on WPs that may not actually be affected by the upstream change). The `completePipeline` freshness check provides a lighter-weight alternative that detects staleness at the point of consumption rather than pre-emptively disrupting in-flight work
+
+### 21.60 Single-Stage Work Package Semantics
+
+- A WP with exactly one entry in `active_pipeline_stages` (e.g., `["documentation"]`) has the following properties:
+  - The single stage's owning agent is the terminal agent — only that agent can mark the WP as COMPLETE (§6.2.1)
+  - The COMPLETE freshness check passes vacuously because `firstActiveStage == lastActiveStage` — there is no upstream reference point to compare against
+  - Pipeline ordering has no predecessor or successor — `resolvePrerequisite` returns `null` and `resolveNextAgent` returns `"Synthesis"`
+  - FAIL routing uses the standard `FAIL_ROUTING_MAP` target if that target's stage is active, otherwise falls back to the single stage's agent (self-rework) via `resolveFailAgent` (§9.3.1)
+  - The rework and circuit breaker mechanisms (§16) function normally — the `MAX_REWORK_COUNT` applies to the single stage
+  - The recommendation engine (§14) emits the appropriate action for the single stage's agent (e.g., `WRITE_DOCS` for documentation-only, `IMPLEMENT` for implementation-only)
+- **Validation:** Single-stage WPs trigger the "single-stage chain" soft guardrail warning (§9b.2 rule 6) but are not rejected
+
+### 21.61 Documentation-Only Work Package
+
+- A WP with `active_pipeline_stages = ["documentation"]` is the canonical "documentation-only" pattern where documentation IS the creative work, not a post-implementation activity
+- The Documentation agent claims the WP, starts and completes the `documentation` pipeline, and marks the WP as COMPLETE
+- No QA, code-review, or implementation stages run — they are not in the active set
+- The FINALIZE_WP action is offered by the recommendation engine when the documentation pipeline has PASS status and all acceptance criteria are met
+- FAIL routing for a documentation FAIL is Documentation (self-rework) — consistent with the standard `FAIL_ROUTING_MAP` and the self-rework pattern (§21.29)
+- **Use case:** Pure documentation tasks (writing guides, updating READMEs, creating architectural documents) that do not involve code changes
+
+### 21.62 Verification-Only Work Package
+
+- A WP with `active_pipeline_stages = ["implementation", "qa", "code-review"]` is the canonical "verification-only" pattern for spikes, prototypes, or exploratory work where formal documentation is not required
+- The terminal agent is **Reviewer** (owning `code-review`, the last active stage) — only Reviewer can mark the WP as COMPLETE
+- The COMPLETE freshness check compares the most recent `code-review` PASS against the most recent `implementation` pipeline start
+- The FINALIZE_WP action is offered to Reviewer (not Documentation) when the code-review pipeline has PASS status and all acceptance criteria are met
+- FAIL routing for `qa` → Developer, `code-review` → Developer (standard map applies because Developer's `implementation` stage is active)
+- **Use case:** Spike/prototype WPs, experimental implementations, or tasks where documentation will be handled separately
+
+### 21.63 FAIL Routing Fallback Semantics
+
+- When a pipeline FAILs and the standard `FAIL_ROUTING_MAP` target's owned stage is **not active** in the WP, `resolveFailAgent` (§9.3.1) falls back to the agent owning the WP's first active stage
+- **Example:** A WP with `["qa", "code-review"]` — a `qa` FAIL normally routes to Developer, but `implementation` is not active. The fallback routes to QA (owning `qa`, the first active stage), producing a self-rework handoff note
+- **Example:** A WP with `["qa", "code-review", "documentation"]` — a `qa` FAIL normally routes to Developer, but `implementation` is not active. The fallback routes to QA (self-rework)
+- The self-referential handoff pattern (from_agent == to_agent) is consistent with existing Documentation (§21.29) and Release Engineering (§21.56) self-rework patterns
+- The fallback is deterministic — it always selects the first active stage's agent, providing a consistent "loop back to start" behavior for unusual compositions
+
+### 21.64 Artifact Declaration Soft Warning
+
+- When `completePipeline` records a PASS result and the `artifacts.files_modified` field is absent, null, or an empty array, a `"warning"` project comment is emitted (§12.1)
+- This is a **soft warning** only — it does not block the PASS or affect routing
+- The warning serves as an audit trail prompt: agents that modify files should declare what they changed for traceability and downstream awareness
+- **Not all PASS results require artifacts:** Some pipeline types (e.g., QA, code-review, security-audit) may complete with PASS without modifying files — the warning is intentionally lenient
+- Implementations MAY suppress this warning for specific pipeline types where artifact-free PASS is expected (e.g., verification-only pipelines)

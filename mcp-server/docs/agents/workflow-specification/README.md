@@ -2,12 +2,22 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.3.0  
-**Date:** 2026-03-14
+**Version:** 2.4.0  
+**Date:** 2026-03-28
 
 ---
 
 ## Changelog
+
+### v2.4.0 - PM-Composable Pipeline Stages
+- **Breaking conceptual change:** Removed the mandatory/optional pipeline stage distinction. All six stages are now PM-composable — the Project Manager selects any valid subsequence of the canonical ordering per WP. The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired and replaced by `DEFAULT_PIPELINE_STAGES` (§4.2).
+- **Generalized COMPLETE guard:** The `IN_PROGRESS → COMPLETE` transition is no longer hardcoded to the Documentation agent. The agent owning the WP's **last active stage** is now the terminal agent. Added `firstActiveStage`/`lastActiveStage` helpers (§6.2.1). Freshness check generalized from documentation-vs-implementation to lastActiveStage-vs-firstActiveStage.
+- **Generalized FAIL routing:** Added `resolveFailAgent` function (§9.3.1) with fallback rule — when the standard FAIL target's stage is not active, route to the first active stage's agent.
+- **Soft guardrails:** `validateActiveStages` (§9b.2) no longer rejects non-mandatory compositions. Instead, hard rejects catch structural errors (invalid types, duplicates, out-of-order, empty) while soft guardrails emit warning project comments for unusual compositions (implementation without QA, single-stage chains, non-default compositions).
+- **Artifact declaration:** `completePipeline` (§12.1) now emits a soft warning when a PASS result declares no `artifacts.files_modified`.
+- **New edge cases:** §21.60 (single-stage WP semantics), §21.61 (documentation-only WP), §21.62 (verification-only WP), §21.63 (FAIL routing fallback semantics), §21.64 (artifact declaration soft warning).
+- **Updated edge cases:** §21.10 generalized from "Documentation-Only COMPLETE Guard" to "Generalized COMPLETE Guard". §21.55 renamed from "Optional Pipeline Stage Backward Compatibility" to "Pipeline Stage Backward Compatibility".
+- **Updated appendices:** Appendix A adds `DEFAULT_PIPELINE_STAGES` and `CANONICAL_PIPELINE_ORDERING` constants. Appendix C adds soft warning conditions table.
 
 ### v2.3.0 - Synthesis Timestamp, Ledger Versioning, Cross-WP Staleness
 - Added `synthesis_generated_at` timestamp to root index (§3.1, §19.1, §21.57): records when synthesis was last completed, enabling staleness detection and observability. Cleared alongside `synthesis_generated` on all reset paths (§6.2, §15.5, §21.51).
@@ -92,18 +102,18 @@ The workflow orchestrates **nine specialized agent roles** to execute software d
 The core progression is:
 
 ```
-Planner → Project Manager → Developer → QA → [Security Auditor] → Reviewer → [Release Engineer] → Documentation → Synthesis
+Planner → Project Manager → [ Developer → QA → Security Auditor → Reviewer → Release Engineer → Documentation ] → Synthesis
 ```
 
-Bracketed stages are **optional** — the Project Manager selects which pipeline stages are active for each work package at creation time via the `active_pipeline_stages` field. The four mandatory stages (`implementation`, `qa`, `code-review`, `documentation`) are always present.
+All six pipeline stages are **PM-composable** — the Project Manager selects which stages are active for each work package at creation time via the `active_pipeline_stages` field. The default set (`DEFAULT_PIPELINE_STAGES`) is `["implementation", "qa", "code-review", "documentation"]`, providing backward compatibility. The PM may compose any valid subsequence of the canonical ordering, from a single stage (e.g., documentation-only) to all six stages.
 
 Work is organized into **work packages** (WPs), each of which progresses through a configurable sequence of **pipelines**:
 
 ```
-implementation → qa → [security-audit] → code-review → [release-engineering] → documentation
+implementation → qa → security-audit → code-review → release-engineering → documentation
 ```
 
-Each pipeline is owned by a single agent role. Failures route back for rework (to Developer for QA/security-audit/code-review FAILs; to self for documentation/release-engineering FAILs). The system enforces ordering, validates transitions, and manages handoffs automatically. Dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`) adapt the pipeline chain per WP based on its active stages.
+Each pipeline is owned by a single agent role. Failures route back for rework (to Developer for QA/security-audit/code-review FAILs; to self for documentation/release-engineering FAILs; with a fallback to the first active stage's agent when the standard target's stage is not active). The system enforces ordering, validates transitions, and manages handoffs automatically. Dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`, `resolveFailAgent`) adapt the pipeline chain per WP based on its active stages.
 
 ---
 
@@ -127,5 +137,5 @@ Each pipeline is owned by a single agent role. Failures route back for rework (t
 2. **Code ≠ truth.** When implementation code contradicts this specification, the **code is wrong** unless the specification is explicitly amended first.
 3. **Tests validate the spec, not the code.** Test assertions must reflect the behavior defined in this specification. A passing test that diverges from the spec is a **false positive** and must be corrected.
 4. **Spec-section traceability.** Test descriptions SHOULD reference the specification section they validate (e.g., `§8.2`, `§14.13 row 1`). This enables automated auditing of spec coverage and makes the test's authority explicit.
-5. **Implementation notes within the spec.** Where the specification references implementation details (e.g., specific TypeScript exports), these are illustrative, not authoritative. If the implementation changes its internal structure, the spec's algorithmic definitions remain the authority; the implementation notes should be updated to match.
+5. **Implementation notes within the spec.** Where the specification references implementation details (e.g., specific TypeScript exports), these are illustrative, not authoritative. If the implementation changes its internal structure, the spec's algorithmic definitions remain the authority; the implementation notes should be updated to match. *Example: if `CLAIMABLE_ROLES` is refactored into a different module, the algorithm defined in §10.1 remains authoritative — only the implementation note pointing to its location needs updating.*
 6. **Manifest documents the implementation.** The project manifest (`api-surface.md`, `constraints.md`, etc.) describes the current state of the code. When the specification changes, the implementation changes, and the manifest is updated to reflect the new implementation — in that order.
