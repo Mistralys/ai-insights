@@ -2,12 +2,17 @@
 
 > **Purpose:** Language-agnostic specification of the 9-agent dynamic pipeline workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
 
-**Version:** 2.2.0  
+**Version:** 2.3.0  
 **Date:** 2026-03-14
 
 ---
 
 ## Changelog
+
+### v2.3.0 - Synthesis Timestamp, Ledger Versioning, Cross-WP Staleness
+- Added `synthesis_generated_at` timestamp to root index (§3.1, §19.1, §21.57): records when synthesis was last completed, enabling staleness detection and observability. Cleared alongside `synthesis_generated` on all reset paths (§6.2, §15.5, §21.51).
+- Added `ledger_version` field to root index (§3.1, §21.58): records the specification version that created the ledger, enabling forward-compatible migrations when the spec evolves.
+- Added §21.59 (Cross-WP Staleness After Dependency Reopens): documents the compounding staleness gap in transitive dependency chains after a WP reopen, and recommends a `completePipeline` dependency freshness check as a lightweight mitigation.
 
 ### v2.2.0 - Audit Fixes
 - Fixed first-run stage-skipping exploit: upstream rework check is now unconditional, no longer gated by `effectiveSamePipelines` being non-empty (§11.1, §11.1.1).

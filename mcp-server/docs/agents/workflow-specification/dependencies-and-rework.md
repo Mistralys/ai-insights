@@ -192,6 +192,7 @@ function propagateDependencyReblock(projectPath, reopenedWpId):
   // this catches the case where that reset was missed due to a crash.
   if root.synthesis_generated:
     root.synthesis_generated = false
+    root.synthesis_generated_at = null    // §21.57: clear staleness timestamp
   
   root.last_updated = now()
   write root index

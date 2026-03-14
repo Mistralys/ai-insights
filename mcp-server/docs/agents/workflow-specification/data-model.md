@@ -35,6 +35,8 @@ Project {
   project_comments:       ProjectComment[]
   auto_handoff_depth:     integer?     // Loop-guard counter (default: 0)
   synthesis_generated:    boolean?     // True after synthesis completion
+  synthesis_generated_at: timestamp?   // When synthesis was last completed (§19.1)
+  ledger_version:         string?      // Spec version that created this ledger (§21.58)
 }
 ```
 

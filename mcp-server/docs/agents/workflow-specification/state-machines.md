@@ -107,6 +107,7 @@ Project status updates are **implicit** — they happen as side effects of WP op
 │               │                │ Increments revision counter                      │
 │               │                │ Resets rework_counts to absent (see §21.44)      │
 │               │                │ Resets project synthesis_generated to false       │
+│               │                │ Clears synthesis_generated_at (§21.57)            │
 │               │                │ Triggers cascade reblock of dependents           │
 │ COMPLETE      → CANCELLED      │ Agent must be "Project Manager"                  │
 │               │                │ No counter change (terminal → terminal)          │

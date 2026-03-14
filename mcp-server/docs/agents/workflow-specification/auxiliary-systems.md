@@ -226,6 +226,7 @@ function completeSynthesis(projectPath, agentRole):
     ERROR("Cannot complete synthesis: no work packages exist")
   
   root.synthesis_generated = true
+  root.synthesis_generated_at = now()   // §21.57: enables staleness detection
   root.status = "COMPLETE"
   root.last_updated = now()
   
@@ -239,7 +240,7 @@ function completeSynthesis(projectPath, agentRole):
 
 ### 19.2 Idempotency
 
-Calling `completeSynthesis` multiple times after all WPs are terminal is safe. The flag is simply set to `true` again. However, calling it while WPs are still pending is rejected (not silently ignored).
+Calling `completeSynthesis` multiple times after all WPs are terminal is safe. The flag is simply set to `true` again (and `synthesis_generated_at` is updated to the current time). However, calling it while WPs are still pending is rejected (not silently ignored).
 
 > **Crash recovery and statelessness:** Unlike pipeline-owning agents, the Synthesis agent has no pipeline-based state tracking — its only persistent artifact is the binary `synthesis_generated` flag. If the Synthesis agent crashes or is interrupted during report generation, there is no "synthesis in progress" state to resume from. The `synthesis_generated` flag remains `false`, and `getNextAction` for the Synthesis role will return `GENERATE_SYNTHESIS` again. Implementations MUST treat Synthesis as a **stateless, idempotent operation**: each invocation regenerates the complete synthesis report from scratch using the current state of all work packages. The Synthesis agent should not attempt to resume or append to a partial report from a prior session.
 
@@ -248,7 +249,7 @@ Calling `completeSynthesis` multiple times after all WPs are terminal is safe. T
 A project is `COMPLETE` when:
 - All WPs have terminal status (COMPLETE or CANCELLED) ⟹ `pending_work_packages == 0`
 - At least one WP exists ⟹ `total_work_packages > 0`
-- `synthesis_generated == true`
+- `synthesis_generated == true` (and `synthesis_generated_at` records when)
 
 ---
 
@@ -291,6 +292,6 @@ Dual-file updates (WP detail + root index) are protected by file locks:
 >
 > Self-healing (§17) repairs **project-level** status drift. For **WP-level** blocking inconsistency after a suspected cascade failure, re-invoking the cascade is the prescribed repair. Implementations SHOULD detect this condition (WP is BLOCKED but all dependencies are terminal and blocker type is `dependency`) during `getNextAction` and either auto-repair or surface it as a PM action.
 
-> **⚠ Stale PASS on direct dependents:** The lock gap can also produce **stale PASS pipelines** on direct dependents, not just stale blocking state. If a dependent WP's pipeline completes with PASS during the gap between the main update (reopening the dependency) and the cascade lock acquisition, the PASS result validated pre-reopen output. Since PASS is terminal (§7.2), cascade reblock cannot retroactively cancel it. The dependent WP now carries a PASS pipeline that validated stale assumptions. This is analogous to the transitive-dependent issue documented in §21.42, but affects **direct** dependents during the lock gap. Implementations SHOULD add a dependency-status re-check to `completePipeline` (verifying that all of the WP's dependencies are still terminal before accepting a PASS result) to guard against this race. This adds minor overhead to every pipeline completion but prevents stale PASS results from propagating through the dependency graph undetected.
+> **⚠ Stale PASS on direct dependents:** The lock gap can also produce **stale PASS pipelines** on direct dependents, not just stale blocking state. If a dependent WP's pipeline completes with PASS during the gap between the main update (reopening the dependency) and the cascade lock acquisition, the PASS result validated pre-reopen output. Since PASS is terminal (§7.2), cascade reblock cannot retroactively cancel it. The dependent WP now carries a PASS pipeline that validated stale assumptions. This is analogous to the transitive-dependent issue documented in §21.42, but affects **direct** dependents during the lock gap. Implementations SHOULD add a dependency-status re-check to `completePipeline` (verifying that all of the WP's dependencies are still terminal before accepting a PASS result) to guard against this race. This adds minor overhead to every pipeline completion but prevents stale PASS results from propagating through the dependency graph undetected. See [§21.59](edge-cases.md#2159-cross-wp-staleness-after-dependency-reopens) for the full dependency freshness check recommendation.
 
 > **Side-effect idempotency on concurrent unblock:** When two dependencies of the same WP complete near-simultaneously, `propagateDependencyUnblock` may be invoked twice. The state mutation is idempotent (both calls write `READY`), but **side effects** such as notifications, project comments, or webhook emissions may double-fire. Implementations SHOULD ensure that unblock side effects are either idempotent or deduplicated (e.g., via an idempotency key derived from the WP ID and target status).
