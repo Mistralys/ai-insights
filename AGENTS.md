@@ -128,6 +128,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Change `.mcp.json` server key | `personas/` → `constraints.md` (mcp_server_name reference) |
 | Add root-level script | Root `README.md` |
 | Restructure workspace | Both `file-tree.md` files, this `AGENTS.md` |
+| Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints.md` |
 
 ---
 
@@ -216,6 +217,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Version (Personas) | `personas/changelog.md` | `personas/ledger/src/meta/_shared.yaml` → `default_version` |
 | Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
 | Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/vs-code/` generated output filenames |
+| Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
 
 ### Validation Scripts
 
@@ -269,6 +271,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) |
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
 | Understand the 7-stage workflow | [personas/ledger/README.md](personas/ledger/README.md) |
+| Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) |
 | Review past discussions | [discussions/](discussions/) |
 | Review error history | [history/error-ledger.md](history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](history/key-learnings.md) |

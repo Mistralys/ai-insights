@@ -1,6 +1,6 @@
 # Agent Workflow Specification
 
-> **Purpose:** Language-agnostic specification of the 9-agent dynamic pipeline workflow, including all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. This document is intended as a reference implementation guide for porting the workflow logic to any language.
+> **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
 **Version:** 2.3.0  
 **Date:** 2026-03-14
@@ -104,3 +104,28 @@ implementation → qa → [security-audit] → code-review → [release-engineer
 ```
 
 Each pipeline is owned by a single agent role. Failures route back for rework (to Developer for QA/security-audit/code-review FAILs; to self for documentation/release-engineering FAILs). The system enforces ordering, validates transitions, and manages handoffs automatically. Dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`) adapt the pipeline chain per WP based on its active stages.
+
+---
+
+## Compliance Model
+
+> **This specification is the single source of truth for all workflow logic.**
+
+### Authority Hierarchy
+
+| Layer | Document | Authority |
+|-------|----------|-----------|
+| **Specification** | This document (all sections) | Defines how the workflow **must** behave. Authoritative. |
+| **Implementation** | `mcp-server/src/` (TypeScript) | Implements the specification. Must conform to it. |
+| **Tests** | `mcp-server/tests/` | Validates that the implementation conforms to the specification. |
+| **Project Manifest** | `mcp-server/docs/agents/project-manifest/` | Documents how the implementation currently works. Descriptive, not prescriptive for workflow logic. |
+| **Orchestrator** | `orchestrator/src/` (Python) | Alternate implementation. Must also conform to this specification. |
+
+### Rules
+
+1. **Spec-first development.** All changes to pipeline types, routing maps, state machines, operational algorithms, edge-case behavior, and constant values MUST be made in this specification first. Implementation follows.
+2. **Code ≠ truth.** When implementation code contradicts this specification, the **code is wrong** unless the specification is explicitly amended first.
+3. **Tests validate the spec, not the code.** Test assertions must reflect the behavior defined in this specification. A passing test that diverges from the spec is a **false positive** and must be corrected.
+4. **Spec-section traceability.** Test descriptions SHOULD reference the specification section they validate (e.g., `§8.2`, `§14.13 row 1`). This enables automated auditing of spec coverage and makes the test's authority explicit.
+5. **Implementation notes within the spec.** Where the specification references implementation details (e.g., specific TypeScript exports), these are illustrative, not authoritative. If the implementation changes its internal structure, the spec's algorithmic definitions remain the authority; the implementation notes should be updated to match.
+6. **Manifest documents the implementation.** The project manifest (`api-surface.md`, `constraints.md`, etc.) describes the current state of the code. When the specification changes, the implementation changes, and the manifest is updated to reflect the new implementation — in that order.

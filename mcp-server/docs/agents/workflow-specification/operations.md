@@ -147,7 +147,7 @@ function claimWorkPackage(wp, root, agentName, overrideFlag):
   // Guard: Only pipeline-owning agents or PM can claim (see §21.49)
   // CLAIMABLE_ROLES is derived programmatically: AGENT_ROLES minus ORCHESTRATING_ROLES
   // (i.e. excludes 'Planner' and 'Synthesis'), including both bare names and 'X Agent' variants.
-  // Source of truth: CLAIMABLE_ROLES export in src/tools/work-package.ts.
+  // Derivation rule defined here (§10.1). Implementation: CLAIMABLE_ROLES export in src/tools/work-package.ts.
   CLAIMABLE_ROLES = AGENT_ROLES.filter(r => r not in ORCHESTRATING_ROLES)
                   + [r + " Agent" for r in AGENT_ROLES if r not in ORCHESTRATING_ROLES]
   if agentName not in CLAIMABLE_ROLES:

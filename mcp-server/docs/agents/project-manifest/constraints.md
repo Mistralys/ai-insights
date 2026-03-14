@@ -16,6 +16,22 @@ New constraint entries should follow this structure (modelled on Constraint 2):
 
 ---
 
+## Workflow Specification Governance
+
+### 0. The Workflow Specification Is the Source of Truth for All Workflow Logic
+
+**Rule:** The [Workflow Specification](../workflow-specification/README.md) is the authoritative definition of all workflow logic — state machines, pipeline routing, status transitions, handoff behavior, recommendation engine behavior, edge cases, and constants. Implementation code must conform to the specification. When code contradicts the specification, the code is wrong.
+
+**Spec-first development:** Changes to workflow logic MUST be made in the specification first, then implemented in code, then validated by tests, then documented in the project manifest — in that order.
+
+**Test traceability:** Test descriptions SHOULD reference the workflow specification section they validate (e.g., `// §14.13 row 1: returns true when QA FAIL started after impl PASS completed`). This convention is already practiced in several test files and should be followed consistently.
+
+**Rationale:** The specification was designed to be a language-agnostic, formally reviewed reference. Treating code as the source of truth defeats this purpose and leads to silent behavioral drift between the TypeScript (MCP server) and Python (orchestrator) implementations.
+
+**Scope:** This constraint applies to workflow logic only — file I/O, schema validation, concurrency primitives, and other infrastructure concerns are governed by their respective constraints below and the project manifest.
+
+---
+
 ## File System Constraints
 
 ### 1. All File I/O Must Be Atomic
@@ -202,6 +218,8 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
   - Criterion 2
 ```
 
+> Full specification: [Workflow Specification §6.2](../workflow-specification/state-machines.md#62-transition-table).
+
 ---
 
 ### 13. Only Documentation Agent Can Set COMPLETE
@@ -211,6 +229,8 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 **Enforcement:** Hard guard in `updateWorkPackageStatus()`. The error message includes the full workflow reminder (Developer → QA → Reviewer → Documentation → COMPLETE).
 
 **Rationale:** Enforces the 7-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly.
+
+> Full specification: [Workflow Specification §6.5, §21.10](../workflow-specification/state-machines.md#65-agent-guards).
 
 ---
 
@@ -315,6 +335,8 @@ Pipeline order: implementation → qa → code-review → documentation.
 
 **Exception:** `implementation` has no prerequisite and can always be started (subject to other constraints).
 
+> Full specification: [Workflow Specification §8](../workflow-specification/pipeline-routing.md).
+
 ---
 
 ### 20. Pipeline Start Auto-Updates `assigned_to`
@@ -391,6 +413,8 @@ interface HandoffNote {
 2. **Agent role guard:** `agent_role` must match `PIPELINE_AGENT_MAP[type]`. Exception: `agent_role === 'Project Manager'` bypasses this check (PM Override). When PM override is active, `from_agent` is set to `'Project Manager (PM Override)'`.
 
 **Consumption:** `ledger_get_next_action` and `ledger_get_next_actions` include any handoff notes addressed to the requesting agent in their response, so the next agent sees the notes immediately when they ask for their next action.
+
+> Full specification: [Workflow Specification §9, §12](../workflow-specification/pipeline-routing.md).
 
 ---
 

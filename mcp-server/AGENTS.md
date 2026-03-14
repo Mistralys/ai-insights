@@ -20,6 +20,7 @@ All manifest documents are located in:
 
 | # | Document | Purpose | When to Consult |
 |---|----------|---------|-----------------|
+| 0 | [Workflow Specification](docs/agents/workflow-specification/README.md) | Authoritative specification of all workflow logic — state machines, routing, handoffs, edge cases | **Before modifying any pipeline, routing, status, handoff, or recommendation logic** |
 | 1 | [README.md](docs/agents/project-manifest/README.md) | Project overview, purpose, and context | **FIRST** — Before any work |
 | 2 | [tech-stack.md](docs/agents/project-manifest/tech-stack.md) | Runtime, frameworks, libraries, architectural patterns | Understanding system design |
 | 3 | [constraints.md](docs/agents/project-manifest/constraints.md) | Critical rules, gotchas, and conventions | **MANDATORY** — Before making changes |
@@ -98,6 +99,7 @@ All manifest documents are located in:
 
 | What You Need | Search Here FIRST | Search Here SECOND | Read Source Code LAST |
 |---------------|-------------------|--------------------|-----------------------|
+| **Understand workflow behavior** | [Workflow Specification](docs/agents/workflow-specification/README.md) | `constraints.md` | Only for implementation details |
 | **Find a file location** | `file-tree.md` | grep/file search | Never needed |
 | **Understand a method signature** | `api-surface.md` | Source code | Only for implementation logic |
 | **Trace how data flows** | `data-flows.md` | Source code | Only for edge cases |
@@ -174,7 +176,7 @@ Unclear → Pause and request user clarification
 | **Primary Pattern** | Schema-First Design (Zod) + Atomic Writes + File Locking |
 | **Lines of Code** | ~2,000 (src/) |
 | **Test Coverage** | ~85% (unit + integration) |
-| **MCP Tools** | 14 registered tools |
+| **MCP Tools** | 22 registered tools |
 | **Dependencies** | 3 production, 4 development |
 
 ---
@@ -196,6 +198,7 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | 9 | `COMPLETE` requires all acceptance criteria met | Premature completion + false positives |
 | 10 | Pipelines require `IN_PROGRESS` work package | Starting work before claiming |
 | 11 | Pre-mutation state passed out of `updateWorkPackageWithSync` must use outer-scope `let` | TS2304 compile error + runtime ReferenceError at call site |
+| 12 | All workflow logic must implement the Workflow Specification exactly | Spec drift → behavioral divergence → test false positives → production bugs |
 
 **Memorize these constraints.** Reference [constraints.md](docs/agents/project-manifest/constraints.md) for full details.
 
@@ -212,6 +215,7 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | Check architectural patterns | [tech-stack.md](docs/agents/project-manifest/tech-stack.md) |
 | Verify a rule or constraint | [constraints.md](docs/agents/project-manifest/constraints.md) |
 | See previous implementation notes | [docs/agents/implementation-history/](docs/agents/implementation-history/) |
+| Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](docs/agents/workflow-specification/README.md) |
 
 ---
 
