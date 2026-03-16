@@ -177,6 +177,8 @@ Unclear → Pause and request user clarification
 | **Lines of Code** | ~2,000 (src/) |
 | **Test Coverage** | ~85% (unit + integration) |
 | **MCP Tools** | 22 registered tools |
+| **Pipeline Types** | 6 (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) |
+| **Agent Roles** | 9 (`Planner`, `Project Manager`, `Developer`, `QA`, `Security Auditor`, `Reviewer`, `Release Engineer`, `Documentation`, `Synthesis`) |
 | **Dependencies** | 3 production, 4 development |
 
 ---
@@ -229,9 +231,11 @@ If you are operating in a **specific agent role**, consult the relevant persona 
 | Project Manager | `/personas/ledger/vs-code/2-project-manager.md` | `/personas/ledger/claude-code/2-project-manager.md` | Creating work packages + dependency management |
 | Developer | `/personas/ledger/vs-code/3-developer.md` | `/personas/ledger/claude-code/3-developer.md` | Implementation + pipeline execution |
 | Validator (QA) | `/personas/ledger/vs-code/4-qa.md` | `/personas/ledger/claude-code/4-qa.md` | Testing + quality assurance |
-| Reviewer | `/personas/ledger/vs-code/5-reviewer.md` | `/personas/ledger/claude-code/5-reviewer.md` | Code review + security audit |
-| Documentation | `/personas/ledger/vs-code/6-documentation.md` | `/personas/ledger/claude-code/6-documentation.md` | Manifest maintenance + README updates |
-| Synthesis | `/personas/ledger/vs-code/7-synthesis.md` | `/personas/ledger/claude-code/7-synthesis.md` | Cross-session coordination + handoff |
+| Security Auditor | `/personas/ledger/vs-code/5-security-auditor.md` | `/personas/ledger/claude-code/5-security-auditor.md` | Security review (stub — full content in Plan 2) |
+| Reviewer | `/personas/ledger/vs-code/6-reviewer.md` | `/personas/ledger/claude-code/6-reviewer.md` | Code review + architecture validation |
+| Release Engineer | `/personas/ledger/vs-code/7-release-engineer.md` | `/personas/ledger/claude-code/7-release-engineer.md` | Release validation (stub — full content in Plan 2) |
+| Documentation | `/personas/ledger/vs-code/8-documentation.md` | `/personas/ledger/claude-code/8-documentation.md` | Manifest maintenance + README updates |
+| Synthesis | `/personas/ledger/vs-code/9-synthesis.md` | `/personas/ledger/claude-code/9-synthesis.md` | Cross-session coordination + handoff |
 
 ---
 

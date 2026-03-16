@@ -9,6 +9,9 @@ import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import {
   PIPELINE_TYPES,
   type PipelineType,
+  resolvePrerequisite,
+  DEFAULT_PIPELINE_STAGES,
+  getOrderedActiveStages,
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp } from '../utils/timestamp.js';
 import {
@@ -223,8 +226,12 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
         return await embedHandoffStatusInWait(await getDeveloperAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
       case 'QA':
         return await embedHandoffStatusInWait(await getQaAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
+      case 'Security Auditor':
+        return await embedHandoffStatusInWait(await getSecurityAuditorAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
       case 'Reviewer':
         return await embedHandoffStatusInWait(await getReviewerAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
+      case 'Release Engineer':
+        return await embedHandoffStatusInWait(await getReleaseEngineerAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
       case 'Documentation':
         return await embedHandoffStatusInWait(await getDocumentationAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
       case 'Synthesis':
@@ -468,6 +475,10 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
   for (const wpDetail of wpDetails) {
     // Skip terminal (COMPLETE, CANCELLED) and BLOCKED statuses
     if (isTerminalStatus(wpDetail.status) || wpDetail.status === 'BLOCKED') continue;
+    // Only consider WPs where implementation is an active stage
+    const activeStages: readonly PipelineType[] =
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!activeStages.includes('implementation')) continue;
     // Only consider Developer-assigned WPs
     if (wpDetail.assigned_to !== 'Developer') continue;
     // Skip dependency-blocked WPs
@@ -547,8 +558,8 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
     const hasPassImpl = wpDetail.pipelines.some(
       (p) => p.type === 'implementation' && p.status === 'PASS' && !p.auto_cancelled
     );
-    if (hasPassImpl && hasDownstreamFail(wpDetail.pipelines, 'implementation')) {
-      if (hasDownstreamReengagedSince(wpDetail.pipelines, 'implementation')) {
+    if (hasPassImpl && hasDownstreamFail(wpDetail.pipelines, 'implementation', activeStages)) {
+      if (hasDownstreamReengagedSince(wpDetail.pipelines, 'implementation', activeStages)) {
         // P5: REWORK (downstream triggered — downstream re-ran after last impl PASS)
         const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
         return {
@@ -656,8 +667,15 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
   for (const wpDetail of wpDetails) {
     // Skip terminal and BLOCKED statuses
     if (isTerminalStatus(wpDetail.status) || wpDetail.status === 'BLOCKED') continue;
+    // Only consider WPs where qa is an active stage
+    const activeStages: readonly PipelineType[] =
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!activeStages.includes('qa')) continue;
     // Skip dependency-blocked WPs
     if (hasDependencyBlocked(wpDetail)) continue;
+
+    // Resolve upstream prerequisite for qa in this WP's active stages
+    const qaPrerequisite = resolvePrerequisite('qa', activeStages);
 
     // P1: BLOCK_FOR_REWORK_LIMIT (QA's own rework at MAX, IN_PROGRESS only)
     if (wpDetail.status === 'IN_PROGRESS') {
@@ -678,19 +696,21 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
       }
     }
 
-    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT (implementation rework at MAX)
-    const implReworkCount = wpDetail.rework_counts?.implementation ?? 0;
-    if (implReworkCount >= MAX_REWORK_COUNT) {
-      return {
-        content: [{
-          type: 'text' as const,
-          text: JSON.stringify({
-            action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
-            work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} implementation has reached the maximum rework count. QA cannot proceed until Developer resolves the limit.`,
-          }, null, 2),
-        }],
-      };
+    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT (upstream prerequisite rework at MAX)
+    if (qaPrerequisite !== null) {
+      const prereqReworkCount = wpDetail.rework_counts?.[qaPrerequisite] ?? 0;
+      if (prereqReworkCount >= MAX_REWORK_COUNT) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} ${qaPrerequisite} has reached the maximum rework count. QA cannot proceed until the upstream limit is resolved.`,
+            }, null, 2),
+          }],
+        };
+      }
     }
 
     // P2: RESUME_OR_CANCEL (stale QA pipeline)
@@ -716,19 +736,23 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
       };
     }
 
-    // P4: RUN_QA (re-engagement) — at least one prior QA pipeline AND new impl PASS since then
+    // P4: RUN_QA (re-engagement) — at least one prior QA pipeline AND new upstream PASS since then
     const priorQaPipelines = wpDetail.pipelines.filter(
       (p) => p.type === 'qa' && !p.auto_cancelled
     );
-    if (priorQaPipelines.length > 0 && hasNewUpstreamPassSince(wpDetail.pipelines, 'implementation', 'qa')) {
+    const hasNewPrereqPassForQa = qaPrerequisite === null
+      ? true // qa is the first active stage, no prerequisite needed
+      : hasNewUpstreamPassSince(wpDetail.pipelines, qaPrerequisite, 'qa');
+    if (priorQaPipelines.length > 0 && hasNewPrereqPassForQa) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
+      const prereqLabel = qaPrerequisite ?? 'prior stage';
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             action: 'RUN_QA',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has a new implementation PASS since the last QA pipeline. Re-run QA.`,
+            reason: `Work package ${wpDetail.work_package_id} has a new ${prereqLabel} PASS since the last QA pipeline. Re-run QA.`,
             next_steps: [
               `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "qa", agent_role: "QA").`,
               `2. Call ledger_get_work_package to review implementation artifacts and acceptance criteria.`,
@@ -756,19 +780,24 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
       };
     }
 
-    // P6: RUN_QA (first-run) — no prior QA pipeline + implementation has PASS
-    const hasImplPass = wpDetail.pipelines.some(
-      (p) => p.type === 'implementation' && p.status === 'PASS' && !p.auto_cancelled
-    );
-    if (hasImplPass && priorQaPipelines.length === 0) {
+    // P6: RUN_QA (first-run) — no prior QA pipeline + prerequisite has PASS (or no prerequisite)
+    const hasPrereqPass = qaPrerequisite === null
+      ? true // qa is first active stage, can always start
+      : wpDetail.pipelines.some(
+          (p) => p.type === qaPrerequisite && p.status === 'PASS' && !p.auto_cancelled
+        );
+    if (hasPrereqPass && priorQaPipelines.length === 0) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
+      const prereqLabel = qaPrerequisite ?? 'prerequisite';
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             action: 'RUN_QA',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has PASS implementation pipeline but no QA pipeline. Run QA.`,
+            reason: qaPrerequisite
+              ? `Work package ${wpDetail.work_package_id} has PASS ${prereqLabel} pipeline but no QA pipeline. Run QA.`
+              : `Work package ${wpDetail.work_package_id} has no prior QA pipeline and qa is the first active stage. Run QA.`,
             next_steps: [
               `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "qa", agent_role: "QA").`,
               `2. Call ledger_get_work_package to review implementation artifacts and acceptance criteria.`,
@@ -828,8 +857,20 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
   for (const wpDetail of wpDetails) {
     // Skip terminal and BLOCKED statuses
     if (isTerminalStatus(wpDetail.status) || wpDetail.status === 'BLOCKED') continue;
+    // Only consider WPs where code-review is an active stage
+    const activeStages: readonly PipelineType[] =
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!activeStages.includes('code-review')) continue;
     // Skip dependency-blocked WPs
     if (hasDependencyBlocked(wpDetail)) continue;
+
+    // Resolve upstream prerequisite for code-review in this WP's active stages
+    const reviewPrerequisite = resolvePrerequisite('code-review', activeStages);
+
+    // Compute active stages before code-review for P1b upstream limit checks
+    const orderedActive = getOrderedActiveStages(activeStages);
+    const crIdx = orderedActive.indexOf('code-review');
+    const upstreamActiveStages = crIdx > 0 ? orderedActive.slice(0, crIdx) : [];
 
     // P1: BLOCK_FOR_REWORK_LIMIT (Reviewer's own rework at MAX, IN_PROGRESS only)
     if (wpDetail.status === 'IN_PROGRESS') {
@@ -850,21 +891,20 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
       }
     }
 
-    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT (implementation OR qa rework at MAX)
-    const implReworkCount = wpDetail.rework_counts?.implementation ?? 0;
-    const qaReworkCount = wpDetail.rework_counts?.qa ?? 0;
-    if (implReworkCount >= MAX_REWORK_COUNT || qaReworkCount >= MAX_REWORK_COUNT) {
-      const limitedType = implReworkCount >= MAX_REWORK_COUNT ? 'implementation' : 'qa';
-      return {
-        content: [{
-          type: 'text' as const,
-          text: JSON.stringify({
-            action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
-            work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} ${limitedType} has reached the maximum rework count. Reviewer cannot proceed until the upstream limit is resolved.`,
-          }, null, 2),
-        }],
-      };
+    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT (any active upstream pipeline at MAX)
+    for (const upType of upstreamActiveStages) {
+      if ((wpDetail.rework_counts?.[upType] ?? 0) >= MAX_REWORK_COUNT) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} ${upType} has reached the maximum rework count. Reviewer cannot proceed until the upstream limit is resolved.`,
+            }, null, 2),
+          }],
+        };
+      }
     }
 
     // P2: RESUME_OR_CANCEL (stale code-review pipeline)
@@ -890,19 +930,23 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
       };
     }
 
-    // P4: RUN_REVIEW (re-engagement) — at least one prior review pipeline AND new QA PASS since then
+    // P4: RUN_REVIEW (re-engagement) — at least one prior review pipeline AND new upstream PASS since then
     const priorReviewPipelines = wpDetail.pipelines.filter(
       (p) => p.type === 'code-review' && !p.auto_cancelled
     );
-    if (priorReviewPipelines.length > 0 && hasNewUpstreamPassSince(wpDetail.pipelines, 'qa', 'code-review')) {
+    const hasNewPrereqPassForReview = reviewPrerequisite === null
+      ? true
+      : hasNewUpstreamPassSince(wpDetail.pipelines, reviewPrerequisite, 'code-review');
+    if (priorReviewPipelines.length > 0 && hasNewPrereqPassForReview) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
+      const prereqLabel = reviewPrerequisite ?? 'prior stage';
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             action: 'RUN_REVIEW',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has a new QA PASS since the last code-review pipeline. Re-run review.`,
+            reason: `Work package ${wpDetail.work_package_id} has a new ${prereqLabel} PASS since the last code-review pipeline. Re-run review.`,
             next_steps: [
               `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "code-review", agent_role: "Reviewer").`,
               `2. Call ledger_get_work_package to review implementation artifacts and QA results.`,
@@ -916,7 +960,7 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
       };
     }
 
-    // P5: WAIT_FOR_REWORK — most recent code-review is FAIL and no new QA PASS yet
+    // P5: WAIT_FOR_REWORK — most recent code-review is FAIL and no new upstream pass yet
     if (isMostRecentPipelineFail(wpDetail.pipelines, 'code-review')) {
       return {
         content: [{
@@ -930,19 +974,24 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
       };
     }
 
-    // P6: RUN_REVIEW (first-run) — no prior review pipeline + QA has PASS
-    const hasQaPass = wpDetail.pipelines.some(
-      (p) => p.type === 'qa' && p.status === 'PASS' && !p.auto_cancelled
-    );
-    if (hasQaPass && priorReviewPipelines.length === 0) {
+    // P6: RUN_REVIEW (first-run) — no prior review pipeline + prerequisite has PASS (or no prerequisite)
+    const hasReviewPrereqPass = reviewPrerequisite === null
+      ? true
+      : wpDetail.pipelines.some(
+          (p) => p.type === reviewPrerequisite && p.status === 'PASS' && !p.auto_cancelled
+        );
+    if (hasReviewPrereqPass && priorReviewPipelines.length === 0) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
+      const prereqLabel = reviewPrerequisite ?? 'prerequisite';
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             action: 'RUN_REVIEW',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has PASS QA pipeline but no code-review pipeline. Run review.`,
+            reason: reviewPrerequisite
+              ? `Work package ${wpDetail.work_package_id} has PASS ${prereqLabel} pipeline but no code-review pipeline. Run review.`
+              : `Work package ${wpDetail.work_package_id} has no prior code-review pipeline and code-review is the first active stage. Run review.`,
             next_steps: [
               `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "code-review", agent_role: "Reviewer").`,
               `2. Call ledger_get_work_package to review implementation artifacts and QA results.`,
@@ -990,6 +1039,382 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
 }
 
 /**
+ * Get next action for Security Auditor.
+ * Mirrors QA action structure — no self-rework on FAIL (bounces back to Developer).
+ */
+export async function getSecurityAuditorAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]) {
+  const wpDetails = preloadedWpDetails ?? await Promise.all(
+    rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
+  );
+
+  for (const wpDetail of wpDetails) {
+    if (isTerminalStatus(wpDetail.status) || wpDetail.status === 'BLOCKED') continue;
+    const activeStages: readonly PipelineType[] =
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!activeStages.includes('security-audit')) continue;
+    if (hasDependencyBlocked(wpDetail)) continue;
+
+    const auditPrerequisite = resolvePrerequisite('security-audit', activeStages);
+
+    // P1: BLOCK_FOR_REWORK_LIMIT (own rework at MAX)
+    if (wpDetail.status === 'IN_PROGRESS') {
+      const auditReworkCount = wpDetail.rework_counts?.['security-audit'] ?? 0;
+      if (auditReworkCount >= MAX_REWORK_COUNT) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'BLOCK_FOR_REWORK_LIMIT',
+              work_package_id: wpDetail.work_package_id,
+              rework_count: auditReworkCount,
+              max_rework_count: MAX_REWORK_COUNT,
+              reason: `Work package ${wpDetail.work_package_id} security-audit has reached the maximum rework count (${MAX_REWORK_COUNT}). Escalate to Project Manager.`,
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT (upstream prerequisite rework at MAX)
+    if (auditPrerequisite !== null) {
+      const prereqReworkCount = wpDetail.rework_counts?.[auditPrerequisite] ?? 0;
+      if (prereqReworkCount >= MAX_REWORK_COUNT) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} ${auditPrerequisite} has reached the maximum rework count. Security Auditor cannot proceed until the upstream limit is resolved.`,
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P2: RESUME_OR_CANCEL
+    const staleAction = extractStalePipelineAction(wpDetail, 'security-audit');
+    if (staleAction) return staleAction;
+
+    // P3: CONTINUE_PIPELINE
+    if (isActivePipeline(wpDetail, 'security-audit')) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'CONTINUE_PIPELINE',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has an active security-audit pipeline in progress. Continue security audit work.`,
+            next_steps: [
+              `1. Complete the current security audit for ${wpDetail.work_package_id}.`,
+              `2. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
+              `3. Call ledger_get_handoff_status (current_agent: "Security Auditor").`,
+            ],
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P4: RUN_SECURITY_AUDIT (re-engagement) — prior audit pipeline AND new upstream PASS since then
+    const priorAuditPipelines = wpDetail.pipelines.filter((p) => p.type === 'security-audit' && !p.auto_cancelled);
+    const hasNewPrereqPassForAudit = auditPrerequisite === null
+      ? true
+      : hasNewUpstreamPassSince(wpDetail.pipelines, auditPrerequisite, 'security-audit');
+    if (priorAuditPipelines.length > 0 && hasNewPrereqPassForAudit) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Security Auditor');
+      const prereqLabel = auditPrerequisite ?? 'prior stage';
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'RUN_SECURITY_AUDIT',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has a new ${prereqLabel} PASS since the last security-audit pipeline. Re-run security audit.`,
+            next_steps: [
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", agent_role: "Security Auditor").`,
+              `2. Call ledger_get_work_package to review implementation artifacts and acceptance criteria.`,
+              '3. Run security audit: OWASP checks, dependency scan, threat model review.',
+              `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
+              `5. Call ledger_get_handoff_status (current_agent: "Security Auditor").`,
+            ],
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P5: WAIT_FOR_REWORK — most recent security-audit is FAIL, no new upstream pass
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'security-audit')) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'WAIT_FOR_REWORK',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has a FAIL security-audit pipeline. Developer must address findings before Security Auditor can retry.`,
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P6: RUN_SECURITY_AUDIT (first-run) — no prior audit + prerequisite PASS (or no prerequisite)
+    const hasAuditPrereqPass = auditPrerequisite === null
+      ? true
+      : wpDetail.pipelines.some((p) => p.type === auditPrerequisite && p.status === 'PASS' && !p.auto_cancelled);
+    if (hasAuditPrereqPass && priorAuditPipelines.length === 0) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Security Auditor');
+      const prereqLabel = auditPrerequisite ?? 'prerequisite';
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'RUN_SECURITY_AUDIT',
+            work_package_id: wpDetail.work_package_id,
+            reason: auditPrerequisite
+              ? `Work package ${wpDetail.work_package_id} has PASS ${prereqLabel} pipeline but no security-audit pipeline. Run security audit.`
+              : `Work package ${wpDetail.work_package_id} has no prior security-audit pipeline and security-audit is the first active stage. Run security audit.`,
+            next_steps: [
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", agent_role: "Security Auditor").`,
+              `2. Call ledger_get_work_package to review implementation artifacts and acceptance criteria.`,
+              '3. Run security audit: OWASP checks, dependency scan, threat model review.',
+              `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
+              `5. Call ledger_get_handoff_status (current_agent: "Security Auditor").`,
+            ],
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P7: CLAIM_WP
+    if (wpDetail.status === 'READY' && wpDetail.assigned_to === 'Security Auditor') {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Security Auditor');
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'CLAIM_WP',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} is READY and assigned to Security Auditor with all dependencies satisfied.`,
+            next_steps: [
+              `1. Call ledger_claim_work_package (work_package_id: "${wpDetail.work_package_id}", agent: "Security Auditor") to transition to IN_PROGRESS.`,
+              `2. Wait for the prerequisite pipeline to complete before starting the security audit.`,
+              `3. Call ledger_get_handoff_status (current_agent: "Security Auditor").`,
+            ],
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          }, null, 2),
+        }],
+      };
+    }
+  }
+
+  return {
+    content: [{
+      type: 'text' as const,
+      text: JSON.stringify({
+        action: 'WAIT',
+        reason: 'No work packages ready for security audit.',
+      }, null, 2),
+    }],
+  };
+}
+
+/**
+ * Get next action for Release Engineer.
+ * Self-rework on FAIL (like Documentation). Runs after code-review in extended pipelines.
+ */
+export async function getReleaseEngineerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]) {
+  const wpDetails = preloadedWpDetails ?? await Promise.all(
+    rootIndex.work_packages.map((wp) => store.readWorkPackage(wp.work_package_id))
+  );
+
+  for (const wpDetail of wpDetails) {
+    if (isTerminalStatus(wpDetail.status) || wpDetail.status === 'BLOCKED') continue;
+    const activeStages: readonly PipelineType[] =
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!activeStages.includes('release-engineering')) continue;
+    if (hasDependencyBlocked(wpDetail)) continue;
+
+    const releasePrerequisite = resolvePrerequisite('release-engineering', activeStages);
+
+    // Compute active upstream stages for P1b
+    const orderedActive = getOrderedActiveStages(activeStages);
+    const reIdx = orderedActive.indexOf('release-engineering');
+    const upstreamActiveStages = reIdx > 0 ? orderedActive.slice(0, reIdx) : [];
+
+    // P1: BLOCK_FOR_REWORK_LIMIT (own rework at MAX)
+    if (wpDetail.status === 'IN_PROGRESS') {
+      const releaseReworkCount = wpDetail.rework_counts?.['release-engineering'] ?? 0;
+      if (releaseReworkCount >= MAX_REWORK_COUNT) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'BLOCK_FOR_REWORK_LIMIT',
+              work_package_id: wpDetail.work_package_id,
+              rework_count: releaseReworkCount,
+              max_rework_count: MAX_REWORK_COUNT,
+              reason: `Work package ${wpDetail.work_package_id} release-engineering has reached the maximum rework count (${MAX_REWORK_COUNT}). Escalate to Project Manager.`,
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT (any active upstream pipeline at MAX)
+    for (const upType of upstreamActiveStages) {
+      if ((wpDetail.rework_counts?.[upType] ?? 0) >= MAX_REWORK_COUNT) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} ${upType} has reached the maximum rework count. Release Engineer cannot proceed until the upstream limit is resolved.`,
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P2: RESUME_OR_CANCEL
+    const staleAction = extractStalePipelineAction(wpDetail, 'release-engineering');
+    if (staleAction) return staleAction;
+
+    // P3: CONTINUE_PIPELINE
+    if (isActivePipeline(wpDetail, 'release-engineering')) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'CONTINUE_PIPELINE',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has an active release-engineering pipeline in progress. Continue release engineering work.`,
+            next_steps: [
+              `1. Complete the current release engineering for ${wpDetail.work_package_id}.`,
+              `2. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+              `3. Call ledger_get_handoff_status (current_agent: "Release Engineer").`,
+            ],
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P4: REWORK (self) — most recent release-engineering FAIL and no new upstream PASS since
+    if (
+      isMostRecentPipelineFail(wpDetail.pipelines, 'release-engineering') &&
+      (releasePrerequisite === null || !hasNewUpstreamPassSince(wpDetail.pipelines, releasePrerequisite, 'release-engineering'))
+    ) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'REWORK',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has a FAIL release-engineering pipeline. Investigate and retry.`,
+            next_steps: [
+              `1. Call ledger_get_work_package to review the previous FAIL release-engineering pipeline summary and comments.`,
+              `2. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", agent_role: "Release Engineer").`,
+              '3. Fix release engineering issues and re-run.',
+              `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+              `5. Call ledger_get_handoff_status (current_agent: "Release Engineer").`,
+            ],
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P5: RUN_RELEASE_ENGINEERING (re-engagement) — prior pipeline AND new upstream PASS since
+    const priorReleasePipelines = wpDetail.pipelines.filter((p) => p.type === 'release-engineering' && !p.auto_cancelled);
+    const hasNewPrereqPassForRelease = releasePrerequisite === null
+      ? true
+      : hasNewUpstreamPassSince(wpDetail.pipelines, releasePrerequisite, 'release-engineering');
+    if (priorReleasePipelines.length > 0 && hasNewPrereqPassForRelease) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Release Engineer');
+      const prereqLabel = releasePrerequisite ?? 'prior stage';
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'RUN_RELEASE_ENGINEERING',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} has a new ${prereqLabel} PASS since the last release-engineering pipeline. Re-run release engineering.`,
+            next_steps: [
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", agent_role: "Release Engineer").`,
+              `2. Call ledger_get_work_package to review artifacts and acceptance criteria.`,
+              '3. Run release engineering: build artifact, package, version tagging.',
+              `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+              `5. Call ledger_get_handoff_status (current_agent: "Release Engineer").`,
+            ],
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P6: RUN_RELEASE_ENGINEERING (first-run) — no prior pipeline + prerequisite PASS (or no prerequisite)
+    const hasReleasePrereqPass = releasePrerequisite === null
+      ? true
+      : wpDetail.pipelines.some((p) => p.type === releasePrerequisite && p.status === 'PASS' && !p.auto_cancelled);
+    if (hasReleasePrereqPass && priorReleasePipelines.length === 0) {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Release Engineer');
+      const prereqLabel = releasePrerequisite ?? 'prerequisite';
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'RUN_RELEASE_ENGINEERING',
+            work_package_id: wpDetail.work_package_id,
+            reason: releasePrerequisite
+              ? `Work package ${wpDetail.work_package_id} has PASS ${prereqLabel} pipeline but no release-engineering pipeline. Run release engineering.`
+              : `Work package ${wpDetail.work_package_id} has no prior release-engineering pipeline and release-engineering is the first active stage. Run release engineering.`,
+            next_steps: [
+              `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", agent_role: "Release Engineer").`,
+              `2. Call ledger_get_work_package to review artifacts and acceptance criteria.`,
+              '3. Run release engineering: build artifact, package, version tagging.',
+              `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "release-engineering", status: PASS/FAIL, summary, artifacts, comments, acceptance_criteria_updates).`,
+              `5. Call ledger_get_handoff_status (current_agent: "Release Engineer").`,
+            ],
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          }, null, 2),
+        }],
+      };
+    }
+
+    // P7: CLAIM_WP
+    if (wpDetail.status === 'READY' && wpDetail.assigned_to === 'Release Engineer') {
+      const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Release Engineer');
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'CLAIM_WP',
+            work_package_id: wpDetail.work_package_id,
+            reason: `Work package ${wpDetail.work_package_id} is READY and assigned to Release Engineer with all dependencies satisfied.`,
+            next_steps: [
+              `1. Call ledger_claim_work_package (work_package_id: "${wpDetail.work_package_id}", agent: "Release Engineer") to transition to IN_PROGRESS.`,
+              `2. Wait for the prerequisite pipeline to complete before starting release engineering.`,
+              `3. Call ledger_get_handoff_status (current_agent: "Release Engineer").`,
+            ],
+            ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+          }, null, 2),
+        }],
+      };
+    }
+  }
+
+  return {
+    content: [{
+      type: 'text' as const,
+      text: JSON.stringify({
+        action: 'WAIT',
+        reason: 'No work packages ready for release engineering.',
+      }, null, 2),
+    }],
+  };
+}
+
+/**
  * Get next action for Documentation
  */
 export async function getDocumentationAction(
@@ -1005,9 +1430,22 @@ export async function getDocumentationAction(
   for (const wpDetail of wpDetails) {
     // Skip terminal or BLOCKED WPs
     if (isTerminalStatus(wpDetail.status) || wpDetail.status === 'BLOCKED') continue;
+    // Only consider WPs where documentation is an active stage
+    const activeStages: readonly PipelineType[] =
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    if (!activeStages.includes('documentation')) continue;
 
     const reworkCounts = wpDetail.rework_counts ?? {};
     const id = wpDetail.work_package_id;
+
+    // Resolve upstream prerequisite for documentation in this WP's active stages
+    const docPrerequisite = resolvePrerequisite('documentation', activeStages);
+
+    // Compute active stages before documentation for P1b upstream limit checks
+    const orderedActive = getOrderedActiveStages(activeStages);
+    const docIdx = orderedActive.indexOf('documentation');
+    const upstreamActiveStages = docIdx > 0 ? orderedActive.slice(0, docIdx) : [];
+    const firstActiveStage = orderedActive[0];
 
     // P1: BLOCK_FOR_REWORK_LIMIT — documentation rework count at max
     if ((reworkCounts['documentation'] ?? 0) >= MAX_REWORK_COUNT) {
@@ -1023,18 +1461,16 @@ export async function getDocumentationAction(
       };
     }
 
-    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT — any upstream pipeline at max
-    // Check all upstream (non-documentation) pipeline types for rework limits
-    const upstreamTypes = PIPELINE_TYPES.filter((t): t is Exclude<PipelineType, 'documentation'> => t !== 'documentation');
-    for (const type of upstreamTypes) {
-      if ((reworkCounts[type] ?? 0) >= MAX_REWORK_COUNT) {
+    // P1b: WAIT_FOR_UPSTREAM_REWORK_LIMIT — any active upstream pipeline at max
+    for (const upType of upstreamActiveStages) {
+      if ((reworkCounts[upType] ?? 0) >= MAX_REWORK_COUNT) {
         return {
           content: [{
             type: 'text' as const,
             text: JSON.stringify({
               action: 'WAIT_FOR_UPSTREAM_REWORK_LIMIT',
               work_package_id: id,
-              reason: `Work package ${id} has upstream ${type} rework count at the limit. Waiting for PM to resolve blocker.`,
+              reason: `Work package ${id} has upstream ${upType} rework count at the limit. Waiting for PM to resolve blocker.`,
             }, null, 2),
           }],
         };
@@ -1059,11 +1495,11 @@ export async function getDocumentationAction(
       };
     }
 
-    // P4: REWORK (self) — most recent documentation pipeline is FAIL and no new code-review PASS since
-    // If a new code-review PASS has appeared after the doc failure, fall through to P6 (WRITE_DOCS) for a fresh run.
+    // P4: REWORK (self) — most recent documentation pipeline is FAIL and no new upstream PASS since
+    // If a new upstream PASS has appeared after the doc failure, fall through to P6 (WRITE_DOCS) for a fresh run.
     if (
       isMostRecentPipelineFail(wpDetail.pipelines, 'documentation') &&
-      !hasNewUpstreamPassSince(wpDetail.pipelines, 'code-review', 'documentation')
+      (docPrerequisite === null || !hasNewUpstreamPassSince(wpDetail.pipelines, docPrerequisite, 'documentation'))
     ) {
       return {
         content: [{
@@ -1085,11 +1521,12 @@ export async function getDocumentationAction(
     }
 
     // Freshness helpers for P5 / P5b
-    const implPipelines = wpDetail.pipelines.filter(
-      (p) => p.type === 'implementation' && !p.auto_cancelled
+    // "Fresh" means: the most recent doc PASS was completed after the first active stage's last start
+    const firstStagePipelines = wpDetail.pipelines.filter(
+      (p) => p.type === firstActiveStage && !p.auto_cancelled
     );
-    const latestImpl = implPipelines.at(-1);
-    const latestImplStart = latestImpl?.started_at;
+    const latestFirstStage = firstStagePipelines.at(-1);
+    const latestFirstStageStart = latestFirstStage?.started_at;
 
     const docPassPipelines = wpDetail.pipelines.filter(
       (p) => p.type === 'documentation' && p.status === 'PASS' && !p.auto_cancelled
@@ -1097,10 +1534,10 @@ export async function getDocumentationAction(
     const latestDocPass = docPassPipelines.at(-1);
 
     const isFresh =
-      latestImplStart &&
+      latestFirstStageStart &&
       latestDocPass?.completed_at &&
       parseTimestamp(latestDocPass.completed_at).getTime() >=
-        parseTimestamp(latestImplStart).getTime();
+        parseTimestamp(latestFirstStageStart).getTime();
 
     if (latestDocPass && isFresh) {
       const allCriteriaMet =
@@ -1142,16 +1579,22 @@ export async function getDocumentationAction(
       };
     }
 
-    // P6: WRITE_DOCS — code-review PASS available, no fresh doc pipeline
-    if (hasNewUpstreamPassSince(wpDetail.pipelines, 'code-review', 'documentation')) {
+    // P6: WRITE_DOCS — upstream prerequisite PASS available, no fresh doc pipeline
+    const hasDocPrereqPass = docPrerequisite === null
+      ? true
+      : hasNewUpstreamPassSince(wpDetail.pipelines, docPrerequisite, 'documentation');
+    if (hasDocPrereqPass) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Documentation');
+      const prereqLabel = docPrerequisite ?? 'prior stage';
       return {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
             action: 'WRITE_DOCS',
             work_package_id: id,
-            reason: `Work package ${id} has PASS code-review pipeline. Write or update documentation.`,
+            reason: docPrerequisite
+              ? `Work package ${id} has PASS ${prereqLabel} pipeline. Write or update documentation.`
+              : `Work package ${id} has no prior documentation pipeline and documentation is the first active stage. Write documentation.`,
             next_steps: [
               `1. Call ledger_begin_work (work_package_id: "${id}", type: "documentation", agent_role: "Documentation").`,
               `2. Call ledger_get_work_package to review implementation artifacts and review comments.`,
@@ -1209,7 +1652,7 @@ export async function getDocumentationAction(
  * Register the ledger_get_next_action tool on the MCP server.
  */
 /** @internal — exported for unit tests only */
-export const _internal = { getNextAction, buildBatchNextSteps, getNextActionsCollector, embedHandoffStatusInWait };
+export const _internal = { getNextAction, buildBatchNextSteps, getNextActionsCollector, embedHandoffStatusInWait, getSecurityAuditorAction, getReleaseEngineerAction };
 
 export function register(server: McpServer): void {
   server.registerTool(

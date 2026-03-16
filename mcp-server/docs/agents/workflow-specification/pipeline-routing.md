@@ -122,7 +122,7 @@ function getDownstreamTypes(pipelineType, activeStages?):
   return downstream.filter(t => t in stages)
 ```
 
-**Examples with default (4 mandatory) stages:**
+**Examples with default (4 stages):**
 
 | Input | Output |
 |-------|--------|
@@ -159,7 +159,7 @@ function getUpstreamTypes(pipelineType, activeStages?):
   return upstream.filter(t => t in stages)
 ```
 
-**Examples with default (4 mandatory) stages:**
+**Examples with default (4 stages):**
 
 | Input | Output |
 |-------|--------|
@@ -259,7 +259,7 @@ When the standard FAIL target's owned pipeline stage is **not active** in the WP
 function resolveFailAgent(pipelineType, activeStages):
   activeStages = activeStages ?? DEFAULT_PIPELINE_STAGES
   standardTarget = FAIL_ROUTING_MAP[pipelineType]
-  targetStage = AGENT_PIPELINE_MAP[standardTarget]
+  targetStage = AGENT_PIPELINE_MAP[standardTarget]  // standardTarget always owns a pipeline type — see AGENT_PIPELINE_MAP consistency invariant (§9.4)
   
   if targetStage in activeStages:
     return standardTarget

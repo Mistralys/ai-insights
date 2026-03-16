@@ -117,6 +117,21 @@ Generate next WP ID (max-based):
   ↓
 Validate dependencies exist
   ↓
+Cycle detection: hasCycle(newWpId, deps, allExistingWps) [BFS]
+  If cycle detected → reject with error before any write
+  ↓
+Validate active_pipeline_stages if provided:
+  validateActiveStages(args.active_pipeline_stages, CANONICAL_PIPELINE_ORDERING)
+    Hard guardrails (reject with error — creation aborted):
+      - empty array
+      - entries not in PIPELINE_TYPES
+      - duplicate entries
+      - entries not a subsequence of CANONICAL_PIPELINE_ORDERING
+    Soft guardrails (warning appended to success response — creation NOT aborted):
+      - 'implementation' present without 'qa'
+      - single-stage chain
+  Default when omitted: DEFAULT_PIPELINE_STAGES (['implementation', 'qa', 'code-review', 'documentation'])
+  ↓
 Determine initial status (READY or BLOCKED based on dependencies)
   ↓
 Create WorkPackageDetail object
@@ -195,12 +210,14 @@ Read WorkPackageDetail and RootIndex
 updater function:
   1. Validate WP status is IN_PROGRESS
   2. Check for duplicate in-progress pipeline of same type
-  3. Enforce pipeline ordering via PIPELINE_PREREQUISITES map:
-       implementation → no prerequisite
-       qa             → requires PASS implementation
-       code-review    → requires PASS qa
-       documentation  → requires PASS code-review
-     If prerequisite not met → throw descriptive error
+  3. Enforce pipeline ordering via resolvePrerequisite(type, activeStages):
+       activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+       Filters CANONICAL_PIPELINE_ORDERING by activeStages; returns the
+       immediately preceding active stage as the prerequisite (null if first stage)
+     If prerequisite not null and most recent prerequisite pipeline is not PASS
+       → throw descriptive error:
+         "Cannot start '<type>' pipeline: requires a PASS '<prereq>' pipeline first.
+          Active pipeline order: <activeStages joined with →>."
   4. Role check: agent_role must match PIPELINE_AGENT_MAP owner for the type.
        Exception: agent_role === 'Project Manager' bypasses check (PM Override).
        If mismatch → throw descriptive error.
@@ -214,10 +231,12 @@ updater function:
   6. Create new Pipeline object (status: IN_PROGRESS, started_at: now())
   7. Append to WP.pipelines array
   8. Update WP.assigned_to via PIPELINE_AGENT_MAP:
-       implementation → 'Developer'
-       qa             → 'QA'
-       code-review    → 'Reviewer'
-       documentation  → 'Documentation'
+       implementation      → 'Developer'
+       qa                  → 'QA'
+       security-audit      → 'Security Auditor'
+       code-review         → 'Reviewer'
+       release-engineering → 'Release Engineer'
+       documentation       → 'Documentation'
   9. Update root index summary assigned_to to match
   10. Update root.last_updated timestamp
   ↓
@@ -256,10 +275,15 @@ updater function:
   5. Update acceptance_criteria if provided (merge by exact criterion text: known → update met; unknown → append new entry)
   6. If handoff_notes provided:
        fromAgent = isPmOverride ? 'Project Manager (PM Override)' : PIPELINE_AGENT_MAP[type]
-       toAgent   = (status === FAIL) ? FAIL_ROUTING_MAP[type] : NEXT_AGENT_MAP[type]
+       toAgent   = (status === FAIL)
+                     ? resolveFailAgent(type, activeStages)
+                     : resolveNextAgent(type, activeStages)
        Append HandoffNote { from_agent, to_agent, timestamp, notes } to WP.handoff_notes
-       NOTE: On FAIL, QA/code-review/implementation failures route to Developer;
-             documentation failures route to Documentation (self-rework).
+       NOTE: On FAIL, implementation/qa/security-audit/code-review route to Developer;
+             release-engineering routes to Release Engineer (self-rework);
+             documentation routes to Documentation (self-rework).
+             Fallback: if the base fail-target's stage is absent from activeStages,
+             routes to the first active stage's agent.
   7. Update root.last_updated timestamp
   ↓
 Write both files atomically
@@ -584,8 +608,11 @@ If needsWrite is false:
     Iterate rootIndex.work_packages; skip any with status === 'CANCELLED'
     For each non-CANCELLED WP: store.readWorkPackage(wpId)
       If readable: getPassedStages(wpDetail) → passed Set<string>
-        If passed.size === PIPELINE_TYPES.length (4): increment wps_with_all_stages_pass
-        Else: increment wps_missing_stages; add (4 − passed.size) to total_stages_missing
+        activeCount = wp.active_pipeline_stages.length (if field is set and non-empty)
+                   OR DEFAULT_PIPELINE_STAGES.length (4 — legacy default when field is absent)
+        missing = activeCount − passed.size
+        If missing === 0: increment wps_with_all_stages_pass
+        Else: increment wps_missing_stages; add missing to total_stages_missing
       If unreadable: silently skip (catch{}, contributes nothing)
     → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
   Return { ...rootIndex, pipeline_health } to agent

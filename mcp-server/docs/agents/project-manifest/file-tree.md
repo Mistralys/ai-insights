@@ -78,7 +78,7 @@ mcp-server/
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
 │       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
-│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes)
+│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes, getOrderedActiveStages)
 │       ├── project-reset.ts     # Semi-intelligent project reset — analysis (pure) + mutation; exports analyzeProjectForReset(), applyProjectReset(), and interfaces WpResetDiagnosis, ProjectResetDiagnosis, WpDecision, ProjectResetResult
 │       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
@@ -125,7 +125,7 @@ mcp-server/
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
-        ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes
+        ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes, resolvePrerequisite, resolveNextAgent, resolveFailAgent, getOrderedActiveStages, describePipelineTypes (drift-detection)
         ├── project-reset.test.ts  # Unit tests for analyzeProjectForReset() — all WP status branches, auto-cancelled exclusion, most-recent-wins, mixed project scenarios
         ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
         ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince

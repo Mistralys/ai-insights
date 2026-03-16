@@ -106,7 +106,7 @@ const missingFromKnown = agentRoles.filter((r) => !knownRoles.includes(r));
 const extraInKnown     = knownRoles.filter((r) => !agentRoles.includes(r));
 
 if (missingFromKnown.length === 0 && extraInKnown.length === 0) {
-  console.log('[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync.');
+  console.log(`[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync (${agentRoles.length} roles).`);
   process.exit(0);
 }
 

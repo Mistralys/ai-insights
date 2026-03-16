@@ -30,7 +30,7 @@ The server manages two types of JSON files:
 
 ## Usage Context
 
-This server is designed to be invoked via the MCP protocol over STDIO transport. It is used by AI agents following a 7-stage workflow (Planner, Project Manager, Developer, QA, Reviewer, Documentation, Synthesis) to maintain consistency across multi-agent sessions.
+This server is designed to be invoked via the MCP protocol over STDIO transport. It is used by AI agents following a 9-stage workflow (Planner, Project Manager, Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation, Synthesis) to maintain consistency across multi-agent sessions.
 
 ---
 

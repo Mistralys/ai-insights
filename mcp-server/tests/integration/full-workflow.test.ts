@@ -11,6 +11,7 @@ import {
   canStartWorkPackage,
   canCompleteWorkPackage,
 } from '../../src/schema/validators.js';
+import { _internal as pipelineInternal } from '../../src/tools/pipeline.js';
 import type { RootIndex, WorkPackageSummary } from '../../src/schema/root-index.js';
 import type {
   WorkPackageDetail,
@@ -1090,5 +1091,256 @@ describe('Dependency auto-unblocking on COMPLETE', () => {
     expect(wp2Summary.status).toBe('READY');
     const wp3Summary = root.work_packages.find((w) => w.work_package_id === 'WP-003')!;
     expect(wp3Summary.status).toBe('BLOCKED');
+  });
+});
+
+// ========== Dynamic Pipeline Engine — Composition Integration Tests ==========
+
+const { startPipeline, completePipeline } = pipelineInternal;
+const COMP_PLAN_PATH = join(tmpdir(), '2026-03-14-composition-test');
+
+function makeCompRoot(wpId = 'WP-001', assignedTo = 'Developer'): RootIndex {
+  return {
+    plan_file: 'plan.md',
+    date_created: now(),
+    last_updated: now(),
+    status: 'IN_PROGRESS',
+    total_work_packages: 1,
+    pending_work_packages: 1,
+    work_packages: [
+      { work_package_id: wpId, status: 'IN_PROGRESS', assigned_to: assignedTo, dependencies: [], file: `ledger/${wpId}.json` },
+    ],
+    project_comments: [],
+  };
+}
+
+function makeCompWp(
+  activeStages: string[],
+  pipelines: WorkPackageDetail['pipelines'] = [],
+  assignedTo = 'Developer',
+): WorkPackageDetail {
+  return {
+    work_package_id: 'WP-001',
+    work_package_file: 'work/WP-001.md',
+    status: 'IN_PROGRESS',
+    assigned_to: assignedTo,
+    dependencies: [],
+    acceptance_criteria: [],
+    active_pipeline_stages: activeStages as any,
+    revision: 0,
+    pipelines,
+  };
+}
+
+describe('composition: all-6 stages — dynamic prerequisite chain', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'comp-all6-'));
+    store = new LedgerStore(COMP_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('follows impl→qa→security-audit prerequisite chain in all-6 stages', async () => {
+    const ALL_SIX = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
+
+    await store.writeRootIndex(makeCompRoot());
+    await store.writeWorkPackage('WP-001', makeCompWp(ALL_SIX));
+
+    // Start and pass implementation
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'implementation', agent_role: 'Developer' });
+    await completePipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'implementation', status: 'PASS', summary: ['Done'], agent_role: 'Developer' });
+
+    // security-audit MUST fail because qa is not yet PASS
+    const reject = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'security-audit', agent_role: 'Security Auditor' });
+    expect(reject.isError).toBe(true);
+    expect((reject as any).content[0].text).toContain("requires a PASS 'qa' pipeline first");
+
+    // Now pass qa
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', agent_role: 'QA' });
+    await completePipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', status: 'PASS', summary: ['Verified'], agent_role: 'QA' });
+
+    // security-audit can now start
+    const allow = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'security-audit', agent_role: 'Security Auditor' });
+    expect(allow.isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    const audit = wp.pipelines.find((p) => p.type === 'security-audit' && p.status === 'IN_PROGRESS');
+    expect(audit).toBeDefined();
+  });
+});
+
+describe('composition: legacy-4 default — backward compatibility', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'comp-legacy-'));
+    store = new LedgerStore(COMP_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('follows impl→qa→code-review→documentation chain when active_pipeline_stages absent', async () => {
+    // Omit active_pipeline_stages to simulate legacy WP
+    await store.writeRootIndex(makeCompRoot());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [{ criterion: 'All done', met: true }],
+      revision: 0,
+      pipelines: [],
+    } as any);
+
+    // security-audit is NOT in default stages → should be rejected
+    const rejectAudit = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'security-audit', agent_role: 'Security Auditor' });
+    expect(rejectAudit.isError).toBe(true);
+
+    // impl→qa→code-review should work (legacy chain)
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'implementation', agent_role: 'Developer' });
+    await completePipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'implementation', status: 'PASS', summary: ['Done'], agent_role: 'Developer' });
+
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', agent_role: 'QA' });
+    await completePipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', status: 'PASS', summary: ['Verified'], agent_role: 'QA' });
+
+    const startReview = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'code-review', agent_role: 'Reviewer' });
+    expect(startReview.isError).toBeFalsy();
+  });
+});
+
+describe('composition: documentation-only WP — auto-finalizes on PASS', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'comp-doconly-'));
+    store = new LedgerStore(COMP_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('documentation-only WP auto-finalizes to COMPLETE on documentation PASS', async () => {
+    await store.writeRootIndex(makeCompRoot('WP-001', 'Documentation'));
+    await store.writeWorkPackage('WP-001', makeCompWp(
+      ['documentation'],
+      [],
+      'Documentation',
+    ));
+
+    // impl is not in active stages — should be rejected
+    const rejectImpl = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'implementation', agent_role: 'Developer' });
+    expect(rejectImpl.isError).toBe(true);
+
+    // documentation can start directly (no prerequisite in single-stage chain)
+    const startDoc = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'documentation', agent_role: 'Documentation' });
+    expect(startDoc.isError).toBeFalsy();
+
+    const completeDoc = await completePipeline({
+      project_path: COMP_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'documentation',
+      status: 'PASS',
+      summary: ['Docs complete'],
+      agent_role: 'Documentation',
+    });
+    expect(completeDoc.isError).toBeFalsy();
+
+    // WP should be auto-finalized to COMPLETE since documentation is the terminal stage
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('COMPLETE');
+  });
+});
+
+describe('composition: verification-only WP — Reviewer is terminal agent', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'comp-verify-'));
+    store = new LedgerStore(COMP_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('verification-only WP [qa, code-review] auto-finalizes to COMPLETE on code-review PASS', async () => {
+    await store.writeRootIndex(makeCompRoot('WP-001', 'QA'));
+    await store.writeWorkPackage('WP-001', makeCompWp(
+      ['qa', 'code-review'],
+      [],
+      'QA',
+    ));
+
+    // impl is not in active stages — should be rejected
+    const rejectImpl = await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'implementation', agent_role: 'Developer' });
+    expect(rejectImpl.isError).toBe(true);
+
+    // qa is first active stage — no prerequisite needed
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', agent_role: 'QA' });
+    await completePipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', status: 'PASS', summary: ['Verified'], agent_role: 'QA' });
+
+    // code-review can start after qa PASS
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'code-review', agent_role: 'Reviewer' });
+    const completeReview = await completePipeline({
+      project_path: COMP_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'code-review',
+      status: 'PASS',
+      summary: ['Review passed'],
+      agent_role: 'Reviewer',
+      acceptance_criteria_updates: [{ criterion: 'Code reviewed', met: true }],
+    });
+    expect(completeReview.isError).toBeFalsy();
+
+    // code-review is the terminal stage in this WP → should auto-finalize to COMPLETE
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.status).toBe('COMPLETE');
+  });
+
+  it('qa FAIL in verification-only WP routes back to QA (no Developer fallback)', async () => {
+    await store.writeRootIndex(makeCompRoot('WP-001', 'QA'));
+    await store.writeWorkPackage('WP-001', makeCompWp(['qa', 'code-review'], [], 'QA'));
+
+    await startPipeline({ project_path: COMP_PLAN_PATH, work_package_id: 'WP-001', type: 'qa', agent_role: 'QA' });
+    const result = await completePipeline({
+      project_path: COMP_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'qa',
+      status: 'FAIL',
+      summary: ['Issues found'],
+      agent_role: 'QA',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    // Failure routing when impl absent: resolveFailAgent falls back to first-active-stage owner (QA)
+    expect(text).toContain('QA');
   });
 });

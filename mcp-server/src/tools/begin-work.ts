@@ -8,6 +8,7 @@ import {
   PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   PipelineTypeEnum,
+  describePipelineTypes,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
@@ -27,9 +28,7 @@ const BeginWorkSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: PipelineTypeEnum.describe(
-    'Pipeline type to start: "implementation", "qa", "code-review", or "documentation"'
-  ),
+  type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type to start:')),
   agent_role: z
     .string()
     .describe(

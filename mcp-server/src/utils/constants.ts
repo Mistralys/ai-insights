@@ -10,7 +10,9 @@ export const AGENT_ROLES = [
   'Project Manager',
   'Developer',
   'QA',
+  'Security Auditor',
   'Reviewer',
+  'Release Engineer',
   'Documentation',
   'Synthesis',
 ] as const;

@@ -11,7 +11,7 @@
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
 import { parseTimestamp } from './timestamp.js';
 import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
-import { getDownstreamTypes, getUpstreamTypes, FAIL_ROUTING_MAP } from './pipeline-maps.js';
+import { getDownstreamTypes, getUpstreamTypes, resolveFailAgent, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
 import { getConfig } from '../gui/config.js';
 
 // ---------------------------------------------------------------------------
@@ -146,9 +146,16 @@ export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: st
  * Returns true if any pipeline type downstream of the given type has a most-recent
  * FAIL status (excluding auto-cancelled pipelines per §21.27).
  * Per §11.3. Delegates to isMostRecentPipelineFail() to avoid duplicating filter logic.
+ *
+ * When activeStages is provided, only stages present in the WP's active set are
+ * considered downstream, preventing false-positive rework triggers for inactive stages.
  */
-export function hasDownstreamFail(pipelines: Pipeline[], pipelineType: PipelineType): boolean {
-  const downstreamTypes = getDownstreamTypes(pipelineType);
+export function hasDownstreamFail(
+  pipelines: Pipeline[],
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],
+): boolean {
+  const downstreamTypes = getDownstreamTypes(pipelineType, activeStages);
   return downstreamTypes.some((dsType) => isMostRecentPipelineFail(pipelines, dsType));
 }
 
@@ -168,6 +175,7 @@ export function checkRevalidationGuard(
   pipelines: Pipeline[],
   pipelineType: PipelineType,
   prerequisite: PipelineType,
+  activeStages?: readonly PipelineType[],
 ): string | null {
 
   // Step 1: Find last effective run of pipelineType
@@ -195,10 +203,10 @@ export function checkRevalidationGuard(
   if (prereqCompletedAt >= baselineStartedAt) return null;
 
   // Step 4: Check if there are any downstream failures from the prerequisite
-  if (!hasDownstreamFail(pipelines, prerequisite)) return null;
+  if (!hasDownstreamFail(pipelines, prerequisite, activeStages)) return null;
 
   // Step 5: Check if upstream rework has occurred since the prereq PASS
-  const upstreamTypes = getUpstreamTypes(pipelineType);
+  const upstreamTypes = getUpstreamTypes(pipelineType, activeStages ?? DEFAULT_PIPELINE_STAGES);
   const upstreamReworked = pipelines.some(
     (p) =>
       upstreamTypes.includes(p.type as PipelineType) &&
@@ -223,10 +231,14 @@ export function checkRevalidationGuard(
  *
  * Used by Developer recommendation engine (§14.2 priority 5) to prevent
  * redundant rework cycles (§21.52).
+ *
+ * When activeStages is provided, only considers downstream types within the WP's
+ * active stage set, preventing false-positive triggers for inactive stages.
  */
 export function hasDownstreamReengagedSince(
   pipelines: Pipeline[],
   upstreamType: PipelineType,
+  activeStages?: readonly PipelineType[],
 ): boolean {
   // Find most recent upstream PASS (excluding auto-cancelled)
   const upstreamPass = pipelines
@@ -237,12 +249,14 @@ export function hasDownstreamReengagedSince(
 
   const upstreamCompletedAt = parseTimestamp(upstreamPass.completed_at).getTime();
 
-  // Check downstream types whose FAIL routes to Developer.
-  // Derived from FAIL_ROUTING_MAP so this list never drifts when new pipeline
-  // types are added. See FAIL_ROUTING_MAP in pipeline-maps.ts.
-  const developerReworkTypes = (Object.entries(FAIL_ROUTING_MAP) as [PipelineType, string][])
-    .filter(([, agent]) => agent === 'Developer')
-    .map(([t]) => t);
+  // Determine which downstream types route FAIL back to Developer.
+  // When activeStages is provided, restrict to active downstream types to avoid
+  // triggering on stages that are not in this WP's pipeline composition.
+  const resolvedActiveStages = activeStages ?? DEFAULT_PIPELINE_STAGES;
+  const downstreamTypes = getDownstreamTypes(upstreamType, resolvedActiveStages);
+  const developerReworkTypes = downstreamTypes.filter(
+    (t) => resolveFailAgent(t, resolvedActiveStages) === 'Developer'
+  );
   for (const dsType of developerReworkTypes) {
     const dsPipelines = pipelines.filter(
       (p) => p.type === dsType && !p.auto_cancelled

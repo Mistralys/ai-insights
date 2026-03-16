@@ -19,6 +19,13 @@ import type { WorkPackageStatus } from '../schema/enums.js';
 import { withLock } from '../storage/file-lock.js';
 import { resolveProjectPath } from '../utils/path-validator.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
+import {
+  PIPELINE_TYPES,
+  CANONICAL_PIPELINE_ORDERING,
+  DEFAULT_PIPELINE_STAGES,
+  PipelineTypeEnum,
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
 
 /**
  * Extracts the ledger root string from an unknown parameter value.
@@ -213,6 +220,16 @@ const CreateWorkPackageSchema = z.object({
   work_package_file: z
     .string()
     .describe('Relative path to the work package spec file (e.g., "work/WP-001.md")'),
+  active_pipeline_stages: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Optional pipeline stages for this WP. When omitted, defaults to the 4-stage legacy pipeline ' +
+      '(implementation → qa → code-review → documentation). ' +
+      'Must be a non-empty subsequence of the canonical ordering: ' +
+      'implementation → qa → security-audit → code-review → release-engineering → documentation. ' +
+      'All entries must be valid pipeline types from PIPELINE_TYPES. No duplicates allowed.'
+    ),
 });
 
 /**
@@ -252,6 +269,7 @@ async function createWorkPackage(
   const store = new LedgerStore(projectPath, ledgerRoot);
 
   let createdWpId = '';
+  const pipelineStageWarnings: string[] = [];
 
   try {
     // Use lock to ensure atomic creation of both files
@@ -313,6 +331,71 @@ async function createWorkPackage(
         }
       }
 
+      // 5.5. Validate + resolve active_pipeline_stages
+      if (args.active_pipeline_stages !== undefined) {
+        // Hard validation: empty array rejected
+        if (args.active_pipeline_stages.length === 0) {
+          throw new Error(
+            `active_pipeline_stages cannot be empty. At least one stage is required. ` +
+            `Omit the parameter to use the default stages: ${DEFAULT_PIPELINE_STAGES.join(' \u2192 ')}.`
+          );
+        }
+
+        // Hard validation: all entries must be valid pipeline types
+        const validTypes = new Set<string>(PIPELINE_TYPES);
+        const invalidTypes = args.active_pipeline_stages.filter((s) => !validTypes.has(s));
+        if (invalidTypes.length > 0) {
+          throw new Error(
+            `Invalid pipeline stage(s): ${invalidTypes.join(', ')}. ` +
+            `Valid types are: ${PIPELINE_TYPES.join(', ')}.`
+          );
+        }
+
+        // Hard validation: no duplicates
+        const seen = new Set<string>();
+        const duplicates: string[] = [];
+        for (const s of args.active_pipeline_stages) {
+          if (seen.has(s)) duplicates.push(s);
+          else seen.add(s);
+        }
+        if (duplicates.length > 0) {
+          throw new Error(
+            `Duplicate pipeline stage(s): ${duplicates.join(', ')}. Each stage may appear at most once.`
+          );
+        }
+
+        // Hard validation: must be a subsequence of CANONICAL_PIPELINE_ORDERING
+        const asTyped = args.active_pipeline_stages as PipelineType[];
+        let canonicalIdx = 0;
+        for (const stage of asTyped) {
+          while (
+            canonicalIdx < CANONICAL_PIPELINE_ORDERING.length &&
+            CANONICAL_PIPELINE_ORDERING[canonicalIdx] !== stage
+          ) {
+            canonicalIdx++;
+          }
+          if (canonicalIdx >= CANONICAL_PIPELINE_ORDERING.length) {
+            throw new Error(
+              `Pipeline stages are out of canonical order. Stages must be a subsequence of: ` +
+              `${CANONICAL_PIPELINE_ORDERING.join(' \u2192 ')}. Provided: ${asTyped.join(' \u2192 ')}.`
+            );
+          }
+          canonicalIdx++;
+        }
+
+        // Soft guardrails — collect warnings, do not throw
+        if (asTyped.includes('implementation') && !asTyped.includes('qa')) {
+          pipelineStageWarnings.push(
+            'Warning: pipeline contains implementation without qa. Shipping code without QA is risky but permitted.'
+          );
+        }
+        if (asTyped.length === 1) {
+          pipelineStageWarnings.push(
+            `Warning: single-stage pipeline chain (${asTyped[0]}). This is usually intentional but worth confirming.`
+          );
+        }
+      }
+
       // 6. Create acceptance criteria objects
       const acceptanceCriteria: AcceptanceCriterion[] =
         args.acceptance_criteria.map((criterion) => ({
@@ -324,6 +407,14 @@ async function createWorkPackage(
       // Note: assigned_to is initially null regardless of input (§9b.1 soft-deprecation).
       // The assigned_to input field is accepted silently but ignored at creation time.
       // The WP will be assigned when an agent claims it via ledger_claim_work_package.
+      //
+      // Resolve active_pipeline_stages: validated stages if provided, otherwise the
+      // backward-compatible default (4-stage legacy pipeline).
+      const resolvedActiveStages: PipelineType[] =
+        args.active_pipeline_stages !== undefined && args.active_pipeline_stages.length > 0
+          ? (args.active_pipeline_stages as PipelineType[])
+          : [...DEFAULT_PIPELINE_STAGES];
+
       const wpDetail: WorkPackageDetail = {
         work_package_id: wpId,
         work_package_file: args.work_package_file,
@@ -331,6 +422,7 @@ async function createWorkPackage(
         assigned_to: null,
         dependencies: args.dependencies,
         acceptance_criteria: acceptanceCriteria,
+        active_pipeline_stages: resolvedActiveStages,
         revision: 0,
         pipelines: [],
       };
@@ -380,11 +472,15 @@ async function createWorkPackage(
     // 11. Read back the created work package to return it
     const createdWp = await store.readWorkPackage(createdWpId);
 
+    // Include soft pipeline-stage warnings in the response if any were emitted
+    const warningText =
+      pipelineStageWarnings.length > 0 ? '\n\n' + pipelineStageWarnings.join('\n') : '';
+
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(createdWp, null, 2),
+          text: JSON.stringify(createdWp, null, 2) + warningText,
         },
       ],
     };
@@ -1102,8 +1198,7 @@ const ResetReworkCountSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('ID of the work package'),
-  pipeline_type: z
-    .enum(['implementation', 'qa', 'code-review', 'documentation'])
+  pipeline_type: PipelineTypeEnum
     .describe('Which pipeline type rework count to reset'),
   agent_role: z.string().describe('Must be "Project Manager"'),
   reason: z.string().trim().min(1).describe('Mandatory reason for the reset (audit trail)'),});

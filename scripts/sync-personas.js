@@ -27,7 +27,9 @@ const KNOWN_ROLES = [
   'Project Manager',
   'Developer',
   'QA',
+  'Security Auditor',
   'Reviewer',
+  'Release Engineer',
   'Documentation',
   'Synthesis',
 ];

@@ -14,7 +14,7 @@
 
 import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
-import { PIPELINE_TYPES, PIPELINE_AGENT_MAP } from './pipeline-maps.js';
+import { PIPELINE_AGENT_MAP, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
 import type { PipelineType } from './pipeline-maps.js';
 import { now } from './timestamp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
@@ -30,6 +30,7 @@ export interface WpResetDiagnosis {
   current_assigned_to: string | null;
   pipeline_stages_present: string[];
   pipeline_stages_missing: string[];
+  active_pipeline_stages: string[];
   next_required_stage: string | null;
   target_assigned_to: string | null;
   needs_reset: boolean;
@@ -117,6 +118,7 @@ export function analyzeProjectForReset(
         current_assigned_to: wp.assigned_to,
         pipeline_stages_present: [],
         pipeline_stages_missing: [],
+        active_pipeline_stages: [],
         next_required_stage: null,
         target_assigned_to: null,
         needs_reset: false,
@@ -132,7 +134,14 @@ export function analyzeProjectForReset(
     const stagesPresent: string[] = [];
     const stagesMissing: string[] = [];
 
-    for (const stage of PIPELINE_TYPES) {
+    // Resolve the active stage set for this WP.
+    // WPs without active_pipeline_stages default to DEFAULT_PIPELINE_STAGES (4-stage legacy).
+    const activeStages: readonly PipelineType[] =
+      Array.isArray(wp.active_pipeline_stages) && wp.active_pipeline_stages.length > 0
+        ? (wp.active_pipeline_stages as PipelineType[])
+        : DEFAULT_PIPELINE_STAGES;
+
+    for (const stage of activeStages) {
       if (passedStages.has(stage)) {
         stagesPresent.push(stage);
       } else {
@@ -142,7 +151,7 @@ export function analyzeProjectForReset(
 
     // 3. Determine the next required stage
     let nextRequiredStage: PipelineType | null = null;
-    for (const stage of PIPELINE_TYPES) {
+    for (const stage of activeStages) {
       if (!passedStages.has(stage)) {
         nextRequiredStage = stage;
         break;
@@ -165,10 +174,11 @@ export function analyzeProjectForReset(
         current_assigned_to: wp.assigned_to,
         pipeline_stages_present: stagesPresent,
         pipeline_stages_missing: stagesMissing,
+        active_pipeline_stages: [...activeStages],
         next_required_stage: null,
         target_assigned_to: null,
         needs_reset: false,
-        reason: 'All 4 pipeline stages passed — healthy',
+        reason: `All ${activeStages.length} pipeline stages passed — healthy`,
         suggested_action: 'skip',
         suggested_reset_criteria: false,
       });
@@ -185,6 +195,7 @@ export function analyzeProjectForReset(
         current_assigned_to: wp.assigned_to,
         pipeline_stages_present: stagesPresent,
         pipeline_stages_missing: stagesMissing,
+        active_pipeline_stages: [...activeStages],
         next_required_stage: nextRequiredStage,
         target_assigned_to: targetAssignedTo,
         needs_reset: true,
@@ -207,6 +218,7 @@ export function analyzeProjectForReset(
           current_assigned_to: wp.assigned_to,
           pipeline_stages_present: stagesPresent,
           pipeline_stages_missing: stagesMissing,
+          active_pipeline_stages: [...activeStages],
           next_required_stage: nextRequiredStage,
           target_assigned_to: targetAssignedTo,
           needs_reset: false,
@@ -223,6 +235,7 @@ export function analyzeProjectForReset(
           current_assigned_to: wp.assigned_to,
           pipeline_stages_present: stagesPresent,
           pipeline_stages_missing: stagesMissing,
+          active_pipeline_stages: [...activeStages],
           next_required_stage: nextRequiredStage,
           target_assigned_to: targetAssignedTo,
           needs_reset: true,
@@ -239,6 +252,7 @@ export function analyzeProjectForReset(
           current_assigned_to: wp.assigned_to,
           pipeline_stages_present: stagesPresent,
           pipeline_stages_missing: stagesMissing,
+          active_pipeline_stages: [...activeStages],
           next_required_stage: null,
           target_assigned_to: null,
           needs_reset: false,
@@ -259,6 +273,7 @@ export function analyzeProjectForReset(
         current_assigned_to: wp.assigned_to,
         pipeline_stages_present: stagesPresent,
         pipeline_stages_missing: stagesMissing,
+        active_pipeline_stages: [...activeStages],
         next_required_stage: nextRequiredStage,
         target_assigned_to: targetAssignedTo,
         needs_reset: false,
@@ -278,6 +293,7 @@ export function analyzeProjectForReset(
         current_assigned_to: wp.assigned_to,
         pipeline_stages_present: stagesPresent,
         pipeline_stages_missing: stagesMissing,
+        active_pipeline_stages: [...activeStages],
         next_required_stage: nextRequiredStage,
         target_assigned_to: targetAssignedTo,
         needs_reset: false,
@@ -296,6 +312,7 @@ export function analyzeProjectForReset(
       current_assigned_to: wp.assigned_to,
       pipeline_stages_present: stagesPresent,
       pipeline_stages_missing: stagesMissing,
+      active_pipeline_stages: [...activeStages],
       next_required_stage: nextRequiredStage,
       target_assigned_to: targetAssignedTo,
       needs_reset: false,

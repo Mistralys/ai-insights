@@ -12,7 +12,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 
 | Suite | Description | Docs |
 |-------|-------------|------|
-| **Ledger-Enabled** | 7-stage workflow (Planner → PM → Developer → QA → Reviewer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Ledger-Enabled** | 9-stage workflow (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
 | **Standalone** | Single-purpose agents with no MCP dependency — drop in and use | [personas/standalone/](personas/standalone/) |
 
 ### Project Ledger MCP Server
@@ -91,7 +91,7 @@ This enables a pre-commit guard that fails the commit if any generated persona f
 
 | Resource | Description |
 |----------|-------------|
-| [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (7 stages, MCP setup, best practices) |
+| [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (9 stages, MCP setup, best practices) |
 | [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, development |
 | [orchestrator/README.md](orchestrator/README.md) | Orchestrator setup, configuration, CLI reference, troubleshooting |
 | [discussions/](discussions/) | LLM discussion archive and design notes |

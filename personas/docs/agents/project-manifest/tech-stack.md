@@ -20,7 +20,11 @@
 
 ### Development / Tooling
 
-No dev dependencies. The build script is self-contained — plain Node.js + `js-yaml` is the entire toolchain.
+| Package | Version | Scope | Purpose |
+|---------|---------|-------|---------|
+| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner for `scripts/tests/` — exercises pure helpers in `scripts/lib/persona-helpers.js` |
+
+The build script (`build-personas.js`) itself has no dev dependencies — plain Node.js + `js-yaml`. The scripts test suite uses vitest declared at the workspace root (`package.json`). Run with `npm run test:scripts` from the workspace root, or `npx vitest run scripts/tests/` directly.
 
 ---
 
@@ -30,6 +34,8 @@ No dev dependencies. The build script is self-contained — plain Node.js + `js-
 |------|-----------|---------|
 | `build-personas.js` | `node scripts/build-personas.js` | Core build: assembles persona files from `src/` templates |
 | `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs build, copies output to VS Code prompts dir and/or Claude Code agents dir, validates frontmatter |
+| `persona-helpers.js` | *(imported — not invoked directly)* | Pure helper module containing 13 stateless functions; source of truth for build helper logic and test coverage |
+| `vitest` | `npm run test:scripts` (root) | Unit test runner for the 13 extracted helpers; 35 test cases in `scripts/tests/persona-helpers.test.js` |
 
 ### CLI Flags (`build-personas.js`)
 
@@ -94,7 +100,7 @@ Every generated persona file starts with YAML frontmatter declaring identity and
 ```yaml
 ---
 name: '3 - Developer v3.4.0'
-description: 'Step 3/7 in the agent workflow.'
+description: 'Step 3/9 in the agent workflow.'
 role: Developer
 author: Sebastian Mordziol
 version: 3.4.0

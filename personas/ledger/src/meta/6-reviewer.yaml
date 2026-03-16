@@ -1,0 +1,40 @@
+number: 6
+role: Reviewer
+vs_file_name: 6-reviewer.agent.md
+id: ledger-5-reviewer
+cc_file_name: 6-reviewer.md
+version: "3.6.0"
+last_updated: "2026-03-04"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+  - central_pm/*
+
+has_mcp: true
+has_detect_project: true
+self_documenting_note: true
+has_incident_logging: true
+
+mcp_tools:
+  - tool: ledger_get_next_action
+    purpose: "Get your next task (`RUN_REVIEW`, `CLAIM_WP`, `CONTINUE_PIPELINE`, or `WAIT`)."
+  - tool: ledger_begin_work
+    purpose: "Claim a READY WP and start the `code-review` pipeline in a single atomic call. Replaces the two-step `ledger_claim_work_package` + `ledger_start_pipeline` sequence."
+  - tool: ledger_get_work_package
+    purpose: Read WP detail including implementation and QA pipeline artifacts.
+  - tool: ledger_complete_pipeline
+    purpose: "Finalize pipeline with status, summary, metrics, comments, and handoff notes for the next agent."
+  - tool: ledger_cancel_pipeline
+    purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
+  - tool: ledger_add_project_comment
+    purpose: Add project-level comments for cross-cutting architectural insights.
+  - tool: ledger_help
+    note_only: true
+    purpose: "Get usage documentation and examples for any ledger tool."

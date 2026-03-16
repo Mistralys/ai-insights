@@ -1,5 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.11.3 - Dynamic Pipeline & Agent Annotation Helpers
+- Utils: Added `describePipelineTypes(prefix)` helper to `pipeline-maps.ts`; derives pipeline type list dynamically from `PIPELINE_TYPES` const tuple.
+- Utils: Added `describePipelineAgents(prefix)` helper to `pipeline-maps.ts`; derives agent-role-to-pipeline-type mapping dynamically from `PIPELINE_AGENT_MAP`.
+- Tools: Replaced 6 hardcoded `.describe()` pipeline-type annotation strings across `observations.ts`, `begin-work.ts`, and `pipeline.ts` with `describePipelineTypes()`.
+- Tools: Replaced 2 hardcoded `.describe()` agent-role annotation strings in `StartPipelineSchema` and `CompletePipelineSchema` with `describePipelineAgents()`; now correctly lists all 6 pipeline-agent roles including `Security Auditor` and `Release Engineer`.
+- Tools: Replaced hardcoded pipeline-type prose in `ledger_start_pipeline` tool-registration description with `describePipelineTypes()`.
+- Tests: Added 4-test drift-detection suite for `describePipelineTypes` in `pipeline-maps.test.ts`.
+- Tests: Added 4-test drift-detection suite for `describePipelineAgents` in `pipeline-maps.test.ts`.
+- Docs: Documented both helpers in `api-surface.md`; added Constraint 68 to `constraints.md`.
+
 ## v1.11.2 - GUI Archive Fix
 - GUI: Fixed the "Archive" row action displaying the alert twice.
 

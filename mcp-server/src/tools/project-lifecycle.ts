@@ -11,7 +11,7 @@ import { access, constants } from 'fs/promises';
 import { validatePlanPath, resolveProjectPath, formatCandidateList } from '../utils/path-validator.js';
 import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
-import { PIPELINE_TYPES } from '../utils/pipeline-maps.js';
+import { DEFAULT_PIPELINE_STAGES } from '../utils/pipeline-maps.js';
 import { getPassedStages } from '../utils/project-reset.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
@@ -281,7 +281,11 @@ async function computePipelineHealth(
     try {
       const wpDetail = await store.readWorkPackage(wpSummary.work_package_id);
       const passed = getPassedStages(wpDetail);
-      const missing = PIPELINE_TYPES.length - passed.size;
+      const activeCount =
+        Array.isArray(wpDetail.active_pipeline_stages) && wpDetail.active_pipeline_stages.length > 0
+          ? wpDetail.active_pipeline_stages.length
+          : DEFAULT_PIPELINE_STAGES.length;
+      const missing = activeCount - passed.size;
       if (missing === 0) {
         wpsWithAllStagesPass++;
       } else {

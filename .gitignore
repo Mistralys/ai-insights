@@ -18,3 +18,4 @@
 /orchestrator/logs/
 /.idea
 /dist/*.zip
+/node_modules/

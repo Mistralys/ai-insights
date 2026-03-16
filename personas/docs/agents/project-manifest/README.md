@@ -1,14 +1,14 @@
 # Project Manifest: Ledger Personas Build System
 
-**Version:** 1.1.0  
-**Last Updated:** 2026-02-23  
-**Purpose:** Templated build system for generating the 7 ledger-enabled AI agent persona files
+**Version:** 1.2.0  
+**Last Updated:** 2026-03-15  
+**Purpose:** Templated build system for generating the 9 ledger-enabled AI agent persona files
 
 ---
 
 ## Overview
 
-The **Ledger Personas Build System** is a Node.js-based template engine that assembles the 7 ledger persona Markdown files from structured YAML metadata and Markdown content/partial templates. The generated personas define the behaviour of AI agents in a multi-agent software development workflow backed by the [Project Ledger MCP Server](../../../../mcp-server/README.md).
+The **Ledger Personas Build System** is a Node.js-based template engine that assembles the 9 ledger persona Markdown files from structured YAML metadata and Markdown content/partial templates. The generated personas define the behaviour of AI agents in a multi-agent software development workflow backed by the [Project Ledger MCP Server](../../../../mcp-server/README.md).
 
 Generated persona files are consumed in two ways:
 - **Directly** — users copy-paste persona content into AI IDE chat sessions

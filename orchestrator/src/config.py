@@ -41,8 +41,10 @@ load_dotenv(_ORCHESTRATOR_ROOT / ".env", override=False)
 PIPELINE_PREREQUISITES: dict[str, Optional[str]] = {
     "implementation": None,
     "qa": "implementation",
-    "code-review": "qa",
-    "documentation": "code-review",
+    "security-audit": "qa",
+    "code-review": "security-audit",
+    "release-engineering": "code-review",
+    "documentation": "release-engineering",
 }
 
 #: Map of pipeline type → owning agent role.
@@ -50,7 +52,9 @@ PIPELINE_PREREQUISITES: dict[str, Optional[str]] = {
 PIPELINE_AGENT_MAP: dict[str, str] = {
     "implementation": "Developer",
     "qa": "QA",
+    "security-audit": "Security Auditor",
     "code-review": "Reviewer",
+    "release-engineering": "Release Engineer",
     "documentation": "Documentation",
 }
 
@@ -61,8 +65,10 @@ PIPELINE_AGENT_MAP: dict[str, str] = {
 NEXT_STAGE_MAP: dict[str, str] = {
     "pm": "developer",
     "developer": "qa",
-    "qa": "reviewer",
-    "reviewer": "docs",
+    "qa": "security_auditor",
+    "security_auditor": "reviewer",
+    "reviewer": "release_engineer",
+    "release_engineer": "docs",
     "docs": "synthesis",
 }
 
@@ -72,7 +78,9 @@ NEXT_STAGE_MAP: dict[str, str] = {
 STAGE_TO_PIPELINE: dict[str, str] = {
     "developer": "implementation",
     "qa": "qa",
+    "security_auditor": "security-audit",
     "reviewer": "code-review",
+    "release_engineer": "release-engineering",
     "docs": "documentation",
 }
 
@@ -85,16 +93,18 @@ PERSONA_FILES: dict[str, str] = {
     "pm": "personas/ledger/vs-code/2-project-manager.md",
     "developer": "personas/ledger/vs-code/3-developer.md",
     "qa": "personas/ledger/vs-code/4-qa.md",
-    "reviewer": "personas/ledger/vs-code/5-reviewer.md",
-    "docs": "personas/ledger/vs-code/6-documentation.md",
-    "synthesis": "personas/ledger/vs-code/7-synthesis.md",
+    "security_auditor": "personas/ledger/vs-code/5-security-auditor.md",
+    "reviewer": "personas/ledger/vs-code/6-reviewer.md",
+    "release_engineer": "personas/ledger/vs-code/7-release-engineer.md",
+    "docs": "personas/ledger/vs-code/8-documentation.md",
+    "synthesis": "personas/ledger/vs-code/9-synthesis.md",
 }
 
 #: All valid graph stage names (excludes START/END pseudo-nodes).
 VALID_STAGES: frozenset[str] = frozenset(PERSONA_FILES)
 
 #: Valid pipeline type names (matches TypeScript ``PIPELINE_TYPES`` tuple).
-PIPELINE_TYPES: tuple[str, ...] = ("implementation", "qa", "code-review", "documentation")
+PIPELINE_TYPES: tuple[str, ...] = ("implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation")
 
 
 # ---------------------------------------------------------------------------

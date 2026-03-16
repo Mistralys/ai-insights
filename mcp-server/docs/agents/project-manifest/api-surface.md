@@ -1,4 +1,4 @@
-# Public API Surface
+﻿# Public API Surface
 
 This document lists **public constructors, properties, and method signatures** for all exported classes, functions, and types. Implementation details are omitted.
 
@@ -25,7 +25,7 @@ The response JSON also includes a `pipeline_health` sub-object computed by readi
 
 ```typescript
 pipeline_health: {
-  wps_with_all_stages_pass: number;  // non-CANCELLED WPs with all 4 stages passing
+  wps_with_all_stages_pass: number;  // non-CANCELLED WPs with all active stages passing (uses wp.active_pipeline_stages.length ?? DEFAULT_PIPELINE_STAGES.length)
   wps_missing_stages: number;        // non-CANCELLED WPs with at least one stage missing
   total_stages_missing: number;      // sum of missing stage counts across all wps_missing_stages WPs
 }
@@ -96,7 +96,7 @@ Identifies the active project by cross-referencing the supplied working-director
 
 Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
-> **WP-005 note:** As of WP-005, all tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
+All tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
 
 ---
 
@@ -137,6 +137,7 @@ Lists work package summaries from the root index with optional filters.
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
   work_package_file: string;
+  active_pipeline_stages?: PipelineType[]; // optional — defaults to DEFAULT_PIPELINE_STAGES when omitted
 }) => Promise<MCPResult>
 ```
 
@@ -147,6 +148,10 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 - **`blocked_by` auto-assignment:** When initial status is `BLOCKED`, `blocked_by` is automatically populated with `{ type: 'dependency', description: '...', blocking_work_package: '<first unmet dep>' }`.
 - **Cycle detection:** `hasCycle()` (BFS) is called before creation. If the new WP's dependency chain would form a cycle, the call is rejected with `'Dependency cycle detected: WP X would create a circular dependency.'`
 - **Acceptance criteria validation:** Each criterion string is validated — empty strings and whitespace-only strings are rejected.
+- **`active_pipeline_stages`:** Optional array of pipeline types that defines which stages this WP will execute. When omitted, defaults to `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) for backward compatibility. Stored on the WP detail as `active_pipeline_stages: PipelineType[]`.
+  - **Hard guardrails (reject with error):** empty array; entries that are not valid `PIPELINE_TYPES`; duplicate entries; entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING`.
+  - **Soft guardrails (warning appended to success message):** `implementation` present without `qa`; single-stage chain.
+  - Example: `active_pipeline_stages: ['implementation', 'qa', 'code-review']` — skips the documentation stage.
 
 #### `ledger_claim_work_package`
 
@@ -204,7 +209,7 @@ The `agent` field is required because the server checks which persona is attempt
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string; // WP-### format
-  pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  pipeline_type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   agent_role: string;  // Must be "Project Manager"
   reason: string;      // Non-empty, non-whitespace; stored in audit trail
 }) => Promise<MCPResult>
@@ -254,8 +259,8 @@ The `agent` field is required because the server checks which persona is attempt
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
+  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult & { claimed: boolean }>
 ```
 
@@ -278,16 +283,16 @@ The `agent` field is required because the server checks which persona is attempt
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   agent_role: string; // required — see mapping below
 }) => Promise<MCPResult>
 ```
 
-Starts a new pipeline for a work package. The `type` field is validated by a Zod enum — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
+Starts a new pipeline for a work package. The `type` field is validated by `PipelineTypeEnum` (a Zod enum derived from `PIPELINE_TYPES`) — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
 
 **`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type and adds a `[PM Override]` marker to the pipeline summary.
 
-**Pipeline ordering (§8.2):** Enforces `implementation` → `qa` → `code-review` → `documentation` order. Checks the **most recent** prerequisite pipeline entry via `.at(-1)` — a historical PASS followed by a subsequent FAIL is treated as unmet. Returns a descriptive error if the prerequisite is absent or not PASS.
+**Pipeline ordering (§8.2):** Enforces `implementation` → `qa` → `code-review` → `documentation` order (legacy 4-stage default). Dynamic ordering via per-WP `active_pipeline_stages` is supported. Checks the **most recent** prerequisite pipeline entry via `.at(-1)` — a historical PASS followed by a subsequent FAIL is treated as unmet. Returns a descriptive error if the prerequisite is absent or not PASS.
 
 **Rework detection:** A rework is detected when either (a) the most recent same-type completed pipeline has `FAIL` status (**direct rework**) or (b) a prerequisite pipeline type was reworked after the last PASS of the current type (**downstream rework**). Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from rework detection in both cases. When rework is detected, `rework_counts[type]` is incremented.
 
@@ -302,7 +307,7 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   agent_role: string; // required — see mapping below
   status: 'PASS' | 'FAIL';
   summary: string | string[]; // single string or array — coerced to array server-side
@@ -332,9 +337,9 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
 }) => Promise<MCPResult>
 ```
 
-Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (next agent in chain). On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (routes QA/code-review/implementation failures to Developer; documentation failures to Documentation for self-rework). Sets status, completion timestamp, summary, and optional fields.
+Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (legacy 4-stage) or `resolveNextAgent()`. On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (legacy 4-stage) or `resolveFailAgent()` — routes QA/code-review/implementation/security-audit failures to Developer; documentation failures to Documentation for self-rework; release-engineering failures to Release Engineer for self-rework; fall-back: when the standard fail-target’s stage is absent from the WP’s activeStages, routes to the first active stage’s agent. Sets status, completion timestamp, summary, and optional fields.
 
-**`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize (§WP-006) and PM Override handoff-note identity.
+**`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize and PM Override handoff-note identity.
 
 **Lenient input handling (agent-friendly):**
 - **`summary`**: Accepts a single string or an array of strings. A bare string is automatically wrapped in a single-element array.
@@ -347,12 +352,12 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 
 **`acceptance_criteria_updates` merge semantics:** Each item is matched by exact `criterion` string. If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array.
 
-**Auto-finalize (§WP-006):** When `type: 'documentation'`, `status: 'PASS'`, and `agent_role: 'Documentation'`, the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`:
+**Auto-finalize:** When `status: 'PASS'` and the calling agent owns the WP's **last active stage** (terminal stage), the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`. The terminal stage is computed dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs this is `documentation` (Documentation agent); for custom-stage WPs it may be any stage.
 - **All criteria met** — WP is automatically transitioned to `COMPLETE` within the same lock scope. Response payload includes `auto_finalized: true`. `pending_work_packages` is decremented and the root summary is updated. After the lock is released, `propagateDependencyUnblock` is called to transition eligible BLOCKED dependents to READY (§6.3 compliance — see Gotcha 8 in constraints.md for lock-ordering details).
 - **Any criterion unmet** — WP remains `IN_PROGRESS`. Response payload includes `auto_finalize_blocked: true` and `unmet_criteria: string[]` listing the unmet criterion texts.
-- **FAIL result or non-Documentation `agent_role`** — auto-finalize does not fire; WP status is unchanged.
+- **FAIL result, PM override, or non-terminal-stage agent** — auto-finalize does not fire; WP status is unchanged.
 
-`ledger_update_work_package_status` remains registered for PM and edge-case use, but the Documentation agent no longer needs to call it after a successful pipeline PASS.
+`ledger_update_work_package_status` remains registered for PM and edge-case use, but the terminal-stage agent no longer needs to call it after a successful pipeline PASS.
 
 #### `ledger_cancel_pipeline`
 
@@ -361,7 +366,7 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   reason: string;
 }) => Promise<MCPResult>
 ```
@@ -375,7 +380,7 @@ Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting 
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   summary: string[];
 }) => Promise<MCPResult>
 ```
@@ -393,7 +398,7 @@ Appends to the summary array of the most recent `IN_PROGRESS` pipeline without c
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  pipeline_type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   type: string; // e.g., "code-smell", "refactor", "debt"
   priority: 'low' | 'medium' | 'high';
   note: string;
@@ -434,7 +439,7 @@ Adds a comment to the project-level comments array in the root index. For `incid
 (args: { 
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
   max_results?: number; // default: 1 (single-action mode)
 }) => Promise<MCPResult>
 ```
@@ -453,7 +458,7 @@ Reads root index and work package details to recommend the next action(s) for an
 (args: { 
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
-  current_agent: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  current_agent: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult>
 ```
 
@@ -655,7 +660,7 @@ interface ProjectMeta {
   date_created: string;  // ISO timestamp
   last_updated: string;  // ISO timestamp
   title?: string;        // Optional, derived from plan_file content
-  // Enrichment cache fields (all optional — absent in legacy .meta.json files created before WP-006)
+  // Enrichment cache fields (all optional — absent in legacy .meta.json files)
   total_work_packages?: number;   // Synced by writeRootIndex and updateWorkPackageWithSync on every root index write
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
@@ -671,15 +676,17 @@ Schema: `ProjectMetaSchema` (Zod).
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'ARCHIVED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
-type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis'; // Exported from src/utils/constants.ts; canonical string-literal union for all valid agent role names.
-type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
-type PostImplPipelineType = Exclude<PipelineType, 'implementation'>; // Subset type for maps that only apply to post-implementation stages (QA, code-review, documentation)
+type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis'; // Exported from src/utils/constants.ts; canonical string-literal union for all valid agent role names.
+type PipelineType = 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
+type PostImplPipelineType = 'qa' | 'code-review' | 'documentation'; // Explicitly pinned to the 3 legacy post-impl stages — NOT derived via Exclude<PipelineType, 'implementation'> so that adding new PipelineType values does not cascade into legacy 4-stage display maps (agentNameMap, actionNameMap, reworkActionMap) that remain 3-entry records.
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
 type CommentPriority = 'low' | 'medium' | 'high';
 interface ReworkCounts {
   implementation?: number; // Non-negative integer; absent until first rework of that type
   qa?: number;
+  'security-audit'?: number;
   'code-review'?: number;
+  'release-engineering'?: number;
   documentation?: number;
 }
 ```
@@ -724,6 +731,7 @@ interface WorkPackageDetail {
   blocked_by?: Blocker;
   acceptance_criteria: AcceptanceCriterion[];
   revision: number; // 0-based; new WPs start at 0 (previously started at 1)
+  active_pipeline_stages?: string[];  // Optional. The active pipeline stages for this WP. When absent or empty, defaults to DEFAULT_PIPELINE_STAGES. Must be a subsequence of CANONICAL_PIPELINE_ORDERING. Hard validation enforced by ledger_create_work_package.
   rework_count?: number;  // Legacy scalar — read-only; used only by in-memory migration in readWorkPackage() for documents that pre-date rework_counts. No longer written by production code.
   rework_counts?: ReworkCounts;  // Per-pipeline-type rework map; lazily created on first rework (§16.2)
   status_changed_at?: string;  // ISO 8601 timestamp of the last status transition (§10b.1)
@@ -834,11 +842,12 @@ const PLAN_ARCHIVE_FILENAME = 'plan.md' as const;
 // Used as the Zod .default() value in project-lifecycle.ts; also referenced in help-content.ts.
 const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md' as const;
 
-// Canonical array of valid agent role names. Consumers should import from here
-// rather than defining local copies to avoid silent drift.
+// Canonical array of valid agent role names. Consumers should import from
+// here rather than defining local copies to avoid silent drift.
 const AGENT_ROLES: readonly [
-  'Planner', 'Project Manager', 'Developer',
-  'QA', 'Reviewer', 'Documentation', 'Synthesis'
+  'Planner', 'Project Manager', 'Developer', 'QA',
+  'Security Auditor', 'Reviewer', 'Release Engineer',
+  'Documentation', 'Synthesis'
 ];
 
 // String-literal union type derived from AGENT_ROLES.
@@ -871,6 +880,42 @@ const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
 - `gui/api.ts` — imports both; `PLAN_ARCHIVE_FILENAME` used in `handleGetPlanDocument` join() call, `SYNTHESIS_ARCHIVE_FILENAME` used in `handleGetSynthesisDocument` join() call
 - `src/tools/project-lifecycle.ts` — imports `SYNTHESIS_ARCHIVE_FILENAME`; used as Zod `.default()` value
 - `src/tools/help-content.ts` — imports both; used in tool help text template expressions
+
+---
+
+## Pipeline-Maps Constants
+
+Exported from `src/utils/pipeline-maps.ts`. Single source of truth for pipeline type definitions, routing maps, and dynamic resolve functions.
+
+```typescript
+// The six valid pipeline type values as a const tuple, in canonical execution order.
+const PIPELINE_TYPES: readonly [
+  'implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'
+];
+
+// Alias of PIPELINE_TYPES. The canonical execution order for all six pipeline stages.
+// Dynamic resolve functions filter this ordering by a WP's active_pipeline_stages.
+const CANONICAL_PIPELINE_ORDERING: typeof PIPELINE_TYPES;
+
+// Backward-compatible default stage set (4-stage legacy workflow).
+// Used as the default activeStages when a WP has no active_pipeline_stages field.
+const DEFAULT_PIPELINE_STAGES: readonly ['implementation', 'qa', 'code-review', 'documentation'];
+
+// Zod enum schema for pipeline types — use in tool input validation.
+const PipelineTypeEnum: z.ZodEnum<[typeof PIPELINE_TYPES[number], ...]>;
+
+// Maps pipeline type → owning agent role (all 6 types, including Security Auditor and Release Engineer).
+const PIPELINE_AGENT_MAP: Record<PipelineType, string>;
+
+// Inverse of PIPELINE_AGENT_MAP (derived at runtime — no divergence possible).
+const AGENT_PIPELINE_MAP: Record<string, PipelineType>;
+
+// Legacy static maps — Partial<Record<PipelineType, ...>> (4-entry legacy default workflow).
+// @deprecated For new WPs, use the dynamic resolve functions below instead.
+const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>>;  // null = no prerequisite
+const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>>;
+const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>>;
+```
 
 ---
 
@@ -1025,26 +1070,115 @@ const mutuallyExclusivePaths: (args: { project_path?: string | null; cwd_path?: 
 // Exported from src/utils/path-validator.ts.
 const MUTUAL_EXCLUSIVITY_PATH_MSG: string;
 
-// Returns all pipeline types that come AFTER the given type in canonical PIPELINE_TYPES order.
-// Returns [] for 'documentation' (nothing follows it). Returns [] for unknown types.
+// Returns all pipeline types that come AFTER the given type in the active stage ordering.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (4-stage legacy behaviour).
+// Returns [] when type is the last active stage or not in the active set.
 // Exported from src/utils/pipeline-maps.ts. Returns a fresh array — safe to mutate.
-// Examples: getDownstreamTypes('implementation') → ['qa','code-review','documentation']
-//           getDownstreamTypes('code-review')    → ['documentation']
-//           getDownstreamTypes('documentation')  → []
-function getDownstreamTypes(type: PipelineType): PipelineType[];
+// Examples (legacy default):
+//   getDownstreamTypes('implementation') → ['qa','code-review','documentation']
+//   getDownstreamTypes('code-review')    → ['documentation']
+//   getDownstreamTypes('documentation')  → []
+// Examples (6-stage active set):
+//   getDownstreamTypes('qa', PIPELINE_TYPES) → ['security-audit','code-review','release-engineering','documentation']
+function getDownstreamTypes(
+  type: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): PipelineType[];
 
-// Returns all pipeline types that come BEFORE the given type in canonical PIPELINE_TYPES order.
-// Returns [] for 'implementation' (nothing precedes it).
+// Returns all pipeline types that come BEFORE the given type in the active stage ordering.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (4-stage legacy behaviour).
+// Returns [] when type is the first active stage or not in the active set.
 // Exported from src/utils/pipeline-maps.ts. Returns a fresh array — safe to mutate.
-// Examples: getUpstreamTypes('documentation') → ['implementation','qa','code-review']
-//           getUpstreamTypes('qa')             → ['implementation']
-//           getUpstreamTypes('implementation') → []
-function getUpstreamTypes(type: PipelineType): PipelineType[];
+// Examples (legacy default):
+//   getUpstreamTypes('documentation') → ['implementation','qa','code-review']
+//   getUpstreamTypes('qa')             → ['implementation']
+//   getUpstreamTypes('implementation') → []
+function getUpstreamTypes(
+  type: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): PipelineType[];
+
+// Computes the prerequisite pipeline type for pipelineType given activeStages.
+// Filters CANONICAL_PIPELINE_ORDERING by activeStages; the immediately preceding active stage
+// is the prerequisite. Returns null when pipelineType is the first active stage or not active.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+// Exported from src/utils/pipeline-maps.ts. Replaces the legacy static PIPELINE_PREREQUISITES map
+// for new-stage WPs — callers should prefer this function over the static map.
+// Examples:
+//   resolvePrerequisite('qa')            → 'implementation' (both active)
+//   resolvePrerequisite('implementation') → null            (first stage)
+//   resolvePrerequisite('documentation', ['documentation']) → null  (only active stage)
+function resolvePrerequisite(
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): PipelineType | null;
+
+// Returns the agent that should receive the WP after pipelineType completes with PASS,
+// given activeStages. Finds the next active stage in CANONICAL_PIPELINE_ORDERING and returns
+// its owning agent via PIPELINE_AGENT_MAP. Returns 'Synthesis' when pipelineType is the last
+// active stage or when pipelineType is not in the active set (index === -1).
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+// Exported from src/utils/pipeline-maps.ts. Replaces the legacy static NEXT_AGENT_MAP for WPs
+// that use non-default pipeline compositions.
+// Precondition: callers must not invoke with a stage outside the WP's activeStages
+// (index-not-found path returns 'Synthesis' as a safe fallback).
+// Examples:
+//   resolveNextAgent('implementation')  → 'QA'        (legacy 4-stage default)
+//   resolveNextAgent('documentation')   → 'Synthesis'  (last stage)
+//   resolveNextAgent('documentation', ['documentation']) → 'Synthesis' (only stage)
+function resolveNextAgent(
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): string;
+
+// Returns the agent that should receive the WP after pipelineType completes with FAIL,
+// given activeStages (rework routing). Base routing:
+//   implementation, qa, security-audit, code-review → Developer
+//   release-engineering → Release Engineer (self-rework)
+//   documentation → Documentation (self-rework)
+// Fallback: when the standard fail-target agent's stage is not present in activeStages,
+// routes to the agent that owns the first active stage.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+// Exported from src/utils/pipeline-maps.ts. Replaces the legacy static FAIL_ROUTING_MAP for
+// new-stage WPs.
+// Examples:
+//   resolveFailAgent('qa')                      → 'Developer'      (Developer's stage is active)
+//   resolveFailAgent('qa', ['documentation'])   → 'Documentation'  (Developer's impl stage absent — fallback)
+//   resolveFailAgent('documentation')           → 'Documentation'  (self-rework)
+function resolveFailAgent(
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): string;
+
+// Returns the given activeStages filtered and sorted by CANONICAL_PIPELINE_ORDERING.
+// Replaces the repeated `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t))` pattern
+// that appeared at 5 call sites in pipeline.ts and workflow-next-action.ts.
+// Unlike getDownstreamTypes / getUpstreamTypes, this function does NOT take a pipelineType anchor —
+// it simply returns the full ordered subset. Internal pipeline-maps.ts functions still use the
+// raw filter directly (replacing them would be self-referential).
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   getOrderedActiveStages(['documentation','implementation']) → ['implementation','documentation']
+//   getOrderedActiveStages(['qa','security-audit','code-review']) → ['qa','security-audit','code-review']
+function getOrderedActiveStages(
+  activeStages: readonly PipelineType[],
+): PipelineType[];
+
+// Returns a `.describe()` annotation string for a Zod pipeline type field,
+// listing all PIPELINE_TYPES in canonical order with the given prefix.
+// Eliminates hardcoded pipeline type lists in Zod .describe() strings — all 6
+// tool schema call sites (observations.ts ×1, begin-work.ts ×1, pipeline.ts ×4)
+// delegates to this function instead of maintaining their own prose copy.
+// Exported from src/utils/pipeline-maps.ts (placed after getOrderedActiveStages).
+// Example:
+//   describePipelineTypes('Pipeline type:') →
+//     'Pipeline type: "implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"'
+function describePipelineTypes(prefix: string): string;
 ```
 
 ### Project Name Resolution — `src/utils/read-project-name.ts`
 
-Shared utility extracted in WP-006 to eliminate the ~55-line duplicate in `gui/api.ts`.
+Shared utility extracted to eliminate the ~55-line duplicate in `gui/api.ts`.
 
 ```typescript
 // Probes the managed workspace for a human-readable project name.
@@ -1106,7 +1240,7 @@ export interface ProjectResetResult {
 
 // Returns the set of pipeline types that have at least one PASS pipeline on a WP.
 // Pure function — no I/O. Used internally by analyzeProjectForReset() and by
-// the getProjectStatus() tool (WP-003) to compute aggregate pipeline health.
+// the getProjectStatus() tool to compute aggregate pipeline health.
 // Exported from src/utils/project-reset.ts so callers outside project-reset.ts
 // (e.g. project-lifecycle.ts) can reuse it without duplicating stage-scan logic.
 export function getPassedStages(wp: WorkPackageDetail): Set<string>;
@@ -1241,7 +1375,7 @@ function resolveStore(
 export const _internal: {
   // Generates the human-readable status transition error guidance string.
   buildStatusTransitionGuidance: (from: WorkPackageStatus, to: WorkPackageStatus) => string;
-  // Named export promoted in WP-001; _internal reference kept for test imports.
+  // Named export promoted as public API; _internal reference kept for test imports.
   propagateDependencyUnblock: (
     projectPath: string,
     completedWpId: string,
@@ -1522,7 +1656,7 @@ export interface ProjectSummary extends ProjectMeta {
   repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
 }
 
-// Validated query parameters for GET /api/projects (WP-007).
+// Validated query parameters for GET /api/projects.
 // All fields are optional — unrecognised or missing values fall back to listed defaults.
 export type ProjectSortField = 'last_updated' | 'date_created' | 'title' | 'slug' | 'status' | 'done';
 export interface ProjectListParams {
@@ -1534,7 +1668,7 @@ export interface ProjectListParams {
   dir?: 'asc' | 'desc';            // default 'desc'
 }
 
-// Paginated response envelope for GET /api/projects (WP-007).
+// Paginated response envelope for GET /api/projects.
 export interface ProjectListEnvelope {
   projects: ProjectSummary[];       // current page slice
   total: number;                    // total matching projects after search + status filters
@@ -1552,7 +1686,7 @@ export interface ProjectListEnvelope {
 //   4. Apply status filter (ACTIVE excludes only ARCHIVED; ALL includes everything; specific status = exact match)
 //   5. Sort by sort+dir
 //   6. Paginate: page/limit → return projects slice + envelope metadata
-// Cache fast-path (WP-006): if meta.total_work_packages !== undefined && meta.project_name !== undefined,
+// Cache fast-path: if meta.total_work_packages !== undefined && meta.project_name !== undefined,
 // the handler skips per-project root index + manifest file reads. Falls back to I/O for legacy .meta.json.
 export async function handleListProjects(
   ledgerRoot: string,
@@ -1784,7 +1918,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.synthesis-link-row` | Row wrapper for the **View synthesis →** link on the Project Detail page; `margin-bottom: 16px`; only rendered when `project.synthesis_generated === true` |
 | `.synthesis-link` | Pill-style inline link inside `.synthesis-link-row`; styled with `var(--color-primary)` foreground, `var(--color-border)` border, `var(--color-bg-card)` background; hover lightens to `var(--color-bg)` |
 
-**`styles.css` — Project reset modal classes** (added for WP-004):
+**`styles.css` — Project reset modal classes:**
 
 | Class | Role |
 |-------|------|
@@ -1800,13 +1934,13 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.reset-stage-missing` | Red variant — stage is absent or has no PASS |
 | `.reset-modal-footer` | Sticky footer with live summary text and Apply Reset / Cancel buttons |
 
-> **Resolved (WP-003):** `.priority-high/medium/low` hardcoded hex values have been promoted to `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background was updated from `#e2e8f0` to `var(--color-border)`.
+`.priority-high/medium/low` values use `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background uses `var(--color-border)`.
 
-> **Resolved (WP-005):** `.comment-type` hardcoded `color: #475569` replaced with `var(--color-text-muted)`, keeping the full colour palette centralized in `:root`.
+> `.comment-type` uses `var(--color-text-muted)` for its text colour, keeping the full colour palette centralized in `:root`.
 
 > **Known debt (low):** `.insights-filters` duplicates `.filter-bar` layout properties. The Reviewer approved retaining `.insights-filters` as a semantic distinction for now. A future cleanup WP should consolidate them into a single utility class.
 
-**`styles.css` — Inline title edit + Repository column classes** (added for WP-003):
+**`styles.css` — Inline title edit + Repository column classes:**
 
 | Class | Role |
 |-------|------|
@@ -1816,7 +1950,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.title-edit-error` | Inline error message div displayed below the input on API failure; cleared by `exitEdit()` when the user leaves edit mode |
 | `.repo-col` | Table data cell for the Repository column in the project list table |
 
-**`styles.css` — Project action menu classes** (added for WP-001):
+**`styles.css` — Project action menu classes:**
 
 | Class | Role |
 |-------|------|
@@ -1932,11 +2066,15 @@ export function extractReworkAction(wps: WorkPackageDetail[]): ActionResult | nu
 // Accepts Pipeline[] (matching the convention of sibling helpers such as isMostRecentPipelineFail,
 // hasDownstreamFail, etc.). Call sites pass wpDetail.pipelines.
 // Auto-cancelled pipelines are excluded from the temporal baseline.
+// activeStages controls which upstream types are considered; defaults to DEFAULT_PIPELINE_STAGES
+// when omitted (backward-compatible 4-stage behaviour). Pass the WP's active_pipeline_stages
+// to correctly evaluate custom-stage WPs (e.g. those including security-audit or release-engineering).
 // Exported from src/utils/workflow-helpers.ts.
 export function checkRevalidationGuard(
   pipelines: Pipeline[],
   pipelineType: PipelineType,
   prerequisite: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
 ): string | null;
 
 // Returns the handoff notes in the WP addressed to agentName, or undefined if none.
@@ -1982,6 +2120,7 @@ export function getProjectManagerAction(rootIndex: RootIndex, store: LedgerStore
 function getSynthesisAction(): ActionResult;
 
 // Developer-specific next-action computation. Implements the 7-priority per-WP algorithm from §14.2.
+// Skips WPs where 'implementation' is not in wp.active_pipeline_stages.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT    — rework_counts.implementation ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL          — stale implementation pipeline (via extractStalePipelineAction).
@@ -1997,51 +2136,92 @@ function getSynthesisAction(): ActionResult;
 export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // QA-specific next-action computation. Implements the 7+1b per-WP algorithm from §14.3.
+// Skips WPs where 'qa' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('qa', activeStages).
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts.qa ≥ MAX_REWORK_COUNT.
-//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts.implementation ≥ MAX_REWORK_COUNT.
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts[qaPrerequisite] ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL                 — stale QA pipeline.
 //   P3 CONTINUE_PIPELINE                — active non-stale QA pipeline (isActivePipeline = true).
 //   P4 RUN_QA (re-engagement)           — at least one prior QA pipeline (excl. auto-cancelled)
-//                                         AND hasNewUpstreamPassSince('implementation','qa')=true.
+//                                         AND hasNewUpstreamPassSince(qaPrerequisite,'qa')=true.
 //   P5 WAIT_FOR_REWORK                  — most recent QA pipeline is FAIL and P4 guard is false.
-//   P6 RUN_QA (first-run)               — most recent implementation is PASS, no QA pipeline.
+//   P6 RUN_QA (first-run)               — most recent qaPrerequisite pipeline is PASS, no QA pipeline.
 //   P7 CLAIM_WP                         — READY WP assigned to QA with dependencies satisfied.
 //   Fallback WAIT.
 export function getQaAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // Reviewer-specific next-action computation. Mirror of QA for §14.4 (code-review pipeline).
+// Skips WPs where 'code-review' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('code-review', activeStages).
+// P1b checks all active upstream stages for rework limit breaches.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts['code-review'] ≥ MAX_REWORK_COUNT.
-//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts.implementation OR rework_counts.qa
-//                                         ≥ MAX_REWORK_COUNT (checks BOTH upstream types).
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any active upstream stage rework_counts ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL                 — stale code-review pipeline.
 //   P3 CONTINUE_PIPELINE                — active non-stale code-review pipeline.
 //   P4 RUN_REVIEW (re-engagement)       — at least one prior code-review pipeline (excl. auto-cancelled)
-//                                         AND hasNewUpstreamPassSince('qa','code-review')=true.
+//                                         AND hasNewUpstreamPassSince(reviewPrerequisite,'code-review')=true.
 //   P5 WAIT_FOR_REWORK                  — most recent code-review pipeline is FAIL and P4 guard is false.
-//   P6 RUN_REVIEW (first-run)           — most recent QA is PASS, no code-review pipeline.
+//   P6 RUN_REVIEW (first-run)           — most recent reviewPrerequisite pipeline is PASS, no code-review pipeline.
 //   P7 CLAIM_WP                         — READY WP assigned to Reviewer with dependencies satisfied.
 //   Fallback WAIT.
 export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
+// Security Auditor-specific next-action computation. Mirrors getQaAction for §14.3a (security-audit pipeline).
+// Skips WPs where 'security-audit' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('security-audit', activeStages).
+// NO self-rework on FAIL — Developer must address Security Auditor findings before retry.
+// Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
+//   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts['security-audit'] ≥ MAX_REWORK_COUNT.
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts[secPrerequisite] ≥ MAX_REWORK_COUNT.
+//   P2 RESUME_OR_CANCEL                 — stale security-audit pipeline.
+//   P3 CONTINUE_PIPELINE                — active non-stale security-audit pipeline.
+//   P4 RUN_SECURITY_AUDIT (re-engagement) — hasNewUpstreamPassSince(secPrerequisite,'security-audit')=true.
+//   P5 WAIT_FOR_REWORK                  — most recent security-audit pipeline is FAIL and P4 guard is false.
+//   P6 RUN_SECURITY_AUDIT (first-run)   — most recent secPrerequisite is PASS, no security-audit pipeline.
+//   P7 CLAIM_WP                         — READY WP assigned to Security Auditor.
+//   Fallback WAIT.
+export function getSecurityAuditorAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
+
+// Release Engineer-specific next-action computation. Mirrors getDocumentationAction for §14.4a (release-engineering pipeline).
+// Skips WPs where 'release-engineering' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('release-engineering', activeStages).
+// SELF-REWORK on FAIL (mirrors Documentation, not QA).
+// Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
+//   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts['release-engineering'] ≥ MAX_REWORK_COUNT.
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any active upstream stage rework_counts ≥ MAX_REWORK_COUNT.
+//   P2 RESUME_OR_CANCEL                 — stale release-engineering pipeline.
+//   P3 CONTINUE_PIPELINE                — active non-stale release-engineering pipeline.
+//   P4 REWORK (self)                    — most recent release-engineering is FAIL AND
+//                                         !hasNewUpstreamPassSince(relPrerequisite,'release-engineering').
+//   P5 RUN_RELEASE_ENGINEERING          — most recent relPrerequisite is PASS, no release-engineering pipeline
+//                                         OR hasNewUpstreamPassSince(relPrerequisite,'release-engineering')=true.
+//   P7 CLAIM_WP                         — READY WP assigned to Release Engineer.
+//   Fallback WAIT.
+export function getReleaseEngineerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
+
 // Documentation-specific next-action computation. Implements the 7+1b per-WP algorithm from §14.5.
+// Skips WPs where 'documentation' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('documentation', activeStages).
+// P1b checks all active upstream stages (not just impl|qa|code-review) for rework limit breaches.
+// P5/P6 freshness check uses firstActiveStage instead of hardcoded 'implementation',
+// so documentation-only WPs (firstActiveStage='documentation') correctly produce a freshness=true.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts.documentation ≥ MAX_REWORK_COUNT.
-//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any of rework_counts.implementation|qa|'code-review'
-//                                         ≥ MAX_REWORK_COUNT (checks all three upstream types).
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any active upstream stage rework_counts ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL                 — stale documentation pipeline.
 //   P3 CONTINUE_PIPELINE                — active non-stale documentation pipeline.
 //   P4 REWORK (self)                    — most recent documentation is FAIL AND
-//                                         !hasNewUpstreamPassSince('code-review','documentation')
+//                                         !hasNewUpstreamPassSince(docPrerequisite,'documentation')
 //                                         (guard prevents REWORK from shadowing a fresh WRITE_DOCS cycle).
 //   P5 FINALIZE_WP                      — documentation PASS, all acceptance_criteria.met===true,
-//                                         AND freshness: doc completed_at ≥ latest impl started_at.
+//                                         AND freshness: doc completed_at ≥ latest firstActiveStage started_at.
 //                                         Replaces the former non-spec MARK_COMPLETE action.
 //   P5b UPDATE_CRITERIA                 — documentation PASS, freshness passes, but at least one
 //                                         criterion has met!==true. Prompt agent to update criteria.
-//   P6 WRITE_DOCS                       — most recent code-review is PASS and no documentation
-//                                         pipeline exists OR hasNewUpstreamPassSince('code-review','documentation')=true.
+//   P6 WRITE_DOCS                       — most recent docPrerequisite is PASS and no documentation
+//                                         pipeline exists OR hasNewUpstreamPassSince(docPrerequisite,'documentation')=true.
 //   P7 CLAIM_WP                         — READY WP assigned to Documentation with dependencies satisfied.
 //   Fallback WAIT.
 export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
@@ -2138,7 +2318,7 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 //      hasNewUpstreamPassSince('qa','code-review') = true; dep-blocked routing applies.
 //   4. All terminal → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the re-engagement and FAIL short-circuit checks in source
-//      order (lines 484-487 of workflow-handoff.ts). Added (WP-005) to match the same guard
+//      order (lines 484-487 of workflow-handoff.ts). Added to match the same guard
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to QA → IN_PROGRESS.
@@ -2153,7 +2333,7 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 //      hasNewUpstreamPassSince('code-review','documentation') = true; dep-blocked routing applies.
 //   4. All terminal → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the re-engagement and FAIL short-circuit checks in source
-//      order (lines 671-674 of workflow-handoff.ts). Added (WP-005) to match the same guard
+//      order (lines 671-674 of workflow-handoff.ts). Added to match the same guard
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to Reviewer → IN_PROGRESS.

@@ -539,3 +539,12 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 - The warning serves as an audit trail prompt: agents that modify files should declare what they changed for traceability and downstream awareness
 - **Not all PASS results require artifacts:** Some pipeline types (e.g., QA, code-review, security-audit) may complete with PASS without modifying files — the warning is intentionally lenient
 - Implementations MAY suppress this warning for specific pipeline types where artifact-free PASS is expected (e.g., verification-only pipelines)
+
+### 21.65 Test-Only WP Production Method Prerequisite
+
+- When a WP's `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), all methods, functions, and classes referenced in the WP's scope must already exist in production code
+- This is a **planning discipline rule** enforced by the Project Manager during WP decomposition (after ledger bootstrapping) and by the Pipeline Configurator sub-agent during stage assignment — it is not enforced by the MCP server at the schema level
+- If a required symbol does not exist, the WP must be reclassified to include the `implementation` stage. Failing to do so constitutes invisible scope expansion: the Developer will be forced to add production code inside a WP that was scoped as non-implementation, creating a plan-vs-reality mismatch
+- **Validation method:** A grep or codebase search for the referenced symbols is sufficient. The PM or Pipeline Configurator does not need to run the code — only verify that the symbols exist in the source tree
+- **Example:** A WP scoped as `["qa", "code-review"]` that references `setItemsPerPageURLTemplate()` in its acceptance criteria must verify that this method already exists. If it does not, the WP should use `["implementation", "qa", "code-review"]` (or the full default chain) instead
+- This rule does not apply to WPs that include `implementation` in their `active_pipeline_stages`, since the Developer is expected to create any missing symbols during that stage

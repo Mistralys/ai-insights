@@ -147,7 +147,7 @@ function lastActiveStage(wp):
   return stages[stages.length - 1]
 ```
 
-The **terminal agent** — the agent allowed to mark the WP as COMPLETE — is `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`. For a default WP this is Documentation; for a documentation-only WP (`["documentation"]`) it is also Documentation; for a verification-only WP (`["implementation", "qa", "code-review"]`) it is Reviewer.
+The **terminal agent** — the agent allowed to mark the WP as COMPLETE — is `PIPELINE_AGENT_MAP[lastActiveStage(wp)]`. For a default WP this is Documentation; for a documentation-only WP (`["documentation"]`), Documentation is both first and terminal; for a verification-only WP (`["qa", "code-review"]`) it is Reviewer.
 
 The **freshness check** compares the most recent PASS of `lastActiveStage` against the most recent `started_at` of `firstActiveStage`. This generalizes the former documentation-vs-implementation comparison. When the first and last active stages are the same (single-stage WP), the freshness check passes vacuously — there is no earlier stage to compare against.
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth } from '../../src/utils/workflow-helpers.js';
 import type { Pipeline, WorkPackageDetail } from '../../src/schema/work-package.js';
+import type { PipelineType } from '../../src/utils/pipeline-maps.js';
 import { makePipeline, makeWorkPackageDetail } from '../helpers/fixtures.js';
 
 describe('hasNewUpstreamPassSince', () => {
@@ -489,6 +490,34 @@ describe('checkRevalidationGuard', () => {
     ];
     // prereqCompletedAt (10:00) >= baselineStartedAt (10:00) → Step 3 passes → null
     expect(checkRevalidationGuard(pipelines, 'qa', 'implementation')).toBeNull();
+  });
+
+  it('fires when security-audit rework occurs after qa PASS (custom activeStages)', () => {
+    // Validates the activeStages forwarding fix in checkRevalidationGuard (WP-002, Rework-1).
+    // Custom stages: ['implementation', 'qa', 'security-audit', 'code-review', 'documentation']
+    // Scenario: security-audit is re-run after code-review-1 FAIL.
+    // Without the fix, getUpstreamTypes('code-review') uses DEFAULT_PIPELINE_STAGES and returns
+    // ['implementation', 'qa'], missing 'security-audit' → guard silently skips → bug.
+    // With the fix, it returns ['implementation', 'qa', 'security-audit'] → guard fires correctly.
+    const customStages: readonly PipelineType[] = ['implementation', 'qa', 'security-audit', 'code-review', 'documentation'];
+    const pipelines: Pipeline[] = [
+      makePipeline('implementation', 'PASS',    '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+      makePipeline('qa',             'PASS',    '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
+      makePipeline('security-audit', 'PASS',    '2026-01-01T12:00:00', '2026-01-01T13:00:00'),
+      // code-review-1 FAIL — baseline run
+      makePipeline('code-review',    'FAIL',    '2026-01-01T14:00:00', '2026-01-01T15:00:00'),
+      // security-audit re-run (rework) at 16:00 — AFTER qa PASS at 11:00
+      makePipeline('security-audit', 'PASS',    '2026-01-01T16:00:00', '2026-01-01T17:00:00'),
+    ];
+    // code-review retry: prereq is qa (PASS at 11:00), baseline started at 14:00
+    // prereqCompletedAt (11:00) < baselineStartedAt (14:00) → stale check
+    // hasDownstreamFail(qa, customStages) → code-review FAIL → true
+    // getUpstreamTypes('code-review', customStages) → ['implementation', 'qa', 'security-audit']
+    // security-audit started at 16:00 > qa PASS at 11:00 → upstream reworked → guard fires
+    const result = checkRevalidationGuard(pipelines, 'code-review', 'qa', customStages);
+    expect(result).not.toBeNull();
+    expect(result).toContain('code-review');
+    expect(result).toContain('qa');
   });
 });
 describe('isActivePipeline', () => {

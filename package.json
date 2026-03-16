@@ -1,0 +1,12 @@
+{
+  "name": "ai-insights-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Workspace root — dev tooling for scripts/ test suite",
+  "scripts": {
+    "test:scripts": "vitest run scripts/tests/"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
+}

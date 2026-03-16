@@ -3,7 +3,7 @@
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
 **Version:** 2.4.0  
-**Date:** 2026-03-28
+**Date:** 2026-03-14
 
 ---
 

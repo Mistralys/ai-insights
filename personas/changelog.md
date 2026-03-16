@@ -1,5 +1,91 @@
 # Personas Changelog
 
+## v3.9.1 - Housekeeping: Helper Unification & Strict-Mode Robustness
+
+### Script Refactors
+- **`validateFileName(persona, fieldName, suite)`**: Unified `validateCcFileName` and `validateVsFileName` into a single function in `scripts/lib/persona-helpers.js`. Three call sites in `build-personas.js` updated. The `fieldName` parameter makes the validated field explicit and is included in error messages.
+- **`extractMcpServers()` deduplication**: Replaced `Array.includes()` with `Set`-based deduplication. Preserves insertion order (ES2015+) for stable YAML output across repeated builds.
+- **Fenced-block stripping in `--strict` scan**: `build-personas.js` now strips fenced code blocks (`/\`\`\`[\s\S]*?\`\`\`/g`) from a scan copy of the output before the unresolved-marker regex runs. Eliminates the GN-4 false-positive risk documented in [constraint 10](docs/agents/project-manifest/constraints.md#c10).
+
+### Persona Updates
+- **Unit Test Auditor v1.0.3**: Description field updated to verb-forward, purpose-specific text (`Audit unit test coverage...`).
+
+### Documentation Updates
+- **`personas/docs/agents/project-manifest/constraints.md`**: Added `<a name="cN"></a>` named anchors to all 47 constraints (c1–c47). Updated GN-4 note to reflect active mitigation status (WP-002).
+- **`personas/docs/agents/project-manifest/api-surface.md`**: Replaced `validateCcFileName`/`validateVsFileName` rows with unified `validateFileName` row; updated module count from 13 to 12; updated `--strict` GN-4 limitation note to reflect active fenced-block stripping.
+- **`personas/docs/agents/project-manifest/file-tree.md`**: Added `scripts/lib/` and `scripts/tests/` directory entries with descriptions.
+- **Cross-references updated to anchor links**: `api-surface.md` (constraints.md#c10), `standalone/README.md` (constraints.md#c19), `changelog.md` (constraints.md#c13), `constraints.md` self-reference (#c34).
+
+### Test Suite
+- **`scripts/tests/persona-helpers.test.js`**: Updated for unified `validateFileName`. Added 7th test case: `includes the fieldName in the error message`.
+
+---
+
+## v3.9.0 - Build Pipeline Fixes & `mcpServers` Auto-Injection
+
+### Build Script Fixes
+- **VS Code output filename fix**: `buildForTarget()` in `scripts/build-personas.js` now derives the output filename from the YAML-declared `vs_file_name` (VS Code) or `cc_file_name` (Claude Code) fields instead of using the content template basename. All 24 VS Code output files now correctly use the `.agent.md` extension (e.g. `researcher.agent.md`, `3-dev.agent.md`), aligning the build output with [constraint 13](docs/agents/project-manifest/constraints.md#c13). Generated output files in `personas/ledger/vs-code/` and `personas/standalone/vs-code/` were regenerated with the correct naming.
+
+### New Feature: `mcpServers` Auto-Injection for Standalone Claude Code Personas
+- **`extractMcpServers(tools)` helper**: Added to `scripts/build-personas.js`. Filters tool entries containing `/`, extracts unique server name prefixes (e.g. `central_pm/*` → `central_pm`), and builds the YAML block string for frontmatter injection.
+- **`FRONTMATTER_STANDALONE_CC` template updated**: Conditionally injects a `mcpServers` block via `{{mcp_servers_yaml}}` variable. Personas with MCP tool entries in `tools` (format `server/*`) receive the block; personas with no such entries produce no block. Fully constraint-21 compliant: server names are derived from per-persona `tools` entries, not from `_shared.yaml`.
+- **`ledger-bootstrapper.md`** (standalone Claude Code) now includes `mcpServers:\n  - central_pm` in frontmatter, making the persona functional in Claude Code.
+
+### Documentation Updates
+- **`personas/standalone/README.md`**: Updated "Claude Code — MCP Server Auto-Injection" section to reflect the implemented fix. Documents `extractMcpServers()` mechanism, `tools` vs `cc_tools` design decision, and constraint-21 compliance. Removed previous workaround references.
+- **`personas/docs/agents/project-manifest/constraints.md`**: Renumbered all constraints into a clean monotonic 1–47 top-to-bottom sequence with no gaps. The missing constraint 38 gap is filled (`mcp_server_name` ↔ `.mcp.json`). Former constraints 44–45 (canonical pipeline ordering, WP-ID auto-generation) are repositioned as 39–40. All cross-references updated (constraint 19 in standalone README, constraint 39–40 in changelog, constraint 10 and 34 in api-surface.md).
+
+---
+
+## v3.8.1 - 9-Agent Personas Rework (Post-Synthesis Polish)
+
+### Documentation
+- **`personas/standalone/README.md`** (new): User-facing guide for all 15 standalone personas. Covers the PM sub-agent cluster (WP Decomposer → Dependency Sequencer → Pipeline Configurator → Ledger Bootstrapper) with ASCII flow diagram, full persona catalog table sourced from YAML, Claude Code limitations (`mcpServers` gap for `ledger-bootstrapper`), and build/sync cross-references.
+- **`personas/docs/agents/project-manifest/constraints.md`**: Added two new constraints in the Cross-System Dependencies section:
+  - **Constraint 39**: Canonical Pipeline Stage Ordering Is a Hard Runtime Constraint — `active_pipeline_stages` must be a strict subsequence of `CANONICAL_PIPELINE_ORDERING`; stages may be omitted but never reordered; `ledger_create_work_package` enforces this at runtime.
+  - **Constraint 40**: Work Package IDs Are Auto-Generated — agents must not pass `work_package_id`, must capture the returned ID from the tool response, and must use the captured ID in `dependencies` arrays.
+- **`personas/docs/agents/project-manifest/file-tree.md`**: Added `standalone/README.md` annotation (hand-authored, user-facing guide).
+- **`personas/ledger/README.md`**: Updated workflow overview to reflect 9-agent layout with optional Security Audit (stage 5) and Release Engineering (stage 7) stages; replaced stale 4-stage fixed-loop reference.
+
+### Ledger Persona Updates
+- **Reviewer (6)**: Mission statement polish — "secure" → "well-architected" to align with the Security Auditor's dedicated security ownership. Generated `6-reviewer` output in both VS Code and Claude Code targets reflects the update.
+
+### Shared Partial Updates
+- **`release-engineer-output-format.md`**: Added explicit comment `type` documentation, mirroring `security-auditor-output-format.md`. Types: `"release-note"` (user-facing changelog entries), `"breaking-change"` (migration-required), `"version-decision"` (semver rationale), `"improvement"` (non-blocking observations).
+
+### Script Fixes
+- **`scripts/check-known-roles.js`**: Success message now includes role count in output: `[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync (9 roles).`
+
+---
+
+## v3.8.0 - 9-Agent Personas & PM Sub-Agents
+
+### New Ledger Personas
+- Security Auditor v3.6.1: New agent at pipeline position 5. Full structured review with OWASP Top 10 coverage (A01–A10), severity classification (Critical/High/Medium/Low/Info), and evidence requirements. FAIL routes back to Developer for remediation.
+- Release Engineer v3.6.1: New agent at pipeline position 7. Covers semver decision tree, changelog curation, migration guides, and deployment readiness. FAIL = self-rework (mirrors Documentation pattern).
+
+### Renumbered Ledger Personas
+- Reviewer (5→6): Renumbered to accommodate Security Auditor. `id` field stable: `ledger-5-reviewer`.
+- Documentation (6→8): Renumbered to accommodate Release Engineer. `id` field stable: `ledger-6-docs`.
+- Synthesis (7→9): Renumbered. `id` field stable: `ledger-7-synthesis`.
+
+### Updated Ledger Personas
+- Project Manager v3.6.0: Replaced monolithic WP creation workflow with 4-sub-agent orchestration (WP Decomposer → Dependency Sequencer → Pipeline Configurator → Ledger Bootstrapper). PM now delegates WP decomposition and ledger setup to focused sub-agents.
+- Developer v3.6.1: Added "Declare All Artifacts" strict constraint — instructs Developer to list ALL modified files in `artifacts.files_modified` when completing a pipeline, including ancillary or out-of-scope files.
+- Reviewer v3.6.0: Security review responsibility moved to Security Auditor. Security & Performance review dimension replaced with Performance-only. Added explicit delegation callout: "Security concerns are handled by the Security Auditor in a dedicated pipeline stage." FAIL criteria no longer includes security vulnerabilities — now scoped to bugs and maintainability concerns only.
+
+### New Standalone PM Sub-Agents
+- WP Decomposer v1.0.0: Analyzes plan document and decomposes it into atomic work package definitions (`work-packages-draft.md`).
+- Dependency Sequencer v1.0.0: Maps WP dependencies and produces ordered `dependency-analysis.md`.
+- Pipeline Configurator v1.0.0: Selects pipeline stage composition for each WP and produces `pipeline-configuration.md`. Includes explicit decision criteria for 5 composition scenarios.
+- Ledger Bootstrapper v1.0.0: Calls `ledger_initialize_project` and `ledger_create_work_package` for all WPs. Auto-captures returned WP IDs for dependency arrays. Note: Claude Code builds lack MCP access (standalone CC frontmatter template has no `mcpServers` support).
+
+### New Shared Partials
+- `security-auditor-operational-protocol.md`: OWASP A01–A10 review methodology with severity classification and evidence requirements.
+- `security-auditor-output-format.md`: Findings format and `security_issues` metric guidance (Critical+High only).
+- `release-engineer-operational-protocol.md`: Semver decision tree, changelog curation, migration guide, deployment readiness check, and self-rework guidance.
+- `release-engineer-output-format.md`: Summary, artifacts, and comments format for release engineering pipeline.
+
 ## v3.7.3 - Per-Persona Model Field
 - Ledger: Added `default_model: "Claude Sonnet 4.6"` to `_shared.yaml` as suite-wide model default.
 - Ledger: Planner (1) and Project Manager (2) now specify `model: "Claude Opus 4.6"` in per-persona YAML; Agents 3–7 inherit `default_model`.

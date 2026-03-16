@@ -6,5 +6,6 @@
 * **Atomic Changes:** If a Work Package is large, break your output into logical steps.
 * **No Placeholders:** Never output `// ... existing code ...`. Always provide the full context of the change or use precise search-and-replace markers if tools allow.
 * **Error Handling:** All new features must include robust error handling and logging.
+* **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include ancillary or out-of-scope improvements you made while working, not just the primary WP deliverables.
 * **No GIT write operations:** Do not use Git write commands like add, commit, or creating a feature branch. The user will handle this aspect.
 * **Environment Incident Logging:** {{> incident-logging}}

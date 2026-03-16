@@ -1,6 +1,6 @@
 {
   "name": "ai-insights-personas",
-  "version": "3.7.3",
+  "version": "3.9.1",
   "private": true,
   "description": "Persona build tooling for ai-insights",
   "scripts": {

@@ -11,7 +11,7 @@ This is a **monorepo-style workspace** containing two distinct sub-projects and 
 | Sub-Project | Path | Language | Purpose |
 |-------------|------|----------|---------|
 | **Project Ledger MCP Server** | `mcp-server/` | TypeScript (ESM) | MCP server that provides typed tools for managing project ledgers in AI agent workflows |
-| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 7 ledger persona Markdown files from YAML/Markdown sources |
+| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 9 ledger persona Markdown files from YAML/Markdown sources |
 | **Orchestrator** | `orchestrator/` | Python (3.11+) | LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows |
 
 The `scripts/` directory contains cross-project scripts that orchestrate persona deployment and role-parity checks.
@@ -152,8 +152,8 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
 | `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
 | `personas/standalone/src/` | Personas manifest |
-| `personas/ledger/vs-code/*.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
-| `personas/standalone/vs-code/*.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/ledger/vs-code/*.agent.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/standalone/vs-code/*.agent.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
 | `orchestrator/src/`, `orchestrator/tests/` | [orchestrator/README.md](orchestrator/README.md) |
 
@@ -218,6 +218,8 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
 | Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/vs-code/` generated output filenames |
 | Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
+| `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
+| `release-engineering` pipeline → Release Engineer role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['release-engineering']` | `personas/ledger/src/meta/7-release-engineer.yaml` → `role: Release Engineer`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
 
 ### Validation Scripts
 
@@ -247,7 +249,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 |------|---------|  
 | `scripts/cli.js` | **Interactive command center + direct CLI** for all workspace operations. Replaces `setup-orchestrator.js` as the user-facing entry point. |
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
-| `scripts/build-personas.js` | Assemble 36 persona files (7 ledger + 11 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
+| `scripts/build-personas.js` | Assemble 48 persona files (9 ledger + 15 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
 | `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
 | `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
 | `scripts/install-hooks.js` | One-time setup: sets `git config core.hooksPath .githooks` to activate the pre-commit persona freshness guard |
@@ -270,7 +272,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Find a file in personas | [personas/…/file-tree.md](personas/docs/agents/project-manifest/file-tree.md) |
 | See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) |
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
-| Understand the 7-stage workflow | [personas/ledger/README.md](personas/ledger/README.md) |
+| Understand the 9-agent workflow | [personas/ledger/README.md](personas/ledger/README.md) |
 | Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) |
 | Review past discussions | [discussions/](discussions/) |
 | Review error history | [history/error-ledger.md](history/error-ledger.md) |

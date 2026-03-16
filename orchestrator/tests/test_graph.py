@@ -90,29 +90,20 @@ class TestBuildGraphReturnType:
 
 class TestGraphNodes:
     @_apply_patches
-    def test_graph_has_seven_nodes(self):
-        """Graph topology must contain exactly 7 nodes."""
+    def test_graph_has_nine_nodes(self):
+        """Graph topology must contain exactly 9 nodes."""
         from src.graph import build_graph
         graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
         # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
         nodes = set(graph.nodes)
-        expected_nodes = {"supervisor", "pm", "developer", "qa", "reviewer", "docs", "synthesis"}
+        expected_nodes = {
+            "supervisor", "pm", "developer", "qa", "reviewer",
+            "security_auditor", "docs", "release_engineer", "synthesis",
+        }
         # START and END are pseudo-nodes added by LangGraph; remove them for comparison.
         nodes.discard("__start__")
         nodes.discard("__end__")
         assert nodes == expected_nodes
-
-    @_apply_patches
-    def test_supervisor_node_present(self):
-        from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        assert "supervisor" in graph.nodes
-
-    @_apply_patches
-    def test_synthesis_node_present(self):
-        from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        assert "synthesis" in graph.nodes
 
 
 class TestGraphEdges:

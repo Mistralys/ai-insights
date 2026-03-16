@@ -101,7 +101,7 @@ context = {
   // Layer 3: Computed values (cannot be overridden by YAML)
   version,             // persona.version ?? _shared.default_version
   model,               // persona.model !== undefined ? persona.model : (_shared.default_model || _shared.cc_model || 'inherit')
-  total,               // _shared.roster.length (ledger: 7; standalone: not used)
+  total,               // _shared.roster.length (ledger: 9; standalone: not used)
   tools_json,          // serializeTools(persona.tools)         — ledger only
   tools_list,          // serializeToolsList(persona.tools)     — standalone
   cc_tools_json,       // serializeTools(persona.cc_tools ?? _shared.default_cc_tools)  — ledger only
@@ -219,7 +219,8 @@ How generated personas reach end users and the MCP server:
        │
        ▼  scripts/build-personas.js
   Generated files:
-  ledger/vs-code/*.md     ledger/claude-code/*.md
+  ledger/vs-code/*.agent.md     ledger/claude-code/*.md
+  standalone/vs-code/*.agent.md standalone/claude-code/*.md
        │                          │
        ├──────────────────────────┼─────────────────────────────────────┐
        │                          │                                     │

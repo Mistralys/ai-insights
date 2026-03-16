@@ -166,6 +166,20 @@ function validateActiveStages(stages):
 
 > **Removed constraint:** The former Rule 2 ("All mandatory stages must be included") is retired. All six stages are now PM-composable — the PM selects any valid subsequence. See [§4.2](data-model.md#42-pipeline-stage-constants) for the rationale and common composition patterns.
 
+### 9b.3 Artifact Declaration Expectation
+
+Implementation agents **must** declare all files modified during a pipeline in `artifacts.files_modified` when completing a pipeline. This includes ancillary changes, minor out-of-scope improvements, and any file touched by the work — not just the primary deliverables.
+
+**Enforcement:** This is a process rule, not a hard validation gate.
+
+- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent (see implementation in §12.1).
+- Agent personas explicitly instruct agents to declare all modified files before calling `completePipeline`.
+- The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge.
+
+**Legitimate empty-artifact scenarios:** Verification-only or documentation-audit pipelines that make no file changes may naturally have an empty `files_modified`. These will receive the soft warning but are not defects.
+
+**Rationale:** Complete artifact declarations enable accurate audit trails, support diff review, and allow future tooling to compute cumulative change sets. Partial or missing declarations impede these capabilities without preventing pipeline progress.
+
 ---
 
 ## 10. Work Package Claiming

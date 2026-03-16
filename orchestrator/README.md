@@ -178,8 +178,10 @@ The thread ID is printed at the start of every run and in the run summary under 
                         │       ↓                               │
                         │  pm ──────────────────────────────┐   │
                         │  developer ────────────────────── │   │
-                        │  qa ───────────────────────────── │─────supervisor
+                        │  qa ───────────────────────────── │   │
+                        │  security_auditor ─────────────── │─────supervisor
                         │  reviewer ─────────────────────── │   │
+                        │  release_engineer ─────────────── │   │
                         │  docs ─────────────────────────── ┘   │
                         │                                       │
                         │  synthesis ─────────────────────→ END │
@@ -207,7 +209,9 @@ For the full routing algorithm, action sets, and circuit-breaker mechanics, see 
 
 ### Stage nodes
 
-Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, and invokes it. The 6 stages are: `pm`, `developer`, `qa`, `reviewer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
+Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, and invokes it. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
+
+> **Known limitation:** The supervisor currently polls only 5 agent roles (`Project Manager`, `Developer`, `QA`, `Reviewer`, `Documentation`). The `security_auditor` and `release_engineer` graph nodes are registered and wired, but the supervisor does not yet route to them automatically. Additionally, `config.py`'s `PIPELINE_PREREQUISITES` hardcodes a full 6-stage mandatory chain — it does not reflect the MCP server's dynamic per-WP `active_pipeline_stages` composition. WPs that use `active_pipeline_stages` to skip `security-audit` or `release-engineering` will not be orchestrated correctly until the supervisor polling loop and config prerequisites are updated to match the dynamic model.
 
 ---
 
@@ -221,7 +225,7 @@ Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecti
 | `src/cli.py` | CLI entry point (`orchestrate` command) |
 | `src/config.py` | `.env` loading, provider auto-detection, pipeline constants |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
-| `src/nodes/` | Stage node factories (pm, developer, qa, reviewer, docs, synthesis) |
+| `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger |
 | `tests/` | 216 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |

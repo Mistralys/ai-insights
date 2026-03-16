@@ -1484,6 +1484,203 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
 });
 
 // ---------------------------------------------------------------------------
+// createWorkPackage — active_pipeline_stages validation (dynamic pipeline engine)
+// ---------------------------------------------------------------------------
+
+const APS_PLAN_PATH = join(tmpdir(), '2026-03-14-active-stages-test');
+
+describe('createWorkPackage — active_pipeline_stages validation (dynamic pipeline engine)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'active-stages-'));
+    store = new LedgerStore(APS_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'READY',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ── Hard guardrails (4 rejection cases) ──────────────────────────────────
+
+  it('rejects empty active_pipeline_stages array (hard guardrail 1)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: [],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('active_pipeline_stages cannot be empty');
+  });
+
+  it('rejects invalid pipeline type in active_pipeline_stages (hard guardrail 2)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['implementation', 'unknown-stage'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Invalid pipeline stage');
+    expect((result as any).content[0].text).toContain('unknown-stage');
+  });
+
+  it('rejects duplicate stages in active_pipeline_stages (hard guardrail 3)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['implementation', 'qa', 'implementation'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Duplicate pipeline stage');
+    expect((result as any).content[0].text).toContain('implementation');
+  });
+
+  it('rejects stages out of canonical order (hard guardrail 4)', async () => {
+    // documentation before implementation violates canonical ordering
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['documentation', 'implementation'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('canonical order');
+  });
+
+  // ── Soft guardrails (2 warning cases) ────────────────────────────────────
+
+  it('emits warning when implementation present without qa (soft guardrail 1)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['implementation', 'code-review'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).toContain('Warning');
+    expect(text).toContain('implementation without qa');
+  });
+
+  it('emits warning for single-stage pipeline chain (soft guardrail 2)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['qa'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).toContain('Warning');
+    expect(text).toContain('single-stage');
+  });
+
+  // ── Default behavior ──────────────────────────────────────────────────────
+
+  it('defaults to legacy 4-stage pipeline when active_pipeline_stages is omitted', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = JSON.parse((result as any).content[0].text);
+    expect(wp.active_pipeline_stages).toEqual([
+      'implementation', 'qa', 'code-review', 'documentation',
+    ]);
+  });
+
+  it('stores provided active_pipeline_stages in WP detail', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: [
+          'implementation', 'qa', 'security-audit',
+          'code-review', 'release-engineering', 'documentation',
+        ],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = JSON.parse((result as any).content[0].text);
+    expect(wp.active_pipeline_stages).toEqual([
+      'implementation', 'qa', 'security-audit',
+      'code-review', 'release-engineering', 'documentation',
+    ]);
+  });
+
+  it('accepts verification-only composition ["qa", "code-review"] as a valid subsequence', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'QA',
+        dependencies: [],
+        acceptance_criteria: ['QA pass'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['qa', 'code-review'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = JSON.parse((result as any).content[0].text);
+    expect(wp.active_pipeline_stages).toEqual(['qa', 'code-review']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // WP-007 — propagateDependencyReblock improvements
 // ---------------------------------------------------------------------------
 

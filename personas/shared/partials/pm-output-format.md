@@ -1,22 +1,24 @@
 ## Output Format
 
-1. **Work Package Specifications (Markdown):**
-   - Create the `work/` subfolder inside the plan folder.
-   - Create one **detail file** per work package in the `work/` subfolder (e.g., `work/WP-001.md`, `work/WP-002.md`, ...). Each file contains the full work package specification: description, requirements, technical constraints, acceptance criteria, and dependencies.
-   - Create a **summary index** `work.md` in the plan folder with a table-based overview of all work packages (ID, title, dependencies, status) and a link to each detail file.
+The PM orchestrates four sub-agents to produce the project ledger. Your direct output is minimal — the sub-agents do the heavy lifting:
 
-2. **Project Ledger (via MCP tools):**
-   - Call `ledger_initialize_project` to create the project in the centralized ledger.
-   - Call `ledger_create_work_package` once per work package (in dependency order).
-   - Call `ledger_get_project_status` to verify the ledger is correct.
+1. **Sub-agent context passed at each step:**
+   - To the **WP Decomposer**: full plan text, project name, scope constraints.
+   - To the **Dependency Sequencer**: WP definitions from decomposer (titles, descriptions, scopes).
+   - To the **Pipeline Configurator**: WP definitions + dependency graph from sequencer.
+   - To the **Ledger Bootstrapper**: WP definitions + ordering + pipeline configs + absolute project path.
 
-3. **File layout** (after completion):
+2. **Verification (your direct ledger call):**
+   - Call `ledger_get_project_status` after the Ledger Bootstrapper completes.
+   - Verify: WP count matches expectations, statuses are READY/BLOCKED as expected, dependency graph is correct.
+
+3. **File layout** (created by sub-agents, verified by you):
    ```
    /docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/
    ├── plan.md
-   ├── work.md                        ← Summary index with overview table
+   ├── work.md                        ← Summary index (created by Ledger Bootstrapper)
    ├── work/
-   │   ├── WP-001.md                  ← Full WP specification
+   │   ├── WP-001.md                  ← Full WP specification (created by Ledger Bootstrapper)
    │   ├── WP-002.md
    │   └── ...
    ```

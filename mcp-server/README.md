@@ -183,7 +183,7 @@ All four file types are kept in sync automatically — when an agent updates a w
    - Agents will perform a pre-flight check (`ledger_get_project_status`) before starting work
    - If the server is unreachable, agents will report configuration errors
    - On startup, the server logs agent discovery results to stderr:
-     - ✅ Success: `[project-ledger-mcp] Agent registry: 7 agents discovered from /path/to/prompts`
+     - ✅ Success: `[project-ledger-mcp] Agent registry: 9 agents discovered from /path/to/prompts`
      - ⚠️ Not found: `[project-ledger-mcp] agents_dir not found: /path. Auto-handoff disabled.`
 
 ---
@@ -490,7 +490,7 @@ npm run check:roles
 `check:roles` computes the symmetric difference between the two arrays. A clean run prints:
 
 ```
-[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync.
+[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync (9 roles).
 ```
 
 If the arrays diverge it exits 1 with a labelled diff:
@@ -551,7 +551,7 @@ For developers and curious users who want to understand the internals:
 
 - **[Ledger-Enabled Agent Workflow](../personas/ledger/)** — How to use this server with AI agents
 - **[Ledger Schema Reference](../personas/ledger/project-ledger-schema.md)** — JSON structure specification
-- **[Agent Personas](../personas/ledger/)** — The 7 agents that use this server
+- **[Agent Personas](../personas/ledger/)** — The 9 agents that use this server
 
 ---
 

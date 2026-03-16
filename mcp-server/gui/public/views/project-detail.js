@@ -409,7 +409,7 @@ function renderProjectDetail(app, slug) {
 /* ----------------------------------------------------------
    4c-ii. Reset Project Modal
    ---------------------------------------------------------- */
-var PIPELINE_STAGES = ['implementation', 'qa', 'code-review', 'documentation'];
+var PIPELINE_STAGES = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 
 function showResetModal(slug, diagnosis, options) {
   // Remove any existing modal
@@ -450,8 +450,10 @@ function showResetModal(slug, diagnosis, options) {
     return parts.join(', ') + statusNote;
   }
 
-  function stageBadge(stage, present) {
-    var cls = present ? 'reset-stage-badge reset-stage-present' : 'reset-stage-badge reset-stage-missing';
+  function stageBadge(stage, present, inactive) {
+    var cls = inactive
+      ? 'reset-stage-badge reset-stage-inactive'
+      : (present ? 'reset-stage-badge reset-stage-present' : 'reset-stage-badge reset-stage-missing');
     return '<span class="' + cls + '">' + escapeHtml(stage) + '</span>';
   }
 
@@ -463,8 +465,10 @@ function showResetModal(slug, diagnosis, options) {
     // Stage badges
     var presentSet = {};
     (wp.pipeline_stages_present || []).forEach(function (st) { presentSet[st] = true; });
+    var activeSet = {};
+    (wp.active_pipeline_stages || PIPELINE_STAGES).forEach(function (st) { activeSet[st] = true; });
     var stageBadges = PIPELINE_STAGES.map(function (st) {
-      return stageBadge(st, !!presentSet[st]);
+      return stageBadge(st, !!presentSet[st], !activeSet[st]);
     }).join(' ');
 
     if (s.isCancelled) {

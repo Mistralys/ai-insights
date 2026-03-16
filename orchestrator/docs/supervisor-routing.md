@@ -47,6 +47,8 @@ For each role in priority order:
 All roles returned WAIT/skip          → synthesis
 ```
 
+> **Known limitation (WP-007):** `Security Auditor` and `Release Engineer` are not currently in the supervisor's polling loop (`_ROLES`) or dispatch map (`_ROLE_STAGE_MAP`). The `security_auditor` and `release_engineer` graph nodes are registered and wired into the `StateGraph`, but the supervisor never routes to them automatically. Adding them requires: (1) adding `"Security Auditor"` → `security_auditor` and `"Release Engineer"` → `release_engineer` to `_ROLE_STAGE_MAP` and `_DEST_*` constants in `supervisor.py`, (2) adding both roles to `_ROLES`, and (3) adding the corresponding ledger actions (e.g. `RUN_SECURITY_AUDIT`, `RUN_RELEASE_ENGINEERING`) to `_DISPATCH_ACTIONS`. This is deferred pending full persona content authoring.
+
 > `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
 > `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage
 > mapping. Adding a new action from the MCP server only requires updating those

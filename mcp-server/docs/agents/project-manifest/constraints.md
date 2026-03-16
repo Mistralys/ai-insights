@@ -228,20 +228,22 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 
 **Enforcement:** Hard guard in `updateWorkPackageStatus()`. The error message includes the full workflow reminder (Developer → QA → Reviewer → Documentation → COMPLETE).
 
-**Rationale:** Enforces the 7-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly.
+**Rationale:** Enforces the multi-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly. As of WP-005, auto-finalize on terminal-stage PASS (see Constraint 13b) is the preferred COMPLETE path — `ledger_update_work_package_status` remains registered for PM and edge-case use only.
 
 > Full specification: [Workflow Specification §6.5, §21.10](../workflow-specification/state-machines.md#65-agent-guards).
 
 ---
 
-### 13b. Auto-Finalize on Documentation Pipeline PASS (§WP-006)
+### 13b. Auto-Finalize on Terminal-Stage Pipeline PASS (WP-005)
 
-**Rule:** When `ledger_complete_pipeline` is called with `type: "documentation"`, `status: "PASS"`, and `agent_role: "Documentation"`, the server automatically evaluates whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`. If all criteria are met, the WP is transitioned to `COMPLETE` **within the same lock scope** as the pipeline completion — no separate `ledger_update_work_package_status` call is required.
+**Rule:** When `ledger_complete_pipeline` is called with `status: "PASS"` and the calling agent owns the WP's **last active stage** (terminal stage), the server automatically evaluates whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`. If all criteria are met, the WP is transitioned to `COMPLETE` **within the same lock scope** as the pipeline completion — no separate `ledger_update_work_package_status` call is required.
+
+The terminal stage is determined dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs (`DEFAULT_PIPELINE_STAGES`), this is `documentation` (Documentation agent). For custom-stage WPs it may be any stage.
 
 **Conditions (all must apply):**
-- `type === 'documentation'`
+- `type === lastActiveStage` (the last entry in the WP's ordered active stages)
 - `status === 'PASS'`
-- `agent_role === 'Documentation'` (PM overrides bypass auto-finalize)
+- `agent_role === PIPELINE_AGENT_MAP[lastActiveStage]` (PM overrides bypass auto-finalize)
 - All `wp.acceptance_criteria[*].met === true` after applying `acceptance_criteria_updates`
 
 **Response signals:**
@@ -323,17 +325,17 @@ Otherwise, only claim work packages assigned to your role.
 
 ### 19. Pipelines Must Follow the Required Ordering
 
-**Rule:** Pipelines must be started in order: `implementation` → `qa` → `code-review` → `documentation`. Attempting to start a pipeline without the **most recent** prerequisite pipeline having a `PASS` status throws a descriptive error. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
+**Rule:** Pipelines must be started in the order defined by the work package's `active_pipeline_stages` (defaults to `DEFAULT_PIPELINE_STAGES` — `['implementation', 'qa', 'code-review', 'documentation']` — when omitted). Each stage requires a PASS on its immediately preceding active stage. Attempting to start a pipeline without the **most recent** prerequisite pipeline having a `PASS` status throws a descriptive error. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
 
-**Enforcement:** `ledger_start_pipeline` looks up the `PIPELINE_PREREQUISITES` map, finds the most recent pipeline of the prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
+**Enforcement:** `ledger_start_pipeline` calls `resolvePrerequisite(type, activeStages)` — which filters `CANONICAL_PIPELINE_ORDERING` by the WP's `active_pipeline_stages` and returns the immediately preceding active stage — then finds the most recent pipeline of that prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
 
 **Error message format:**
 ```
 Cannot start 'qa' pipeline: requires a PASS 'implementation' pipeline first.
-Pipeline order: implementation → qa → code-review → documentation.
+Active pipeline order: implementation → qa → code-review → documentation.
 ```
 
-**Exception:** `implementation` has no prerequisite and can always be started (subject to other constraints).
+**Exception:** The first active stage in the WP's ordering has no prerequisite and can always be started (subject to other constraints). For `DEFAULT_PIPELINE_STAGES`, this is `implementation`.
 
 > Full specification: [Workflow Specification §8](../workflow-specification/pipeline-routing.md).
 
@@ -347,7 +349,9 @@ Pipeline order: implementation → qa → code-review → documentation.
 |---|---|
 | `implementation` | `Developer` |
 | `qa` | `QA` |
+| `security-audit` | `Security Auditor` |
 | `code-review` | `Reviewer` |
+| `release-engineering` | `Release Engineer` |
 | `documentation` | `Documentation` |
 
 **Enforcement:** `ledger_start_pipeline` applies the map atomically alongside the pipeline creation. Both WP detail and root index summary are updated.
@@ -382,27 +386,36 @@ Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from both rew
 
 ---
 
-### 22. Handoff Notes Are Routed via NEXT_AGENT_MAP / FAIL_ROUTING_MAP
+### 22. Handoff Notes Are Routed via resolveNextAgent / resolveFailAgent
 
-**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined automatically based on pipeline status:
+**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined dynamically based on pipeline status and the WP's `active_pipeline_stages`:
 
-- **On PASS:** `NEXT_AGENT_MAP` routes to the next agent in the chain.
-- **On FAIL:** `FAIL_ROUTING_MAP` routes to the agent responsible for fixing the failure.
+- **On PASS:** `resolveNextAgent(type, activeStages)` returns the owner of the next active stage in canonical order, or `'Synthesis'` when the type is the last active stage.
+- **On FAIL:** `resolveFailAgent(type, activeStages)` uses a base routing map extended to all 6 stages. If the base fail-target's stage is absent from `activeStages`, the fallback is the agent that owns the first active stage.
 
-| Pipeline type | PASS → to_agent (NEXT_AGENT_MAP) | FAIL → to_agent (FAIL_ROUTING_MAP) |
+**Routing for the default 4-stage pipeline (`DEFAULT_PIPELINE_STAGES`):**
+
+| Pipeline type | PASS → to_agent | FAIL → to_agent |
 |---|---|---|
 | `implementation` | `QA` | `Developer` |
 | `qa` | `Reviewer` | `Developer` |
 | `code-review` | `Documentation` | `Developer` |
 | `documentation` | `Synthesis` | `Documentation` |
 
-> Documentation is the only pipeline type with self-rework on FAIL. All other FAIL paths route back to the Developer.
+**Additional types (dynamic, per-WP routing):**
+
+| Pipeline type | PASS → to_agent (next active stage) | FAIL → to_agent (base routing) |
+|---|---|---|
+| `security-audit` | `Reviewer` (if `code-review` is next active) or subsequent active stage | `Developer` |
+| `release-engineering` | `Documentation` (if `documentation` is next active) or subsequent active stage | `Release Engineer` (self-rework) |
+
+> `documentation` and `release-engineering` self-rework on FAIL. All other FAIL paths route to the Developer (base routing). When the base fail-target's stage is absent from the WP's `active_pipeline_stages`, routing falls back to the first active stage's agent.
 
 **Schema:**
 ```typescript
 interface HandoffNote {
   from_agent: string; // PIPELINE_AGENT_MAP[type], or 'Project Manager (PM Override)' when PM override is active
-  to_agent: string;   // NEXT_AGENT_MAP (PASS) or FAIL_ROUTING_MAP (FAIL)
+  to_agent: string;   // resolveNextAgent(type, activeStages) on PASS; resolveFailAgent(type, activeStages) on FAIL
   timestamp: string;
   notes: string[];    // The strings passed in handoff_notes
 }
@@ -876,6 +889,20 @@ Acceptance criteria cannot be empty or whitespace-only.
 - If no candidates were re-blocked, `synthesis_generated` is **not** changed.
 
 **Enforcement:** `propagateDependencyReblock()` in `src/tools/work-package.ts`.
+
+---
+
+## Manifest Documentation Constraints
+
+### 53. No Implementation Provenance in Manifest Documents
+
+**Rule:** Project manifest documents (`api-surface.md`, `constraints.md`, `data-flows.md`, etc.) describe the **current state** of the codebase. They must not contain work package IDs, plan references, or other implementation-history markers (e.g., `WP-003`, `added in WP-005`, `wired in WP-004`).
+
+**Where provenance belongs:** Plan documents, synthesis reports, and changelog entries — not the manifest.
+
+**Rationale:** WP IDs are scoped to individual plans. A reader who has not ingested the plan history cannot resolve `WP-006` to a meaningful context. Provenance markers also accumulate over time and add noise without aiding comprehension of current behavior.
+
+**What is allowed:** References to `WP-###` as a *data format specifier* (e.g., `work_package_id: string // WP-### format`) are fine — these describe the runtime data model, not implementation history.
 
 ---
 
@@ -1427,6 +1454,78 @@ describe('pipeline schemas', () => {
 **When to use:** Any test that needs to verify tool schema shape, description content, or parameter constraints without full server lifecycle overhead. See `tests/tools/schema-integrity.test.ts` for the canonical usage.
 
 **Note on `zod-to-json-schema`:** This package is currently a transitive dependency (via `@modelcontextprotocol/sdk`) and is not declared as an explicit `devDependency` in `mcp-server/package.json`. Tests relying on it work today, but if the SDK drops the transitive dep in a future update, imports will fail without a clear error. Prefer adding it explicitly when introducing new test files that import it directly.
+
+---
+
+### 65. All Six Pipeline Stages Are PM-Composable — No Mandatory/Optional Distinction
+
+**Rule:** All six pipeline stages (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) are equally composable by the Project Manager. There is no inherent "mandatory" or "optional" designation for any stage. The PM selects any valid subsequence of `CANONICAL_PIPELINE_ORDERING` per work package via the `active_pipeline_stages` field.
+
+**Default:** When `active_pipeline_stages` is omitted, `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) is used for backward compatibility.
+
+**Rationale:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. The PM-composable model enables custom workflows (e.g., skipping QA for documentation-only WPs, adding a security audit before code review) without encoding assumptions into the server.
+
+**Extension:** The `CANONICAL_PIPELINE_ORDERING` constant (`['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation']`) defines the only valid execution order — stages may be omitted but not reordered. `resolvePrerequisite`, `resolveNextAgent`, and `resolveFailAgent` derive routing dynamically from the per-WP `active_pipeline_stages` array.
+
+**Enforcement:** `ledger_create_work_package` validates the `active_pipeline_stages` input (see Constraint 66). Pipeline start and completion routing use the dynamic resolve functions, not static maps.
+
+> Full specification: [Workflow Specification §4.2, §9b](../workflow-specification/data-model.md#42-pipeline-stage-constants).
+
+---
+
+### 66. `active_pipeline_stages` Validation: Hard Guardrails (Reject) and Soft Guardrails (Warn)
+
+**Rule:** When `ledger_create_work_package` receives an `active_pipeline_stages` value, it validates the array before persisting the work package.
+
+**Hard guardrails (reject with error — creation is aborted):**
+- Empty array (`[]`)
+- Entries that are not valid `PIPELINE_TYPES` values
+- Duplicate entries
+- Entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING` (relative ordering must be preserved; gaps are allowed)
+
+**Soft guardrails (warning appended to the success response message — creation is NOT aborted):**
+- `implementation` present without `qa` (unusual composition)
+- Single-stage chain (degenerate case)
+
+**Omitted field:** When `active_pipeline_stages` is omitted (the common case for standard 4-stage workflows), validation is bypassed entirely. The field is absent on the WP detail and dynamic resolve functions substitute `DEFAULT_PIPELINE_STAGES` at runtime.
+
+**Enforcement:** `validateActiveStages()` helper called inside `createWorkPackage()` in `src/tools/work-package.ts`. Hard rejection throws before the WP is written; soft warning is appended to the response string after the WP is written.
+
+> Full specification: [Workflow Specification §9b.2](../workflow-specification/operations.md#9b2-active-pipeline-stages-validation).
+
+---
+
+### 67. Artifact Declaration Expectation — Soft Warning on Empty `files_modified`
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` and the `artifacts.files_modified` array is either absent or empty, the server appends a soft-warning note to the pipeline response indicating that no files were declared. This is a non-blocking warning — the pipeline completion is still accepted.
+
+**Rationale:** Agents often forget to populate `files_modified`, reducing the value of the pipeline record for auditing and documentation. The soft warning creates a visible signal in the response without blocking legitimate zero-file-change completions (e.g., investigation pipelines that produced no code changes).
+
+**Exception:** The warning is only emitted on `PASS` completions — `FAIL` pipelines are not expected to declare modified files.
+
+**Enforcement:** Soft check in `completePipeline()` in `src/tools/pipeline.ts` (step 3b). Does not reject the call; appended as a text note in the response body only.
+
+---
+
+### 68. Zod `.describe()` Annotations for Pipeline Type Must Use `describePipelineTypes()`
+
+**Rule:** All Zod `.describe()` strings that enumerate pipeline type values MUST be generated by calling `describePipelineTypes(prefix)` from `src/utils/pipeline-maps.ts`. Hardcoding a pipeline type list inline in a `.describe()` string is forbidden.
+
+**Rationale:** `PIPELINE_TYPES` is the single source of truth for the canonical pipeline type list. Hardcoded `.describe()` strings drift silently when a new pipeline type is added — as demonstrated when `observations.ts` still listed only 4 types after `security-audit` and `release-engineering` were introduced. `describePipelineTypes()` derives the annotation from `PIPELINE_TYPES` at schema definition time, so any future addition to `PIPELINE_TYPES` propagates automatically to all MCP JSON Schema annotations.
+
+❌ **Anti-pattern:**
+```typescript
+PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", "documentation"')
+```
+
+✅ **Correct pattern:**
+```typescript
+import { describePipelineTypes } from '../utils/pipeline-maps.js';
+// ...
+PipelineTypeEnum.describe(describePipelineTypes('Pipeline type:'))
+```
+
+**Enforcement:** A drift-detection test in `tests/utils/pipeline-maps.test.ts` asserts that the output of `describePipelineTypes()` contains every entry in `PIPELINE_TYPES` — future additions to `PIPELINE_TYPES` that are not reflected in the helper will be caught automatically.
 
 ---
 
