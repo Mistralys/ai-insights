@@ -660,19 +660,19 @@ describe('hasDependencyBlocked (R6)', () => {
 describe('effectiveMaxDepth (R8)', () => {
   // Pass configMax=50 explicitly so tests are hermetic (no dependency on getConfig() state).
 
-  it('returns 100 for totalWorkPackages=5 (5 \u00d7 20 = 100 > 50, ceiling wins)', () => {
-    expect(effectiveMaxDepth(5, 50)).toBe(100);
+  it('returns 150 for totalWorkPackages=5 (5 × 30 = 150 > 50, ceiling wins)', () => {
+    expect(effectiveMaxDepth(5, 50)).toBe(150);
   });
 
-  it('returns 50 for totalWorkPackages=1 (floor applies: 1 \u00d7 20 = 20 < 50)', () => {
+  it('returns 50 for totalWorkPackages=1 (floor applies: 1 × 30 = 30 < 50)', () => {
     expect(effectiveMaxDepth(1, 50)).toBe(50);
   });
 
-  it('returns 50 for totalWorkPackages=0 (floor applies: 0 \u00d7 20 = 0 < 50)', () => {
+  it('returns 50 for totalWorkPackages=0 (floor applies: 0 × 30 = 0 < 50)', () => {
     expect(effectiveMaxDepth(0, 50)).toBe(50);
   });
 
-  it('returns 60 for totalWorkPackages=3 (3 \u00d7 20 = 60 > 50, ceiling wins)', () => {
-    expect(effectiveMaxDepth(3, 50)).toBe(60);
+  it('returns 90 for totalWorkPackages=3 (3 × 30 = 90 > 50, ceiling wins)', () => {
+    expect(effectiveMaxDepth(3, 50)).toBe(90);
   });
 });

@@ -181,6 +181,8 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 > **Priority 4 before 5 rationale:** After a QA FAIL → Developer rework → implementation re-PASS cycle, the most recent QA pipeline is still FAIL. Without priority 4, the WAIT_FOR_REWORK check at priority 5 would short-circuit and QA would be told to wait — even though the Developer has already fixed the issue. By checking `hasNewUpstreamPassSince` first, the engine correctly detects that upstream work has been redone and QA should re-engage.
 >
 > The "at least one prior `qa` pipeline" guard ensures that first-run scenarios (no QA pipeline exists yet) fall through to Priority 6 (`RUN_QA` first run), which is semantically more accurate. Without the guard, `hasNewUpstreamPassSince` returns `true` when no downstream pipeline exists (§14.6), making Priority 6 unreachable dead code.
+>
+> **Null-prerequisite guard (P4):** The `"implementation"` argument to `hasNewUpstreamPassSince` is hardcoded; conceptually it should be `resolvePrerequisite("qa", activeStages)` for consistency with the dynamic pattern in §14.4. When `resolvePrerequisite("qa", activeStages)` returns `null` (i.e., `qa` is the first active stage, e.g., `active_pipeline_stages: ["qa", "code-review"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 5/6.
 
 ### 14.4 Reviewer Action Logic
 
@@ -196,6 +198,8 @@ Same pattern, applied to `code-review` pipelines:
 7. **CLAIM_WP**: READY WP assigned to "Reviewer" with all dependencies satisfied (post auto-unblock scenario)
 
 > **Priority 4 before 5 rationale:** Same as QA (§14.3) — `hasNewUpstreamPassSince` must be checked before WAIT_FOR_REWORK to avoid short-circuiting on a stale FAIL when upstream rework has already completed. The "at least one prior pipeline" guard ensures first-run scenarios fall through to Priority 6 (see §14.3 rationale for details).
+>
+> **Null-prerequisite guard (P4):** When `effectiveUpstream` is `null` (i.e., `code-review` is the first active stage, e.g., `active_pipeline_stages: ["code-review", "documentation"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 5/6.
 
 ### 14.5 Documentation Action Logic
 
@@ -237,12 +241,14 @@ Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
 1b. **WAIT_FOR_UPSTREAM_REWORK_LIMIT**: Any upstream pipeline type (`implementation` or `qa`) has `rework_counts[type] >= MAX_REWORK_COUNT` — the upstream pipeline is rework-limited; Security Auditor should not run against stale implementation/QA results. Returns `WAIT` with a note indicating the upstream rework limiter is engaged (see [§21.53](edge-cases.md#2153-upstream-circuit-breaker-propagation))
 2. **RESUME_OR_CANCEL**: stale security-audit pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `security-audit` pipeline
-4. **RUN_SECURITY_AUDIT** (re-engagement after rework): WP has at least one prior `security-audit` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("qa", "security-audit")` is true — QA re-passed after previous security audit; Security Auditor should re-engage
-5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince("qa", "security-audit")` — Security Auditor cannot act; Developer must fix and re-pass implementation + QA first
+4. **RUN_SECURITY_AUDIT** (re-engagement after rework): WP has at least one prior `security-audit` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` is true — where `effectiveUpstream = resolvePrerequisite("security-audit", wp.active_pipeline_stages)` (i.e., `"qa"` in the standard chain). Upstream re-passed after previous security audit; Security Auditor should re-engage
+5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` — where `effectiveUpstream = resolvePrerequisite("security-audit", wp.active_pipeline_stages)` (same as P4). Security Auditor cannot act; Developer must fix and re-pass the prerequisite stage first
 6. **RUN_SECURITY_AUDIT** (first run): WP with PASS qa and no security-audit pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Security Auditor" with all dependencies satisfied
 
 > **Scope filter:** The Security Auditor's `getNextAction` only considers WPs where `"security-audit"` is in `active_pipeline_stages`. WPs with only the default stages are excluded from all priority checks, as the Security Auditor has no work to do on those WPs.
+>
+> **Null-prerequisite guard (P4/P5):** When `effectiveUpstream` is `null` (i.e., `security-audit` is the first active stage), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Priority 5 uses the same `effectiveUpstream`; when null, there is no upstream stage to wait for, so control falls through to priority 6.
 
 ### 14.5c Release Engineer Action Logic
 
@@ -255,12 +261,14 @@ Same self-rework pattern as Documentation (§14.5), applied to `release-engineer
 2. **RESUME_OR_CANCEL**: stale release-engineering pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `release-engineering` pipeline
 4. **REWORK**: most recent release-engineering is FAIL (self-rework — Release Engineer fixes release/packaging issues)
-5. **RUN_RELEASE_ENGINEERING**: WP with PASS code-review and no release-engineering pipeline yet, OR `hasNewUpstreamPassSince("code-review", "release-engineering")`
+5. **RUN_RELEASE_ENGINEERING**: WP with PASS `effectiveUpstream` and no release-engineering pipeline yet, OR `hasNewUpstreamPassSince(effectiveUpstream, "release-engineering")` — where `effectiveUpstream = resolvePrerequisite("release-engineering", wp.active_pipeline_stages)` (i.e., `"code-review"` in the standard chain)
 6. **CLAIM_WP**: READY WP assigned to "Release Engineer" with all dependencies satisfied
 
 > **Self-rework pattern:** Release Engineer follows the same self-rework pattern as Documentation — release-engineering FAIL routes back to Release Engineer itself. The escalation path for code-level issues discovered during release engineering uses the BLOCKED mechanism with a `technical` blocker, consistent with the Documentation escalation path (§21.24).
 >
 > **Scope filter:** The Release Engineer's `getNextAction` only considers WPs where `"release-engineering"` is in `active_pipeline_stages`.
+>
+> **Null-prerequisite guard (P5):** When `effectiveUpstream` is `null` (i.e., `release-engineering` is the first active stage), priority 5 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 6/CLAIM_WP.
 
 ### 14.6 `hasNewUpstreamPassSince` Algorithm
 

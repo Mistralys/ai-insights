@@ -1787,3 +1787,140 @@ describe('getReleaseEngineerAction — active_pipeline_stages filtering', () => 
     expect(result.action).toBe('WAIT');
   });
 });
+
+// ---------------------------------------------------------------------------
+// First-active-stage loop prevention — regression tests (§21.66)
+//
+// When a pipeline type is the FIRST active stage (e.g., qa in ["qa","code-review"]),
+// resolvePrerequisite() returns null. At P4/P5 re-engagement, null must resolve to
+// false ("no upstream to re-engage from"), not true ("always re-engage"). Returning
+// true would create an infinite loop: after the PASS, P4 re-fires unconditionally.
+// ---------------------------------------------------------------------------
+
+describe('first-active-stage loop prevention — Reviewer P4 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_REVIEW after code-review PASS when code-review is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: code-review is first in active_pipeline_stages,
+    // so resolvePrerequisite("code-review", stages) === null. With the old bug (null → true),
+    // P4 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      active_pipeline_stages: ['code-review', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'code-review', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(getReviewerAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_REVIEW');
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+describe('first-active-stage loop prevention — QA P4 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_QA after qa PASS when qa is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: qa is first in active_pipeline_stages,
+    // so resolvePrerequisite("qa", stages) === null. With the old bug (null → true),
+    // P4 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['qa', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'qa', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_QA');
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+describe('first-active-stage loop prevention — Security Auditor P4 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_SECURITY_AUDIT after security-audit PASS when security-audit is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: security-audit is first in active_pipeline_stages,
+    // so resolvePrerequisite("security-audit", stages) === null. With the old bug (null → true),
+    // P4 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Security Auditor',
+      active_pipeline_stages: ['security-audit', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'security-audit', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_SECURITY_AUDIT');
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+describe('first-active-stage loop prevention — Release Engineer P5 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_RELEASE_ENGINEERING after release-engineering PASS when release-engineering is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: release-engineering is first in active_pipeline_stages,
+    // so resolvePrerequisite("release-engineering", stages) === null. With the old bug (null → true),
+    // P5 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Release Engineer',
+      active_pipeline_stages: ['release-engineering', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'release-engineering', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getReleaseEngineerAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_RELEASE_ENGINEERING');
+    expect(result.action).toBe('WAIT');
+  });
+});

@@ -1533,3 +1533,102 @@ th[data-sort="total_work_packages"] {
   background: var(--color-surface);
   color: var(--color-text);
 }
+
+/* ----------------------------------------------------------
+   Pipeline stage badge track (project detail WP table)
+   ---------------------------------------------------------- */
+.pipeline-track {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: nowrap;
+}
+
+.stage-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 22px;
+  border-radius: var(--radius);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: default;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stage-pending {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+}
+
+.stage-in-progress {
+  background: #fef3c7;
+  color: var(--color-in-progress);
+  border: 1px solid #fde68a;
+}
+
+.stage-pass {
+  background: #dcfce7;
+  color: var(--color-complete);
+  border: 1px solid #bbf7d0;
+}
+
+.stage-fail {
+  background: #fee2e2;
+  color: var(--color-blocked);
+  border: 1px solid #fecaca;
+}
+
+.rework-indicator {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-blocked);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pipeline-track-legend {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+/* Dark theme overrides for pipeline stage badges */
+[data-theme="dark"] .stage-pending {
+  background: #1e293b;
+  color: #475569;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .stage-in-progress {
+  background: #451a03;
+  color: #fbbf24;
+  border-color: #92400e;
+}
+
+[data-theme="dark"] .stage-pass {
+  background: #14532d;
+  color: #86efac;
+  border-color: #166534;
+}
+
+[data-theme="dark"] .stage-fail {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #7f1d1d;
+}

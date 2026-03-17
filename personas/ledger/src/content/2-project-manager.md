@@ -83,9 +83,14 @@ You will be provided with:
    Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
 {{/if}}
 7. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`.
-8. **Verify:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
+8. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
+9. **Verify WP spec files exist:** For each WP in the ledger, confirm:
+   - The individual spec file exists at `work/<WP-ID>.md` inside the plan folder
+   - The summary index `work.md` exists in the plan folder root
+   
+   If any files are missing, **create them yourself** before handing off. Each `work/<WP-ID>.md` must contain the WP title, description, scope, dependencies, acceptance criteria, and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure. This is a critical gate — do not hand off with missing WP spec files.
 {{#if target_vscode}}
-9. {{> handoff-block-vscode}}
+10. {{> handoff-block-vscode}}
 {{else}}
-9. {{> handoff-block-claude-code}}
+10. {{> handoff-block-claude-code}}
 {{/if}}

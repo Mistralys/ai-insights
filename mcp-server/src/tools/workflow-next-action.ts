@@ -23,6 +23,7 @@ import {
   isActivePipeline,
   getHandoffNotesForAgent,
   hasNewUpstreamPassSince,
+  makeReEngagementCheck,
   mostRecentEffectivePipeline,
   MAX_REWORK_COUNT,
   STALE_PIPELINE_HOURS,
@@ -740,9 +741,7 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
     const priorQaPipelines = wpDetail.pipelines.filter(
       (p) => p.type === 'qa' && !p.auto_cancelled
     );
-    const hasNewPrereqPassForQa = qaPrerequisite === null
-      ? true // qa is the first active stage, no prerequisite needed
-      : hasNewUpstreamPassSince(wpDetail.pipelines, qaPrerequisite, 'qa');
+    const hasNewPrereqPassForQa = makeReEngagementCheck(wpDetail.pipelines, qaPrerequisite, 'qa');
     if (priorQaPipelines.length > 0 && hasNewPrereqPassForQa) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
       const prereqLabel = qaPrerequisite ?? 'prior stage';
@@ -934,9 +933,7 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
     const priorReviewPipelines = wpDetail.pipelines.filter(
       (p) => p.type === 'code-review' && !p.auto_cancelled
     );
-    const hasNewPrereqPassForReview = reviewPrerequisite === null
-      ? true
-      : hasNewUpstreamPassSince(wpDetail.pipelines, reviewPrerequisite, 'code-review');
+    const hasNewPrereqPassForReview = makeReEngagementCheck(wpDetail.pipelines, reviewPrerequisite, 'code-review');
     if (priorReviewPipelines.length > 0 && hasNewPrereqPassForReview) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
       const prereqLabel = reviewPrerequisite ?? 'prior stage';
@@ -1117,9 +1114,7 @@ export async function getSecurityAuditorAction(rootIndex: RootIndex, store: Ledg
 
     // P4: RUN_SECURITY_AUDIT (re-engagement) — prior audit pipeline AND new upstream PASS since then
     const priorAuditPipelines = wpDetail.pipelines.filter((p) => p.type === 'security-audit' && !p.auto_cancelled);
-    const hasNewPrereqPassForAudit = auditPrerequisite === null
-      ? true
-      : hasNewUpstreamPassSince(wpDetail.pipelines, auditPrerequisite, 'security-audit');
+    const hasNewPrereqPassForAudit = makeReEngagementCheck(wpDetail.pipelines, auditPrerequisite, 'security-audit');
     if (priorAuditPipelines.length > 0 && hasNewPrereqPassForAudit) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Security Auditor');
       const prereqLabel = auditPrerequisite ?? 'prior stage';
@@ -1326,9 +1321,7 @@ export async function getReleaseEngineerAction(rootIndex: RootIndex, store: Ledg
 
     // P5: RUN_RELEASE_ENGINEERING (re-engagement) — prior pipeline AND new upstream PASS since
     const priorReleasePipelines = wpDetail.pipelines.filter((p) => p.type === 'release-engineering' && !p.auto_cancelled);
-    const hasNewPrereqPassForRelease = releasePrerequisite === null
-      ? true
-      : hasNewUpstreamPassSince(wpDetail.pipelines, releasePrerequisite, 'release-engineering');
+    const hasNewPrereqPassForRelease = makeReEngagementCheck(wpDetail.pipelines, releasePrerequisite, 'release-engineering');
     if (priorReleasePipelines.length > 0 && hasNewPrereqPassForRelease) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Release Engineer');
       const prereqLabel = releasePrerequisite ?? 'prior stage';

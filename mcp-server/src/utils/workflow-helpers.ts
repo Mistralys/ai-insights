@@ -48,18 +48,18 @@ export function getMaxHandoffDepth(): number {
  *
  * The floor is the config default (default 50). For larger projects the ceiling
  * grows to avoid terminating the chain prematurely:
- *   effectiveMax = max(configMax, totalWorkPackages × 20)
+ *   effectiveMax = max(configMax, totalWorkPackages × 30)
  *
  * Examples:
- *   effectiveMaxDepth(0)  → 50   (0 × 20 = 0 < 50, floor applies)
- *   effectiveMaxDepth(1)  → 50   (1 × 20 = 20 < 50, floor applies)
- *   effectiveMaxDepth(5)  → 100  (5 × 20 = 100 > 50)
+ *   effectiveMaxDepth(0)  → 50   (0 × 30 = 0 < 50, floor applies)
+ *   effectiveMaxDepth(1)  → 50   (1 × 30 = 30 < 50, floor applies)
+ *   effectiveMaxDepth(5)  → 150  (5 × 30 = 150 > 50)
  */
 export function effectiveMaxDepth(
   totalWorkPackages: number,
   configMax: number = getMaxHandoffDepth(),
 ): number {
-  return Math.max(configMax, totalWorkPackages * 20);
+  return Math.max(configMax, totalWorkPackages * 30);
 }
 
 // ---------------------------------------------------------------------------
@@ -349,6 +349,24 @@ export function hasNewUpstreamPassSince(
   // Upstream completed at or after downstream started → rework triggered a new cycle
   // Uses >= per §14.6: coincident timestamps (same clock tick) should return true
   return upstreamCompletedAt >= downstreamStartedAt;
+}
+
+/**
+ * Re-engagement check for P4/P5 priority blocks (§21.66).
+ *
+ * Collapses the null-prerequisite ternary that would otherwise return `true` and
+ * trigger an infinite re-engagement loop when a WP's first active stage is the
+ * current agent's stage (i.e. `resolvePrerequisite` returns `null`).
+ *
+ * Rule: null prerequisite → false (no upstream to re-engage from).
+ * Non-null prerequisite → delegate to `hasNewUpstreamPassSince`.
+ */
+export function makeReEngagementCheck(
+  pipelines: Pipeline[],
+  prerequisite: PipelineType | null,
+  type: PipelineType,
+): boolean {
+  return prerequisite === null ? false : hasNewUpstreamPassSince(pipelines, prerequisite, type);
 }
 
 /**

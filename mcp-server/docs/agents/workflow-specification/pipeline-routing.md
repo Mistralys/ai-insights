@@ -63,7 +63,7 @@ function resolvePrerequisite(pipelineType, activeStages):
     if ordering[i] in activeStages:
       return ordering[i]
   
-  return null  // No active predecessor (should not happen for well-formed activeStages)
+  return null  // First active stage — no active predecessor
 ```
 
 **Effective prerequisite examples:**

@@ -8,6 +8,11 @@ import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle, getAgentId } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
 import {
+  resolvePrerequisite,
+  DEFAULT_PIPELINE_STAGES,
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
+import {
   buildHandoffPrompt,
   isBlockedByDependencies,
   isMostRecentPipelineFail,
@@ -207,7 +212,9 @@ export async function buildHandoffResponse(
             prompt: buildHandoffPrompt(projectPath, agentId ?? undefined),
           };
         } else {
-          // §18.5: Depth limit reached — emit a project comment so PM has a diagnostic breadcrumb.
+          // §18.5: Depth limit reached — surface reason in the response payload and emit a
+          // project comment so the PM has a diagnostic breadcrumb in the ledger.
+          payload.handoff_suppressed_reason = 'depth_limit_reached';
           const updated = { ...root, last_updated: now() };
           updated.project_comments = [
             ...root.project_comments,
@@ -216,7 +223,7 @@ export async function buildHandoffResponse(
               priority: 'high',
               timestamp: now(),
               agent: 'System',
-              note: 'Auto-handoff depth limit reached. Manual routing required.',
+              note: `Auto-handoff depth limit reached (depth ${currentDepth} / ceiling ${effectiveMaxDepth(root.total_work_packages ?? 0)}). Manual routing required.`,
             },
           ];
           await store.writeRootIndex(updated);
@@ -702,13 +709,17 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
   }
 
   // Step 1 of §5.3: Re-engagement check — MUST precede FAIL short-circuit.
-  // If code-review FAIL exists AND QA has since re-passed, Reviewer must re-engage.
+  // If code-review FAIL exists AND the effective upstream has since re-PASSed, Reviewer must re-engage.
   for (const wp of wpDetails) {
+    const reviewActiveStages: readonly PipelineType[] =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    const reviewUpstream = resolvePrerequisite('code-review', reviewActiveStages);
     if (
       !isTerminalStatus(wp.status) &&
       !isBlockedByDependencies(wp) &&
       isMostRecentPipelineFail(wp.pipelines, 'code-review') &&
-      hasNewUpstreamPassSince(wp.pipelines, 'qa', 'code-review')
+      reviewUpstream !== null &&
+      hasNewUpstreamPassSince(wp.pipelines, reviewUpstream, 'code-review')
     ) {
       return buildHandoffResponse(
         'Reviewer',

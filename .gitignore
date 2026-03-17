@@ -4,7 +4,9 @@
 /.context/
 /docs/agents/**/work.md
 /docs/agents/**/work/
-/docs/agents/**/.ledger/
+/docs/agents/**/dependency-analysis.md
+/docs/agents/**/pipeline-configuration.md
+/docs/agents/**/work-packages-draft.md
 /mcp-server/dist/
 /personas/node_modules/
 /build/

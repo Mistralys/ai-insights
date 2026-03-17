@@ -1529,6 +1529,37 @@ PipelineTypeEnum.describe(describePipelineTypes('Pipeline type:'))
 
 ---
 
+### 69. CSS Class Derivation from API Values Is Only Safe for Zod-Enum-Validated Fields
+
+**Rule:** CSS class derivation from raw API values is only safe when the field is a Zod-enum-validated type. For non-enum fields, apply `escapeHtml()` or a whitelist map.
+
+**Rationale:** The pattern `(field).toLowerCase().replace(/ /g, '_')` generates a CSS class string from a server-supplied value. If the field is a closed Zod enum, the server guarantees the value is one of a finite safe set — class injection is not possible. If the field is a free-form string (`z.string()`), a tampered ledger JSON (or a future schema relaxation) could insert arbitrary characters into a `class=""` attribute, enabling CSS injection or layout-breaking attacks.
+
+**Anti-pattern:**
+```javascript
+// ❌ WRONG — open string field; output is injected into class="" without escaping
+var cls = (someOpenStringField || '').toLowerCase().replace(/ /g, '_');
+el.innerHTML = `<span class="badge ${cls}">…</span>`;
+```
+
+**Correct patterns:**
+```javascript
+// ✅ OPTION A — field is a closed Zod enum (safe by schema contract)
+// p.status is WorkPackageStatus — a Zod enum with a fixed value set
+var cls = (p.status || '').toLowerCase().replace(/ /g, '_');
+
+// ✅ OPTION B — whitelist map (safe for any field type)
+var STATUS_CLASS = { READY: 'ready', IN_PROGRESS: 'in_progress', COMPLETE: 'complete', BLOCKED: 'blocked', CANCELLED: 'cancelled' };
+var cls = STATUS_CLASS[p.status] ?? 'unknown';
+
+// ✅ OPTION C — escapeHtml() before insertion (safe for any field type)
+var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
+```
+
+**Scope:** This convention applies to all client-side JavaScript in `mcp-server/gui/public/` (currently `views/work-package.js`, `utils.js`). When adding new attribute values derived from API data, determine whether the field is enum-backed before using the raw-derivation pattern.
+
+---
+
 ## Runtime Config Monitoring
 
 - `gui-config.json` is the single source of truth for runtime-adjustable settings (`auto_handoff_enabled`, `max_handoff_depth`).

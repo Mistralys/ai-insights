@@ -548,3 +548,54 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 - **Validation method:** A grep or codebase search for the referenced symbols is sufficient. The PM or Pipeline Configurator does not need to run the code — only verify that the symbols exist in the source tree
 - **Example:** A WP scoped as `["qa", "code-review"]` that references `setItemsPerPageURLTemplate()` in its acceptance criteria must verify that this method already exists. If it does not, the WP should use `["implementation", "qa", "code-review"]` (or the full default chain) instead
 - This rule does not apply to WPs that include `implementation` in their `active_pipeline_stages`, since the Developer is expected to create any missing symbols during that stage
+
+### 21.66 First-Active-Stage Re-engagement Loop
+
+**Affected agent functions:** QA P4, Reviewer P4, Security Auditor P4, Release Engineer P5  
+**Immune agent functions:** Documentation P4, Release Engineer P4
+
+**The footgun pattern:**  
+All four affected functions share a ternary null-guard on the prerequisite resolved by `resolvePrerequisite` ([§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution)):
+
+```pseudocode
+prerequisite = resolvePrerequisite(pipelineType, activeStages)
+hasNewUpstream = prerequisite === null ? <VALUE> : hasNewUpstreamPassSince(prerequisite, pipelineType)
+if priorPipelineExists AND hasNewUpstream: return RUN_*  // P4/P5 re-engagement
+```
+
+When the pipeline type is the **first active stage** (e.g., `qa` in `["qa", "code-review"]`), `resolvePrerequisite` returns `null`. If `<VALUE>` is `true`, the condition `priorPipelineExists AND true` is satisfied as soon as any prior pipeline exists — and a PASS pipeline **is** a prior pipeline. After the first-active-stage pipeline PASSes, P4/P5 fires again immediately: `priorPipelineExists` is `true`, and `null → true` makes `hasNewUpstream` unconditionally `true`. The engine returns `RUN_*` again. The next PASS triggers the same evaluation, producing an **infinite loop** where every PASS immediately re-generates another `RUN_*`.
+
+**The resolution:**  
+P4/P5 re-engagement checks MUST treat `null` as `false`:
+
+```pseudocode
+hasNewUpstream = prerequisite === null ? false : hasNewUpstreamPassSince(prerequisite, pipelineType)
+```
+
+When no upstream stage exists (first-active-stage), there is no upstream to have "re-passed after rework." The re-engagement condition is meaningless. Treating `null` as `false` causes P4/P5 to evaluate as `false`, falling through to P5/P6 (first-run check) or `WAIT`/`FINALIZE_WP` as appropriate.
+
+**The P4-vs-P6 distinction:**  
+The null guard appears at two priority levels in each affected agent's action logic. Only the P4/P5 treatment is wrong:
+
+- **P6 (first-run):** `null → true` is **correct**. "No prerequisite needed to start" is the intended semantics — a first-active-stage pipeline can always be started for the first time without a prerequisite PASS.
+- **P4/P5 (re-engagement):** `null → true` is **wrong**. "Re-engagement after upstream rework" is meaningless when no upstream exists. `null → false` is the correct guard.
+
+Implementations MUST apply the `null → false` fix only to the P4/P5 re-engagement check, never to the P6 first-run check.
+
+**Affected agent functions and compositions:**
+
+| Agent | Priority | First-active-stage composition example | Variable | Buggy guard | Fixed guard |
+|-------|----------|----------------------------------------|----------|-------------|-------------|
+| QA | P4 | `["qa", "code-review"]` | `qaPrerequisite` | `=== null ? true` | `=== null ? false` |
+| Reviewer | P4 | `["code-review", "documentation"]` | `reviewPrerequisite` | `=== null ? true` | `=== null ? false` |
+| Security Auditor | P4 | `["security-audit", "code-review"]` | `auditPrerequisite` | `=== null ? true` | `=== null ? false` |
+| Release Engineer | P5 | `["release-engineering", "documentation"]` | `releasePrerequisite` | `=== null ? true` | `=== null ? false` |
+
+Any `active_pipeline_stages` composition where a non-`implementation` stage is **first** creates a first-active-stage scenario for that stage's owning agent. Note that `implementation` is never affected: the Developer action logic at P4 checks `isMostRecentPipelineFail("implementation")` (direct FAIL rework), not a `resolvePrerequisite`-based re-engagement condition.
+
+**Immune agent functions:**
+
+- **Documentation P4:** The self-rework guard at P4 uses an OR-exit pattern — `docPrerequisite === null || !hasNewUpstreamPassSince(...)` — gated behind `isMostRecentPipelineFail("documentation")`. When `null`, the OR short-circuits to `true`, making the outer condition reduce to "latest pipeline is FAIL → self-rework." This is safe because the guard only fires on FAIL (triggering REWORK, not RUN), so no loop can occur. The null case appears in an OR-exit guard on the self-rework block, not a ternary that collapses to `true` for re-engagement.
+- **Release Engineer P4:** Same OR-exit guard structure as Documentation P4 — `releasePrerequisite === null || !hasNewUpstreamPassSince(...)` gated behind `isMostRecentPipelineFail("release-engineering")`. Immune for the same reason: when `null`, the OR short-circuits into the self-rework path (REWORK, not RUN), so no loop can form. The null-collapsing issue affects Release Engineer only at P5 (re-engagement after upstream rework), not P4 (self-rework after own FAIL).
+
+**Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions)

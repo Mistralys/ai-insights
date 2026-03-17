@@ -1,5 +1,11 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.12.0 - Work Package Pipeline Visualization
+- GUI: Added `GET /api/projects/:slug/work-packages/overview` endpoint; returns enriched WP data including `active_pipeline_stages`, per-stage pipeline status with agent names, acceptance-criteria progress, rework counts, and blocked-by details.
+- GUI: Replaced the redundant "Title" column in the project detail WP table with a colored pipeline stage badge track. Badges are colored by status (grey=pending, blue=in-progress, green=pass, red=fail) with abbreviated agent-name labels and full-name tooltips; stages with rework > 0 display an overlay count badge.
+- GUI: Added pipeline progression bar to the WP detail view, rendered above the existing Pipelines section. Derives data from the already-fetched WP detail — no new API calls.
+- Tests: Added 21-test suite covering the new overview endpoint in `api-wp-overview.test.ts`.
+
 ## v1.11.3 - Dynamic Pipeline & Agent Annotation Helpers
 - Utils: Added `describePipelineTypes(prefix)` helper to `pipeline-maps.ts`; derives pipeline type list dynamically from `PIPELINE_TYPES` const tuple.
 - Utils: Added `describePipelineAgents(prefix)` helper to `pipeline-maps.ts`; derives agent-role-to-pipeline-type mapping dynamically from `PIPELINE_AGENT_MAP`.

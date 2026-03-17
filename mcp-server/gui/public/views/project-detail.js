@@ -61,22 +61,71 @@ async function renderSynthesis(app, slug) {
 /* ----------------------------------------------------------
    4c. View: Project Detail
    ---------------------------------------------------------- */
+
+// Abbreviations for pipeline stage types
+var STAGE_ABBREV = {
+  'implementation':     'DEV',
+  'qa':                 'QA',
+  'security-audit':     'SEC',
+  'code-review':        'REV',
+  'release-engineering':'REL',
+  'documentation':      'DOC'
+};
+
+function buildPipelineTrack(overviewEntry) {
+  if (!overviewEntry || !overviewEntry.pipeline_stages || !overviewEntry.pipeline_stages.length) {
+    return '—';
+  }
+  var badges = overviewEntry.pipeline_stages.map(function (stage) {
+    var abbrev = STAGE_ABBREV[stage.type] || stage.type.slice(0, 3).toUpperCase();
+    var statusClass = 'stage-pending';
+    if (stage.status === 'in-progress') statusClass = 'stage-in-progress';
+    else if (stage.status === 'pass')        statusClass = 'stage-pass';
+    else if (stage.status === 'fail')        statusClass = 'stage-fail';
+    var tooltip = escapeHtml(stage.type) + ' — ' + escapeHtml(stage.agent);
+    if (stage.rework_count > 0) tooltip += ' (rework: ' + stage.rework_count + ')';
+    var reworkBadge = stage.rework_count > 0
+      ? '<span class="rework-indicator" title="Rework count: ' + stage.rework_count + '">' + stage.rework_count + '</span>'
+      : '';
+    return '<span class="stage-badge ' + statusClass + '" title="' + tooltip + '">' +
+      escapeHtml(abbrev) +
+      reworkBadge +
+    '</span>';
+  }).join('');
+  return '<div class="pipeline-track">' + badges + '</div>';
+}
+
 function renderProjectDetail(app, slug) {
   showLoading(app);
 
   Promise.all([
     API.getProject(slug),
     API.getPlanDocument(slug).catch(function () { return null; }),
+    API.getWorkPackageOverview(slug).catch(function () { return null; }),
   ]).then(function (results) {
     var project = results[0];
     var planResult = results[1];
+    var overviewResult = results[2]; // null if request failed (graceful degradation)
     var meta = project.meta || {};
     var wps = project.work_packages || [];
 
+    // Build a fast lookup: work_package_id → overview entry
+    var overviewMap = {};
+    if (overviewResult && Array.isArray(overviewResult)) {
+      overviewResult.forEach(function (entry) {
+        overviewMap[entry.work_package_id] = entry;
+      });
+    }
+
+    var useOverview = overviewResult !== null;
+
     var wpRows = wps.map(function (wp) {
+      var pipelineCell = useOverview
+        ? buildPipelineTrack(overviewMap[wp.work_package_id])
+        : escapeHtml(wp.work_package_id);
       return '<tr class="clickable" data-href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' +
         '<td class="monospace"><a href="#/projects/' + encodeURIComponent(slug) + '/wp/' + encodeURIComponent(wp.work_package_id) + '">' + escapeHtml(wp.work_package_id) + '</a></td>' +
-        '<td>' + escapeHtml(wp.work_package_id) + '</td>' +
+        '<td>' + pipelineCell + '</td>' +
         '<td>' + escapeHtml(wp.assigned_to || '—') + '</td>' +
         '<td>' + statusBadge(wp.status) + '</td>' +
       '</tr>';
@@ -164,7 +213,7 @@ function renderProjectDetail(app, slug) {
       '<div class="card-title">Work Packages</div>' +
       (wps.length
         ? '<div class="table-wrapper"><table>' +
-            '<thead><tr><th>WP ID</th><th>Title</th><th>Assigned To</th><th>Status</th></tr></thead>' +
+            '<thead><tr><th>WP ID</th><th>' + (useOverview ? 'Pipeline Stages' : 'WP ID') + '</th><th>Assigned To</th><th>Status</th></tr></thead>' +
             '<tbody>' + wpRows + '</tbody>' +
           '</table></div>'
         : '<p class="text-muted">No work packages.</p>') +

@@ -2,8 +2,58 @@
    views/work-package.js — Work Package Detail view
    Section 4c of the MCP Server Dashboard SPA
    Depends on: API, escapeHtml, formatDate, statusBadge,
-               showLoading, showError
+               showLoading, showError, STAGE_ABBREV (project-detail.js)
    ============================================================ */
+
+var WP_DEFAULT_STAGES = ['implementation', 'qa', 'code-review', 'documentation'];
+
+function buildWpDetailBar(wp) {
+  var rawStages = (wp.active_pipeline_stages && wp.active_pipeline_stages.length)
+    ? wp.active_pipeline_stages
+    : (wp.default_pipeline_stages && wp.default_pipeline_stages.length)
+      ? wp.default_pipeline_stages
+      : WP_DEFAULT_STAGES;
+
+  // Build a fast lookup from pipeline type → latest pipeline status
+  var latestStatus = {};
+  var pipelineCountByType = {};
+  (wp.pipelines || []).forEach(function (p) {
+    var t = p.type;
+    pipelineCountByType[t] = (pipelineCountByType[t] || 0) + 1;
+    // Last write wins — pipelines are in chronological order
+    latestStatus[t] = (p.status || '').toLowerCase();
+  });
+
+  var badges = rawStages.map(function (stageType) {
+    var abbrev = (typeof STAGE_ABBREV !== 'undefined' && STAGE_ABBREV[stageType])
+      ? STAGE_ABBREV[stageType]
+      : stageType.slice(0, 3).toUpperCase();
+    var rawSt = latestStatus[stageType] || 'pending';
+    var statusClass = 'stage-pending';
+    if (rawSt === 'in_progress' || rawSt === 'in-progress') statusClass = 'stage-in-progress';
+    else if (rawSt === 'pass')                               statusClass = 'stage-pass';
+    else if (rawSt === 'fail')                               statusClass = 'stage-fail';
+
+    var reworkCount = wp.rework_counts ? (wp.rework_counts[stageType] || 0) : 0;
+    if (!reworkCount && pipelineCountByType[stageType] > 1) {
+      reworkCount = pipelineCountByType[stageType] - 1;
+    }
+    var tooltip = escapeHtml(stageType);
+    if (rawSt !== 'pending') tooltip += ' — ' + escapeHtml(rawSt);
+    if (reworkCount > 0)     tooltip += ' (rework: ' + reworkCount + ')';
+    var reworkBadge = reworkCount > 0
+      ? '<span class="rework-indicator" title="Rework count: ' + reworkCount + '">' + reworkCount + '</span>'
+      : '';
+    return '<span class="stage-badge ' + statusClass + '" title="' + tooltip + '">' +
+      escapeHtml(abbrev) + reworkBadge +
+    '</span>';
+  }).join('');
+
+  return '<div class="card">' +
+    '<div class="card-title" style="margin-bottom:8px">Pipeline Progression</div>' +
+    '<div class="pipeline-track">' + badges + '</div>' +
+  '</div>';
+}
 
 function renderWorkPackageDetail(app, slug, wpId) {
   showLoading(app);
@@ -19,7 +69,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
     }).join('');
 
     // Pipelines
-    var pipelinesHtml = (wp.pipelines || []).reverse().map(function (p) {
+    var pipelinesHtml = (wp.pipelines || []).slice().reverse().map(function (p) {
       var cls = (p.status || '').toLowerCase().replace(/ /g, '_');
       var summaryItems = (p.summary || []).map(function (s) {
         return '<li>' + escapeHtml(s) + '</li>';
@@ -72,6 +122,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
             '<ul class="ac-list">' + acHtml + '</ul>' +
           '</div>'
         : '') +
+      buildWpDetailBar(wp) +
       (pipelinesHtml
         ? '<div class="card"><div class="card-title">Pipelines</div>' + pipelinesHtml + '</div>'
         : '') +

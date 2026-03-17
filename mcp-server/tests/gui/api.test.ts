@@ -261,6 +261,16 @@ describe('gui/api.ts', () => {
       expect(result.status).toBe('READY');
     });
 
+    it('response includes default_pipeline_stages as an array', async () => {
+      const store = await createProject(ledgerRoot, '2026-01-01-wp-default-stages');
+      await store.writeWorkPackage('WP-001', makeWp('WP-001'));
+
+      const result = await handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-default-stages', 'WP-001');
+
+      expect(Array.isArray(result.default_pipeline_stages)).toBe(true);
+      expect(result.default_pipeline_stages.length).toBeGreaterThan(0);
+    });
+
     it('throws NOT_FOUND for a missing WP in an existing project', async () => {
       await createProject(ledgerRoot, '2026-01-01-no-wps');
 
