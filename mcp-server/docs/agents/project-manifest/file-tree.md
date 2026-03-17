@@ -72,13 +72,13 @@ mcp-server/
 │   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module: embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector
 │   │
 │   └── utils/                   # Utility functions
-│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache)
+│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache), clearSynthesisState(rootIndex) (centralised synthesis field reset)
 │       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), getAgentId(), isRegistryLoaded(), resetRegistry()
 │       ├── constants.ts         # Shared string constants and AGENT_ROLES
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
 │       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
-│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes, getOrderedActiveStages)
+│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes, getOrderedActiveStages, firstActiveStage, lastActiveStage, validateActiveStages)
 │       ├── project-reset.ts     # Semi-intelligent project reset — analysis (pure) + mutation; exports analyzeProjectForReset(), applyProjectReset(), and interfaces WpResetDiagnosis, ProjectResetDiagnosis, WpDecision, ProjectResetResult
 │       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
@@ -102,8 +102,9 @@ mcp-server/
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
+    │   ├── root-index.test.ts   # RootIndexSchema and WorkPackageSummarySchema field-level parse/reject tests — synthesis_generated_at (string|null|absent), ledger_version (string|absent), active_pipeline_stages on summary (array|null|absent), backward compatibility with legacy ledgers (20 tests)
     │   ├── validators.test.ts
-    │   └── work-package-schema.test.ts  # Zod parse-level tests for PipelineSchema and WorkPackageDetailSchema new fields (22 tests)
+    │   └── work-package-schema.test.ts  # Zod parse-level tests for PipelineSchema and WorkPackageDetailSchema new fields including last_updated (present/absent) (24 tests)
     │
     ├── storage/                 # Storage layer tests
     │   ├── ledger-store.test.ts # LedgerStore unit tests; includes updateTitle() — sets title, updates last_updated, persists to disk, overwrites previous title
@@ -113,10 +114,10 @@ mcp-server/
     │   ├── cancelled-status.test.ts  # CANCELLED status transitions and dependency satisfaction
     │   ├── cascade-reblock.test.ts  # Cascade-block on COMPLETE → IN_PROGRESS reopen
     │   ├── claim-guard.test.ts  # Assignment guard for ledger_claim_work_package
-    │   ├── pipeline.test.ts
-    │   ├── project-lifecycle.test.ts  # ledger_complete_synthesis, self-healing with synthesis_generated
+    │   ├── pipeline.test.ts     # Pipeline tool tests; includes cross-WP staleness advisory checks (positive and negative cases)
+    │   ├── project-lifecycle.test.ts  # ledger_complete_synthesis, self-healing with synthesis_generated; initializeProject ledger_version assignment; synthesis_generated_at lifecycle across completeSynthesis and reset paths
     │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT    ├── schema-integrity.test.ts  # Regression guard: all 22 registered tool schemas produce non-empty JSON Schema properties (guards against .refine()/.transform() on outer ZodObject — see Constraint 63)    │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
-    │   ├── work-package.test.ts
+    │   ├── work-package.test.ts  # WP tool tests; includes synthesis_generated_at clearing on WP status changes, active_pipeline_stages propagation to WP summary on creation
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts  # REWORK routing, Documentation FAIL routing, BLOCK_FOR_REWORK_LIMIT
     │   └── workflow-rework-loop.test.ts  # End-to-end rework loop covering FAIL → REWORK → PASS cycles
@@ -126,10 +127,10 @@ mcp-server/
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
-        ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes, resolvePrerequisite, resolveNextAgent, resolveFailAgent, getOrderedActiveStages, describePipelineTypes (drift-detection)
-        ├── project-reset.test.ts  # Unit tests for analyzeProjectForReset() — all WP status branches, auto-cancelled exclusion, most-recent-wins, mixed project scenarios
+        ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes, resolvePrerequisite, resolveNextAgent, resolveFailAgent, getOrderedActiveStages, describePipelineTypes (drift-detection), firstActiveStage, lastActiveStage, validateActiveStages (hard/soft guardrails)
+        ├── project-reset.test.ts  # Unit tests for analyzeProjectForReset() — all WP status branches, auto-cancelled exclusion, most-recent-wins, mixed project scenarios; synthesis_generated_at clearing on project reset
         ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
-        ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince
+        ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince, clearSynthesisState
         └── wp-id.test.ts        # WP ID generation: variable-width, max-based incrementing
 ```
 

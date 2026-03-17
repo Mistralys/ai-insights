@@ -12,6 +12,7 @@ import {
   resolvePrerequisite,
   DEFAULT_PIPELINE_STAGES,
   getOrderedActiveStages,
+  firstActiveStage,
 } from '../utils/pipeline-maps.js';
 import { parseTimestamp } from '../utils/timestamp.js';
 import {
@@ -1438,7 +1439,6 @@ export async function getDocumentationAction(
     const orderedActive = getOrderedActiveStages(activeStages);
     const docIdx = orderedActive.indexOf('documentation');
     const upstreamActiveStages = docIdx > 0 ? orderedActive.slice(0, docIdx) : [];
-    const firstActiveStage = orderedActive[0];
 
     // P1: BLOCK_FOR_REWORK_LIMIT — documentation rework count at max
     if ((reworkCounts['documentation'] ?? 0) >= MAX_REWORK_COUNT) {
@@ -1516,7 +1516,7 @@ export async function getDocumentationAction(
     // Freshness helpers for P5 / P5b
     // "Fresh" means: the most recent doc PASS was completed after the first active stage's last start
     const firstStagePipelines = wpDetail.pipelines.filter(
-      (p) => p.type === firstActiveStage && !p.auto_cancelled
+      (p) => p.type === firstActiveStage(activeStages) && !p.auto_cancelled
     );
     const latestFirstStage = firstStagePipelines.at(-1);
     const latestFirstStageStart = latestFirstStage?.started_at;

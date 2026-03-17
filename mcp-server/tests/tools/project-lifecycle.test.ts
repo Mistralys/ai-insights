@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises';
@@ -10,6 +10,7 @@ import {
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import { computeHealedStatus, _internal, InitializeProjectSchema } from '../../src/tools/project-lifecycle.js';
+import { SPEC_VERSION } from '../../src/utils/constants.js';
 
 const { completeSynthesis, initializeProject, getProjectStatus } = _internal;
 import { LedgerStore } from '../../src/storage/ledger-store.js';
@@ -1249,5 +1250,690 @@ describe('getProjectStatus — pipeline_health', () => {
     expect(health.wps_with_all_stages_pass).toBe(0);
     expect(health.wps_missing_stages).toBe(0);
     expect(health.total_stages_missing).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-007 — Self-Healing: legacy field repair + forward-compatibility
+// Steps 10–12 from plan.md (spec v2.3.0 / v2.4.0 compliance)
+// ---------------------------------------------------------------------------
+
+/* ----------------------------------------------------------
+   Unit: computeHealedStatus — legacySynthesisTimestampRepair flag
+   ---------------------------------------------------------- */
+describe('computeHealedStatus — legacySynthesisTimestampRepair flag', () => {
+  function makeCompletedRoot(overrides: Partial<RootIndex> = {}): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: '2026-02-01T00:00:00Z',
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      ...overrides,
+    };
+  }
+
+  it('returns legacySynthesisTimestampRepair=true when synthesis_generated=true and synthesis_generated_at is undefined', () => {
+    const root = makeCompletedRoot({ synthesis_generated_at: undefined });
+    const result = computeHealedStatus(root);
+    expect(result.legacySynthesisTimestampRepair).toBe(true);
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('returns legacySynthesisTimestampRepair=true when synthesis_generated=true and synthesis_generated_at is null', () => {
+    const root = makeCompletedRoot({ synthesis_generated_at: null });
+    const result = computeHealedStatus(root);
+    expect(result.legacySynthesisTimestampRepair).toBe(true);
+    expect(result.needsWrite).toBe(true);
+  });
+
+  it('returns legacySynthesisTimestampRepair=false when synthesis_generated_at is already present', () => {
+    const root = makeCompletedRoot({ synthesis_generated_at: '2026-01-10T12:00:00Z' });
+    const result = computeHealedStatus(root);
+    expect(result.legacySynthesisTimestampRepair).toBe(false);
+  });
+
+  it('returns legacySynthesisTimestampRepair=false when synthesis_generated is false', () => {
+    const root = makeCompletedRoot({ synthesis_generated: false, synthesis_generated_at: undefined });
+    const result = computeHealedStatus(root);
+    expect(result.legacySynthesisTimestampRepair).toBe(false);
+  });
+
+  it('returns legacySynthesisTimestampRepair=false when corruptionDetected overrides synthesis_generated', () => {
+    // synthesis_generated=true but pending>0 triggers corruption detection
+    const root = makeCompletedRoot({
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      synthesis_generated_at: undefined,
+    });
+    const result = computeHealedStatus(root);
+    expect(result.corruptionDetected).toBe(true);
+    expect(result.legacySynthesisTimestampRepair).toBe(false);
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: AC1 + AC2 — synthesis_generated_at backfill + repair comment
+   ---------------------------------------------------------- */
+describe('getProjectStatus — legacy synthesis_generated_at repair (AC1 + AC2)', () => {
+  const LEGACY_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp007-legacy-synthesis');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(LEGACY_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  function makeLegacyRoot(lastUpdated: string): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: lastUpdated,
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      // synthesis_generated_at deliberately absent (legacy ledger)
+    };
+  }
+
+  it('AC1: backfills synthesis_generated_at to last_updated for a legacy ledger', async () => {
+    const LAST_UPDATED = '2026-02-10T09:30:00Z';
+    await handle.store.writeRootIndex(makeLegacyRoot(LAST_UPDATED));
+
+    const result = await getProjectStatus({ project_path: LEGACY_PLAN }, handle.ledgerRoot);
+    expect((result as any).isError).toBeFalsy();
+
+    const data = JSON.parse((result as any).content[0].text);
+    expect(data.synthesis_generated_at).toBe(LAST_UPDATED);
+  });
+
+  it('AC2: emits a soft warning project comment when synthesis_generated_at is backfilled', async () => {
+    await handle.store.writeRootIndex(makeLegacyRoot('2026-02-10T09:30:00Z'));
+
+    const result = await getProjectStatus({ project_path: LEGACY_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((result as any).content[0].text);
+
+    const repairComment = data.project_comments.find(
+      (c: any) => c.note === 'Self-healed: backfilled synthesis_generated_at from last_updated',
+    );
+    expect(repairComment).toBeDefined();
+    expect(repairComment.type).toBe('warning');
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: AC3 — ledger_version backfill
+   ---------------------------------------------------------- */
+describe('getProjectStatus — legacy ledger_version backfill (AC3)', () => {
+  const LEGACY_VERSION_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp007-legacy-version');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(LEGACY_VERSION_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('AC3: silently backfills ledger_version to SPEC_VERSION when absent', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      // ledger_version deliberately absent (legacy ledger)
+    };
+    await handle.store.writeRootIndex(root);
+
+    const result = await getProjectStatus({ project_path: LEGACY_VERSION_PLAN }, handle.ledgerRoot);
+    expect((result as any).isError).toBeFalsy();
+
+    const data = JSON.parse((result as any).content[0].text);
+    expect(data.ledger_version).toBe(SPEC_VERSION);
+  });
+
+  it('AC3: backfill does not emit a project comment (silent migration)', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+    await handle.store.writeRootIndex(root);
+
+    const result = await getProjectStatus({ project_path: LEGACY_VERSION_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((result as any).content[0].text);
+
+    const versionBackfillComment = data.project_comments.find(
+      (c: any) => c.note?.includes('ledger_version'),
+    );
+    expect(versionBackfillComment).toBeUndefined();
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: AC4 — forward-compatibility warning
+   ---------------------------------------------------------- */
+describe('getProjectStatus — forward-compatibility warning (AC4)', () => {
+  const FWD_COMPAT_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp007-fwd-compat');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(FWD_COMPAT_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  function makeVersionRoot(ledgerVersion: string): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      ledger_version: ledgerVersion,
+    };
+  }
+
+  it('AC4: emits a warning comment when ledger_version is higher than SPEC_VERSION', async () => {
+    await handle.store.writeRootIndex(makeVersionRoot('9.9.9'));
+
+    const result = await getProjectStatus({ project_path: FWD_COMPAT_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((result as any).content[0].text);
+
+    const fwdWarning = data.project_comments.find(
+      (c: any) => c.note?.includes('newer than the current server spec version'),
+    );
+    expect(fwdWarning).toBeDefined();
+    expect(fwdWarning.type).toBe('warning');
+    expect(fwdWarning.note).toContain('9.9.9');
+    expect(fwdWarning.note).toContain(SPEC_VERSION);
+  });
+
+  it('AC4: does NOT emit forward-compat warning when ledger_version equals SPEC_VERSION', async () => {
+    await handle.store.writeRootIndex(makeVersionRoot(SPEC_VERSION));
+
+    const result = await getProjectStatus({ project_path: FWD_COMPAT_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((result as any).content[0].text);
+
+    const fwdWarning = data.project_comments.find(
+      (c: any) => c.note?.includes('newer than the current server spec version'),
+    );
+    expect(fwdWarning).toBeUndefined();
+  });
+
+  it('AC4: does NOT emit forward-compat warning when ledger_version is lower than SPEC_VERSION', async () => {
+    await handle.store.writeRootIndex(makeVersionRoot('1.0.0'));
+
+    const result = await getProjectStatus({ project_path: FWD_COMPAT_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((result as any).content[0].text);
+
+    const fwdWarning = data.project_comments.find(
+      (c: any) => c.note?.includes('newer than the current server spec version'),
+    );
+    expect(fwdWarning).toBeUndefined();
+  });
+
+  it('does NOT emit false forward-compat warning for pre-release version "2.5.0-beta" (semver guard)', async () => {
+    // "2.5.0-beta" splits to [2, 5, NaN] — the isFinite guard should skip the comparison
+    await handle.store.writeRootIndex(makeVersionRoot('2.5.0-beta'));
+
+    const result = await getProjectStatus({ project_path: FWD_COMPAT_PLAN }, handle.ledgerRoot);
+    expect((result as any).isError).toBeFalsy();
+
+    const data = JSON.parse((result as any).content[0].text);
+    const fwdWarning = data.project_comments.find(
+      (c: any) => c.note?.includes('newer than the current server spec version'),
+    );
+    expect(fwdWarning).toBeUndefined();
+  });
+
+  it('still triggers forward-compat warning for "3.0.0" (semver guard does not suppress valid warnings)', async () => {
+    await handle.store.writeRootIndex(makeVersionRoot('3.0.0'));
+
+    const result = await getProjectStatus({ project_path: FWD_COMPAT_PLAN }, handle.ledgerRoot);
+    expect((result as any).isError).toBeFalsy();
+
+    const data = JSON.parse((result as any).content[0].text);
+    const fwdWarning = data.project_comments.find(
+      (c: any) => c.note?.includes('newer than the current server spec version'),
+    );
+    expect(fwdWarning).toBeDefined();
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: AC5 — atomicity (both repairs in one write)
+   ---------------------------------------------------------- */
+describe('getProjectStatus — self-healing atomicity (AC5)', () => {
+  const ATOMIC_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp007-atomic');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(ATOMIC_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('AC5: synthesis_generated_at and ledger_version are both repaired after a single read', async () => {
+    // A ledger missing both fields — both must be repaired in the same atomic write.
+    const LAST_UPDATED = '2026-02-10T08:00:00Z';
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: LAST_UPDATED,
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      // Both synthesis_generated_at and ledger_version deliberately absent
+    };
+    await handle.store.writeRootIndex(root);
+
+    const result = await getProjectStatus({ project_path: ATOMIC_PLAN }, handle.ledgerRoot);
+    expect((result as any).isError).toBeFalsy();
+
+    const data = JSON.parse((result as any).content[0].text);
+    // Both fields must be repaired in the same pass
+    expect(data.synthesis_generated_at).toBe(LAST_UPDATED);
+    expect(data.ledger_version).toBe(SPEC_VERSION);
+  });
+});
+
+/* ----------------------------------------------------------
+   Integration: AC6 — no duplicate comments on repeated reads
+   ---------------------------------------------------------- */
+describe('getProjectStatus — no duplicate repair comments (AC6)', () => {
+  const NO_DUP_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp007-no-dup');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(NO_DUP_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('AC6: synthesis_generated_at repair comment is added only once on repeated reads', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: '2026-02-01T00:00:00Z',
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+    };
+    await handle.store.writeRootIndex(root);
+
+    // First read — fires the repair
+    await getProjectStatus({ project_path: NO_DUP_PLAN }, handle.ledgerRoot);
+    // Second read — must not duplicate the comment
+    const secondResult = await getProjectStatus({ project_path: NO_DUP_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((secondResult as any).content[0].text);
+
+    const repairComments = data.project_comments.filter(
+      (c: any) => c.note === 'Self-healed: backfilled synthesis_generated_at from last_updated',
+    );
+    expect(repairComments).toHaveLength(1);
+  });
+
+  it('AC6: forward-compat warning comment is added only once on repeated reads', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      ledger_version: '9.9.9',
+    };
+    await handle.store.writeRootIndex(root);
+
+    // First read — fires the forward-compat warning
+    await getProjectStatus({ project_path: NO_DUP_PLAN }, handle.ledgerRoot);
+    // Second read — must not duplicate the comment
+    const secondResult = await getProjectStatus({ project_path: NO_DUP_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((secondResult as any).content[0].text);
+
+    const fwdWarnings = data.project_comments.filter(
+      (c: any) => c.note?.includes('newer than the current server spec version'),
+    );
+    expect(fwdWarnings).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rework WP-001 — Lock consolidation + TOCTOU symmetry
+// ---------------------------------------------------------------------------
+describe('getProjectStatus — single writeRootIndex call for multiple repairs (WP-001)', () => {
+  const LOCK_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp001-lock-consolidation');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(LOCK_PLAN);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await cleanupTempStore(handle);
+  });
+
+  it('fires exactly one writeRootIndex call when multiple repairs are needed simultaneously', async () => {
+    // A ledger that triggers multiple repairs: status correction, synthesis_generated_at backfill,
+    // ledger_version backfill, and synthesis repair comment — all in one pass.
+    const LAST_UPDATED = '2026-02-10T08:00:00Z';
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: LAST_UPDATED,
+      status: 'IN_PROGRESS', // needs healing to COMPLETE (pending==0, synthesis_generated==true)
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      // Both synthesis_generated_at and ledger_version deliberately absent
+    };
+    await handle.store.writeRootIndex(root);
+
+    // Spy on writeRootIndex prototype to count write calls during getProjectStatus
+    const writeSpy = vi.spyOn(LedgerStore.prototype, 'writeRootIndex');
+
+    await getProjectStatus({ project_path: LOCK_PLAN }, handle.ledgerRoot);
+
+    // All repairs must happen in a single write call (consolidated lock)
+    expect(writeSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('getProjectStatus — synthesis timestamp repair comment deduplication (WP-001)', () => {
+  const DEDUP_PLAN = join(tmpdir(), '2026-03-17-lifecycle-wp001-synth-dedup');
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(DEDUP_PLAN);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does not produce duplicate synthesis timestamp repair comments on repeated calls', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: '2026-02-01T00:00:00Z',
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      // synthesis_generated_at deliberately absent — triggers repair
+    };
+    await handle.store.writeRootIndex(root);
+
+    // First call triggers the repair and adds comment
+    await getProjectStatus({ project_path: DEDUP_PLAN }, handle.ledgerRoot);
+    // Second call — synthesis_generated_at is now present, so repair should not re-fire
+    await getProjectStatus({ project_path: DEDUP_PLAN }, handle.ledgerRoot);
+    // Third call for good measure
+    const thirdResult = await getProjectStatus({ project_path: DEDUP_PLAN }, handle.ledgerRoot);
+    const data = JSON.parse((thirdResult as any).content[0].text);
+
+    const repairComments = data.project_comments.filter(
+      (c: any) => c.note === 'Self-healed: backfilled synthesis_generated_at from last_updated',
+    );
+    expect(repairComments).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-008 — completeSynthesis sets synthesis_generated_at
+// ---------------------------------------------------------------------------
+describe('completeSynthesis — sets synthesis_generated_at (WP-008)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  function makeAllDoneRoot(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'COMPLETE',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+  }
+
+  it('sets synthesis_generated_at to a non-null ISO timestamp on success', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    const before = Date.now();
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis' },
+      handle.ledgerRoot,
+    );
+    const after = Date.now();
+
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.synthesis_generated_at).toBeDefined();
+    expect(typeof data.synthesis_generated_at).toBe('string');
+    const ts = new Date(data.synthesis_generated_at).getTime();
+    expect(ts).toBeGreaterThanOrEqual(before - 1000);
+    expect(ts).toBeLessThanOrEqual(after + 1000);
+  });
+
+  it('persists synthesis_generated_at in the root index on disk', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis' },
+      handle.ledgerRoot,
+    );
+
+    const root = await handle.store.readRootIndex();
+    expect(root.synthesis_generated).toBe(true);
+    expect(root.synthesis_generated_at).toBeDefined();
+    expect(typeof root.synthesis_generated_at).toBe('string');
+    expect(root.synthesis_generated_at!.length).toBeGreaterThan(0);
+  });
+
+  it('includes synthesis_generated_at in the response JSON', async () => {
+    await handle.store.writeRootIndex(makeAllDoneRoot());
+
+    const result = await completeSynthesis(
+      { project_path: PLAN_PATH, agent_role: 'Synthesis' },
+      handle.ledgerRoot,
+    );
+
+    const data = JSON.parse(result.content[0].text);
+    expect(data).toHaveProperty('synthesis_generated_at');
+    expect(data.synthesis_generated_at).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-008 — initializeProject sets ledger_version
+// ---------------------------------------------------------------------------
+describe('initializeProject — sets ledger_version to SPEC_VERSION (WP-008)', () => {
+  let planDir: string;
+  let originalArgv: string[];
+  let tempLedgerRoot: string;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp008-init-version-'));
+    planDir = join(tmpdir(), '2026-03-17-wp008-init-version-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('new project ledger contains ledger_version equal to SPEC_VERSION', async () => {
+    const result = await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+    const data = JSON.parse((result as any).content[0].text);
+    expect(data.ledger_version).toBe(SPEC_VERSION);
+  });
+
+  it('persists ledger_version on disk after initialization', async () => {
+    await initializeProject({
+      project_path: planDir,
+      plan_file: 'plan.md',
+    });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.ledger_version).toBe(SPEC_VERSION);
   });
 });

@@ -17,7 +17,7 @@ import {
   resolveNextAgent,
   resolveFailAgent,
   DEFAULT_PIPELINE_STAGES,
-  getOrderedActiveStages,
+  lastActiveStage,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
@@ -45,9 +45,7 @@ function buildCompletionGuidance(
   const failAgent = resolveFailAgent(pipelineType, activeStages);
 
   // Determine if this is the terminal (last active) stage
-  const orderedActive = getOrderedActiveStages(activeStages);
-  const lastActiveStage = orderedActive[orderedActive.length - 1];
-  const isTerminalStage = pipelineType === lastActiveStage;
+  const isTerminalStage = pipelineType === lastActiveStage(activeStages);
 
   if (status === 'PASS') {
     if (isTerminalStage) {
@@ -388,6 +386,33 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
   // Soft warning text for empty artifacts (set inside callback, appended to response)
   let artifactsWarning = '';
 
+  // §21.59 Advisory staleness map: pre-read dep WPs to compare their last-modification
+  // signal against the pipeline's started_at. Only populated when status is PASS.
+  // Race-safe by design: this is advisory only — PASS is never blocked.
+  const depStalenessMap = new Map<string, string | undefined>();
+  if (args.status === 'PASS') {
+    try {
+      const preWp = await store.readWorkPackage(args.work_package_id);
+      const prePipeline = preWp.pipelines
+        .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
+        .at(-1);
+      if (prePipeline?.started_at && preWp.dependencies.length > 0) {
+        for (const depId of preWp.dependencies) {
+          try {
+            const depWp = await store.readWorkPackage(depId);
+            if (depWp.last_updated) {
+              depStalenessMap.set(depId, depWp.last_updated);
+            }
+          } catch {
+            // dep WP not readable — skip this dep
+          }
+        }
+      }
+    } catch {
+      // pre-read of current WP failed — skip staleness check
+    }
+  }
+
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
       // Resolve the WP's active pipeline stages (default to legacy 4-stage)
@@ -453,6 +478,23 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
         }
       }
 
+      // §21.59 Advisory cross-WP dependency freshness check (SHOULD level).
+      // Warns when a dependency was modified after this pipeline started.
+      // Does NOT block PASS — emits project comments only.
+      if (args.status === 'PASS' && pipeline.started_at && depStalenessMap.size > 0) {
+        for (const [depId, depLastModified] of depStalenessMap) {
+          if (depLastModified && new Date(depLastModified).getTime() > new Date(pipeline.started_at).getTime()) {
+            root.project_comments.push({
+              type: 'warning',
+              priority: 'low',
+              timestamp: now(),
+              agent: args.agent_role,
+              note: `Dependency ${depId} was modified after pipeline started — results may reflect stale assumptions`,
+            });
+          }
+        }
+      }
+
       // 4. Update acceptance criteria if provided
       if (args.acceptance_criteria_updates) {
         for (const update of args.acceptance_criteria_updates) {
@@ -472,10 +514,9 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       // active stage completes that stage with PASS and all acceptance criteria are met.
       // The terminal stage is computed dynamically from the WP's active_pipeline_stages.
       // PM overrides bypass auto-finalize intentionally.
-      const orderedActive = getOrderedActiveStages(activeStages);
-      const lastActiveStage = orderedActive[orderedActive.length - 1];
-      const terminalAgent = lastActiveStage ? PIPELINE_AGENT_MAP[lastActiveStage] : null;
-      const isTerminalPass = args.type === lastActiveStage && args.status === 'PASS';
+      const lastStage = lastActiveStage(activeStages);
+      const terminalAgent = PIPELINE_AGENT_MAP[lastStage] ?? null;
+      const isTerminalPass = args.type === lastStage && args.status === 'PASS';
       const isTerminalAgent = terminalAgent !== null && args.agent_role === terminalAgent;
       if (isTerminalPass && isTerminalAgent) {
         const unmet = wp.acceptance_criteria

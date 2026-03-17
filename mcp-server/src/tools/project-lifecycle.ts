@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SPEC_VERSION, AGENT_ROLES } from '../utils/constants.js';
 import type { DetectProjectResult } from '../storage/ledger-store.js';
 import { WorkPackageStatus } from '../schema/enums.js';
 import { isTerminalStatus } from '../schema/validators.js';
@@ -9,10 +9,10 @@ import { now, parseTimestamp } from '../utils/timestamp.js';
 import type { RootIndex } from '../schema/root-index.js';
 import { access, constants } from 'fs/promises';
 import { validatePlanPath, resolveProjectPath, formatCandidateList } from '../utils/path-validator.js';
-import { AGENT_ROLES } from '../utils/constants.js';
 import { withLock } from '../storage/file-lock.js';
 import { DEFAULT_PIPELINE_STAGES } from '../utils/pipeline-maps.js';
 import { getPassedStages } from '../utils/project-reset.js';
+import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
 
@@ -110,6 +110,7 @@ export function computeHealedStatus(rootIndex: RootIndex): {
   healedStatus: RootIndex['status'];
   needsWrite: boolean;
   corruptionDetected: boolean;
+  legacySynthesisTimestampRepair: boolean;
 } {
   const totalWps = rootIndex.work_packages.length;
   const pendingWps = rootIndex.work_packages.filter(
@@ -125,6 +126,13 @@ export function computeHealedStatus(rootIndex: RootIndex): {
     synthesisGenerated = false;
     corruptionDetected = true;
   }
+
+  // Legacy field repair: synthesis_generated is true (legitimate) but synthesis_generated_at is absent.
+  // Only fires when no corruption is present — if corruption was detected, that handler clears the flag.
+  const legacySynthesisTimestampRepair =
+    (rootIndex.synthesis_generated ?? false) &&
+    !corruptionDetected &&
+    (rootIndex.synthesis_generated_at === null || rootIndex.synthesis_generated_at === undefined);
 
   // Pre-compute shared predicates once.
   const hasInProgressWp = rootIndex.work_packages.some((wp) => wp.status === 'IN_PROGRESS');
@@ -219,9 +227,10 @@ export function computeHealedStatus(rootIndex: RootIndex): {
     rootIndex.total_work_packages !== totalWps ||
     rootIndex.pending_work_packages !== pendingWps ||
     rootIndex.status !== healedStatus ||
-    corruptionDetected;
+    corruptionDetected ||
+    legacySynthesisTimestampRepair;
 
-  return { totalWps, pendingWps, healedStatus, needsWrite, corruptionDetected };
+  return { totalWps, pendingWps, healedStatus, needsWrite, corruptionDetected, legacySynthesisTimestampRepair };
 }
 
 /**
@@ -325,30 +334,85 @@ async function getProjectStatus(
     // Self-healing: compute corrected counters and status (pure)
     const healed = computeHealedStatus(rootIndex);
 
-    // Only write to disk if corrections are actually needed
-    if (healed.needsWrite) {
+    // Check for legacy ledger_version backfill (not tracked by computeHealedStatus)
+    const needsLegacyVersionBackfill = !rootIndex.ledger_version;
+
+    // Forward-compatibility warning: ledger_version is present and exceeds SPEC_VERSION (§21.58).
+    // Deduplicated — only added once; subsequent reads skip if the comment already exists.
+    let needsForwardCompatWarning = false;
+    let forwardCompatWarningNote = '';
+    if (rootIndex.ledger_version) {
+      const [lMaj = 0, lMin = 0, lPat = 0] = rootIndex.ledger_version.split('.').map(Number);
+      const [sMaj = 0, sMin = 0, sPat = 0] = SPEC_VERSION.split('.').map(Number);
+      // Guard against pre-release or malformed version segments (e.g. "2.5.0-beta" → NaN)
+      if ([lMaj, lMin, lPat, sMaj, sMin, sPat].every(isFinite)) {
+        const isNewer =
+          lMaj > sMaj ||
+          (lMaj === sMaj && lMin > sMin) ||
+          (lMaj === sMaj && lMin === sMin && lPat > sPat);
+        if (isNewer) {
+          forwardCompatWarningNote = `Ledger version ${rootIndex.ledger_version} is newer than the current server spec version ${SPEC_VERSION}. Some features may not be fully supported.`;
+          needsForwardCompatWarning = !rootIndex.project_comments.some((c) => c.note === forwardCompatWarningNote);
+        }
+      }
+    }
+
+    // Pre-compute pipeline ordering warnings before the lock — validatePipelineOrdering
+    // only reads WP detail files, not the root index, so it is safe outside the lock.
+    const synthesisRepairNote = 'Self-healed: backfilled synthesis_generated_at from last_updated';
+    const needsSynthesisRepairComment = healed.legacySynthesisTimestampRepair &&
+      !rootIndex.project_comments.some((c) => c.note === synthesisRepairNote);
+    const orderingWarnings = await validatePipelineOrdering(rootIndex, store);
+
+    // Write to disk when corrections are needed (status/counters, legacy repairs, forward-compat warning,
+    // pipeline ordering warnings, or synthesis timestamp repair comment) — single lock scope.
+    if (healed.needsWrite || needsLegacyVersionBackfill || needsForwardCompatWarning || orderingWarnings.length > 0 || needsSynthesisRepairComment) {
       await withLock(store.storageDir, async () => {
-        // Re-read under lock to avoid race conditions
+        // Re-read under lock to avoid race conditions (TOCTOU)
         const fresh = await store.readRootIndex();
         const freshHealed = computeHealedStatus(fresh);
-        if (freshHealed.needsWrite) {
-          fresh.total_work_packages = freshHealed.totalWps;
-          fresh.pending_work_packages = freshHealed.pendingWps;
-          fresh.status = freshHealed.healedStatus;
-          if (freshHealed.corruptionDetected) fresh.synthesis_generated = false;
-          fresh.last_updated = now();
-          await store.writeRootIndex(fresh);
-        }
-      });
+        const freshNeedsVersionBackfill = !fresh.ledger_version;
+        const freshNeedsForwardCompatWarning = forwardCompatWarningNote
+          ? !fresh.project_comments.some((c) => c.note === forwardCompatWarningNote)
+          : false;
+        // Re-check synthesis repair comment dedup under lock (same pattern as forward-compat)
+        const freshNeedsSynthesisRepairComment = freshHealed.legacySynthesisTimestampRepair &&
+          !fresh.project_comments.some((c) => c.note === synthesisRepairNote);
 
-      // Post-healing: validate pipeline ordering and emit warnings as project comments (§17.4).
-      // Piggybacks on the existing write path — only runs when self-healing was triggered.
-      const orderingWarnings = await validatePipelineOrdering(rootIndex, store);
-      if (orderingWarnings.length > 0) {
-        await withLock(store.storageDir, async () => {
-          const current = await store.readRootIndex();
+        const needsAnyWrite = freshHealed.needsWrite || freshNeedsVersionBackfill ||
+          freshNeedsForwardCompatWarning || orderingWarnings.length > 0 || freshNeedsSynthesisRepairComment;
+
+        if (needsAnyWrite) {
+          // Status and counter corrections
+          if (freshHealed.needsWrite) {
+            fresh.total_work_packages = freshHealed.totalWps;
+            fresh.pending_work_packages = freshHealed.pendingWps;
+            fresh.status = freshHealed.healedStatus;
+            if (freshHealed.corruptionDetected) {
+              clearSynthesisState(fresh);
+            }
+          }
+          // Legacy synthesis_generated_at repair (§21.57)
+          if (freshHealed.legacySynthesisTimestampRepair) {
+            fresh.synthesis_generated_at = fresh.last_updated;
+          }
+          // Legacy ledger_version backfill (§21.58 — silent migration)
+          if (freshNeedsVersionBackfill) {
+            fresh.ledger_version = SPEC_VERSION;
+          }
+          // Forward-compat warning comment (§21.58)
+          if (freshNeedsForwardCompatWarning) {
+            fresh.project_comments.push({
+              type: 'warning',
+              priority: 'low',
+              timestamp: now(),
+              agent: 'system',
+              note: forwardCompatWarningNote,
+            });
+          }
+          // Pipeline ordering warnings (§17.4)
           for (const warning of orderingWarnings) {
-            current.project_comments.push({
+            fresh.project_comments.push({
               type: 'warning',
               priority: 'low',
               timestamp: now(),
@@ -356,10 +420,20 @@ async function getProjectStatus(
               note: warning,
             });
           }
-          current.last_updated = now();
-          await store.writeRootIndex(current);
-        });
-      }
+          // Synthesis timestamp repair comment (§21.57) — deduplicated
+          if (freshNeedsSynthesisRepairComment) {
+            fresh.project_comments.push({
+              type: 'warning',
+              priority: 'low',
+              timestamp: now(),
+              agent: 'system',
+              note: synthesisRepairNote,
+            });
+          }
+          fresh.last_updated = now();
+          await store.writeRootIndex(fresh);
+        }
+      });
 
       // Re-read to return the corrected data
       const corrected = await store.readRootIndex();
@@ -478,6 +552,7 @@ async function initializeProject(
     pending_work_packages: 0,
     work_packages: [],
     project_comments: [],
+    ledger_version: SPEC_VERSION,
   };
 
   try {
@@ -676,6 +751,7 @@ async function completeSynthesis(
       }
 
       rootIndex.synthesis_generated = true;
+      rootIndex.synthesis_generated_at = now();
       rootIndex.auto_handoff_depth = 0; // §18.4: depth counter resets only on synthesis completion
       rootIndex.last_updated = now();
 
@@ -694,6 +770,7 @@ async function completeSynthesis(
             text: JSON.stringify(
               {
                 synthesis_generated: true,
+                synthesis_generated_at: rootIndex.synthesis_generated_at,
                 project_status: rootIndex.status,
                 message: 'Synthesis marked as generated.',
                 archived_documents: archiveResult.archived,

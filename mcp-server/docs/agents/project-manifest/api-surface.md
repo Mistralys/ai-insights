@@ -19,7 +19,17 @@ The primary public API is the set of **MCP tools** registered by the server. Age
 
 Reads the root index and returns project overview. Includes self-healing logic (`computeHealedStatus`) that recomputes counters and status from actual work package data. Self-healing separates computation (pure function) from persistence (conditional write under lock). No disk write occurs if counters and status are already correct.
 
-When a write is triggered, the write callback also resets `synthesis_generated = false` if `corruptionDetected` is true (i.e. synthesis was flagged prematurely while pending WPs still exist). After the write, `validatePipelineOrdering` runs and emits any out-of-order pipeline timestamps as `project_comments` with `type: 'warning'`, `priority: 'low'`, `agent: 'system'`.
+When a write is triggered, the write callback calls `clearSynthesisState(fresh)` if `corruptionDetected` is true (i.e. synthesis was flagged prematurely while pending WPs still exist). `validatePipelineOrdering` runs outside the lock (it only reads WP detail files) and its warnings are applied inside the consolidated lock scope along with all other repairs.
+
+**Legacy field repair (self-healing on read):** In addition to status and counter healing, `getProjectStatus` performs two legacy-field repair passes on every call:
+
+1. **`synthesis_generated_at` backfill:** If `synthesis_generated === true` and `synthesis_generated_at` is absent or `null` and `corruptionDetected` is `false`, the field is backfilled to `root.last_updated` (best-approximation for pre-WP-005 ledgers). A single soft warning project comment (`type: 'warning'`, `priority: 'low'`, `agent: 'system'`) is emitted. Deduplication: the comment is only written if no identical note already exists (idempotent on repeated reads).
+
+2. **`ledger_version` backfill:** If `ledger_version` is absent, it is silently set to `SPEC_VERSION`. No comment is emitted — absence implies the ledger pre-dates versioning.
+
+3. **Forward-compatibility warning:** If `ledger_version` is present and its numeric major/minor/patch is strictly greater than `SPEC_VERSION`, a warning project comment is emitted — the server software may be older than the ledger it is reading. Deduplicated by note text.
+
+All repairs, the forward-compat check, pipeline ordering warnings, and the synthesis timestamp repair comment are consolidated into a single `withLock` scope. The pre-lock computation identifies which repairs are needed; inside the lock, each condition is re-checked against a fresh re-read (TOCTOU symmetry) and only applied if still true. This reduces lock acquisitions from 3 to 1 when multiple repairs fire simultaneously.
 
 The response JSON also includes a `pipeline_health` sub-object computed by reading all WP detail files:
 
@@ -42,7 +52,7 @@ pipeline_health: {
 }) => Promise<MCPResult>
 ```
 
-Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
+Creates a new project ledger with root index and centralized storage directory. Sets `ledger_version: SPEC_VERSION` on the root index at construction time. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
 
 **`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
 
@@ -70,7 +80,7 @@ Scans the central ledger root directory and returns metadata for all projects. O
 }) => Promise<MCPResult>
 ```
 
-Marks synthesis as generated on the root index. Sets `synthesis_generated = true`, resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
+Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and `synthesis_generated_at = now()` (using the same timestamp for both the root index write and the response JSON), resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
 
 **Required:** `agent_role` must be `"Synthesis"` or `"Project Manager"` — other roles receive an error.
 
@@ -148,7 +158,7 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 - **`blocked_by` auto-assignment:** When initial status is `BLOCKED`, `blocked_by` is automatically populated with `{ type: 'dependency', description: '...', blocking_work_package: '<first unmet dep>' }`.
 - **Cycle detection:** `hasCycle()` (BFS) is called before creation. If the new WP's dependency chain would form a cycle, the call is rejected with `'Dependency cycle detected: WP X would create a circular dependency.'`
 - **Acceptance criteria validation:** Each criterion string is validated — empty strings and whitespace-only strings are rejected.
-- **`active_pipeline_stages`:** Optional array of pipeline types that defines which stages this WP will execute. When omitted, defaults to `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) for backward compatibility. Stored on the WP detail as `active_pipeline_stages: PipelineType[]`.
+- **`active_pipeline_stages`:** Optional array of pipeline types that defines which stages this WP will execute. When omitted, defaults to `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) for backward compatibility. Stored on both the WP detail file and the root index summary entry (`WorkPackageSummary.active_pipeline_stages`) as `PipelineType[]`. Summary and detail are guaranteed in sync at creation time by construction (same `resolvedActiveStages` value is written to both).
   - **Hard guardrails (reject with error):** empty array; entries that are not valid `PIPELINE_TYPES`; duplicate entries; entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING`.
   - **Soft guardrails (warning appended to success message):** `implementation` present without `qa`; single-stage chain.
   - Example: `active_pipeline_stages: ['implementation', 'qa', 'code-review']` — skips the documentation stage.
@@ -359,6 +369,8 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 
 `ledger_update_work_package_status` remains registered for PM and edge-case use, but the terminal-stage agent no longer needs to call it after a successful pipeline PASS.
 
+**Advisory dependency freshness check (§21.59):** When `status: 'PASS'` and the WP has `dependencies`, the server runs a non-blocking staleness check. Pre-reads each dependency's WP detail file before acquiring the write lock, using `dep.last_updated` directly (instead of the previous composite proxy `max(dep.status_changed_at, dep.latest_pipeline.completed_at)`). Inside the lock, emits a project comment (`type: 'warning'`, `priority: 'low'`, `agent: 'system'`) for each dep whose `last_updated` is later than the pipeline's `started_at`, using Date-based comparison (`new Date().getTime()`) instead of lexicographic string comparison. **PASS is never blocked** — warnings are purely advisory. The check is skipped when `started_at` is absent or when the WP has no dependencies.
+
 #### `ledger_cancel_pipeline`
 
 ```typescript
@@ -557,15 +569,81 @@ class LedgerStore {
   readProjectMeta(): Promise<ProjectMeta>;
 
   // Write operations (validated before writing)
-  writeRootIndex(data: RootIndex): Promise<void>;          // auto-syncs .meta.json
-  writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;
+  // @internal — both methods below must only be called from within LedgerStore sync methods
+  // (updateWorkPackageWithSync, createWorkPackageWithSync, batchUpdateWorkPackagesWithSync).
+  // Tool functions and helpers must NOT call these directly; use a sync method instead to
+  // guarantee atomic WP+root writes, schema validation, last_updated auto-stamping, and
+  // .meta.json sync.
+  //
+  // writeRootIndex — legitimate direct callers (non-tool code under explicit withLock scope):
+  //   - project-lifecycle.ts — getProjectStatus() self-healing (repairs stale counters under
+  //     explicit withLock); initializeProject() and completeSynthesis() for root-index-only
+  //     transitions that don't involve any WP file write.
+  //   - auto-archive.ts    — sets status: 'ARCHIVED' with preserveLastUpdated: true
+  //   - observations.ts    — appends a project-level comment (root-index write only)
+  //   - workflow-handoff.ts — buildHandoffResponse(): increments or caps the auto_handoff_depth counter; root-index-only write with no WP file involvement
+  //
+  // writeWorkPackage — NO legitimate external callers as of WP-002 migration
+  // (consolidate-wp-writes). Every previously-direct caller (e.g. project-reset.ts) has been
+  // migrated to use a sync method. Use updateWorkPackageWithSync, createWorkPackageWithSync,
+  // or batchUpdateWorkPackagesWithSync instead.
+  writeRootIndex(data: RootIndex, options?: { preserveLastUpdated?: boolean }): Promise<void>; // @internal — auto-syncs .meta.json
+  writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;                      // @internal — zero external callers post-WP-002
 
-  // Dual-file atomic update (auto-syncs .meta.json inside lock)
+  // Dual-file atomic creation (auto-syncs .meta.json inside lock).
+  // Used when the WP file does not yet exist. The creator callback receives the current root
+  // index and must return the new WP detail, its ID, and the updated root index.
+  // Auto-stamps wp.last_updated = now() on every call (overwriting any caller-set value).
+  // Validates both objects via Zod before any write; rolls back on callback error.
+  // Returns the wpId string for caller convenience.
+  createWorkPackageWithSync(
+    creator: (
+      root: RootIndex
+    ) => { wpId: string; wp: WorkPackageDetail; root: RootIndex } |
+         Promise<{ wpId: string; wp: WorkPackageDetail; root: RootIndex }>
+  ): Promise<string>;
+
+  // Dual-file atomic update (auto-syncs .meta.json inside lock).
+  // Auto-stamps wp.last_updated = now() on every call — this is the primary choke point
+  // for the last_updated field. All callers that need to create or update a WP+root pair
+  // must use createWorkPackageWithSync (creation) or updateWorkPackageWithSync (update).
   updateWorkPackageWithSync(
     wpId: string,
-    updater: (wp: WorkPackageDetail, root: RootIndex) => 
-      { wp: WorkPackageDetail; root: RootIndex } | 
+    updater: (wp: WorkPackageDetail, root: RootIndex) =>
+      { wp: WorkPackageDetail; root: RootIndex } |
       Promise<{ wp: WorkPackageDetail; root: RootIndex }>
+  ): Promise<void>;
+
+  // Multi-WP atomic batch update (auto-syncs .meta.json inside lock).
+  // Batch-write sibling of updateWorkPackageWithSync. Acquires a single lock for the
+  // entire operation — all WPs and the root index are written within one lock scope.
+  //
+  // The callback receives:
+  //   - root — the current root index (read inside the lock)
+  //   - readWp — a helper to read any WP detail file (also inside the lock)
+  // The callback must return:
+  //   - updatedWps — a Map<wpId, WorkPackageDetail> of every WP to be written
+  //   - root — the updated root index
+  //
+  // Two-pass validate-then-write atomicity guarantee:
+  //   Pass 1 — auto-stamps last_updated (shared timestamp for all WPs in the batch)
+  //            and validates every WP via WorkPackageDetailSchema + the root index
+  //            via RootIndexSchema. If any validation fails, no files are written.
+  //   Pass 2 — writes all validated WP files atomically, then writes the root index,
+  //            then syncs .meta.json exactly once.
+  //
+  // Note: atomicity is lock-scoped, not rollback-scoped. If a WP file write succeeds
+  // but a later write fails (e.g. I/O error after validation), earlier writes are not
+  // rolled back. Validation failures in Pass 1 always prevent any writes.
+  //
+  // Used by propagateDependencyUnblock and propagateDependencyReblock (src/tools/work-package.ts)
+  // and by applyProjectReset and markProjectComplete (src/utils/project-reset.ts) to consolidate
+  // all per-WP writes into a single lock scope.
+  batchUpdateWorkPackagesWithSync(
+    callback: (
+      root: RootIndex,
+      readWp: (id: string) => Promise<WorkPackageDetail>
+    ) => Promise<{ updatedWps: Map<string, WorkPackageDetail>; root: RootIndex }>
   ): Promise<void>;
 
   // Document archiving
@@ -661,7 +739,7 @@ interface ProjectMeta {
   last_updated: string;  // ISO timestamp
   title?: string;        // Optional, derived from plan_file content
   // Enrichment cache fields (all optional — absent in legacy .meta.json files)
-  total_work_packages?: number;   // Synced by writeRootIndex and updateWorkPackageWithSync on every root index write
+  total_work_packages?: number;   // Synced by writeRootIndex, createWorkPackageWithSync, and updateWorkPackageWithSync on every root index write
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
   repository_name?: string | null; // Derived from inferProjectRootFromPlanPath(plan_path); null if not detectable
@@ -703,8 +781,10 @@ interface RootIndex {
   pending_work_packages: number;
   work_packages: WorkPackageSummary[];
   project_comments: ProjectComment[];
-  auto_handoff_depth?: number; // Server-managed loop-guard counter; absent/undefined treated as 0
-  synthesis_generated?: boolean; // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
+  auto_handoff_depth?: number;        // Server-managed loop-guard counter; absent/undefined treated as 0
+  synthesis_generated?: boolean;      // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
+  synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
+  ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
 }
 
 interface WorkPackageSummary {
@@ -713,6 +793,7 @@ interface WorkPackageSummary {
   assigned_to: string | null; // null when the WP has not yet been assigned to an agent
   dependencies: string[];
   file: string; // Path to detail file
+  active_pipeline_stages?: string[] | null; // Cached subset from WP detail; null or absent means use DEFAULT_PIPELINE_STAGES
 }
 
 interface HandoffNote {
@@ -735,6 +816,7 @@ interface WorkPackageDetail {
   rework_count?: number;  // Legacy scalar — read-only; used only by in-memory migration in readWorkPackage() for documents that pre-date rework_counts. No longer written by production code.
   rework_counts?: ReworkCounts;  // Per-pipeline-type rework map; lazily created on first rework (§16.2)
   status_changed_at?: string;  // ISO 8601 timestamp of the last status transition (§10b.1)
+  last_updated?: string;  // ISO 8601 timestamp auto-stamped on every WP detail write (status transitions, claim, pipeline start/complete/cancel, creation, cascade reblock/unblock). Used by the advisory staleness check in completePipeline instead of the previous composite proxy.
   reset_at?: string;  // ISO 8601 timestamp set by applyProjectReset() on 'reset' actions only. Not set for 'cancel' or 'skip'. Distinguishes reset-recovery events from other status transitions.
   handoff_notes?: HandoffNote[];  // Notes appended via completePipeline's handoff_notes param
   pipelines: Pipeline[];
@@ -864,6 +946,11 @@ type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
 // followed by zero or more lowercase alphanumeric characters or hyphens. Max length 200.
 // Used by LedgerStore.renameSlug() (storage layer) and gui/api.ts (API layer).
 const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
+
+// Semantic version string of the current MCP server spec, written into every new ledger
+// as ledger_version on initializeProject(). Enables future self-healing to detect
+// ledgers created before a schema addition and backfill missing fields.
+const SPEC_VERSION = '2.4.0' as const;
 ```
 
 **Importers of `AGENT_ROLES`:**
@@ -880,6 +967,9 @@ const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
 - `gui/api.ts` — imports both; `PLAN_ARCHIVE_FILENAME` used in `handleGetPlanDocument` join() call, `SYNTHESIS_ARCHIVE_FILENAME` used in `handleGetSynthesisDocument` join() call
 - `src/tools/project-lifecycle.ts` — imports `SYNTHESIS_ARCHIVE_FILENAME`; used as Zod `.default()` value
 - `src/tools/help-content.ts` — imports both; used in tool help text template expressions
+
+**Importers of `SPEC_VERSION`:**
+- `src/tools/project-lifecycle.ts` — sets `ledger_version: SPEC_VERSION` on the root index object inside `initializeProject()`
 
 ---
 
@@ -997,7 +1087,7 @@ function parseWpId(id: string): number;  // Extracts numeric part
 // Corruption mitigation (§17.2 known-gap): if synthesis_generated === true AND
 // pendingWps > 0, the flag is treated as false for all rule evaluation and
 // corruptionDetected is set to true. The caller (getProjectStatus) then resets
-// fresh.synthesis_generated = false inside the write callback, eliminating
+// fresh.synthesis_generated = false and fresh.synthesis_generated_at = null inside the write callback, eliminating
 // a repeated-write loop on subsequent calls.
 //
 // Healing rules (first-match-wins order):
@@ -1021,6 +1111,7 @@ function computeHealedStatus(rootIndex: RootIndex): {
   healedStatus: ProjectStatus;
   needsWrite: boolean;
   corruptionDetected: boolean;
+  legacySynthesisTimestampRepair: boolean; // true when synthesis_generated===true, corruptionDetected===false, and synthesis_generated_at is absent/null → signals getProjectStatus to backfill synthesis_generated_at = last_updated
 };
 
 // Returns the absolute path to the central ledger root directory.
@@ -1174,6 +1265,35 @@ function getOrderedActiveStages(
 //   describePipelineTypes('Pipeline type:') →
 //     'Pipeline type: "implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"'
 function describePipelineTypes(prefix: string): string;
+
+// Returns the first pipeline stage in canonical order from the given active stages.
+// Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+// Secondary fallback: returns DEFAULT_PIPELINE_STAGES[0] when orderedActive is empty.
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   firstActiveStage(['qa','documentation']) → 'qa'
+//   firstActiveStage(null)                   → 'implementation'  (DEFAULT_PIPELINE_STAGES fallback)
+//   firstActiveStage(undefined)              → 'implementation'
+function firstActiveStage(stages?: readonly PipelineType[] | null): PipelineType;
+
+// Returns the last pipeline stage in canonical order from the given active stages.
+// Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+// Secondary fallback: returns DEFAULT_PIPELINE_STAGES[last] when orderedActive is empty.
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   lastActiveStage(['implementation','qa']) → 'qa'
+//   lastActiveStage(null)                    → 'documentation'  (DEFAULT_PIPELINE_STAGES fallback)
+//   lastActiveStage(undefined)               → 'documentation'
+function lastActiveStage(stages?: readonly PipelineType[] | null): PipelineType;
+
+// Validates a proposed active_pipeline_stages array against all hard and soft rules.
+// Returns { errors, warnings } — caller is responsible for acting on errors (typically throws errors[0]).
+// Hard errors: empty array, unknown stage names, duplicates, out-of-canonical-order.
+// Soft warnings: implementation without qa, single-stage chain.
+// Exported from src/utils/pipeline-maps.ts. Used by createWorkPackage() to replace
+// the previous ~60-line inline validation block.
+// Note: accepts string[] rather than PipelineType[] — validated internally.
+function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] };
 ```
 
 ### Project Name Resolution — `src/utils/read-project-name.ts`
@@ -1262,35 +1382,39 @@ export function analyzeProjectForReset(
   workPackages: WorkPackageDetail[]
 ): ProjectResetDiagnosis;
 
-// ── Mutation (async — writes under lock) ────────────────────────────────────
+// ── Mutation (async — writes via batchUpdateWorkPackagesWithSync) ────────────
 
-// Applies user-confirmed per-WP decisions atomically inside a single withLock() scope.
+// Applies user-confirmed per-WP decisions atomically via a single
+// store.batchUpdateWorkPackagesWithSync() call (single lock acquisition).
 // For each WP:
 //   'reset'  → wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
 //              wp.status_changed_at updated, wp.reset_at set to the mutation timestamp;
 //              if reset_criteria !== false, all acceptance_criteria[].met = false;
 //              blocked_by removed.
 //   'cancel' → wp.status = 'CANCELLED', wp.status_changed_at updated. reset_at NOT set.
-//   'skip'   → WP file not written.
+//   'skip'   → WP file not written (readWp is not called for skip-action WPs).
 // Missing entries in `decisions` default to 'skip'.
 // Stale-state guard: if wp.status changed since diagnosis was produced, the WP is
 // silently skipped (writes to stderr) to prevent clobbering concurrent changes.
-// Root index updates (all inside lock): pending_work_packages recomputed,
+// Root index updates (all inside batch callback): pending_work_packages recomputed,
 // status → 'IN_PROGRESS', synthesis_generated → false, auto_handoff_depth → 0,
 // project_comment appended with ISO timestamp.
+// wp.last_updated is auto-stamped by batchUpdateWorkPackagesWithSync (may differ slightly
+// from wp.status_changed_at / wp.reset_at, which are set inside the callback — cosmetic only).
 export async function applyProjectReset(
   store: LedgerStore,
   diagnosis: ProjectResetDiagnosis,
   decisions: Record<string, WpDecision>
 ): Promise<ProjectResetResult>;
 
-// ── Mark as complete (mutation function — performs I/O under lock) ──────────
+// ── Mark as complete (mutation function — performs I/O via batchUpdateWorkPackagesWithSync) ──
 
 // Forces every non-CANCELLED work package and the project itself to COMPLETE
-// status in a single lock scope. Updates WP detail files, root index
-// (status=COMPLETE, pending_work_packages=0, last_updated), and appends an
-// admin_action project comment before calling store.writeRootIndex() (which
-// auto-syncs .meta.json). CANCELLED WPs are skipped entirely.
+// status via a single store.batchUpdateWorkPackagesWithSync() call (single lock
+// acquisition). CANCELLED WPs are skipped entirely (readWp is not called for them).
+// Root index mutations (all inside batch callback): status = COMPLETE,
+// pending_work_packages = 0, last_updated, admin_action project comment appended.
+// wp.last_updated is auto-stamped by batchUpdateWorkPackagesWithSync.
 //
 // The `slug` parameter is accepted for call-site clarity but is already bound
 // on the LedgerStore (`void slug;` inside the function body).
@@ -1344,9 +1468,38 @@ export const _internal: {
 // When ledgerRootOrOpts is a { store } object, uses the provided LedgerStore directly
 // (avoids redundant construction). Otherwise constructs its own store and acquires
 // its own lock. String form preserved for backward compatibility.
+//
+// Early-return guard: reads the root index once before acquiring the batch lock.
+// If no BLOCKED WP has completedWpId in its dependencies list, the function returns
+// immediately — skipping lock acquisition, the in-batch root index read, all WP
+// detail reads, and the .meta.json sync write. The batch callback re-reads the root
+// inside the lock on the non-early-return path, making this optimization safe under
+// concurrent writes (worst-case race: a WP becomes BLOCKED after the pre-check and
+// is missed on this call; it will be caught on the next dependency completion).
 export function propagateDependencyUnblock(
   projectPath: string,
   completedWpId: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): Promise<void>;
+```
+
+```typescript
+// When ledgerRootOrOpts is a { store } object, uses the provided LedgerStore directly
+// (avoids redundant construction). Otherwise constructs its own store and acquires
+// its own lock. String form preserved for backward compatibility.
+//
+// Early-return guard: reads the root index once before acquiring the batch lock.
+// If no WP with status READY, IN_PROGRESS, or COMPLETE has reopenedWpId in its
+// dependencies list, the function returns immediately — skipping lock acquisition,
+// the in-batch root index read, all WP detail reads, and the .meta.json sync write.
+// BLOCKED and CANCELLED dependents are untouched by both processing loops so they
+// do not qualify. The batch callback re-reads the root inside the lock on the
+// non-early-return path, making this optimization safe under concurrent writes
+// (worst-case race: a WP becomes READY/IN_PROGRESS after the pre-check and is missed
+// on this call; it will be caught on the next status transition).
+async function propagateDependencyReblock(
+  projectPath: string,
+  reopenedWpId: string,
   ledgerRootOrOpts?: string | { store: LedgerStore }
 ): Promise<void>;
 ```
@@ -1386,6 +1539,8 @@ export const _internal: {
   // Appends a warning comment to the last pipeline of any COMPLETE dependents.
   // Sets status_changed_at = now() on each cascade-blocked WP before writing.
   // Resets root.synthesis_generated to false if any WPs were re-blocked.
+  // Early-return guard: skips lock and all WP reads when no READY, IN_PROGRESS,
+  // or COMPLETE WP has reopenedWpId in its dependencies.
   propagateDependencyReblock: (
     projectPath: string,
     reopenedWpId: string,
@@ -2060,6 +2215,11 @@ Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, 
 Exported from `src/utils/workflow-helpers.ts`. Consumed by all three workflow tool sub-modules and re-exported via `workflow.ts`.
 
 ```typescript
+// Clears synthesis-related fields on a root index: sets synthesis_generated = false
+// and synthesis_generated_at = null. Centralises the two-line pattern that was
+// previously duplicated at 5 inline call sites (project-lifecycle.ts, work-package.ts x3, project-reset.ts).
+export function clearSynthesisState(rootIndex: RootIndex): void;
+
 export const STALE_PIPELINE_HOURS: number; // default 24
 
 // Returns the current max auto-handoff chain depth from the in-memory GUI config cache.

@@ -9,6 +9,7 @@
  */
 
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
+import type { RootIndex } from '../schema/root-index.js';
 import { parseTimestamp } from './timestamp.js';
 import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
 import { getDownstreamTypes, getUpstreamTypes, resolveFailAgent, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
@@ -60,6 +61,20 @@ export function effectiveMaxDepth(
   configMax: number = getMaxHandoffDepth(),
 ): number {
   return Math.max(configMax, totalWorkPackages * 30);
+}
+
+// ---------------------------------------------------------------------------
+// Synthesis state helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Clears synthesis-related fields on the root index. Centralises the two-line
+ * pattern `synthesis_generated = false; synthesis_generated_at = null;` that
+ * was previously duplicated at 5 call sites.
+ */
+export function clearSynthesisState(rootIndex: RootIndex): void {
+  rootIndex.synthesis_generated = false;
+  rootIndex.synthesis_generated_at = null;
 }
 
 // ---------------------------------------------------------------------------

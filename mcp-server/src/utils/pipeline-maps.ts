@@ -264,3 +264,95 @@ export function describePipelineAgents(prefix: string): string {
   const mappings = PIPELINE_TYPES.map((t) => `"${PIPELINE_AGENT_MAP[t]}" for ${t}`).join(', ');
   return `${prefix} ${mappings}. "Project Manager" is always allowed (PM Override).`;
 }
+
+/**
+ * Returns the first active pipeline stage in canonical order.
+ * Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+ * Per §6.2.1: named helper to eliminate inline orderedActive[0] patterns.
+ */
+export function firstActiveStage(stages?: readonly PipelineType[] | null): PipelineType {
+  const resolved = stages ?? DEFAULT_PIPELINE_STAGES;
+  const orderedActive = getOrderedActiveStages(resolved);
+  return orderedActive[0] ?? DEFAULT_PIPELINE_STAGES[0]!;
+}
+
+/**
+ * Returns the last active pipeline stage in canonical order.
+ * Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+ * Per §6.2.1: named helper to eliminate inline orderedActive[length-1] patterns.
+ */
+export function lastActiveStage(stages?: readonly PipelineType[] | null): PipelineType {
+  const resolved = stages ?? DEFAULT_PIPELINE_STAGES;
+  const orderedActive = getOrderedActiveStages(resolved);
+  return orderedActive[orderedActive.length - 1] ?? DEFAULT_PIPELINE_STAGES[DEFAULT_PIPELINE_STAGES.length - 1]!;
+}
+
+/**
+ * Validates a proposed active_pipeline_stages array against all hard and soft rules.
+ * Returns { errors, warnings } instead of throwing — the caller is responsible
+ * for acting on errors (typically by throwing errors[0]).
+ *
+ * Hard errors: empty array, unknown stage names, duplicates, out-of-canonical-order.
+ * Soft warnings: implementation without qa, single-stage chain.
+ */
+export function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (stages.length === 0) {
+    errors.push(
+      `active_pipeline_stages cannot be empty. At least one stage is required. ` +
+      `Omit the parameter to use the default stages: ${DEFAULT_PIPELINE_STAGES.join(' \u2192 ')}.`
+    );
+    return { errors, warnings };
+  }
+
+  const validTypes = new Set<string>(PIPELINE_TYPES);
+  const invalidTypes = stages.filter((s) => !validTypes.has(s));
+  if (invalidTypes.length > 0) {
+    errors.push(
+      `Invalid pipeline stage(s): ${invalidTypes.join(', ')}. ` +
+      `Valid types are: ${PIPELINE_TYPES.join(', ')}.`
+    );
+    return { errors, warnings };
+  }
+
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  for (const s of stages) {
+    if (seen.has(s)) duplicates.push(s);
+    else seen.add(s);
+  }
+  if (duplicates.length > 0) {
+    errors.push(`Duplicate pipeline stage(s): ${duplicates.join(', ')}. Each stage may appear at most once.`);
+    return { errors, warnings };
+  }
+
+  const asTyped = stages as PipelineType[];
+  let canonicalIdx = 0;
+  for (const stage of asTyped) {
+    while (
+      canonicalIdx < CANONICAL_PIPELINE_ORDERING.length &&
+      CANONICAL_PIPELINE_ORDERING[canonicalIdx] !== stage
+    ) {
+      canonicalIdx++;
+    }
+    if (canonicalIdx >= CANONICAL_PIPELINE_ORDERING.length) {
+      errors.push(
+        `Pipeline stages are out of canonical order. Stages must be a subsequence of: ` +
+        `${CANONICAL_PIPELINE_ORDERING.join(' \u2192 ')}. Provided: ${asTyped.join(' \u2192 ')}.`
+      );
+      return { errors, warnings };
+    }
+    canonicalIdx++;
+  }
+
+  if (asTyped.includes('implementation') && !asTyped.includes('qa')) {
+    warnings.push('Warning: pipeline contains implementation without qa. Shipping code without QA is risky but permitted.');
+  }
+  if (asTyped.length === 1) {
+    warnings.push(`Warning: single-stage pipeline chain (${asTyped[0]}). This is usually intentional but worth confirming.`);
+  }
+
+  return { errors, warnings };
+}

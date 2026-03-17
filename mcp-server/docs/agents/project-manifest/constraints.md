@@ -58,7 +58,7 @@ await atomicWriteJson(targetPath, data);
 
 ### 2. Dual-File Updates Require Locking
 
-**Rule:** When updating both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock(store.storageDir, ...)`. **`store.storageDir` is the only acceptable first argument to `withLock` — never pass `projectPath`, `ledgerRoot`, or `ledgerRoot ?? projectPath`.** Once a `LedgerStore` is constructed, use its `.storageDir` property to obtain the canonical lock directory.
+**Rule:** When writing both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use the appropriate high-level method: `LedgerStore.createWorkPackageWithSync()` for creating a new WP, `LedgerStore.updateWorkPackageWithSync()` for updating a single existing WP, or `LedgerStore.batchUpdateWorkPackagesWithSync()` for updating multiple WPs in one operation (see Constraint 2b). Only fall back to a manual `withLock(store.storageDir, ...)` scope when none of these methods covers the use case. **`store.storageDir` is the only acceptable first argument to `withLock` — never pass `projectPath`, `ledgerRoot`, or `ledgerRoot ?? projectPath`.** Once a `LedgerStore` is constructed, use its `.storageDir` property to obtain the canonical lock directory.
 
 **Extension — Single-File Read-Modify-Write:** Even when updating only the root index, any read-modify-write sequence must also be wrapped in `withLock(store.storageDir, ...)` to prevent TOCTOU races. Example: `completeSynthesis` reads the root index, mutates `synthesis_generated` and project status, then writes it back — this entire sequence must occur inside a single lock scope.
 
@@ -73,12 +73,83 @@ await store.writeRootIndex(updatedRoot);
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — atomic dual-file update
+// ✅ CORRECT — atomic dual-file creation (new WP)
+await store.createWorkPackageWithSync(async (root) => {
+  // ... build new WP detail and updated root ...
+  return { wpId, wp: newWpDetail, root: updatedRoot };
+});
+
+// ✅ CORRECT — atomic dual-file update (existing WP)
 await store.updateWorkPackageWithSync(wpId, (wp, root) => {
   // ... update both wp and root ...
   return { wp: updatedWp, root: updatedRoot };
 });
 ```
+
+---
+
+### 2b. Batch Multi-WP Writes Must Use `batchUpdateWorkPackagesWithSync`
+
+**Rule:** When updating multiple work packages and the root index in a single operation, always use `LedgerStore.batchUpdateWorkPackagesWithSync()`. Never loop over `updateWorkPackageWithSync()` calls or acquire multiple separate `withLock` scopes to write a batch of WPs — this produces one lock acquisition per WP instead of one per operation.
+
+**Rationale:** A loop of per-WP lock acquisitions is not atomic at the operation level: a crash or concurrent write between iterations can leave some WPs updated while others are not, desynchronizing WP state and the root index. `batchUpdateWorkPackagesWithSync` consolidates all reads, validation, writes, and the root index sync into a single lock scope.
+
+**Atomicity invariant (two-pass validate-then-write):** The method validates all WPs via Zod **before** writing any of them. A validation failure on any WP in the batch aborts the entire operation with no disk writes. This is stronger than the per-WP atomicity provided by `updateWorkPackageWithSync`, which validates and writes one WP at a time.
+
+**Note on lock-scope vs. rollback-scope atomicity:** If a file write succeeds for WP-A but a subsequent I/O error prevents writing WP-B, WP-A's write is not rolled back. This characteristic is shared with `updateWorkPackageWithSync`. Validation failures are fully atomic (no writes); I/O failures after the write phase begin are not.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — multiple lock acquisitions; not atomic across the batch
+for (const wpId of candidateIds) {
+  await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+    // ...
+    return { wp: updatedWp, root: updatedRoot };
+  });
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock; all WPs validated before any write
+await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+  const updatedWps = new Map<string, WorkPackageDetail>();
+  for (const wpId of candidateIds) {
+    const wp = await readWp(wpId);
+    // ... mutate wp ...
+    updatedWps.set(wpId, wp);
+  }
+  // ... mutate root ...
+  return { updatedWps, root: updatedRoot };
+});
+```
+
+**Known callers:** `propagateDependencyUnblock` and `propagateDependencyReblock` in `src/tools/work-package.ts`; `applyProjectReset` and `markProjectComplete` in `src/utils/project-reset.ts`.
+
+---
+
+### 2c. `writeWorkPackage` and `writeRootIndex` Are `@internal` — Tool Code Must Not Call Them Directly
+
+**Rule:** `LedgerStore.writeWorkPackage()` and `LedgerStore.writeRootIndex()` are marked `@internal` in source. Tool functions (`src/tools/`) and shared helpers (`src/utils/`) must never call these methods directly. All WP+root writes must go through one of the three sync methods (Constraints 2 and 2b).
+
+**Rationale:** Bypassing the sync methods skips `last_updated` auto-stamping, Zod validation, `.meta.json` sync, and the single-lock atomicity guarantee. The `@internal` tag is documentation-only (TypeScript does not enforce it) — this constraint encodes the boundary as a project rule.
+
+**Legitimate direct callers of `writeRootIndex` (non-tool code):**
+- `src/tools/project-lifecycle.ts` — `getProjectStatus()` self-healing: repairs stale counter fields under an explicit `withLock` scope; `initializeProject()` and `completeSynthesis()` for root-index-only transitions that don't involve any WP file write
+- `auto-archive.ts` — sets `status: 'ARCHIVED'` with `preserveLastUpdated: true` (root-index write only; sync methods do not apply)
+- `observations.ts` — appends a project-level comment (root-index write only; no WP file involved)
+- `workflow-handoff.ts` — `buildHandoffResponse()`: increments or caps the `auto_handoff_depth` counter on every handoff-status response; root-index-only write with no WP file involvement
+
+**`writeWorkPackage` — zero external callers (post-WP-002):** As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has no legitimate external callers. Every previously-direct caller (e.g., `project-reset.ts`) has been migrated to a sync method. The `@internal` boundary for `writeWorkPackage` is now absolute.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — bypasses auto-stamping, validation, and .meta.json sync
+await store.writeWorkPackage(wpId, updatedWp);
+await store.writeRootIndex(updatedRoot);
+```
+
+**Correct pattern:** Use `updateWorkPackageWithSync`, `createWorkPackageWithSync`, or `batchUpdateWorkPackagesWithSync` as shown in Constraints 2 and 2b.
 
 ---
 
@@ -108,7 +179,7 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 
 ### 5. `.meta.json` Must Be Written Under the Project Lock
 
-**Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync).
+**Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync). Note: `writeRootIndex` is `@internal` — see Constraint 2c for the list of legitimate direct callers.
 
 **Rationale:** Prevents `.meta.json` from lagging behind the root index in a concurrent environment.
 
@@ -734,7 +805,7 @@ Hand off to the Project Manager or Documentation agent to formally reopen this w
 
 **Rationale:** Prevents developer or QA agents from silently reopening completed work, bypassing the formal re-planning and documentation steps.
 
-**Additional effect:** On `COMPLETE → IN_PROGRESS`, rework state is fully reset: `rework_counts` is set to `{}`, `rework_count` is set to `0`, and `root.synthesis_generated` is cleared. This ensures that a reopened WP starts with a clean rework slate and prevents the Synthesis agent from being gated by stale synthesis state.
+**Additional effect:** On `COMPLETE → IN_PROGRESS`, rework state is fully reset: `rework_counts` is set to `{}`, `rework_count` is set to `0`, `root.synthesis_generated` is cleared, and `root.synthesis_generated_at` is set to `null`. This ensures that a reopened WP starts with a clean rework slate and prevents the Synthesis agent from being gated by stale synthesis state.
 
 ---
 
@@ -885,8 +956,8 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 **Additional behaviors:**
 - **COMPLETE dependents:** For each `COMPLETE` WP that lists the reopened WP as a dependency, a warning comment is appended to its last pipeline (type: `"warning"`, priority: `"high"`).
-- **`synthesis_generated` reset:** If any WP was re-blocked (i.e., `candidates.length > 0`), `root.synthesis_generated` is reset to `false` to ensure the Synthesis agent must re-run.
-- If no candidates were re-blocked, `synthesis_generated` is **not** changed.
+- **`synthesis_generated` reset:** If any WP was re-blocked (i.e., `candidates.length > 0`), `root.synthesis_generated` is reset to `false` and `root.synthesis_generated_at` is set to `null` to ensure the Synthesis agent must re-run.
+- If no candidates were re-blocked, `synthesis_generated` and `synthesis_generated_at` are **not** changed.
 
 **Enforcement:** `propagateDependencyReblock()` in `src/tools/work-package.ts`.
 
@@ -965,7 +1036,7 @@ Work package summaries in the root index duplicate a subset of data from the wor
 
 **Reason:** Performance — agents can list work packages without loading all detail files.
 
-**Invariant:** Summaries must always match the corresponding detail files. This is enforced by `updateWorkPackageWithSync()`.
+**Invariant:** Summaries must always match the corresponding detail files. This is enforced by `createWorkPackageWithSync()` (creation) and `updateWorkPackageWithSync()` (updates).
 
 ---
 
@@ -1569,3 +1640,23 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 - The 250ms debounce is mandatory — do not reduce it. Windows `fs.watch()` commonly emits duplicate events within <100ms of a file write.
 - On watcher error or file parse failure, the cache retains its last known good values. The server continues operating with stale config rather than crashing.
 - `ledger_root` in `gui-config.json` is **read-only** from the GUI perspective. `writeConfig()` strips it from incoming data. API handlers **MUST NOT** allow callers to overwrite it via `PUT /api/config`.
+
+---
+
+### 70. Advisory Dependency Freshness Check on PASS Completion (§21.59)
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` on a WP that has `dependencies`, the server performs an advisory staleness check. For each dependency, the server reads the full WP detail (pre-lock, before lock acquisition) and uses `dep.last_updated` directly. Inside the lock callback, if `dep.last_updated` is later than `pipeline.started_at` (using Date-based comparison via `new Date().getTime()` instead of lexicographic string comparison), a project comment is appended:
+
+```typescript
+{ type: 'warning', priority: 'low', agent: 'system', note: '<dep WP-XXX was modified after this pipeline started>' }
+```
+
+**PASS is never blocked.** This check is purely advisory — no pipeline status is changed, no error is thrown.
+
+**Skip conditions:** The check is entirely skipped when:
+- `pipeline.started_at` is absent (unstarted or legacy pipeline record), OR
+- the WP's `dependencies` array is empty.
+
+**`last_updated` field:** `WorkPackageDetail` now includes a dedicated `last_updated: z.string().optional()` field that is auto-stamped with `now()` on every WP detail write path (status transitions, claim, pipeline start/complete/cancel, creation, cascade reblock/unblock). The previous composite proxy (`max(status_changed_at, latest_pipeline.completed_at)`) is no longer used. The `last_updated` field is auto-stamped via `updateWorkPackageWithSync` (the primary choke point), plus explicit setting in `createWorkPackage`, `propagateDependencyUnblock`, and `propagateDependencyReblock` (which bypass the choke point). Existing WP detail files without the field parse without error (the field is optional).
+
+**Race window (acceptable):** Dependency WP files are read before lock acquisition. A dependency could theoretically be modified between the pre-read and the lock. For an advisory-only check this race window is acceptable — false negatives do not affect correctness.

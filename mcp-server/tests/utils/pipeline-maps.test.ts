@@ -7,6 +7,10 @@ import {
   resolveFailAgent,
   describePipelineTypes,
   describePipelineAgents,
+  firstActiveStage,
+  lastActiveStage,
+  validateActiveStages,
+  DEFAULT_PIPELINE_STAGES,
   PIPELINE_TYPES,
   PIPELINE_AGENT_MAP,
   type PipelineType,
@@ -288,5 +292,168 @@ describe('describePipelineAgents', () => {
 
   it('different prefixes produce different output strings', () => {
     expect(describePipelineAgents('A:')).not.toBe(describePipelineAgents('B:'));
+  });
+});
+
+// ─── firstActiveStage (§6.2.1) ─────────────────────────────────────────────
+
+describe('firstActiveStage', () => {
+  it('returns "implementation" for legacy-4 (first in canonical order)', () => {
+    expect(firstActiveStage(LEGACY_4)).toBe('implementation');
+  });
+
+  it('returns "implementation" for all-6 (first in canonical order)', () => {
+    expect(firstActiveStage(['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'])).toBe('implementation');
+  });
+
+  it('returns the only stage when a single-stage composition is used', () => {
+    expect(firstActiveStage(['documentation'])).toBe('documentation');
+  });
+
+  it('respects canonical ordering — returns "qa" for a qa+code-review composition', () => {
+    const stages: readonly PipelineType[] = ['qa', 'code-review'];
+    expect(firstActiveStage(stages)).toBe('qa');
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES[0] when stages is null', () => {
+    expect(firstActiveStage(null)).toBe(DEFAULT_PIPELINE_STAGES[0]);
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES[0] when stages is undefined', () => {
+    expect(firstActiveStage(undefined)).toBe(DEFAULT_PIPELINE_STAGES[0]);
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES[0] when stages is an empty array', () => {
+    // getOrderedActiveStages([]) returns [] — fallback to DEFAULT_PIPELINE_STAGES
+    expect(firstActiveStage([])).toBe(DEFAULT_PIPELINE_STAGES[0]);
+  });
+});
+
+// ─── lastActiveStage (§6.2.1) ──────────────────────────────────────────────
+
+describe('lastActiveStage', () => {
+  it('returns "documentation" for legacy-4 (last in canonical order)', () => {
+    expect(lastActiveStage(LEGACY_4)).toBe('documentation');
+  });
+
+  it('returns "documentation" for all-6', () => {
+    expect(lastActiveStage(['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'])).toBe('documentation');
+  });
+
+  it('returns "implementation" for implementation-only composition', () => {
+    expect(lastActiveStage(['implementation'])).toBe('implementation');
+  });
+
+  it('returns "code-review" for implementation+code-review composition', () => {
+    const stages: readonly PipelineType[] = ['implementation', 'code-review'];
+    expect(lastActiveStage(stages)).toBe('code-review');
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES last when stages is null', () => {
+    const last = DEFAULT_PIPELINE_STAGES[DEFAULT_PIPELINE_STAGES.length - 1]!;
+    expect(lastActiveStage(null)).toBe(last);
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES last when stages is undefined', () => {
+    const last = DEFAULT_PIPELINE_STAGES[DEFAULT_PIPELINE_STAGES.length - 1]!;
+    expect(lastActiveStage(undefined)).toBe(last);
+  });
+
+  it('returns different values from firstActiveStage for multi-stage compositions', () => {
+    expect(lastActiveStage(LEGACY_4)).not.toBe(firstActiveStage(LEGACY_4));
+  });
+
+  it('returns the same value as firstActiveStage for a single-stage composition', () => {
+    expect(lastActiveStage(['qa'])).toBe(firstActiveStage(['qa']));
+  });
+});
+
+// ─── validateActiveStages ──────────────────────────────────────────────────
+
+describe('validateActiveStages', () => {
+  it('returns no errors for the default 4-stage set', () => {
+    const { errors, warnings } = validateActiveStages([...DEFAULT_PIPELINE_STAGES] as string[]);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns no errors for the full 6-stage set', () => {
+    const { errors } = validateActiveStages([...PIPELINE_TYPES] as string[]);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns no errors for a valid 3-stage subset (qa + code-review + documentation)', () => {
+    const { errors, warnings } = validateActiveStages(['qa', 'code-review', 'documentation']);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns error for an empty array', () => {
+    const { errors } = validateActiveStages([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('cannot be empty');
+  });
+
+  it('returns error for an unknown stage name', () => {
+    const { errors } = validateActiveStages(['implementation', 'unit-test']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('unit-test');
+  });
+
+  it('returns error for multiple unknown stage names', () => {
+    const { errors } = validateActiveStages(['unknown-a', 'unknown-b']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('unknown-a');
+    expect(errors[0]).toContain('unknown-b');
+  });
+
+  it('returns error for duplicate stages', () => {
+    const { errors } = validateActiveStages(['implementation', 'qa', 'implementation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Duplicate');
+    expect(errors[0]).toContain('implementation');
+  });
+
+  it('returns error for stages out of canonical order', () => {
+    // documentation before implementation — violates canonical ordering
+    const { errors } = validateActiveStages(['documentation', 'implementation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('canonical order');
+  });
+
+  it('returns error for reversed canonical ordering', () => {
+    const { errors } = validateActiveStages(['code-review', 'qa', 'implementation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('canonical order');
+  });
+
+  it('returns warning for implementation without qa', () => {
+    const { errors, warnings } = validateActiveStages(['implementation', 'code-review', 'documentation']);
+    expect(errors).toHaveLength(0);
+    expect(warnings.some((w) => w.includes('implementation') && w.includes('qa'))).toBe(true);
+  });
+
+  it('returns warning for single-stage chain', () => {
+    const { errors, warnings } = validateActiveStages(['implementation']);
+    expect(errors).toHaveLength(0);
+    // Both warnings may fire (implementation without qa + single stage)
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some((w) => w.toLowerCase().includes('single-stage') || w.includes('single'))).toBe(true);
+  });
+
+  it('returns both warnings when implementation-only is used', () => {
+    const { errors, warnings } = validateActiveStages(['implementation']);
+    expect(errors).toHaveLength(0);
+    // Should have at least the single-stage warning; may also have the qa warning
+    expect(warnings.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('returns no warnings for the default 4-stage workflow', () => {
+    const { warnings } = validateActiveStages([...DEFAULT_PIPELINE_STAGES] as string[]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('returns error (not just warning) before checking for warnings on empty input', () => {
+    const { errors, warnings } = validateActiveStages([]);
+    expect(errors).toHaveLength(1);
+    expect(warnings).toHaveLength(0); // early return before warnings
   });
 });

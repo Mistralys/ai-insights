@@ -388,3 +388,70 @@ describe('applyProjectReset — reset_at', () => {
     expect(wpAfter.reset_at).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// WP-008 — applyProjectReset clears synthesis_generated_at
+// ---------------------------------------------------------------------------
+
+describe('applyProjectReset — clears synthesis_generated_at (WP-008)', () => {
+  const SYNTHTS_PLAN = join(tmpdir(), '2026-03-17-reset-synthts-test');
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'reset-synthts-ledger-'));
+  });
+
+  afterEach(async () => {
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('clears synthesis_generated_at to null on project reset', async () => {
+    const wp = makeWp('WP-001', 'COMPLETE', 'Documentation', [
+      'implementation', 'qa', 'code-review', 'documentation',
+    ]);
+    const rootIndex = makeRootIndex({
+      status: 'COMPLETE',
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Documentation', dependencies: [], file: 'WP-001.json' },
+      ],
+      synthesis_generated: true,
+      synthesis_generated_at: '2026-03-15T10:00:00Z',
+    });
+
+    const store = new LedgerStore(SYNTHTS_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'reset' } });
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.synthesis_generated).toBe(false);
+    expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+
+  it('synthesis_generated_at is null (not undefined) even if absent before reset', async () => {
+    const wp = makeWp('WP-001', 'COMPLETE', 'Documentation', [
+      'implementation', 'qa', 'code-review', 'documentation',
+    ]);
+    const rootIndex = makeRootIndex({
+      status: 'COMPLETE',
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Documentation', dependencies: [], file: 'WP-001.json' },
+      ],
+      synthesis_generated: true,
+      // synthesis_generated_at not set (legacy ledger scenario)
+    });
+
+    const store = new LedgerStore(SYNTHTS_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'reset' } });
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.synthesis_generated).toBe(false);
+    expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+});

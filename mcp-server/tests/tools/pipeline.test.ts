@@ -1969,3 +1969,430 @@ describe('completePipeline — auto-finalize triggers propagateDependencyUnblock
     expect(wp2.blocked_by?.type).toBe('technical');
   });
 });
+
+// ---------------------------------------------------------------------------
+// WP-008 — Cross-WP dependency freshness (staleness) advisory check (§21.59)
+// ---------------------------------------------------------------------------
+
+const STALENESS_PLAN_PATH = join(tmpdir(), '2026-03-17-staleness-check');
+
+describe('completePipeline — cross-WP dependency staleness advisory (WP-008)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  function makeStalenessRoot(deps: string[] = ['WP-001']): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 2,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+        { work_package_id: 'WP-002', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: deps, file: 'ledger/WP-002.json' },
+      ],
+      project_comments: [],
+    };
+  }
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'staleness-'));
+    store = new LedgerStore(STALENESS_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('emits advisory warning when dependency was modified after pipeline started', async () => {
+    // WP-001 last_updated AFTER WP-002's pipeline started
+    const PIPELINE_START = '2026-03-10T08:00:00Z';
+    const DEP_MODIFIED = '2026-03-12T10:00:00Z'; // after pipeline start
+
+    await store.writeRootIndex(makeStalenessRoot());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'PASS', started_at: '2026-03-01T00:00:00Z', completed_at: '2026-03-02T00:00:00Z', summary: ['Done'] },
+      ],
+      status_changed_at: DEP_MODIFIED,
+      last_updated: DEP_MODIFIED,
+    });
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: PIPELINE_START, summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: STALENESS_PLAN_PATH,
+      work_package_id: 'WP-002',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Implementation done'],
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+
+    // Check that advisory warning was emitted in project comments
+    const root = await store.readRootIndex();
+    const stalenessWarning = root.project_comments.find(
+      (c) => c.note.includes('WP-001') && c.note.includes('modified after pipeline started'),
+    );
+    expect(stalenessWarning).toBeDefined();
+    expect(stalenessWarning!.type).toBe('warning');
+    expect(stalenessWarning!.priority).toBe('low');
+  });
+
+  it('does NOT emit warning when dependencies were not modified after pipeline started', async () => {
+    // WP-001 completed BEFORE WP-002's pipeline started
+    const DEP_MODIFIED = '2026-03-08T10:00:00Z';
+    const PIPELINE_START = '2026-03-10T08:00:00Z';
+
+    await store.writeRootIndex(makeStalenessRoot());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'PASS', started_at: '2026-03-01T00:00:00Z', completed_at: DEP_MODIFIED, summary: ['Done'] },
+      ],
+      status_changed_at: DEP_MODIFIED,
+      last_updated: DEP_MODIFIED,
+    });
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: PIPELINE_START, summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: STALENESS_PLAN_PATH,
+      work_package_id: 'WP-002',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Implementation done'],
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+
+    const root = await store.readRootIndex();
+    const stalenessWarning = root.project_comments.find(
+      (c) => c.note.includes('modified after pipeline started'),
+    );
+    expect(stalenessWarning).toBeUndefined();
+  });
+
+  it('does NOT emit warning when pipeline result is FAIL', async () => {
+    const PIPELINE_START = '2026-03-10T08:00:00Z';
+    const DEP_MODIFIED = '2026-03-12T10:00:00Z';
+
+    await store.writeRootIndex(makeStalenessRoot());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+      status_changed_at: DEP_MODIFIED,
+      last_updated: DEP_MODIFIED,
+    });
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: PIPELINE_START, summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: STALENESS_PLAN_PATH,
+      work_package_id: 'WP-002',
+      type: 'implementation',
+      status: 'FAIL',
+      summary: ['Failed'],
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+
+    const root = await store.readRootIndex();
+    const stalenessWarning = root.project_comments.find(
+      (c) => c.note.includes('modified after pipeline started'),
+    );
+    expect(stalenessWarning).toBeUndefined();
+  });
+
+  it('does NOT emit warning when WP has no dependencies', async () => {
+    // WP-002 has no dependencies — no staleness check should run
+    const noDepsRoot: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-002', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-002.json' },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(noDepsRoot);
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: '2026-03-10T08:00:00Z', summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: STALENESS_PLAN_PATH,
+      work_package_id: 'WP-002',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+
+    const root = await store.readRootIndex();
+    const stalenessWarning = root.project_comments.find(
+      (c) => c.note.includes('modified after pipeline started'),
+    );
+    expect(stalenessWarning).toBeUndefined();
+  });
+
+  it('PASS is NOT blocked by staleness — pipeline completes successfully', async () => {
+    const PIPELINE_START = '2026-03-10T08:00:00Z';
+    const DEP_MODIFIED = '2026-03-12T10:00:00Z';
+
+    await store.writeRootIndex(makeStalenessRoot());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+      status_changed_at: DEP_MODIFIED,
+      last_updated: DEP_MODIFIED,
+    });
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: PIPELINE_START, summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: STALENESS_PLAN_PATH,
+      work_package_id: 'WP-002',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+    });
+
+    // Pipeline must complete — staleness is advisory only
+    expect((result as any).isError).toBeFalsy();
+    const wp2 = await store.readWorkPackage('WP-002');
+    const lastPipeline = wp2.pipelines.at(-1)!;
+    expect(lastPipeline.status).toBe('PASS');
+  });
+
+  it('Date-based comparison handles edge-case timestamps correctly', async () => {
+    // Regression test: lexicographic comparison would fail with certain timestamp patterns.
+    // Date '2026-03-10T09:59:59Z' < '2026-03-10T10:00:00Z' lexicographically and by Date.
+    // Date '2026-03-10T23:59:59Z' > '2026-03-10T10:00:00Z' by Date but could trip up naive string comparison.
+    const PIPELINE_START = '2026-03-10T10:00:00Z';
+    const DEP_MODIFIED = '2026-03-10T23:59:59Z'; // same day, later time — should trigger warning
+
+    await store.writeRootIndex(makeStalenessRoot());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'COMPLETE',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+      last_updated: DEP_MODIFIED,
+    });
+    await store.writeWorkPackage('WP-002', {
+      work_package_id: 'WP-002',
+      work_package_file: 'work/WP-002.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: ['WP-001'],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: PIPELINE_START, summary: [] },
+      ],
+    });
+
+    const result = await completePipeline({
+      project_path: STALENESS_PLAN_PATH,
+      work_package_id: 'WP-002',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['Done'],
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+    const root = await store.readRootIndex();
+    const stalenessWarning = root.project_comments.find(
+      (c) => c.note.includes('WP-001') && c.note.includes('modified after pipeline started'),
+    );
+    expect(stalenessWarning).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-002 Rework — last_updated lifecycle integration test
+// ---------------------------------------------------------------------------
+
+const LIFECYCLE_PLAN_PATH = join(tmpdir(), '2026-03-17-wp002-lifecycle');
+
+describe('WorkPackageDetail.last_updated — lifecycle integration (WP-002)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'lifecycle-'));
+    store = new LedgerStore(LIFECYCLE_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('last_updated is populated on every WP write via updateWorkPackageWithSync', async () => {
+    // Setup: create a root index and WP detail
+    const rootIndex: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'ledger/WP-001.json' },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(rootIndex);
+
+    // Write WP without last_updated (simulating a legacy WP)
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [],
+      // last_updated deliberately absent
+    });
+
+    // Verify it's absent initially
+    const beforeUpdate = await store.readWorkPackage('WP-001');
+    expect(beforeUpdate.last_updated).toBeUndefined();
+
+    // Trigger an updateWorkPackageWithSync (simulates pipeline start)
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      wp.pipelines.push({
+        type: 'implementation',
+        status: 'IN_PROGRESS',
+        started_at: now(),
+        summary: [],
+      });
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    // Verify last_updated is now populated
+    const afterUpdate = await store.readWorkPackage('WP-001');
+    expect(afterUpdate.last_updated).toBeDefined();
+    expect(typeof afterUpdate.last_updated).toBe('string');
+    expect(afterUpdate.last_updated!.length).toBeGreaterThan(0);
+
+    // Trigger a second update (simulates pipeline completion)
+    const firstTimestamp = afterUpdate.last_updated;
+    await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
+      const pipeline = wp.pipelines.at(-1)!;
+      pipeline.status = 'PASS';
+      pipeline.completed_at = now();
+      pipeline.summary = ['Done'];
+      root.last_updated = now();
+      return { wp, root };
+    });
+
+    const afterSecondUpdate = await store.readWorkPackage('WP-001');
+    expect(afterSecondUpdate.last_updated).toBeDefined();
+    // last_updated should be >= first timestamp (may be equal if fast enough)
+    expect(new Date(afterSecondUpdate.last_updated!).getTime())
+      .toBeGreaterThanOrEqual(new Date(firstTimestamp!).getTime());
+  });
+});

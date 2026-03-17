@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth } from '../../src/utils/workflow-helpers.js';
+import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth, clearSynthesisState } from '../../src/utils/workflow-helpers.js';
 import type { Pipeline, WorkPackageDetail } from '../../src/schema/work-package.js';
 import type { PipelineType } from '../../src/utils/pipeline-maps.js';
 import { makePipeline, makeWorkPackageDetail } from '../helpers/fixtures.js';
@@ -674,5 +674,35 @@ describe('effectiveMaxDepth (R8)', () => {
 
   it('returns 90 for totalWorkPackages=3 (3 × 30 = 90 > 50, ceiling wins)', () => {
     expect(effectiveMaxDepth(3, 50)).toBe(90);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clearSynthesisState (WP-003 rework)
+// ---------------------------------------------------------------------------
+
+describe('clearSynthesisState', () => {
+  it('sets synthesis_generated=false and synthesis_generated_at=null', () => {
+    const rootIndex = {
+      synthesis_generated: true,
+      synthesis_generated_at: '2026-03-01T00:00:00Z',
+    } as any;
+
+    clearSynthesisState(rootIndex);
+
+    expect(rootIndex.synthesis_generated).toBe(false);
+    expect(rootIndex.synthesis_generated_at).toBeNull();
+  });
+
+  it('is idempotent — calling twice does not throw or change values', () => {
+    const rootIndex = {
+      synthesis_generated: false,
+      synthesis_generated_at: null,
+    } as any;
+
+    clearSynthesisState(rootIndex);
+
+    expect(rootIndex.synthesis_generated).toBe(false);
+    expect(rootIndex.synthesis_generated_at).toBeNull();
   });
 });

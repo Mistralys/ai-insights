@@ -39,3 +39,9 @@ export type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
  */
 export const PLAN_ARCHIVE_FILENAME      = 'plan.md'       as const;
 export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
+
+/**
+ * Workflow specification version this MCP server implements.
+ * Update this whenever the workflow specification version advances.
+ */
+export const SPEC_VERSION = '2.4.0' as const;

@@ -7,18 +7,19 @@
  * 3. Applies user-confirmed reset decisions atomically
  *
  * The analysis function is pure (no I/O) for easy testing.
- * The apply function wraps all writes in a single lock scope.
+ * The apply function routes all WP writes through batchUpdateWorkPackagesWithSync.
  *
  * STDIO discipline: this file never writes to process.stdout.
  */
 
 import type { RootIndex } from '../schema/root-index.js';
+import { clearSynthesisState } from './workflow-helpers.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
 import { PIPELINE_AGENT_MAP, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
 import type { PipelineType } from './pipeline-maps.js';
 import { now } from './timestamp.js';
+import { isTerminalStatus } from '../schema/validators.js';
 import { LedgerStore } from '../storage/ledger-store.js';
-import { withLock } from '../storage/file-lock.js';
 
 // ---------------------------------------------------------------------------
 // Diagnosis types
@@ -339,9 +340,10 @@ export function analyzeProjectForReset(
 /**
  * Applies user-confirmed reset decisions to a project.
  *
- * All writes are wrapped in a single `withLock()` scope to prevent
- * concurrent modifications. The function re-reads all WPs under lock
- * before writing to guard against stale diagnoses.
+ * All writes are routed through `batchUpdateWorkPackagesWithSync`, which
+ * acquires a single lock, auto-stamps `last_updated`, and validates every
+ * WP via Zod before writing. WPs are re-read inside the lock to guard
+ * against stale diagnoses.
  */
 export async function applyProjectReset(
   store: LedgerStore,
@@ -352,10 +354,9 @@ export async function applyProjectReset(
   const cancelledIds: string[] = [];
   const skippedIds: string[] = [];
 
-  await withLock(store.storageDir, async () => {
-    // Re-read root index under lock
-    const rootIndex = await store.readRootIndex();
+  await store.batchUpdateWorkPackagesWithSync(async (rootIndex, readWp) => {
     const timestamp = now();
+    const updatedWps = new Map<string, WorkPackageDetail>();
 
     for (const wpDiag of diagnosis.work_packages) {
       const wpId = wpDiag.work_package_id;
@@ -367,7 +368,7 @@ export async function applyProjectReset(
       }
 
       // Re-read WP under lock to ensure freshness
-      const wp = await store.readWorkPackage(wpId);
+      const wp = await readWp(wpId);
 
       // Guard: if WP status changed since diagnosis, skip with warning
       if (wp.status !== wpDiag.current_status) {
@@ -397,7 +398,7 @@ export async function applyProjectReset(
           delete (wp as Record<string, unknown>).blocked_by;
         }
 
-        await store.writeWorkPackage(wpId, wp);
+        updatedWps.set(wpId, wp);
         resetIds.push(wpId);
 
         // Update WP summary in root index
@@ -411,7 +412,8 @@ export async function applyProjectReset(
       } else if (decision.action === 'cancel') {
         wp.status = 'CANCELLED';
         wp.status_changed_at = timestamp;
-        await store.writeWorkPackage(wpId, wp);
+
+        updatedWps.set(wpId, wp);
         cancelledIds.push(wpId);
 
         // Update WP summary in root index
@@ -426,13 +428,12 @@ export async function applyProjectReset(
     }
 
     // Recompute project-level fields
-    const nonTerminalStatuses = ['READY', 'IN_PROGRESS', 'BLOCKED'];
     rootIndex.pending_work_packages = rootIndex.work_packages.filter(
-      (wp) => nonTerminalStatuses.includes(wp.status)
+      (wp) => !isTerminalStatus(wp.status)
     ).length;
 
     rootIndex.status = 'IN_PROGRESS';
-    rootIndex.synthesis_generated = false;
+    clearSynthesisState(rootIndex);
     rootIndex.auto_handoff_depth = 0;
     rootIndex.last_updated = timestamp;
 
@@ -458,7 +459,7 @@ export async function applyProjectReset(
       note: commentNote,
     });
 
-    await store.writeRootIndex(rootIndex);
+    return { updatedWps, root: rootIndex };
   });
 
   return {
@@ -497,17 +498,18 @@ export async function markProjectComplete(
   void slug; // slug is held on the store; kept for call-site clarity
   const completedIds: string[] = [];
 
-  await withLock(store.storageDir, async () => {
-    const rootIndex = await store.readRootIndex();
+  await store.batchUpdateWorkPackagesWithSync(async (rootIndex, readWp) => {
     const timestamp = now();
+    const updatedWps = new Map<string, WorkPackageDetail>();
 
     for (const wpSummary of rootIndex.work_packages) {
       if (wpSummary.status === 'CANCELLED') continue;
 
-      const wp = await store.readWorkPackage(wpSummary.work_package_id);
+      const wp = await readWp(wpSummary.work_package_id);
       wp.status = 'COMPLETE';
       wp.status_changed_at = timestamp;
-      await store.writeWorkPackage(wpSummary.work_package_id, wp);
+
+      updatedWps.set(wpSummary.work_package_id, wp);
       completedIds.push(wpSummary.work_package_id);
 
       wpSummary.status = 'COMPLETE';
@@ -527,7 +529,7 @@ export async function markProjectComplete(
       note,
     });
 
-    await store.writeRootIndex(rootIndex);
+    return { updatedWps, root: rootIndex };
   });
 
   const note = `Marked project as complete via GUI. ${completedIds.length} work package(s) set to COMPLETE: ${completedIds.join(', ')}.`;

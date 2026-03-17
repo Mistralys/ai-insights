@@ -106,52 +106,62 @@ On NOT_FOUND: Return error with guidance to initialize the project
 ```
 Agent → ledger_create_work_package(project_path, assigned_to, dependencies, ...)
   ↓
+Pre-lock validation (outside lock scope):
+  - Validate dependencies exist
+  - Validate active_pipeline_stages if provided:
+      validateActiveStages(args.active_pipeline_stages, CANONICAL_PIPELINE_ORDERING)
+        Hard guardrails (reject with error — creation aborted):
+          - empty array
+          - entries not in PIPELINE_TYPES
+          - duplicate entries
+          - entries not a subsequence of CANONICAL_PIPELINE_ORDERING
+        Soft guardrails (warning appended to success response — creation NOT aborted):
+          - 'implementation' present without 'qa'
+          - single-stage chain
+      Default when omitted: DEFAULT_PIPELINE_STAGES (['implementation', 'qa', 'code-review', 'documentation'])
+  ↓
+LedgerStore.createWorkPackageWithSync(creator)  ← primary choke point for WP creation
+  ↓
 withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
   ↓
 LedgerStore.readRootIndex()
   ↓
-Generate next WP ID (max-based):
-  - Scan existing work_packages for highest numeric suffix
-  - Next ID = max + 1 (e.g., if highest is WP-003, next is WP-004)
-  - Empty project → WP-001
+creator callback:
+  Generate next WP ID (max-based):
+    - Scan existing work_packages for highest numeric suffix
+    - Next ID = max + 1 (e.g., if highest is WP-003, next is WP-004)
+    - Empty project → WP-001
   ↓
-Validate dependencies exist
+  Cycle detection: hasCycle(newWpId, deps, allExistingWps) [BFS]
+    If cycle detected → throw error (no write occurs)
   ↓
-Cycle detection: hasCycle(newWpId, deps, allExistingWps) [BFS]
-  If cycle detected → reject with error before any write
+  Determine initial status (READY or BLOCKED based on dependencies)
   ↓
-Validate active_pipeline_stages if provided:
-  validateActiveStages(args.active_pipeline_stages, CANONICAL_PIPELINE_ORDERING)
-    Hard guardrails (reject with error — creation aborted):
-      - empty array
-      - entries not in PIPELINE_TYPES
-      - duplicate entries
-      - entries not a subsequence of CANONICAL_PIPELINE_ORDERING
-    Soft guardrails (warning appended to success response — creation NOT aborted):
-      - 'implementation' present without 'qa'
-      - single-stage chain
-  Default when omitted: DEFAULT_PIPELINE_STAGES (['implementation', 'qa', 'code-review', 'documentation'])
+  Create WorkPackageDetail object
+  Create WorkPackageSummary object
   ↓
-Determine initial status (READY or BLOCKED based on dependencies)
+  Update root index:
+    - Append summary to work_packages array
+    - Increment total_work_packages
+    - Increment pending_work_packages
+    - Set status to IN_PROGRESS (if was READY)
   ↓
-Create WorkPackageDetail object
-Create WorkPackageSummary object
+  Return { wpId, wp: detail, root: updatedRoot }
   ↓
-Update root index:
-  - Append summary to work_packages array
-  - Increment total_work_packages
-  - Increment pending_work_packages
-  - Set status to IN_PROGRESS (if was READY)
+Auto-stamp wp.last_updated = now()  ← overrides any caller-set value
+Zod validation: WorkPackageDetailSchema.parse(wp)
+Zod validation: RootIndexSchema.parse(root)
+  If either fails → throw error (no write occurs)
   ↓
-LedgerStore.writeWorkPackage(WP-###, detail)
-LedgerStore.writeRootIndex(root)  ← auto-syncs .meta.json
-  ↓ (both use atomicWriteJson)
+LedgerStore.writeWorkPackage(WP-###, detail)    ← atomicWriteJson  [@internal — called by createWorkPackageWithSync only]
+LedgerStore.writeRootIndex(root)                 ← atomicWriteJson, auto-syncs .meta.json  [@internal — called by createWorkPackageWithSync only]
+  ↓
 Release lock
   ↓
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `storage/ledger/{slug}/WP-###.json` and `storage/ledger/{slug}/project-ledger.json` are created/updated atomically within a single lock. `.meta.json` is automatically synced.
+**Result:** Both `storage/ledger/{slug}/WP-###.json` and `storage/ledger/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
 
 ---
 
@@ -291,10 +301,13 @@ Release lock
   ↓
 If auto-finalize fired (autoFinalizeResult === 'finalized'):
   propagateDependencyUnblock(projectPath, work_package_id)
-  [acquires its own separate lock — §12.2, Gotcha 8]
+  [uses batchUpdateWorkPackagesWithSync — acquires its own separate lock — §12.2, Gotcha 8]
+    Pre-check (outside lock): readRootIndex() — if no BLOCKED WP has this WP in its dependencies, return immediately (skip lock, skip all WP reads)
+    If candidates exist: acquire lock via batchUpdateWorkPackagesWithSync
     For each BLOCKED WP whose dependencies include this WP:
       If all dependencies are now COMPLETE and blocked_by.type === 'dependency' (or absent):
         Transition BLOCKED → READY, clear blocked_by
+    All eligible WPs updated atomically in a single lock scope
   ↓
 Return updated WorkPackageDetail to agent
 ```
@@ -338,7 +351,7 @@ updater function:
        BLOCKED → READY: clear blocker
        Any → BLOCKED: set blocker
        COMPLETE → IN_PROGRESS: increment revision; reset rework_counts to {};
-                                 clear root.synthesis_generated (Project Manager or Documentation agent only)
+                                 clearSynthesisState(root) — clears synthesis_generated and synthesis_generated_at (Project Manager or Documentation agent only)
   9. Update root index summary status
   10. Update pending_work_packages counter if transitioning to/from a terminal status (COMPLETE or CANCELLED)
   11. Update root.last_updated timestamp
@@ -349,43 +362,53 @@ Release lock
 If new status is COMPLETE or CANCELLED:
   propagateDependencyUnblock(projectPath, completedWpId)
   ↓
-  Acquire lock (separate lock acquisition)
-  Read root index
-  For each BLOCKED WP that lists completedWpId as a dependency:
-    Read WP detail
-    Run canStartWorkPackage() — checks ALL dependencies are COMPLETE or CANCELLED
-    If not eligible: skip
-    If blocked_by.type is external, decision, or technical: skip (non-dependency blocker; not cleared automatically)
-    Transition BLOCKED → READY and clear blocked_by field
-      Update root index summary status
-      Write both files atomically
-  Release lock
+  Pre-check (outside lock): readRootIndex() — if no BLOCKED WP has completedWpId in its dependencies, return immediately (skip lock, skip all WP reads)
+  If candidates exist:
+  LedgerStore.batchUpdateWorkPackagesWithSync(callback)  ← single lock acquisition
+    Acquire lock (separate lock acquisition — §12.2, Gotcha 8)
+    Read root index (inside lock)
+    callback:
+      For each BLOCKED WP that lists completedWpId as a dependency:
+        readWp(wpId) — read WP detail inside the lock
+        Run canStartWorkPackage() — checks ALL dependencies are COMPLETE or CANCELLED
+        If not eligible: skip
+        If blocked_by.type is external, decision, or technical: skip (non-dependency blocker; not cleared automatically)
+        Transition BLOCKED → READY and clear blocked_by field
+        Update root index summary status
+        Add to updatedWps Map
+      Return { updatedWps, root: updatedRoot }
+    Auto-stamp last_updated on each WP; Zod-validate all WPs + root (two-pass validate-then-write)
+    Write all updated WP files atomically; write root index; sync .meta.json once
+    Release lock
   ↓
 If old status was COMPLETE and new status is IN_PROGRESS (reopen):
   propagateDependencyReblock(projectPath, reopenedWpId)
   ↓
-  Acquire lock (separate lock acquisition)
-  Read root index
-  ↓
-  Phase 1 — Re-block non-COMPLETE/non-CANCELLED/non-BLOCKED dependents:
-    For each such WP that lists reopenedWpId as a dependency:
-      Read WP detail
-      Auto-cancel any IN_PROGRESS pipelines (status=FAIL, auto_cancelled=true, completed_at=now())
-      Transition WP to BLOCKED with blocked_by: {type: "dependency", blocking_work_package: reopenedWpId}
-      Update root index summary status
-      Write WP detail
-  ↓
-  Phase 2 — Warn COMPLETE dependents:
-    For each COMPLETE WP that lists reopenedWpId as a dependency:
-      Read WP detail
-      Append warning comment to last pipeline (if any): {type:"warning",priority:"high",note:"..."}
-      Write WP detail
-  ↓
-  Phase 3 — Update root index:
-    If any WPs were re-blocked (candidates.length > 0): set root.synthesis_generated = false
-    Recompute pending_work_packages
-    Write root index
-  Release lock
+  Pre-check (outside lock): readRootIndex() — if no WP with status READY, IN_PROGRESS, or COMPLETE has reopenedWpId in its dependencies, return immediately (skip lock, skip all WP reads)
+  If candidates exist:
+  LedgerStore.batchUpdateWorkPackagesWithSync(callback)  ← single lock acquisition
+    Acquire lock (separate lock acquisition)
+    Read root index (inside lock)
+    callback:
+      Phase 1 — Re-block non-COMPLETE/non-CANCELLED/non-BLOCKED dependents:
+        For each such WP that lists reopenedWpId as a dependency:
+          readWp(wpId) — read WP detail inside the lock
+          Auto-cancel any IN_PROGRESS pipelines (status=FAIL, auto_cancelled=true, completed_at=now())
+          Transition WP to BLOCKED with blocked_by: {type: "dependency", blocking_work_package: reopenedWpId}
+          Update root index summary status
+          Add to updatedWps Map
+      Phase 2 — Warn COMPLETE dependents:
+        For each COMPLETE WP that lists reopenedWpId as a dependency:
+          readWp(wpId) — read WP detail inside the lock
+          Append warning comment to last pipeline (if any): {type:"warning",priority:"high",note:"..."}
+          Add to updatedWps Map
+      Phase 3 — Update root index:
+        If any WPs were re-blocked (candidates.length > 0): clearSynthesisState(root) — sets synthesis_generated = false and synthesis_generated_at = null
+        Recompute pending_work_packages
+      Return { updatedWps, root: updatedRoot }
+    Auto-stamp last_updated on each WP; Zod-validate all WPs + root (two-pass validate-then-write)
+    Write all updated WP files atomically; write root index; sync .meta.json once
+    Release lock
   ↓
 Return updated WorkPackageDetail to agent
 ```
@@ -580,7 +603,7 @@ computeHealedStatus(rootIndex)  [pure function — no I/O]
     If synthesis_generated === true AND pendingWps > 0:
       → treat synthesisGenerated as false for all rule evaluation
       → set corruptionDetected = true
-      → (write callback will reset fresh.synthesis_generated = false to prevent a repeated-write loop)
+      → (write callback will call clearSynthesisState(fresh) to prevent a repeated-write loop)
   ↓
   Auto-heal project status (first-match-wins; 16 rules from §17.2):
     1.    (IN_PROGRESS|READY) + pendingWps==0 + totalWps>0 + synthesisGenerated → COMPLETE
@@ -616,33 +639,57 @@ If needsWrite is false:
       If unreadable: silently skip (catch{}, contributes nothing)
     → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
   Return { ...rootIndex, pipeline_health } to agent
+
+  (No legacy repairs run on this path — repairs are triggered only when needsWrite,
+   needsLegacyVersionBackfill, or needsForwardCompatWarning is true.)
   ↓
-If needsWrite is true:
-  withLock(store.storageDir)
+Pre-lock computation (outside lock — safe because these only read, not write):
+  validatePipelineOrdering(rootIndex, store) — reads WP detail files only
+    For each WP: read detail, check that pipeline started_at timestamps are monotonically
+    non-decreasing. Any violation captured as a warning string. Read failures silently skipped.
+  Pre-compute synthesis repair comment dedup check (note text match against project_comments)
+  Pre-compute forward-compat warning dedup check (note text match against project_comments)
+  ↓
+If needsWrite OR needsLegacyVersionBackfill OR needsForwardCompatWarning
+   OR orderingWarnings.length > 0 OR needsSynthesisRepairComment is true:
+  withLock(store.storageDir)  ← SINGLE lock scope for ALL repairs (consolidated from 3)
     ↓
-    Re-read rootIndex under lock (fresh copy)
+    Re-read rootIndex under lock (fresh copy) — TOCTOU symmetry
     computeHealedStatus(fresh) again
-    If still needsWrite:
-      Apply corrections:
+    Re-check all dedup conditions against fresh copy
+    ↓
+    needsAnyWrite = freshHealed.needsWrite || freshNeedsVersionBackfill ||
+                    freshNeedsForwardCompatWarning || orderingWarnings.length > 0 ||
+                    freshNeedsSynthesisRepairComment
+    ↓
+    If needsAnyWrite:
+      Status/counter corrections (if freshHealed.needsWrite):
         fresh.total_work_packages = totalWps
         fresh.pending_work_packages = pendingWps
         fresh.status = healedStatus
-        if corruptionDetected: fresh.synthesis_generated = false  ← prevents repeated-write loop
-        fresh.last_updated = now()
-      LedgerStore.writeRootIndex(corrected)
+        if corruptionDetected: clearSynthesisState(fresh)  ← prevents repeated-write loop
+      Legacy synthesis_generated_at repair (if legacySynthesisTimestampRepair):
+        fresh.synthesis_generated_at = fresh.last_updated
+      Legacy ledger_version backfill (if absent):
+        fresh.ledger_version = SPEC_VERSION (silent — no comment)
+      Forward-compat warning (if ledger_version > SPEC_VERSION, deduplicated):
+        Emit warning project_comment
+        (semver comparison uses isFinite() guard — pre-release segments like '2.5.0-beta' that
+         produce NaN are skipped gracefully, preventing false forward-compat warnings)
+      Pipeline ordering warnings:
+        Append each captured warning as project_comment { type:'warning', priority:'low', agent:'system' }
+      Synthesis timestamp repair comment (deduplicated — pre-lock + in-lock pattern):
+        Append soft warning project_comment if not already present
+      fresh.last_updated = now()
+      LedgerStore.writeRootIndex(fresh)
     Release lock
-  ↓
-  validatePipelineOrdering(rootIndex, store)  [non-fatal, piggybacks on write path]
-    For each WP: read detail, check that pipeline started_at timestamps are monotonically
-    non-decreasing. Any violation emitted as a project_comment { type:'warning', priority:'low',
-    agent:'system' }. Read failures are silently skipped.
   ↓
   computePipelineHealth(corrected, store)  [same as no-write path; uses corrected root index]
     → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
   Return { ...corrected, pipeline_health } to agent
 ```
 
-**Result:** Root index counters and project status are automatically corrected if they drift out of sync. The corruption mitigation prevents a premature `synthesis_generated` flag from causing a repeated-write loop on every `getProjectStatus` call. Pipeline ordering warnings are appended as system comments whenever healing was triggered. Disk writes only occur when corrections are needed and are always performed under lock with a fresh re-read to avoid race conditions. In all response paths, the response includes a `pipeline_health` sub-object reporting aggregate stage completeness across all non-CANCELLED WPs (see `ledger_get_project_status` in `api-surface.md` for the full schema).
+**Result:** Root index counters, project status, and legacy fields are automatically corrected if they drift out of sync. The corruption mitigation prevents a premature `synthesis_generated` flag from causing a repeated-write loop on every `getProjectStatus` call. Pipeline ordering warnings are appended as system comments whenever healing was triggered. Disk writes only occur when corrections are needed and are always performed under lock with a fresh re-read to avoid race conditions. In all response paths, the response includes a `pipeline_health` sub-object reporting aggregate stage completeness across all non-CANCELLED WPs (see `ledger_get_project_status` in `api-surface.md` for the full schema).
 
 ---
 

@@ -16,16 +16,15 @@ import {
   isTerminalStatus,
 } from '../schema/validators.js';
 import type { WorkPackageStatus } from '../schema/enums.js';
-import { withLock } from '../storage/file-lock.js';
 import { resolveProjectPath } from '../utils/path-validator.js';
 import { AGENT_ROLES, ORCHESTRATING_ROLES } from '../utils/constants.js';
 import {
-  PIPELINE_TYPES,
-  CANONICAL_PIPELINE_ORDERING,
   DEFAULT_PIPELINE_STAGES,
   PipelineTypeEnum,
   type PipelineType,
+  validateActiveStages,
 } from '../utils/pipeline-maps.js';
+import { clearSynthesisState } from '../utils/workflow-helpers.js';
 
 /**
  * Extracts the ledger root string from an unknown parameter value.
@@ -272,11 +271,9 @@ async function createWorkPackage(
   const pipelineStageWarnings: string[] = [];
 
   try {
-    // Use lock to ensure atomic creation of both files
-    await withLock(store.storageDir, async () => {
-      // 1. Read root index to get next WP ID
-      const rootIndex = await store.readRootIndex();
-
+    // Use createWorkPackageWithSync to atomically create WP detail + root index
+    // with guaranteed last_updated stamp, schema validation, and .meta.json sync.
+    createdWpId = await store.createWorkPackageWithSync((rootIndex) => {
       // 2. Generate next WP ID using max-based approach (resilient to gaps/deletions)
       const existingNumbers = rootIndex.work_packages.map((wp) =>
         parseInt(wp.work_package_id.replace('WP-', ''), 10)
@@ -284,7 +281,6 @@ async function createWorkPackage(
       const nextWpNumber =
         existingNumbers.length > 0 ? existingNumbers.reduce((max, n) => Math.max(max, n), 0) + 1 : 1;
       const wpId = formatWpId(nextWpNumber);
-      createdWpId = wpId;
 
       // 3. Validate dependencies exist
       for (const depId of args.dependencies) {
@@ -333,67 +329,11 @@ async function createWorkPackage(
 
       // 5.5. Validate + resolve active_pipeline_stages
       if (args.active_pipeline_stages !== undefined) {
-        // Hard validation: empty array rejected
-        if (args.active_pipeline_stages.length === 0) {
-          throw new Error(
-            `active_pipeline_stages cannot be empty. At least one stage is required. ` +
-            `Omit the parameter to use the default stages: ${DEFAULT_PIPELINE_STAGES.join(' \u2192 ')}.`
-          );
+        const { errors, warnings } = validateActiveStages(args.active_pipeline_stages);
+        if (errors.length > 0) {
+          throw new Error(errors[0]!);
         }
-
-        // Hard validation: all entries must be valid pipeline types
-        const validTypes = new Set<string>(PIPELINE_TYPES);
-        const invalidTypes = args.active_pipeline_stages.filter((s) => !validTypes.has(s));
-        if (invalidTypes.length > 0) {
-          throw new Error(
-            `Invalid pipeline stage(s): ${invalidTypes.join(', ')}. ` +
-            `Valid types are: ${PIPELINE_TYPES.join(', ')}.`
-          );
-        }
-
-        // Hard validation: no duplicates
-        const seen = new Set<string>();
-        const duplicates: string[] = [];
-        for (const s of args.active_pipeline_stages) {
-          if (seen.has(s)) duplicates.push(s);
-          else seen.add(s);
-        }
-        if (duplicates.length > 0) {
-          throw new Error(
-            `Duplicate pipeline stage(s): ${duplicates.join(', ')}. Each stage may appear at most once.`
-          );
-        }
-
-        // Hard validation: must be a subsequence of CANONICAL_PIPELINE_ORDERING
-        const asTyped = args.active_pipeline_stages as PipelineType[];
-        let canonicalIdx = 0;
-        for (const stage of asTyped) {
-          while (
-            canonicalIdx < CANONICAL_PIPELINE_ORDERING.length &&
-            CANONICAL_PIPELINE_ORDERING[canonicalIdx] !== stage
-          ) {
-            canonicalIdx++;
-          }
-          if (canonicalIdx >= CANONICAL_PIPELINE_ORDERING.length) {
-            throw new Error(
-              `Pipeline stages are out of canonical order. Stages must be a subsequence of: ` +
-              `${CANONICAL_PIPELINE_ORDERING.join(' \u2192 ')}. Provided: ${asTyped.join(' \u2192 ')}.`
-            );
-          }
-          canonicalIdx++;
-        }
-
-        // Soft guardrails — collect warnings, do not throw
-        if (asTyped.includes('implementation') && !asTyped.includes('qa')) {
-          pipelineStageWarnings.push(
-            'Warning: pipeline contains implementation without qa. Shipping code without QA is risky but permitted.'
-          );
-        }
-        if (asTyped.length === 1) {
-          pipelineStageWarnings.push(
-            `Warning: single-stage pipeline chain (${asTyped[0]}). This is usually intentional but worth confirming.`
-          );
-        }
+        pipelineStageWarnings.push(...warnings);
       }
 
       // 6. Create acceptance criteria objects
@@ -425,6 +365,8 @@ async function createWorkPackage(
         active_pipeline_stages: resolvedActiveStages,
         revision: 0,
         pipelines: [],
+        // Note: last_updated is intentionally omitted here — createWorkPackageWithSync
+        // auto-stamps it after the callback returns, matching updateWorkPackageWithSync.
       };
 
       // Set blocked_by when initial status is BLOCKED (§9b.1)
@@ -444,6 +386,7 @@ async function createWorkPackage(
         assigned_to: null,
         dependencies: args.dependencies,
         file: `ledger/${wpId}.json`,
+        active_pipeline_stages: resolvedActiveStages,
       };
 
       // 9. Update root index
@@ -461,12 +404,10 @@ async function createWorkPackage(
       // or if the flag is stale (§9b.1 defense-in-depth). Self-healing rules also
       // correct this on read, but an inline reset prevents the window entirely.
       if (rootIndex.status === 'COMPLETE' || rootIndex.synthesis_generated) {
-        rootIndex.synthesis_generated = false;
+        clearSynthesisState(rootIndex);
       }
 
-      // 10. Write both files atomically
-      await store.writeWorkPackage(wpId, wpDetail);
-      await store.writeRootIndex(rootIndex);
+      return { wpId, wp: wpDetail, root: rootIndex };
     });
 
     // 11. Read back the created work package to return it
@@ -925,7 +866,7 @@ async function updateWorkPackageStatus(
       if (oldStatus === 'COMPLETE' && newStatus === 'IN_PROGRESS') {
         wp.revision += 1;
         wp.rework_counts = undefined; // Reset per-pipeline rework budget (§21.44)
-        root.synthesis_generated = false; // Invalidate synthesis (§21.26)
+        clearSynthesisState(root); // Invalidate synthesis (§21.26)
       }
 
       // 10. Update root index summary
@@ -1029,19 +970,28 @@ export async function propagateDependencyUnblock(
 ): Promise<void> {
   const store = resolveStore(projectPath, ledgerRootOrOpts);
 
-  await withLock(store.storageDir, async () => {
-    const rootIndex = await store.readRootIndex();
+  // Pre-check: skip the lock, disk read, and meta sync entirely when there are
+  // no BLOCKED WPs that depend on the completed WP. The batch method will
+  // re-read inside its lock for the actual operation, so this is safe — the
+  // worst case is a race where a WP becomes BLOCKED between this read and the
+  // batch call, which would be caught on the next status transition.
+  const preCheckRoot = await store.readRootIndex();
+  const hasCandidates = preCheckRoot.work_packages.some(
+    (wp) => wp.status === 'BLOCKED' && wp.dependencies.includes(completedWpId)
+  );
+  if (!hasCandidates) return;
+
+  await store.batchUpdateWorkPackagesWithSync(async (rootIndex, readWp) => {
+    const updatedWps = new Map<string, WorkPackageDetail>();
 
     // Find BLOCKED WPs whose dependency list includes the just-completed WP
     const candidates = rootIndex.work_packages.filter(
       (wp) => wp.status === 'BLOCKED' && wp.dependencies.includes(completedWpId)
     );
 
-    if (candidates.length === 0) return;
-
     for (const candidate of candidates) {
       // Read full WP detail to check all dependencies
-      const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+      const wpDetail = await readWp(candidate.work_package_id);
 
       // Check if all dependencies are now COMPLETE
       const canStart = canStartWorkPackage(wpDetail, rootIndex.work_packages);
@@ -1065,12 +1015,11 @@ export async function propagateDependencyUnblock(
         summary.status = 'READY';
       }
 
-      // Persist the WP detail update
-      await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+      updatedWps.set(candidate.work_package_id, wpDetail);
     }
 
     rootIndex.last_updated = now();
-    await store.writeRootIndex(rootIndex);
+    return { updatedWps, root: rootIndex };
   });
 }
 
@@ -1094,8 +1043,24 @@ async function propagateDependencyReblock(
 ): Promise<void> {
   const store = resolveStore(projectPath, ledgerRootOrOpts);
 
-  await withLock(store.storageDir, async () => {
-    const rootIndex = await store.readRootIndex();
+  // Pre-check: skip the lock, disk read, and meta sync entirely when there are
+  // no WPs that depend on the reopened WP and would require any action — either
+  // re-blocking (READY/IN_PROGRESS candidates) or a warning annotation (COMPLETE
+  // dependents). BLOCKED and CANCELLED dependents are untouched by both loops, so
+  // they do not qualify. The batch method will re-read inside its lock for the
+  // actual operation, so this is safe — the worst case is a race where a WP
+  // becomes READY/IN_PROGRESS between this read and the batch call, which would
+  // be caught on the next status transition.
+  const preCheckRoot = await store.readRootIndex();
+  const ACTION_STATUSES = new Set(['READY', 'IN_PROGRESS', 'COMPLETE']);
+  const hasCandidates = preCheckRoot.work_packages.some(
+    (wp) =>
+      ACTION_STATUSES.has(wp.status) && wp.dependencies.includes(reopenedWpId)
+  );
+  if (!hasCandidates) return;
+
+  await store.batchUpdateWorkPackagesWithSync(async (rootIndex, readWp) => {
+    const updatedWps = new Map<string, WorkPackageDetail>();
 
     // Find non-terminal, non-BLOCKED WPs whose dependency list includes the reopened WP
     const candidates = rootIndex.work_packages.filter(
@@ -1106,7 +1071,7 @@ async function propagateDependencyReblock(
     );
 
     for (const candidate of candidates) {
-      const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+      const wpDetail = await readWp(candidate.work_package_id);
 
       // Transition READY/IN_PROGRESS -> BLOCKED
       wpDetail.status = 'BLOCKED';
@@ -1128,8 +1093,7 @@ async function propagateDependencyReblock(
         summary.status = 'BLOCKED';
       }
 
-      // Persist the WP detail update
-      await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+      updatedWps.set(candidate.work_package_id, wpDetail);
     }
 
     // Warn COMPLETE dependents without changing their status (§15.5)
@@ -1137,7 +1101,7 @@ async function propagateDependencyReblock(
       (wp) => wp.status === 'COMPLETE' && wp.dependencies.includes(reopenedWpId)
     );
     for (const candidate of completeWps) {
-      const wpDetail = await store.readWorkPackage(candidate.work_package_id);
+      const wpDetail = await readWp(candidate.work_package_id);
       const lastPipeline = wpDetail.pipelines.at(-1);
       if (lastPipeline) {
         if (!lastPipeline.comments) lastPipeline.comments = [];
@@ -1149,13 +1113,13 @@ async function propagateDependencyReblock(
             `Dependency ${reopenedWpId} was reopened. Review whether ` +
             `${candidate.work_package_id} needs to be revisited.`,
         });
-        await store.writeWorkPackage(candidate.work_package_id, wpDetail);
+        updatedWps.set(candidate.work_package_id, wpDetail);
       }
     }
 
     // Reset synthesis_generated when at least one WP was re-blocked (§21.26 crash-recovery safety net)
     if (candidates.length > 0) {
-      rootIndex.synthesis_generated = false;
+      clearSynthesisState(rootIndex);
     }
 
     // Recompute pending_work_packages
@@ -1163,7 +1127,7 @@ async function propagateDependencyReblock(
       (wp) => !isTerminalStatus(wp.status)
     ).length;
     rootIndex.last_updated = now();
-    await store.writeRootIndex(rootIndex);
+    return { updatedWps, root: rootIndex };
   });
 }
 

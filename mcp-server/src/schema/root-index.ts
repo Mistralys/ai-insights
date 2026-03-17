@@ -11,6 +11,7 @@ export const WorkPackageSummarySchema = z.object({
   assigned_to: z.string().nullable(),
   dependencies: z.array(z.string()),
   file: z.string(),
+  active_pipeline_stages: z.array(z.string()).nullable().optional(),
 });
 export type WorkPackageSummary = z.infer<typeof WorkPackageSummarySchema>;
 
@@ -41,5 +42,7 @@ export const RootIndexSchema = z.object({
   project_comments: z.array(ProjectCommentSchema),
   auto_handoff_depth: z.number().int().nonnegative().optional(),
   synthesis_generated: z.boolean().optional(),
+  synthesis_generated_at: z.string().nullable().optional(),
+  ledger_version: z.string().optional(),
 });
 export type RootIndex = z.infer<typeof RootIndexSchema>;

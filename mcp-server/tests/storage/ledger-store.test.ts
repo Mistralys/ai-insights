@@ -315,6 +315,322 @@ describe('LedgerStore', () => {
       ).rejects.toThrow('Work package WP-999 not found');
     });
   });
+
+  describe('createWorkPackageWithSync', () => {
+    beforeEach(async () => {
+      // Seed an empty project root index (no WPs yet)
+      await store.writeRootIndex(makeRootIndex({
+        status: 'IN_PROGRESS',
+        total_work_packages: 0,
+        pending_work_packages: 0,
+      }));
+    });
+
+    it('writes both WP detail and updated root index atomically', async () => {
+      const returnedId = await store.createWorkPackageWithSync((root) => {
+        const wp = makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY' });
+        const updatedRoot = {
+          ...root,
+          total_work_packages: 1,
+          pending_work_packages: 1,
+          work_packages: [
+            { work_package_id: 'WP-001', status: 'READY' as const, assigned_to: null, dependencies: [], file: 'ledger/WP-001.json' },
+          ],
+        };
+        return { wpId: 'WP-001', wp, root: updatedRoot };
+      });
+
+      expect(returnedId).toBe('WP-001');
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.status).toBe('READY');
+
+      const root = await store.readRootIndex();
+      expect(root.total_work_packages).toBe(1);
+      expect(root.work_packages[0]!.work_package_id).toBe('WP-001');
+    });
+
+    it('auto-stamps last_updated on the created WP', async () => {
+      // now() truncates to seconds, so floor beforeCall to the same granularity
+      const beforeCall = new Date(Math.floor(Date.now() / 1000) * 1000);
+
+      await store.createWorkPackageWithSync((root) => {
+        const wp = makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY' });
+        // Deliberately omit last_updated — the method should auto-stamp it
+        delete (wp as Partial<typeof wp>).last_updated;
+        return {
+          wpId: 'WP-001',
+          wp,
+          root: { ...root, total_work_packages: 1, pending_work_packages: 1, work_packages: [] },
+        };
+      });
+
+      const wp = await store.readWorkPackage('WP-001');
+      expect(wp.last_updated).toBeDefined();
+
+      // The timestamp must be parseable and represent a time >= before the call
+      const stamped = new Date(wp.last_updated!.replace(' ', 'T'));
+      expect(stamped.getTime()).toBeGreaterThanOrEqual(beforeCall.getTime());
+    });
+
+    it('validates the WP detail via schema — rejects invalid status', async () => {
+      await expect(
+        store.createWorkPackageWithSync((root) => {
+          const wp = makeWorkPackageDetail({ work_package_id: 'WP-001' });
+          // @ts-expect-error — intentionally invalid for test
+          wp.status = 'NOT_A_STATUS';
+          return { wpId: 'WP-001', wp, root };
+        })
+      ).rejects.toThrow();
+
+      // WP file must NOT have been written
+      expect(await store.wpDetailExists('WP-001')).toBe(false);
+    });
+
+    it('rolls back on creator error (files unchanged)', async () => {
+      await expect(
+        store.createWorkPackageWithSync(() => {
+          throw new Error('Simulated creator failure');
+        })
+      ).rejects.toThrow('Simulated creator failure');
+
+      // WP must not exist; root index must be unchanged
+      expect(await store.wpDetailExists('WP-001')).toBe(false);
+      const root = await store.readRootIndex();
+      expect(root.total_work_packages).toBe(0);
+    });
+
+    it('syncs .meta.json after creation', async () => {
+      // Seed .meta.json so writeProjectMeta can update it
+      await store.writeProjectMeta('plan.md', 'IN_PROGRESS');
+
+      await store.createWorkPackageWithSync((root) => {
+        const wp = makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'READY' });
+        return {
+          wpId: 'WP-001',
+          wp,
+          root: { ...root, total_work_packages: 1, pending_work_packages: 1, work_packages: [] },
+        };
+      });
+
+      const meta = await store.readProjectMeta();
+      expect(meta.total_work_packages).toBe(1);
+    });
+
+    it('returns the generated WP ID from the creator callback', async () => {
+      const id = await store.createWorkPackageWithSync((root) => ({
+        wpId: 'WP-042',
+        wp: makeWorkPackageDetail({ work_package_id: 'WP-042', status: 'READY' }),
+        root: { ...root, total_work_packages: 1, pending_work_packages: 1, work_packages: [] },
+      }));
+
+      expect(id).toBe('WP-042');
+      expect(await store.wpDetailExists('WP-042')).toBe(true);
+    });
+  });
+
+  describe('batchUpdateWorkPackagesWithSync', () => {
+    beforeEach(async () => {
+      // Set up a project with two work packages
+      const root = makeRootIndex({
+        status: 'IN_PROGRESS',
+        total_work_packages: 2,
+        pending_work_packages: 2,
+        work_packages: [
+          {
+            work_package_id: 'WP-001',
+            status: 'BLOCKED',
+            assigned_to: 'Developer',
+            dependencies: ['WP-002'],
+            file: '.ledger/WP-001.json',
+          },
+          {
+            work_package_id: 'WP-002',
+            status: 'READY',
+            assigned_to: 'Developer',
+            dependencies: [],
+            file: '.ledger/WP-002.json',
+          },
+        ],
+      });
+      await store.writeRootIndex(root);
+      await store.writeWorkPackage('WP-001', makeWorkPackageDetail({ work_package_id: 'WP-001', status: 'BLOCKED' }));
+      await store.writeWorkPackage('WP-002', makeWorkPackageDetail({ work_package_id: 'WP-002', status: 'READY' }));
+    });
+
+    it('updates multiple WPs and root index atomically', async () => {
+      await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+        const wp1 = await readWp('WP-001');
+        wp1.status = 'READY';
+        const wp2 = await readWp('WP-002');
+        wp2.status = 'IN_PROGRESS';
+
+        const updatedRoot = { ...root };
+        updatedRoot.work_packages = updatedRoot.work_packages.map((s) => {
+          if (s.work_package_id === 'WP-001') return { ...s, status: 'READY' as const };
+          if (s.work_package_id === 'WP-002') return { ...s, status: 'IN_PROGRESS' as const };
+          return s;
+        });
+
+        const updatedWps = new Map([
+          ['WP-001', wp1],
+          ['WP-002', wp2],
+        ]);
+        return { updatedWps, root: updatedRoot };
+      });
+
+      const wp1 = await store.readWorkPackage('WP-001');
+      expect(wp1.status).toBe('READY');
+
+      const wp2 = await store.readWorkPackage('WP-002');
+      expect(wp2.status).toBe('IN_PROGRESS');
+
+      const root = await store.readRootIndex();
+      expect(root.work_packages.find((s) => s.work_package_id === 'WP-001')?.status).toBe('READY');
+      expect(root.work_packages.find((s) => s.work_package_id === 'WP-002')?.status).toBe('IN_PROGRESS');
+    });
+
+    it('auto-stamps last_updated on every updated WP', async () => {
+      const beforeCall = new Date(Math.floor(Date.now() / 1000) * 1000);
+
+      await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+        const wp1 = await readWp('WP-001');
+        wp1.status = 'READY';
+        // Deliberately set last_updated to a stale value — the method must overwrite it
+        wp1.last_updated = '2020-01-01 00:00:00';
+
+        const updatedWps = new Map([['WP-001', wp1]]);
+        return { updatedWps, root };
+      });
+
+      const wp1 = await store.readWorkPackage('WP-001');
+      expect(wp1.last_updated).toBeDefined();
+      const stamped = new Date(wp1.last_updated!.replace(' ', 'T'));
+      expect(stamped.getTime()).toBeGreaterThanOrEqual(beforeCall.getTime());
+    });
+
+    it('validates each WP via schema — rejects invalid status, leaves files unchanged', async () => {
+      const originalWp1 = await store.readWorkPackage('WP-001');
+
+      await expect(
+        store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+          const wp1 = await readWp('WP-001');
+          // @ts-expect-error — intentionally invalid for test
+          wp1.status = 'NOT_A_STATUS';
+          const updatedWps = new Map([['WP-001', wp1]]);
+          return { updatedWps, root };
+        })
+      ).rejects.toThrow();
+
+      // WP-001 must be unchanged on disk
+      const wp1 = await store.readWorkPackage('WP-001');
+      expect(wp1.status).toBe(originalWp1.status);
+    });
+
+    it('mid-batch validation failure — first WP not written when second WP is invalid', async () => {
+      // If WP-001 passes validation but WP-002 has an invalid status, neither
+      // WP file should be written (validate-all-then-write-all semantics).
+      const originalWp1 = await store.readWorkPackage('WP-001');
+      const originalWp2 = await store.readWorkPackage('WP-002');
+
+      await expect(
+        store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+          const wp1 = await readWp('WP-001');
+          wp1.status = 'READY'; // valid — would pass on its own
+
+          const wp2 = await readWp('WP-002');
+          // @ts-expect-error — intentionally invalid for test
+          wp2.status = 'NOT_A_STATUS'; // invalid — must cause full rollback
+
+          return { updatedWps: new Map([['WP-001', wp1], ['WP-002', wp2]]), root };
+        })
+      ).rejects.toThrow();
+
+      // WP-001 must be unchanged even though it was valid — no partial write
+      const wp1 = await store.readWorkPackage('WP-001');
+      expect(wp1.status).toBe(originalWp1.status);
+
+      // WP-002 must also be unchanged
+      const wp2 = await store.readWorkPackage('WP-002');
+      expect(wp2.status).toBe(originalWp2.status);
+    });
+
+    it('rolls back on callback error (files unchanged)', async () => {
+      await expect(
+        store.batchUpdateWorkPackagesWithSync(async () => {
+          throw new Error('Simulated batch failure');
+        })
+      ).rejects.toThrow('Simulated batch failure');
+
+      // Both WPs must be unchanged
+      const wp1 = await store.readWorkPackage('WP-001');
+      expect(wp1.status).toBe('BLOCKED');
+
+      const wp2 = await store.readWorkPackage('WP-002');
+      expect(wp2.status).toBe('READY');
+
+      const root = await store.readRootIndex();
+      expect(root.work_packages.find((s) => s.work_package_id === 'WP-001')?.status).toBe('BLOCKED');
+    });
+
+    it('handles empty updatedWps — writes root index and syncs meta without touching WP files', async () => {
+      await store.writeProjectMeta('plan.md', 'IN_PROGRESS');
+
+      const beforeRoot = await store.readRootIndex();
+
+      await store.batchUpdateWorkPackagesWithSync(async (root) => {
+        const updatedRoot = { ...root, last_updated: '2030-01-01 00:00:00' };
+        return { updatedWps: new Map(), root: updatedRoot };
+      });
+
+      // Root index must be updated
+      const afterRoot = await store.readRootIndex();
+      expect(afterRoot.last_updated).toBe('2030-01-01 00:00:00');
+
+      // WP files must be unchanged
+      const wp1 = await store.readWorkPackage('WP-001');
+      expect(wp1.status).toBe(beforeRoot.work_packages[0]!.status);
+    });
+
+    it('provides readWp helper that reads WP detail inside the lock', async () => {
+      let readWpResult: import('../../src/schema/work-package.js').WorkPackageDetail | undefined;
+
+      await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+        readWpResult = await readWp('WP-002');
+        return { updatedWps: new Map(), root };
+      });
+
+      expect(readWpResult).toBeDefined();
+      expect(readWpResult!.work_package_id).toBe('WP-002');
+      expect(readWpResult!.status).toBe('READY');
+    });
+
+    it('syncs .meta.json exactly once after all WP writes', async () => {
+      await store.writeProjectMeta('plan.md', 'IN_PROGRESS', {
+        total_work_packages: 2,
+        pending_work_packages: 2,
+      });
+
+      await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+        const wp1 = await readWp('WP-001');
+        wp1.status = 'READY';
+
+        const updatedRoot = {
+          ...root,
+          total_work_packages: 2,
+          pending_work_packages: 1,
+          work_packages: root.work_packages.map((s) =>
+            s.work_package_id === 'WP-001' ? { ...s, status: 'READY' as const } : s
+          ),
+        };
+
+        return { updatedWps: new Map([['WP-001', wp1]]), root: updatedRoot };
+      });
+
+      const meta = await store.readProjectMeta();
+      expect(meta.pending_work_packages).toBe(1);
+    });
+  });
 });
 
 // ==================== detectProjectByCwd ====================
