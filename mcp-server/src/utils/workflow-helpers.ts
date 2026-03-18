@@ -179,12 +179,14 @@ export function hasDownstreamFail(
  * is stale relative to the current pipeline type's most recent run and upstream
  * rework has occurred), or null if the pipeline may proceed.
  *
- * Guard algorithm (§11.1):
- * 1. If no effective prior run of pipelineType exists → pass (first run)
- * 2. If prerequisite PASS predates the last effective run of pipelineType → check:
- *    a. If hasDownstreamFail(prerequisite) is false → pass (no downstream failure)
- *    b. If no upstream pipeline started after prerequisite PASS → pass (self-rework)
- *    c. Otherwise → BLOCK (prerequisite is stale after upstream rework)
+ * Guard algorithm (§11.1, two-layer check):
+ *
+ * Layer 1 — Upstream rework check (unconditional, catches first-run stage-skipping):
+ *   If any upstream pipeline started after the prerequisite PASSed → BLOCK.
+ *
+ * Layer 2 — Temporal consistency check (same-type re-runs only):
+ *   If the prerequisite PASS predates the last effective run of pipelineType,
+ *   but no upstream rework occurred → ALLOW (self-rework scenario).
  */
 export function checkRevalidationGuard(
   pipelines: Pipeline[],
@@ -193,16 +195,7 @@ export function checkRevalidationGuard(
   activeStages?: readonly PipelineType[],
 ): string | null {
 
-  // Step 1: Find last effective run of pipelineType
-  const priorRuns = pipelines.filter(
-    (p) => p.type === pipelineType && !p.auto_cancelled
-  );
-  if (priorRuns.length === 0) return null; // First run — always allowed
-
-  const baselineRun = priorRuns.at(-1)!;
-  if (!baselineRun.started_at) return null; // Missing timestamp — conservative pass
-
-  // Step 2: Find most recent prerequisite PASS
+  // Find most recent prerequisite PASS (already confirmed PASS by caller)
   const prereqPasses = pipelines.filter(
     (p) => p.type === prerequisite && p.status === 'PASS' && !p.auto_cancelled
   );
@@ -212,17 +205,14 @@ export function checkRevalidationGuard(
   if (!prereqPass.completed_at) return null; // Missing timestamp — conservative pass
 
   const prereqCompletedAt = parseTimestamp(prereqPass.completed_at).getTime();
-  const baselineStartedAt = parseTimestamp(baselineRun.started_at).getTime();
 
-  // Step 3: If prereq PASS is fresh (completed after the last run started) → pass
-  if (prereqCompletedAt >= baselineStartedAt) return null;
-
-  // Step 4: Check if there are any downstream failures from the prerequisite
-  if (!hasDownstreamFail(pipelines, prerequisite, activeStages)) return null;
-
-  // Step 5: Check if upstream rework has occurred since the prereq PASS
+  // --- Layer 1: Upstream rework check (unconditional — applies regardless of prior runs) ---
+  // Detects if any pipeline upstream of the current type was started AFTER the
+  // prerequisite PASSed — indicating stale prerequisite. This is decoupled from
+  // effectiveSamePipelines so it also catches first-run stage-skipping (e.g.,
+  // code-review starting for the first time while a new implementation is in progress).
   const upstreamTypes = getUpstreamTypes(pipelineType, activeStages ?? DEFAULT_PIPELINE_STAGES);
-  const upstreamReworked = pipelines.some(
+  const hasUpstreamRework = pipelines.some(
     (p) =>
       upstreamTypes.includes(p.type as PipelineType) &&
       !p.auto_cancelled &&
@@ -230,13 +220,33 @@ export function checkRevalidationGuard(
       parseTimestamp(p.started_at).getTime() > prereqCompletedAt
   );
 
-  if (!upstreamReworked) return null; // Self-rework scenario
+  if (hasUpstreamRework) {
+    return (
+      `Cannot start ${pipelineType}: the prerequisite ${prerequisite} PASS is stale. ` +
+      `Upstream rework has occurred since the last ${prerequisite} PASS. ` +
+      `Re-run ${prerequisite} to establish a fresh pass before proceeding.`
+    );
+  }
 
-  return (
-    `Cannot start ${pipelineType}: the prerequisite ${prerequisite} PASS is stale. ` +
-    `Upstream rework has occurred since the last ${prerequisite} PASS. ` +
-    `Re-run ${prerequisite} to establish a fresh pass before proceeding.`
+  // --- Layer 2: Temporal consistency check (same-type re-runs only) ---
+  // When the current pipeline type has been run before, verify the prerequisite
+  // PASSed AFTER the most recent effective run. If the prerequisite is temporally
+  // stale but no upstream rework occurred (layer 1 passed), this is a self-rework
+  // scenario (e.g., documentation retrying after its own FAIL) — allow.
+  const priorRuns = pipelines.filter(
+    (p) => p.type === pipelineType && !p.auto_cancelled
   );
+  if (priorRuns.length === 0) return null; // First run — layer 1 already checked upstream
+
+  const baselineRun = priorRuns.at(-1)!;
+  if (!baselineRun.started_at) return null; // Missing timestamp — conservative pass
+
+  // If prereq PASS is fresh relative to the baseline run → pass
+  // (prereq PASSed after or at the same time the last run started)
+  // Since layer 1 already confirmed no upstream rework, any temporal staleness
+  // here is a self-rework scenario — allow the pipeline to start.
+
+  return null;
 }
 
 /**

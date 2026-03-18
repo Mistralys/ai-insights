@@ -109,17 +109,17 @@ function hasDuplicateInProgress(wp, pipelineType):
 
 ### 8.4 Downstream Types
 
-Returns all pipeline types that follow a given type in the canonical pipeline ordering. When `activeStages` is provided, the result is filtered to only include active stages.
+Returns all pipeline types that follow a given type in the canonical pipeline ordering, filtered to only include active stages. When `activeStages` is omitted, defaults to `DEFAULT_PIPELINE_STAGES` (4-stage legacy behavior) for backward compatibility with pre-composable-stages callers.
 
 ```
 function getDownstreamTypes(pipelineType, activeStages?):
   ordering = CANONICAL_PIPELINE_ORDERING
-  stages = activeStages ?? ordering
-  index = ordering.indexOf(pipelineType)
-  if index == -1 OR index == ordering.length - 1:
+  stages = activeStages ?? DEFAULT_PIPELINE_STAGES
+  active = ordering.filter(t => t in stages)
+  index = active.indexOf(pipelineType)
+  if index == -1 OR index == active.length - 1:
     return []
-  downstream = ordering.slice(index + 1)
-  return downstream.filter(t => t in stages)
+  return active.slice(index + 1)
 ```
 
 **Examples with default (4 stages):**
@@ -146,17 +146,17 @@ function getDownstreamTypes(pipelineType, activeStages?):
 
 ### 8.5 Upstream Types
 
-Returns all pipeline types that precede a given type in the canonical pipeline ordering. When `activeStages` is provided, the result is filtered to only include active stages. Counterpart of `getDownstreamTypes` (§8.4).
+Returns all pipeline types that precede a given type in the canonical pipeline ordering, filtered to only include active stages. When `activeStages` is omitted, defaults to `DEFAULT_PIPELINE_STAGES` (4-stage legacy behavior) for backward compatibility. Counterpart of `getDownstreamTypes` (§8.4).
 
 ```
 function getUpstreamTypes(pipelineType, activeStages?):
   ordering = CANONICAL_PIPELINE_ORDERING
-  stages = activeStages ?? ordering
-  index = ordering.indexOf(pipelineType)
+  stages = activeStages ?? DEFAULT_PIPELINE_STAGES
+  active = ordering.filter(t => t in stages)
+  index = active.indexOf(pipelineType)
   if index <= 0:
     return []
-  upstream = ordering.slice(0, index)
-  return upstream.filter(t => t in stages)
+  return active.slice(0, index)
 ```
 
 **Examples with default (4 stages):**

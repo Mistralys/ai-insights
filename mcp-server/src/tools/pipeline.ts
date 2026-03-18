@@ -221,7 +221,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         (p) => p.type === args.type && !p.auto_cancelled
       );
       const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
-      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type);
+      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type, activeStages);
       const needsRework = isDirectRework || isDownstreamRework;
 
       if (needsRework) {
@@ -465,12 +465,21 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
         pipeline.comments = args.comments;
       }
 
-      // 3b. Soft warning: emit when artifacts.files_modified is empty or absent on a PASS pipeline.
+      // 3b. Soft warning: emit when artifacts.files_modified is empty or absent on a PASS pipeline (§12.1).
+      // Persists a project comment for PM audit trail AND appends a text note to the response.
       // Verification-only and documentation-only WPs may legitimately have no files_modified,
       // but the warning prompts agents to declare any modifications they made.
       if (args.status === 'PASS' && !isPmOverride) {
         const filesModified = args.artifacts?.files_modified;
         if (!filesModified || filesModified.length === 0) {
+          // §12.1: Persist as a project comment for traceability
+          root.project_comments.push({
+            type: 'warning',
+            priority: 'low',
+            timestamp: now(),
+            agent: args.agent_role,
+            note: `Pipeline ${args.type} on ${args.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability`,
+          });
           artifactsWarning =
             '\n\nNote: artifacts.files_modified is empty or absent. ' +
             'If you modified any files during this pipeline, declare them in artifacts.files_modified ' +

@@ -140,7 +140,7 @@ Inactive stages are skipped entirely when not in `active_pipeline_stages` — `r
 | `CANONICAL_PIPELINE_ORDERING` | `["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]` | Fixed ordering of all six pipeline types. All `active_pipeline_stages` must be subsequences of this. See [§4.2](data-model.md#42-pipeline-stage-constants) |
 | `STALE_PIPELINE_HOURS` | 24 | Hours before a pipeline is considered stale |
 | `MAX_REWORK_COUNT` | 5 | Maximum rework cycles before circuit breaker |
-| `MAX_HANDOFF_DEPTH` | 50 | Static floor for auto-handoff chain depth (runtime-configurable). Effective max = `max(50, total_work_packages × 20)` — see [§18.2.1](auxiliary-systems.md#1821-dynamic-effective-maximum) |
+| `MAX_HANDOFF_DEPTH` | 50 | Static floor for auto-handoff chain depth (runtime-configurable). Effective max = `max(50, total_work_packages × 30)` — see [§18.2.1](auxiliary-systems.md#1821-dynamic-effective-maximum) |
 
 ## Appendix B: Action Types Reference
 

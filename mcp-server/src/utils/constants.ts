@@ -44,4 +44,4 @@ export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
  * Workflow specification version this MCP server implements.
  * Update this whenever the workflow specification version advances.
  */
-export const SPEC_VERSION = '2.4.0' as const;
+export const SPEC_VERSION = '2.4.1' as const;

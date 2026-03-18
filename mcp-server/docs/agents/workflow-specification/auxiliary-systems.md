@@ -98,26 +98,29 @@ MAX_HANDOFF_DEPTH = 50    // Static floor; configurable at runtime via gui-confi
 The static constant serves as a floor. Once work packages exist, the effective maximum scales with project size:
 
 ```
-effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 20)
+effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)
 ```
 
 | Project Size | Effective Max | Rationale |
 |-------------|--------------|----------|
 | 0 WPs (pre-planning) | 50 | Static floor applies |
-| 3 WPs | 60 | 3 × 20 = 60 |
-| 6 WPs | 120 | 6 × 20 = 120 |
-| 8 WPs | 160 | 8 × 20 = 160 |
+| 1 WP | 50 | 1 × 30 = 30 < 50, floor applies |
+| 3 WPs | 90 | 3 × 30 = 90 |
+| 5 WPs | 150 | 5 × 30 = 150 |
+| 8 WPs | 240 | 8 × 30 = 240 |
 
-The `× 20` multiplier accounts for:
+The `× 30` multiplier accounts for:
 - **4–6 happy-path handoffs** per WP (Dev → QA → Security Auditor → Reviewer → Release Engineer → Doc; varies by active stages — 4 for the default pipeline, up to 6 when all stages are active)
 - **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA/security-audit → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → [Security Audit] → Review chain)
-- **~5–10 headroom** per WP for atypical rework, blocker resolution, or self-rework cycles (Release Engineering, Documentation)
+- **~10–15 headroom** per WP for atypical rework, blocker resolution, self-rework cycles (Release Engineering, Documentation), and wasted handoff cycles from handoff/recommendation priority mismatches
 
-> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 20` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 3` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Security Auditor → Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
+> **Multiplier increased from 20 to 30 (v2.4.1):** Operational experience showed that the original `× 20` multiplier was insufficient for projects with complex rework patterns, multi-stage WPs, and the overhead of wasted handoff cycles (§18.4). The increased multiplier provides adequate headroom without compromising the loop-guard safety net.
+
+> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 30` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 4` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Security Auditor → Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
 
 > **Design intent:** The auto-handoff depth counter is a **safeguard against infinite loops**, not a throttle. The effective maximum should be high enough that a legitimate project completes without ever hitting it. If the counter is reached, it indicates a pathological loop — not normal workflow activity.
 
-> **⚠ Shrinking effective maximum on WP cancellation:** The depth counter only resets on `completeSynthesis` (§18.4). If WPs are cancelled mid-project, `total_work_packages` decreases and `effectiveMax` shrinks accordingly (computed at handoff time via §18.3). However, the counter retains its accumulated value. This can retroactively exhaust the handoff budget — for example, a project that consumed 90 handoffs across 5 WPs has `effectiveMax = 100`; if 3 WPs are then cancelled, `effectiveMax = max(50, 2 × 20) = 50`, and the counter (90) already exceeds the new limit. No further auto-handoffs are possible. This is consistent with the design intent (loop guard, not throttle) but may surprise implementations. If this becomes a practical issue, implementations MAY add a PM action to manually reset the counter, or reset the counter as a side effect of WP cancellation.
+> **⚠ Shrinking effective maximum on WP cancellation:** The depth counter only resets on `completeSynthesis` (§18.4). If WPs are cancelled mid-project, `total_work_packages` decreases and `effectiveMax` shrinks accordingly (computed at handoff time via §18.3). However, the counter retains its accumulated value. This can retroactively exhaust the handoff budget — for example, a project that consumed 120 handoffs across 5 WPs has `effectiveMax = 150`; if 3 WPs are then cancelled, `effectiveMax = max(50, 2 × 30) = 60`, and the counter (120) already exceeds the new limit. No further auto-handoffs are possible. This is consistent with the design intent (loop guard, not throttle) but may surprise implementations. If this becomes a practical issue, implementations MAY add a PM action to manually reset the counter, or reset the counter as a side effect of WP cancellation.
 
 ### 18.3 Increment Path
 
@@ -132,7 +135,7 @@ function buildHandoffResponse(currentAgent, status, ..., store):
   
   root = store.readRootIndex()
   currentDepth = root.auto_handoff_depth ?? 0
-  effectiveMax = max(MAX_HANDOFF_DEPTH, root.total_work_packages * 20)
+  effectiveMax = max(MAX_HANDOFF_DEPTH, root.total_work_packages * 30)
   
   if currentDepth < effectiveMax:
     root.auto_handoff_depth = currentDepth + 1
@@ -193,7 +196,7 @@ Individual WP completions do **not** reset the counter. This prevents the counte
 2. Agent registry is loaded (agent files discovered)
 3. Next agent has a known handle in the registry
 4. Status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
-5. `auto_handoff_depth` < `effectiveMax` (where `effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 20)` — see [§18.2.1](#1821-dynamic-effective-maximum))
+5. `auto_handoff_depth` < `effectiveMax` (where `effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)` — see [§18.2.1](#1821-dynamic-effective-maximum))
 
 ---
 

@@ -189,7 +189,7 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
         (p) => p.type === args.type && !p.auto_cancelled
       );
       const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
-      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type as PipelineType);
+      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type as PipelineType, activeStages);
       const needsRework = isDirectRework || isDownstreamRework;
 
       if (needsRework) {

@@ -2,12 +2,19 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.4.0  
-**Date:** 2026-03-14
+**Version:** 2.4.1
+**Date:** 2026-03-18
 
 ---
 
 ## Changelog
+
+### v2.4.1 - Spec-Implementation Sync Fixes
+- **Re-validation guard fix (§11.1):** Made the upstream rework check unconditional — it now fires regardless of whether the current pipeline type has prior runs. Previously, first-run scenarios were short-circuited, allowing stage-skipping (e.g., code-review starting for the first time while a new implementation pipeline is in progress). The two-layer guard structure is preserved: layer 1 (unconditional upstream rework) fires first, layer 2 (temporal consistency for same-type re-runs) handles self-rework allowance.
+- **Downstream fail active-stages fix (§11.1):** `hasDownstreamFail` in `startPipeline` rework detection now receives the WP's `activeStages`, ensuring rework is correctly detected for WPs with optional stages (security-audit, release-engineering) active.
+- **Artifact soft warning persisted (§12.1):** `completePipeline` now persists the empty-artifacts soft warning as a project comment (in addition to the response text), matching the §12.1 specification.
+- **Handoff depth multiplier increased (§18.2.1):** Updated formula from `total_work_packages × 20` to `total_work_packages × 30`, matching the implementation. Operational experience showed the original multiplier was insufficient for projects with complex rework patterns and wasted handoff cycles.
+- **`getDownstreamTypes`/`getUpstreamTypes` default aligned (§8.4, §8.5):** Spec pseudocode updated to default to `DEFAULT_PIPELINE_STAGES` (not `CANONICAL_PIPELINE_ORDERING`) when `activeStages` is omitted, matching the implementation's backward-compatible behavior.
 
 ### v2.4.0 - PM-Composable Pipeline Stages
 - **Breaking conceptual change:** Removed the mandatory/optional pipeline stage distinction. All six stages are now PM-composable — the Project Manager selects any valid subsequence of the canonical ordering per WP. The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired and replaced by `DEFAULT_PIPELINE_STAGES` (§4.2).
