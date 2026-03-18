@@ -1713,8 +1713,13 @@ describe('createWorkPackage — active_pipeline_stages validation (dynamic pipel
       tempDir
     );
     expect(result.isError).toBeFalsy();
-    const wp = JSON.parse((result as any).content[0].text);
+    // Response may include appended soft-guardrail warning text after the JSON (§9b.2 rule 7)
+    const rawText = (result as any).content[0].text as string;
+    const jsonEnd = rawText.lastIndexOf('}') + 1;
+    const wp = JSON.parse(rawText.slice(0, jsonEnd));
     expect(wp.active_pipeline_stages).toEqual(['qa', 'code-review']);
+    // Custom composition warning should be present
+    expect(rawText).toContain('Warning: WP uses a custom pipeline composition');
   });
 });
 

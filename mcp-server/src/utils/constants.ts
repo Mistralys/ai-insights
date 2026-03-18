@@ -1,7 +1,7 @@
 /**
  * Canonical agent role definitions shared across the system.
  *
- * This is the single source of truth for the seven-stage workflow agent roles.
+ * This is the single source of truth for the nine-agent workflow roles.
  * All other files that reference agent roles should import from here rather
  * than defining local constants.
  */

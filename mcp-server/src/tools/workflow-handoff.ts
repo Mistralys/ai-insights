@@ -35,7 +35,7 @@ const GetHandoffStatusSchema = z.object({
   current_agent: z
     .string()
     .describe(
-      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
+      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"'
     ),
 });
 

@@ -42,7 +42,7 @@ const GetNextActionSchema = z.object({
   agent_role: z
     .string()
     .describe(
-      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
+      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"'
     ),
   max_results: z
     .number()
@@ -481,8 +481,6 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
     const activeStages: readonly PipelineType[] =
       (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
     if (!activeStages.includes('implementation')) continue;
-    // Only consider Developer-assigned WPs
-    if (wpDetail.assigned_to !== 'Developer') continue;
     // Skip dependency-blocked WPs
     if (hasDependencyBlocked(wpDetail)) continue;
 
@@ -622,8 +620,8 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
       }
     }
 
-    // P7: CLAIM_WP (READY, dependencies satisfied)
-    if (wpDetail.status === 'READY') {
+    // P7: CLAIM_WP (READY, dependencies satisfied, unassigned or assigned to Developer)
+    if (wpDetail.status === 'READY' && (wpDetail.assigned_to == null || wpDetail.assigned_to === 'Developer')) {
       const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
       return {
         content: [{

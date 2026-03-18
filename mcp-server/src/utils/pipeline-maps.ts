@@ -354,5 +354,14 @@ export function validateActiveStages(stages: string[]): { errors: string[]; warn
     warnings.push(`Warning: single-stage pipeline chain (${asTyped[0]}). This is usually intentional but worth confirming.`);
   }
 
+  // Soft guardrail 7 (§9b.2): non-default, non-full custom composition
+  const isDefault = asTyped.length === DEFAULT_PIPELINE_STAGES.length &&
+    asTyped.every((s, i) => s === DEFAULT_PIPELINE_STAGES[i]);
+  const isFull = asTyped.length === CANONICAL_PIPELINE_ORDERING.length &&
+    asTyped.every((s, i) => s === CANONICAL_PIPELINE_ORDERING[i]);
+  if (!isDefault && !isFull) {
+    warnings.push(`Warning: WP uses a custom pipeline composition: [${asTyped.join(', ')}] — ensure this matches the work package's intent.`);
+  }
+
   return { errors, warnings };
 }
