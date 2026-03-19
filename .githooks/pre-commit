@@ -1,2 +1,2 @@
 #!/bin/sh
-node scripts/build-personas.js --check
+/usr/local/bin/node scripts/build-personas.js --check
