@@ -54,6 +54,8 @@ Stages not included in a WP's configuration are skipped automatically. **Common 
 
 ## Quick Reference
 
+> **Prefer automation?** Use the **Workflow Orchestrator** persona to run the full pipeline automatically — see [Automated Orchestration with the Workflow Orchestrator](#automated-orchestration-with-the-workflow-orchestrator) below.
+
 **For experienced users** - follow these steps (expand sections below for detailed instructions):
 
 1. **[Setup](#prerequisites)**: Configure the MCP server via `.mcp.json`
@@ -68,6 +70,62 @@ Stages not included in a WP's configuration are skipped automatically. **Common 
 10. **[Synthesis](#stage-9-synthesis--reporting)**: New chat → Paste [9-synthesis.agent.md](vs-code/9-synthesis.agent.md) → Agent reads ledger via MCP → Review final report
 
 **Repeat steps 4-8 for each work package**, including only the stages included in that WP's configured pipeline. See [Pipeline Configuration](#dynamic-pipeline-configuration) for common patterns. See detailed instructions below for tips, troubleshooting, and best practices.
+
+---
+
+## Automated Orchestration with the Workflow Orchestrator
+
+The **Workflow Orchestrator** is a standalone persona that automates the entire pipeline. Instead of manually pasting personas and switching sessions for each stage, you invoke it once and it dispatches agents in the correct order — with the ledger as the single source of truth.
+
+The generated persona file is available at:
+- **Claude Code:** `personas/standalone/claude-code/workflow-orchestrator.md`
+- **VS Code:** `personas/standalone/vs-code/workflow-orchestrator.agent.md`
+
+After syncing (`node scripts/sync-personas.js`), it is also deployed to `~/.claude/agents/workflow-orchestrator.md` for use as a Claude Code sub-agent.
+
+### When to use it
+
+Use the Workflow Orchestrator when you want an agent to coordinate the full pipeline autonomously, eliminating manual handoffs and the risk of skipping stages or advancing WPs out of turn.
+
+Use the manual step-by-step approach when you want fine-grained control over each stage — for example, to iterate on a plan with the Planner before committing, or to review QA results before the Reviewer runs.
+
+### Usage
+
+Paste (or open) the persona and describe what you want:
+
+```
+# interactive mode (default)
+Run the workflow for my project.
+
+# autonomous mode
+Run the workflow automatically with no confirmation between stages.
+
+# start from an existing plan
+Run the workflow using docs/agents/plans/2026-03-18-name/plan.md
+```
+
+**Interactive mode** (default): The agent detects the project state, reports it to you, and asks for confirmation before dispatching each agent. Good for first-time use or when you want to stay in the loop.
+
+**Autonomous mode**: Agents are dispatched continuously without per-stage confirmation. The orchestrator still pauses on errors, rework-limit hits, or repeated failures. Good for unattended runs.
+
+**Plan path argument**: Skips the Planner and jumps straight to the Project Manager using the specified plan file.
+
+### How it works
+
+1. **Project detection** — calls `ledger_detect_project` to find an active project in the current workspace.
+2. **State report** — calls `ledger_get_project_status` and prints a summary (project name, status, WP counts, current stage).
+3. **Dispatch loop** — repeatedly consults `ledger_get_handoff_status` to determine the next agent, spawns it via the Agent tool, then checks ledger state after it returns. Continues until the project reaches COMPLETE.
+
+The orchestrator enforces the same constraints the ledger does:
+
+- **Never skips agents.** Every handoff is determined by `ledger_get_handoff_status`, not by the orchestrator's own judgment.
+- **Never marks WPs complete out of turn.** Only the Documentation agent triggers WP completion (via auto-finalization in `ledger_complete_pipeline`).
+- **Never calls pipeline tools.** The orchestrator is read-only; only sub-agents interact with `ledger_begin_work`, `ledger_complete_pipeline`, etc.
+- **Handles rework automatically.** When QA or Reviewer bounces a WP, the ledger routes back to Developer; the orchestrator follows that routing without intervention.
+
+### Resuming a paused workflow
+
+If the workflow is interrupted (session ends, error, or you pause it), invoke the Workflow Orchestrator again. It reads the current ledger state and resumes from wherever the pipeline left off — no manual bookkeeping required.
 
 ---
 
@@ -564,7 +622,7 @@ For the full build system documentation — source layout, metadata schema, temp
 
 ## Next Steps
 
-1. **Try the workflow**: Start with a small feature to familiarize yourself
+1. **Try the workflow**: Start with a small feature to familiarize yourself — use the **Workflow Orchestrator** persona for automated orchestration, or follow the manual stages above
 2. **Customize personas**: Adapt the agent prompts to your team's conventions
 3. **Build system details**: See the [Personas Project Manifest](../docs/agents/project-manifest/README.md) for template syntax, metadata schema, and source layout
 4. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)

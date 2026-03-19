@@ -109,10 +109,11 @@ personas/                          # Sub-project root (has own package.json)
 │   │   ├── researcher.agent.md
 │   │   ├── unit-test-auditor.agent.md
 │   │   ├── whatsnew-curator.agent.md
+│   │   ├── workflow-orchestrator.agent.md
 │   │   └── wp-decomposer.agent.md
 │   │
 │   ├── claude-code/               # ← GENERATED — Claude Code target output (--suite standalone --target claude-code)
-│   │   ├── agents-md-curator.md   #   Uses FRONTMATTER_STANDALONE_CC (plain kebab name, role absent; mcpServers block omitted — persona has zero MCP tool entries)
+│   │   ├── agents-md-curator.md   #   Uses FRONTMATTER_STANDALONE_CC (plain kebab name, no role; mcpServers optional)
 │   │   ├── changelog-curator.md   #   Body content byte-for-byte identical to VS Code counterpart
 │   │   ├── composer-curator.md
 │   │   ├── ctx-architect.md
@@ -126,11 +127,12 @@ personas/                          # Sub-project root (has own package.json)
 │   │   ├── researcher.md
 │   │   ├── unit-test-auditor.md
 │   │   ├── whatsnew-curator.md
+│   │   ├── workflow-orchestrator.md  # Includes mcpServers: central_pm (set via mcp_server_name in YAML)
 │   │   └── wp-decomposer.md
 │   │
 │   └── src/                       # Template sources — edit THESE, then build
 │       ├── meta/                  # YAML metadata
-│       │   ├── _shared.yaml       # Shared: author, CC defaults (no mcp_server_name, no roster)
+│       │   ├── _shared.yaml       # Shared: author, CC defaults (no mcp_server_name — set per-persona; no roster)
 │       │   ├── agents-md-curator.yaml
 │       │   ├── changelog-curator.yaml
 │       │   ├── composer-curator.yaml
@@ -145,6 +147,7 @@ personas/                          # Sub-project root (has own package.json)
 │       │   ├── researcher.yaml    # Per-persona: slug, name, description, vs_file_name, cc_file_name, version, tools
 │       │   ├── unit-test-auditor.yaml
 │       │   ├── whatsnew-curator.yaml
+│       │   ├── workflow-orchestrator.yaml  # Sets mcp_server_name: central_pm — triggers mcpServers block in CC output
 │       │   └── wp-decomposer.yaml           # PM sub-agent: decomposes plan into atomic work packages
 │       │
 │       └── content/               # Per-slug body templates (body content only, no frontmatter)
@@ -162,6 +165,7 @@ personas/                          # Sub-project root (has own package.json)
 │           ├── researcher.md
 │           ├── unit-test-auditor.md
 │           ├── whatsnew-curator.md
+│           ├── workflow-orchestrator.md  # Body template for the workflow orchestrator persona
 │           └── wp-decomposer.md
 │
 └── docs/
@@ -182,8 +186,8 @@ personas/                          # Sub-project root (has own package.json)
 | `personas/ledger/src/content/` | No | Per-persona body templates — the "main" content for each agent |
 | `personas/standalone/` | Output files: YES (vs-code/ + claude-code/); `src/`: NO | Special-purpose non-workflow personas |
 | `personas/standalone/vs-code/` | Yes | VS Code target output: standalone frontmatter (`name`, `vs_file_name`, no `role`) |
-| `personas/standalone/claude-code/` | Yes | Claude Code target output: standalone CC frontmatter (plain kebab `name`, no `role`; `mcpServers` conditionally injected for personas with MCP tool entries in `tools`) |
-| `personas/standalone/src/meta/` | No | YAML metadata for standalone personas; slug-based (no `number`, no `role`); no `mcp_server_name`, no `roster` |
+| `personas/standalone/claude-code/` | Yes | Claude Code target output: standalone CC frontmatter (plain kebab `name`, no `role`; `mcpServers` included only when per-persona YAML sets `mcp_server_name`) |
+| `personas/standalone/src/meta/` | No | YAML metadata for standalone personas; slug-based (no `number`, no `role`); no shared `mcp_server_name` (can be set per-persona to enable MCP in CC output), no `roster` |
 | `personas/standalone/src/content/` | No | Per-slug body templates — body content compiled verbatim into both VS Code and Claude Code outputs |
 
 ## Root-Level Build Scripts

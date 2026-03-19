@@ -252,7 +252,7 @@ tools: [{{tools_list}}]
 
 ### Standalone — Claude Code (`FRONTMATTER_STANDALONE_CC`)
 
-Written to `personas/standalone/claude-code/`. No `role`. `cc_name` is the plain kebab slug (no numeric prefix). The three shared CC fields are supplied by `${ccFrontmatterFields()}`. The `{{mcp_servers_yaml}}` variable injects a `mcpServers` block when the persona's `tools` list contains `server/*` MCP entries; the variable resolves to an empty string otherwise, producing no block.
+Written to `personas/standalone/claude-code/`. No `role`; optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix). The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
 
 ```yaml
 ---
@@ -262,9 +262,15 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: [{{cc_tools_list}}]
-${ccFrontmatterFields()}{{mcp_servers_yaml}}
+${ccFrontmatterFields()}
+{{#if mcp_server_name}}
+mcpServers:
+  - {{mcp_server_name}}
+{{/if}}
 ---
 ```
+
+When a per-persona YAML sets `mcp_server_name`, the `{{#if mcp_server_name}}` block resolves to include the `mcpServers` entry. Personas without `mcp_server_name` produce no `mcpServers` block — the conditional is stripped and blank lines are normalized by `collapseBlankLines()`.
 
 Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Source: personas/<suite>/src/ -->` immediately after the frontmatter. The source path reflects the actual suite (e.g. `personas/ledger/src/` for ledger builds).
 
@@ -284,7 +290,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `cc_memory` | `string` | Claude Code memory scope |
 | `default_cc_tools` | `string[]` | Default tool list for Claude Code frontmatter |
 
-> **Note:** `mcp_server_name` and `roster` are absent — standalone personas have no shared MCP server dependency and no workflow roster. MCP server names for individual personas are derived automatically from their `tools` list (entries matching `server/*`) and injected into the Claude Code frontmatter by `extractMcpServers()` — no YAML field is needed.
+> **Note:** `mcp_server_name` is intentionally absent from standalone `_shared.yaml` — standalone personas have no shared MCP dependency. However, individual personas **can** set `mcp_server_name` in their own YAML file to opt into MCP support (e.g. `workflow-orchestrator.yaml` sets `mcp_server_name: central_pm`). When present, this triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and includes an `mcpServers` block in the Claude Code output. `roster` is also absent — standalone personas are not part of the 7-stage workflow.
 
 ### Standalone Per-Persona YAML (`<slug>.yaml`)
 
@@ -300,6 +306,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `last_updated` | `string` | no | Per-persona last-updated date |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `module-intent-architect` omits `TodoRead`/`TodoWrite`) |
+| `mcp_server_name` | `string` | no | MCP server name for Claude Code frontmatter (e.g. `"central_pm"`). When set, triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and adds an `mcpServers` block to the CC output. Absent from `_shared.yaml` — must be set per-persona when MCP support is needed. |
 
 > **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
