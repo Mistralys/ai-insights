@@ -405,8 +405,9 @@ function cmdBuildMaintain(args) {
   // 2. Sync Orchestrator version (new behavior)
   syncOrchestratorVersion();
 
-  // 3. Build Personas
-  runScript('build-personas.js', args);
+  // 3. Build Personas (all suites: ledger + standalone)
+  const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
+  runScript('build-personas.js', buildArgs);
 }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
