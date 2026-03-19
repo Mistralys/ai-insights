@@ -131,7 +131,7 @@ export const reworkActionMap: Record<PostImplPipelineType, string> = {
   'documentation': 'REWORK',
 };
 
-/** Agent role name used in next_steps tool-call guidance for each pipeline type. */
+/** @deprecated Use PIPELINE_AGENT_MAP from pipeline-maps.ts instead (manifest-derived, covers all 6 stages). */
 export const pipelineAgentRoleMap: Record<string, string> = {
   'implementation': 'Developer',
   'qa': 'QA',

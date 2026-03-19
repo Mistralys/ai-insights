@@ -21,6 +21,18 @@ const _roleById: Record<string, string> = Object.fromEntries(
 );
 
 /**
+ * Manifest-derived role name for the terminal orchestrating role (Synthesis).
+ * Used as the handoff target when the last pipeline stage completes.
+ */
+const _SYNTHESIS_ROLE = workflowManifest.roles.find(r => r.id === 'synthesis')!.name;
+
+/**
+ * Manifest-derived role name for the implementation owner (Developer).
+ * Used as the ultimate safety fallback when fail-routing cannot resolve.
+ */
+const _DEVELOPER_ROLE = workflowManifest.roles.find(r => r.id === 'developer')!.name;
+
+/**
  * The six valid pipeline type values as a const tuple, in canonical execution order.
  * Used as the source of truth for the PipelineType union, the Zod enum, and
  * all Record keys that depend on exhaustiveness checking.
@@ -117,7 +129,7 @@ export const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>> = (() => {
   }
   // Last stage in default order always hands off to Synthesis
   const lastStage = defaultStages[defaultStages.length - 1];
-  if (lastStage) result[lastStage] = 'Synthesis';
+  if (lastStage) result[lastStage] = _SYNTHESIS_ROLE;
   return result;
 })();
 
@@ -136,7 +148,7 @@ export const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>> = (() => {
 export const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>> = Object.fromEntries(
   (workflowManifest.pipelines.default_stages as readonly string[]).map(stage => [
     stage,
-    _roleById[(workflowManifest.pipelines.fail_routing as Record<string, string>)[stage] ?? ''] ?? 'Developer',
+    _roleById[(workflowManifest.pipelines.fail_routing as Record<string, string>)[stage] ?? ''] ?? _DEVELOPER_ROLE,
   ])
 );
 
@@ -157,7 +169,7 @@ export const AGENT_PIPELINE_MAP: Record<string, PipelineType> = Object.fromEntri
  */
 export const FAIL_AGENT_MAP: Record<PipelineType, string> = Object.fromEntries(
   Object.entries(workflowManifest.pipelines.fail_routing).map(
-    ([pipeline, roleId]) => [pipeline, _roleById[roleId as string] ?? 'Developer']
+    ([pipeline, roleId]) => [pipeline, _roleById[roleId as string] ?? _DEVELOPER_ROLE]
   )
 ) as Record<PipelineType, string>;
 
@@ -227,9 +239,9 @@ export function resolveNextAgent(
 ): string {
   const active = CANONICAL_PIPELINE_ORDERING.filter((t) => activeStages.includes(t));
   const index = active.indexOf(pipelineType);
-  if (index === -1 || index === active.length - 1) return 'Synthesis';
+  if (index === -1 || index === active.length - 1) return _SYNTHESIS_ROLE;
   const nextType = active[index + 1];
-  if (!nextType) return 'Synthesis'; // guard against unexpected undefined
+  if (!nextType) return _SYNTHESIS_ROLE; // guard against unexpected undefined
   return PIPELINE_AGENT_MAP[nextType];
 }
 
@@ -261,7 +273,7 @@ export function resolveFailAgent(
 
   // Fallback: route to the owner of the first active stage.
   const firstActive = CANONICAL_PIPELINE_ORDERING.find((t) => activeStages.includes(t));
-  if (!firstActive) return 'Developer'; // ultimate safety fallback
+  if (!firstActive) return _DEVELOPER_ROLE; // ultimate safety fallback
   return PIPELINE_AGENT_MAP[firstActive];
 }
 

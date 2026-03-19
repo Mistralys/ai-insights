@@ -30,6 +30,31 @@ import {
   STALE_PIPELINE_HOURS,
 } from '../utils/workflow-helpers.js';
 import { embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector } from './workflow-next-action-batch.js';
+
+/** Handler signature for per-role next-action functions. */
+type NextActionHandler = (
+  rootIndex: RootIndex,
+  store: LedgerStore,
+  wpDetails: WorkPackageDetail[],
+) => Promise<{ content: Array<{ type: string; text: string }> }>;
+
+/**
+ * Manifest-typed dispatch map from agent role → next-action handler.
+ *
+ * Keyed by `AgentRole` (derived from the shared workflow manifest) so that
+ * TypeScript flags any mismatch when a role is added, removed, or renamed.
+ * Planner and the default case are handled before dispatch.
+ */
+const NEXT_ACTION_DISPATCH: Partial<Record<AgentRole, NextActionHandler>> = {
+  'Project Manager':  (r, s, w) => getProjectManagerAction(r, s, w),
+  'Developer':        (r, s, w) => getDeveloperAction(r, s, w),
+  'QA':               (r, s, w) => getQaAction(r, s, w),
+  'Security Auditor': (r, s, w) => getSecurityAuditorAction(r, s, w),
+  'Reviewer':         (r, s, w) => getReviewerAction(r, s, w),
+  'Release Engineer': (r, s, w) => getReleaseEngineerAction(r, s, w),
+  'Documentation':    (r, s, w) => getDocumentationAction(r, s, w),
+  'Synthesis':        () => Promise.resolve(getSynthesisAction()),
+};
 /**
  * Tool: get_next_action
  *
@@ -215,56 +240,36 @@ async function getNextAction(args: z.infer<typeof GetNextActionSchema>) {
       return getNextActionsCollector(rootIndex, store, args.agent_role as AgentRole, args.max_results);
     }
 
-    // Agent-specific logic
-    switch (args.agent_role) {
-      case 'Project Manager':
-        return await embedHandoffStatusInWait(
-          await getProjectManagerAction(rootIndex, store, wpDetails),
-          projectPath,
-          args.agent_role,
-          { store, rootIndex, wpDetails }
-        );
-      case 'Developer':
-        return await embedHandoffStatusInWait(await getDeveloperAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
-      case 'QA':
-        return await embedHandoffStatusInWait(await getQaAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
-      case 'Security Auditor':
-        return await embedHandoffStatusInWait(await getSecurityAuditorAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
-      case 'Reviewer':
-        return await embedHandoffStatusInWait(await getReviewerAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
-      case 'Release Engineer':
-        return await embedHandoffStatusInWait(await getReleaseEngineerAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
-      case 'Documentation':
-        return await embedHandoffStatusInWait(await getDocumentationAction(rootIndex, store, wpDetails), projectPath, args.agent_role, { store, rootIndex, wpDetails });
-      case 'Synthesis':
-        return await embedHandoffStatusInWait(
-          getSynthesisAction(),
-          projectPath,
-          args.agent_role,
-          { store, rootIndex, wpDetails }
-        );
-      default:
-        return await embedHandoffStatusInWait(
-          {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify(
-                  {
-                    action: 'WAIT',
-                    reason: `No action available for agent role: ${args.agent_role}`,
-                  },
-                  null,
-                  2
-                ),
-              },
-            ],
-          },
-          projectPath,
-          args.agent_role,
-          { store, rootIndex, wpDetails }
-        );
+    // Agent-specific logic (dispatch map is typed by AgentRole from the manifest)
+    const actionHandler = NEXT_ACTION_DISPATCH[args.agent_role as AgentRole];
+    if (actionHandler) {
+      return await embedHandoffStatusInWait(
+        await actionHandler(rootIndex, store, wpDetails),
+        projectPath,
+        args.agent_role,
+        { store, rootIndex, wpDetails }
+      );
     }
+    return await embedHandoffStatusInWait(
+      {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(
+              {
+                action: 'WAIT',
+                reason: `No action available for agent role: ${args.agent_role}`,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      },
+      projectPath,
+      args.agent_role,
+      { store, rootIndex, wpDetails }
+    );
   } catch (error) {
     return {
       content: [

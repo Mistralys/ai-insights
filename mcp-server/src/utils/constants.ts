@@ -43,6 +43,43 @@ export const ROLE_IDS: Record<AgentRole, string> = Object.fromEntries(
 ) as Record<AgentRole, string>;
 
 /**
+ * Handoff-status string for each agent role.
+ *
+ * Given a target role, `READY_STATUS_FOR_ROLE[role]` returns the READY_FOR_*
+ * handoff status that signals work is ready for that agent.  The map is typed
+ * as `Record<AgentRole, string>` so TypeScript flags missing keys whenever a
+ * role is added or removed in the manifest.
+ *
+ * NOTE: The suffix is NOT mechanically derivable from role IDs (e.g. "docs" →
+ * "DOCUMENTATION", "security_auditor" → "SECURITY_AUDIT"), so the values are
+ * explicit.  Orchestrating roles (Planner) map to READY_FOR_PM by convention.
+ */
+export const READY_STATUS_FOR_ROLE: Record<AgentRole, string> = {
+  'Planner':          'READY_FOR_PM',
+  'Project Manager':  'READY_FOR_PM',
+  'Developer':        'READY_FOR_DEVELOPER',
+  'QA':               'READY_FOR_QA',
+  'Security Auditor': 'READY_FOR_SECURITY_AUDIT',
+  'Reviewer':         'READY_FOR_REVIEW',
+  'Release Engineer': 'READY_FOR_RELEASE_ENGINEERING',
+  'Documentation':    'READY_FOR_DOCUMENTATION',
+  'Synthesis':        'READY_FOR_SYNTHESIS',
+};
+
+/**
+ * Inverse of READY_STATUS_FOR_ROLE: handoff-status → agent role name.
+ * Also includes the special mapping BLOCKED → Project Manager.
+ *
+ * Derived at init time from READY_STATUS_FOR_ROLE so the two cannot diverge.
+ */
+export const HANDOFF_STATUS_ROLE: Record<string, AgentRole> = {
+  ...Object.fromEntries(
+    Object.entries(READY_STATUS_FOR_ROLE).map(([role, status]) => [status, role])
+  ) as Record<string, AgentRole>,
+  BLOCKED: 'Project Manager' as AgentRole,
+};
+
+/**
  * Canonical filenames for the two documents archived into ledger storage.
  *
  * Use these constants wherever the filename is referenced as a literal —
