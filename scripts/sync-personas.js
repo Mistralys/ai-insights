@@ -72,6 +72,14 @@ function getClaudeCodeAgentsDir() {
 }
 
 /**
+ * Determine the Claude Code global skills directory.
+ * @returns {string} - Path to ~/.claude/skills/
+ */
+function getClaudeCodeSkillsDir() {
+  return path.join(os.homedir(), '.claude', 'skills');
+}
+
+/**
  * Extract the VS File Name from a persona file's YAML frontmatter (vs_file_name field).
  * @param {string} filePath - Path to the persona file
  * @returns {string|null} - The VS File Name or null if not found
@@ -449,6 +457,71 @@ function syncStandaloneClaudeCode(dryRun = false) {
   validateStandaloneCCFrontmatter(sourceDir);
 }
 
+/**
+ * Sync Claude Code skills: .claude/skills/ → ~/.claude/skills/.
+ * Copies all .md files from the local project skills directory to the global
+ * Claude Code skills directory, making them available in any project.
+ * @param {boolean} dryRun
+ */
+function syncSkills(dryRun = false) {
+  const sourceDir = path.join(__dirname, '..', '.claude', 'skills');
+  const targetDir = getClaudeCodeSkillsDir();
+
+  if (!fs.existsSync(sourceDir)) {
+    console.log(`${colors.yellow}⊘ No local skills directory found at ${sourceDir} — skipping skill sync${colors.reset}`);
+    return;
+  }
+
+  const skillFiles = fs.readdirSync(sourceDir).filter(f => f.endsWith('.md'));
+
+  if (skillFiles.length === 0) {
+    console.log(`${colors.yellow}⊘ No skill files found in ${sourceDir} — skipping skill sync${colors.reset}`);
+    return;
+  }
+
+  console.log(`${colors.bright}${colors.cyan}=== Claude Code Skills Sync ===${colors.reset}\n`);
+  console.log(`${colors.blue}Source:${colors.reset} ${sourceDir}`);
+  console.log(`${colors.blue}Target:${colors.reset} ${targetDir}`);
+  console.log(`${colors.blue}Mode:${colors.reset} ${dryRun ? 'DRY RUN (preview only)' : 'COPY'}\n`);
+
+  if (!dryRun && !fs.existsSync(targetDir)) {
+    console.log(`${colors.yellow}Creating target directory: ${targetDir}${colors.reset}\n`);
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  let copiedCount = 0;
+  let skippedCount = 0;
+
+  for (const file of skillFiles) {
+    const srcPath = path.join(sourceDir, file);
+    const relSrc = path.join('.claude', 'skills', file);
+
+    if (dryRun) {
+      console.log(`${colors.cyan}→ Would copy:${colors.reset} ${relSrc} ${colors.cyan}→${colors.reset} ${file}`);
+      copiedCount++;
+    } else {
+      try {
+        fs.copyFileSync(srcPath, path.join(targetDir, file));
+        console.log(`${colors.green}✓ Copied:${colors.reset} ${relSrc} ${colors.green}→${colors.reset} ${file}`);
+        copiedCount++;
+      } catch (error) {
+        console.error(`${colors.red}✗ Error copying ${relSrc}:${colors.reset}`, error.message);
+        skippedCount++;
+      }
+    }
+  }
+
+  console.log(`\n${colors.bright}${colors.cyan}=== Summary ===${colors.reset}`);
+  console.log(`${colors.green}${dryRun ? 'Would copy' : 'Copied'}:${colors.reset} ${copiedCount} skill file(s)`);
+  if (skippedCount > 0) {
+    console.log(`${colors.yellow}Skipped:${colors.reset} ${skippedCount} file(s)`);
+  }
+
+  if (dryRun) {
+    console.log(`\n${colors.yellow}This was a dry run. Run without --dry-run to actually copy files.${colors.reset}`);
+  }
+}
+
 // Main execution
 function main() {
   const args = process.argv.slice(2);
@@ -485,6 +558,10 @@ ${colors.bright}Options:${colors.reset}
   --dry-run              Preview without copying
   --custom-path <path>   Override default VS Code prompts directory (vscode target only)
   --help, -h             Show this help message
+
+${colors.bright}Notes:${colors.reset}
+  - The claude-code and all targets also sync .claude/skills/ → ~/.claude/skills/,
+    making workflow skills available globally across all Claude Code projects.
 
 ${colors.bright}Examples:${colors.reset}
   node scripts/sync-personas.js
@@ -523,6 +600,8 @@ ${colors.bright}Examples:${colors.reset}
       syncClaudeCode(dryRun);
       console.log();
       syncStandaloneClaudeCode(dryRun);
+      console.log();
+      syncSkills(dryRun);
     }
   } catch (error) {
     console.error(`${colors.red}Error:${colors.reset}`, error.message);
