@@ -459,7 +459,7 @@ mcpServers:
   - {{mcp_server_name}}
 ---`;
 
-// STANDALONE — no role, no mcpServers; uses slug-based identification
+// STANDALONE — no role; mcpServers is optional via {{#if mcp_server_name}}; uses slug-based identification
 const FRONTMATTER_STANDALONE_VSCODE = `---
 id: {{id}}
 name: '{{name}}'
@@ -479,6 +479,10 @@ version: {{version}}
 last_updated: {{last_updated}}
 tools: [{{cc_tools_list}}]
 ${ccFrontmatterFields()}
+{{#if mcp_server_name}}
+mcpServers:
+  - {{mcp_server_name}}
+{{/if}}
 ---`;
 
 // ---------------------------------------------------------------------------
@@ -659,10 +663,11 @@ function buildForTarget(suite, target) {
     };
 
     // ------------------------------------------------------------------
-    // Render frontmatter (variable interpolation only)
+    // Render frontmatter (conditionals first, then variable interpolation)
     // ------------------------------------------------------------------
 
-    const frontmatter = resolveVariables(fmTemplate, context, yamlFile);
+    let frontmatter = resolveConditionals(fmTemplate, context);
+    frontmatter = resolveVariables(frontmatter, context, yamlFile);
 
     // ------------------------------------------------------------------
     // Render body: partials → conditionals → variables → post-process
