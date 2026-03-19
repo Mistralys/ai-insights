@@ -1,0 +1,84 @@
+# Project Synthesis — Shared Role Manifest Rework 4
+
+**Plan:** `2026-03-18-shared-role-manifest-rework-4`
+**Date:** 2026-03-19
+**Status:** COMPLETE — 3/3 WPs complete, all pipelines PASS
+
+---
+
+## Executive Summary
+
+This session delivered three focused, surgical improvements across the orchestrator and CI/CD pipeline:
+
+1. **WP-001 — Orchestrator supervisor drift-proofing:** Replaced 12 hard-coded role name strings in `_derive_next_action` with `PIPELINE_AGENT_MAP` lookups, eliminating the last major manual sync point between the orchestrator supervisor and `shared/workflow-manifest.json` for role routing. The pass-branch and fail-branch routing chains for all 6 pipeline types are now manifest-derived.
+
+2. **WP-002 — CI cache correctness fix:** Expanded the `mcp-server-tests` job's `cache-dependency-path` to cover both `mcp-server/package-lock.json` and `personas/package-lock.json`, fixing a silent cache-miss bug caused by the job installing both packages but only watching one lock file.
+
+3. **WP-003 — GitHub Actions supply-chain hardening:** Pinned all 10 action references across 5 CI jobs to full SHA digests with inline version-tag comments (`# v4` / `# v5`), closing the supply-chain attack vector introduced by mutable version tags. Updated `README.md` to document the practice.
+
+All changes are minimal, focused, and non-breaking. No regressions introduced.
+
+---
+
+## Metrics
+
+| Work Package | Tests Passed | Tests Failed | Tests Skipped | ACs Met |
+|---|---|---|---|---|
+| WP-001 | 257 | 0 | 1 (pre-existing) | 4/4 |
+| WP-002 | — (CI config, no unit tests) | — | — | 2/2 |
+| WP-003 | — (CI config, no unit tests) | — | — | 4/4 |
+| **Total** | **257** | **0** | **1** | **10/10** |
+
+**Code quality:** All 3 WPs received PASS at every pipeline stage (implementation → QA → code-review → documentation). No high- or medium-priority observations raised across any pipeline.
+
+**Files modified:**
+
+| File | Changed By |
+|---|---|
+| `orchestrator/tests/test_supervisor.py` | WP-001 |
+| `orchestrator/README.md` | WP-001 |
+| `.github/workflows/ci.yml` | WP-002, WP-003 |
+| `README.md` | WP-003 |
+
+---
+
+## Strategic Recommendations
+
+These "gold nugget" observations were surfaced by reviewers and QA across the session:
+
+### 1. (Medium Priority) Complete orchestrator supervisor FAIL-branch test coverage
+
+`orchestrator/tests/test_supervisor.py` has no isolated `TestRouteToSecurityAuditor`, `TestRouteToReleaseEngineer`, or `TestRouteToDocumentation` test classes. The security-audit, release-engineering, and documentation FAIL-branch rework paths in `_derive_next_action` remain untested at the unit level. This is a pre-existing gap that WP-001 did not introduce but is now more visible after the manifest-derived refactor.
+
+**Suggested follow-up WP:** Add isolated test classes for all 6 pipeline FAIL branches in `test_supervisor.py`.
+
+### 2. (Low Priority) Add `PIPELINE_AGENT_MAP` snapshot test to `test_config.py`
+
+`test_config.py` currently has structural snapshot assertions for `FAIL_ROUTING_AGENT_MAP` but none for `PIPELINE_AGENT_MAP`. Since `PIPELINE_AGENT_MAP` is now critical to `_derive_next_action` routing, adding a parallel snapshot test would catch manifest-derivation regressions at the config level.
+
+**Suggested follow-up WP:** Add `PIPELINE_AGENT_MAP` structural assertions alongside `FAIL_ROUTING_AGENT_MAP` in `test_config.py`.
+
+### 3. (Low Priority) Add Dependabot for GitHub Actions SHA maintenance
+
+No `.github/dependabot.yml` exists. The SHA-pinned action refs introduced by WP-003 will require manual updates as GitHub releases security patches for `checkout`, `setup-node`, and `setup-python`. Dependabot can automate this.
+
+**Suggested follow-up task:** Create `.github/dependabot.yml` with a `github-actions` ecosystem entry to keep SHA-pinned action refs current.
+
+### 4. (Informational) Action vocabulary remains a manual sync point
+
+The manifest drift-proofing effort is now complete for **role names** in the orchestrator supervisor. The remaining manual sync point is the **action vocabulary** strings (`IMPLEMENT`, `RUN_QA`, `RUN_SECURITY_AUDIT`, `RUN_CODE_REVIEW`, `RUN_RELEASE_ENGINEERING`, `WRITE_DOCS`). These are not yet derived from `shared/workflow-manifest.json`. This is a lower-risk sync point (action names are more stable) but worth noting for a future manifest-rework sprint.
+
+---
+
+## Next Steps
+
+Priority order for the next planning cycle:
+
+1. **IMPLEMENT:** Add isolated test classes for security-audit, release-engineering, and documentation FAIL branches in `orchestrator/tests/test_supervisor.py`.
+2. **IMPLEMENT:** Add `PIPELINE_AGENT_MAP` structural assertions to `orchestrator/tests/test_config.py`.
+3. **TASK:** Create `.github/dependabot.yml` with a `github-actions` ecosystem entry.
+4. **INVESTIGATE (deferred):** Evaluate whether action vocabulary strings should be promoted to `shared/workflow-manifest.json` to complete end-to-end manifest derivation in the orchestrator supervisor.
+
+---
+
+*Generated by Head of Operations (Synthesis Agent) — 2026-03-19*
