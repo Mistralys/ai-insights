@@ -40,31 +40,6 @@ function serializeToolsList(tools) {
   return tools.map(t => `'${t}'`).join(', ');
 }
 
-/**
- * Extract MCP server names from a tools array.
- * Identifies MCP tool entries (those containing '/') and extracts unique
- * server name prefixes. Used to build the mcpServers block for standalone
- * Claude Code personas. Constraint-19-compliant: server names are derived
- * from per-persona tools entries, not from shared metadata.
- *
- * @param {string[]} tools
- * @returns {string[]}  deduplicated array of MCP server names
- */
-function extractMcpServers(tools) {
-  const servers = [];
-  const seen = new Set();
-  for (const tool of tools || []) {
-    if (typeof tool === 'string' && tool.includes('/')) {
-      const serverName = tool.split('/')[0];
-      if (!seen.has(serverName)) {
-        seen.add(serverName);
-        servers.push(serverName);
-      }
-    }
-  }
-  return servers;
-}
-
 // ---------------------------------------------------------------------------
 // Filename validators
 // ---------------------------------------------------------------------------
@@ -245,7 +220,6 @@ function renderMcpToolsTable(tools) {
 module.exports = {
   serializeTools,
   serializeToolsList,
-  extractMcpServers,
   validateFileName,
   resolvePartials,
   resolveConditionals,

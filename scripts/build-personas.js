@@ -32,7 +32,6 @@ const _MANIFEST_ROLE_NAMES = new Set(
 const {
   serializeTools,
   serializeToolsList,
-  extractMcpServers,
   validateFileName,
   resolvePartials,
   resolveConditionals,
@@ -298,8 +297,8 @@ vs_file_name: {{vs_file_name}}
 tools: [{{tools_list}}]
 ---`;
 
-// mcpServers is conditionally injected via {{mcp_servers_yaml}} when the
-// persona's tools list contains entries with '/' (MCP tool format).
+// mcpServers is conditionally injected via {{#if mcp_server_name}} — set
+// mcp_server_name in the per-persona YAML to enable this block.
 const FRONTMATTER_STANDALONE_CC = `---
 name: {{cc_name}}
 description: '{{description}}'
@@ -475,17 +474,6 @@ function buildForTarget(suite, target) {
       ? { name: `${persona.name} v${version}` }
       : {};
 
-    // Standalone CC: derive mcpServers block from tools entries containing '/'
-    // (format: {server_name}/{tool_name}). Empty string when no MCP tools present.
-    const mcp_servers_yaml = (personaMode === 'standalone' && !isVscode)
-      ? (() => {
-          const servers = extractMcpServers(persona.tools);
-          return servers.length > 0
-            ? '\nmcpServers:\n' + servers.map(s => `  - ${s}`).join('\n')
-            : '';
-        })()
-      : '';
-
     const context = {
       // Shared metadata fields
       author:             sharedMeta.author,
@@ -509,7 +497,6 @@ function buildForTarget(suite, target) {
       mcp_tools_table,
       cc_name,
       cc_description,
-      mcp_servers_yaml,
       // Platform feature flags
       target_vscode:      isVscode,
       target_claude_code: !isVscode,

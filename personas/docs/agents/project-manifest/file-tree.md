@@ -118,7 +118,7 @@ personas/                          # Sub-project root (has own package.json)
 │   │   ├── composer-curator.md
 │   │   ├── ctx-architect.md
 │   │   ├── dependency-sequencer.md
-│   │   ├── ledger-bootstrapper.md   # NOTE: mcpServers: central_pm auto-injected (central_pm/* declared in tools list)
+│   │   ├── ledger-bootstrapper.md   # NOTE: mcpServers: central_pm injected because mcp_server_name: central_pm is set in ledger-bootstrapper.yaml (same mechanism as workflow-orchestrator)
 │   │   ├── manifest-curator.md
 │   │   ├── module-intent-architect.md
 │   │   ├── orchestrator-runner.md

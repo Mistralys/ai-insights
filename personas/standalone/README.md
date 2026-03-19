@@ -86,17 +86,13 @@ All 15 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 
 ---
 
-## Claude Code — MCP Server Auto-Injection
+## Claude Code — MCP Server Injection
 
 ### Conditional `mcpServers` in standalone CC output
 
-The `FRONTMATTER_STANDALONE_CC` template conditionally injects a `mcpServers` block based on each persona's `tools` list. Personas that declare MCP tool entries in the format `server/*` (e.g. `central_pm/*`) receive an auto-generated `mcpServers` block in their Claude Code frontmatter. Personas with no such entries produce no `mcpServers` block.
+`FRONTMATTER_STANDALONE_CC` conditionally injects a `mcpServers` block via `{{#if mcp_server_name}}`. Personas that set `mcp_server_name: central_pm` in their per-persona YAML receive the block; personas that omit the field produce no `mcpServers` entry.
 
-**How it works:** The `extractMcpServers(tools)` helper in `scripts/build-personas.js` filters tool entries containing `/`, extracts unique server name prefixes, and builds the YAML block string. The computed `{{mcp_servers_yaml}}` variable is injected into `FRONTMATTER_STANDALONE_CC`.
-
-**Result:** `ledger-bootstrapper.md` declares `mcpServers:\n  - central_pm` in its frontmatter. All other standalone CC personas that carry no `server/*` tool entries produce no `mcpServers` block.
-
-> **Important:** `extractMcpServers()` reads `persona.tools` (not `persona.cc_tools`) to derive server names. MCP server presence must always be declared in `tools`, not only in `cc_tools`. If a future persona were to declare MCP entries in `cc_tools` but omit them from `tools`, the injection would not fire.
+**Result:** `ledger-bootstrapper.md` declares `mcpServers:\n  - central_pm` in its frontmatter. All other standalone CC personas with no `mcp_server_name` field produce no `mcpServers` block.
 
 ---
 

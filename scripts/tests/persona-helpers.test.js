@@ -4,7 +4,6 @@
  * persona-helpers.test.js
  *
  * Vitest test suite for scripts/lib/persona-helpers.js.
- * Tests are organized by the 6 primary helper groups defined in WP-001.
  *
  * Globals (describe, it, expect, vi, afterEach) are injected by vitest
  * via the `globals: true` config option. `require` is available because
@@ -14,7 +13,6 @@
 const helpers = require('../lib/persona-helpers');
 
 const {
-  extractMcpServers,
   serializeTools,
   serializeToolsList,
   validateFileName,
@@ -24,44 +22,7 @@ const {
 } = helpers;
 
 // ---------------------------------------------------------------------------
-// Group 1: extractMcpServers()
-// ---------------------------------------------------------------------------
-
-describe('extractMcpServers()', () => {
-  it('returns [] for an empty array', () => {
-    expect(extractMcpServers([])).toEqual([]);
-  });
-
-  it('returns [] when no entries contain "/"', () => {
-    expect(extractMcpServers(['vscode', 'execute', 'read'])).toEqual([]);
-  });
-
-  it('deduplicates server names from multiple tools on the same server', () => {
-    expect(extractMcpServers(['central_pm/tool1', 'central_pm/tool2'])).toEqual(['central_pm']);
-  });
-
-  it('returns distinct server names for tools from different servers', () => {
-    expect(extractMcpServers(['central_pm/tool1', 'other_server/tool2'])).toEqual([
-      'central_pm',
-      'other_server',
-    ]);
-  });
-
-  it('returns [] for null input (defensive guard)', () => {
-    expect(extractMcpServers(null)).toEqual([]);
-  });
-
-  it('returns [] for undefined input (defensive guard)', () => {
-    expect(extractMcpServers(undefined)).toEqual([]);
-  });
-
-  it('skips non-string entries', () => {
-    expect(extractMcpServers([42, null, {}, 'central_pm/tool1', true])).toEqual(['central_pm']);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Group 2: serializeTools() and serializeToolsList()
+// Group 1: serializeTools() and serializeToolsList()
 // ---------------------------------------------------------------------------
 
 describe('serializeTools()', () => {

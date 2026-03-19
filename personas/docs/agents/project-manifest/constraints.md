@@ -193,6 +193,9 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 <a name="c38"></a>
 38. **`mcp_server_name` ↔ `.mcp.json`**: The `mcp_server_name` value in `_shared.yaml` must match the server key in the target project's `.mcp.json` file. Default is `central_pm`.
 
+<a name="c48"></a>
+48. **Maintenance note — `mcp_server_name` context-layer shadowing risk.** Per-persona YAML fields shadow shared YAML values via the object spread in the build context. Standalone personas in `personas/standalone/src/meta/` hardcode `mcp_server_name: central_pm` in their individual YAML files rather than inheriting from a shared source. If `personas/ledger/src/meta/_shared.yaml` → `mcp_server_name` is ever changed, the standalone personas will **not** automatically follow — their per-file value will shadow the new shared value. This divergence is accepted because standalone personas are independent tools with no shared `_shared.yaml` (see [constraint 19](#c19)). If `mcp_server_name` changes globally (e.g., `.mcp.json` server key renamed), update both `personas/ledger/src/meta/_shared.yaml` **and** every standalone persona YAML file that hardcodes the old value.
+
 <a name="c39"></a>
 39. **Canonical Pipeline Stage Ordering Is a Hard Runtime Constraint.** `active_pipeline_stages` must be a **strict subsequence** of `CANONICAL_PIPELINE_ORDERING`: `['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation']`. Stages may be omitted but **never reordered**. `ledger_create_work_package` rejects arrays that violate this ordering (see MCP server constraint 66). The Pipeline Configurator sub-agent and any agent documentation that teaches pipeline composition must present this as a hard constraint, not a suggestion. Cross-reference: `mcp-server/docs/agents/project-manifest/constraints.md` → Constraints 19, 65, 66.
 
