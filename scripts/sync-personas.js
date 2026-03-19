@@ -19,20 +19,9 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 
-// NOTE: Keep in sync with AGENT_ROLES in src/utils/constants.ts whenever agent
-// roles are added or renamed. This file is plain JS and cannot import TypeScript
-// source directly.
-const KNOWN_ROLES = [
-  'Planner',
-  'Project Manager',
-  'Developer',
-  'QA',
-  'Security Auditor',
-  'Reviewer',
-  'Release Engineer',
-  'Documentation',
-  'Synthesis',
-];
+// Role names are loaded from the shared workflow manifest — the single source
+// of truth for all agent roles across the workspace.
+const KNOWN_ROLES = require('../shared/workflow-manifest.json').roles.map(r => r.name);
 
 // ANSI color codes for console output
 const colors = {

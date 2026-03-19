@@ -37,10 +37,9 @@ import json
 import logging
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Console logging configuration
@@ -122,9 +121,9 @@ class WorkflowLogger:
     def create(
         cls,
         *,
-        logs_dir: "Path | str | None" = None,
+        logs_dir: Path | str | None = None,
         label: str = "run",
-    ) -> "WorkflowLogger":
+    ) -> WorkflowLogger:
         """
         Create a new :class:`WorkflowLogger` with an auto-timestamped file name.
 
@@ -150,7 +149,7 @@ class WorkflowLogger:
             logs_dir = Path(__file__).resolve().parent.parent.parent / "logs"
 
         logs_dir = Path(logs_dir)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         slug = _slugify(label)
         file_name = f"{timestamp}-{slug}.jsonl"
         return cls(logs_dir / file_name)
@@ -166,7 +165,7 @@ class WorkflowLogger:
         wp_id: str = "",
         action: str,
         result: str = "",
-        tokens_used: Optional[int] = None,
+        tokens_used: int | None = None,
         **extra: Any,
     ) -> None:
         """
@@ -189,7 +188,7 @@ class WorkflowLogger:
             Additional key/value pairs included verbatim in the JSONL entry.
         """
         entry: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "stage": stage,
             "wp_id": wp_id,
             "action": action,
@@ -228,7 +227,7 @@ class WorkflowLogger:
         except OSError:
             pass
 
-    def __enter__(self) -> "WorkflowLogger":
+    def __enter__(self) -> WorkflowLogger:
         return self
 
     def __exit__(self, *_: Any) -> None:

@@ -68,7 +68,7 @@ _LOOP_STAGES = (
 )
 
 
-def build_graph(config: "Config", mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
+def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
     """
     Build and compile the hub-and-spoke LangGraph ``StateGraph``.
 
@@ -101,23 +101,25 @@ def build_graph(config: "Config", mcp_tools: list[Any], *, interrupt_before: lis
         from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
         _use_sqlite = True
     except ImportError:
-        from langgraph.checkpoint.memory import MemorySaver as SqliteSaver  # type: ignore[import,assignment]
+        from langgraph.checkpoint.memory import (
+            MemorySaver as SqliteSaver,  # type: ignore[import,assignment]
+        )
         _use_sqlite = False
         log.warning(
             "langgraph-checkpoint-sqlite is not installed; using in-memory checkpointer. "
             "Run 'pip install langgraph-checkpoint-sqlite' to enable persistent checkpointing."
         )
 
+    from src.nodes.developer import make_developer_node
+    from src.nodes.docs import make_docs_node
+    from src.nodes.pm import make_pm_node
+    from src.nodes.qa import make_qa_node
+    from src.nodes.release_engineer import make_release_engineer_node
+    from src.nodes.reviewer import make_reviewer_node
+    from src.nodes.security_auditor import make_security_auditor_node
+    from src.nodes.synthesis import make_synthesis_node
     from src.state import WorkflowState
     from src.supervisor import make_supervisor_node
-    from src.nodes.pm import make_pm_node
-    from src.nodes.developer import make_developer_node
-    from src.nodes.qa import make_qa_node
-    from src.nodes.security_auditor import make_security_auditor_node
-    from src.nodes.reviewer import make_reviewer_node
-    from src.nodes.release_engineer import make_release_engineer_node
-    from src.nodes.docs import make_docs_node
-    from src.nodes.synthesis import make_synthesis_node
 
     # ── Instantiate nodes ──────────────────────────────────────────────────
     supervisor_node = make_supervisor_node(mcp_tools)

@@ -22,7 +22,7 @@ supervisor_node
 ## Standard Routing (per role — first dispatchable action wins)
 
 The supervisor calls `ledger_get_next_action` for each agent role in priority order
-(`Project Manager` → `Developer` → `QA` → `Reviewer` → `Documentation`).
+(`Project Manager` → `Developer` → `QA` → `Security Auditor` → `Reviewer` → `Release Engineer` → `Documentation`).
 The **role** determines the destination; the **action** determines dispatch vs. skip:
 
 ```
@@ -37,22 +37,23 @@ For each role in priority order:
                                      → skip WP, record WARNING entry
 
   action ∈ _DISPATCH_ACTIONS         → dispatch to role's stage:
-    "Project Manager"  → pm          (_DISPATCH_ACTIONS includes REPAIR_ORPHAN_BLOCKED,
-    "Developer"        → developer    UNBLOCK_WP, REVIEW_REWORK_LIMIT, REVIEW_STALE,
-    "QA"               → qa           REVIEW_ABANDONED, IMPLEMENT, REWORK, CLAIM_WP,
-    "Reviewer"         → reviewer     CONTINUE_PIPELINE, RESUME_OR_CANCEL, RUN_QA,
-    "Documentation"    → docs         RUN_REVIEW, WRITE_DOCS, FINALIZE_WP,
-                                      UPDATE_CRITERIA)
+    "Project Manager"   → pm               (_DISPATCH_ACTIONS includes REPAIR_ORPHAN_BLOCKED,
+    "Developer"         → developer         UNBLOCK_WP, REVIEW_REWORK_LIMIT, REVIEW_STALE,
+    "QA"                → qa                REVIEW_ABANDONED, IMPLEMENT, REWORK, CLAIM_WP,
+    "Security Auditor"  → security_auditor  CONTINUE_PIPELINE, RESUME_OR_CANCEL, RUN_QA,
+    "Reviewer"          → reviewer          RUN_SECURITY_AUDIT, RUN_REVIEW,
+    "Release Engineer"  → release_engineer  RUN_RELEASE_ENGINEERING, WRITE_DOCS,
+    "Documentation"     → docs              FINALIZE_WP, UPDATE_CRITERIA)
 
 All roles returned WAIT/skip          → synthesis
 ```
 
-> **Known limitation (WP-007):** `Security Auditor` and `Release Engineer` are not currently in the supervisor's polling loop (`_ROLES`) or dispatch map (`_ROLE_STAGE_MAP`). The `security_auditor` and `release_engineer` graph nodes are registered and wired into the `StateGraph`, but the supervisor never routes to them automatically. Adding them requires: (1) adding `"Security Auditor"` → `security_auditor` and `"Release Engineer"` → `release_engineer` to `_ROLE_STAGE_MAP` and `_DEST_*` constants in `supervisor.py`, (2) adding both roles to `_ROLES`, and (3) adding the corresponding ledger actions (e.g. `RUN_SECURITY_AUDIT`, `RUN_RELEASE_ENGINEERING`) to `_DISPATCH_ACTIONS`. This is deferred pending full persona content authoring.
-
 > `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
 > `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage
-> mapping. Adding a new action from the MCP server only requires updating those
-> constants — no other routing logic changes are needed.
+> mapping. `_ROLE_STAGE_MAP` and `_ROLES` are now derived from the manifest-derived
+> `PIPELINE_ROLE_NAMES` constant in `config.py`. Adding a new action from the MCP
+> server only requires updating `_DISPATCH_ACTIONS` — no other routing logic changes
+> are needed.
 
 ---
 

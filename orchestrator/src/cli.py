@@ -33,6 +33,7 @@ import os
 import sys
 import time
 import uuid
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -194,10 +195,10 @@ def _make_dryrun_node(stage: str):
     The stub logs the stage name and returns a state update indicating
     success without invoking the Deep Agent.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     def _stub(state: Any) -> dict:
-        ts = datetime.now(timezone.utc).isoformat()
+        ts = datetime.now(UTC).isoformat()
         wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
         log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "—")
         print(f"  [dry-run] {stage}: WP={wp_id or '—'}")
@@ -260,7 +261,9 @@ def _build_graph_for_run(
             from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
             _use_sqlite = True
         except ImportError:
-            from langgraph.checkpoint.memory import MemorySaver as SqliteSaver  # type: ignore[import,assignment]
+            from langgraph.checkpoint.memory import (
+                MemorySaver as SqliteSaver,  # type: ignore[import,assignment]
+            )
             _use_sqlite = False
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
@@ -338,11 +341,12 @@ def _print_run_summary(
     errors: list = final_state.get("errors", [])
     wp_summaries: list = final_state.get("wp_summaries", [])
 
-    stages_executed = {entry.get("stage", "") for entry in run_log if entry.get("action") != "dry_run"}
+    stages_executed = {
+        entry.get("stage", "") for entry in run_log if entry.get("action") != "dry_run"
+    }
     stages_executed.discard("")
 
     wps_complete = sum(1 for wp in wp_summaries if wp.get("status") == "COMPLETE")
-    wps_failed = sum(1 for wp in wp_summaries if wp.get("status") not in ("COMPLETE", "READY", "BLOCKED", "IN_PROGRESS"))
     total_wps = len(wp_summaries)
     error_count = len(errors) + len(errors_raised or [])
 
@@ -582,7 +586,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         from src.config import load_config
         config = load_config()
-    except (EnvironmentError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
         sys.stderr.write(f"orchestrate: configuration error: {exc}\n")
         sys.exit(EXIT_ERROR)
 

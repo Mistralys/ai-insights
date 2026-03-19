@@ -128,7 +128,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 ## Role & Version Conventions
 
 <a name="c23"></a>
-23. **`role` values must match `AGENT_ROLES`** in `mcp-server/src/utils/constants.ts`. The sync script's `KNOWN_ROLES` array mirrors this and must be kept in manual sync. Mismatched roles produce advisory warnings.
+23. **`role` values must match manifest role names** in `shared/workflow-manifest.json`. The sync script's `KNOWN_ROLES` and the MCP server's `AGENT_ROLES` both derive from the manifest at runtime, so adding or renaming a role in the manifest automatically propagates to both consumers. `scripts/build-personas.js` cross-checks each ledger persona's `role` field against manifest role names and emits advisory warnings for mismatches.
 
 <a name="c24"></a>
 24. **`id` naming convention and stability rules:**
@@ -185,7 +185,7 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
    > **AC field-name verification:** When acceptance criteria text references specific field names, TypeScript parameter names, or object property names (e.g., `store`, `rootIndex`, `wpDetails`, `storageDir`), verify these against the actual implementation source before committing the AC to a work package. If implementation uses a different name than what the AC states, update the AC text to match. Stale field-name references in ACs cause false-negative review outcomes.
 
 <a name="c36"></a>
-36. **`KNOWN_ROLES` ↔ `AGENT_ROLES`**: The sync script's `KNOWN_ROLES` constant must match `mcp-server/src/utils/constants.ts` → `AGENT_ROLES`. There is no automated validation between these two — it's a manual sync contract.
+36. **`KNOWN_ROLES` and `AGENT_ROLES` are both manifest-derived.** Both `scripts/sync-personas.js` → `KNOWN_ROLES` and `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` now derive their values at runtime from `shared/workflow-manifest.json`. There is no longer a manual sync contract between these two — they always agree by construction. Adding or renaming a role in the manifest propagates automatically. Persona YAML `role` fields still need to match manifest role names; `scripts/build-personas.js` validates this and emits advisory warnings on mismatch.
 
 <a name="c37"></a>
 37. **`role` field ↔ Agent Registry**: The `role` value in persona frontmatter is used by the MCP server's Agent Registry (`mcp-server/src/utils/agent-registry.ts`) to discover agent handles for automatic handoffs. The registry scans `*.agent.md` files in the VS Code prompts directory and matches the `role` field.

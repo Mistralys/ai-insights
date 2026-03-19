@@ -36,8 +36,8 @@ across multiple calls::
 
 from __future__ import annotations
 
-import atexit
 import asyncio
+import atexit
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -72,7 +72,7 @@ class MCPToolkit:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_config(cls, config: "Config") -> "MCPToolkit":
+    def from_config(cls, config: Config) -> MCPToolkit:
         """Construct an :class:`MCPToolkit` from a :class:`~src.config.Config`."""
         return cls(mcp_server_cmd=config.mcp_server_cmd)
 
@@ -80,7 +80,7 @@ class MCPToolkit:
     # Async context manager
     # ------------------------------------------------------------------
 
-    async def __aenter__(self) -> "MCPToolkit":
+    async def __aenter__(self) -> MCPToolkit:
         from langchain_mcp_adapters.client import MultiServerMCPClient  # type: ignore[import]
         from langchain_mcp_adapters.tools import load_mcp_tools  # type: ignore[import]
 
@@ -194,7 +194,7 @@ class MCPToolkit:
 # Convenience helper
 # ---------------------------------------------------------------------------
 
-async def get_mcp_tools(config: "Config") -> list:
+async def get_mcp_tools(config: Config) -> list:
     """
     Convenience coroutine: start the MCP toolkit, run the health check, and
     return the tool list.

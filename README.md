@@ -71,6 +71,24 @@ node scripts/install-hooks.js
 
 This enables a pre-commit guard that fails the commit if any generated persona file is stale (out of sync with its source template).
 
+### CI — Automated Quality Gate
+
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request to `main`. It runs five independent jobs:
+
+| Job | What it checks |
+|-----|---------------|
+| `mcp-server-tests` | MCP server Vitest suite (Node.js 20) |
+| `orchestrator-tests` | Orchestrator pytest suite (Python 3.11) |
+| `ruff` | Orchestrator source linting (`ruff check src/`) |
+| `manifest-validation` | `shared/workflow-manifest.json` schema + semantic checks |
+| `persona-build-check` | Detects stale generated persona output (`build-personas.js --check`) |
+
+Each job fails independently. npm and pip dependencies are cached to reduce cold-start times. All GitHub Actions refs are pinned to SHA digests (with inline version-tag comments) for supply-chain hardening. No deployment, artifact publishing, or release steps are included.
+
+### Shared manifest
+
+`shared/workflow-manifest.json` is the single source of truth for the workflow specification: all 9 agent roles, 6 pipeline types, status enums, and workflow constants. All sub-projects derive their constant definitions from this file. It is validated by `shared/workflow-manifest.schema.json`.
+
 ### Key scripts
 
 | Script | Purpose |

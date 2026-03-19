@@ -551,6 +551,8 @@ interface HandoffNote {
 
 ## Testing Constraints
 
+> **CI gate:** The MCP server Vitest test suite (`npm test` in `mcp-server/`) is enforced on every push and pull request to `main` via `.github/workflows/ci.yml` (`mcp-server-tests` job, Node.js 20). All tests must pass before a PR can be merged.
+
 ### 27. Test Timeout Is 10 Seconds
 
 **Rule:** All Vitest tests have a default timeout of 10 seconds.
@@ -1414,7 +1416,7 @@ await addProjectComment({ ..., agent: "Developer Agent" });
 - Assuming `project_comments.agent` and `assigned_to` share the same validation rules — they do not.
 - Hardcoding role strings anywhere other than constants. Use `AGENT_ROLES` entries or the `AgentRole` type for `assigned_to`-typed fields.
 
-**Reference:** `AGENT_ROLES` is defined in `src/utils/constants.ts`. `ProjectCommentSchema` is in `src/schema/validators.ts`.
+**Reference:** `AGENT_ROLES` is derived from `shared/workflow-manifest.json` (`roles[].name`) and re-exported from `src/utils/constants.ts`. `ProjectCommentSchema` is in `src/schema/validators.ts`. See [tech-stack.md — Architectural Pattern 10](tech-stack.md#10-manifest-derived-constants) for the full list of manifest-derived constants.
 
 ---
 

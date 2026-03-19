@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 from . import create_stage_node
 
 
-def _build_synthesis_prompt(state: "WorkflowState") -> str:
+def _build_synthesis_prompt(state: WorkflowState) -> str:
     """
     Construct the synthesis agent's user-turn prompt.
 
@@ -44,7 +44,8 @@ def _build_synthesis_prompt(state: "WorkflowState") -> str:
         f"1. Call `ledger_get_project_status` with "
         f"`project_path={project_path!r}` to get the final project overview.\n"
         f"2. For each completed work package, call "
-        f"`ledger_get_work_package` with `project_path={project_path!r}` to retrieve pipeline outcomes, "
+        f"`ledger_get_work_package` with `project_path={project_path!r}` "
+        f"to retrieve pipeline outcomes, "
         f"observations, and acceptance criteria results.\n"
         f"3. Write a synthesis document that includes:\n"
         f"   - Project summary and outcomes achieved.\n"
@@ -59,7 +60,7 @@ def _build_synthesis_prompt(state: "WorkflowState") -> str:
     )
 
 
-def make_synthesis_node(config: "Config", mcp_tools: list[Any]):
+def make_synthesis_node(config: Config, mcp_tools: list[Any]):
     """
     Return the LangGraph node function for the Synthesis stage.
 

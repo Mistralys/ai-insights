@@ -124,6 +124,26 @@ Each pipeline is owned by a single agent role. Failures route back for rework (t
 
 ---
 
+## Machine-Readable Vocabulary
+
+`shared/workflow-manifest.json` is the **machine-readable encoding** of this specification's vocabulary. It captures the specification-derived constructs that must be consistent across all implementations (TypeScript MCP server, Python orchestrator, persona build system):
+
+| Construct | Manifest field | Consumers |
+|-----------|---------------|----------|
+| Agent role names & IDs | `roles[].name`, `roles[].id` | `src/utils/constants.ts` → `AGENT_ROLES`, `ROLE_IDS`; `scripts/sync-personas.js` → `KNOWN_ROLES`; persona YAML `role` fields (validated by `build-personas.js`) |
+| Orchestrating roles | `roles[].orchestrating` | `src/utils/constants.ts` → `ORCHESTRATING_ROLES` |
+| Pipeline types & canonical order | `pipelines.canonical_order` | `src/utils/pipeline-maps.ts` → `PIPELINE_TYPES`, `CANONICAL_PIPELINE_ORDERING` |
+| Default pipeline stages | `pipelines.default_stages` | `src/utils/pipeline-maps.ts` → `DEFAULT_PIPELINE_STAGES` |
+| Pipeline → agent mapping | `pipelines.agent_map` | `src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP` |
+| Specification version | `spec_version` | `src/utils/constants.ts` → `SPEC_VERSION` |
+| Status enums | `statuses.*` | `src/schema/enums.ts` |
+
+When this specification changes vocabulary (e.g., adding a role, renaming a pipeline type), update `shared/workflow-manifest.json` first — all consumers derive their constants from it at build/load time.
+
+The manifest is validated structurally by `shared/workflow-manifest.schema.json` (JSON Schema Draft-07) and semantically by `scripts/validate-workflow-manifest.js`.
+
+---
+
 ## Compliance Model
 
 > **This specification is the single source of truth for all workflow logic.**

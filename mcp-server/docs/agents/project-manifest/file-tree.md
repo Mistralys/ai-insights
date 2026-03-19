@@ -48,10 +48,11 @@ mcp-server/
 │   │   └── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig(), startConfigWatcher(), stopConfigWatcher()
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
-│   │   ├── enums.ts             # Status enums (ProjectStatus, WorkPackageStatus, etc.)
+│   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json (ProjectStatus, WorkPackageStatus, PipelineStatus, BlockerType)
 │   │   ├── project-meta.ts      # ProjectMetaSchema / ProjectMeta — per-project .meta.json
 │   │   ├── root-index.ts        # RootIndex schema (storage/ledger/{slug}/project-ledger.json structure)
 │   │   ├── validators.ts        # Business rule validators (status transitions, dependencies)
+│   │   ├── workflow-manifest-schema.ts  # Zod schema for shared/workflow-manifest.json; exports AgentRoleEnum (z.enum with 9 role names), ManifestSchema (full schema), workflowManifest (parsed singleton), and inferred types AgentRole + Manifest
 │   │   └── work-package.ts      # WorkPackageDetail schema (storage/ledger/{slug}/WP-###.json structure)
 │   │
 │   ├── storage/                 # File I/O abstractions
@@ -72,9 +73,9 @@ mcp-server/
 │   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module: embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector
 │   │
 │   └── utils/                   # Utility functions
-│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports getMaxHandoffDepth() (reads from GUI config cache), clearSynthesisState(rootIndex) (centralised synthesis field reset)
+│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports STALE_PIPELINE_HOURS and MAX_REWORK_COUNT (both derived from shared/workflow-manifest.json constants), getMaxHandoffDepth() (reads from GUI config cache; falls back to manifest default), effectiveMaxDepth() (scales handoff ceiling by project size using manifest handoff_depth_multiplier), clearSynthesisState(rootIndex) (centralised synthesis field reset)
 │       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), getAgentId(), isRegistryLoaded(), resetRegistry()
-│       ├── constants.ts         # Shared string constants and AGENT_ROLES
+│       ├── constants.ts         # Shared constants derived from shared/workflow-manifest.json (AGENT_ROLES, ROLE_IDS, SPEC_VERSION, ORCHESTRATING_ROLES)
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
 │       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
@@ -131,6 +132,7 @@ mcp-server/
         ├── project-reset.test.ts  # Unit tests for analyzeProjectForReset() — all WP status branches, auto-cancelled exclusion, most-recent-wins, mixed project scenarios; synthesis_generated_at clearing on project reset
         ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
         ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince, clearSynthesisState
+        ├── workflow-manifest.test.ts  # Structural invariants for shared/workflow-manifest.json: 9 roles (unique id/name/number, id pattern ^[a-z][a-z0-9_]*$), pipeline-to-role ownership, default_stages subsequence, canonical_order ↔ prerequisites ↔ fail_routing coverage, fail_routing → valid role IDs, DAG (no cycles via Kahn's algorithm), non-empty status arrays, positive constants; also verifies derived-constant parity (AGENT_ROLES, ORCHESTRATING_ROLES, PIPELINE_TYPES, DEFAULT_PIPELINE_STAGES, PIPELINE_AGENT_MAP, MAX_REWORK_COUNT, STALE_PIPELINE_HOURS, SPEC_VERSION) — 34 tests
         └── wp-id.test.ts        # WP ID generation: variable-width, max-based incrementing
 ```
 

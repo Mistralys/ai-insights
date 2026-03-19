@@ -14,8 +14,9 @@ Public factories
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from src.utils.tool_wrappers import inject_project_path
 
@@ -28,10 +29,10 @@ log = logging.getLogger(__name__)
 
 def create_stage_node(
     stage: str,
-    build_prompt: Callable[["WorkflowState"], str],
-    config: "Config",
+    build_prompt: Callable[[WorkflowState], str],
+    config: Config,
     mcp_tools: list[Any],
-) -> Callable[["WorkflowState"], dict]:
+) -> Callable[[WorkflowState], dict]:
     """
     Generic LangGraph node factory.
 
@@ -55,7 +56,7 @@ def create_stage_node(
         returns a state-update dict.
     """
 
-    async def node_fn(state: "WorkflowState") -> dict:
+    async def node_fn(state: WorkflowState) -> dict:
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
@@ -96,7 +97,7 @@ def create_stage_node(
                 "stage_success": True,
                 "run_log": [
                     {
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                         "stage": stage,
                         "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
                         "action": "stage_complete",
@@ -108,7 +109,7 @@ def create_stage_node(
             }
 
         except Exception as exc:  # noqa: BLE001
-            ts = datetime.now(timezone.utc).isoformat()
+            ts = datetime.now(UTC).isoformat()
             log.error("Stage %s failed: %s", stage, exc, exc_info=True)
             return {
                 "stage_result": "",

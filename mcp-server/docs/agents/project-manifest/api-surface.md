@@ -500,7 +500,7 @@ interface HandoffStatusPayload {
 2. The agent registry is loaded (`isRegistryLoaded()` returns `true`)
 3. The next agent has a known handle in the registry
 4. Project status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
-5. `auto_handoff_depth` in the root index is `< effectiveMaxDepth(root.total_work_packages ?? 0)` — the dynamic ceiling scales with project size per §18.2.1: `max(configMax=50, totalWorkPackages × 20)`, where `configMax` comes from `getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`)
+5. `auto_handoff_depth` in the root index is `< effectiveMaxDepth(root.total_work_packages ?? 0)` — the dynamic ceiling scales with project size per §18.2.1: `max(configMax=50, totalWorkPackages × 30)`, where `configMax` comes from `getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`) and the multiplier 30 comes from `handoff_depth_multiplier` in the shared workflow manifest
 
 Each successful emission increments `auto_handoff_depth` in the root index. The counter is reset to `0` by `ledger_complete_synthesis` per §18.4, atomically with the `synthesis_generated: true` write.
 
@@ -754,7 +754,7 @@ Schema: `ProjectMetaSchema` (Zod).
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'ARCHIVED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
-type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis'; // Exported from src/utils/constants.ts; canonical string-literal union for all valid agent role names.
+type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis'; // Inferred from AgentRoleEnum (z.infer<typeof AgentRoleEnum>) in src/schema/workflow-manifest-schema.ts; re-exported by src/utils/constants.ts. Canonical type for all valid agent role names.
 type PipelineType = 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
 type PostImplPipelineType = 'qa' | 'code-review' | 'documentation'; // Explicitly pinned to the 3 legacy post-impl stages — NOT derived via Exclude<PipelineType, 'implementation'> so that adding new PipelineType values does not cascade into legacy 4-stage display maps (agentNameMap, actionNameMap, reworkActionMap) that remain 3-entry records.
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
@@ -911,9 +911,52 @@ function canCompleteWorkPackage(
 
 ---
 
+## Workflow Manifest Schema
+
+### `src/schema/workflow-manifest-schema.ts` — Zod schema and parsed singleton
+
+Centralizes manifest parsing and TypeScript type derivation. Loaded once at module startup; parse failure surfaces a clear `ZodError` immediately (fail-fast behavior).
+
+```typescript
+// Zod enum containing all 9 agent role name literals.
+// NOTE: The literal values must be manually kept in sync with shared/workflow-manifest.json
+// roles[].name — this is the one construct NOT auto-derived from manifest data.
+// ManifestSchema.roles.nonempty() + RoleSchema.name: AgentRoleEnum provides a two-layer
+// consistency guard: any divergence between AgentRoleEnum and the manifest causes a startup-
+// time ZodError. Also validated by tests/utils/workflow-manifest.test.ts.
+const AgentRoleEnum: z.ZodEnum<['Planner', 'Project Manager', 'Developer', 'QA',
+  'Security Auditor', 'Reviewer', 'Release Engineer', 'Documentation', 'Synthesis']>;
+
+// TypeScript type inferred from AgentRoleEnum — not a manually-maintained union.
+type AgentRole = z.infer<typeof AgentRoleEnum>;
+// = 'Planner' | 'Project Manager' | 'Developer' | 'QA'
+// | 'Security Auditor' | 'Reviewer' | 'Release Engineer'
+// | 'Documentation' | 'Synthesis'
+
+// Full Zod schema for shared/workflow-manifest.json.
+// Validates structural integrity at startup. Parsed singleton available as workflowManifest.
+const ManifestSchema: z.ZodObject<...>;
+
+// TypeScript type inferred from ManifestSchema.
+type Manifest = z.infer<typeof ManifestSchema>;
+
+// Parsed and Zod-validated manifest singleton. Loaded once at module-load time.
+// All consumers (constants.ts, enums.ts, pipeline-maps.ts, workflow-helpers.ts) import from here instead
+// of using createRequire + raw cast — ensuring manifest access is always type-safe.
+const workflowManifest: Manifest;
+```
+
+**Consumers:**
+- `src/utils/constants.ts` — re-exports `AgentRole` and `AgentRoleEnum`; derives `AGENT_ROLES`, `ORCHESTRATING_ROLES`, `ROLE_IDS`, `SPEC_VERSION` from `workflowManifest`
+- `src/schema/enums.ts` — derives status enums from `workflowManifest`
+- `src/utils/pipeline-maps.ts` — derives pipeline routing maps from `workflowManifest`
+- `src/utils/workflow-helpers.ts` — derives `STALE_PIPELINE_HOURS`, `MAX_REWORK_COUNT`, `_DEFAULT_MAX_HANDOFF_DEPTH`, `_HANDOFF_DEPTH_MULTIPLIER` from `workflowManifest.constants.*`
+
+---
+
 ## Constants
 
-Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase.
+Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase. Role and status constants are **derived at module-load time from `shared/workflow-manifest.json`** via the Zod-validated `workflowManifest` singleton in `src/schema/workflow-manifest-schema.ts` — no inline literal arrays remain for spec-defined constructs.
 
 ```typescript
 // Filename used when reading the archived plan document from centralized storage.
@@ -924,33 +967,43 @@ const PLAN_ARCHIVE_FILENAME = 'plan.md' as const;
 // Used as the Zod .default() value in project-lifecycle.ts; also referenced in help-content.ts.
 const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md' as const;
 
-// Canonical array of valid agent role names. Consumers should import from
-// here rather than defining local copies to avoid silent drift.
-const AGENT_ROLES: readonly [
-  'Planner', 'Project Manager', 'Developer', 'QA',
-  'Security Auditor', 'Reviewer', 'Release Engineer',
-  'Documentation', 'Synthesis'
-];
+// Canonical array of valid agent role names.
+// Derived at module-load time from workflowManifest.roles[].name via the Zod singleton.
+// Consumers should import from here rather than defining local copies to avoid silent drift.
+const AGENT_ROLES: AgentRole[];  // runtime values come from the manifest
 
-// String-literal union type derived from AGENT_ROLES.
-type AgentRole = typeof AGENT_ROLES[number];
+// Re-exported from src/schema/workflow-manifest-schema.ts (see below).
+// AgentRole is z.infer<typeof AgentRoleEnum> — not a manually-maintained union.
+// Consumers that import agent types from utils/constants continue to work unchanged.
+export type { AgentRole } from '../schema/workflow-manifest-schema.js';
+export { AgentRoleEnum } from '../schema/workflow-manifest-schema.js';
 
 // Roles that orchestrate the workflow but do not directly execute implementation work.
+// Derived at module-load time from workflowManifest.roles[].orchestrating === true.
 // Used to derive CLAIMABLE_ROLES in work-package.ts (excludes these roles from the claimable set).
-const ORCHESTRATING_ROLES: readonly ['Planner', 'Synthesis'];
+const ORCHESTRATING_ROLES: OrchestratingRole[];  // runtime values come from the manifest
 
-// String-literal union type derived from ORCHESTRATING_ROLES.
-type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
+// Explicit string-literal union type — OrchestratingRole is not Zod-inferred because
+// orchestrating roles have no separate enum in the manifest schema.
+type OrchestratingRole = 'Planner' | 'Synthesis';
+
+// Map of agent role name → role ID (e.g. 'Project Manager' → 'pm').
+// Derived at module-load time from shared/workflow-manifest.json roles[].id.
+// Useful for graph stage names, config keys, and programmatic lookups.
+// Note: has no TypeScript consumers in the mcp-server codebase as of v1.12.0;
+// the orchestrator maintains a parallel derivation in orchestrator/src/config.py.
+const ROLE_IDS: Record<AgentRole, string>;
 
 // Pattern for valid ledger slugs: must start with a lowercase alphanumeric character,
 // followed by zero or more lowercase alphanumeric characters or hyphens. Max length 200.
 // Used by LedgerStore.renameSlug() (storage layer) and gui/api.ts (API layer).
 const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
 
-// Semantic version string of the current MCP server spec, written into every new ledger
-// as ledger_version on initializeProject(). Enables future self-healing to detect
-// ledgers created before a schema addition and backfill missing fields.
-const SPEC_VERSION = '2.4.0' as const;
+// Workflow specification version this MCP server implements.
+// Derived at module-load time from shared/workflow-manifest.json spec_version field.
+// Written into every new ledger as ledger_version on initializeProject().
+// Current value: '2.4.1'
+const SPEC_VERSION: string;  // e.g. '2.4.1'
 ```
 
 **Importers of `AGENT_ROLES`:**
@@ -969,16 +1022,19 @@ const SPEC_VERSION = '2.4.0' as const;
 - `src/tools/help-content.ts` — imports both; used in tool help text template expressions
 
 **Importers of `SPEC_VERSION`:**
-- `src/tools/project-lifecycle.ts` — sets `ledger_version: SPEC_VERSION` on the root index object inside `initializeProject()`
+- `src/tools/project-lifecycle.ts` — sets `ledger_version: SPEC_VERSION` on the root index object inside `initializeProject()`; also used in forward-compatibility warning comparisons in `getProjectStatus()`
+
+**Manifest invariant test:** `tests/utils/workflow-manifest.test.ts` validates the structural invariants of `shared/workflow-manifest.json` at test time and asserts derived-constant parity — confirming that `AGENT_ROLES`, `ORCHESTRATING_ROLES`, `PIPELINE_TYPES`, `DEFAULT_PIPELINE_STAGES`, `PIPELINE_AGENT_MAP`, `MAX_REWORK_COUNT`, `STALE_PIPELINE_HOURS`, and `SPEC_VERSION` all match the manifest values exactly. Also includes a `resolveFailAgent() parity — manifest fail_routing` describe block that verifies `resolveFailAgent()` output for all 6 pipeline types matches the manifest's `fail_routing` → role name resolution — guarding against drift if manifest routing values change without updating the implementation. Any future manifest edit that causes a constant or routing resolution to diverge will fail the test suite (39 tests).
 
 ---
 
 ## Pipeline-Maps Constants
 
-Exported from `src/utils/pipeline-maps.ts`. Single source of truth for pipeline type definitions, routing maps, and dynamic resolve functions.
+Exported from `src/utils/pipeline-maps.ts`. Single source of truth for pipeline type definitions, routing maps, and dynamic resolve functions. All primary maps and arrays are **derived at module-load time from `shared/workflow-manifest.json`** via the Zod-validated `workflowManifest` singleton in `src/schema/workflow-manifest-schema.ts` — no inline literal arrays remain for spec-defined constructs.
 
 ```typescript
 // The six valid pipeline type values as a const tuple, in canonical execution order.
+// Derived from pipelines.canonical_order in the shared workflow manifest.
 const PIPELINE_TYPES: readonly [
   'implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'
 ];
@@ -989,19 +1045,35 @@ const CANONICAL_PIPELINE_ORDERING: typeof PIPELINE_TYPES;
 
 // Backward-compatible default stage set (4-stage legacy workflow).
 // Used as the default activeStages when a WP has no active_pipeline_stages field.
+// Derived from pipelines.default_stages in the shared workflow manifest.
 const DEFAULT_PIPELINE_STAGES: readonly ['implementation', 'qa', 'code-review', 'documentation'];
 
 // Zod enum schema for pipeline types — use in tool input validation.
 const PipelineTypeEnum: z.ZodEnum<[typeof PIPELINE_TYPES[number], ...]>;
 
 // Maps pipeline type → owning agent role (all 6 types, including Security Auditor and Release Engineer).
+// Derived from roles[].pipeline (non-null) → roles[].name in the shared workflow manifest.
 const PIPELINE_AGENT_MAP: Record<PipelineType, string>;
 
-// Inverse of PIPELINE_AGENT_MAP (derived at runtime — no divergence possible).
+// Inverse of PIPELINE_AGENT_MAP (derived at runtime from PIPELINE_AGENT_MAP — no divergence possible).
 const AGENT_PIPELINE_MAP: Record<string, PipelineType>;
 
-// Legacy static maps — Partial<Record<PipelineType, ...>> (4-entry legacy default workflow).
+// Legacy static maps — Partial<Record<PipelineType, ...>> (default-stage workflow only).
 // @deprecated For new WPs, use the dynamic resolve functions below instead.
+//
+// PIPELINE_PREREQUISITES: derived from the default_stages predecessor chain — each stage's prerequisite
+// is its immediately preceding stage in the default order, or null for the first stage.
+// NOTE: this intentionally diverges from the full 6-stage pipelines.prerequisites map in the manifest
+// (which reflects the complete canonical chain including optional stages). Using the full prerequisites
+// map would produce wrong values for the legacy 4-stage workflow (e.g. code-review would require
+// security-audit). Future maintainers should NOT change this to use the full manifest prerequisites.
+//
+// NEXT_AGENT_MAP: computed from PIPELINE_TYPES and PIPELINE_AGENT_MAP using the default stage set.
+// The last default stage always maps to 'Synthesis' (sentinel hardcoded in derivation loop — acceptable
+// because NEXT_AGENT_MAP is explicitly marked legacy; resolveNextAgent() is the go-to for new code).
+//
+// FAIL_ROUTING_MAP: derived from pipelines.fail_routing in the manifest; role IDs translated to
+// role names via the roles array lookup. Only covers the default stages.
 const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>>;  // null = no prerequisite
 const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>>;
 const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>>;
@@ -1223,7 +1295,10 @@ function resolveNextAgent(
 ): string;
 
 // Returns the agent that should receive the WP after pipelineType completes with FAIL,
-// given activeStages (rework routing). Base routing:
+// given activeStages (rework routing). Base routing is fully manifest-derived: each
+// pipeline type maps to the role resolved from `pipelines.fail_routing` in the shared
+// workflow manifest via _roleById lookup — zero hardcoded role strings. Current manifest
+// routing values:
 //   implementation, qa, security-audit, code-review → Developer
 //   release-engineering → Release Engineer (self-rework)
 //   documentation → Documentation (self-rework)
@@ -1232,6 +1307,8 @@ function resolveNextAgent(
 // When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
 // Exported from src/utils/pipeline-maps.ts. Replaces the legacy static FAIL_ROUTING_MAP for
 // new-stage WPs.
+// FAIL_AGENT_MAP is the module-level backing constant (see below) — callers that only need
+// the base manifest fail-routing without the active-stage fallback can use it directly.
 // Examples:
 //   resolveFailAgent('qa')                      → 'Developer'      (Developer's stage is active)
 //   resolveFailAgent('qa', ['documentation'])   → 'Documentation'  (Developer's impl stage absent — fallback)
@@ -1240,6 +1317,15 @@ function resolveFailAgent(
   pipelineType: PipelineType,
   activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
 ): string;
+
+// Module-level backing constant for resolveFailAgent(). Maps every PipelineType to the
+// agent role name that owns failed pipelines of that type, derived once at module load
+// from workflowManifest.pipelines[*].fail_routing via the _roleById lookup. Computed
+// once and never reconstructed.
+// Use FAIL_AGENT_MAP directly when you need the base manifest routing without the
+// active-stage fallback logic that resolveFailAgent() adds.
+// Exported from src/utils/pipeline-maps.ts.
+const FAIL_AGENT_MAP: Record<PipelineType, string>;
 
 // Returns the given activeStages filtered and sorted by CANONICAL_PIPELINE_ORDERING.
 // Replaces the repeated `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t))` pattern
@@ -2220,18 +2306,26 @@ Exported from `src/utils/workflow-helpers.ts`. Consumed by all three workflow to
 // previously duplicated at 5 inline call sites (project-lifecycle.ts, work-package.ts x3, project-reset.ts).
 export function clearSynthesisState(rootIndex: RootIndex): void;
 
-export const STALE_PIPELINE_HOURS: number; // default 24
+// Number of hours after which an IN_PROGRESS pipeline is considered stale.
+// Derived from constants.stale_pipeline_hours in the shared workflow manifest (default: 24).
+export const STALE_PIPELINE_HOURS: number;
+
+// Maximum number of rework cycles allowed before a work package is circuit-broken.
+// Derived from constants.max_rework_count in the shared workflow manifest (default: 5).
+export const MAX_REWORK_COUNT: number;
 
 // Returns the current max auto-handoff chain depth from the in-memory GUI config cache.
-// Falls back to 50 if the config module has not yet been initialized.
+// Falls back to the manifest default (constants.max_handoff_depth = 50) if the config
+// module has not yet been initialized.
 export function getMaxHandoffDepth(): number;
 
 // Returns the effective maximum auto-handoff depth, scaled by project size per §18.2.1.
-// effectiveMax = max(configMax, totalWorkPackages × 20), where configMax defaults to getMaxHandoffDepth() (50).
+// effectiveMax = max(configMax, totalWorkPackages × 30), where configMax defaults to getMaxHandoffDepth() (50)
+// and the multiplier 30 comes from constants.handoff_depth_multiplier in the shared workflow manifest.
 // This ensures larger projects don't hit the ceiling prematurely:
-//   effectiveMaxDepth(0)  → 50   (0 × 20 = 0 < 50, floor applies)
-//   effectiveMaxDepth(1)  → 50   (1 × 20 = 20 < 50, floor applies)
-//   effectiveMaxDepth(5)  → 100  (5 × 20 = 100 > 50)
+//   effectiveMaxDepth(0)  → 50   (0 × 30 = 0 < 50, floor applies)
+//   effectiveMaxDepth(1)  → 50   (1 × 30 = 30 < 50, floor applies)
+//   effectiveMaxDepth(5)  → 150  (5 × 30 = 150 > 50)
 // The optional configMax parameter allows test code to inject a fixed value without
 // mocking the config singleton.
 export function effectiveMaxDepth(totalWorkPackages: number, configMax?: number): number;
@@ -2240,7 +2334,7 @@ export function effectiveMaxDepth(totalWorkPackages: number, configMax?: number)
 // Auto-cancelled pipelines (auto_cancelled: true) are filtered out before selecting the most recent entry.
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean;
 
-// Returns true if a pipeline is IN_PROGRESS and was started more than 24 hours ago.
+// Returns true if a pipeline is IN_PROGRESS and was started more than STALE_PIPELINE_HOURS ago.
 export function isStalePipeline(pipeline: Pipeline): boolean;
 
 // Returns the most recent non-auto-cancelled pipeline for the given work package,
@@ -2254,13 +2348,12 @@ export function isActivePipeline(wp: WorkPackageDetail, pipelineType: PipelineTy
 
 // Returns true when the WP is classified as blocked by dependencies using the canonical §21.54
 // metadata-based check: wp.status === 'BLOCKED' && (blocked_by == null || blocked_by.type === 'dependency').
-// Functionally identical to hasDependencyBlocked; kept as a separate export for call-site clarity.
+// Canonical implementation — prefer this over hasDependencyBlocked at new call sites.
 export function isBlockedByDependencies(wp: WorkPackageDetail): boolean;
 
-// Returns true when the WP is classified as blocked by dependencies using the canonical §21.54
-// metadata-based check: wpDetail.status === 'BLOCKED' && (blocked_by == null || blocked_by.type === 'dependency').
-// Functionally identical to isBlockedByDependencies; kept as a separate export for call-site clarity.
-export function hasDependencyBlocked(wpDetail: WorkPackageDetail): boolean;
+// @deprecated Use isBlockedByDependencies(). Const alias retained for backward compatibility
+// with existing call sites. Delegates directly to isBlockedByDependencies — no duplicate logic.
+export const hasDependencyBlocked: typeof isBlockedByDependencies;
 
 // Returns true if any downstream pipeline type (relative to pipelineType) has its most recent
 // non-auto-cancelled pipeline with FAIL status. Delegates to getDownstreamTypes() so it

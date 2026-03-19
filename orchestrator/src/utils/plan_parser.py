@@ -106,7 +106,7 @@ def parse_plan(plan_file: str) -> PlanMetadata:
     )
 
 
-def _extract_summary(body: str, title_match: "re.Match[str] | None") -> str:
+def _extract_summary(body: str, title_match: re.Match[str] | None) -> str:
     """
     Return the first non-empty paragraph that follows the title heading.
 

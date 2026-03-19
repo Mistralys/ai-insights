@@ -24,6 +24,11 @@
 const fs   = require('fs');
 const path = require('path');
 const yaml = require(path.join(__dirname, '..', 'personas', 'node_modules', 'js-yaml'));
+
+// Role names from the shared workflow manifest — used to cross-check persona YAML files.
+const _MANIFEST_ROLE_NAMES = new Set(
+  require('../shared/workflow-manifest.json').roles.map(r => r.name)
+);
 const {
   serializeTools,
   serializeToolsList,
@@ -371,7 +376,19 @@ function buildForTarget(suite, target) {
       fs.readFileSync(path.join(metaDir, yamlFile), 'utf8')
     );
 
-    // Determine content file (same basename, .md extension)
+    // Cross-check: persona role field must match a manifest role name.
+    // Only ledger personas carry a role field (numbered mode).
+    if (personaMode === 'numbered' && persona.role !== undefined) {
+      if (!_MANIFEST_ROLE_NAMES.has(persona.role)) {
+        const known = [..._MANIFEST_ROLE_NAMES].join(', ');
+        process.stderr.write(
+          `[WARN] ${suite}/${yamlFile}: role "${persona.role}" is not in shared/workflow-manifest.json.` +
+          ` Known roles: ${known}\n`
+        );
+        warnings++;
+      }
+    }
+
     const contentBasename = yamlFile.replace(/\.yaml$/, '.md');
     const contentFile     = path.join(contentDir, contentBasename);
 

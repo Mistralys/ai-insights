@@ -14,6 +14,7 @@ import { parseTimestamp } from './timestamp.js';
 import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
 import { getDownstreamTypes, getUpstreamTypes, resolveFailAgent, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
 import { getConfig } from '../gui/config.js';
+import { workflowManifest } from '../schema/workflow-manifest-schema.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,37 +22,47 @@ import { getConfig } from '../gui/config.js';
 
 /**
  * Number of hours after which an IN_PROGRESS pipeline is considered stale.
+ * Derived from `constants.stale_pipeline_hours` in the shared workflow manifest.
  */
-export const STALE_PIPELINE_HOURS = 24;
+export const STALE_PIPELINE_HOURS: number = workflowManifest.constants.stale_pipeline_hours;
 
 /**
  * Maximum number of rework cycles allowed before a work package is circuit-broken.
  * When rework_count reaches this value, start_pipeline rejects with guidance to
  * cancel or restructure, and get_next_action surfaces BLOCK_FOR_REWORK_LIMIT.
+ *
+ * Derived from `constants.max_rework_count` in the shared workflow manifest.
  */
-export const MAX_REWORK_COUNT = 5;
+export const MAX_REWORK_COUNT: number = workflowManifest.constants.max_rework_count;
+
+/** Handoff depth fallback when config is unavailable. Derived from manifest. */
+const _DEFAULT_MAX_HANDOFF_DEPTH: number = workflowManifest.constants.max_handoff_depth;
+
+/** Multiplier for scaling max handoff depth by project size. Derived from manifest. */
+const _HANDOFF_DEPTH_MULTIPLIER: number = workflowManifest.constants.handoff_depth_multiplier;
 
 /**
  * Returns the maximum auto-handoff chain depth from the in-memory config cache.
- * Falls back to 50 if the config module has not yet been initialized (e.g. during
- * early startup or in test environments that don't call readConfigFromDisk()).
+ * Falls back to the manifest default if the config module has not yet been
+ * initialized (e.g. during early startup or in test environments that don't
+ * call readConfigFromDisk()).
  */
 export function getMaxHandoffDepth(): number {
   try {
     return getConfig().max_handoff_depth;
   } catch {
-    return 50;
+    return _DEFAULT_MAX_HANDOFF_DEPTH;
   }
 }
 
 /**
  * Returns the effective maximum auto-handoff depth, scaled by project size per §18.2.1.
  *
- * The floor is the config default (default 50). For larger projects the ceiling
+ * The floor is the config default. For larger projects the ceiling
  * grows to avoid terminating the chain prematurely:
- *   effectiveMax = max(configMax, totalWorkPackages × 30)
+ *   effectiveMax = max(configMax, totalWorkPackages × multiplier)
  *
- * Examples:
+ * Examples (with defaults max=50, multiplier=30):
  *   effectiveMaxDepth(0)  → 50   (0 × 30 = 0 < 50, floor applies)
  *   effectiveMaxDepth(1)  → 50   (1 × 30 = 30 < 50, floor applies)
  *   effectiveMaxDepth(5)  → 150  (5 × 30 = 150 > 50)
@@ -60,7 +71,7 @@ export function effectiveMaxDepth(
   totalWorkPackages: number,
   configMax: number = getMaxHandoffDepth(),
 ): number {
-  return Math.max(configMax, totalWorkPackages * 30);
+  return Math.max(configMax, totalWorkPackages * _HANDOFF_DEPTH_MULTIPLIER);
 }
 
 // ---------------------------------------------------------------------------
@@ -301,31 +312,11 @@ export function hasDownstreamReengagedSince(
 }
 
 /**
- * Helper: Check if a work package is blocked by dependencies.
- *
- * Uses the canonical metadata-based check per §21.54: a WP is classified as
- * "blocked by dependencies" when its status is BLOCKED and either blocked_by
- * is absent (null/undefined) or blocked_by.type === 'dependency'.
- *
- * See also: isBlockedByDependencies — functionally identical, kept as a
- * separate export for call-site clarity in getHandoff* functions.
- */
-export function hasDependencyBlocked(
-  wpDetail: WorkPackageDetail,
-): boolean {
-  if (wpDetail.status !== 'BLOCKED') return false;
-  return wpDetail.blocked_by == null || wpDetail.blocked_by.type === 'dependency';
-}
-
-/**
  * Helper function: Check if a WP is blocked by incomplete dependencies.
  *
  * Uses the canonical metadata-based check per §21.54: a WP is classified as
  * "blocked by dependencies" when its status is BLOCKED and either blocked_by
  * is absent (null/undefined) or blocked_by.type === 'dependency'.
- *
- * Functionally identical to hasDependencyBlocked; kept as a separate export
- * for call-site clarity in getHandoff* functions.
  */
 export function isBlockedByDependencies(
   wp: WorkPackageDetail,
@@ -333,6 +324,12 @@ export function isBlockedByDependencies(
   if (wp.status !== 'BLOCKED') return false;
   return wp.blocked_by == null || wp.blocked_by.type === 'dependency';
 }
+
+/**
+ * @deprecated Use isBlockedByDependencies(). Alias retained for backward
+ * compatibility with existing call sites.
+ */
+export const hasDependencyBlocked = isBlockedByDependencies;
 
 /**
  * Helper: Returns true if the downstream pipeline agent should (re-)engage.

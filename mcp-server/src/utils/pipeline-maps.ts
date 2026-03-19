@@ -4,16 +4,31 @@
  * Centralising these here eliminates the risk of divergence between the two
  * modules, which is the highest-priority technical debt identified in the
  * Workflow Hardening synthesis report.
+ *
+ * All primary maps and arrays are derived from the shared workflow manifest so
+ * that a change in the manifest propagates automatically — no parallel edits
+ * to this file are required.
  */
 
 import { z } from 'zod';
+import { workflowManifest } from '../schema/workflow-manifest-schema.js';
+
+// ---------------------------------------------------------------------------
+// Role ID → role name lookup (used to resolve fail_routing IDs to names)
+// ---------------------------------------------------------------------------
+const _roleById: Record<string, string> = Object.fromEntries(
+  workflowManifest.roles.map(r => [r.id, r.name])
+);
 
 /**
  * The six valid pipeline type values as a const tuple, in canonical execution order.
  * Used as the source of truth for the PipelineType union, the Zod enum, and
  * all Record keys that depend on exhaustiveness checking.
+ *
+ * Derived from `pipelines.canonical_order` in the shared workflow manifest.
  */
-export const PIPELINE_TYPES = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'] as const;
+export const PIPELINE_TYPES = workflowManifest.pipelines.canonical_order as
+  ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 
 /**
  * Zod enum schema for pipeline types. Using this in tool schemas (instead of
@@ -38,10 +53,11 @@ export const CANONICAL_PIPELINE_ORDERING = PIPELINE_TYPES;
 /**
  * Backward-compatible default stage set (4-stage legacy workflow).
  * Used as the default activeStages when no per-WP override is specified.
+ *
+ * Derived from `pipelines.default_stages` in the shared workflow manifest.
  */
-export const DEFAULT_PIPELINE_STAGES: readonly PipelineType[] = [
-  'implementation', 'qa', 'code-review', 'documentation',
-] as const;
+export const DEFAULT_PIPELINE_STAGES: readonly PipelineType[] =
+  workflowManifest.pipelines.default_stages as readonly PipelineType[];
 
 /**
  * Post-implementation stages in the 4-stage legacy workflow.
@@ -52,57 +68,77 @@ export const DEFAULT_PIPELINE_STAGES: readonly PipelineType[] = [
 export type PostImplPipelineType = 'qa' | 'code-review' | 'documentation';
 
 /**
- * Legacy static prerequisite map for the 4-stage default workflow.
- * Partial so that adding new PipelineType values does not force this legacy
- * map to carry 6 entries. New-style WPs should use resolvePrerequisite().
- * null means no prerequisite (can always start).
+ * Legacy static prerequisite map for the default-stage workflow.
+ * Only includes entries for the default stages — new-style WPs should use
+ * resolvePrerequisite(). null means no prerequisite (can always start).
+ *
+ * Derived from `pipelines.default_stages` in the shared workflow manifest:
+ * each stage's prerequisite is its immediately preceding stage in the default
+ * order (or null for the first stage). This intentionally diverges from the
+ * full 6-stage `pipelines.prerequisites` map, which reflects the complete
+ * canonical chain including optional stages.
  */
-export const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>> = {
-  'implementation': null,
-  'qa': 'implementation',
-  'code-review': 'qa',
-  'documentation': 'code-review',
-};
+export const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>> =
+  Object.fromEntries(
+    (workflowManifest.pipelines.default_stages as readonly PipelineType[]).map((stage, i, arr) => [
+      stage,
+      i === 0 ? null : (arr[i - 1] ?? null),
+    ])
+  );
 
 /**
  * Map of pipeline type to the agent role that owns it.
  * Used to automatically update assigned_to when a pipeline starts.
+ *
+ * Derived from `roles[].pipeline` (non-null) → `roles[].name` in the shared
+ * workflow manifest.
  */
-export const PIPELINE_AGENT_MAP: Record<PipelineType, string> = {
-  'implementation': 'Developer',
-  'qa': 'QA',
-  'security-audit': 'Security Auditor',
-  'code-review': 'Reviewer',
-  'release-engineering': 'Release Engineer',
-  'documentation': 'Documentation',
-};
+export const PIPELINE_AGENT_MAP: Record<PipelineType, string> = Object.fromEntries(
+  workflowManifest.roles
+    .filter(r => r.pipeline !== null)
+    .map(r => [r.pipeline, r.name])
+) as Record<PipelineType, string>;
 
 /**
  * Legacy static next-agent map for the 4-stage default workflow.
  * Partial so that new PipelineType values do not require entries here.
  * New-style WPs should use resolveNextAgent().
+ *
+ * Derived at runtime from PIPELINE_TYPES and PIPELINE_AGENT_MAP, using the
+ * default stage set. Entries not in the default stages are excluded.
  */
-export const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>> = {
-  'implementation': 'QA',
-  'qa': 'Reviewer',
-  'code-review': 'Documentation',
-  'documentation': 'Synthesis',
-};
+export const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>> = (() => {
+  const defaultStages = workflowManifest.pipelines.default_stages as readonly PipelineType[];
+  const result: Partial<Record<PipelineType, string>> = {};
+  for (let i = 0; i < defaultStages.length - 1; i++) {
+    const current = defaultStages[i]!;
+    const next = defaultStages[i + 1]!;
+    result[current] = PIPELINE_AGENT_MAP[next];
+  }
+  // Last stage in default order always hands off to Synthesis
+  const lastStage = defaultStages[defaultStages.length - 1];
+  if (lastStage) result[lastStage] = 'Synthesis';
+  return result;
+})();
 
 /**
- * Legacy static fail-routing map for the 4-stage default workflow.
+ * Legacy static fail-routing map for the default-stage workflow.
  * Partial so that new PipelineType values do not require entries here.
  * New-style WPs should use resolveFailAgent().
+ *
+ * Derived from `pipelines.fail_routing` in the shared workflow manifest.
+ * The manifest stores role IDs; they are translated to role names via the
+ * roles array lookup built at module load time.
  *
  * Cross-ref: `developerReworkTypes` in workflow-helpers.ts is derived from
  * this map at runtime so the two cannot silently diverge.
  */
-export const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>> = {
-  'implementation': 'Developer',
-  'qa': 'Developer',
-  'code-review': 'Developer',
-  'documentation': 'Documentation',
-};
+export const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>> = Object.fromEntries(
+  (workflowManifest.pipelines.default_stages as readonly string[]).map(stage => [
+    stage,
+    _roleById[(workflowManifest.pipelines.fail_routing as Record<string, string>)[stage] ?? ''] ?? 'Developer',
+  ])
+);
 
 /**
  * Inverse of PIPELINE_AGENT_MAP: maps an agent role to the pipeline type it owns.
@@ -113,6 +149,17 @@ export const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>> = {
 export const AGENT_PIPELINE_MAP: Record<string, PipelineType> = Object.fromEntries(
   PIPELINE_TYPES.map((type): [string, PipelineType] => [PIPELINE_AGENT_MAP[type], type])
 );
+
+/**
+ * Full fail-routing map covering all 6 pipeline types.
+ * Derived from `pipelines.fail_routing` in the shared workflow manifest.
+ * Hoisted to module-level to avoid per-call reconstruction in resolveFailAgent().
+ */
+export const FAIL_AGENT_MAP: Record<PipelineType, string> = Object.fromEntries(
+  Object.entries(workflowManifest.pipelines.fail_routing).map(
+    ([pipeline, roleId]) => [pipeline, _roleById[roleId as string] ?? 'Developer']
+  )
+) as Record<PipelineType, string>;
 
 /**
  * Returns all pipeline types that follow the given type in the active stage ordering.
@@ -190,10 +237,8 @@ export function resolveNextAgent(
  * Returns the agent that should receive the WP after `pipelineType` completes
  * with FAIL (rework routing), given the WP's active_pipeline_stages.
  *
- * Base routing:
- *   implementation, qa, security-audit, code-review → Developer
- *   release-engineering → Release Engineer (self-rework)
- *   documentation → Documentation (self-rework)
+ * Base routing is fully manifest-derived: each pipeline type maps to the role
+ * name resolved from `pipelines.fail_routing` in the shared workflow manifest.
  *
  * Fallback: when the standard fail-target agent's stage is not present in
  * activeStages, routes to the agent that owns the first active stage.
@@ -204,17 +249,7 @@ export function resolveFailAgent(
   pipelineType: PipelineType,
   activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
 ): string {
-  // Base routing — mirrors the legacy FAIL_ROUTING_MAP extended to all 6 stages.
-  const baseAgentMap: Record<PipelineType, string> = {
-    'implementation': 'Developer',
-    'qa': 'Developer',
-    'security-audit': 'Developer',
-    'code-review': 'Developer',
-    'release-engineering': 'Release Engineer',
-    'documentation': 'Documentation',
-  };
-
-  const baseAgent = baseAgentMap[pipelineType];
+  const baseAgent = FAIL_AGENT_MAP[pipelineType];
 
   // Determine the stage the base agent owns (via reverse lookup).
   const baseStage = AGENT_PIPELINE_MAP[baseAgent] as PipelineType | undefined;
