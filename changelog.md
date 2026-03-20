@@ -1,6 +1,26 @@
 # AI Insights Changelog
 
+## v1.8.0 - Extended 9-Agent Workflow
+> mcp v1.14.0 · personas v3.9.1 · orchestrator v0.4.0
+
+- Personas: Added Security Auditor. 
+- Personas: Added Release Engineer.
+- Personas: Project Manager now uses dedicated sub-agents.
+- Personas: Added `mcpServers` for standalone Claude Code personas.
+- Orchestrator: Updated for the full 9-agent workflow.
+- Orchestrator: Derived pipeline routing and stage configuration from the shared workflow manifest.
+- MCP: Introduced a shared workflow manifest as the single source of truth for roles and pipeline types.
+- MCP: Extended work-package schema for pipeline-stage tracking and atomic writes.
+- MCP: Added missing handoff methods for Security Auditor and Release Engineer.
+- Build: Standalone personas now included in the build output.
+- Build: VS Code output filenames now use `vs_file_name`.
+- CLI: Switched interactive menu from number keys to letter keys.
+- Docs: Updated `AGENTS.md` and READMEs for the 9-agent workflow.
+- CI: Added GitHub Actions CI workflow and Dependabot.
+
 ## v1.7.6 - Persona Models
+> mcp v1.12.0 · personas v3.9.1 · orchestrator v0.2.1
+
 - Personas: Added per-persona model field.
 - Personas: Planner and Project Manager use Claude Opus 4.6.
 - CLI: Added a pause after each action in the interactive menu.
