@@ -3,8 +3,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { mkdirSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join, resolve } from 'path';
+import { join, resolve } from 'path';
 import { SERVER_VERSION } from './utils/server-version.js';
 import os from 'os';
 import * as projectLifecycleTools from './tools/project-lifecycle.js';
@@ -17,9 +16,6 @@ import * as helpTools from './tools/help.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
