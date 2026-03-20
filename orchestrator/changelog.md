@@ -1,5 +1,13 @@
 # Orchestrator Changelog
 
+## v0.5.0 - Checkpoint Support & Stability
+- Core: Added checkpoint support for resumable runs.
+- CLI: Added concurrency guard to prevent parallel runs against the same plan.
+- CLI: Improved PM phase feedback.
+- Fix: Fixed sqlite imports.
+- Fix: Fixed a runtime bug in tool wrappers.
+- Tests: Added tool wrapper tests.
+
 ## v0.4.0 - Manifest-Driven Configuration
 - Config: Pipeline routing constants now derived from `shared/workflow-manifest.json` at startup.
 - Supervisor: Updated routing to align with manifest-defined role and pipeline definitions.
