@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { LedgerStore } from '../storage/ledger-store.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SPEC_VERSION, AGENT_ROLES } from '../utils/constants.js';
+import { SERVER_VERSION, readPackageVersion } from '../utils/server-version.js';
 import type { DetectProjectResult } from '../storage/ledger-store.js';
 import { WorkPackageStatus } from '../schema/enums.js';
 import { isTerminalStatus } from '../schema/validators.js';
@@ -527,7 +528,22 @@ async function initializeProject(
     };
   }
 
-  // 2. Reject if project-ledger.json already exists
+  // 2. Reject if the running server is stale (package.json updated since startup)
+  const diskVersion = readPackageVersion();
+  if (diskVersion !== SERVER_VERSION) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error: Stale MCP server instance — running v${SERVER_VERSION} but package.json is v${diskVersion}. ` +
+            'Restart the MCP server to pick up the new version before initializing a project.',
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  // 3. Reject if project-ledger.json already exists
   const rootExists = await store.rootIndexExists();
   if (rootExists) {
     return {
@@ -541,7 +557,7 @@ async function initializeProject(
     };
   }
 
-  // 3. Create the root index structure
+  // 4. Create the root index structure
   const timestamp = now();
   const rootIndex: RootIndex = {
     plan_file: args.plan_file,
@@ -553,13 +569,14 @@ async function initializeProject(
     work_packages: [],
     project_comments: [],
     ledger_version: SPEC_VERSION,
+    server_version: SERVER_VERSION,
   };
 
   try {
-    // 4. Write root index (atomicWriteJson will create storageDir via mkdir -p)
+    // 5. Write root index (atomicWriteJson will create storageDir via mkdir -p)
     await store.writeRootIndex(rootIndex);
 
-    // 5. Write initial .meta.json with enrichment cache fields (non-fatal)
+    // 6. Write initial .meta.json with enrichment cache fields (non-fatal)
     let enrichmentCached = false;
     try {
       const projectRoot = inferProjectRootFromPlanPath(args.project_path);
@@ -580,7 +597,7 @@ async function initializeProject(
       );
     }
 
-    // 6. Archive the plan document into the ledger storage directory (best-effort)
+    // 7. Archive the plan document into the ledger storage directory (best-effort)
     const archiveResult = await store.archiveDocuments([args.plan_file]);
 
     return {

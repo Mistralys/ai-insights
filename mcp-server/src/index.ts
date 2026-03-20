@@ -2,9 +2,10 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { readFileSync, mkdirSync } from 'fs';
+import { mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
+import { SERVER_VERSION } from './utils/server-version.js';
 import os from 'os';
 import * as projectLifecycleTools from './tools/project-lifecycle.js';
 import * as workPackageTools from './tools/work-package.js';
@@ -17,13 +18,8 @@ import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 
-// Load version from package.json
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const packageJson = JSON.parse(
-  readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')
-);
-const VERSION = packageJson.version;
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
@@ -70,7 +66,7 @@ async function main(): Promise<void> {
   // Create the MCP server instance
   const server = new McpServer({
     name: 'project-ledger',
-    version: VERSION,
+    version: SERVER_VERSION,
   });
 
   // NOTE: The tool list printed in the startup log below must be kept in sync
@@ -92,7 +88,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
 
   // Log startup to stderr (never stdout - that's for MCP protocol)
-  console.error(`[project-ledger-mcp] Server v${VERSION} started successfully`);
+  console.error(`[project-ledger-mcp] Server v${SERVER_VERSION} started successfully`);
   console.error('[project-ledger-mcp] Transport: STDIO');
 
   // Initialise centralized ledger root
