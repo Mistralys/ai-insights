@@ -693,6 +693,14 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 <a name="c29"></a>
 29. **`mcp_server_name` in `_shared.yaml`** controls the MCP server reference everywhere in generated output. If the `.mcp.json` key changes, update this single field and rebuild.
 
+<a name="c49"></a>
+49. **Every persona change requires a version bump, date update, and changelog entry.** When any persona source file is modified (YAML metadata in `src/meta/`, content template in `src/content/`, or a partial in `src/partials/` that affects generated output), the agent performing the change **must** complete all three steps before finishing:
+   1. **Bump `version`** in the persona's YAML metadata file. Use the per-persona `version` field (or update `default_version` in `_shared.yaml` if the change applies to the entire suite). Follow SemVer: patch for wording/formatting fixes, minor for behavioral or structural changes, major for breaking changes.
+   2. **Update `last_updated`** in the same YAML file to the current date (`YYYY-MM-DD` format).
+   3. **Add an entry to `personas/changelog.md`** under a new or existing version heading, following the established house style (flat bullet list with category prefix, ≤ 100-char lines).
+
+   If a single change affects multiple personas (e.g., editing a shared partial), bump and date-stamp each affected persona individually and document all of them in one changelog entry. Omitting any of these three steps is a defect — downstream agents and the pre-commit freshness guard depend on accurate version metadata.
+
 ---
 
 ## Sync Script Conventions

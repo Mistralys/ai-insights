@@ -23,9 +23,12 @@ _SOURCE: Directory tree_
         │   ├── 2-project-manager.md
         │   ├── 3-developer.md
         │   ├── 4-qa.md
+        │   ├── 5-reviewer.md
         │   ├── 5-security-auditor.md
+        │   ├── 6-documentation.md
         │   ├── 6-reviewer.md
         │   ├── 7-release-engineer.md
+        │   ├── 7-synthesis.md
         │   ├── 8-documentation.md
         │   ├── 9-synthesis.md
         ├── src/
@@ -64,63 +67,22 @@ _SOURCE: Directory tree_
         │   │   └── role-boundaries.md
         ├── vs-code/
         │   └── 1-planner.agent.md
+        │   └── 1-planner.md
         │   └── 2-pm.agent.md
+        │   └── 2-project-manager.md
         │   └── 3-dev.agent.md
+        │   └── 3-developer.md
         │   └── 4-qa.agent.md
+        │   └── 4-qa.md
+        │   └── 5-reviewer.md
         │   └── 5-security-auditor.agent.md
+        │   └── 6-documentation.md
         │   └── 6-reviewer.agent.md
         │   └── 7-release-engineer.agent.md
+        │   └── 7-synthesis.md
         │   └── 8-docs.agent.md
         │   └── 9-synthesis.agent.md
     └── module-context.yaml
-    └── node_modules/
-        ├── argparse/
-        │   ├── CHANGELOG.md
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── argparse.js
-        │   ├── lib/
-        │   │   ├── sub.js
-        │   │   ├── textwrap.js
-        │   ├── package.json
-        ├── js-yaml/
-        │   └── LICENSE/
-        │   └── README.md
-        │   └── bin/
-        │       ├── js-yaml.js
-        │   └── dist/
-        │       ├── js-yaml.js
-        │       ├── js-yaml.min.js
-        │       ├── js-yaml.mjs
-        │   └── index.js
-        │   └── lib/
-        │       ├── common.js
-        │       ├── dumper.js
-        │       ├── exception.js
-        │       ├── loader.js
-        │       ├── schema.js
-        │       ├── schema/
-        │       │   ├── core.js
-        │       │   ├── default.js
-        │       │   ├── failsafe.js
-        │       │   ├── json.js
-        │       ├── snippet.js
-        │       ├── type.js
-        │       ├── type/
-        │       │   └── binary.js
-        │       │   └── bool.js
-        │       │   └── float.js
-        │       │   └── int.js
-        │       │   └── map.js
-        │       │   └── merge.js
-        │       │   └── null.js
-        │       │   └── omap.js
-        │       │   └── pairs.js
-        │       │   └── seq.js
-        │       │   └── set.js
-        │       │   └── str.js
-        │       │   └── timestamp.js
-        │   └── package.json
     └── package-lock.json
     └── package.json
     └── shared/
@@ -202,19 +164,30 @@ _SOURCE: Directory tree_
             │   └── wp-decomposer.yaml
         └── vs-code/
             └── agents-md-curator.agent.md
+            └── agents-md-curator.md
             └── changelog-curator.agent.md
+            └── changelog-curator.md
             └── composer-curator.agent.md
+            └── composer-curator.md
             └── ctx-architect.agent.md
+            └── ctx-architect.md
             └── dependency-sequencer.agent.md
             └── ledger-bootstrapper.agent.md
             └── manifest-curator.agent.md
+            └── manifest-curator.md
             └── module-intent-architect.agent.md
+            └── module-intent-architect.md
             └── orchestrator-runner.agent.md
+            └── orchestrator-runner.md
             └── pipeline-configurator.agent.md
             └── readme-curator.agent.md
+            └── readme-curator.md
             └── researcher.agent.md
+            └── researcher.md
             └── unit-test-auditor.agent.md
+            └── unit-test-auditor.md
             └── whatsnew-curator.agent.md
+            └── whatsnew-curator.md
             └── workflow-orchestrator.agent.md
             └── wp-decomposer.agent.md
 

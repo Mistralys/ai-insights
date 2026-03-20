@@ -5976,6 +5976,7 @@ describe('LedgerStore', () => {
 
     it('throws when file does not exist', async () => {
       await expect(store.readRootIndex()).rejects.toThrow('Root index not found');
+      await expect(store.readRootIndex()).rejects.toThrow('ledger_initialize_project');
     });
 
     it('throws on malformed JSON', async () => {

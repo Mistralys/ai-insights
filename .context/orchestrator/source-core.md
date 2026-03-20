@@ -226,6 +226,7 @@ def _make_dryrun_node(stage: str):
     success without invoking the Deep Agent.
     """
     from datetime import datetime
+
     from src.utils.logging import get_run_logger
 
     def _stub(state: Any, config: Any = None) -> dict:
@@ -290,9 +291,9 @@ async def _build_graph_for_run(
     if dry_run:
         # Build with dry-run stubs instead of real Deep Agent nodes.
         import aiosqlite
-
-        from langgraph.graph import END, START, StateGraph
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        from langgraph.graph import END, START, StateGraph
+
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
@@ -1124,7 +1125,12 @@ _LOOP_STAGES = (
 )
 
 
-async def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
+async def build_graph(
+    config: Config,
+    mcp_tools: list[Any],
+    *,
+    interrupt_before: list[str] | None = None,
+):
     """
     Build and compile the hub-and-spoke LangGraph ``StateGraph``.
 
@@ -1150,10 +1156,8 @@ async def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before:
         The compiled LangGraph state graph, ready to invoke or stream.
     """
     import aiosqlite
-
-    from langgraph.graph import END, START, StateGraph
-
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.graph import END, START, StateGraph
 
     from src.nodes.developer import make_developer_node
     from src.nodes.docs import make_docs_node
@@ -1728,7 +1732,9 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # The node function itself
     # ------------------------------------------------------------------
 
-    async def supervisor_node(state: WorkflowState, config: RunnableConfig | None = None) -> Command:
+    async def supervisor_node(
+        state: WorkflowState, config: RunnableConfig | None = None,
+    ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)
         project_path: str = state["project_path"]

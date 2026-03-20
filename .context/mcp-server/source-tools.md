@@ -2664,7 +2664,7 @@ async function getProjectStatus(
         content: [
           {
             type: 'text' as const,
-            text: `Project not initialized at ${projectPath}. Use ledger_initialize_project to create a new project ledger.`,
+            text: `Project not initialized at ${projectPath}. The Project Manager agent must initialize the ledger via ledger_initialize_project before other agents can proceed.`,
           },
         ],
       };
