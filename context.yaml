@@ -39,7 +39,7 @@ documents:
         filePattern: '*'
         renderFormat: ascii
         maxDepth: 3
-        excludePatterns:
+        notPath:
           - 'node_modules/'
           - '.context/'
           - 'dist/'

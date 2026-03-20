@@ -40,7 +40,7 @@ documents:
         filePattern: '*'
         renderFormat: ascii
         maxDepth: 8
-        excludePatterns:
+        notPath:
           - '__pycache__/'
           - '.venv/'
           - '.pytest_cache/'
