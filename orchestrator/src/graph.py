@@ -68,12 +68,12 @@ _LOOP_STAGES = (
 )
 
 
-def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
+async def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
     """
     Build and compile the hub-and-spoke LangGraph ``StateGraph``.
 
-    The graph is compiled with an SQLite checkpointer so runs are resumable
-    via ``--resume <thread_id>``.
+    The graph is compiled with an async SQLite checkpointer so runs are
+    resumable via ``--resume <thread_id>``.
 
     Parameters
     ----------
@@ -93,11 +93,11 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     CompiledGraph
         The compiled LangGraph state graph, ready to invoke or stream.
     """
-    import sqlite3
+    import aiosqlite
 
     from langgraph.graph import END, START, StateGraph
 
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     from src.nodes.developer import make_developer_node
     from src.nodes.docs import make_docs_node
@@ -144,12 +144,13 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     # Synthesis → END (terminal; no further routing needed).
     builder.add_edge(_STAGE_SYNTHESIS, END)
 
-    # ── Compile with SQLite checkpointer ─────────────────────────────────
+    # ── Compile with async SQLite checkpointer ───────────────────────────
     config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     db_path = config.checkpoint_dir / "workflow.sqlite"
 
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
+    conn = await aiosqlite.connect(str(db_path))
+    checkpointer = AsyncSqliteSaver(conn)
+    await checkpointer.setup()
 
     log.info(
         "Building graph: 9 nodes, %d loop edges, checkpoint=%s",

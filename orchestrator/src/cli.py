@@ -229,7 +229,7 @@ def _make_dryrun_node(stage: str):
 # Graph builder — wires dry-run stubs when requested
 # ---------------------------------------------------------------------------
 
-def _build_graph_for_run(
+async def _build_graph_for_run(
     config: Any,
     mcp_tools: list,
     *,
@@ -260,10 +260,10 @@ def _build_graph_for_run(
     """
     if dry_run:
         # Build with dry-run stubs instead of real Deep Agent nodes.
-        import sqlite3
+        import aiosqlite
 
         from langgraph.graph import END, START, StateGraph
-        from langgraph.checkpoint.sqlite import SqliteSaver
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
@@ -279,8 +279,9 @@ def _build_graph_for_run(
 
         config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         db_path = config.checkpoint_dir / "workflow.sqlite"
-        conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        checkpointer = SqliteSaver(conn)
+        conn = await aiosqlite.connect(str(db_path))
+        checkpointer = AsyncSqliteSaver(conn)
+        await checkpointer.setup()
 
         return builder.compile(
             checkpointer=checkpointer,
@@ -288,7 +289,7 @@ def _build_graph_for_run(
         )
     else:
         from src.graph import build_graph
-        return build_graph(config, mcp_tools, interrupt_before=interrupt_before or None)
+        return await build_graph(config, mcp_tools, interrupt_before=interrupt_before or None)
 
 
 # ---------------------------------------------------------------------------
@@ -488,7 +489,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             mcp_tools = toolkit.get_tools()
             log.info("MCP server started with %d tools.", len(mcp_tools))
 
-            graph = _build_graph_for_run(
+            graph = await _build_graph_for_run(
                 config,
                 mcp_tools,
                 dry_run=args.dry_run,
