@@ -12,6 +12,22 @@
 <a name="c2"></a>
 2. **`README.md` is not generated.** The `personas/ledger/README.md` is hand-authored and serves as the user-facing workflow guide. It is excluded from the build process.
 
+<a name="c2a"></a>
+2a. **Directory layout — generated vs. source.** Use the auto-generated tree in `.context/personas/file-structure.md` for structural navigation. The table below clarifies which directories are generated output vs. hand-authored source:
+
+   | Directory | Generated? | Purpose |
+   |-----------|-----------|----------|
+   | `personas/ledger/vs-code/` | Yes | VS Code target output |
+   | `personas/ledger/claude-code/` | Yes | Claude Code target output |
+   | `personas/standalone/vs-code/` | Yes | VS Code target output (standalone) |
+   | `personas/standalone/claude-code/` | Yes | Claude Code target output (standalone) |
+   | `personas/ledger/src/meta/` | No | YAML metadata: identity, feature flags, tool lists |
+   | `personas/ledger/src/content/` | No | Per-persona body templates |
+   | `personas/ledger/src/partials/` | No | Ledger-suite Markdown fragments (override layer; MCP-specific partials live here) |
+   | `personas/standalone/src/meta/` | No | YAML metadata for standalone personas (slug-based, no `role`) |
+   | `personas/standalone/src/content/` | No | Per-slug body templates |
+   | `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments (base layer; no MCP content) |
+
 <a name="c3"></a>
 3. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` for a single IDE target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild both suites in one pass.
 

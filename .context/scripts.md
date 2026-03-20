@@ -13,13 +13,14 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── lib/
         ├── persona-helpers.js
     └── package-personas.js
+    └── preflight-orchestrator.js
     └── run-gui.js
     └── run-orchestrator.js
     └── sync-personas.js
     └── validate-workflow-manifest.js
 
 ```
-###  Path: `\scripts/build-personas.js`
+###  Path: `/scripts/build-personas.js`
 
 ```js
 #!/usr/bin/env node
@@ -685,7 +686,7 @@ if (STRICT && strictFailures > 0) {
 }
 
 ```
-###  Path: `\scripts/bundle-docs.js`
+###  Path: `/scripts/bundle-docs.js`
 
 ```js
 #!/usr/bin/env node
@@ -912,7 +913,7 @@ if (shouldWorkflow) {
 console.log(`\n${c.green}Done.${c.reset}\n`);
 
 ```
-###  Path: `\scripts/check-known-roles.js`
+###  Path: `/scripts/check-known-roles.js`
 
 ```js
 #!/usr/bin/env node
@@ -958,7 +959,7 @@ try {
 
 
 ```
-###  Path: `\scripts/cli.js`
+###  Path: `/scripts/cli.js`
 
 ```js
 #!/usr/bin/env node
@@ -1371,8 +1372,12 @@ function cmdBuildMaintain(args) {
   // 3. Build Personas (all suites: ledger + standalone)
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   runScript('build-personas.js', buildArgs);
+
+  // 4. Check role parity (persona ↔ MCP server roles)
+  runScript('check-known-roles.js');
 }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
+function cmdPreflight(args)       { runScript('preflight-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
 function cmdCtxGenerate(args) {
@@ -1384,7 +1389,7 @@ function cmdCtxGenerate(args) {
   const result = spawnSync('ctx', ['generate', ...args], {
     cwd: WORKSPACE_ROOT,
     stdio: 'inherit',
-    shell: true,
+    shell: IS_WIN,
   });
   if (result.status !== 0) {
     log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
@@ -1404,7 +1409,7 @@ function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-
 const COMMANDS = [
   {
     id:          'setup',
-    key:         '1',
+    key:         's',
     label:       'First-time setup',
     category:    'Setup & Configuration',
     description: 'Full workspace setup wizard',
@@ -1412,7 +1417,7 @@ const COMMANDS = [
   },
   {
     id:          'mcp-json',
-    key:         '2',
+    key:         'm',
     label:       'Scaffold .mcp.json',
     category:    'Setup & Configuration',
     description: 'Generate IDE MCP config',
@@ -1420,7 +1425,7 @@ const COMMANDS = [
   },
   {
     id:          'git-hooks',
-    key:         '3',
+    key:         'o',
     label:       'Install git hooks',
     category:    'Setup & Configuration',
     description: 'Pre-commit persona guard',
@@ -1428,16 +1433,15 @@ const COMMANDS = [
   },
   {
     id:          'sync-personas',
-    key:         '4',
+    key:         'p',
     label:       'Sync personas',
     category:    'Personas',
     description: 'Deploy to VS Code & Claude Code',
     run:         cmdSyncPersonas,
   },
-
   {
     id:          'package-personas',
-    key:         '6',
+    key:         'z',
     label:       'Package personas',
     category:    'Personas',
     description: 'ZIP standalone personas',
@@ -1445,7 +1449,7 @@ const COMMANDS = [
   },
   {
     id:          'gui',
-    key:         '7',
+    key:         'g',
     label:       'Launch GUI dashboard',
     category:    'MCP Server',
     description: 'Open the ledger GUI in browser',
@@ -1453,23 +1457,15 @@ const COMMANDS = [
   },
   {
     id:          'build-maintain',
-    key:         '0',
+    key:         'b',
     label:       'Build & Maintain',
     category:    'Validation & Utilities',
-    description: 'Sync versions & build personas',
+    description: 'Sync versions, build & validate',
     run:         cmdBuildMaintain,
   },
   {
-    id:          'check-roles',
-    key:         '8',
-    label:       'Check role parity',
-    category:    'Validation & Utilities',
-    description: 'Verify persona ↔ MCP server roles',
-    run:         cmdCheckRoles,
-  },
-  {
     id:          'bundle-docs',
-    key:         '9',
+    key:         'd',
     label:       'Bundle docs',
     category:    'Validation & Utilities',
     description: 'Compile doc bundles',
@@ -1482,6 +1478,14 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Generate context documentation',
     run:         cmdCtxGenerate,
+  },
+  {
+    id:          'preflight',
+    key:         'f',
+    label:       'Pre-flight checks',
+    category:    'Orchestrator',
+    description: 'Validate orchestrator readiness',
+    run:         cmdPreflight,
   },
 ];
 
@@ -1504,8 +1508,9 @@ function printHelp() {
     ['package-personas',         'ZIP standalone personas'],
     ['gui',                      'Launch MCP GUI dashboard (long-running)'],
     // Note: orchestrator requires --plan <path>; not available in interactive menu
+    ['preflight',                'Pre-flight checks for orchestrator readiness'],
+    ['preflight --plan <path>',  'Also verify plan file exists'],
     ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
-    ['check-roles',              'Verify persona ↔ MCP server role parity'],
     ['bundle-docs',              'Compile doc bundles'],    ['ctx-generate',             'Generate context documentation (ctx generate)'],    ['help',                     'Show this help'],
   ];
   for (const [cmd, desc] of rows) {
@@ -1866,7 +1871,7 @@ main().catch((err) => {
 });
 
 ```
-###  Path: `\scripts/extract-changelog-entry.js`
+###  Path: `/scripts/extract-changelog-entry.js`
 
 ```js
 'use strict';
@@ -1985,7 +1990,7 @@ if (githubOutput) {
 }
 
 ```
-###  Path: `\scripts/install-hooks.js`
+###  Path: `/scripts/install-hooks.js`
 
 ```js
 #!/usr/bin/env node
@@ -2009,7 +2014,7 @@ execSync('git config core.hooksPath .githooks', { stdio: 'inherit' });
 console.log('Git hooks installed. Pre-commit persona guard active.');
 
 ```
-###  Path: `\scripts\lib/persona-helpers.js`
+###  Path: `/scripts/lib/persona-helpers.js`
 
 ```js
 'use strict';
@@ -2246,7 +2251,7 @@ module.exports = {
 };
 
 ```
-###  Path: `\scripts/package-personas.js`
+###  Path: `/scripts/package-personas.js`
 
 ```js
 'use strict';
@@ -2499,7 +2504,297 @@ for (const target of TARGETS) {
 log('\nDone.');
 
 ```
-###  Path: `\scripts/run-gui.js`
+###  Path: `/scripts/preflight-orchestrator.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * scripts/preflight-orchestrator.js
+ *
+ * Pre-flight validation for the AI Insights orchestrator.
+ *
+ * Checks that the orchestrator environment is ready to run:
+ *   - Python venv exists with `orchestrate` binary
+ *   - .env is configured with MODEL_NAME + at least one API key
+ *   - MCP server dist is up to date
+ *   - No conflicting orchestrator process is already running
+ *   - (Optional) Plan file exists (when --plan <path> is given)
+ *
+ * Usage:
+ *   node scripts/preflight-orchestrator.js
+ *   node scripts/preflight-orchestrator.js --plan path/to/plan.md
+ *   node scripts/preflight-orchestrator.js --plan path/to/plan.md --json
+ *
+ * Exit codes:
+ *   0 — all checks pass
+ *   1 — one or more checks failed
+ */
+
+'use strict';
+
+const path = require('path');
+const fs   = require('fs');
+const { spawnSync } = require('child_process');
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const WORKSPACE_ROOT   = path.resolve(__dirname, '..');
+const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
+const MCP_SRC          = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
+const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
+const IS_WIN           = process.platform === 'win32';
+const VENV_DIR         = path.join(ORCHESTRATOR_DIR, '.venv');
+const ENV_FILE         = path.join(ORCHESTRATOR_DIR, '.env');
+
+function venvBin(name) {
+  return IS_WIN
+    ? path.join(VENV_DIR, 'Scripts', `${name}.exe`)
+    : path.join(VENV_DIR, 'bin', name);
+}
+
+// ─── ANSI helpers ─────────────────────────────────────────────────────────────
+
+const isTTY = process.stdout.isTTY;
+const C = {
+  green:  (s) => isTTY ? `\x1b[32m${s}\x1b[0m` : s,
+  red:    (s) => isTTY ? `\x1b[31m${s}\x1b[0m` : s,
+  yellow: (s) => isTTY ? `\x1b[33m${s}\x1b[0m` : s,
+  dim:    (s) => isTTY ? `\x1b[2m${s}\x1b[0m` : s,
+  bold:   (s) => isTTY ? `\x1b[1m${s}\x1b[0m` : s,
+};
+
+// ─── Args ─────────────────────────────────────────────────────────────────────
+
+function parseArgs() {
+  const argv = process.argv.slice(2);
+  let planPath = null;
+  let jsonOutput = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--plan' && argv[i + 1]) {
+      planPath = argv[++i];
+    } else if (argv[i] === '--json') {
+      jsonOutput = true;
+    }
+  }
+
+  return { planPath, jsonOutput };
+}
+
+// ─── Check implementations ───────────────────────────────────────────────────
+
+/**
+ * @typedef {{ name: string, pass: boolean, detail: string, fix?: string }} CheckResult
+ */
+
+/** Check that the Python venv exists and contains the orchestrate binary. */
+function checkVenv() {
+  if (!fs.existsSync(VENV_DIR)) {
+    return {
+      name: 'venv',
+      pass: false,
+      detail: '.venv directory not found',
+      fix: 'node scripts/cli.js setup --components orchestrator',
+    };
+  }
+
+  const orchestrateBin = venvBin('orchestrate');
+  if (!fs.existsSync(orchestrateBin)) {
+    return {
+      name: 'venv',
+      pass: false,
+      detail: 'orchestrate binary not found in .venv',
+      fix: 'node scripts/cli.js setup --components orchestrator --force',
+    };
+  }
+
+  return { name: 'venv', pass: true, detail: 'orchestrate binary found' };
+}
+
+/** Check that .env exists and contains MODEL_NAME + at least one API key. */
+function checkEnv() {
+  if (!fs.existsSync(ENV_FILE)) {
+    return {
+      name: 'env',
+      pass: false,
+      detail: '.env file not found',
+      fix: 'cp orchestrator/.env.example orchestrator/.env  # then edit it',
+    };
+  }
+
+  const content = fs.readFileSync(ENV_FILE, 'utf8');
+  const lines = content.split('\n');
+
+  // Parse non-comment, non-empty KEY=VALUE lines
+  const vars = {};
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (val) vars[key] = true;
+  }
+
+  if (!vars.MODEL_NAME) {
+    return {
+      name: 'env',
+      pass: false,
+      detail: 'MODEL_NAME not set in .env',
+      fix: 'Set MODEL_NAME in orchestrator/.env (e.g. claude-sonnet-4-6)',
+    };
+  }
+
+  if (!vars.ANTHROPIC_API_KEY && !vars.GOOGLE_API_KEY) {
+    return {
+      name: 'env',
+      pass: false,
+      detail: 'No API key set in .env (need ANTHROPIC_API_KEY or GOOGLE_API_KEY)',
+      fix: 'Set the appropriate API key in orchestrator/.env',
+    };
+  }
+
+  return { name: 'env', pass: true, detail: 'MODEL_NAME + API key configured' };
+}
+
+/** Check that MCP server dist is up to date. */
+function checkMcpDist() {
+  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
+    return {
+      name: 'mcp-dist',
+      pass: false,
+      detail: 'mcp-server/dist/index.js not found',
+      fix: 'cd mcp-server && npm run build',
+    };
+  }
+
+  const sentinelMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
+
+  function latestMtime(dir) {
+    let latest = -Infinity;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        latest = Math.max(latest, latestMtime(full));
+      } else if (entry.isFile()) {
+        latest = Math.max(latest, fs.statSync(full).mtimeMs);
+      }
+    }
+    return latest;
+  }
+
+  if (latestMtime(MCP_SRC) > sentinelMtime) {
+    return {
+      name: 'mcp-dist',
+      pass: false,
+      detail: 'mcp-server/dist is stale (source is newer)',
+      fix: 'cd mcp-server && npm run build',
+    };
+  }
+
+  return { name: 'mcp-dist', pass: true, detail: 'mcp-server/dist is up to date' };
+}
+
+/** Check that no other orchestrator process is running. */
+function checkNoConflict() {
+  if (IS_WIN) {
+    // On Windows, skip ps-based check — the lock file check below is sufficient
+    return { name: 'no-conflict', pass: true, detail: 'process check skipped (Windows)' };
+  }
+
+  const r = spawnSync('pgrep', ['-fl', 'orchestrate'], { encoding: 'utf8', shell: false });
+  if (r.status === 0 && r.stdout.trim()) {
+    // Filter out this script and grep itself
+    const procs = r.stdout
+      .trim()
+      .split('\n')
+      .filter((line) => !line.includes('preflight-orchestrator') && !line.includes('pgrep'));
+    if (procs.length > 0) {
+      return {
+        name: 'no-conflict',
+        pass: false,
+        detail: `Orchestrator process already running (${procs.length} found)`,
+        fix: 'Kill existing process first, or wait for it to finish',
+      };
+    }
+  }
+
+  return { name: 'no-conflict', pass: true, detail: 'no running orchestrator process' };
+}
+
+/** Check that the plan file exists (when --plan is given). */
+function checkPlanFile(planPath) {
+  const resolved = path.resolve(planPath);
+  if (!fs.existsSync(resolved)) {
+    return {
+      name: 'plan-file',
+      pass: false,
+      detail: `Plan file not found: ${resolved}`,
+    };
+  }
+
+  return { name: 'plan-file', pass: true, detail: path.basename(resolved) };
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+function main() {
+  const { planPath, jsonOutput } = parseArgs();
+
+  /** @type {CheckResult[]} */
+  const results = [
+    checkVenv(),
+    checkEnv(),
+    checkMcpDist(),
+    checkNoConflict(),
+  ];
+
+  if (planPath) {
+    results.push(checkPlanFile(planPath));
+  }
+
+  const allPass = results.every((r) => r.pass);
+
+  // ─── JSON output ──────────────────────────────────────────────────────
+  if (jsonOutput) {
+    const output = { ok: allPass, checks: results };
+    console.log(JSON.stringify(output, null, 2));
+    process.exit(allPass ? 0 : 1);
+  }
+
+  // ─── Human-readable output ────────────────────────────────────────────
+  console.log('');
+  console.log(C.bold('Orchestrator Pre-Flight Checks'));
+  console.log('');
+
+  for (const r of results) {
+    const icon  = r.pass ? C.green('✓') : C.red('✗');
+    const label = r.name.padEnd(14);
+    const detail = r.pass ? C.dim(r.detail) : C.red(r.detail);
+    console.log(`  ${icon} ${label} ${detail}`);
+    if (!r.pass && r.fix) {
+      console.log(`               ${C.yellow('Fix:')} ${r.fix}`);
+    }
+  }
+
+  console.log('');
+  if (allPass) {
+    console.log(C.green('All pre-flight checks passed.'));
+  } else {
+    const failCount = results.filter((r) => !r.pass).length;
+    console.log(C.red(`${failCount} check(s) failed. Resolve the issues above before launching.`));
+  }
+  console.log('');
+
+  process.exit(allPass ? 0 : 1);
+}
+
+main();
+
+```
+###  Path: `/scripts/run-gui.js`
 
 ```js
 #!/usr/bin/env node
@@ -2585,7 +2880,7 @@ child.on('close', (code) => {
 });
 
 ```
-###  Path: `\scripts/run-orchestrator.js`
+###  Path: `/scripts/run-orchestrator.js`
 
 ```js
 #!/usr/bin/env node
@@ -2684,10 +2979,11 @@ if (needBuild) {
 // ---------------------------------------------------------------------------
 const forwardedArgs = process.argv.slice(2);
 
-// Python venv installs orchestrate as "orchestrate.exe" on Windows, not
-// "orchestrate.cmd" (the .cmd suffix is for npm-installed wrappers).
-// Using "orchestrate" works cross-platform: Node resolves .exe via PATHEXT.
-const orchestrateCmd = 'orchestrate';
+// Resolve the orchestrate binary from the local venv to avoid picking up a
+// stale system-wide install via $PATH.  Python venv uses "Scripts" on Windows
+// and "bin" elsewhere; the binary is "orchestrate.exe" on Windows.
+const venvBin = process.platform === 'win32' ? 'Scripts' : 'bin';
+const orchestrateCmd = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv', venvBin, 'orchestrate');
 const result = spawnSync(orchestrateCmd, forwardedArgs, {
   stdio: 'inherit',
   shell: false,
@@ -2696,7 +2992,7 @@ const result = spawnSync(orchestrateCmd, forwardedArgs, {
 process.exit(result.status ?? 1);
 
 ```
-###  Path: `\scripts/sync-personas.js`
+###  Path: `/scripts/sync-personas.js`
 
 ```js
 #!/usr/bin/env node
@@ -3305,7 +3601,7 @@ main();
 
 
 ```
-###  Path: `\scripts/validate-workflow-manifest.js`
+###  Path: `/scripts/validate-workflow-manifest.js`
 
 ```js
 #!/usr/bin/env node

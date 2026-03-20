@@ -26,7 +26,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── wp-decomposer.yaml
 
 ```
-###  Path: `\personas\standalone\src\meta/_shared.yaml`
+###  Path: `/personas/standalone/src/meta/_shared.yaml`
 
 ```yaml
 author: Sebastian Mordziol
@@ -49,7 +49,7 @@ default_cc_tools:
   - TodoWrite
 
 ```
-###  Path: `\personas\standalone\src\meta/agents-md-curator.yaml`
+###  Path: `/personas/standalone/src/meta/agents-md-curator.yaml`
 
 ```yaml
 slug: agents-md-curator
@@ -72,7 +72,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/changelog-curator.yaml`
+###  Path: `/personas/standalone/src/meta/changelog-curator.yaml`
 
 ```yaml
 slug: changelog-curator
@@ -94,7 +94,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/composer-curator.yaml`
+###  Path: `/personas/standalone/src/meta/composer-curator.yaml`
 
 ```yaml
 slug: composer-curator
@@ -116,7 +116,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/ctx-architect.yaml`
+###  Path: `/personas/standalone/src/meta/ctx-architect.yaml`
 
 ```yaml
 slug: ctx-architect
@@ -150,7 +150,7 @@ cc_tools:
   - WebSearch
 
 ```
-###  Path: `\personas\standalone\src\meta/dependency-sequencer.yaml`
+###  Path: `/personas/standalone/src/meta/dependency-sequencer.yaml`
 
 ```yaml
 slug: dependency-sequencer
@@ -168,7 +168,7 @@ tools:
   - search
 
 ```
-###  Path: `\personas\standalone\src\meta/ledger-bootstrapper.yaml`
+###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`
 
 ```yaml
 slug: ledger-bootstrapper
@@ -190,7 +190,7 @@ tools:
   - central_pm/*
 
 ```
-###  Path: `\personas\standalone\src\meta/manifest-curator.yaml`
+###  Path: `/personas/standalone/src/meta/manifest-curator.yaml`
 
 ```yaml
 slug: manifest-curator
@@ -213,7 +213,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/module-intent-architect.yaml`
+###  Path: `/personas/standalone/src/meta/module-intent-architect.yaml`
 
 ```yaml
 slug: module-intent-architect
@@ -247,7 +247,7 @@ cc_tools:
   - WebSearch
 
 ```
-###  Path: `\personas\standalone\src\meta/orchestrator-runner.yaml`
+###  Path: `/personas/standalone/src/meta/orchestrator-runner.yaml`
 
 ```yaml
 slug: orchestrator-runner
@@ -256,8 +256,8 @@ description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator
 vs_file_name: orchestrator-runner.agent.md
 id: standalone-orchestrator-runner
 cc_file_name: orchestrator-runner.md
-version: "1.0.2"
-last_updated: "2026-03-04"
+version: "1.1.0"
+last_updated: "2026-03-20"
 
 tools:
   - vscode
@@ -277,7 +277,7 @@ cc_tools:
   - TodoWrite
 
 ```
-###  Path: `\personas\standalone\src\meta/pipeline-configurator.yaml`
+###  Path: `/personas/standalone/src/meta/pipeline-configurator.yaml`
 
 ```yaml
 slug: pipeline-configurator
@@ -295,7 +295,7 @@ tools:
   - search
 
 ```
-###  Path: `\personas\standalone\src\meta/readme-curator.yaml`
+###  Path: `/personas/standalone/src/meta/readme-curator.yaml`
 
 ```yaml
 slug: readme-curator
@@ -318,7 +318,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/researcher.yaml`
+###  Path: `/personas/standalone/src/meta/researcher.yaml`
 
 ```yaml
 slug: researcher
@@ -341,7 +341,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/unit-test-auditor.yaml`
+###  Path: `/personas/standalone/src/meta/unit-test-auditor.yaml`
 
 ```yaml
 slug: unit-test-auditor
@@ -364,7 +364,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/whatsnew-curator.yaml`
+###  Path: `/personas/standalone/src/meta/whatsnew-curator.yaml`
 
 ```yaml
 slug: whatsnew-curator
@@ -386,7 +386,7 @@ tools:
   - todo
 
 ```
-###  Path: `\personas\standalone\src\meta/workflow-orchestrator.yaml`
+###  Path: `/personas/standalone/src/meta/workflow-orchestrator.yaml`
 
 ```yaml
 slug: workflow-orchestrator
@@ -414,7 +414,7 @@ cc_tools:
   - Grep
 
 ```
-###  Path: `\personas\standalone\src\meta/wp-decomposer.yaml`
+###  Path: `/personas/standalone/src/meta/wp-decomposer.yaml`
 
 ```yaml
 slug: wp-decomposer

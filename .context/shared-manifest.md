@@ -8,7 +8,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
     └── workflow-manifest.schema.json
 
 ```
-###  Path: `\shared/workflow-manifest.json`
+###  Path: `/shared/workflow-manifest.json`
 
 ```json
 {
@@ -22,7 +22,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 1,
       "orchestrating": true,
       "pipeline": null,
-      "persona_file": "personas/ledger/vs-code/1-planner.md"
+      "persona_file": "personas/ledger/claude-code/1-planner.md"
     },
     {
       "id": "pm",
@@ -30,7 +30,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 2,
       "orchestrating": false,
       "pipeline": null,
-      "persona_file": "personas/ledger/vs-code/2-project-manager.md"
+      "persona_file": "personas/ledger/claude-code/2-project-manager.md"
     },
     {
       "id": "developer",
@@ -38,7 +38,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 3,
       "orchestrating": false,
       "pipeline": "implementation",
-      "persona_file": "personas/ledger/vs-code/3-developer.md"
+      "persona_file": "personas/ledger/claude-code/3-developer.md"
     },
     {
       "id": "qa",
@@ -46,7 +46,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 4,
       "orchestrating": false,
       "pipeline": "qa",
-      "persona_file": "personas/ledger/vs-code/4-qa.md"
+      "persona_file": "personas/ledger/claude-code/4-qa.md"
     },
     {
       "id": "security_auditor",
@@ -54,7 +54,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 5,
       "orchestrating": false,
       "pipeline": "security-audit",
-      "persona_file": "personas/ledger/vs-code/5-security-auditor.md"
+      "persona_file": "personas/ledger/claude-code/5-security-auditor.md"
     },
     {
       "id": "reviewer",
@@ -62,7 +62,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 6,
       "orchestrating": false,
       "pipeline": "code-review",
-      "persona_file": "personas/ledger/vs-code/6-reviewer.md"
+      "persona_file": "personas/ledger/claude-code/6-reviewer.md"
     },
     {
       "id": "release_engineer",
@@ -70,7 +70,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 7,
       "orchestrating": false,
       "pipeline": "release-engineering",
-      "persona_file": "personas/ledger/vs-code/7-release-engineer.md"
+      "persona_file": "personas/ledger/claude-code/7-release-engineer.md"
     },
     {
       "id": "docs",
@@ -78,7 +78,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 8,
       "orchestrating": false,
       "pipeline": "documentation",
-      "persona_file": "personas/ledger/vs-code/8-documentation.md"
+      "persona_file": "personas/ledger/claude-code/8-documentation.md"
     },
     {
       "id": "synthesis",
@@ -86,7 +86,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 9,
       "orchestrating": true,
       "pipeline": null,
-      "persona_file": "personas/ledger/vs-code/9-synthesis.md"
+      "persona_file": "personas/ledger/claude-code/9-synthesis.md"
     }
   ],
 
@@ -140,7 +140,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
 }
 
 ```
-###  Path: `\shared/workflow-manifest.schema.json`
+###  Path: `/shared/workflow-manifest.schema.json`
 
 ```json
 {

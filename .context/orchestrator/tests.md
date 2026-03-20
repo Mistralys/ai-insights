@@ -17,7 +17,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_tool_wrappers.py
 
 ```
-###  Path: `\orchestrator\tests/__init__.py`
+###  Path: `/orchestrator/tests/__init__.py`
 
 ```py
 """
@@ -25,7 +25,7 @@ tests — orchestrator test suite.
 """
 
 ```
-###  Path: `\orchestrator\tests/test_cli.py`
+###  Path: `/orchestrator/tests/test_cli.py`
 
 ```py
 """
@@ -338,7 +338,7 @@ class TestDryRunNodeEdgeCases:
         assert result["run_log"][0]["result"] == "SKIP"
 
 ```
-###  Path: `\orchestrator\tests/test_config.py`
+###  Path: `/orchestrator/tests/test_config.py`
 
 ```py
 """Snapshot tests for manifest-derived constants in orchestrator/src/config.py.
@@ -351,10 +351,13 @@ remain valid if the manifest gains new roles or pipeline types in the future.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src.config import (
     FAIL_ROUTING_AGENT_MAP,
+    PERSONA_FILES,
     PIPELINE_AGENT_MAP,
     PIPELINE_ROLE_NAMES,
     PIPELINE_TYPES,
@@ -523,8 +526,33 @@ class TestFailRoutingAgentMap:
         """Non-obvious mapping: documentation FAIL → Documentation."""
         assert FAIL_ROUTING_AGENT_MAP["documentation"] == "Documentation"
 
+
+class TestPersonaFilesExist:
+    """Validate that every persona_file entry in the manifest points to an
+    actual file on disk.  This catches stale paths whenever the persona build
+    system renames its output files."""
+
+    # Workspace root is two levels above the orchestrator package.
+    _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+
+    def test_persona_files_is_dict(self):
+        assert isinstance(PERSONA_FILES, dict)
+
+    def test_persona_files_non_empty(self):
+        assert len(PERSONA_FILES) > 0
+
+    @pytest.mark.parametrize("stage,relative_path", list(PERSONA_FILES.items()))
+    def test_persona_file_exists(self, stage: str, relative_path: str):
+        """Every stage's persona file must exist on the local filesystem."""
+        full_path = self._WORKSPACE_ROOT / relative_path
+        assert full_path.exists(), (
+            f"Persona file for stage {stage!r} not found at: {full_path}\n"
+            f"  Manifest says: {relative_path}\n"
+            f"  Check shared/workflow-manifest.json persona_file entries."
+        )
+
 ```
-###  Path: `\orchestrator\tests/test_graph.py`
+###  Path: `/orchestrator/tests/test_graph.py`
 
 ```py
 """
@@ -535,12 +563,14 @@ Tests verify:
 - All 7 nodes are present.
 - Edges match the hub-and-spoke spec (all stages → supervisor, synthesis → END).
 - Graph compiles without error when provided with mock config and empty tool list.
+- The checkpointer is async-compatible (regression for SqliteSaver bug).
 
 No real MCP server or LLM is used — all nodes are patched at import time.
 """
 
 from __future__ import annotations
 
+import pytest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -580,9 +610,8 @@ def _apply_patches(test_fn):
     import functools
 
     @functools.wraps(test_fn)
-    def wrapper(*args, **kwargs):
+    async def wrapper(*args, **kwargs):
         # Patch at source module level (lazy imports inside build_graph()).
-        # MemorySaver is NOT patched — let it run real (no-op checkpointer in tests).
         with (
             patch("src.supervisor.make_supervisor_node", side_effect=lambda tools: _noop_node("supervisor")),
             patch("src.nodes.pm.make_pm_node", side_effect=lambda cfg, tools: _noop_node("pm")),
@@ -592,7 +621,7 @@ def _apply_patches(test_fn):
             patch("src.nodes.docs.make_docs_node", side_effect=lambda cfg, tools: _noop_node("docs")),
             patch("src.nodes.synthesis.make_synthesis_node", side_effect=lambda cfg, tools: _noop_node("synthesis")),
         ):
-            return test_fn(*args, **kwargs)
+            return await test_fn(*args, **kwargs)
 
     return wrapper
 
@@ -603,26 +632,26 @@ def _apply_patches(test_fn):
 
 class TestBuildGraphReturnType:
     @_apply_patches
-    def test_build_graph_returns_object(self):
+    async def test_build_graph_returns_object(self):
         """build_graph() returns a non-None compiled graph."""
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         assert graph is not None
 
     @_apply_patches
-    def test_compiled_graph_is_callable(self):
+    async def test_compiled_graph_is_callable(self):
         """The compiled graph exposes an invoke() method."""
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         assert callable(getattr(graph, "invoke", None))
 
 
 class TestGraphNodes:
     @_apply_patches
-    def test_graph_has_nine_nodes(self):
+    async def test_graph_has_nine_nodes(self):
         """Graph topology must contain exactly 9 nodes."""
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
         nodes = set(graph.nodes)
         expected_nodes = {
@@ -637,28 +666,28 @@ class TestGraphNodes:
 
 class TestGraphEdges:
     @_apply_patches
-    def _get_edges(self):
+    async def _get_edges(self):
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         # graph.builder.edges is a set of (source, target) tuples — includes all
         # static edges declared with add_edge(), unlike get_graph().edges which
         # omits Command-routed edges in LangGraph 1.x.
         return graph.builder.edges
 
     @_apply_patches
-    def test_start_edges_to_supervisor(self):
+    async def test_start_edges_to_supervisor(self):
         """START must edge to 'supervisor'."""
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         edges = graph.builder.edges
         start_targets = {edge[1] for edge in edges if edge[0] == "__start__"}
         assert "supervisor" in start_targets
 
     @_apply_patches
-    def test_loop_stages_edge_to_supervisor(self):
+    async def test_loop_stages_edge_to_supervisor(self):
         """pm, developer, qa, reviewer, docs must each edge back to supervisor."""
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         edges = graph.builder.edges  # set of (source, target) tuples
         # Build a mapping: source → set of targets
         edge_map: dict = {}
@@ -673,10 +702,10 @@ class TestGraphEdges:
             )
 
     @_apply_patches
-    def test_synthesis_edges_to_end(self):
+    async def test_synthesis_edges_to_end(self):
         """synthesis must edge to END (not back to supervisor)."""
         from src.graph import build_graph
-        graph = build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
         edges = graph.builder.edges  # set of (source, target) tuples
         edge_map: dict = {}
         for edge in edges:
@@ -690,7 +719,7 @@ class TestGraphEdges:
 
 class TestCheckpointerCreated:
     @_apply_patches
-    def test_checkpoint_dir_created(self, tmp_path):
+    async def test_checkpoint_dir_created(self, tmp_path):
         """build_graph() creates the checkpoint directory if it does not exist."""
         from src.graph import build_graph
 
@@ -699,11 +728,67 @@ class TestCheckpointerCreated:
 
         cfg = _TmpConfig()
         assert not cfg.checkpoint_dir.exists()
-        build_graph(cfg, MOCK_TOOLS)
+        await build_graph(cfg, MOCK_TOOLS)
         assert cfg.checkpoint_dir.exists()
 
+
+class TestCheckpointerIsAsync:
+    @_apply_patches
+    async def test_checkpointer_supports_async(self, tmp_path):
+        """The graph checkpointer must support async methods (ainvoke).
+
+        Regression test: SqliteSaver raises NotImplementedError on async
+        calls (aget_tuple, aput, etc.).  The graph must use
+        AsyncSqliteSaver so that ``graph.ainvoke()`` works.
+        """
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        checkpointer = graph.checkpointer
+        assert isinstance(checkpointer, AsyncSqliteSaver), (
+            f"Checkpointer must be AsyncSqliteSaver, got {type(checkpointer).__name__}"
+        )
+
+    @_apply_patches
+    async def test_graph_ainvoke_does_not_raise_not_implemented(self, tmp_path):
+        """graph.ainvoke() must not raise NotImplementedError from the checkpointer.
+
+        This is the exact failure mode from the bug: SqliteSaver.aget_tuple()
+        raises NotImplementedError when the graph is invoked asynchronously.
+        """
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        initial_state = {
+            "plan_text": "test",
+            "project_slug": "test-project",
+            "project_title": "Test",
+            "stage_result": "",
+            "stage_success": True,
+            "supervisor_iteration": 0,
+            "run_log": [],
+        }
+        # The supervisor stub will route somewhere that may fail, but the
+        # important thing is that the checkpointer itself does NOT raise
+        # NotImplementedError.  We catch any other exception and let it pass.
+        try:
+            await graph.ainvoke(
+                initial_state,
+                {"configurable": {"thread_id": "test-async-compat"}},
+            )
+        except NotImplementedError as exc:
+            if "async" in str(exc).lower():
+                pytest.fail(f"Checkpointer does not support async: {exc}")
+
 ```
-###  Path: `\orchestrator\tests/test_integration.py`
+###  Path: `/orchestrator/tests/test_integration.py`
 
 ```py
 """
@@ -1575,7 +1660,7 @@ def test_live_happy_path_with_real_mcp():
     pytest.skip("Live test — requires real MCP server and LLM API key.")
 
 ```
-###  Path: `\orchestrator\tests/test_nodes.py`
+###  Path: `/orchestrator/tests/test_nodes.py`
 
 ```py
 """
@@ -2142,7 +2227,7 @@ class TestToolWrappingInNode:
         assert seen[0]["project_path"] == "/explicit-path"
 
 ```
-###  Path: `\orchestrator\tests/test_plan_parser.py`
+###  Path: `/orchestrator/tests/test_plan_parser.py`
 
 ```py
 """
@@ -2284,7 +2369,7 @@ class TestEdgeCases:
         assert meta.summary == "Line one Line two Line three."
 
 ```
-###  Path: `\orchestrator\tests/test_state.py`
+###  Path: `/orchestrator/tests/test_state.py`
 
 ```py
 """
@@ -2394,7 +2479,7 @@ class TestStateGraphIntegration:
         assert graph is not None
 
 ```
-###  Path: `\orchestrator\tests/test_supervisor.py`
+###  Path: `/orchestrator/tests/test_supervisor.py`
 
 ```py
 """
@@ -3606,7 +3691,7 @@ class TestCircuitBreakerDirect:
         assert cmd.update.get("current_wp_id") == "WP-002"
 
 ```
-###  Path: `\orchestrator\tests/test_tool_wrappers.py`
+###  Path: `/orchestrator/tests/test_tool_wrappers.py`
 
 ```py
 """
@@ -3752,28 +3837,30 @@ class TestDoesNotOverrideExplicitProjectPath:
 # 3. No injection when cwd_path present
 # ---------------------------------------------------------------------------
 
-class TestNoInjectionWhenCwdPathPresent:
-    async def test_cwd_path_suppresses_injection(self):
-        """When cwd_path is present, project_path must NOT be injected."""
+class TestCwdPathReplacedWithProjectPath:
+    async def test_cwd_path_stripped_and_project_path_injected(self):
+        """cwd_path must be removed and project_path injected instead."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
         await tool.ainvoke({"cwd_path": "/some/workspace"})
 
-        assert "project_path" not in seen[0], (
-            "project_path must not be injected when cwd_path is present"
+        assert "cwd_path" not in seen[0], (
+            "cwd_path must be stripped in the orchestrator context"
         )
+        assert seen[0]["project_path"] == PROJECT
 
-    async def test_cwd_path_preserved_unchanged(self):
-        """cwd_path value itself must not be modified."""
+    async def test_explicit_project_path_wins_over_cwd_path(self):
+        """When both cwd_path and project_path are present, project_path is kept."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
-        await tool.ainvoke({"cwd_path": "/cwd/value"})
+        await tool.ainvoke({"cwd_path": "/cwd/value", "project_path": "/explicit"})
 
-        assert seen[0]["cwd_path"] == "/cwd/value"
+        assert "cwd_path" not in seen[0]
+        assert seen[0]["project_path"] == "/explicit"
 
 
 # ---------------------------------------------------------------------------
@@ -3955,6 +4042,94 @@ class TestMultipleTools:
 
         assert seen_a[0]["project_path"] == PROJECT
         assert seen_b[0]["project_path"] == PROJECT
+
+
+# ---------------------------------------------------------------------------
+# 9. Pydantic model compatibility — guards against __setattr__ regression
+# ---------------------------------------------------------------------------
+
+class TestPydanticModelCompatibility:
+    """Verify that inject_project_path works on Pydantic BaseModel subclasses.
+
+    The production tool objects are ``StructuredTool`` instances, which inherit
+    from Pydantic's ``BaseModel``.  Pydantic v2 rejects attribute writes to
+    undeclared fields via ``BaseModel.__setattr__``.  These tests ensure the
+    wrapper correctly bypasses that guard.
+
+    See: bug-report-orchestrator.md (2026-03-20)
+    """
+
+    async def test_pydantic_basemodel_subclass_can_be_wrapped(self):
+        """inject_project_path must not raise on a Pydantic BaseModel subclass."""
+        from pydantic import BaseModel, ConfigDict
+
+        seen: list[Any] = []
+
+        class PydanticTool(BaseModel):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+            name: str = "pydantic_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                seen.append(input)
+                return "ok"
+
+        tool = PydanticTool()
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 1
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_structured_tool_can_be_wrapped(self):
+        """inject_project_path must work on a real StructuredTool instance."""
+        from langchain_core.tools import StructuredTool
+
+        seen: list[Any] = []
+
+        async def _fake_func(project_path: str = "", **kwargs: Any) -> str:
+            seen.append({"project_path": project_path, **kwargs})
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            coroutine=_fake_func,
+            name="fake_mcp_tool",
+            description="A fake tool for testing.",
+        )
+
+        # This is the line that raised ValueError before the fix.
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 1
+        assert seen[0].get("project_path") == PROJECT
+
+    async def test_structured_tool_idempotency(self):
+        """Double-wrapping a StructuredTool must not stack closures."""
+        from langchain_core.tools import StructuredTool
+
+        call_count = 0
+
+        async def _counting_func(project_path: str = "", **kwargs: Any) -> str:
+            nonlocal call_count
+            call_count += 1
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            coroutine=_counting_func,
+            name="counting_tool",
+            description="Counts calls.",
+        )
+
+        inject_project_path([tool], PROJECT)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert call_count == 1, (
+            f"Original ainvoke called {call_count} times — wrapper stacking on StructuredTool"
+        )
 
 
 ```

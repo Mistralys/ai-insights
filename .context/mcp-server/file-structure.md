@@ -42,6 +42,10 @@ _SOURCE: Directory tree_
         │   ├── work-package.d.ts.map
         │   ├── work-package.js
         │   ├── work-package.js.map
+        │   ├── workflow-manifest-schema.d.ts
+        │   ├── workflow-manifest-schema.d.ts.map
+        │   ├── workflow-manifest-schema.js
+        │   ├── workflow-manifest-schema.js.map
         ├── storage/
         │   ├── atomic-writer.d.ts
         │   ├── atomic-writer.d.ts.map
@@ -84,6 +88,10 @@ _SOURCE: Directory tree_
         │   ├── work-package.d.ts.map
         │   ├── work-package.js
         │   ├── work-package.js.map
+        │   ├── workflow-batch-actions.d.ts
+        │   ├── workflow-batch-actions.d.ts.map
+        │   ├── workflow-batch-actions.js
+        │   ├── workflow-batch-actions.js.map
         │   ├── workflow-handoff.d.ts
         │   ├── workflow-handoff.d.ts.map
         │   ├── workflow-handoff.js
@@ -187,247 +195,12 @@ _SOURCE: Directory tree_
         ├── server.ts
     └── module-context.yaml
     └── node_modules/
-        ├── @asamuzakjp/
-        │   ├── css-color/
-        │   │   ├── LICENSE/
-        │   │   ├── README.md
-        │   │   ├── dist/
-        │   │   │   ├── esm/
-        │   │   │   │   └── index.d.ts
-        │   │   │   │   └── index.js
-        │   │   │   │   └── index.js.map
-        │   │   │   │   └── js/
-        │   │   │   │       └── cache.d.ts
-        │   │   │   │       └── cache.js
-        │   │   │   │       └── cache.js.map
-        │   │   │   │       └── color.d.ts
-        │   │   │   │       └── color.js
-        │   │   │   │       └── color.js.map
-        │   │   │   │       └── common.d.ts
-        │   │   │   │       └── common.js
-        │   │   │   │       └── common.js.map
-        │   │   │   │       └── constant.d.ts
-        │   │   │   │       └── constant.js
-        │   │   │   │       └── constant.js.map
-        │   │   │   │       └── convert.d.ts
-        │   │   │   │       └── convert.js
-        │   │   │   │       └── convert.js.map
-        │   │   │   │       └── css-calc.d.ts
-        │   │   │   │       └── css-calc.js
-        │   │   │   │       └── css-calc.js.map
-        │   │   │   │       └── css-gradient.d.ts
-        │   │   │   │       └── css-gradient.js
-        │   │   │   │       └── css-gradient.js.map
-        │   │   │   │       └── css-var.d.ts
-        │   │   │   │       └── css-var.js
-        │   │   │   │       └── css-var.js.map
-        │   │   │   │       └── relative-color.d.ts
-        │   │   │   │       └── relative-color.js
-        │   │   │   │       └── relative-color.js.map
-        │   │   │   │       └── resolve.d.ts
-        │   │   │   │       └── resolve.js
-        │   │   │   │       └── resolve.js.map
-        │   │   │   │       └── typedef.d.ts
-        │   │   │   │       └── util.d.ts
-        │   │   │   │       └── util.js
-        │   │   │   │       └── util.js.map
-        │   │   ├── package.json
-        │   │   ├── src/
-        │   │   │   └── index.ts
-        │   │   │   └── js/
-        │   │   │       └── cache.ts
-        │   │   │       └── color.ts
-        │   │   │       └── common.ts
-        │   │   │       └── constant.ts
-        │   │   │       └── convert.ts
-        │   │   │       └── css-calc.ts
-        │   │   │       └── css-gradient.ts
-        │   │   │       └── css-var.ts
-        │   │   │       └── relative-color.ts
-        │   │   │       └── resolve.ts
-        │   │   │       └── typedef.ts
-        │   │   │       └── util.ts
-        │   ├── dom-selector/
-        │   │   ├── LICENSE/
-        │   │   ├── README.md
-        │   │   ├── package.json
-        │   │   ├── src/
-        │   │   │   ├── index.js
-        │   │   │   ├── js/
-        │   │   │   │   └── constant.js
-        │   │   │   │   └── finder.js
-        │   │   │   │   └── matcher.js
-        │   │   │   │   └── parser.js
-        │   │   │   │   └── utility.js
-        │   │   ├── types/
-        │   │   │   └── index.d.ts
-        │   │   │   └── js/
-        │   │   │       └── constant.d.ts
-        │   │   │       └── finder.d.ts
-        │   │   │       └── matcher.d.ts
-        │   │   │       └── parser.d.ts
-        │   │   │       └── utility.d.ts
-        │   ├── nwsapi/
-        │   │   └── LICENSE/
-        │   │   └── README.md
-        │   │   └── package.json
-        │   │   └── src/
-        │   │       └── nwsapi.js
-        ├── @bramus/
-        │   ├── specificity/
-        │   │   └── LICENSE/
+        ├── @esbuild/
+        │   ├── darwin-x64/
         │   │   └── README.md
         │   │   └── bin/
-        │   │       ├── cli.js
-        │   │   └── dist/
-        │   │       ├── index.cjs
-        │   │       ├── index.cjs.map
-        │   │       ├── index.js
-        │   │       ├── index.js.map
-        │   │   └── index.d.ts
+        │   │       ├── esbuild/
         │   │   └── package.json
-        │   │   └── src/
-        │   │       └── core/
-        │   │           ├── calculate.js
-        │   │           ├── index.js
-        │   │       └── index.js
-        │   │       └── util/
-        │   │           └── compare.js
-        │   │           └── filter.js
-        │   │           └── index.js
-        │   │           └── sort.js
-        ├── @csstools/
-        │   ├── color-helpers/
-        │   │   ├── CHANGELOG.md
-        │   │   ├── LICENSE.md
-        │   │   ├── README.md
-        │   │   ├── dist/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.mjs
-        │   │   ├── package.json
-        │   ├── css-calc/
-        │   │   ├── CHANGELOG.md
-        │   │   ├── LICENSE.md
-        │   │   ├── README.md
-        │   │   ├── dist/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.mjs
-        │   │   ├── package.json
-        │   ├── css-color-parser/
-        │   │   ├── CHANGELOG.md
-        │   │   ├── LICENSE.md
-        │   │   ├── README.md
-        │   │   ├── dist/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.mjs
-        │   │   ├── package.json
-        │   ├── css-parser-algorithms/
-        │   │   ├── CHANGELOG.md
-        │   │   ├── LICENSE.md
-        │   │   ├── README.md
-        │   │   ├── dist/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.mjs
-        │   │   ├── package.json
-        │   ├── css-syntax-patches-for-csstree/
-        │   │   ├── CHANGELOG.md
-        │   │   ├── LICENSE.md
-        │   │   ├── README.md
-        │   │   ├── dist/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.json
-        │   │   ├── package.json
-        │   ├── css-tokenizer/
-        │   │   └── CHANGELOG.md
-        │   │   └── LICENSE.md
-        │   │   └── README.md
-        │   │   └── dist/
-        │   │       ├── index.d.ts
-        │   │       ├── index.mjs
-        │   │   └── package.json
-        ├── @esbuild/
-        │   ├── win32-x64/
-        │   │   └── README.md
-        │   │   └── esbuild.exe
-        │   │   └── package.json
-        ├── @exodus/
-        │   ├── bytes/
-        │   │   └── LICENSE/
-        │   │   └── README.md
-        │   │   └── array.d.ts
-        │   │   └── array.js
-        │   │   └── assert.js
-        │   │   └── base32.d.ts
-        │   │   └── base32.js
-        │   │   └── base58.d.ts
-        │   │   └── base58.js
-        │   │   └── base58check.d.ts
-        │   │   └── base58check.js
-        │   │   └── base58check.node.js
-        │   │   └── base64.d.ts
-        │   │   └── base64.js
-        │   │   └── bech32.d.ts
-        │   │   └── bech32.js
-        │   │   └── bigint.d.ts
-        │   │   └── bigint.js
-        │   │   └── encoding-browser.browser.js
-        │   │   └── encoding-browser.d.ts
-        │   │   └── encoding-browser.js
-        │   │   └── encoding-browser.native.js
-        │   │   └── encoding-lite.d.ts
-        │   │   └── encoding-lite.js
-        │   │   └── encoding.d.ts
-        │   │   └── encoding.js
-        │   │   └── fallback/
-        │   │       ├── _utils.js
-        │   │       ├── base32.js
-        │   │       ├── base58check.js
-        │   │       ├── base64.js
-        │   │       ├── encoding.api.js
-        │   │       ├── encoding.js
-        │   │       ├── encoding.labels.js
-        │   │       ├── encoding.util.js
-        │   │       ├── hex.js
-        │   │       ├── latin1.js
-        │   │       ├── multi-byte.encodings.cjs
-        │   │       ├── multi-byte.encodings.json
-        │   │       ├── multi-byte.js
-        │   │       ├── multi-byte.table.js
-        │   │       ├── percent.js
-        │   │       ├── platform.browser.js
-        │   │       ├── platform.js
-        │   │       ├── platform.native.js
-        │   │       ├── single-byte.encodings.js
-        │   │       ├── single-byte.js
-        │   │       ├── utf16.js
-        │   │       ├── utf8.auto.browser.js
-        │   │       ├── utf8.auto.js
-        │   │       ├── utf8.auto.native.js
-        │   │       ├── utf8.js
-        │   │   └── hex.d.ts
-        │   │   └── hex.js
-        │   │   └── hex.node.js
-        │   │   └── index.d.ts
-        │   │   └── index.js
-        │   │   └── multi-byte.d.ts
-        │   │   └── multi-byte.js
-        │   │   └── multi-byte.node.js
-        │   │   └── package.json
-        │   │   └── single-byte.d.ts
-        │   │   └── single-byte.js
-        │   │   └── single-byte.node.js
-        │   │   └── utf16.browser.js
-        │   │   └── utf16.d.ts
-        │   │   └── utf16.js
-        │   │   └── utf16.native.js
-        │   │   └── utf16.node.js
-        │   │   └── utf8.d.ts
-        │   │   └── utf8.js
-        │   │   └── utf8.node.js
-        │   │   └── whatwg.d.ts
-        │   │   └── whatwg.js
-        │   │   └── wif.d.ts
-        │   │   └── wif.js
         ├── @hono/
         │   ├── node-server/
         │   │   └── README.md
@@ -1226,14 +999,10 @@ _SOURCE: Directory tree_
         │   │       │       └── types.js.map
         │   │   └── package.json
         ├── @rollup/
-        │   ├── rollup-win32-x64-gnu/
-        │   │   ├── README.md
-        │   │   ├── package.json
-        │   │   ├── rollup.win32-x64-gnu.node
-        │   ├── rollup-win32-x64-msvc/
+        │   ├── rollup-darwin-x64/
         │   │   └── README.md
         │   │   └── package.json
-        │   │   └── rollup.win32-x64-msvc.node
+        │   │   └── rollup.darwin-x64.node
         ├── @standard-schema/
         │   ├── spec/
         │   │   └── LICENSE/
@@ -2010,28 +1779,6 @@ _SOURCE: Directory tree_
         │   ├── index.d.ts
         │   ├── index.js
         │   ├── package.json
-        ├── bidi-js/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── dist/
-        │   │   ├── bidi.js
-        │   │   ├── bidi.min.js
-        │   │   ├── bidi.min.mjs
-        │   │   ├── bidi.mjs
-        │   ├── package.json
-        │   ├── src/
-        │   │   └── brackets.js
-        │   │   └── charTypes.js
-        │   │   └── data/
-        │   │       ├── bidiBrackets.data.js
-        │   │       ├── bidiCharTypes.data.js
-        │   │       ├── bidiMirroring.data.js
-        │   │   └── embeddingLevels.js
-        │   │   └── index.js
-        │   │   └── mirroring.js
-        │   │   └── reordering.js
-        │   │   └── util/
-        │   │       └── parseCharacterMap.js
         ├── body-parser/
         │   ├── LICENSE/
         │   ├── README.md
@@ -2131,326 +1878,6 @@ _SOURCE: Directory tree_
         │   │   │   └── readShebang.js
         │   │   │   └── resolveCommand.js
         │   ├── package.json
-        ├── css-tree/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── cjs/
-        │   │   ├── convertor/
-        │   │   │   ├── create.cjs
-        │   │   │   ├── index.cjs
-        │   │   ├── data-patch.cjs
-        │   │   ├── data.cjs
-        │   │   ├── definition-syntax/
-        │   │   │   ├── SyntaxError.cjs
-        │   │   │   ├── generate.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── parse.cjs
-        │   │   │   ├── scanner.cjs
-        │   │   │   ├── walk.cjs
-        │   │   ├── generator/
-        │   │   │   ├── create.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── sourceMap.cjs
-        │   │   │   ├── token-before.cjs
-        │   │   ├── index.cjs
-        │   │   ├── lexer/
-        │   │   │   ├── Lexer.cjs
-        │   │   │   ├── error.cjs
-        │   │   │   ├── generic-an-plus-b.cjs
-        │   │   │   ├── generic-const.cjs
-        │   │   │   ├── generic-urange.cjs
-        │   │   │   ├── generic.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── match-graph.cjs
-        │   │   │   ├── match.cjs
-        │   │   │   ├── prepare-tokens.cjs
-        │   │   │   ├── search.cjs
-        │   │   │   ├── structure.cjs
-        │   │   │   ├── trace.cjs
-        │   │   │   ├── units.cjs
-        │   │   ├── parser/
-        │   │   │   ├── SyntaxError.cjs
-        │   │   │   ├── create.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── parse-selector.cjs
-        │   │   │   ├── sequence.cjs
-        │   │   ├── syntax/
-        │   │   │   ├── atrule/
-        │   │   │   │   ├── container.cjs
-        │   │   │   │   ├── font-face.cjs
-        │   │   │   │   ├── import.cjs
-        │   │   │   │   ├── index.cjs
-        │   │   │   │   ├── layer.cjs
-        │   │   │   │   ├── media.cjs
-        │   │   │   │   ├── nest.cjs
-        │   │   │   │   ├── page.cjs
-        │   │   │   │   ├── scope.cjs
-        │   │   │   │   ├── starting-style.cjs
-        │   │   │   │   ├── supports.cjs
-        │   │   │   ├── config/
-        │   │   │   │   ├── generator.cjs
-        │   │   │   │   ├── lexer.cjs
-        │   │   │   │   ├── mix.cjs
-        │   │   │   │   ├── parser-selector.cjs
-        │   │   │   │   ├── parser.cjs
-        │   │   │   │   ├── walker.cjs
-        │   │   │   ├── create.cjs
-        │   │   │   ├── function/
-        │   │   │   │   ├── expression.cjs
-        │   │   │   │   ├── var.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── node/
-        │   │   │   │   ├── AnPlusB.cjs
-        │   │   │   │   ├── Atrule.cjs
-        │   │   │   │   ├── AtrulePrelude.cjs
-        │   │   │   │   ├── AttributeSelector.cjs
-        │   │   │   │   ├── Block.cjs
-        │   │   │   │   ├── Brackets.cjs
-        │   │   │   │   ├── CDC.cjs
-        │   │   │   │   ├── CDO.cjs
-        │   │   │   │   ├── ClassSelector.cjs
-        │   │   │   │   ├── Combinator.cjs
-        │   │   │   │   ├── Comment.cjs
-        │   │   │   │   ├── Condition.cjs
-        │   │   │   │   ├── Declaration.cjs
-        │   │   │   │   ├── DeclarationList.cjs
-        │   │   │   │   ├── Dimension.cjs
-        │   │   │   │   ├── Feature.cjs
-        │   │   │   │   ├── FeatureFunction.cjs
-        │   │   │   │   ├── FeatureRange.cjs
-        │   │   │   │   ├── Function.cjs
-        │   │   │   │   ├── GeneralEnclosed.cjs
-        │   │   │   │   ├── Hash.cjs
-        │   │   │   │   ├── IdSelector.cjs
-        │   │   │   │   ├── Identifier.cjs
-        │   │   │   │   ├── Layer.cjs
-        │   │   │   │   ├── LayerList.cjs
-        │   │   │   │   ├── MediaQuery.cjs
-        │   │   │   │   ├── MediaQueryList.cjs
-        │   │   │   │   ├── NestingSelector.cjs
-        │   │   │   │   ├── Nth.cjs
-        │   │   │   │   ├── Number.cjs
-        │   │   │   │   ├── Operator.cjs
-        │   │   │   │   ├── Parentheses.cjs
-        │   │   │   │   ├── Percentage.cjs
-        │   │   │   │   ├── PseudoClassSelector.cjs
-        │   │   │   │   ├── PseudoElementSelector.cjs
-        │   │   │   │   ├── Ratio.cjs
-        │   │   │   │   ├── Raw.cjs
-        │   │   │   │   ├── Rule.cjs
-        │   │   │   │   ├── Scope.cjs
-        │   │   │   │   ├── Selector.cjs
-        │   │   │   │   ├── SelectorList.cjs
-        │   │   │   │   ├── String.cjs
-        │   │   │   │   ├── StyleSheet.cjs
-        │   │   │   │   ├── SupportsDeclaration.cjs
-        │   │   │   │   ├── TypeSelector.cjs
-        │   │   │   │   ├── UnicodeRange.cjs
-        │   │   │   │   ├── Url.cjs
-        │   │   │   │   ├── Value.cjs
-        │   │   │   │   ├── WhiteSpace.cjs
-        │   │   │   │   ├── index-generate.cjs
-        │   │   │   │   ├── index-parse-selector.cjs
-        │   │   │   │   ├── index-parse.cjs
-        │   │   │   │   ├── index.cjs
-        │   │   │   ├── pseudo/
-        │   │   │   │   ├── index.cjs
-        │   │   │   │   ├── lang.cjs
-        │   │   │   ├── scope/
-        │   │   │   │   └── atrulePrelude.cjs
-        │   │   │   │   └── default.cjs
-        │   │   │   │   └── index.cjs
-        │   │   │   │   └── selector.cjs
-        │   │   │   │   └── value.cjs
-        │   │   ├── tokenizer/
-        │   │   │   ├── OffsetToLocation.cjs
-        │   │   │   ├── TokenStream.cjs
-        │   │   │   ├── adopt-buffer.cjs
-        │   │   │   ├── char-code-definitions.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── names.cjs
-        │   │   │   ├── types.cjs
-        │   │   │   ├── utils.cjs
-        │   │   ├── utils/
-        │   │   │   ├── List.cjs
-        │   │   │   ├── clone.cjs
-        │   │   │   ├── create-custom-error.cjs
-        │   │   │   ├── ident.cjs
-        │   │   │   ├── index.cjs
-        │   │   │   ├── names.cjs
-        │   │   │   ├── string.cjs
-        │   │   │   ├── url.cjs
-        │   │   ├── version.cjs
-        │   │   ├── walker/
-        │   │   │   └── create.cjs
-        │   │   │   └── index.cjs
-        │   ├── data/
-        │   │   ├── patch.json
-        │   ├── dist/
-        │   │   ├── csstree.esm.js
-        │   │   ├── csstree.js
-        │   │   ├── data.cjs
-        │   │   ├── data.js
-        │   │   ├── version.cjs
-        │   │   ├── version.js
-        │   ├── lib/
-        │   │   ├── convertor/
-        │   │   │   ├── create.js
-        │   │   │   ├── index.js
-        │   │   ├── data-patch.js
-        │   │   ├── data.js
-        │   │   ├── definition-syntax/
-        │   │   │   ├── SyntaxError.js
-        │   │   │   ├── generate.js
-        │   │   │   ├── index.js
-        │   │   │   ├── parse.js
-        │   │   │   ├── scanner.js
-        │   │   │   ├── walk.js
-        │   │   ├── generator/
-        │   │   │   ├── create.js
-        │   │   │   ├── index.js
-        │   │   │   ├── sourceMap.js
-        │   │   │   ├── token-before.js
-        │   │   ├── index.js
-        │   │   ├── lexer/
-        │   │   │   ├── Lexer.js
-        │   │   │   ├── error.js
-        │   │   │   ├── generic-an-plus-b.js
-        │   │   │   ├── generic-const.js
-        │   │   │   ├── generic-urange.js
-        │   │   │   ├── generic.js
-        │   │   │   ├── index.js
-        │   │   │   ├── match-graph.js
-        │   │   │   ├── match.js
-        │   │   │   ├── prepare-tokens.js
-        │   │   │   ├── search.js
-        │   │   │   ├── structure.js
-        │   │   │   ├── trace.js
-        │   │   │   ├── units.js
-        │   │   ├── parser/
-        │   │   │   ├── SyntaxError.js
-        │   │   │   ├── create.js
-        │   │   │   ├── index.js
-        │   │   │   ├── parse-selector.js
-        │   │   │   ├── sequence.js
-        │   │   ├── syntax/
-        │   │   │   ├── atrule/
-        │   │   │   │   ├── container.js
-        │   │   │   │   ├── font-face.js
-        │   │   │   │   ├── import.js
-        │   │   │   │   ├── index.js
-        │   │   │   │   ├── layer.js
-        │   │   │   │   ├── media.js
-        │   │   │   │   ├── nest.js
-        │   │   │   │   ├── page.js
-        │   │   │   │   ├── scope.js
-        │   │   │   │   ├── starting-style.js
-        │   │   │   │   ├── supports.js
-        │   │   │   ├── config/
-        │   │   │   │   ├── generator.js
-        │   │   │   │   ├── lexer.js
-        │   │   │   │   ├── mix.js
-        │   │   │   │   ├── parser-selector.js
-        │   │   │   │   ├── parser.js
-        │   │   │   │   ├── walker.js
-        │   │   │   ├── create.js
-        │   │   │   ├── function/
-        │   │   │   │   ├── expression.js
-        │   │   │   │   ├── var.js
-        │   │   │   ├── index.js
-        │   │   │   ├── node/
-        │   │   │   │   ├── AnPlusB.js
-        │   │   │   │   ├── Atrule.js
-        │   │   │   │   ├── AtrulePrelude.js
-        │   │   │   │   ├── AttributeSelector.js
-        │   │   │   │   ├── Block.js
-        │   │   │   │   ├── Brackets.js
-        │   │   │   │   ├── CDC.js
-        │   │   │   │   ├── CDO.js
-        │   │   │   │   ├── ClassSelector.js
-        │   │   │   │   ├── Combinator.js
-        │   │   │   │   ├── Comment.js
-        │   │   │   │   ├── Condition.js
-        │   │   │   │   ├── Declaration.js
-        │   │   │   │   ├── DeclarationList.js
-        │   │   │   │   ├── Dimension.js
-        │   │   │   │   ├── Feature.js
-        │   │   │   │   ├── FeatureFunction.js
-        │   │   │   │   ├── FeatureRange.js
-        │   │   │   │   ├── Function.js
-        │   │   │   │   ├── GeneralEnclosed.js
-        │   │   │   │   ├── Hash.js
-        │   │   │   │   ├── IdSelector.js
-        │   │   │   │   ├── Identifier.js
-        │   │   │   │   ├── Layer.js
-        │   │   │   │   ├── LayerList.js
-        │   │   │   │   ├── MediaQuery.js
-        │   │   │   │   ├── MediaQueryList.js
-        │   │   │   │   ├── NestingSelector.js
-        │   │   │   │   ├── Nth.js
-        │   │   │   │   ├── Number.js
-        │   │   │   │   ├── Operator.js
-        │   │   │   │   ├── Parentheses.js
-        │   │   │   │   ├── Percentage.js
-        │   │   │   │   ├── PseudoClassSelector.js
-        │   │   │   │   ├── PseudoElementSelector.js
-        │   │   │   │   ├── Ratio.js
-        │   │   │   │   ├── Raw.js
-        │   │   │   │   ├── Rule.js
-        │   │   │   │   ├── Scope.js
-        │   │   │   │   ├── Selector.js
-        │   │   │   │   ├── SelectorList.js
-        │   │   │   │   ├── String.js
-        │   │   │   │   ├── StyleSheet.js
-        │   │   │   │   ├── SupportsDeclaration.js
-        │   │   │   │   ├── TypeSelector.js
-        │   │   │   │   ├── UnicodeRange.js
-        │   │   │   │   ├── Url.js
-        │   │   │   │   ├── Value.js
-        │   │   │   │   ├── WhiteSpace.js
-        │   │   │   │   ├── index-generate.js
-        │   │   │   │   ├── index-parse-selector.js
-        │   │   │   │   ├── index-parse.js
-        │   │   │   │   ├── index.js
-        │   │   │   ├── pseudo/
-        │   │   │   │   ├── index.js
-        │   │   │   │   ├── lang.js
-        │   │   │   ├── scope/
-        │   │   │   │   └── atrulePrelude.js
-        │   │   │   │   └── default.js
-        │   │   │   │   └── index.js
-        │   │   │   │   └── selector.js
-        │   │   │   │   └── value.js
-        │   │   ├── tokenizer/
-        │   │   │   ├── OffsetToLocation.js
-        │   │   │   ├── TokenStream.js
-        │   │   │   ├── adopt-buffer.js
-        │   │   │   ├── char-code-definitions.js
-        │   │   │   ├── index.js
-        │   │   │   ├── names.js
-        │   │   │   ├── types.js
-        │   │   │   ├── utils.js
-        │   │   ├── utils/
-        │   │   │   ├── List.js
-        │   │   │   ├── clone.js
-        │   │   │   ├── create-custom-error.js
-        │   │   │   ├── ident.js
-        │   │   │   ├── index.js
-        │   │   │   ├── names.js
-        │   │   │   ├── string.js
-        │   │   │   ├── url.js
-        │   │   ├── version.js
-        │   │   ├── walker/
-        │   │   │   └── create.js
-        │   │   │   └── index.js
-        │   ├── package.json
-        ├── data-urls/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── parser.js
-        │   │   ├── utils.js
-        │   ├── package.json
         ├── debug/
         │   ├── LICENSE/
         │   ├── README.md
@@ -2460,13 +1887,6 @@ _SOURCE: Directory tree_
         │   │   └── common.js
         │   │   └── index.js
         │   │   └── node.js
-        ├── decimal.js/
-        │   ├── LICENCE.md
-        │   ├── README.md
-        │   ├── decimal.d.ts
-        │   ├── decimal.js
-        │   ├── decimal.mjs
-        │   ├── package.json
         ├── depd/
         │   ├── History.md
         │   ├── LICENSE/
@@ -2500,99 +1920,6 @@ _SOURCE: Directory tree_
         │   ├── README.md
         │   ├── index.js
         │   ├── package.json
-        ├── entities/
-        │   ├── LICENSE/
-        │   ├── decode.d.ts
-        │   ├── decode.js
-        │   ├── dist/
-        │   │   ├── commonjs/
-        │   │   │   ├── decode-codepoint.d.ts
-        │   │   │   ├── decode-codepoint.d.ts.map
-        │   │   │   ├── decode-codepoint.js
-        │   │   │   ├── decode-codepoint.js.map
-        │   │   │   ├── decode.d.ts
-        │   │   │   ├── decode.d.ts.map
-        │   │   │   ├── decode.js
-        │   │   │   ├── decode.js.map
-        │   │   │   ├── encode.d.ts
-        │   │   │   ├── encode.d.ts.map
-        │   │   │   ├── encode.js
-        │   │   │   ├── encode.js.map
-        │   │   │   ├── escape.d.ts
-        │   │   │   ├── escape.d.ts.map
-        │   │   │   ├── escape.js
-        │   │   │   ├── escape.js.map
-        │   │   │   ├── generated/
-        │   │   │   │   ├── decode-data-html.d.ts
-        │   │   │   │   ├── decode-data-html.d.ts.map
-        │   │   │   │   ├── decode-data-html.js
-        │   │   │   │   ├── decode-data-html.js.map
-        │   │   │   │   ├── decode-data-xml.d.ts
-        │   │   │   │   ├── decode-data-xml.d.ts.map
-        │   │   │   │   ├── decode-data-xml.js
-        │   │   │   │   ├── decode-data-xml.js.map
-        │   │   │   │   ├── encode-html.d.ts
-        │   │   │   │   ├── encode-html.d.ts.map
-        │   │   │   │   ├── encode-html.js
-        │   │   │   │   ├── encode-html.js.map
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.d.ts.map
-        │   │   │   ├── index.js
-        │   │   │   ├── index.js.map
-        │   │   │   ├── package.json
-        │   │   ├── esm/
-        │   │   │   └── decode-codepoint.d.ts
-        │   │   │   └── decode-codepoint.d.ts.map
-        │   │   │   └── decode-codepoint.js
-        │   │   │   └── decode-codepoint.js.map
-        │   │   │   └── decode.d.ts
-        │   │   │   └── decode.d.ts.map
-        │   │   │   └── decode.js
-        │   │   │   └── decode.js.map
-        │   │   │   └── encode.d.ts
-        │   │   │   └── encode.d.ts.map
-        │   │   │   └── encode.js
-        │   │   │   └── encode.js.map
-        │   │   │   └── escape.d.ts
-        │   │   │   └── escape.d.ts.map
-        │   │   │   └── escape.js
-        │   │   │   └── escape.js.map
-        │   │   │   └── generated/
-        │   │   │       ├── decode-data-html.d.ts
-        │   │   │       ├── decode-data-html.d.ts.map
-        │   │   │       ├── decode-data-html.js
-        │   │   │       ├── decode-data-html.js.map
-        │   │   │       ├── decode-data-xml.d.ts
-        │   │   │       ├── decode-data-xml.d.ts.map
-        │   │   │       ├── decode-data-xml.js
-        │   │   │       ├── decode-data-xml.js.map
-        │   │   │       ├── encode-html.d.ts
-        │   │   │       ├── encode-html.d.ts.map
-        │   │   │       ├── encode-html.js
-        │   │   │       ├── encode-html.js.map
-        │   │   │   └── index.d.ts
-        │   │   │   └── index.d.ts.map
-        │   │   │   └── index.js
-        │   │   │   └── index.js.map
-        │   │   │   └── package.json
-        │   ├── escape.d.ts
-        │   ├── escape.js
-        │   ├── package.json
-        │   ├── readme.md
-        │   ├── src/
-        │   │   └── decode-codepoint.ts
-        │   │   └── decode.spec.ts
-        │   │   └── decode.ts
-        │   │   └── encode.spec.ts
-        │   │   └── encode.ts
-        │   │   └── escape.spec.ts
-        │   │   └── escape.ts
-        │   │   └── generated/
-        │   │       ├── decode-data-html.ts
-        │   │       ├── decode-data-xml.ts
-        │   │       ├── encode-html.ts
-        │   │   └── index.spec.ts
-        │   │   └── index.ts
         ├── es-define-property/
         │   ├── CHANGELOG.md
         │   ├── LICENSE/
@@ -2838,6 +2165,13 @@ _SOURCE: Directory tree_
         │   ├── LICENSE/
         │   ├── README.md
         │   ├── index.js
+        │   ├── package.json
+        ├── fsevents/
+        │   ├── LICENSE/
+        │   ├── README.md
+        │   ├── fsevents.d.ts
+        │   ├── fsevents.js
+        │   ├── fsevents.node
         │   ├── package.json
         ├── function-bind/
         │   ├── CHANGELOG.md
@@ -3696,12 +3030,6 @@ _SOURCE: Directory tree_
         │   │   │   └── utils.js
         │   │   │   └── validator.js
         │   ├── package.json
-        ├── html-encoding-sniffer/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── html-encoding-sniffer.js
-        │   ├── package.json
         ├── http-errors/
         │   ├── HISTORY.md
         │   ├── LICENSE/
@@ -3809,11 +3137,6 @@ _SOURCE: Directory tree_
         │   ├── lib/
         │   │   ├── ipaddr.js
         │   │   ├── ipaddr.js.d.ts
-        │   ├── package.json
-        ├── is-potential-custom-element-name/
-        │   ├── LICENSE-MIT.txt
-        │   ├── README.md
-        │   ├── index.js
         │   ├── package.json
         ├── is-promise/
         │   ├── LICENSE/
@@ -3962,713 +3285,6 @@ _SOURCE: Directory tree_
         │   │   │       └── decode_protected_header.js
         │   │   │       └── errors.js
         │   ├── package.json
-        ├── jsdom/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── api.js
-        │   │   ├── generated/
-        │   │   │   ├── css-property-definitions.js
-        │   │   │   ├── css-property-descriptors.js
-        │   │   │   ├── event-sets.js
-        │   │   │   ├── idl/
-        │   │   │   │   ├── AbortController.js
-        │   │   │   │   ├── AbortSignal.js
-        │   │   │   │   ├── AbstractRange.js
-        │   │   │   │   ├── AddEventListenerOptions.js
-        │   │   │   │   ├── AssignedNodesOptions.js
-        │   │   │   │   ├── Attr.js
-        │   │   │   │   ├── BarProp.js
-        │   │   │   │   ├── BeforeUnloadEvent.js
-        │   │   │   │   ├── BinaryType.js
-        │   │   │   │   ├── Blob.js
-        │   │   │   │   ├── BlobCallback.js
-        │   │   │   │   ├── BlobEvent.js
-        │   │   │   │   ├── BlobEventInit.js
-        │   │   │   │   ├── BlobPropertyBag.js
-        │   │   │   │   ├── CDATASection.js
-        │   │   │   │   ├── CSSConditionRule.js
-        │   │   │   │   ├── CSSContainerRule.js
-        │   │   │   │   ├── CSSCounterStyleRule.js
-        │   │   │   │   ├── CSSFontFaceRule.js
-        │   │   │   │   ├── CSSGroupingRule.js
-        │   │   │   │   ├── CSSImportRule.js
-        │   │   │   │   ├── CSSKeyframeRule.js
-        │   │   │   │   ├── CSSKeyframesRule.js
-        │   │   │   │   ├── CSSLayerBlockRule.js
-        │   │   │   │   ├── CSSLayerStatementRule.js
-        │   │   │   │   ├── CSSMediaRule.js
-        │   │   │   │   ├── CSSNamespaceRule.js
-        │   │   │   │   ├── CSSNestedDeclarations.js
-        │   │   │   │   ├── CSSPageRule.js
-        │   │   │   │   ├── CSSRule.js
-        │   │   │   │   ├── CSSRuleList.js
-        │   │   │   │   ├── CSSScopeRule.js
-        │   │   │   │   ├── CSSStyleDeclaration.js
-        │   │   │   │   ├── CSSStyleProperties.js
-        │   │   │   │   ├── CSSStyleRule.js
-        │   │   │   │   ├── CSSStyleSheet.js
-        │   │   │   │   ├── CSSStyleSheetInit.js
-        │   │   │   │   ├── CSSSupportsRule.js
-        │   │   │   │   ├── CanPlayTypeResult.js
-        │   │   │   │   ├── CharacterData.js
-        │   │   │   │   ├── CloseEvent.js
-        │   │   │   │   ├── CloseEventInit.js
-        │   │   │   │   ├── Comment.js
-        │   │   │   │   ├── CompositionEvent.js
-        │   │   │   │   ├── CompositionEventInit.js
-        │   │   │   │   ├── Crypto.js
-        │   │   │   │   ├── CustomElementConstructor.js
-        │   │   │   │   ├── CustomElementRegistry.js
-        │   │   │   │   ├── CustomEvent.js
-        │   │   │   │   ├── CustomEventInit.js
-        │   │   │   │   ├── DOMException.js
-        │   │   │   │   ├── DOMImplementation.js
-        │   │   │   │   ├── DOMParser.js
-        │   │   │   │   ├── DOMRect.js
-        │   │   │   │   ├── DOMRectInit.js
-        │   │   │   │   ├── DOMRectReadOnly.js
-        │   │   │   │   ├── DOMStringMap.js
-        │   │   │   │   ├── DOMTokenList.js
-        │   │   │   │   ├── DeviceMotionEvent.js
-        │   │   │   │   ├── DeviceMotionEventAcceleration.js
-        │   │   │   │   ├── DeviceMotionEventAccelerationInit.js
-        │   │   │   │   ├── DeviceMotionEventInit.js
-        │   │   │   │   ├── DeviceMotionEventRotationRate.js
-        │   │   │   │   ├── DeviceMotionEventRotationRateInit.js
-        │   │   │   │   ├── DeviceOrientationEvent.js
-        │   │   │   │   ├── DeviceOrientationEventInit.js
-        │   │   │   │   ├── Document.js
-        │   │   │   │   ├── DocumentFragment.js
-        │   │   │   │   ├── DocumentReadyState.js
-        │   │   │   │   ├── DocumentType.js
-        │   │   │   │   ├── Element.js
-        │   │   │   │   ├── ElementCreationOptions.js
-        │   │   │   │   ├── ElementDefinitionOptions.js
-        │   │   │   │   ├── ElementInternals.js
-        │   │   │   │   ├── EndingType.js
-        │   │   │   │   ├── ErrorEvent.js
-        │   │   │   │   ├── ErrorEventInit.js
-        │   │   │   │   ├── Event.js
-        │   │   │   │   ├── EventHandlerNonNull.js
-        │   │   │   │   ├── EventInit.js
-        │   │   │   │   ├── EventListener.js
-        │   │   │   │   ├── EventListenerOptions.js
-        │   │   │   │   ├── EventModifierInit.js
-        │   │   │   │   ├── EventTarget.js
-        │   │   │   │   ├── External.js
-        │   │   │   │   ├── File.js
-        │   │   │   │   ├── FileList.js
-        │   │   │   │   ├── FilePropertyBag.js
-        │   │   │   │   ├── FileReader.js
-        │   │   │   │   ├── FocusEvent.js
-        │   │   │   │   ├── FocusEventInit.js
-        │   │   │   │   ├── FormData.js
-        │   │   │   │   ├── Function.js
-        │   │   │   │   ├── GetRootNodeOptions.js
-        │   │   │   │   ├── HTMLAnchorElement.js
-        │   │   │   │   ├── HTMLAreaElement.js
-        │   │   │   │   ├── HTMLAudioElement.js
-        │   │   │   │   ├── HTMLBRElement.js
-        │   │   │   │   ├── HTMLBaseElement.js
-        │   │   │   │   ├── HTMLBodyElement.js
-        │   │   │   │   ├── HTMLButtonElement.js
-        │   │   │   │   ├── HTMLCanvasElement.js
-        │   │   │   │   ├── HTMLCollection.js
-        │   │   │   │   ├── HTMLDListElement.js
-        │   │   │   │   ├── HTMLDataElement.js
-        │   │   │   │   ├── HTMLDataListElement.js
-        │   │   │   │   ├── HTMLDetailsElement.js
-        │   │   │   │   ├── HTMLDialogElement.js
-        │   │   │   │   ├── HTMLDirectoryElement.js
-        │   │   │   │   ├── HTMLDivElement.js
-        │   │   │   │   ├── HTMLElement.js
-        │   │   │   │   ├── HTMLEmbedElement.js
-        │   │   │   │   ├── HTMLFieldSetElement.js
-        │   │   │   │   ├── HTMLFontElement.js
-        │   │   │   │   ├── HTMLFormControlsCollection.js
-        │   │   │   │   ├── HTMLFormElement.js
-        │   │   │   │   ├── HTMLFrameElement.js
-        │   │   │   │   ├── HTMLFrameSetElement.js
-        │   │   │   │   ├── HTMLHRElement.js
-        │   │   │   │   ├── HTMLHeadElement.js
-        │   │   │   │   ├── HTMLHeadingElement.js
-        │   │   │   │   ├── HTMLHtmlElement.js
-        │   │   │   │   ├── HTMLIFrameElement.js
-        │   │   │   │   ├── HTMLImageElement.js
-        │   │   │   │   ├── HTMLInputElement.js
-        │   │   │   │   ├── HTMLLIElement.js
-        │   │   │   │   ├── HTMLLabelElement.js
-        │   │   │   │   ├── HTMLLegendElement.js
-        │   │   │   │   ├── HTMLLinkElement.js
-        │   │   │   │   ├── HTMLMapElement.js
-        │   │   │   │   ├── HTMLMarqueeElement.js
-        │   │   │   │   ├── HTMLMediaElement.js
-        │   │   │   │   ├── HTMLMenuElement.js
-        │   │   │   │   ├── HTMLMetaElement.js
-        │   │   │   │   ├── HTMLMeterElement.js
-        │   │   │   │   ├── HTMLModElement.js
-        │   │   │   │   ├── HTMLOListElement.js
-        │   │   │   │   ├── HTMLObjectElement.js
-        │   │   │   │   ├── HTMLOptGroupElement.js
-        │   │   │   │   ├── HTMLOptionElement.js
-        │   │   │   │   ├── HTMLOptionsCollection.js
-        │   │   │   │   ├── HTMLOutputElement.js
-        │   │   │   │   ├── HTMLParagraphElement.js
-        │   │   │   │   ├── HTMLParamElement.js
-        │   │   │   │   ├── HTMLPictureElement.js
-        │   │   │   │   ├── HTMLPreElement.js
-        │   │   │   │   ├── HTMLProgressElement.js
-        │   │   │   │   ├── HTMLQuoteElement.js
-        │   │   │   │   ├── HTMLScriptElement.js
-        │   │   │   │   ├── HTMLSelectElement.js
-        │   │   │   │   ├── HTMLSlotElement.js
-        │   │   │   │   ├── HTMLSourceElement.js
-        │   │   │   │   ├── HTMLSpanElement.js
-        │   │   │   │   ├── HTMLStyleElement.js
-        │   │   │   │   ├── HTMLTableCaptionElement.js
-        │   │   │   │   ├── HTMLTableCellElement.js
-        │   │   │   │   ├── HTMLTableColElement.js
-        │   │   │   │   ├── HTMLTableElement.js
-        │   │   │   │   ├── HTMLTableRowElement.js
-        │   │   │   │   ├── HTMLTableSectionElement.js
-        │   │   │   │   ├── HTMLTemplateElement.js
-        │   │   │   │   ├── HTMLTextAreaElement.js
-        │   │   │   │   ├── HTMLTimeElement.js
-        │   │   │   │   ├── HTMLTitleElement.js
-        │   │   │   │   ├── HTMLTrackElement.js
-        │   │   │   │   ├── HTMLUListElement.js
-        │   │   │   │   ├── HTMLUnknownElement.js
-        │   │   │   │   ├── HTMLVideoElement.js
-        │   │   │   │   ├── HashChangeEvent.js
-        │   │   │   │   ├── HashChangeEventInit.js
-        │   │   │   │   ├── Headers.js
-        │   │   │   │   ├── History.js
-        │   │   │   │   ├── InputEvent.js
-        │   │   │   │   ├── InputEventInit.js
-        │   │   │   │   ├── KeyboardEvent.js
-        │   │   │   │   ├── KeyboardEventInit.js
-        │   │   │   │   ├── Location.js
-        │   │   │   │   ├── MediaList.js
-        │   │   │   │   ├── MessageEvent.js
-        │   │   │   │   ├── MessageEventInit.js
-        │   │   │   │   ├── MimeType.js
-        │   │   │   │   ├── MimeTypeArray.js
-        │   │   │   │   ├── MouseEvent.js
-        │   │   │   │   ├── MouseEventInit.js
-        │   │   │   │   ├── MutationCallback.js
-        │   │   │   │   ├── MutationObserver.js
-        │   │   │   │   ├── MutationObserverInit.js
-        │   │   │   │   ├── MutationRecord.js
-        │   │   │   │   ├── NamedNodeMap.js
-        │   │   │   │   ├── Navigator.js
-        │   │   │   │   ├── Node.js
-        │   │   │   │   ├── NodeFilter.js
-        │   │   │   │   ├── NodeIterator.js
-        │   │   │   │   ├── NodeList.js
-        │   │   │   │   ├── OnBeforeUnloadEventHandlerNonNull.js
-        │   │   │   │   ├── OnErrorEventHandlerNonNull.js
-        │   │   │   │   ├── PageTransitionEvent.js
-        │   │   │   │   ├── PageTransitionEventInit.js
-        │   │   │   │   ├── Performance.js
-        │   │   │   │   ├── Plugin.js
-        │   │   │   │   ├── PluginArray.js
-        │   │   │   │   ├── PointerEvent.js
-        │   │   │   │   ├── PointerEventInit.js
-        │   │   │   │   ├── PopStateEvent.js
-        │   │   │   │   ├── PopStateEventInit.js
-        │   │   │   │   ├── ProcessingInstruction.js
-        │   │   │   │   ├── ProgressEvent.js
-        │   │   │   │   ├── ProgressEventInit.js
-        │   │   │   │   ├── PromiseRejectionEvent.js
-        │   │   │   │   ├── PromiseRejectionEventInit.js
-        │   │   │   │   ├── RadioNodeList.js
-        │   │   │   │   ├── Range.js
-        │   │   │   │   ├── SVGAnimatedPreserveAspectRatio.js
-        │   │   │   │   ├── SVGAnimatedRect.js
-        │   │   │   │   ├── SVGAnimatedString.js
-        │   │   │   │   ├── SVGBoundingBoxOptions.js
-        │   │   │   │   ├── SVGDefsElement.js
-        │   │   │   │   ├── SVGDescElement.js
-        │   │   │   │   ├── SVGElement.js
-        │   │   │   │   ├── SVGGElement.js
-        │   │   │   │   ├── SVGGraphicsElement.js
-        │   │   │   │   ├── SVGMetadataElement.js
-        │   │   │   │   ├── SVGNumber.js
-        │   │   │   │   ├── SVGPreserveAspectRatio.js
-        │   │   │   │   ├── SVGRect.js
-        │   │   │   │   ├── SVGSVGElement.js
-        │   │   │   │   ├── SVGStringList.js
-        │   │   │   │   ├── SVGSwitchElement.js
-        │   │   │   │   ├── SVGSymbolElement.js
-        │   │   │   │   ├── SVGTitleElement.js
-        │   │   │   │   ├── Screen.js
-        │   │   │   │   ├── ScrollBehavior.js
-        │   │   │   │   ├── ScrollIntoViewOptions.js
-        │   │   │   │   ├── ScrollLogicalPosition.js
-        │   │   │   │   ├── ScrollOptions.js
-        │   │   │   │   ├── ScrollRestoration.js
-        │   │   │   │   ├── Selection.js
-        │   │   │   │   ├── SelectionMode.js
-        │   │   │   │   ├── ShadowRoot.js
-        │   │   │   │   ├── ShadowRootInit.js
-        │   │   │   │   ├── ShadowRootMode.js
-        │   │   │   │   ├── StaticRange.js
-        │   │   │   │   ├── StaticRangeInit.js
-        │   │   │   │   ├── Storage.js
-        │   │   │   │   ├── StorageEvent.js
-        │   │   │   │   ├── StorageEventInit.js
-        │   │   │   │   ├── StyleSheet.js
-        │   │   │   │   ├── StyleSheetList.js
-        │   │   │   │   ├── SubmitEvent.js
-        │   │   │   │   ├── SubmitEventInit.js
-        │   │   │   │   ├── SupportedType.js
-        │   │   │   │   ├── Text.js
-        │   │   │   │   ├── TextDecodeOptions.js
-        │   │   │   │   ├── TextDecoder.js
-        │   │   │   │   ├── TextDecoderOptions.js
-        │   │   │   │   ├── TextEncoder.js
-        │   │   │   │   ├── TextEncoderEncodeIntoResult.js
-        │   │   │   │   ├── TextTrackKind.js
-        │   │   │   │   ├── TouchEvent.js
-        │   │   │   │   ├── TouchEventInit.js
-        │   │   │   │   ├── TransitionEvent.js
-        │   │   │   │   ├── TransitionEventInit.js
-        │   │   │   │   ├── TreeWalker.js
-        │   │   │   │   ├── UIEvent.js
-        │   │   │   │   ├── UIEventInit.js
-        │   │   │   │   ├── ValidityState.js
-        │   │   │   │   ├── VisibilityState.js
-        │   │   │   │   ├── VoidFunction.js
-        │   │   │   │   ├── WebSocket.js
-        │   │   │   │   ├── WheelEvent.js
-        │   │   │   │   ├── WheelEventInit.js
-        │   │   │   │   ├── XMLDocument.js
-        │   │   │   │   ├── XMLHttpRequest.js
-        │   │   │   │   ├── XMLHttpRequestEventTarget.js
-        │   │   │   │   ├── XMLHttpRequestResponseType.js
-        │   │   │   │   ├── XMLHttpRequestUpload.js
-        │   │   │   │   ├── XMLSerializer.js
-        │   │   │   │   ├── utils.js
-        │   │   │   ├── js-globals.json
-        │   │   ├── jsdom/
-        │   │   │   └── browser/
-        │   │   │       ├── Window.js
-        │   │   │       ├── default-stylesheet.css
-        │   │   │       ├── not-implemented.js
-        │   │   │       ├── parser/
-        │   │   │       │   ├── html.js
-        │   │   │       │   ├── index.js
-        │   │   │       │   ├── xml.js
-        │   │   │       ├── resources/
-        │   │   │       │   └── async-resource-queue.js
-        │   │   │       │   └── decompress-interceptor.js
-        │   │   │       │   └── jsdom-dispatcher.js
-        │   │   │       │   └── per-document-resource-loader.js
-        │   │   │       │   └── request-interceptor.js
-        │   │   │       │   └── request-manager.js
-        │   │   │       │   └── resource-queue.js
-        │   │   │       │   └── stream-handler.js
-        │   │   │   └── level3/
-        │   │   │       ├── xpath.js
-        │   │   │   └── living/
-        │   │   │       ├── aborting/
-        │   │   │       │   ├── AbortController-impl.js
-        │   │   │       │   ├── AbortSignal-impl.js
-        │   │   │       ├── attributes.js
-        │   │   │       ├── attributes/
-        │   │   │       │   ├── Attr-impl.js
-        │   │   │       │   ├── NamedNodeMap-impl.js
-        │   │   │       ├── constraint-validation/
-        │   │   │       │   ├── DefaultConstraintValidation-impl.js
-        │   │   │       │   ├── ValidityState-impl.js
-        │   │   │       ├── crypto/
-        │   │   │       │   ├── Crypto-impl.js
-        │   │   │       ├── css/
-        │   │   │       │   ├── CSSConditionRule-impl.js
-        │   │   │       │   ├── CSSContainerRule-impl.js
-        │   │   │       │   ├── CSSCounterStyleRule-impl.js
-        │   │   │       │   ├── CSSFontFaceRule-impl.js
-        │   │   │       │   ├── CSSGroupingRule-impl.js
-        │   │   │       │   ├── CSSImportRule-impl.js
-        │   │   │       │   ├── CSSKeyframeRule-impl.js
-        │   │   │       │   ├── CSSKeyframesRule-impl.js
-        │   │   │       │   ├── CSSLayerBlockRule-impl.js
-        │   │   │       │   ├── CSSLayerStatementRule-impl.js
-        │   │   │       │   ├── CSSMediaRule-impl.js
-        │   │   │       │   ├── CSSNamespaceRule-impl.js
-        │   │   │       │   ├── CSSNestedDeclarations-impl.js
-        │   │   │       │   ├── CSSPageRule-impl.js
-        │   │   │       │   ├── CSSRule-impl.js
-        │   │   │       │   ├── CSSRuleList-impl.js
-        │   │   │       │   ├── CSSScopeRule-impl.js
-        │   │   │       │   ├── CSSStyleDeclaration-impl.js
-        │   │   │       │   ├── CSSStyleProperties-impl.js
-        │   │   │       │   ├── CSSStyleRule-impl.js
-        │   │   │       │   ├── CSSStyleSheet-impl.js
-        │   │   │       │   ├── CSSSupportsRule-impl.js
-        │   │   │       │   ├── ElementCSSInlineStyle-impl.js
-        │   │   │       │   ├── MediaList-impl.js
-        │   │   │       │   ├── StyleSheet-impl.js
-        │   │   │       │   ├── StyleSheetList-impl.js
-        │   │   │       │   ├── helpers/
-        │   │   │       │   │   ├── colors.js
-        │   │   │       │   │   ├── computed-style.js
-        │   │   │       │   │   ├── css-parser.js
-        │   │   │       │   │   ├── css-values.js
-        │   │   │       │   │   ├── generic-property-descriptor.js
-        │   │   │       │   │   ├── patched-csstree.js
-        │   │   │       │   │   ├── shorthand-properties.js
-        │   │   │       │   │   ├── stylesheets.js
-        │   │   │       │   │   ├── system-colors.js
-        │   │   │       │   ├── properties/
-        │   │   │       │   │   └── background.js
-        │   │   │       │   │   └── backgroundAttachment.js
-        │   │   │       │   │   └── backgroundClip.js
-        │   │   │       │   │   └── backgroundColor.js
-        │   │   │       │   │   └── backgroundImage.js
-        │   │   │       │   │   └── backgroundOrigin.js
-        │   │   │       │   │   └── backgroundPosition.js
-        │   │   │       │   │   └── backgroundRepeat.js
-        │   │   │       │   │   └── backgroundSize.js
-        │   │   │       │   │   └── border.js
-        │   │   │       │   │   └── borderBlockEndColor.js
-        │   │   │       │   │   └── borderBlockStartColor.js
-        │   │   │       │   │   └── borderBottom.js
-        │   │   │       │   │   └── borderBottomColor.js
-        │   │   │       │   │   └── borderBottomStyle.js
-        │   │   │       │   │   └── borderBottomWidth.js
-        │   │   │       │   │   └── borderCollapse.js
-        │   │   │       │   │   └── borderColor.js
-        │   │   │       │   │   └── borderInlineEndColor.js
-        │   │   │       │   │   └── borderInlineStartColor.js
-        │   │   │       │   │   └── borderLeft.js
-        │   │   │       │   │   └── borderLeftColor.js
-        │   │   │       │   │   └── borderLeftStyle.js
-        │   │   │       │   │   └── borderLeftWidth.js
-        │   │   │       │   │   └── borderRight.js
-        │   │   │       │   │   └── borderRightColor.js
-        │   │   │       │   │   └── borderRightStyle.js
-        │   │   │       │   │   └── borderRightWidth.js
-        │   │   │       │   │   └── borderSpacing.js
-        │   │   │       │   │   └── borderStyle.js
-        │   │   │       │   │   └── borderTop.js
-        │   │   │       │   │   └── borderTopColor.js
-        │   │   │       │   │   └── borderTopStyle.js
-        │   │   │       │   │   └── borderTopWidth.js
-        │   │   │       │   │   └── borderWidth.js
-        │   │   │       │   │   └── bottom.js
-        │   │   │       │   │   └── clear.js
-        │   │   │       │   │   └── clip.js
-        │   │   │       │   │   └── color.js
-        │   │   │       │   │   └── display.js
-        │   │   │       │   │   └── flex.js
-        │   │   │       │   │   └── flexBasis.js
-        │   │   │       │   │   └── flexGrow.js
-        │   │   │       │   │   └── flexShrink.js
-        │   │   │       │   │   └── float.js
-        │   │   │       │   │   └── floodColor.js
-        │   │   │       │   │   └── font.js
-        │   │   │       │   │   └── fontFamily.js
-        │   │   │       │   │   └── fontSize.js
-        │   │   │       │   │   └── fontStyle.js
-        │   │   │       │   │   └── fontVariant.js
-        │   │   │       │   │   └── fontWeight.js
-        │   │   │       │   │   └── height.js
-        │   │   │       │   │   └── left.js
-        │   │   │       │   │   └── lightingColor.js
-        │   │   │       │   │   └── lineHeight.js
-        │   │   │       │   │   └── margin.js
-        │   │   │       │   │   └── marginBottom.js
-        │   │   │       │   │   └── marginLeft.js
-        │   │   │       │   │   └── marginRight.js
-        │   │   │       │   │   └── marginTop.js
-        │   │   │       │   │   └── opacity.js
-        │   │   │       │   │   └── outlineColor.js
-        │   │   │       │   │   └── padding.js
-        │   │   │       │   │   └── paddingBottom.js
-        │   │   │       │   │   └── paddingLeft.js
-        │   │   │       │   │   └── paddingRight.js
-        │   │   │       │   │   └── paddingTop.js
-        │   │   │       │   │   └── right.js
-        │   │   │       │   │   └── stopColor.js
-        │   │   │       │   │   └── textEmphasisColor.js
-        │   │   │       │   │   └── top.js
-        │   │   │       │   │   └── webkitTextFillColor.js
-        │   │   │       │   │   └── webkitTextStrokeColor.js
-        │   │   │       │   │   └── width.js
-        │   │   │       ├── custom-elements/
-        │   │   │       │   ├── CustomElementRegistry-impl.js
-        │   │   │       │   ├── ElementInternals-impl.js
-        │   │   │       ├── deviceorientation/
-        │   │   │       │   ├── DeviceMotionEventAcceleration-impl.js
-        │   │   │       │   ├── DeviceMotionEventRotationRate-impl.js
-        │   │   │       ├── documents.js
-        │   │   │       ├── domparsing/
-        │   │   │       │   ├── DOMParser-impl.js
-        │   │   │       │   ├── InnerHTML-impl.js
-        │   │   │       │   ├── XMLSerializer-impl.js
-        │   │   │       │   ├── parse5-adapter-serialization.js
-        │   │   │       │   ├── serialization.js
-        │   │   │       ├── encoding/
-        │   │   │       │   ├── TextDecoder-impl.js
-        │   │   │       │   ├── TextEncoder-impl.js
-        │   │   │       ├── events/
-        │   │   │       │   ├── BeforeUnloadEvent-impl.js
-        │   │   │       │   ├── BlobEvent-impl.js
-        │   │   │       │   ├── CloseEvent-impl.js
-        │   │   │       │   ├── CompositionEvent-impl.js
-        │   │   │       │   ├── CustomEvent-impl.js
-        │   │   │       │   ├── DeviceMotionEvent-impl.js
-        │   │   │       │   ├── DeviceOrientationEvent-impl.js
-        │   │   │       │   ├── ErrorEvent-impl.js
-        │   │   │       │   ├── Event-impl.js
-        │   │   │       │   ├── EventModifierMixin-impl.js
-        │   │   │       │   ├── EventTarget-impl.js
-        │   │   │       │   ├── FocusEvent-impl.js
-        │   │   │       │   ├── HashChangeEvent-impl.js
-        │   │   │       │   ├── InputEvent-impl.js
-        │   │   │       │   ├── KeyboardEvent-impl.js
-        │   │   │       │   ├── MessageEvent-impl.js
-        │   │   │       │   ├── MouseEvent-impl.js
-        │   │   │       │   ├── PageTransitionEvent-impl.js
-        │   │   │       │   ├── PointerEvent-impl.js
-        │   │   │       │   ├── PopStateEvent-impl.js
-        │   │   │       │   ├── ProgressEvent-impl.js
-        │   │   │       │   ├── PromiseRejectionEvent-impl.js
-        │   │   │       │   ├── StorageEvent-impl.js
-        │   │   │       │   ├── SubmitEvent-impl.js
-        │   │   │       │   ├── TouchEvent-impl.js
-        │   │   │       │   ├── TransitionEvent-impl.js
-        │   │   │       │   ├── UIEvent-impl.js
-        │   │   │       │   ├── WheelEvent-impl.js
-        │   │   │       ├── fetch/
-        │   │   │       │   ├── Headers-impl.js
-        │   │   │       │   ├── header-list.js
-        │   │   │       │   ├── header-types.js
-        │   │   │       │   ├── header-utils.js
-        │   │   │       ├── file-api/
-        │   │   │       │   ├── Blob-impl.js
-        │   │   │       │   ├── File-impl.js
-        │   │   │       │   ├── FileList-impl.js
-        │   │   │       │   ├── FileReader-impl.js
-        │   │   │       ├── geometry/
-        │   │   │       │   ├── DOMRect-impl.js
-        │   │   │       │   ├── DOMRectReadOnly-impl.js
-        │   │   │       ├── helpers/
-        │   │   │       │   ├── binary-data.js
-        │   │   │       │   ├── by-id-cache.js
-        │   │   │       │   ├── create-element.js
-        │   │   │       │   ├── create-event-accessor.js
-        │   │   │       │   ├── custom-elements.js
-        │   │   │       │   ├── dates-and-times.js
-        │   │   │       │   ├── details.js
-        │   │   │       │   ├── encoding.js
-        │   │   │       │   ├── events.js
-        │   │   │       │   ├── focusing.js
-        │   │   │       │   ├── form-controls.js
-        │   │   │       │   ├── html-constructor.js
-        │   │   │       │   ├── internal-constants.js
-        │   │   │       │   ├── is-window.js
-        │   │   │       │   ├── iterable-weak-set.js
-        │   │   │       │   ├── json.js
-        │   │   │       │   ├── mutation-observers.js
-        │   │   │       │   ├── namespaces.js
-        │   │   │       │   ├── node.js
-        │   │   │       │   ├── number-and-date-inputs.js
-        │   │   │       │   ├── ordered-set.js
-        │   │   │       │   ├── page-transition-event.js
-        │   │   │       │   ├── runtime-script-errors.js
-        │   │   │       │   ├── shadow-dom.js
-        │   │   │       │   ├── strings.js
-        │   │   │       │   ├── svg/
-        │   │   │       │   │   ├── basic-types.js
-        │   │   │       │   │   ├── render.js
-        │   │   │       │   ├── text.js
-        │   │   │       │   ├── traversal.js
-        │   │   │       │   ├── validate-names.js
-        │   │   │       ├── hr-time/
-        │   │   │       │   ├── Performance-impl.js
-        │   │   │       ├── interfaces.js
-        │   │   │       ├── mutation-observer/
-        │   │   │       │   ├── MutationObserver-impl.js
-        │   │   │       │   ├── MutationRecord-impl.js
-        │   │   │       ├── navigator/
-        │   │   │       │   ├── MimeType-impl.js
-        │   │   │       │   ├── MimeTypeArray-impl.js
-        │   │   │       │   ├── Navigator-impl.js
-        │   │   │       │   ├── NavigatorConcurrentHardware-impl.js
-        │   │   │       │   ├── NavigatorCookies-impl.js
-        │   │   │       │   ├── NavigatorID-impl.js
-        │   │   │       │   ├── NavigatorLanguage-impl.js
-        │   │   │       │   ├── NavigatorOnLine-impl.js
-        │   │   │       │   ├── NavigatorPlugins-impl.js
-        │   │   │       │   ├── Plugin-impl.js
-        │   │   │       │   ├── PluginArray-impl.js
-        │   │   │       ├── node-document-position.js
-        │   │   │       ├── node-type.js
-        │   │   │       ├── node.js
-        │   │   │       ├── nodes/
-        │   │   │       │   ├── CDATASection-impl.js
-        │   │   │       │   ├── CharacterData-impl.js
-        │   │   │       │   ├── ChildNode-impl.js
-        │   │   │       │   ├── Comment-impl.js
-        │   │   │       │   ├── DOMImplementation-impl.js
-        │   │   │       │   ├── DOMStringMap-impl.js
-        │   │   │       │   ├── DOMTokenList-impl.js
-        │   │   │       │   ├── Document-impl.js
-        │   │   │       │   ├── DocumentFragment-impl.js
-        │   │   │       │   ├── DocumentOrShadowRoot-impl.js
-        │   │   │       │   ├── DocumentType-impl.js
-        │   │   │       │   ├── Element-impl.js
-        │   │   │       │   ├── ElementContentEditable-impl.js
-        │   │   │       │   ├── GlobalEventHandlers-impl.js
-        │   │   │       │   ├── HTMLAnchorElement-impl.js
-        │   │   │       │   ├── HTMLAreaElement-impl.js
-        │   │   │       │   ├── HTMLAudioElement-impl.js
-        │   │   │       │   ├── HTMLBRElement-impl.js
-        │   │   │       │   ├── HTMLBaseElement-impl.js
-        │   │   │       │   ├── HTMLBodyElement-impl.js
-        │   │   │       │   ├── HTMLButtonElement-impl.js
-        │   │   │       │   ├── HTMLCanvasElement-impl.js
-        │   │   │       │   ├── HTMLCollection-impl.js
-        │   │   │       │   ├── HTMLDListElement-impl.js
-        │   │   │       │   ├── HTMLDataElement-impl.js
-        │   │   │       │   ├── HTMLDataListElement-impl.js
-        │   │   │       │   ├── HTMLDetailsElement-impl.js
-        │   │   │       │   ├── HTMLDialogElement-impl.js
-        │   │   │       │   ├── HTMLDirectoryElement-impl.js
-        │   │   │       │   ├── HTMLDivElement-impl.js
-        │   │   │       │   ├── HTMLElement-impl.js
-        │   │   │       │   ├── HTMLEmbedElement-impl.js
-        │   │   │       │   ├── HTMLFieldSetElement-impl.js
-        │   │   │       │   ├── HTMLFontElement-impl.js
-        │   │   │       │   ├── HTMLFormControlsCollection-impl.js
-        │   │   │       │   ├── HTMLFormElement-impl.js
-        │   │   │       │   ├── HTMLFrameElement-impl.js
-        │   │   │       │   ├── HTMLFrameSetElement-impl.js
-        │   │   │       │   ├── HTMLHRElement-impl.js
-        │   │   │       │   ├── HTMLHeadElement-impl.js
-        │   │   │       │   ├── HTMLHeadingElement-impl.js
-        │   │   │       │   ├── HTMLHtmlElement-impl.js
-        │   │   │       │   ├── HTMLHyperlinkElementUtils-impl.js
-        │   │   │       │   ├── HTMLIFrameElement-impl.js
-        │   │   │       │   ├── HTMLImageElement-impl.js
-        │   │   │       │   ├── HTMLInputElement-impl.js
-        │   │   │       │   ├── HTMLLIElement-impl.js
-        │   │   │       │   ├── HTMLLabelElement-impl.js
-        │   │   │       │   ├── HTMLLegendElement-impl.js
-        │   │   │       │   ├── HTMLLinkElement-impl.js
-        │   │   │       │   ├── HTMLMapElement-impl.js
-        │   │   │       │   ├── HTMLMarqueeElement-impl.js
-        │   │   │       │   ├── HTMLMediaElement-impl.js
-        │   │   │       │   ├── HTMLMenuElement-impl.js
-        │   │   │       │   ├── HTMLMetaElement-impl.js
-        │   │   │       │   ├── HTMLMeterElement-impl.js
-        │   │   │       │   ├── HTMLModElement-impl.js
-        │   │   │       │   ├── HTMLOListElement-impl.js
-        │   │   │       │   ├── HTMLObjectElement-impl.js
-        │   │   │       │   ├── HTMLOptGroupElement-impl.js
-        │   │   │       │   ├── HTMLOptionElement-impl.js
-        │   │   │       │   ├── HTMLOptionsCollection-impl.js
-        │   │   │       │   ├── HTMLOrSVGElement-impl.js
-        │   │   │       │   ├── HTMLOutputElement-impl.js
-        │   │   │       │   ├── HTMLParagraphElement-impl.js
-        │   │   │       │   ├── HTMLParamElement-impl.js
-        │   │   │       │   ├── HTMLPictureElement-impl.js
-        │   │   │       │   ├── HTMLPreElement-impl.js
-        │   │   │       │   ├── HTMLProgressElement-impl.js
-        │   │   │       │   ├── HTMLQuoteElement-impl.js
-        │   │   │       │   ├── HTMLScriptElement-impl.js
-        │   │   │       │   ├── HTMLSelectElement-impl.js
-        │   │   │       │   ├── HTMLSlotElement-impl.js
-        │   │   │       │   ├── HTMLSourceElement-impl.js
-        │   │   │       │   ├── HTMLSpanElement-impl.js
-        │   │   │       │   ├── HTMLStyleElement-impl.js
-        │   │   │       │   ├── HTMLTableCaptionElement-impl.js
-        │   │   │       │   ├── HTMLTableCellElement-impl.js
-        │   │   │       │   ├── HTMLTableColElement-impl.js
-        │   │   │       │   ├── HTMLTableElement-impl.js
-        │   │   │       │   ├── HTMLTableRowElement-impl.js
-        │   │   │       │   ├── HTMLTableSectionElement-impl.js
-        │   │   │       │   ├── HTMLTemplateElement-impl.js
-        │   │   │       │   ├── HTMLTextAreaElement-impl.js
-        │   │   │       │   ├── HTMLTimeElement-impl.js
-        │   │   │       │   ├── HTMLTitleElement-impl.js
-        │   │   │       │   ├── HTMLTrackElement-impl.js
-        │   │   │       │   ├── HTMLUListElement-impl.js
-        │   │   │       │   ├── HTMLUnknownElement-impl.js
-        │   │   │       │   ├── HTMLVideoElement-impl.js
-        │   │   │       │   ├── LinkStyle-impl.js
-        │   │   │       │   ├── Node-impl.js
-        │   │   │       │   ├── NodeList-impl.js
-        │   │   │       │   ├── NonDocumentTypeChildNode-impl.js
-        │   │   │       │   ├── NonElementParentNode-impl.js
-        │   │   │       │   ├── ParentNode-impl.js
-        │   │   │       │   ├── ProcessingInstruction-impl.js
-        │   │   │       │   ├── RadioNodeList-impl.js
-        │   │   │       │   ├── SVGDefsElement-impl.js
-        │   │   │       │   ├── SVGDescElement-impl.js
-        │   │   │       │   ├── SVGElement-impl.js
-        │   │   │       │   ├── SVGGElement-impl.js
-        │   │   │       │   ├── SVGGraphicsElement-impl.js
-        │   │   │       │   ├── SVGMetadataElement-impl.js
-        │   │   │       │   ├── SVGSVGElement-impl.js
-        │   │   │       │   ├── SVGSwitchElement-impl.js
-        │   │   │       │   ├── SVGSymbolElement-impl.js
-        │   │   │       │   ├── SVGTests-impl.js
-        │   │   │       │   ├── SVGTitleElement-impl.js
-        │   │   │       │   ├── ShadowRoot-impl.js
-        │   │   │       │   ├── Slotable-impl.js
-        │   │   │       │   ├── Text-impl.js
-        │   │   │       │   ├── WindowEventHandlers-impl.js
-        │   │   │       │   ├── XMLDocument-impl.js
-        │   │   │       ├── range/
-        │   │   │       │   ├── AbstractRange-impl.js
-        │   │   │       │   ├── Range-impl.js
-        │   │   │       │   ├── StaticRange-impl.js
-        │   │   │       │   ├── boundary-point.js
-        │   │   │       ├── selection/
-        │   │   │       │   ├── Selection-impl.js
-        │   │   │       ├── svg/
-        │   │   │       │   ├── SVGAnimatedPreserveAspectRatio-impl.js
-        │   │   │       │   ├── SVGAnimatedRect-impl.js
-        │   │   │       │   ├── SVGAnimatedString-impl.js
-        │   │   │       │   ├── SVGListBase.js
-        │   │   │       │   ├── SVGNumber-impl.js
-        │   │   │       │   ├── SVGPreserveAspectRatio-impl.js
-        │   │   │       │   ├── SVGRect-impl.js
-        │   │   │       │   ├── SVGStringList-impl.js
-        │   │   │       ├── traversal/
-        │   │   │       │   ├── NodeIterator-impl.js
-        │   │   │       │   ├── TreeWalker-impl.js
-        │   │   │       │   ├── helpers.js
-        │   │   │       ├── webidl/
-        │   │   │       │   ├── DOMException-impl.js
-        │   │   │       ├── websockets/
-        │   │   │       │   ├── WebSocket-impl.js
-        │   │   │       ├── webstorage/
-        │   │   │       │   ├── Storage-impl.js
-        │   │   │       ├── window-properties.js
-        │   │   │       ├── window/
-        │   │   │       │   ├── BarProp-impl.js
-        │   │   │       │   ├── External-impl.js
-        │   │   │       │   ├── History-impl.js
-        │   │   │       │   ├── Location-impl.js
-        │   │   │       │   ├── Screen-impl.js
-        │   │   │       │   ├── SessionHistory.js
-        │   │   │       │   ├── navigation.js
-        │   │   │       ├── xhr/
-        │   │   │       │   └── FormData-impl.js
-        │   │   │       │   └── XMLHttpRequest-impl.js
-        │   │   │       │   └── XMLHttpRequestEventTarget-impl.js
-        │   │   │       │   └── XMLHttpRequestUpload-impl.js
-        │   │   │       │   └── multipart-form-data.js
-        │   │   │       │   └── xhr-sync-worker.js
-        │   │   │       │   └── xhr-utils.js
-        │   │   │   └── utils.js
-        │   │   │   └── virtual-console.js
-        │   ├── package.json
         ├── json-schema-traverse/
         │   ├── LICENSE/
         │   ├── README.md
@@ -4688,27 +3304,6 @@ _SOURCE: Directory tree_
         │   ├── draft_2019_09.js
         │   ├── draft_2020_12.d.ts
         │   ├── draft_2020_12.js
-        │   ├── package.json
-        ├── lru-cache/
-        │   ├── LICENSE.md
-        │   ├── README.md
-        │   ├── dist/
-        │   │   ├── commonjs/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.d.ts.map
-        │   │   │   ├── index.js
-        │   │   │   ├── index.js.map
-        │   │   │   ├── index.min.js
-        │   │   │   ├── index.min.js.map
-        │   │   │   ├── package.json
-        │   │   ├── esm/
-        │   │   │   └── index.d.ts
-        │   │   │   └── index.d.ts.map
-        │   │   │   └── index.js
-        │   │   │   └── index.js.map
-        │   │   │   └── index.min.js
-        │   │   │   └── index.min.js.map
-        │   │   │   └── package.json
         │   ├── package.json
         ├── magic-string/
         │   ├── LICENSE/
@@ -4762,35 +3357,6 @@ _SOURCE: Directory tree_
         │   ├── test/
         │   │   ├── index.js
         │   ├── tsconfig.json
-        ├── mdn-data/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── api/
-        │   │   ├── index.js
-        │   │   ├── inheritance.json
-        │   │   ├── inheritance.schema.json
-        │   ├── css/
-        │   │   ├── at-rules.json
-        │   │   ├── at-rules.schema.json
-        │   │   ├── definitions.json
-        │   │   ├── functions.json
-        │   │   ├── functions.schema.json
-        │   │   ├── index.js
-        │   │   ├── properties.json
-        │   │   ├── properties.schema.json
-        │   │   ├── selectors.json
-        │   │   ├── selectors.schema.json
-        │   │   ├── syntaxes.json
-        │   │   ├── syntaxes.schema.json
-        │   │   ├── types.json
-        │   │   ├── types.schema.json
-        │   │   ├── units.json
-        │   │   ├── units.schema.json
-        │   ├── index.js
-        │   ├── l10n/
-        │   │   ├── css.json
-        │   │   ├── index.js
-        │   ├── package.json
         ├── media-typer/
         │   ├── HISTORY.md
         │   ├── LICENSE/
@@ -4925,46 +3491,6 @@ _SOURCE: Directory tree_
         │   ├── LICENSE/
         │   ├── README.md
         │   ├── once.js
-        │   ├── package.json
-        ├── parse5/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── dist/
-        │   │   ├── common/
-        │   │   │   ├── doctype.d.ts
-        │   │   │   ├── doctype.js
-        │   │   │   ├── error-codes.d.ts
-        │   │   │   ├── error-codes.js
-        │   │   │   ├── foreign-content.d.ts
-        │   │   │   ├── foreign-content.js
-        │   │   │   ├── html.d.ts
-        │   │   │   ├── html.js
-        │   │   │   ├── token.d.ts
-        │   │   │   ├── token.js
-        │   │   │   ├── unicode.d.ts
-        │   │   │   ├── unicode.js
-        │   │   ├── index.d.ts
-        │   │   ├── index.js
-        │   │   ├── parser/
-        │   │   │   ├── formatting-element-list.d.ts
-        │   │   │   ├── formatting-element-list.js
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.js
-        │   │   │   ├── open-element-stack.d.ts
-        │   │   │   ├── open-element-stack.js
-        │   │   ├── serializer/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.js
-        │   │   ├── tokenizer/
-        │   │   │   ├── index.d.ts
-        │   │   │   ├── index.js
-        │   │   │   ├── preprocessor.d.ts
-        │   │   │   ├── preprocessor.js
-        │   │   ├── tree-adapters/
-        │   │   │   └── default.d.ts
-        │   │   │   └── default.js
-        │   │   │   └── interface.d.ts
-        │   │   │   └── interface.js
         │   ├── package.json
         ├── parseurl/
         │   ├── HISTORY.md
@@ -5110,12 +3636,6 @@ _SOURCE: Directory tree_
         │   ├── README.md
         │   ├── index.js
         │   ├── package.json
-        ├── punycode/
-        │   ├── LICENSE-MIT.txt
-        │   ├── README.md
-        │   ├── package.json
-        │   ├── punycode.es6.js
-        │   ├── punycode.js
         ├── qs/
         │   ├── CHANGELOG.md
         │   ├── LICENSE.md
@@ -5231,12 +3751,6 @@ _SOURCE: Directory tree_
         │   ├── package.json
         │   ├── safer.js
         │   ├── tests.js
-        ├── saxes/
-        │   ├── README.md
-        │   ├── package.json
-        │   ├── saxes.d.ts
-        │   ├── saxes.js
-        │   ├── saxes.js.map
         ├── send/
         │   ├── LICENSE/
         │   ├── README.md
@@ -5362,15 +3876,6 @@ _SOURCE: Directory tree_
         │   │   ├── index.d.ts
         │   │   ├── index.mjs
         │   ├── package.json
-        ├── symbol-tree/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── SymbolTree.js
-        │   │   ├── SymbolTreeNode.js
-        │   │   ├── TreeIterator.js
-        │   │   ├── TreePosition.js
-        │   ├── package.json
         ├── tinybench/
         │   ├── LICENSE/
         │   ├── README.md
@@ -5403,159 +3908,11 @@ _SOURCE: Directory tree_
         │   │   ├── index.d.ts
         │   │   ├── index.js
         │   ├── package.json
-        ├── tldts-core/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── dist/
-        │   │   ├── cjs/
-        │   │   │   ├── index.js
-        │   │   │   ├── index.js.map
-        │   │   │   ├── src/
-        │   │   │   │   ├── domain-without-suffix.js
-        │   │   │   │   ├── domain-without-suffix.js.map
-        │   │   │   │   ├── domain.js
-        │   │   │   │   ├── domain.js.map
-        │   │   │   │   ├── extract-hostname.js
-        │   │   │   │   ├── extract-hostname.js.map
-        │   │   │   │   ├── factory.js
-        │   │   │   │   ├── factory.js.map
-        │   │   │   │   ├── is-ip.js
-        │   │   │   │   ├── is-ip.js.map
-        │   │   │   │   ├── is-valid.js
-        │   │   │   │   ├── is-valid.js.map
-        │   │   │   │   ├── lookup/
-        │   │   │   │   │   ├── fast-path.js
-        │   │   │   │   │   ├── fast-path.js.map
-        │   │   │   │   │   ├── interface.js
-        │   │   │   │   │   ├── interface.js.map
-        │   │   │   │   ├── options.js
-        │   │   │   │   ├── options.js.map
-        │   │   │   │   ├── subdomain.js
-        │   │   │   │   ├── subdomain.js.map
-        │   │   │   ├── tsconfig.tsbuildinfo
-        │   │   ├── es6/
-        │   │   │   ├── index.js
-        │   │   │   ├── index.js.map
-        │   │   │   ├── src/
-        │   │   │   │   ├── domain-without-suffix.js
-        │   │   │   │   ├── domain-without-suffix.js.map
-        │   │   │   │   ├── domain.js
-        │   │   │   │   ├── domain.js.map
-        │   │   │   │   ├── extract-hostname.js
-        │   │   │   │   ├── extract-hostname.js.map
-        │   │   │   │   ├── factory.js
-        │   │   │   │   ├── factory.js.map
-        │   │   │   │   ├── is-ip.js
-        │   │   │   │   ├── is-ip.js.map
-        │   │   │   │   ├── is-valid.js
-        │   │   │   │   ├── is-valid.js.map
-        │   │   │   │   ├── lookup/
-        │   │   │   │   │   ├── fast-path.js
-        │   │   │   │   │   ├── fast-path.js.map
-        │   │   │   │   │   ├── interface.js
-        │   │   │   │   │   ├── interface.js.map
-        │   │   │   │   ├── options.js
-        │   │   │   │   ├── options.js.map
-        │   │   │   │   ├── subdomain.js
-        │   │   │   │   ├── subdomain.js.map
-        │   │   │   ├── tsconfig.bundle.tsbuildinfo
-        │   │   ├── types/
-        │   │   │   └── index.d.ts
-        │   │   │   └── src/
-        │   │   │       └── domain-without-suffix.d.ts
-        │   │   │       └── domain.d.ts
-        │   │   │       └── extract-hostname.d.ts
-        │   │   │       └── factory.d.ts
-        │   │   │       └── is-ip.d.ts
-        │   │   │       └── is-valid.d.ts
-        │   │   │       └── lookup/
-        │   │   │           ├── fast-path.d.ts
-        │   │   │           ├── interface.d.ts
-        │   │   │       └── options.d.ts
-        │   │   │       └── subdomain.d.ts
-        │   ├── index.ts
-        │   ├── package.json
-        │   ├── src/
-        │   │   └── domain-without-suffix.ts
-        │   │   └── domain.ts
-        │   │   └── extract-hostname.ts
-        │   │   └── factory.ts
-        │   │   └── is-ip.ts
-        │   │   └── is-valid.ts
-        │   │   └── lookup/
-        │   │       ├── fast-path.ts
-        │   │       ├── interface.ts
-        │   │   └── options.ts
-        │   │   └── subdomain.ts
-        ├── tldts/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── bin/
-        │   │   ├── cli.js
-        │   ├── dist/
-        │   │   ├── cjs/
-        │   │   │   ├── index.js
-        │   │   │   ├── index.js.map
-        │   │   │   ├── src/
-        │   │   │   │   ├── data/
-        │   │   │   │   │   ├── trie.js
-        │   │   │   │   │   ├── trie.js.map
-        │   │   │   │   ├── suffix-trie.js
-        │   │   │   │   ├── suffix-trie.js.map
-        │   │   │   ├── tsconfig.tsbuildinfo
-        │   │   ├── es6/
-        │   │   │   ├── index.js
-        │   │   │   ├── index.js.map
-        │   │   │   ├── src/
-        │   │   │   │   ├── data/
-        │   │   │   │   │   ├── trie.js
-        │   │   │   │   │   ├── trie.js.map
-        │   │   │   │   ├── suffix-trie.js
-        │   │   │   │   ├── suffix-trie.js.map
-        │   │   │   ├── tsconfig.bundle.tsbuildinfo
-        │   │   ├── index.cjs.min.js
-        │   │   ├── index.cjs.min.js.map
-        │   │   ├── index.esm.min.js
-        │   │   ├── index.esm.min.js.map
-        │   │   ├── index.umd.min.js
-        │   │   ├── index.umd.min.js.map
-        │   │   ├── types/
-        │   │   │   └── index.d.ts
-        │   │   │   └── src/
-        │   │   │       └── data/
-        │   │   │           ├── trie.d.ts
-        │   │   │       └── suffix-trie.d.ts
-        │   ├── index.ts
-        │   ├── package.json
-        │   ├── src/
-        │   │   └── data/
-        │   │       ├── trie.ts
-        │   │   └── suffix-trie.ts
         ├── toidentifier/
         │   ├── HISTORY.md
         │   ├── LICENSE/
         │   ├── README.md
         │   ├── index.js
-        │   ├── package.json
-        ├── tough-cookie/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── dist/
-        │   │   ├── index.cjs
-        │   │   ├── index.cjs.map
-        │   │   ├── index.d.cts
-        │   │   ├── index.d.ts
-        │   │   ├── index.js
-        │   │   ├── index.js.map
-        │   ├── package.json
-        ├── tr46/
-        │   ├── LICENSE.md
-        │   ├── README.md
-        │   ├── index.js
-        │   ├── lib/
-        │   │   ├── mappingTable.json
-        │   │   ├── regexes.js
-        │   │   ├── statusMapping.js
         │   ├── package.json
         ├── tsx/
         │   ├── LICENSE/
@@ -5809,243 +4166,6 @@ _SOURCE: Directory tree_
         │   ├── util.d.ts
         │   ├── webidl.d.ts
         │   ├── websocket.d.ts
-        ├── undici/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── docs/
-        │   │   ├── docs/
-        │   │   │   └── api/
-        │   │   │       ├── Agent.md
-        │   │   │       ├── BalancedPool.md
-        │   │   │       ├── CacheStorage.md
-        │   │   │       ├── CacheStore.md
-        │   │   │       ├── Client.md
-        │   │   │       ├── ClientStats.md
-        │   │   │       ├── Connector.md
-        │   │   │       ├── ContentType.md
-        │   │   │       ├── Cookies.md
-        │   │   │       ├── Debug.md
-        │   │   │       ├── DiagnosticsChannel.md
-        │   │   │       ├── Dispatcher.md
-        │   │   │       ├── EnvHttpProxyAgent.md
-        │   │   │       ├── Errors.md
-        │   │   │       ├── EventSource.md
-        │   │   │       ├── Fetch.md
-        │   │   │       ├── GlobalInstallation.md
-        │   │   │       ├── H2CClient.md
-        │   │   │       ├── MockAgent.md
-        │   │   │       ├── MockCallHistory.md
-        │   │   │       ├── MockCallHistoryLog.md
-        │   │   │       ├── MockClient.md
-        │   │   │       ├── MockErrors.md
-        │   │   │       ├── MockPool.md
-        │   │   │       ├── Pool.md
-        │   │   │       ├── PoolStats.md
-        │   │   │       ├── ProxyAgent.md
-        │   │   │       ├── RedirectHandler.md
-        │   │   │       ├── RetryAgent.md
-        │   │   │       ├── RetryHandler.md
-        │   │   │       ├── RoundRobinPool.md
-        │   │   │       ├── SnapshotAgent.md
-        │   │   │       ├── Socks5ProxyAgent.md
-        │   │   │       ├── Util.md
-        │   │   │       ├── WebSocket.md
-        │   │   │       ├── api-lifecycle.md
-        │   │   │   └── best-practices/
-        │   │   │       └── client-certificate.md
-        │   │   │       └── crawling.md
-        │   │   │       └── mocking-request.md
-        │   │   │       └── proxy.md
-        │   │   │       └── undici-vs-builtin-fetch.md
-        │   │   │       └── writing-tests.md
-        │   ├── index-fetch.js
-        │   ├── index.d.ts
-        │   ├── index.js
-        │   ├── lib/
-        │   │   ├── api/
-        │   │   │   ├── abort-signal.js
-        │   │   │   ├── api-connect.js
-        │   │   │   ├── api-pipeline.js
-        │   │   │   ├── api-request.js
-        │   │   │   ├── api-stream.js
-        │   │   │   ├── api-upgrade.js
-        │   │   │   ├── index.js
-        │   │   │   ├── readable.js
-        │   │   ├── cache/
-        │   │   │   ├── memory-cache-store.js
-        │   │   │   ├── sqlite-cache-store.js
-        │   │   ├── core/
-        │   │   │   ├── connect.js
-        │   │   │   ├── constants.js
-        │   │   │   ├── diagnostics.js
-        │   │   │   ├── errors.js
-        │   │   │   ├── request.js
-        │   │   │   ├── socks5-client.js
-        │   │   │   ├── socks5-utils.js
-        │   │   │   ├── symbols.js
-        │   │   │   ├── tree.js
-        │   │   │   ├── util.js
-        │   │   ├── dispatcher/
-        │   │   │   ├── agent.js
-        │   │   │   ├── balanced-pool.js
-        │   │   │   ├── client-h1.js
-        │   │   │   ├── client-h2.js
-        │   │   │   ├── client.js
-        │   │   │   ├── dispatcher-base.js
-        │   │   │   ├── dispatcher.js
-        │   │   │   ├── env-http-proxy-agent.js
-        │   │   │   ├── fixed-queue.js
-        │   │   │   ├── h2c-client.js
-        │   │   │   ├── pool-base.js
-        │   │   │   ├── pool.js
-        │   │   │   ├── proxy-agent.js
-        │   │   │   ├── retry-agent.js
-        │   │   │   ├── round-robin-pool.js
-        │   │   │   ├── socks5-proxy-agent.js
-        │   │   ├── encoding/
-        │   │   │   ├── index.js
-        │   │   ├── global.js
-        │   │   ├── handler/
-        │   │   │   ├── cache-handler.js
-        │   │   │   ├── cache-revalidation-handler.js
-        │   │   │   ├── decorator-handler.js
-        │   │   │   ├── deduplication-handler.js
-        │   │   │   ├── redirect-handler.js
-        │   │   │   ├── retry-handler.js
-        │   │   │   ├── unwrap-handler.js
-        │   │   │   ├── wrap-handler.js
-        │   │   ├── interceptor/
-        │   │   │   ├── cache.js
-        │   │   │   ├── decompress.js
-        │   │   │   ├── deduplicate.js
-        │   │   │   ├── dns.js
-        │   │   │   ├── dump.js
-        │   │   │   ├── redirect.js
-        │   │   │   ├── response-error.js
-        │   │   │   ├── retry.js
-        │   │   ├── llhttp/
-        │   │   │   ├── constants.d.ts
-        │   │   │   ├── constants.js
-        │   │   │   ├── llhttp-wasm.js
-        │   │   │   ├── llhttp_simd-wasm.js
-        │   │   │   ├── utils.d.ts
-        │   │   │   ├── utils.js
-        │   │   ├── mock/
-        │   │   │   ├── mock-agent.js
-        │   │   │   ├── mock-call-history.js
-        │   │   │   ├── mock-client.js
-        │   │   │   ├── mock-errors.js
-        │   │   │   ├── mock-interceptor.js
-        │   │   │   ├── mock-pool.js
-        │   │   │   ├── mock-symbols.js
-        │   │   │   ├── mock-utils.js
-        │   │   │   ├── pending-interceptors-formatter.js
-        │   │   │   ├── snapshot-agent.js
-        │   │   │   ├── snapshot-recorder.js
-        │   │   │   ├── snapshot-utils.js
-        │   │   ├── util/
-        │   │   │   ├── cache.js
-        │   │   │   ├── date.js
-        │   │   │   ├── promise.js
-        │   │   │   ├── runtime-features.js
-        │   │   │   ├── stats.js
-        │   │   │   ├── timers.js
-        │   │   ├── web/
-        │   │   │   └── cache/
-        │   │   │       ├── cache.js
-        │   │   │       ├── cachestorage.js
-        │   │   │       ├── util.js
-        │   │   │   └── cookies/
-        │   │   │       ├── constants.js
-        │   │   │       ├── index.js
-        │   │   │       ├── parse.js
-        │   │   │       ├── util.js
-        │   │   │   └── eventsource/
-        │   │   │       ├── eventsource-stream.js
-        │   │   │       ├── eventsource.js
-        │   │   │       ├── util.js
-        │   │   │   └── fetch/
-        │   │   │       ├── LICENSE/
-        │   │   │       ├── body.js
-        │   │   │       ├── constants.js
-        │   │   │       ├── data-url.js
-        │   │   │       ├── formdata-parser.js
-        │   │   │       ├── formdata.js
-        │   │   │       ├── global.js
-        │   │   │       ├── headers.js
-        │   │   │       ├── index.js
-        │   │   │       ├── request.js
-        │   │   │       ├── response.js
-        │   │   │       ├── util.js
-        │   │   │   └── infra/
-        │   │   │       ├── index.js
-        │   │   │   └── subresource-integrity/
-        │   │   │       ├── Readme.md
-        │   │   │       ├── subresource-integrity.js
-        │   │   │   └── webidl/
-        │   │   │       ├── index.js
-        │   │   │   └── websocket/
-        │   │   │       └── connection.js
-        │   │   │       └── constants.js
-        │   │   │       └── events.js
-        │   │   │       └── frame.js
-        │   │   │       └── permessage-deflate.js
-        │   │   │       └── receiver.js
-        │   │   │       └── sender.js
-        │   │   │       └── stream/
-        │   │   │           ├── websocketerror.js
-        │   │   │           ├── websocketstream.js
-        │   │   │       └── util.js
-        │   │   │       └── websocket.js
-        │   ├── package.json
-        │   ├── scripts/
-        │   │   ├── strip-comments.js
-        │   ├── types/
-        │   │   └── README.md
-        │   │   └── agent.d.ts
-        │   │   └── api.d.ts
-        │   │   └── balanced-pool.d.ts
-        │   │   └── cache-interceptor.d.ts
-        │   │   └── cache.d.ts
-        │   │   └── client-stats.d.ts
-        │   │   └── client.d.ts
-        │   │   └── connector.d.ts
-        │   │   └── content-type.d.ts
-        │   │   └── cookies.d.ts
-        │   │   └── diagnostics-channel.d.ts
-        │   │   └── dispatcher.d.ts
-        │   │   └── env-http-proxy-agent.d.ts
-        │   │   └── errors.d.ts
-        │   │   └── eventsource.d.ts
-        │   │   └── fetch.d.ts
-        │   │   └── formdata.d.ts
-        │   │   └── global-dispatcher.d.ts
-        │   │   └── global-origin.d.ts
-        │   │   └── h2c-client.d.ts
-        │   │   └── handlers.d.ts
-        │   │   └── header.d.ts
-        │   │   └── index.d.ts
-        │   │   └── interceptors.d.ts
-        │   │   └── mock-agent.d.ts
-        │   │   └── mock-call-history.d.ts
-        │   │   └── mock-client.d.ts
-        │   │   └── mock-errors.d.ts
-        │   │   └── mock-interceptor.d.ts
-        │   │   └── mock-pool.d.ts
-        │   │   └── patch.d.ts
-        │   │   └── pool-stats.d.ts
-        │   │   └── pool.d.ts
-        │   │   └── proxy-agent.d.ts
-        │   │   └── readable.d.ts
-        │   │   └── retry-agent.d.ts
-        │   │   └── retry-handler.d.ts
-        │   │   └── round-robin-pool.d.ts
-        │   │   └── snapshot-agent.d.ts
-        │   │   └── socks5-proxy-agent.d.ts
-        │   │   └── util.d.ts
-        │   │   └── utility.d.ts
-        │   │   └── webidl.d.ts
-        │   │   └── websocket.d.ts
         ├── unpipe/
         │   ├── HISTORY.md
         │   ├── LICENSE/
@@ -6222,51 +4342,6 @@ _SOURCE: Directory tree_
         │   ├── suppress-warnings.cjs
         │   ├── vitest.mjs
         │   ├── worker.d.ts
-        ├── w3c-xmlserializer/
-        │   ├── LICENSE.md
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── attributes.js
-        │   │   ├── constants.js
-        │   │   ├── serialize.js
-        │   ├── package.json
-        ├── webidl-conversions/
-        │   ├── LICENSE.md
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── index.js
-        │   ├── package.json
-        ├── whatwg-mimetype/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── index.js
-        │   │   ├── mime-type-parameters.js
-        │   │   ├── mime-type.js
-        │   │   ├── parser.js
-        │   │   ├── serializer.js
-        │   │   ├── sniff.js
-        │   │   ├── utils.js
-        │   ├── package.json
-        ├── whatwg-url/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── index.js
-        │   ├── lib/
-        │   │   ├── Function.js
-        │   │   ├── URL-impl.js
-        │   │   ├── URL.js
-        │   │   ├── URLSearchParams-impl.js
-        │   │   ├── URLSearchParams.js
-        │   │   ├── VoidFunction.js
-        │   │   ├── encoding.js
-        │   │   ├── infra.js
-        │   │   ├── percent-encoding.js
-        │   │   ├── url-state-machine.js
-        │   │   ├── urlencoded.js
-        │   │   ├── utils.js
-        │   ├── package.json
-        │   ├── webidl2js-wrapper.js
         ├── which/
         │   ├── CHANGELOG.md
         │   ├── LICENSE/
@@ -6288,36 +4363,6 @@ _SOURCE: Directory tree_
         │   ├── README.md
         │   ├── package.json
         │   ├── wrappy.js
-        ├── xml-name-validator/
-        │   ├── LICENSE.txt
-        │   ├── README.md
-        │   ├── lib/
-        │   │   ├── xml-name-validator.js
-        │   ├── package.json
-        ├── xmlchars/
-        │   ├── LICENSE/
-        │   ├── README.md
-        │   ├── package.json
-        │   ├── xml/
-        │   │   ├── 1.0/
-        │   │   │   ├── ed4.d.ts
-        │   │   │   ├── ed4.js
-        │   │   │   ├── ed4.js.map
-        │   │   │   ├── ed5.d.ts
-        │   │   │   ├── ed5.js
-        │   │   │   ├── ed5.js.map
-        │   │   ├── 1.1/
-        │   │   │   └── ed2.d.ts
-        │   │   │   └── ed2.js
-        │   │   │   └── ed2.js.map
-        │   ├── xmlchars.d.ts
-        │   ├── xmlchars.js
-        │   ├── xmlchars.js.map
-        │   ├── xmlns/
-        │   │   └── 1.0/
-        │   │       └── ed3.d.ts
-        │   │       └── ed3.js
-        │   │       └── ed3.js.map
         ├── zod-to-json-schema/
         │   ├── LICENSE/
         │   ├── README.md
@@ -7121,7 +5166,195 @@ _SOURCE: Directory tree_
         │   └── wp-id.ts
     └── storage/
         ├── ledger/
-        │   └── 2026-03-16-null-prerequisite-reengagement-loop/
+        │   └── 2026-02-23-extend-build-system-vanilla-standalone/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-23-frame-style-reference/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-23-multi-ide-persona-support/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-23-strategic-recommendations-gn1-gn6/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-23-strategic-recommendations-gna-gnc/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-23-synthesis-strategic-recommendations/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-24-gui-insights-overview/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-24-hubl-high-feasibility/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-24-modules-overview-generator-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-24-modules-overview-generator-rework-2/
+        │       ├── WP-001.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-24-modules-overview-generator/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-25-orchestrator-smoke-test-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-25-orchestrator-smoke-test/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-25-workflow-specification-audit-fixes/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-25-workflow-specification-audit-fixes2-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-25-workflow-specification-audit-fixes2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-26-comtype-source-switch-gc-cleanup-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-26-comtype-source-switch-gc-cleanup/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-26-switch-comtype-variable-source/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-26-switch-global-content-variable-source/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-26-workflow-spec-audit-fixes/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-27-core-algorithms/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-27-gui-enhancements/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-27-hubspot-variable-source-migration-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-27-hubspot-variable-source-migration-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-27-hubspot-variable-source-migration/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-27-perceval-phase1/
         │       ├── WP-001.json
         │       ├── WP-002.json
         │       ├── WP-003.json
@@ -7130,7 +5363,32 @@ _SOURCE: Directory tree_
         │       ├── plan.md
         │       ├── project-ledger.json
         │       ├── synthesis.md
-        │   └── 2026-03-16-wp-agent-assignments-gui-rework-1/
+        │   └── 2026-02-27-perceval-phase2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-27-perceval-phase3/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-27-perceval-phase4/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-27-recommendation-engine/
         │       ├── WP-001.json
         │       ├── WP-002.json
         │       ├── WP-003.json
@@ -7140,10 +5398,840 @@ _SOURCE: Directory tree_
         │       ├── plan.md
         │       ├── project-ledger.json
         │       ├── synthesis.md
-        │   └── 2026-03-16-wp-agent-assignments-gui/
+        │   └── 2026-02-27-schema-type-foundations/
         │       ├── WP-001.json
         │       ├── WP-002.json
         │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-27-technical-debt-resolution/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-27-tool-guards-status-transitions/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-gui-api-hardening/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-handoff-engine/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-ledger-document-archiving-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-ledger-document-archiving/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-perceval-recommendations/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-self-healing-auxiliary/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-28-synthesis-gui-link/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-02-28-synthesis-strategic-recommendations-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── project-ledger.json
+        │   └── 2026-02-28-synthesis-strategic-recommendations/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── WP-009.json
+        │       ├── project-ledger.json
+        │   └── 2026-03-01-ledger-tool-simplification-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-01-ledger-tool-simplification-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │   └── 2026-03-01-ledger-tool-simplification/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-01-module-keyword-glossary-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-01-module-keyword-glossary/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-01-synthesis-followup-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-01-synthesis-followup/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-begin-work-handoff-guard-fix/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-command-deck-housekeeping-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-command-deck-housekeeping-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-command-deck-housekeeping/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-ionos-cloud-template-migration/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-move-doc-generators-to-framework/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── WP-009.json
+        │       ├── WP-010.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-orchestrator-project-path-fix-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-orchestrator-project-path-fix/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-02-perceval-category-graceful-failure/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │   └── 2026-03-02-pm-wait-handoff-embedding/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-03-geshi-to-highlight-php/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-03-hubspot-portal-id-api-fetch/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-03-openapi-spec-generation/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── WP-009.json
+        │       ├── WP-010.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-04-export-communication-category-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-04-export-communication-category/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-04-openapi-post-synthesis-rework/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-04-openapi-schema-inference/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-communication-category-test-fixes/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-hubl-high-feasibility-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-hubspot-portal-id-null-fix/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-stub-newsletter-data-updater-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-stub-newsletter-data-updater-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-stub-newsletter-data-updater/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-synthesis-strategic-rework/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-wp003-php84-union-type-fix/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-05-zod-refine-empty-schema/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-06-openapi-schema-inference-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-06-remove-showsnippet-from-hubl-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-06-remove-showsnippet-from-hubl-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-06-remove-showsnippet-from-hubl/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-06-synthesis-gold-nuggets-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-06-synthesis-gold-nuggets/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-global-link-effective-audience-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-global-link-effective-audience/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-gold-nuggets-batch-2-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-gold-nuggets-batch-2-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-gold-nuggets-batch-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-middleware-credential-hardening/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-perceval-category-filter-update/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-perceval-credentials-all-environments/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-persona-build-hardening-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-persona-build-hardening/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-persona-model-field-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-10-persona-model-field/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-11-perceval-admin-screens/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-11-perceval-compatible-flag-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-11-perceval-compatible-flag/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-12-ionos-cloud-followup-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-12-ionos-cloud-followup/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-12-ionos-cloud-layout-template/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-12-persona-model-field-rework/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-12-setup-script/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-13-api-caching-core-rework-1-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-13-api-caching-core-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-13-api-caching-core/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-17-consolidate-wp-writes-followup-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-17-consolidate-wp-writes-followup/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-17-consolidate-wp-writes/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-17-spec-sync-v2.3-v2.4-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-17-spec-sync-v2.3-v2.4/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-api-caching-synthesis-followup/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-shared-role-manifest-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-shared-role-manifest-rework-2/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-shared-role-manifest-rework-3/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-shared-role-manifest-rework-4/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-shared-role-manifest/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-18-spec-sync-fixes/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-19-api-caching-post-synthesis-cleanup/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-19-followup-fixes/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │   └── 2026-03-19-mcp-servers-frontmatter/
+        │       ├── WP-001.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │   └── 2026-03-19-parse-attr-dump-tests/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis-report.md
+        │       ├── synthesis.md
+        │   └── 2026-03-19-php84-modernization/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-19-phpunit-migration/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-19-shared-role-manifest-rework-5/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-19-workflow-orchestrator-persona/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-20-synthesis-followups/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
         │       ├── plan.md
         │       ├── project-ledger.json
         │       ├── synthesis.md

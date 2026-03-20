@@ -17,7 +17,7 @@ _SOURCE: Pipeline stage node factories (pm, developer, qa, security_auditor, rev
             └── synthesis.py
 
 ```
-###  Path: `\orchestrator\src\nodes/__init__.py`
+###  Path: `/orchestrator/src/nodes/__init__.py`
 
 ```py
 """
@@ -40,6 +40,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.runnables import RunnableConfig
+
+from src.utils.logging import get_run_logger
 from src.utils.tool_wrappers import inject_project_path
 
 if TYPE_CHECKING:
@@ -78,14 +81,20 @@ def create_stage_node(
         returns a state-update dict.
     """
 
-    async def node_fn(state: WorkflowState) -> dict:
+    # Capture the app-level Config in a closure variable so it doesn't clash
+    # with the LangGraph ``config`` parameter passed to the node at runtime.
+    _app_config = config
+
+    async def node_fn(state: WorkflowState, config: RunnableConfig | None = None) -> dict:
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
         from src.utils.persona import load_persona
 
+        run_logger = get_run_logger(config)
+
         try:
-            persona_prompt = load_persona(stage, workspace_root=config.workspace_root)
+            persona_prompt = load_persona(stage, workspace_root=_app_config.workspace_root)
             user_prompt = build_prompt(state)
 
             target_path: str = state.get("target_project_path", "")  # type: ignore[call-overload]
@@ -95,7 +104,7 @@ def create_stage_node(
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
 
             agent = create_deep_agent(
-                model=config.model_name,
+                model=_app_config.model_name,
                 backend=backend,
                 system_prompt=persona_prompt,
                 tools=wrapped_tools,
@@ -110,6 +119,17 @@ def create_stage_node(
             tokens_used = getattr(last_msg, "usage_metadata", None)
 
             log.info("Stage %s completed successfully.", stage)
+            log_entry = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "stage": stage,
+                "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+                "action": "stage_complete",
+                "result": "PASS",
+                "level": "INFO",
+                "tokens_used": tokens_used,
+            }
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return {
                 "stage_result": final_content,
                 # True = agent ran to completion without error. At this level the best
@@ -117,22 +137,23 @@ def create_stage_node(
                 # finished without raising an exception. The supervisor's circuit breaker
                 # treats this as a successful stage turn.
                 "stage_success": True,
-                "run_log": [
-                    {
-                        "timestamp": datetime.now(UTC).isoformat(),
-                        "stage": stage,
-                        "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
-                        "action": "stage_complete",
-                        "result": "PASS",
-                        "level": "INFO",
-                        "tokens_used": tokens_used,
-                    }
-                ],
+                "run_log": [log_entry],
             }
 
         except Exception as exc:  # noqa: BLE001
             ts = datetime.now(UTC).isoformat()
             log.error("Stage %s failed: %s", stage, exc, exc_info=True)
+            log_entry = {
+                "timestamp": ts,
+                "stage": stage,
+                "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+                "action": "stage_error",
+                "result": "FAIL",
+                "error": str(exc),
+                "level": "ERROR",
+            }
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return {
                 "stage_result": "",
                 "stage_success": False,
@@ -144,17 +165,7 @@ def create_stage_node(
                         "message": str(exc),
                     }
                 ],
-                "run_log": [
-                    {
-                        "timestamp": ts,
-                        "stage": stage,
-                        "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
-                        "action": "stage_error",
-                        "result": "FAIL",
-                        "error": str(exc),
-                        "level": "ERROR",
-                    }
-                ],
+                "run_log": [log_entry],
             }
 
     node_fn.__name__ = f"{stage}_node"
@@ -162,7 +173,7 @@ def create_stage_node(
     return node_fn
 
 ```
-###  Path: `\orchestrator\src\nodes/developer.py`
+###  Path: `/orchestrator/src/nodes/developer.py`
 
 ```py
 """
@@ -239,7 +250,7 @@ def make_developer_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("developer", _build_developer_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/docs.py`
+###  Path: `/orchestrator/src/nodes/docs.py`
 
 ```py
 """
@@ -326,7 +337,7 @@ def make_docs_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("docs", _build_docs_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/pm.py`
+###  Path: `/orchestrator/src/nodes/pm.py`
 
 ```py
 """
@@ -409,7 +420,7 @@ def make_pm_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("pm", _build_pm_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/qa.py`
+###  Path: `/orchestrator/src/nodes/qa.py`
 
 ```py
 """
@@ -483,7 +494,7 @@ def make_qa_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("qa", _build_qa_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/release_engineer.py`
+###  Path: `/orchestrator/src/nodes/release_engineer.py`
 
 ```py
 """
@@ -553,7 +564,7 @@ def make_release_engineer_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("release_engineer", _build_release_engineer_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/reviewer.py`
+###  Path: `/orchestrator/src/nodes/reviewer.py`
 
 ```py
 """
@@ -630,7 +641,7 @@ def make_reviewer_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("reviewer", _build_reviewer_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/security_auditor.py`
+###  Path: `/orchestrator/src/nodes/security_auditor.py`
 
 ```py
 """
@@ -700,7 +711,7 @@ def make_security_auditor_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("security_auditor", _build_security_auditor_prompt, config, mcp_tools)
 
 ```
-###  Path: `\orchestrator\src\nodes/synthesis.py`
+###  Path: `/orchestrator/src/nodes/synthesis.py`
 
 ```py
 """

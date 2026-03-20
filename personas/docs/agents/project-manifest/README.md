@@ -21,7 +21,6 @@ Generated persona files are consumed in two ways:
 | Section | Description |
 |---------|-------------|
 | [Tech Stack & Patterns](tech-stack.md) | Runtime, dependencies, build tools, and architectural patterns |
-| [File Tree](file-tree.md) | Visual directory structure with annotations |
 | [Public API Surface](api-surface.md) | Build script functions, template syntax, and metadata schema |
 | [Key Data Flows](data-flows.md) | Build pipeline, template resolution, and sync flows |
 | [Constraints & Conventions](constraints.md) | Established rules, conventions, and gotchas |

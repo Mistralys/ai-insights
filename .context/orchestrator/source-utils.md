@@ -13,7 +13,7 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
             └── tool_wrappers.py
 
 ```
-###  Path: `\orchestrator\src\utils/__init__.py`
+###  Path: `/orchestrator/src/utils/__init__.py`
 
 ```py
 """
@@ -21,7 +21,7 @@ utils — shared helper utilities.
 """
 
 ```
-###  Path: `\orchestrator\src\utils/logging.py`
+###  Path: `/orchestrator/src/utils/logging.py`
 
 ```py
 """
@@ -239,6 +239,45 @@ class WorkflowLogger:
         self._console.info(" ".join(parts))
 
     # ------------------------------------------------------------------
+    # Streaming helper — write a pre-built log-entry dict immediately
+    # ------------------------------------------------------------------
+
+    def stream_entry(self, entry: dict[str, Any]) -> None:
+        """
+        Write a pre-built log-entry dict to the JSONL file immediately.
+
+        This is used by graph nodes that build their own log-entry dicts
+        (for LangGraph state ``run_log``) and also want them persisted to
+        the JSONL file in real time — before the graph finishes.
+
+        Parameters
+        ----------
+        entry:
+            A dict matching the JSONL schema (must contain at least
+            ``"action"``).  A ``"timestamp"`` is added if missing.
+        """
+        if "timestamp" not in entry:
+            entry["timestamp"] = datetime.now(UTC).isoformat()
+        self._fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self._fh.flush()
+
+        # Also emit a console line so stderr stays in sync.
+        stage = entry.get("stage", "")
+        wp_id = entry.get("wp_id", "")
+        action = entry.get("action", "")
+        result = entry.get("result", "")
+        parts = [f"[{stage}]" if stage else "[—]"]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(action)
+        if result:
+            parts.append(f"→ {result}")
+        tokens = entry.get("tokens_used")
+        if tokens is not None:
+            parts.append(f"({tokens} tokens)")
+        self._console.info(" ".join(parts))
+
+    # ------------------------------------------------------------------
     # Resource management
     # ------------------------------------------------------------------
 
@@ -263,8 +302,30 @@ class WorkflowLogger:
         # Best-effort cleanup if close() was not called explicitly.
         self.close()
 
+
+# ---------------------------------------------------------------------------
+# LangGraph config helper
+# ---------------------------------------------------------------------------
+
+def get_run_logger(config: Any) -> WorkflowLogger | None:
+    """
+    Extract the :class:`WorkflowLogger` from a LangGraph ``RunnableConfig``.
+
+    Returns ``None`` if the config is missing or does not contain a logger,
+    so callers can safely do ``if logger: logger.stream_entry(entry)``.
+
+    Parameters
+    ----------
+    config:
+        The LangGraph ``RunnableConfig`` dict passed to node functions.
+    """
+    if config is None:
+        return None
+    configurable = config.get("configurable") or {}
+    return configurable.get("run_logger")
+
 ```
-###  Path: `\orchestrator\src\utils/persona.py`
+###  Path: `/orchestrator/src/utils/persona.py`
 
 ```py
 """
@@ -357,7 +418,7 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 ```
-###  Path: `\orchestrator\src\utils/plan_parser.py`
+###  Path: `/orchestrator/src/utils/plan_parser.py`
 
 ```py
 """
@@ -497,7 +558,7 @@ def _extract_summary(body: str, title_match: re.Match[str] | None) -> str:
     return ""
 
 ```
-###  Path: `\orchestrator\src\utils/tool_wrappers.py`
+###  Path: `/orchestrator/src/utils/tool_wrappers.py`
 
 ```py
 """
@@ -521,8 +582,9 @@ Design notes
   ``description``, ``args_schema``, etc.) remain untouched so that tool
   discovery and schema introspection work as normal.
 - Injection uses ``setdefault`` semantics: an explicitly-provided
-  ``project_path`` (or a ``cwd_path`` used by ``ledger_detect_project``)
-  is never overwritten.
+  ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
+  (following persona instructions meant for IDE agents), the wrapper
+  strips it and falls through to ``project_path`` injection.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 
@@ -568,7 +630,7 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
         # This prevents wrapper stacking when the same tool object is passed
         # to inject_project_path more than once (shallow-copy scenario).
         if not hasattr(tool, "_orig_ainvoke"):
-            tool._orig_ainvoke = tool.ainvoke  # type: ignore[attr-defined]
+            object.__setattr__(tool, "_orig_ainvoke", tool.ainvoke)
         _original_ainvoke = tool._orig_ainvoke  # type: ignore[attr-defined]
 
         async def _wrapped_ainvoke(
@@ -579,12 +641,17 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
-                # Only inject when neither project_path nor cwd_path is present.
-                if "cwd_path" not in input:
-                    input.setdefault("project_path", _proj)
+                # In the orchestrator context we always know the exact
+                # project_path, so cwd_path-based auto-detection is never
+                # needed.  If the LLM agent followed persona instructions
+                # meant for interactive IDE agents and passed cwd_path,
+                # replace it with the authoritative project_path.
+                if "cwd_path" in input:
+                    del input["cwd_path"]
+                input.setdefault("project_path", _proj)
             return await _orig(input, *args, **kwargs)
 
-        tool.ainvoke = _wrapped_ainvoke  # type: ignore[method-assign]
+        object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)
 
     return tools
 

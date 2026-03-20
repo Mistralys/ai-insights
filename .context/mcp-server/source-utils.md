@@ -19,7 +19,7 @@ _SOURCE: Utility modules: constants, agent registry, pipeline maps, formatters_
             └── wp-id.ts
 
 ```
-###  Path: `\mcp-server\src\utils/agent-registry.ts`
+###  Path: `/mcp-server/src/utils/agent-registry.ts`
 
 ```ts
 import { readdir, readFile } from 'fs/promises';
@@ -243,7 +243,7 @@ export function resetRegistry(): void {
 }
 
 ```
-###  Path: `\mcp-server\src\utils/constants.ts`
+###  Path: `/mcp-server/src/utils/constants.ts`
 
 ```ts
 // ─── Agent roles and related constants derived from the shared manifest ────
@@ -344,7 +344,7 @@ export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
 export const SPEC_VERSION = workflowManifest.spec_version;
 
 ```
-###  Path: `\mcp-server\src\utils/if-defined.ts`
+###  Path: `/mcp-server/src/utils/if-defined.ts`
 
 ```ts
 /**
@@ -371,7 +371,7 @@ export function ifDefined<T>(value: T | undefined, fn: (v: T) => void): void {
 }
 
 ```
-###  Path: `\mcp-server\src\utils/ledger-root.ts`
+###  Path: `/mcp-server/src/utils/ledger-root.ts`
 
 ```ts
 import { join, dirname, posix } from 'path';
@@ -444,7 +444,7 @@ export function inferProjectRootFromPlanPath(planPath: string): string {
 }
 
 ```
-###  Path: `\mcp-server\src\utils/path-validator.ts`
+###  Path: `/mcp-server/src/utils/path-validator.ts`
 
 ```ts
 import { basename } from 'path';
@@ -596,7 +596,7 @@ export function formatCandidateList(
 }
 
 ```
-###  Path: `\mcp-server\src\utils/pipeline-maps.ts`
+###  Path: `/mcp-server/src/utils/pipeline-maps.ts`
 
 ```ts
 /**
@@ -1015,7 +1015,7 @@ export function validateActiveStages(stages: string[]): { errors: string[]; warn
 }
 
 ```
-###  Path: `\mcp-server\src\utils/project-reset.ts`
+###  Path: `/mcp-server/src/utils/project-reset.ts`
 
 ```ts
 /**
@@ -1562,7 +1562,7 @@ export async function markProjectComplete(
 }
 
 ```
-###  Path: `\mcp-server\src\utils/read-project-name.ts`
+###  Path: `/mcp-server/src/utils/read-project-name.ts`
 
 ```ts
 /**
@@ -1623,7 +1623,7 @@ export async function readProjectName(projectRoot: string): Promise<string | nul
 }
 
 ```
-###  Path: `\mcp-server\src\utils/timestamp.ts`
+###  Path: `/mcp-server/src/utils/timestamp.ts`
 
 ```ts
 /**
@@ -1682,7 +1682,7 @@ export function formatRelativeTime(ts: string, ref: Date = new Date()): string {
 }
 
 ```
-###  Path: `\mcp-server\src\utils/workflow-helpers.ts`
+###  Path: `/mcp-server/src/utils/workflow-helpers.ts`
 
 ```ts
 /**
@@ -2200,7 +2200,7 @@ export function getHandoffNotesForAgent(
 }
 
 ```
-###  Path: `\mcp-server\src\utils/wp-id.ts`
+###  Path: `/mcp-server/src/utils/wp-id.ts`
 
 ```ts
 /**

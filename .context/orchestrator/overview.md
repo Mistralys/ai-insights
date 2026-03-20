@@ -7,7 +7,7 @@ _SOURCE: Overview_
     └── README.md
 
 ```
-###  Path: `\orchestrator/README.md`
+###  Path: `/orchestrator/README.md`
 
 ```md
 # AI Insights Orchestrator
@@ -61,8 +61,7 @@ pip install -e ".[anthropic]"   # Anthropic (Claude)
 # — or —
 pip install -e ".[google]"      # Google AI Studio (Gemini)
 
-# Optional: enable --resume checkpoint support (SQLite-backed graph snapshots)
-pip install -e ".[checkpoint]"
+# Checkpoint support (SQLite-backed) is included by default.
 
 # 4. Configure environment
 cp .env.example .env
@@ -119,8 +118,18 @@ The provider is **auto-detected** from which API key is set. If both are set, th
 
 ### Recommended entry point
 
-Use `node scripts/run-orchestrator.js` as the canonical way to launch the orchestrator.
-It performs a **pre-flight build check** — if any file under `mcp-server/src/`
+Before launching, run the dedicated **pre-flight script** to verify the environment is ready:
+
+```bash
+node scripts/preflight-orchestrator.js             # basic checks
+node scripts/preflight-orchestrator.js --plan path/to/plan.md  # also verify plan exists
+node scripts/preflight-orchestrator.js --json       # machine-readable output
+```
+
+This validates: venv + `orchestrate` binary, `.env` configuration (MODEL_NAME + API key), MCP server dist freshness, and no conflicting orchestrator process. It is also available via `node scripts/cli.js preflight`.
+
+Then use `node scripts/run-orchestrator.js` as the canonical way to launch the orchestrator.
+It performs a **build freshness check** — if any file under `mcp-server/src/`
 is newer than `mcp-server/dist/index.js` (or if `dist/` does not yet exist),
 it automatically rebuilds the MCP server before starting the orchestrator.
 This prevents silent failures caused by a stale compiled dist.

@@ -12,7 +12,7 @@ _SOURCE: Technical deep-dives (architecture, routing, log schema, smoke tests, p
         └── supervisor-routing.md
 
 ```
-###  Path: `\orchestrator\docs/architecture.md`
+###  Path: `/orchestrator/docs/architecture.md`
 
 ```md
 # Architecture Deep-Dive
@@ -99,7 +99,7 @@ Each run writes a JSONL file to `orchestrator/logs/` (path printed at run start)
 For the complete per-field type table, see [jsonl-log-schema.md](jsonl-log-schema.md).
 
 ```
-###  Path: `\orchestrator\docs/jsonl-log-schema.md`
+###  Path: `/orchestrator/docs/jsonl-log-schema.md`
 
 ```md
 # JSONL Log Schema
@@ -127,7 +127,7 @@ Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start
 | `dry_run` | `run_start` | boolean | `true` when `--dry-run` flag was passed |
 
 ```
-###  Path: `\orchestrator\docs/public-api.md`
+###  Path: `/orchestrator/docs/public-api.md`
 
 ```md
 # Public API / Entry Points
@@ -218,7 +218,7 @@ All follow the same pattern via `create_stage_node()`:
 | `WorkflowLogger` | `src.utils.logging` | JSONL + console logger. Use `WorkflowLogger.create(label=...)` context manager. |
 
 ```
-###  Path: `\orchestrator\docs/smoke-testing.md`
+###  Path: `/orchestrator/docs/smoke-testing.md`
 
 ```md
 # Smoke-Testing the Dispatch Loop
@@ -226,6 +226,8 @@ All follow the same pattern via `create_stage_node()`:
 > **Parent:** [orchestrator/README.md](../README.md)
 
 Use this runbook to verify the supervisor dispatch loop is working correctly against a fresh ledger project without running the full agent pipeline.
+
+> **Pre-flight:** Before any smoke test, run `node scripts/preflight-orchestrator.js` from the workspace root to verify the environment is ready (venv, `.env`, MCP dist). See [orchestrator/README.md](../README.md) for details.
 
 ---
 
@@ -288,7 +290,7 @@ grep '"action": "route"' orchestrator/logs/<your-log-file>.jsonl | wc -l
 | Circuit-breaker halt | Manually set `consecutive_failures` ≥ 3 in state; verify `"action": "halted_repeated_failure"` |
 
 ```
-###  Path: `\orchestrator\docs/supervisor-routing.md`
+###  Path: `/orchestrator/docs/supervisor-routing.md`
 
 ```md
 # Supervisor Routing Model

@@ -58,7 +58,7 @@ _SOURCE: Test suite (unit, integration)_
             └── wp-id.test.ts
 
 ```
-###  Path: `\mcp-server\tests\gui/api-reset.test.ts`
+###  Path: `/mcp-server/tests/gui/api-reset.test.ts`
 
 ```ts
 /**
@@ -480,7 +480,7 @@ describe('handleGetProjectHealth', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\gui/api-wp-overview.test.ts`
+###  Path: `/mcp-server/tests/gui/api-wp-overview.test.ts`
 
 ```ts
 /**
@@ -891,7 +891,7 @@ describe('handleGetWorkPackageOverview', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\gui/api.test.ts`
+###  Path: `/mcp-server/tests/gui/api.test.ts`
 
 ```ts
 /**
@@ -2038,7 +2038,7 @@ describe('gui/api.ts', () => {
 
 
 ```
-###  Path: `\mcp-server\tests\gui/auto-archive.test.ts`
+###  Path: `/mcp-server/tests/gui/auto-archive.test.ts`
 
 ```ts
 /**
@@ -2312,7 +2312,7 @@ describe('startAutoArchiveTimer / stopAutoArchiveTimer', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\gui/client-rendering.test.ts`
+###  Path: `/mcp-server/tests/gui/client-rendering.test.ts`
 
 ```ts
 // @vitest-environment jsdom
@@ -2579,7 +2579,7 @@ describe('buildPipelineTrack', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\gui/config.test.ts`
+###  Path: `/mcp-server/tests/gui/config.test.ts`
 
 ```ts
 /**
@@ -2812,7 +2812,7 @@ describe('gui/config.ts', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\gui/handoff-config-integration.test.ts`
+###  Path: `/mcp-server/tests/gui/handoff-config-integration.test.ts`
 
 ```ts
 /**
@@ -3079,7 +3079,7 @@ describe('handoff-config integration: runtime config monitoring', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\integration/auto-handoff.test.ts`
+###  Path: `/mcp-server/tests/integration/auto-handoff.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -3782,7 +3782,7 @@ describe('WP-005 R7: auto_handoff_depth lifecycle', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\integration/full-workflow.test.ts`
+###  Path: `/mcp-server/tests/integration/full-workflow.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -5133,7 +5133,7 @@ describe('composition: verification-only WP — Reviewer is terminal agent', () 
 });
 
 ```
-###  Path: `\mcp-server\tests\schema/project-archiving-schema.test.ts`
+###  Path: `/mcp-server/tests/schema/project-archiving-schema.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -5240,7 +5240,7 @@ describe('GuiConfigSchema', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\schema/root-index.test.ts`
+###  Path: `/mcp-server/tests/schema/root-index.test.ts`
 
 ```ts
 /**
@@ -5531,7 +5531,7 @@ describe('Backward compatibility — legacy ledger without new fields', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\schema/validators.test.ts`
+###  Path: `/mcp-server/tests/schema/validators.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -5702,7 +5702,7 @@ describe('canCompleteWorkPackage', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\schema/work-package-schema.test.ts`
+###  Path: `/mcp-server/tests/schema/work-package-schema.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -5900,7 +5900,7 @@ describe('WorkPackageSummarySchema', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\storage/ledger-store.test.ts`
+###  Path: `/mcp-server/tests/storage/ledger-store.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -6929,7 +6929,7 @@ describe('LedgerStore.renameSlug', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\storage/project-meta.test.ts`
+###  Path: `/mcp-server/tests/storage/project-meta.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -7178,7 +7178,7 @@ describe('LedgerStore.listAllProjects', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/begin-work.test.ts`
+###  Path: `/mcp-server/tests/tools/begin-work.test.ts`
 
 ```ts
 /**
@@ -7765,7 +7765,7 @@ describe('beginWork — respects active_pipeline_stages (custom stage ordering)'
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/cancelled-status.test.ts`
+###  Path: `/mcp-server/tests/tools/cancelled-status.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -7984,7 +7984,7 @@ describe('CANCELLED triggers dependency unblock (integration test pattern)', () 
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/cascade-reblock.test.ts`
+###  Path: `/mcp-server/tests/tools/cascade-reblock.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -8270,7 +8270,7 @@ describe('Cascade-block dependents on WP reopen', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/claim-guard.test.ts`
+###  Path: `/mcp-server/tests/tools/claim-guard.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -8523,7 +8523,7 @@ describe('claim_work_package assignment guard', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/complete-pipeline-guards.test.ts`
+###  Path: `/mcp-server/tests/tools/complete-pipeline-guards.test.ts`
 
 ```ts
 /**
@@ -8780,7 +8780,7 @@ describe('completePipeline integration tests (WP-003 guards)', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/enrichment-resilience.test.ts`
+###  Path: `/mcp-server/tests/tools/enrichment-resilience.test.ts`
 
 ```ts
 /**
@@ -9026,7 +9026,7 @@ describe('WP-003 — initializeProject enrichment failure via forced writeProjec
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/list-projects.test.ts`
+###  Path: `/mcp-server/tests/tools/list-projects.test.ts`
 
 ```ts
 /**
@@ -9141,7 +9141,7 @@ describe('listProjects — ARCHIVED exclusion', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/meta-enrichment.test.ts`
+###  Path: `/mcp-server/tests/tools/meta-enrichment.test.ts`
 
 ```ts
 /**
@@ -9354,7 +9354,7 @@ describe('WP-006 — writeRootIndex syncs WP counters into .meta.json', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/observations.test.ts`
+###  Path: `/mcp-server/tests/tools/observations.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -9420,7 +9420,7 @@ describe('AddObservationSchema work_package_id regex (WP-\\d{3,})', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/pipeline.test.ts`
+###  Path: `/mcp-server/tests/tools/pipeline.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -11823,7 +11823,7 @@ describe('WorkPackageDetail.last_updated — lifecycle integration (WP-002)', ()
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/project-lifecycle.test.ts`
+###  Path: `/mcp-server/tests/tools/project-lifecycle.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -13767,7 +13767,7 @@ describe('initializeProject — sets ledger_version to SPEC_VERSION (WP-008)', (
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/rework-circuit-breaker.test.ts`
+###  Path: `/mcp-server/tests/tools/rework-circuit-breaker.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -14136,7 +14136,7 @@ describe('BLOCK_FOR_REWORK_LIMIT in getDeveloperAction', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/schema-integrity.test.ts`
+###  Path: `/mcp-server/tests/tools/schema-integrity.test.ts`
 
 ```ts
 /**
@@ -14259,7 +14259,7 @@ describe('Schema Integrity — all 22 tool schemas produce non-empty JSON Schema
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/start-pipeline-guards.test.ts`
+###  Path: `/mcp-server/tests/tools/start-pipeline-guards.test.ts`
 
 ```ts
 /**
@@ -14612,7 +14612,7 @@ describe('developerReworkTypes derived from FAIL_ROUTING_MAP', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/synthesis-terminal.test.ts`
+###  Path: `/mcp-server/tests/tools/synthesis-terminal.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -14935,7 +14935,7 @@ describe('ledger_complete_synthesis tool', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/work-package.test.ts`
+###  Path: `/mcp-server/tests/tools/work-package.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -18242,7 +18242,7 @@ describe('createWorkPackage — active_pipeline_stages on root index summary (WP
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/workflow-batch-actions.test.ts`
+###  Path: `/mcp-server/tests/tools/workflow-batch-actions.test.ts`
 
 ```ts
 /**
@@ -18424,7 +18424,7 @@ describe('buildBatchNextSteps — CLAIM_WP guidance', () => {
   });
 });
 ```
-###  Path: `\mcp-server\tests\tools/workflow-handoff.test.ts`
+###  Path: `/mcp-server/tests/tools/workflow-handoff.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -20599,7 +20599,7 @@ describe('computeHandoffStatus — bypass path (store/rootIndex/wpDetails opts)'
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/workflow-next-action.test.ts`
+###  Path: `/mcp-server/tests/tools/workflow-next-action.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -22530,7 +22530,7 @@ describe('first-active-stage loop prevention — Release Engineer P5 (§21.66 re
 });
 
 ```
-###  Path: `\mcp-server\tests\tools/workflow-rework-loop.test.ts`
+###  Path: `/mcp-server/tests/tools/workflow-rework-loop.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -22963,7 +22963,7 @@ describe('Full FAIL → Developer rework → QA re-trigger → PASS flow', () =>
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/agent-registry.test.ts`
+###  Path: `/mcp-server/tests/utils/agent-registry.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -23579,7 +23579,7 @@ describe('AC: resetRegistry() clears both handle map and id map', () => {
   });
 });
 ```
-###  Path: `\mcp-server\tests\utils/if-defined.test.ts`
+###  Path: `/mcp-server/tests/utils/if-defined.test.ts`
 
 ```ts
 import { describe, it, expect, vi } from 'vitest';
@@ -23624,7 +23624,7 @@ describe('ifDefined', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/ledger-root.test.ts`
+###  Path: `/mcp-server/tests/utils/ledger-root.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -23744,7 +23744,7 @@ describe('inferProjectRootFromPlanPath', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/path-validator.test.ts`
+###  Path: `/mcp-server/tests/utils/path-validator.test.ts`
 
 ```ts
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -24099,7 +24099,7 @@ describe('formatCandidateList', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/pipeline-maps.test.ts`
+###  Path: `/mcp-server/tests/utils/pipeline-maps.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -24563,7 +24563,7 @@ describe('validateActiveStages', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/project-reset.test.ts`
+###  Path: `/mcp-server/tests/utils/project-reset.test.ts`
 
 ```ts
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -25025,7 +25025,7 @@ describe('applyProjectReset — clears synthesis_generated_at (WP-008)', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/timestamp.test.ts`
+###  Path: `/mcp-server/tests/utils/timestamp.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -25139,7 +25139,7 @@ describe('formatRelativeTime', () => {
   });
 });
 ```
-###  Path: `\mcp-server\tests\utils/workflow-helpers.test.ts`
+###  Path: `/mcp-server/tests/utils/workflow-helpers.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';
@@ -25851,7 +25851,7 @@ describe('clearSynthesisState', () => {
   });
 });
 ```
-###  Path: `\mcp-server\tests\utils/workflow-manifest.test.ts`
+###  Path: `/mcp-server/tests/utils/workflow-manifest.test.ts`
 
 ```ts
 /**
@@ -26219,7 +26219,7 @@ describe('resolveFailAgent() parity — manifest fail_routing', () => {
 });
 
 ```
-###  Path: `\mcp-server\tests\utils/wp-id.test.ts`
+###  Path: `/mcp-server/tests/utils/wp-id.test.ts`
 
 ```ts
 import { describe, it, expect } from 'vitest';

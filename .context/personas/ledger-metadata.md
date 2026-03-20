@@ -19,7 +19,7 @@ _SOURCE: YAML metadata for all 9 ledger personas (shared defaults + per-persona 
                 └── _shared.yaml
 
 ```
-###  Path: `\personas\ledger\src\meta/1-planner.yaml`
+###  Path: `/personas/ledger/src/meta/1-planner.yaml`
 
 ```yaml
 number: 1
@@ -46,7 +46,7 @@ self_documenting_note: false
 has_incident_logging: false
 
 ```
-###  Path: `\personas\ledger\src\meta/2-project-manager.yaml`
+###  Path: `/personas/ledger/src/meta/2-project-manager.yaml`
 
 ```yaml
 number: 2
@@ -85,7 +85,7 @@ mcp_tools:
     purpose: Compute the AGENT/STATUS handoff block at the end of your turn.
 
 ```
-###  Path: `\personas\ledger\src\meta/3-developer.yaml`
+###  Path: `/personas/ledger/src/meta/3-developer.yaml`
 
 ```yaml
 number: 3
@@ -132,7 +132,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/4-qa.yaml`
+###  Path: `/personas/ledger/src/meta/4-qa.yaml`
 
 ```yaml
 number: 4
@@ -177,7 +177,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/5-security-auditor.yaml`
+###  Path: `/personas/ledger/src/meta/5-security-auditor.yaml`
 
 ```yaml
 number: 5
@@ -222,7 +222,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/6-reviewer.yaml`
+###  Path: `/personas/ledger/src/meta/6-reviewer.yaml`
 
 ```yaml
 number: 6
@@ -267,7 +267,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/7-release-engineer.yaml`
+###  Path: `/personas/ledger/src/meta/7-release-engineer.yaml`
 
 ```yaml
 number: 7
@@ -312,7 +312,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/8-documentation.yaml`
+###  Path: `/personas/ledger/src/meta/8-documentation.yaml`
 
 ```yaml
 number: 8
@@ -361,7 +361,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/9-synthesis.yaml`
+###  Path: `/personas/ledger/src/meta/9-synthesis.yaml`
 
 ```yaml
 number: 9
@@ -408,7 +408,7 @@ mcp_tools:
     purpose: "Get usage documentation and examples for any ledger tool."
 
 ```
-###  Path: `\personas\ledger\src\meta/_shared.yaml`
+###  Path: `/personas/ledger/src/meta/_shared.yaml`
 
 ```yaml
 author: Sebastian Mordziol

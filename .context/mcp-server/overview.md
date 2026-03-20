@@ -7,7 +7,7 @@ _SOURCE: Overview_
     └── README.md
 
 ```
-###  Path: `\mcp-server/README.md`
+###  Path: `/mcp-server/README.md`
 
 ```md
 # Project Ledger MCP Server

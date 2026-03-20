@@ -7,7 +7,7 @@ _SOURCE: Overview_
     └── README.md
 
 ```
-###  Path: `\personas/README.md`
+###  Path: `/personas/README.md`
 
 ```md
 # Ledger Personas Build System

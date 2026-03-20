@@ -15,7 +15,7 @@ _SOURCE: Public Interfaces and APIs_
                 └── tech-stack.md
 
 ```
-###  Path: `\mcp-server\docs\agents\project-manifest/README.md`
+###  Path: `/mcp-server/docs/agents/project-manifest/README.md`
 
 ```md
 # Project Manifest: Project Ledger MCP Server
@@ -84,7 +84,7 @@ See [constraints.md](constraints.md#development--build-constraints) for more det
 - **Agent Personas:** `/personas/ledger/`
 
 ```
-###  Path: `\mcp-server\docs\agents\project-manifest/api-surface.md`
+###  Path: `/mcp-server/docs/agents/project-manifest/api-surface.md`
 
 ```md
 ﻿# Public API Surface
@@ -2856,7 +2856,7 @@ function register(server: McpServer): void;
 These are called in `src/index.ts` to register all tools on the server instance.
 
 ```
-###  Path: `\mcp-server\docs\agents\project-manifest/constraints.md`
+###  Path: `/mcp-server/docs/agents/project-manifest/constraints.md`
 
 ```md
 # Constraints & Conventions
@@ -4525,7 +4525,7 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 **Race window (acceptable):** Dependency WP files are read before lock acquisition. A dependency could theoretically be modified between the pre-read and the lock. For an advisory-only check this race window is acceptable — false negatives do not affect correctness.
 
 ```
-###  Path: `\mcp-server\docs\agents\project-manifest/data-flows.md`
+###  Path: `/mcp-server/docs/agents/project-manifest/data-flows.md`
 
 ```md
 # Key Data Flows
@@ -5755,7 +5755,7 @@ gui/api.ts — handleListProjects processing pipeline:
 - The entire enrichment step runs in memory; pagination is applied last (no streaming).
 
 ```
-###  Path: `\mcp-server\docs\agents\project-manifest/file-tree.md`
+###  Path: `/mcp-server/docs/agents/project-manifest/file-tree.md`
 
 ```md
 # File Tree
@@ -5937,7 +5937,7 @@ The following directories are not version-controlled:
 > **Note:** Plan folders (e.g. `docs/agents/plans/2026-02-16-feature/`) contain only human-authored Markdown files. No machine-generated JSON is ever written inside a plan folder.
 
 ```
-###  Path: `\mcp-server\docs\agents\project-manifest/tech-stack.md`
+###  Path: `/mcp-server/docs/agents/project-manifest/tech-stack.md`
 
 ```md
 # Tech Stack & Patterns

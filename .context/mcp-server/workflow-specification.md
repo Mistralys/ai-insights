@@ -20,7 +20,7 @@ _SOURCE: Workflow logic: state machines, routing, handoffs, edge cases_
                 └── walkthrough.md
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/README.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/README.md`
 
 ```md
 # Agent Workflow Specification
@@ -193,7 +193,7 @@ The manifest is validated structurally by `shared/workflow-manifest.schema.json`
 6. **Manifest documents the implementation.** The project manifest (`api-surface.md`, `constraints.md`, etc.) describes the current state of the code. When the specification changes, the implementation changes, and the manifest is updated to reflect the new implementation — in that order.
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/auxiliary-systems.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/auxiliary-systems.md`
 
 ```md
 # Auxiliary Systems
@@ -498,7 +498,7 @@ Dual-file updates (WP detail + root index) are protected by file locks:
 > **Side-effect idempotency on concurrent unblock:** When two dependencies of the same WP complete near-simultaneously, `propagateDependencyUnblock` may be invoked twice. The state mutation is idempotent (both calls write `READY`), but **side effects** such as notifications, project comments, or webhook emissions may double-fire. Implementations SHOULD ensure that unblock side effects are either idempotent or deduplicated (e.g., via an idempotency key derived from the WP ID and target status).
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/data-model.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/data-model.md`
 
 ```md
 # Data Model
@@ -746,7 +746,7 @@ CANONICAL_PIPELINE_ORDERING = ["implementation", "qa", "security-audit", "code-r
 | Quick fix | `["implementation", "qa", "documentation"]` | Fast-track fix; skip code review |
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/dependencies-and-rework.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/dependencies-and-rework.md`
 
 ```md
 # Dependencies & Rework
@@ -1099,7 +1099,7 @@ The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` ar
 > **Stage skipping:** When a stage is not in a WP's `active_pipeline_stages`, the corresponding box in the diagram is skipped entirely — PASS from the preceding stage flows directly to the next active stage via `resolveNextAgent` (§9.2).
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/edge-cases.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/edge-cases.md`
 
 ```md
 # Edge Cases & Invariants
@@ -1704,7 +1704,7 @@ Any `active_pipeline_stages` composition where a non-`implementation` stage is *
 
 **Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions)
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/handoff.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/handoff.md`
 
 ```md
 # Handoff Logic
@@ -2002,7 +2002,7 @@ function nextAgentFromStatus(status, currentAgent):
 ```
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/operations.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/operations.md`
 
 ```md
 # Operations
@@ -2810,7 +2810,7 @@ The `agentRole` parameter is mandatory. The agent must match the pipeline owner 
 This guard is the completion counterpart of §11.1.2 (Agent Role Validation on start). Together they ensure that only the owning agent (or PM) can start and complete a given pipeline type.
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/pipeline-routing.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/pipeline-routing.md`
 
 ```md
 # Pipeline Routing
@@ -3110,7 +3110,7 @@ Maps agent role to the pipeline type it owns. Derived from PIPELINE_AGENT_MAP by
 > **Map consistency invariant:** `PIPELINE_AGENT_MAP` (§9.1), `FAIL_ROUTING_MAP` (§9.3), and `AGENT_PIPELINE_MAP` (§9.4) must be consistent — every pipeline type that appears as a key in one map must appear in all maps, and `AGENT_PIPELINE_MAP` must be the exact inverse of `PIPELINE_AGENT_MAP`. The `resolveNextAgent` function (§9.2) dynamically derives next-agent routing from `PIPELINE_AGENT_MAP` and `CANONICAL_PIPELINE_ORDERING`, so no separate static `NEXT_AGENT_MAP` needs to be kept in sync. A typo or omission in any map could silently misroute handoffs or skip pipeline stages. Implementations SHOULD validate cross-map consistency at startup (e.g., asserting key-set equality and inverse-mapping correctness) and fail fast on any divergence.
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/recommendations.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/recommendations.md`
 
 ```md
 # Recommendation Engine
@@ -3550,7 +3550,7 @@ function hasDownstreamReengagedSince(pipelines, upstreamType):
 > **Auto-cancelled pipeline exclusion:** Consistent with §21.27, auto-cancelled pipelines are excluded from both the upstream PASS lookup and the downstream re-engagement check.
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/state-machines.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/state-machines.md`
 
 ```md
 # State Machines
@@ -3803,7 +3803,7 @@ A pipeline can be cancelled by setting its status to FAIL with a reason string a
 When a pipeline is cancelled by system automation (cascade reblock via [§15.5](dependencies-and-rework.md#155-cascade-reblocking-propagatedependencyreblock) or manual IN_PROGRESS → BLOCKED transition), the `auto_cancelled` flag is set to `true`. This flag excludes the pipeline from rework detection and circuit breaker calculations (see [§21.27](edge-cases.md#2127-auto-cancelled-pipelines)).
 
 ```
-###  Path: `\mcp-server\docs\agents\workflow-specification/walkthrough.md`
+###  Path: `/mcp-server/docs/agents/workflow-specification/walkthrough.md`
 
 ```md
 # Walkthrough & Appendices

@@ -18,7 +18,7 @@ _SOURCE: LedgerStore, schema validation, and data models_
             └── ledger-store.ts
 
 ```
-###  Path: `\mcp-server\src\schema/enums.ts`
+###  Path: `/mcp-server/src/schema/enums.ts`
 
 ```ts
 import { z } from 'zod';
@@ -83,7 +83,7 @@ export const CommentPriority = z.enum(['low', 'medium', 'high']);
 export type CommentPriority = z.infer<typeof CommentPriority>;
 
 ```
-###  Path: `\mcp-server\src\schema/project-meta.ts`
+###  Path: `/mcp-server/src/schema/project-meta.ts`
 
 ```ts
 import { z } from 'zod';
@@ -106,7 +106,7 @@ export const ProjectMetaSchema = z.object({
 export type ProjectMeta = z.infer<typeof ProjectMetaSchema>;
 
 ```
-###  Path: `\mcp-server\src\schema/root-index.ts`
+###  Path: `/mcp-server/src/schema/root-index.ts`
 
 ```ts
 import { z } from 'zod';
@@ -159,7 +159,7 @@ export const RootIndexSchema = z.object({
 export type RootIndex = z.infer<typeof RootIndexSchema>;
 
 ```
-###  Path: `\mcp-server\src\schema/validators.ts`
+###  Path: `/mcp-server/src/schema/validators.ts`
 
 ```ts
 import type { WorkPackageStatus } from './enums.js';
@@ -294,7 +294,7 @@ export function canCompleteWorkPackage(wp: WorkPackageDetail): {
 }
 
 ```
-###  Path: `\mcp-server\src\schema/work-package.ts`
+###  Path: `/mcp-server/src/schema/work-package.ts`
 
 ```ts
 import { z } from 'zod';
@@ -433,7 +433,7 @@ export const WorkPackageDetailSchema = z.object({
 export type WorkPackageDetail = z.infer<typeof WorkPackageDetailSchema>;
 
 ```
-###  Path: `\mcp-server\src\schema/workflow-manifest-schema.ts`
+###  Path: `/mcp-server/src/schema/workflow-manifest-schema.ts`
 
 ```ts
 /**
@@ -533,7 +533,7 @@ export const workflowManifest: Manifest = ManifestSchema.parse(
 );
 
 ```
-###  Path: `\mcp-server\src\storage/atomic-writer.ts`
+###  Path: `/mcp-server/src/storage/atomic-writer.ts`
 
 ```ts
 import { writeFile, rename, unlink, mkdir } from 'fs/promises';
@@ -589,7 +589,7 @@ export async function atomicWriteJson(
 }
 
 ```
-###  Path: `\mcp-server\src\storage/file-lock.ts`
+###  Path: `/mcp-server/src/storage/file-lock.ts`
 
 ```ts
 import lockfile from 'proper-lockfile';
@@ -670,7 +670,7 @@ export async function withLock<T>(
 }
 
 ```
-###  Path: `\mcp-server\src\storage/ledger-store.ts`
+###  Path: `/mcp-server/src/storage/ledger-store.ts`
 
 ```ts
 import { readFile, access, readdir, copyFile, rename } from 'fs/promises';

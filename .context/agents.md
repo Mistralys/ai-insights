@@ -60,10 +60,9 @@ This workspace has **two independent manifests** — one per sub-project.
 |---|----------|---------|
 | 1 | [README.md](personas/docs/agents/project-manifest/README.md) | Build system overview, quick reference commands |
 | 2 | [tech-stack.md](personas/docs/agents/project-manifest/tech-stack.md) | Node.js runtime, js-yaml, template engine patterns |
-| 3 | [constraints.md](personas/docs/agents/project-manifest/constraints.md) | Source editing rules, template limitations, naming conventions |
-| 4 | [file-tree.md](personas/docs/agents/project-manifest/file-tree.md) | Template sources, output directories, standalone personas |
-| 5 | [api-surface.md](personas/docs/agents/project-manifest/api-surface.md) | Build script functions, template syntax, metadata schema |
-| 6 | [data-flows.md](personas/docs/agents/project-manifest/data-flows.md) | Build pipeline, sync pipeline, template resolution |
+| 3 | [constraints.md](personas/docs/agents/project-manifest/constraints.md) | Source editing rules, template limitations, naming conventions, directory layout |
+| 4 | [api-surface.md](personas/docs/agents/project-manifest/api-surface.md) | Build script functions, template syntax, metadata schema |
+| 5 | [data-flows.md](personas/docs/agents/project-manifest/data-flows.md) | Build pipeline, sync pipeline, template resolution |
 
 ### Sub-Project AGENTS.md
 
@@ -124,10 +123,10 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 
 | Change Made | Documents to Update |
 |-------------|---------------------|
-| Add/remove template partial | `file-tree.md`, `api-surface.md` |
+| Add/remove template partial | `api-surface.md` |
 | Add/remove feature flag | `api-surface.md` (metadata schema + feature flag table) |
 | Change template syntax | `api-surface.md` (template syntax section) |
-| Add/remove persona | `file-tree.md`, `data-flows.md` |
+| Add/remove persona | `data-flows.md`, `constraints.md` (directory layout table if new directory) |
 | Change build script function | `api-surface.md` |
 | Add/remove dependency | `tech-stack.md` |
 | Change naming convention | `constraints.md` |
@@ -140,7 +139,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Add/modify agent role | `mcp-server/` → `constraints.md`, `personas/` → `constraints.md` |
 | Change `.mcp.json` server key | `personas/` → `constraints.md` (mcp_server_name reference) |
 | Add root-level script | Root `README.md` |
-| Restructure workspace | Both `file-tree.md` files, this `AGENTS.md` |
+| Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md`, regenerate `.context/` |
 | Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints.md` |
 
 ---
@@ -151,7 +150,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 
 | What You Need | Search Here FIRST | Then Here | Read Source LAST |
 |---------------|-------------------|-----------|------------------|
-| Find a file location | Relevant `file-tree.md` | grep/file search | Never needed |
+| Find a file location | Relevant `file-tree.md` (mcp-server) or `.context/` auto-generated tree (personas) | grep/file search | Never needed |
 | Understand a method/tool | Relevant `api-surface.md` | Source code | Only for implementation logic |
 | Trace data flow | Relevant `data-flows.md` | Source code | Only for edge cases |
 | Check a rule or convention | Relevant `constraints.md` | Source comments | Only if ambiguous |
@@ -177,7 +176,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Grep entire workspace for a tool name | Search `mcp-server/…/api-surface.md` |
 | Read generated persona files to understand template logic | Read `personas/…/api-surface.md` + `data-flows.md` |
 | Read 10 source files to understand status transitions | Read `mcp-server/…/constraints.md` |
-| Search code to find where a file lives | Check the relevant `file-tree.md` |
+| Search code to find where a file lives | Check `file-tree.md` (mcp-server) or `.context/` tree (personas) |
 | Get a full module overview (API + source + tests) | Read `.context/{module}/` generated docs | Manifest `api-surface.md` | Source code |
 
 ### Generated Context Docs (`.context/`)
@@ -267,7 +266,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Version (MCP server) | `mcp-server/changelog.md` | `mcp-server/package.json` (via `npm run sync-version`) |
 | Version (Personas) | `personas/changelog.md` | `personas/ledger/src/meta/_shared.yaml` → `default_version` |
 | Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
-| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/vs-code/` generated output filenames |
+| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/claude-code/` generated output filenames |
 | Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
 | `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
 | `release-engineering` pipeline → Release Engineer role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['release-engineering']` | `personas/ledger/src/meta/7-release-engineer.yaml` → `role: Release Engineer`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
@@ -292,7 +291,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | **Package Manager** | npm | npm | pip |
 | **Test Framework** | Vitest | — (manual `--check` flag) | pytest |
 | **Build Tool** | `tsc` | `build-personas.js` (self-contained) | — (source install) |
-| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) | 5 core (`langgraph`, `deepagents`, `langchain-mcp-adapters`, `langchain-core`, `python-dotenv`); optional extras: `anthropic`, `google`, `checkpoint` |
+| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) | 6 core (`langgraph`, `langgraph-checkpoint-sqlite`, `deepagents`, `langchain-mcp-adapters`, `langchain-core`, `python-dotenv`); optional extras: `anthropic`, `google` |
 | **Dev Dependencies** | 4 (`tsx`, `vitest`, `typescript`, `@types/node`) | 0 | 3 (`pytest`, `pytest-asyncio`, `ruff`) |
 
 ### Root-Level Tooling
@@ -304,6 +303,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | `scripts/build-personas.js` | Assemble 48 persona files (9 ledger + 15 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
 | `scripts/check-known-roles.js` | Manifest validation delegate (previously `KNOWN_ROLES` ↔ `AGENT_ROLES` drift check; superseded by `validate-workflow-manifest.js` now that both derive from the manifest) |
 | `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
+| `scripts/preflight-orchestrator.js` | Pre-flight readiness checks for the orchestrator: validates venv, `.env` config, MCP server dist freshness, and absence of conflicting processes. Supports `--plan <path>` and `--json`. Invokable via `node scripts/cli.js preflight`. |
 | `scripts/install-hooks.js` | One-time setup: sets `git config core.hooksPath .githooks` to activate the pre-commit persona freshness guard |
 | `shared/workflow-manifest.json` | **Single source of truth** for specification-derived constructs: 9 agent roles, 6 pipeline types, status enums (project/WP/pipeline/blocker), and workflow constants. All sub-projects derive their constants from this file. Validated by `shared/workflow-manifest.schema.json`. |
 | `shared/workflow-manifest.schema.json` | JSON Schema (Draft-07) enforcing structural constraints on `workflow-manifest.json`. Semantic cross-reference checks (unique IDs, fail_routing references, default_stages subset) are enforced by `scripts/validate-workflow-manifest.js`. |
@@ -323,7 +323,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Look up an MCP tool signature | [mcp-server/…/api-surface.md](mcp-server/docs/agents/project-manifest/api-surface.md) |
 | Look up template syntax | [personas/…/api-surface.md](personas/docs/agents/project-manifest/api-surface.md) |
 | Find a file in mcp-server | [mcp-server/…/file-tree.md](mcp-server/docs/agents/project-manifest/file-tree.md) |
-| Find a file in personas | [personas/…/file-tree.md](personas/docs/agents/project-manifest/file-tree.md) |
+| Find a file in personas | `.context/personas/file-structure.md` (auto-generated) |
 | See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) |
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
 | Understand the 9-agent workflow | [personas/ledger/README.md](personas/ledger/README.md) |
@@ -340,7 +340,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 **Maintained By:** AGENTS.md Curator Agent
 
 ```
-###  Path: `\mcp-server/AGENTS.md`
+###  Path: `/mcp-server/AGENTS.md`
 
 ```md
 # AI Agents Operating System — Project Ledger MCP Server

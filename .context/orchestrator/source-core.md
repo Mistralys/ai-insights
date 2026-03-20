@@ -14,7 +14,7 @@ _SOURCE: Core modules: CLI, config, graph, state, supervisor, MCP client_
         └── supervisor.py
 
 ```
-###  Path: `\orchestrator\src/__init__.py`
+###  Path: `/orchestrator/src/__init__.py`
 
 ```py
 """
@@ -24,7 +24,7 @@ Provides the LangGraph-based orchestration system for the ledger agent workflow.
 """
 
 ```
-###  Path: `\orchestrator\src/cli.py`
+###  Path: `/orchestrator/src/cli.py`
 
 ```py
 """
@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fcntl
 import logging
 import os
 import sys
@@ -225,24 +226,27 @@ def _make_dryrun_node(stage: str):
     success without invoking the Deep Agent.
     """
     from datetime import datetime
+    from src.utils.logging import get_run_logger
 
-    def _stub(state: Any) -> dict:
+    def _stub(state: Any, config: Any = None) -> dict:
         ts = datetime.now(UTC).isoformat()
         wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
         log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "—")
         print(f"  [dry-run] {stage}: WP={wp_id or '—'}")
+        log_entry = {
+            "timestamp": ts,
+            "stage": stage,
+            "wp_id": wp_id,
+            "action": "dry_run",
+            "result": "SKIP",
+        }
+        run_logger = get_run_logger(config)
+        if run_logger:
+            run_logger.stream_entry(log_entry)
         return {
             "stage_result": f"[dry-run] {stage} stub",
             "stage_success": True,
-            "run_log": [
-                {
-                    "timestamp": ts,
-                    "stage": stage,
-                    "wp_id": wp_id,
-                    "action": "dry_run",
-                    "result": "SKIP",
-                }
-            ],
+            "run_log": [log_entry],
         }
 
     _stub.__name__ = f"{stage}_dryrun"
@@ -254,7 +258,7 @@ def _make_dryrun_node(stage: str):
 # Graph builder — wires dry-run stubs when requested
 # ---------------------------------------------------------------------------
 
-def _build_graph_for_run(
+async def _build_graph_for_run(
     config: Any,
     mcp_tools: list,
     *,
@@ -285,15 +289,10 @@ def _build_graph_for_run(
     """
     if dry_run:
         # Build with dry-run stubs instead of real Deep Agent nodes.
+        import aiosqlite
+
         from langgraph.graph import END, START, StateGraph
-        try:
-            from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
-            _use_sqlite = True
-        except ImportError:
-            from langgraph.checkpoint.memory import (
-                MemorySaver as SqliteSaver,  # type: ignore[import,assignment]
-            )
-            _use_sqlite = False
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
@@ -309,10 +308,9 @@ def _build_graph_for_run(
 
         config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         db_path = config.checkpoint_dir / "workflow.sqlite"
-        if _use_sqlite:
-            checkpointer = SqliteSaver.from_conn_string(str(db_path))  # type: ignore[union-attr]
-        else:
-            checkpointer = SqliteSaver()  # type: ignore[operator]
+        conn = await aiosqlite.connect(str(db_path))
+        checkpointer = AsyncSqliteSaver(conn)
+        await checkpointer.setup()
 
         return builder.compile(
             checkpointer=checkpointer,
@@ -320,7 +318,7 @@ def _build_graph_for_run(
         )
     else:
         from src.graph import build_graph
-        return build_graph(config, mcp_tools, interrupt_before=interrupt_before or None)
+        return await build_graph(config, mcp_tools, interrupt_before=interrupt_before or None)
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +436,23 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
 
     project_path = Path(args.project_path).resolve() if args.project_path else config.workspace_root
 
+    # ── Acquire process lock (prevent concurrent runs on same plan) ──────
+    lock_path = plan_dir / ".orchestrator.lock"
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "w")  # noqa: SIM115
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.stderr.write(
+            f"orchestrate: error: another orchestrator process is already running "
+            f"against {plan_dir}.\n"
+            f"  Lock file: {lock_path}\n"
+            f"  If no other process is running, delete the lock file and retry.\n"
+        )
+        if lock_file:
+            lock_file.close()
+        return EXIT_ERROR
+
     # ── Set up JSONL run logger ──────────────────────────────────────────────
     from src.utils.logging import WorkflowLogger
     run_logger = WorkflowLogger.create(label=plan_dir.name)
@@ -503,14 +518,14 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             mcp_tools = toolkit.get_tools()
             log.info("MCP server started with %d tools.", len(mcp_tools))
 
-            graph = _build_graph_for_run(
+            graph = await _build_graph_for_run(
                 config,
                 mcp_tools,
                 dry_run=args.dry_run,
                 interrupt_before=interrupt_before,
             )
 
-            run_config = {"configurable": {"thread_id": thread_id}}
+            run_config = {"configurable": {"thread_id": thread_id, "run_logger": run_logger}}
 
             try:
                 if args.resume:
@@ -534,28 +549,11 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         log.error("MCP server startup failed: %s", exc, exc_info=True)
         outside_errors.append(f"MCP server error: {exc}")
 
-    # ── Flush run_log to JSONL ──────────────────────────────────────────────
+    # ── Write final entries to JSONL ────────────────────────────────────────
+    # Run-log entries from graph nodes are already streamed to the JSONL file
+    # in real time (via run_logger passed through LangGraph config).  Only
+    # outside errors and the run_end sentinel still need to be written here.
     try:
-        run_log_entries: list = (final_state or {}).get("run_log", [])
-        for entry in run_log_entries:
-            # Map LangGraph state run_log fields to WorkflowLogger schema.
-            stage = entry.get("stage", "")
-            wp_id = entry.get("wp_id", "")
-            action = entry.get("action", "unknown")
-            result_val = entry.get("result", "")
-            # Remaining fields forwarded as **extra.
-            extra = {
-                k: v for k, v in entry.items()
-                if k not in {"stage", "wp_id", "action", "result", "timestamp"}
-            }
-            run_logger.log(
-                stage=stage,
-                wp_id=wp_id,
-                action=action,
-                result=result_val,
-                **extra,
-            )
-        # Write a run_error entry for each outside error captured before run_end.
         for err_msg in outside_errors:
             run_logger.log(
                 stage="cli",
@@ -575,6 +573,15 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         )
     finally:
         run_logger.close()
+
+    # ── Release process lock ────────────────────────────────────────────────
+    if lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     duration = time.monotonic() - start_time
     print(f"\n  Log file   : {run_logger._path}")
@@ -641,7 +648,7 @@ if __name__ == "__main__":
     main()
 
 ```
-###  Path: `\orchestrator\src/config.py`
+###  Path: `/orchestrator/src/config.py`
 
 ```py
 """
@@ -1044,7 +1051,7 @@ def get_default_config() -> Config:
 _default_config: Config | None = None
 
 ```
-###  Path: `\orchestrator\src/graph.py`
+###  Path: `/orchestrator/src/graph.py`
 
 ```py
 """
@@ -1117,12 +1124,12 @@ _LOOP_STAGES = (
 )
 
 
-def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
+async def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
     """
     Build and compile the hub-and-spoke LangGraph ``StateGraph``.
 
-    The graph is compiled with an SQLite checkpointer so runs are resumable
-    via ``--resume <thread_id>``.
+    The graph is compiled with an async SQLite checkpointer so runs are
+    resumable via ``--resume <thread_id>``.
 
     Parameters
     ----------
@@ -1142,22 +1149,11 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     CompiledGraph
         The compiled LangGraph state graph, ready to invoke or stream.
     """
+    import aiosqlite
+
     from langgraph.graph import END, START, StateGraph
 
-    # SqliteSaver lives in a separately-installable package.
-    # Fall back to MemorySaver (in-memory, no persistence) when not available.
-    try:
-        from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
-        _use_sqlite = True
-    except ImportError:
-        from langgraph.checkpoint.memory import (
-            MemorySaver as SqliteSaver,  # type: ignore[import,assignment]
-        )
-        _use_sqlite = False
-        log.warning(
-            "langgraph-checkpoint-sqlite is not installed; using in-memory checkpointer. "
-            "Run 'pip install langgraph-checkpoint-sqlite' to enable persistent checkpointing."
-        )
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
     from src.nodes.developer import make_developer_node
     from src.nodes.docs import make_docs_node
@@ -1204,15 +1200,13 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     # Synthesis → END (terminal; no further routing needed).
     builder.add_edge(_STAGE_SYNTHESIS, END)
 
-    # ── Compile with SQLite checkpointer ─────────────────────────────────
+    # ── Compile with async SQLite checkpointer ───────────────────────────
     config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     db_path = config.checkpoint_dir / "workflow.sqlite"
 
-    # WAL mode is set via PRAGMA inside the saver — prevents corruption on Windows.
-    if _use_sqlite:
-        checkpointer = SqliteSaver.from_conn_string(str(db_path))
-    else:
-        checkpointer = SqliteSaver()  # MemorySaver takes no arguments.
+    conn = await aiosqlite.connect(str(db_path))
+    checkpointer = AsyncSqliteSaver(conn)
+    await checkpointer.setup()
 
     log.info(
         "Building graph: 9 nodes, %d loop edges, checkpoint=%s",
@@ -1226,7 +1220,7 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     )
 
 ```
-###  Path: `\orchestrator\src/mcp_client.py`
+###  Path: `/orchestrator/src/mcp_client.py`
 
 ```py
 """
@@ -1450,7 +1444,7 @@ async def get_mcp_tools(config: Config) -> list:
         return toolkit.get_tools()
 
 ```
-###  Path: `\orchestrator\src/state.py`
+###  Path: `/orchestrator/src/state.py`
 
 ```py
 """
@@ -1561,7 +1555,7 @@ class WorkflowState(TypedDict):
     errors: Annotated[list, add]
 
 ```
-###  Path: `\orchestrator\src/supervisor.py`
+###  Path: `/orchestrator/src/supervisor.py`
 
 ```py
 """
@@ -1586,10 +1580,12 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 
 from .config import PIPELINE_ROLE_NAMES, ROLE_IDS, WP_TERMINAL_STATUSES
 from .state import WorkflowState
+from .utils.logging import get_run_logger
 
 log = logging.getLogger(__name__)
 
@@ -1732,8 +1728,9 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # The node function itself
     # ------------------------------------------------------------------
 
-    async def supervisor_node(state: WorkflowState) -> Command:
+    async def supervisor_node(state: WorkflowState, config: RunnableConfig | None = None) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
+        run_logger = get_run_logger(config)
         project_path: str = state["project_path"]
         new_iteration: int = state.get("iteration", 0) + 1  # type: ignore[call-overload]
         max_iterations: int = state.get("max_iterations", 100)  # type: ignore[call-overload]
@@ -1774,6 +1771,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 iteration=new_iteration,
                 level="WARNING",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=END,
                 update={
@@ -1806,6 +1805,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 error=str(exc),
                 level="ERROR",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=END,
                 update={
@@ -1816,10 +1817,12 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 },
             )
 
+        wp_list_error: str | None = None
         try:
             wp_list_data = await _call_tool("ledger_list_work_packages", project_path=project_path)
         except Exception as exc:
             log.error("Failed to list work packages: %s", exc)
+            wp_list_error = str(exc)
             wp_list_data = []
 
         # Normalise: tool may return list or dict with "work_packages" key.
@@ -1845,6 +1848,25 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         # ── No WPs → PM needs to create them ─────────────────────────
         if not wp_summaries:
+            extra_entries: list = []
+            extra_errs: list = []
+            if wp_list_error:
+                ts = datetime.now(UTC).isoformat()
+                err_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="mcp_error",
+                    destination=_DEST_PM,
+                    error=wp_list_error,
+                    level="WARNING",
+                )
+                if run_logger:
+                    run_logger.stream_entry(err_entry)
+                extra_entries.append(err_entry)
+                extra_errs.append({
+                    "timestamp": ts,
+                    "message": f"ledger_list_work_packages failed: {wp_list_error}",
+                })
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",
@@ -1852,9 +1874,16 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 destination=_DEST_PM,
                 reason="no work packages found",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=_DEST_PM,
-                update={**base_update, "current_stage": _DEST_PM, "run_log": [log_entry]},
+                update={
+                    **base_update,
+                    "current_stage": _DEST_PM,
+                    "run_log": extra_entries + [log_entry],
+                    "errors": extra_errs,
+                },
             )
 
         # ── All WPs terminal (COMPLETE or CANCELLED) → synthesis ───────────────────
@@ -1866,6 +1895,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 destination=_DEST_SYNTHESIS,
                 reason="all work packages terminal (COMPLETE or CANCELLED)",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=_DEST_SYNTHESIS,
                 update={
@@ -1938,6 +1969,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                         consecutive_failures=consecutive,
                         level="WARNING",
                     )
+                    if run_logger:
+                        run_logger.stream_entry(entry)
                     extra_log_entries.append(entry)
                     extra_errors.append({
                         "timestamp": ts,
@@ -1961,6 +1994,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 agent_role=role,
                 ledger_action=action,
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             log.info(
                 "Routing WP %s (role=%s, action=%s) → %s", wp_id, role, action, destination
             )
@@ -1983,6 +2018,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
             destination=_DEST_SYNTHESIS,
             reason="all roles returned WAIT",
         )
+        if run_logger:
+            run_logger.stream_entry(log_entry)
         return Command(
             goto=_DEST_SYNTHESIS,
             update={

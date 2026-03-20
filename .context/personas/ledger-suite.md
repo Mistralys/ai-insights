@@ -8,7 +8,7 @@ _SOURCE: Ledger workflow user guide (9-agent pipeline usage, prerequisites, step
         └── README.md
 
 ```
-###  Path: `\personas\ledger/README.md`
+###  Path: `/personas/ledger/README.md`
 
 ```md
 # Agentic Coding Workflow - Ledger-Enabled

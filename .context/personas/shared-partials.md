@@ -28,7 +28,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── synthesis-output-format.md
 
 ```
-###  Path: `\personas\shared\partials/agent-roster.md`
+###  Path: `/personas/shared/partials/agent-roster.md`
 
 ```md
 You operate within a larger agentic workflow:
@@ -36,7 +36,7 @@ You operate within a larger agentic workflow:
 {{roster_rendered}}
 
 ```
-###  Path: `\personas\shared\partials/developer-operational-protocol.md`
+###  Path: `/personas/shared/partials/developer-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -50,7 +50,7 @@ Follow these steps for every Work Package:
 5. **Code Insight Observations:** Compile the observations you gathered while working (see the **Code Insight Observer** section below). Every work package must produce an observations section in the ledger—even if only to confirm that no issues were found.
 
 ```
-###  Path: `\personas\shared\partials/developer-output-format.md`
+###  Path: `/personas/shared/partials/developer-output-format.md`
 
 ```md
 ## Output Format
@@ -58,7 +58,7 @@ Follow these steps for every Work Package:
 Update the **Project Ledger** via MCP tools as described in the Workflow section below. Every implementation pipeline **must** include Code Insight Observer comments — this is not optional.
 
 ```
-###  Path: `\personas\shared\partials/developer-strict-constraints.md`
+###  Path: `/personas/shared/partials/developer-strict-constraints.md`
 
 ```md
 ## Strict Constraints
@@ -74,7 +74,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 * **Environment Incident Logging:** {{> incident-logging}}
 
 ```
-###  Path: `\personas\shared\partials/docs-operational-protocol.md`
+###  Path: `/personas/shared/partials/docs-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -84,7 +84,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 3. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
 
 ```
-###  Path: `\personas\shared\partials/docs-output-format.md`
+###  Path: `/personas/shared/partials/docs-output-format.md`
 
 ```md
 ## Output Format
@@ -92,12 +92,12 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with summary and comments — the tool's parameter descriptions document the required shapes and allowed values.
 
 ```
-###  Path: `\personas\shared\partials/incident-logging.md`
+###  Path: `/personas/shared/partials/incident-logging.md`
 
 ```md
 If you encounter a system-level issue that is not caused by your own mistake (e.g., terminal output not visible, tool returning unexpected errors, file operations silently failing), note it clearly in your response and describe any workaround you found. Do not investigate root causes beyond what is needed to continue.
 ```
-###  Path: `\personas\shared\partials/planner-core-rules.md`
+###  Path: `/personas/shared/partials/planner-core-rules.md`
 
 ```md
 ## Core Rules
@@ -120,7 +120,7 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 - When referencing existing files, always provide the full relative path from the project root to ensure the TPM and Engineer can locate the asset immediately.
 
 ```
-###  Path: `\personas\shared\partials/planner-output-template.md`
+###  Path: `/personas/shared/partials/planner-output-template.md`
 
 ```md
 ## Plan Output Template
@@ -175,7 +175,7 @@ You are encouraged to ask clarifying questions for architectural or high‑level
 ```
 
 ```
-###  Path: `\personas\shared\partials/pm-output-format.md`
+###  Path: `/personas/shared/partials/pm-output-format.md`
 
 ```md
 ## Output Format
@@ -204,7 +204,7 @@ The PM orchestrates four sub-agents to produce the project ledger. Your direct o
    ```
 
 ```
-###  Path: `\personas\shared\partials/qa-operational-protocol.md`
+###  Path: `/personas/shared/partials/qa-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -217,7 +217,7 @@ You must execute the following "Verification Stack" in order:
 4. **Edge-Case Stress Test:** Identify at least two potential failure points the Developer might have missed (e.g., empty inputs, network timeouts, extremely large data sets).
 
 ```
-###  Path: `\personas\shared\partials/qa-output-format.md`
+###  Path: `/personas/shared/partials/qa-output-format.md`
 
 ```md
 ## Output Format
@@ -225,7 +225,7 @@ You must execute the following "Verification Stack" in order:
 Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with metrics, comments, and acceptance criteria updates — the tool's parameter descriptions document the required shapes and allowed values.
 
 ```
-###  Path: `\personas\shared\partials/release-engineer-operational-protocol.md`
+###  Path: `/personas/shared/partials/release-engineer-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -258,7 +258,7 @@ Perform release engineering tasks using the following methodology:
 7. **Self-Rework:** If any of the above steps cannot be completed (e.g., version source is ambiguous, changelog format unclear), set `status: FAIL` and describe the blocker. Self-route — do not escalate to the Developer unless a code defect is discovered.
 
 ```
-###  Path: `\personas\shared\partials/release-engineer-output-format.md`
+###  Path: `/personas/shared/partials/release-engineer-output-format.md`
 
 ```md
 ## Output Format
@@ -274,7 +274,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 - **`acceptance_criteria_updates`**: Mark criteria met/unmet based on release work completed.
 
 ```
-###  Path: `\personas\shared\partials/reviewer-operational-protocol.md`
+###  Path: `/personas/shared/partials/reviewer-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -285,7 +285,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 4. **Categorize Feedback:** Distinguish between **Blocking Issues** (must be fixed now) and **Non-Blocking Suggestions** (future improvements). This distinction drives the pipeline status — see **Decision Logic** below.
 
 ```
-###  Path: `\personas\shared\partials/reviewer-output-format.md`
+###  Path: `/personas/shared/partials/reviewer-output-format.md`
 
 ```md
 ## Output Format
@@ -293,7 +293,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 Update the **Project Ledger** via MCP tools as described in the Workflow section below. Use `ledger_complete_pipeline` with metrics, comments, and acceptance criteria updates — the tool's parameter descriptions document the required shapes and allowed values.
 
 ```
-###  Path: `\personas\shared\partials/security-auditor-operational-protocol.md`
+###  Path: `/personas/shared/partials/security-auditor-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -330,7 +330,7 @@ Perform a structured Security Review using the following methodology:
    - A concrete, actionable **remediation recommendation**.
 
 ```
-###  Path: `\personas\shared\partials/security-auditor-output-format.md`
+###  Path: `/personas/shared/partials/security-auditor-output-format.md`
 
 ```md
 ## Output Format
@@ -348,7 +348,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 If no issues are found, record a single comment confirming the review was performed: `type: "improvement", note: "No security findings — all OWASP Top 10 categories reviewed; no Critical or High issues identified."`.
 
 ```
-###  Path: `\personas\shared\partials/synthesis-operational-protocol.md`
+###  Path: `/personas/shared/partials/synthesis-operational-protocol.md`
 
 ```md
 ## Operational Protocol
@@ -360,7 +360,7 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
 3. **Plan Status:** Determine if the overall plan is `COMPLETE` or if unfinished work packages remain.
 
 ```
-###  Path: `\personas\shared\partials/synthesis-output-format.md`
+###  Path: `/personas/shared/partials/synthesis-output-format.md`
 
 ```md
 ## Output Format

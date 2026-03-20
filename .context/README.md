@@ -113,6 +113,7 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/bundle-docs.js` | Compile project docs into bundles (e.g. for NotebookLM) |
 | `node scripts/cli.js ctx-generate` | Generate context documentation via [CTX Generator](https://github.com/context-hub/generator) |
 | `node scripts/run-gui.js` | Launch the MCP server GUI dashboard |
+| `node scripts/preflight-orchestrator.js` | Pre-flight readiness checks (venv, `.env`, dist, conflicts) |
 | `node scripts/run-orchestrator.js` | Launch the orchestrator (rebuilds MCP server if stale) |
 
 ---

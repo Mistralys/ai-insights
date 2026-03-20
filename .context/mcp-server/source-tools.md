@@ -19,7 +19,7 @@ _SOURCE: MCP tool handler implementations_
             └── workflow.ts
 
 ```
-###  Path: `\mcp-server\src\tools/begin-work.ts`
+###  Path: `/mcp-server/src/tools/begin-work.ts`
 
 ```ts
 import { z } from 'zod';
@@ -306,7 +306,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/help-content.ts`
+###  Path: `/mcp-server/src/tools/help-content.ts`
 
 ```ts
 /**
@@ -1042,7 +1042,7 @@ completion. If the file does not exist, it is silently skipped and reported in
 
 
 ```
-###  Path: `\mcp-server\src\tools/help.ts`
+###  Path: `/mcp-server/src/tools/help.ts`
 
 ```ts
 import { z } from 'zod';
@@ -1129,7 +1129,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/observations.ts`
+###  Path: `/mcp-server/src/tools/observations.ts`
 
 ```ts
 import { z } from 'zod';
@@ -1363,7 +1363,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/pipeline.ts`
+###  Path: `/mcp-server/src/tools/pipeline.ts`
 
 ```ts
 import { z } from 'zod';
@@ -2195,7 +2195,7 @@ export const _internal = {
 };
 
 ```
-###  Path: `\mcp-server\src\tools/project-lifecycle.ts`
+###  Path: `/mcp-server/src/tools/project-lifecycle.ts`
 
 ```ts
 import { z } from 'zod';
@@ -3069,7 +3069,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/work-package.ts`
+###  Path: `/mcp-server/src/tools/work-package.ts`
 
 ```ts
 import { z } from 'zod';
@@ -4557,7 +4557,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/workflow-handoff.ts`
+###  Path: `/mcp-server/src/tools/workflow-handoff.ts`
 
 ```ts
 import { z } from 'zod';
@@ -5869,7 +5869,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/workflow-next-action-batch.ts`
+###  Path: `/mcp-server/src/tools/workflow-next-action-batch.ts`
 
 ```ts
 /**
@@ -6229,7 +6229,7 @@ export async function getNextActionsCollector(
 }
 
 ```
-###  Path: `\mcp-server\src\tools/workflow-next-action.ts`
+###  Path: `/mcp-server/src/tools/workflow-next-action.ts`
 
 ```ts
 import { z } from 'zod';
@@ -7896,7 +7896,7 @@ export function register(server: McpServer): void {
 }
 
 ```
-###  Path: `\mcp-server\src\tools/workflow.ts`
+###  Path: `/mcp-server/src/tools/workflow.ts`
 
 ```ts
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';

@@ -6,6 +6,9 @@ _SOURCE: Top-level directory tree_
 └── AGENTS.md
 └── CLAUDE.md
 └── README.md
+└── build/
+    ├── notebooklm-bundle.md
+    ├── workflow-specification.md
 └── changelog.md
 └── context.yaml
 └── discussions/
@@ -62,6 +65,10 @@ _SOURCE: Top-level directory tree_
     │   │   ├── work-package.d.ts.map
     │   │   ├── work-package.js
     │   │   ├── work-package.js.map
+    │   │   ├── workflow-manifest-schema.d.ts
+    │   │   ├── workflow-manifest-schema.d.ts.map
+    │   │   ├── workflow-manifest-schema.js
+    │   │   ├── workflow-manifest-schema.js.map
     │   ├── storage/
     │   │   ├── atomic-writer.d.ts
     │   │   ├── atomic-writer.d.ts.map
@@ -104,6 +111,10 @@ _SOURCE: Top-level directory tree_
     │   │   ├── work-package.d.ts.map
     │   │   ├── work-package.js
     │   │   ├── work-package.js.map
+    │   │   ├── workflow-batch-actions.d.ts
+    │   │   ├── workflow-batch-actions.d.ts.map
+    │   │   ├── workflow-batch-actions.js
+    │   │   ├── workflow-batch-actions.js.map
     │   │   ├── workflow-handoff.d.ts
     │   │   ├── workflow-handoff.d.ts.map
     │   │   ├── workflow-handoff.js
@@ -198,10 +209,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── index.d.ts
     │   │   ├── index.js
     │   │   ├── package.json
-    │   ├── bidi-js/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
     │   ├── body-parser/
     │   │   ├── LICENSE/
     │   │   ├── README.md
@@ -280,24 +287,9 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── index.js
     │   │   ├── package.json
-    │   ├── css-tree/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── data-urls/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
     │   ├── debug/
     │   │   ├── LICENSE/
     │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── decimal.js/
-    │   │   ├── LICENCE.md
-    │   │   ├── README.md
-    │   │   ├── decimal.d.ts
-    │   │   ├── decimal.js
-    │   │   ├── decimal.mjs
     │   │   ├── package.json
     │   ├── depd/
     │   │   ├── History.md
@@ -325,14 +317,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── index.js
     │   │   ├── package.json
-    │   ├── entities/
-    │   │   ├── LICENSE/
-    │   │   ├── decode.d.ts
-    │   │   ├── decode.js
-    │   │   ├── escape.d.ts
-    │   │   ├── escape.js
-    │   │   ├── package.json
-    │   │   ├── readme.md
     │   ├── es-define-property/
     │   │   ├── CHANGELOG.md
     │   │   ├── LICENSE/
@@ -461,6 +445,13 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── index.js
     │   │   ├── package.json
+    │   ├── fsevents/
+    │   │   ├── LICENSE/
+    │   │   ├── README.md
+    │   │   ├── fsevents.d.ts
+    │   │   ├── fsevents.js
+    │   │   ├── fsevents.node
+    │   │   ├── package.json
     │   ├── function-bind/
     │   │   ├── CHANGELOG.md
     │   │   ├── LICENSE/
@@ -530,10 +521,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── LICENSE/
     │   │   ├── README.md
     │   │   ├── package.json
-    │   ├── html-encoding-sniffer/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
     │   ├── http-errors/
     │   │   ├── HISTORY.md
     │   │   ├── LICENSE/
@@ -559,11 +546,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── ipaddr.min.js
     │   │   ├── package.json
-    │   ├── is-potential-custom-element-name/
-    │   │   ├── LICENSE-MIT.txt
-    │   │   ├── README.md
-    │   │   ├── index.js
-    │   │   ├── package.json
     │   ├── is-promise/
     │   │   ├── LICENSE/
     │   │   ├── index.d.ts
@@ -582,10 +564,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── LICENSE.md
     │   │   ├── README.md
     │   │   ├── package.json
-    │   ├── jsdom/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
     │   ├── json-schema-traverse/
     │   │   ├── LICENSE/
     │   │   ├── README.md
@@ -601,10 +579,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── draft_2019_09.js
     │   │   ├── draft_2020_12.d.ts
     │   │   ├── draft_2020_12.js
-    │   │   ├── package.json
-    │   ├── lru-cache/
-    │   │   ├── LICENSE.md
-    │   │   ├── README.md
     │   │   ├── package.json
     │   ├── magic-string/
     │   │   ├── LICENSE/
@@ -640,11 +614,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── sign.d.ts
     │   │   ├── sign.js
     │   │   ├── tsconfig.json
-    │   ├── mdn-data/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index.js
-    │   │   ├── package.json
     │   ├── media-typer/
     │   │   ├── HISTORY.md
     │   │   ├── LICENSE/
@@ -722,10 +691,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── once.js
     │   │   ├── package.json
-    │   ├── parse5/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
     │   ├── parseurl/
     │   │   ├── HISTORY.md
     │   │   ├── LICENSE/
@@ -782,12 +747,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── index.js
     │   │   ├── package.json
-    │   ├── punycode/
-    │   │   ├── LICENSE-MIT.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   │   ├── punycode.es6.js
-    │   │   ├── punycode.js
     │   ├── qs/
     │   │   ├── CHANGELOG.md
     │   │   ├── LICENSE.md
@@ -840,12 +799,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── package.json
     │   │   ├── safer.js
     │   │   ├── tests.js
-    │   ├── saxes/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   │   ├── saxes.d.ts
-    │   │   ├── saxes.js
-    │   │   ├── saxes.js.map
     │   ├── send/
     │   │   ├── LICENSE/
     │   │   ├── README.md
@@ -941,10 +894,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── LICENCE/
     │   │   ├── README.md
     │   │   ├── package.json
-    │   ├── symbol-tree/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
     │   ├── tinybench/
     │   │   ├── LICENSE/
     │   │   ├── README.md
@@ -961,28 +910,9 @@ _SOURCE: Top-level directory tree_
     │   │   ├── LICENCE/
     │   │   ├── README.md
     │   │   ├── package.json
-    │   ├── tldts-core/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index.ts
-    │   │   ├── package.json
-    │   ├── tldts/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index.ts
-    │   │   ├── package.json
     │   ├── toidentifier/
     │   │   ├── HISTORY.md
     │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index.js
-    │   │   ├── package.json
-    │   ├── tough-cookie/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── tr46/
-    │   │   ├── LICENSE.md
     │   │   ├── README.md
     │   │   ├── index.js
     │   │   ├── package.json
@@ -1044,13 +974,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── util.d.ts
     │   │   ├── webidl.d.ts
     │   │   ├── websocket.d.ts
-    │   ├── undici/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index-fetch.js
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   │   ├── package.json
     │   ├── unpipe/
     │   │   ├── HISTORY.md
     │   │   ├── LICENSE/
@@ -1091,24 +1014,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── suppress-warnings.cjs
     │   │   ├── vitest.mjs
     │   │   ├── worker.d.ts
-    │   ├── w3c-xmlserializer/
-    │   │   ├── LICENSE.md
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── webidl-conversions/
-    │   │   ├── LICENSE.md
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── whatwg-mimetype/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── whatwg-url/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── index.js
-    │   │   ├── package.json
-    │   │   ├── webidl2js-wrapper.js
     │   ├── which/
     │   │   ├── CHANGELOG.md
     │   │   ├── LICENSE/
@@ -1128,17 +1033,6 @@ _SOURCE: Top-level directory tree_
     │   │   ├── README.md
     │   │   ├── package.json
     │   │   ├── wrappy.js
-    │   ├── xml-name-validator/
-    │   │   ├── LICENSE.txt
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── xmlchars/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   │   ├── xmlchars.d.ts
-    │   │   ├── xmlchars.js
-    │   │   ├── xmlchars.js.map
     │   ├── zod-to-json-schema/
     │   │   ├── LICENSE/
     │   │   ├── README.md
@@ -1261,548 +1155,57 @@ _SOURCE: Top-level directory tree_
     │   │   └── wp-id.test.ts
     ├── tsconfig.json
     ├── vitest.config.ts
-└── node_modules/
-    ├── @jridgewell/
-    │   ├── sourcemap-codec/
-    │   │   └── LICENSE/
-    │   │   └── README.md
-    │   │   └── package.json
-    ├── @oxc-project/
-    │   ├── runtime/
-    │   │   ├── CHANGELOG.md
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── types/
-    │   │   └── LICENSE/
-    │   │   └── README.md
-    │   │   └── package.json
-    │   │   └── types.d.ts
-    ├── @rolldown/
-    │   ├── binding-win32-x64-msvc/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   │   ├── rolldown-binding.win32-x64-msvc.node
-    │   ├── pluginutils/
-    │   │   └── LICENSE/
-    │   │   └── README.md
-    │   │   └── package.json
-    ├── @standard-schema/
-    │   ├── spec/
-    │   │   └── LICENSE/
-    │   │   └── README.md
-    │   │   └── package.json
-    ├── @types/
-    │   ├── chai/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index.d.ts
-    │   │   ├── package.json
-    │   │   ├── register-should.d.ts
-    │   ├── deep-eql/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── index.d.ts
-    │   │   ├── package.json
-    │   ├── estree/
-    │   │   └── LICENSE/
-    │   │   └── README.md
-    │   │   └── flow.d.ts
-    │   │   └── index.d.ts
-    │   │   └── package.json
-    ├── @vitest/
-    │   ├── expect/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── mocker/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── pretty-format/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── runner/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   │   ├── types.d.ts
-    │   │   ├── utils.d.ts
-    │   ├── snapshot/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── environment.d.ts
-    │   │   ├── manager.d.ts
-    │   │   ├── package.json
-    │   ├── spy/
-    │   │   ├── LICENSE/
-    │   │   ├── README.md
-    │   │   ├── package.json
-    │   ├── utils/
-    │   │   └── LICENSE/
-    │   │   └── README.md
-    │   │   └── diff.d.ts
-    │   │   └── error.d.ts
-    │   │   └── helpers.d.ts
-    │   │   └── package.json
-    ├── assertion-error/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── index.d.ts
-    │   ├── index.js
-    │   ├── package.json
-    ├── chai/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── index.js
-    │   ├── package.json
-    │   ├── register-assert.js
-    │   ├── register-expect.js
-    │   ├── register-should.js
-    ├── convert-source-map/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── index.js
-    │   ├── package.json
-    ├── detect-libc/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── index.d.ts
-    │   ├── lib/
-    │   │   ├── detect-libc.js
-    │   │   ├── elf.js
-    │   │   ├── filesystem.js
-    │   │   ├── process.js
-    │   ├── package.json
-    ├── es-module-lexer/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── lexer.asm.js
-    │   │   ├── lexer.cjs
-    │   │   ├── lexer.js
-    │   ├── lexer.js
-    │   ├── package.json
-    │   ├── types/
-    │   │   └── lexer.d.ts
-    ├── estree-walker/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── package.json
-    │   ├── src/
-    │   │   ├── async.js
-    │   │   ├── index.js
-    │   │   ├── sync.js
-    │   │   ├── walker.js
-    │   ├── types/
-    │   │   └── async.d.ts
-    │   │   └── index.d.ts
-    │   │   └── sync.d.ts
-    │   │   └── walker.d.ts
-    ├── expect-type/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── SECURITY.md
-    │   ├── dist/
-    │   │   ├── branding.d.ts
-    │   │   ├── branding.js
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   │   ├── messages.d.ts
-    │   │   ├── messages.js
-    │   │   ├── overloads.d.ts
-    │   │   ├── overloads.js
-    │   │   ├── utils.d.ts
-    │   │   ├── utils.js
-    │   ├── package.json
-    ├── fdir/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── index.cjs
-    │   │   ├── index.d.cts
-    │   │   ├── index.d.mts
-    │   │   ├── index.mjs
-    │   ├── package.json
-    ├── lightningcss-win32-x64-msvc/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── lightningcss.win32-x64-msvc.node
-    │   ├── package.json
-    ├── lightningcss/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── node/
-    │   │   ├── ast.d.ts
-    │   │   ├── ast.js.flow
-    │   │   ├── browserslistToTargets.js
-    │   │   ├── composeVisitors.js
-    │   │   ├── flags.js
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   │   ├── index.js.flow
-    │   │   ├── index.mjs
-    │   │   ├── targets.d.ts
-    │   │   ├── targets.js.flow
-    │   ├── package.json
-    ├── magic-string/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── magic-string.cjs.d.ts
-    │   │   ├── magic-string.cjs.js
-    │   │   ├── magic-string.cjs.js.map
-    │   │   ├── magic-string.es.d.mts
-    │   │   ├── magic-string.es.mjs
-    │   │   ├── magic-string.es.mjs.map
-    │   │   ├── magic-string.umd.js
-    │   │   ├── magic-string.umd.js.map
-    │   ├── package.json
-    ├── nanoid/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── async/
-    │   │   ├── index.browser.cjs
-    │   │   ├── index.browser.js
-    │   │   ├── index.cjs
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   │   ├── index.native.js
-    │   │   ├── package.json
-    │   ├── bin/
-    │   │   ├── nanoid.cjs
-    │   ├── index.browser.cjs
-    │   ├── index.browser.js
-    │   ├── index.cjs
-    │   ├── index.d.cts
-    │   ├── index.d.ts
-    │   ├── index.js
-    │   ├── nanoid.js
-    │   ├── non-secure/
-    │   │   ├── index.cjs
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   │   ├── package.json
-    │   ├── package.json
-    │   ├── url-alphabet/
-    │   │   └── index.cjs
-    │   │   └── index.js
-    │   │   └── package.json
-    ├── obug/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── browser.d.ts
-    │   │   ├── browser.js
-    │   │   ├── browser.min.js
-    │   │   ├── core.d.ts
-    │   │   ├── core.js
-    │   │   ├── node.d.ts
-    │   │   ├── node.js
-    │   ├── package.json
-    ├── pathe/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── index.cjs
-    │   │   ├── index.d.cts
-    │   │   ├── index.d.mts
-    │   │   ├── index.d.ts
-    │   │   ├── index.mjs
-    │   │   ├── utils.cjs
-    │   │   ├── utils.d.cts
-    │   │   ├── utils.d.mts
-    │   │   ├── utils.d.ts
-    │   │   ├── utils.mjs
-    │   ├── package.json
-    │   ├── utils.d.ts
-    ├── picocolors/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── package.json
-    │   ├── picocolors.browser.js
-    │   ├── picocolors.d.ts
-    │   ├── picocolors.js
-    │   ├── types.d.ts
-    ├── picomatch/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── index.js
-    │   ├── lib/
-    │   │   ├── constants.js
-    │   │   ├── parse.js
-    │   │   ├── picomatch.js
-    │   │   ├── scan.js
-    │   │   ├── utils.js
-    │   ├── package.json
-    │   ├── posix.js
-    ├── postcss/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── lib/
-    │   │   ├── at-rule.d.ts
-    │   │   ├── at-rule.js
-    │   │   ├── comment.d.ts
-    │   │   ├── comment.js
-    │   │   ├── container.d.ts
-    │   │   ├── container.js
-    │   │   ├── css-syntax-error.d.ts
-    │   │   ├── css-syntax-error.js
-    │   │   ├── declaration.d.ts
-    │   │   ├── declaration.js
-    │   │   ├── document.d.ts
-    │   │   ├── document.js
-    │   │   ├── fromJSON.d.ts
-    │   │   ├── fromJSON.js
-    │   │   ├── input.d.ts
-    │   │   ├── input.js
-    │   │   ├── lazy-result.d.ts
-    │   │   ├── lazy-result.js
-    │   │   ├── list.d.ts
-    │   │   ├── list.js
-    │   │   ├── map-generator.js
-    │   │   ├── no-work-result.d.ts
-    │   │   ├── no-work-result.js
-    │   │   ├── node.d.ts
-    │   │   ├── node.js
-    │   │   ├── parse.d.ts
-    │   │   ├── parse.js
-    │   │   ├── parser.js
-    │   │   ├── postcss.d.mts
-    │   │   ├── postcss.d.ts
-    │   │   ├── postcss.js
-    │   │   ├── postcss.mjs
-    │   │   ├── previous-map.d.ts
-    │   │   ├── previous-map.js
-    │   │   ├── processor.d.ts
-    │   │   ├── processor.js
-    │   │   ├── result.d.ts
-    │   │   ├── result.js
-    │   │   ├── root.d.ts
-    │   │   ├── root.js
-    │   │   ├── rule.d.ts
-    │   │   ├── rule.js
-    │   │   ├── stringifier.d.ts
-    │   │   ├── stringifier.js
-    │   │   ├── stringify.d.ts
-    │   │   ├── stringify.js
-    │   │   ├── symbols.js
-    │   │   ├── terminal-highlight.js
-    │   │   ├── tokenize.js
-    │   │   ├── warn-once.js
-    │   │   ├── warning.d.ts
-    │   │   ├── warning.js
-    │   ├── package.json
-    ├── rolldown/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── bin/
-    │   │   ├── cli.mjs
-    │   ├── dist/
-    │   │   ├── cli.d.mts
-    │   │   ├── cli.mjs
-    │   │   ├── config.d.mts
-    │   │   ├── config.mjs
-    │   │   ├── experimental-index.d.mts
-    │   │   ├── experimental-index.mjs
-    │   │   ├── experimental-runtime-types.d.ts
-    │   │   ├── filter-index.d.mts
-    │   │   ├── filter-index.mjs
-    │   │   ├── get-log-filter.d.mts
-    │   │   ├── get-log-filter.mjs
-    │   │   ├── index.d.mts
-    │   │   ├── index.mjs
-    │   │   ├── parallel-plugin-worker.d.mts
-    │   │   ├── parallel-plugin-worker.mjs
-    │   │   ├── parallel-plugin.d.mts
-    │   │   ├── parallel-plugin.mjs
-    │   │   ├── parse-ast-index.d.mts
-    │   │   ├── parse-ast-index.mjs
-    │   │   ├── plugins-index.d.mts
-    │   │   ├── plugins-index.mjs
-    │   │   ├── utils-index.d.mts
-    │   │   ├── utils-index.mjs
-    │   ├── package.json
-    ├── siginfo/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── index.js
-    │   ├── package.json
-    │   ├── test.js
-    ├── source-map-js/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── lib/
-    │   │   ├── array-set.js
-    │   │   ├── base64-vlq.js
-    │   │   ├── base64.js
-    │   │   ├── binary-search.js
-    │   │   ├── mapping-list.js
-    │   │   ├── quick-sort.js
-    │   │   ├── source-map-consumer.d.ts
-    │   │   ├── source-map-consumer.js
-    │   │   ├── source-map-generator.d.ts
-    │   │   ├── source-map-generator.js
-    │   │   ├── source-node.d.ts
-    │   │   ├── source-node.js
-    │   │   ├── util.js
-    │   ├── package.json
-    │   ├── source-map.d.ts
-    │   ├── source-map.js
-    ├── stackback/
-    │   ├── README.md
-    │   ├── formatstack.js
-    │   ├── index.js
-    │   ├── package.json
-    │   ├── test.js
-    ├── std-env/
-    │   ├── LICENCE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── index.d.mts
-    │   │   ├── index.mjs
-    │   ├── package.json
-    ├── tinybench/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── index.cjs
-    │   │   ├── index.d.cts
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   ├── package.json
-    ├── tinyexec/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── LICENSES.txt
-    │   │   ├── main.d.mts
-    │   │   ├── main.mjs
-    │   ├── package.json
-    ├── tinyglobby/
-    │   ├── LICENSE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── index.cjs
-    │   │   ├── index.d.cts
-    │   │   ├── index.d.mts
-    │   │   ├── index.mjs
-    │   ├── package.json
-    ├── tinyrainbow/
-    │   ├── LICENCE/
-    │   ├── README.md
-    │   ├── dist/
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   ├── package.json
-    ├── vite/
-    │   ├── LICENSE.md
-    │   ├── README.md
-    │   ├── bin/
-    │   │   ├── openChrome.js
-    │   │   ├── vite.js
-    │   ├── client.d.ts
-    │   ├── misc/
-    │   │   ├── false.js
-    │   │   ├── true.js
-    │   ├── package.json
-    │   ├── types/
-    │   │   └── customEvent.d.ts
-    │   │   └── hmrPayload.d.ts
-    │   │   └── hot.d.ts
-    │   │   └── import-meta.d.ts
-    │   │   └── importGlob.d.ts
-    │   │   └── importMeta.d.ts
-    │   │   └── metadata.d.ts
-    ├── vitest/
-    │   ├── LICENSE.md
-    │   ├── README.md
-    │   ├── browser/
-    │   │   ├── context.d.ts
-    │   │   ├── context.js
-    │   ├── config.d.ts
-    │   ├── coverage.d.ts
-    │   ├── dist/
-    │   │   ├── browser.d.ts
-    │   │   ├── browser.js
-    │   │   ├── cli.js
-    │   │   ├── config.cjs
-    │   │   ├── config.d.ts
-    │   │   ├── config.js
-    │   │   ├── coverage.d.ts
-    │   │   ├── coverage.js
-    │   │   ├── environments.d.ts
-    │   │   ├── environments.js
-    │   │   ├── index.d.ts
-    │   │   ├── index.js
-    │   │   ├── module-evaluator.d.ts
-    │   │   ├── module-evaluator.js
-    │   │   ├── node.d.ts
-    │   │   ├── node.js
-    │   │   ├── nodejs-worker-loader.js
-    │   │   ├── path.js
-    │   │   ├── reporters.d.ts
-    │   │   ├── reporters.js
-    │   │   ├── runners.d.ts
-    │   │   ├── runners.js
-    │   │   ├── runtime.d.ts
-    │   │   ├── runtime.js
-    │   │   ├── snapshot.d.ts
-    │   │   ├── snapshot.js
-    │   │   ├── spy.js
-    │   │   ├── suite.d.ts
-    │   │   ├── suite.js
-    │   │   ├── worker.d.ts
-    │   │   ├── worker.js
-    │   ├── environments.d.ts
-    │   ├── globals.d.ts
-    │   ├── import-meta.d.ts
-    │   ├── importMeta.d.ts
-    │   ├── index.cjs
-    │   ├── index.d.cts
-    │   ├── jsdom.d.ts
-    │   ├── mocker.d.ts
-    │   ├── node.d.ts
-    │   ├── optional-types.d.ts
-    │   ├── package.json
-    │   ├── reporters.d.ts
-    │   ├── runners.d.ts
-    │   ├── snapshot.d.ts
-    │   ├── suite.d.ts
-    │   ├── suppress-warnings.cjs
-    │   ├── vitest.mjs
-    │   ├── worker.d.ts
-    ├── why-is-node-running/
-    │   └── LICENSE/
-    │   └── README.md
-    │   └── cli.js
-    │   └── example.js
-    │   └── include.js
-    │   └── index.js
-    │   └── package.json
 └── orchestrator/
     ├── README.md
+    ├── ai_insights_orchestrator.egg-info/
+    │   ├── PKG-INFO/
+    │   ├── SOURCES.txt
+    │   ├── dependency_links.txt
+    │   ├── entry_points.txt
+    │   ├── requires.txt
+    │   ├── top_level.txt
     ├── changelog.md
+    ├── checkpoints/
+    │   ├── test/
+    │   │   ├── workflow.sqlite
+    │   ├── workflow.sqlite
     ├── docs/
     │   ├── architecture.md
     │   ├── jsonl-log-schema.md
     │   ├── public-api.md
     │   ├── smoke-testing.md
     │   ├── supervisor-routing.md
+    ├── logs/
+    │   ├── 20260225T113355-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T113428-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T113453-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T113615-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T113646-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T113659-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T114154-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T114221-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T123200-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260225T124109-2026-02-25-orchestrator-smoke-test.jsonl
+    │   ├── 20260320T120730-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T120840-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T121750-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T121830-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T121831-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T122350-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T133046-2026-03-20-naming-convention-sweep.jsonl
     ├── module-context.yaml
     ├── pyproject.toml
     ├── requirements.txt
     ├── src/
     │   ├── __init__.py
     │   ├── __pycache__/
-    │   │   ├── __init__.cpython-313.pyc
-    │   │   ├── cli.cpython-313.pyc
-    │   │   ├── config.cpython-313.pyc
-    │   │   ├── graph.cpython-313.pyc
-    │   │   ├── mcp_client.cpython-313.pyc
-    │   │   ├── state.cpython-313.pyc
-    │   │   ├── supervisor.cpython-313.pyc
+    │   │   ├── __init__.cpython-314.pyc
+    │   │   ├── cli.cpython-314.pyc
+    │   │   ├── config.cpython-314.pyc
+    │   │   ├── graph.cpython-314.pyc
+    │   │   ├── mcp_client.cpython-314.pyc
+    │   │   ├── state.cpython-314.pyc
+    │   │   ├── supervisor.cpython-314.pyc
     │   ├── cli.py
     │   ├── config.py
     │   ├── graph.py
@@ -1828,15 +1231,16 @@ _SOURCE: Top-level directory tree_
     ├── tests/
     │   └── __init__.py
     │   └── __pycache__/
-    │       ├── __init__.cpython-313.pyc
-    │       ├── test_cli.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_graph.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_integration.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_nodes.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_plan_parser.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_state.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_supervisor.cpython-313-pytest-9.0.2.pyc
-    │       ├── test_tool_wrappers.cpython-313-pytest-9.0.2.pyc
+    │       ├── __init__.cpython-314.pyc
+    │       ├── test_cli.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_config.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_graph.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_integration.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_nodes.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_plan_parser.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_state.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_supervisor.cpython-314-pytest-9.0.2.pyc
+    │       ├── test_tool_wrappers.cpython-314-pytest-9.0.2.pyc
     │   └── test_cli.py
     │   └── test_config.py
     │   └── test_graph.py
@@ -1956,6 +1360,7 @@ _SOURCE: Top-level directory tree_
     ├── lib/
     │   ├── persona-helpers.js
     ├── package-personas.js
+    ├── preflight-orchestrator.js
     ├── run-gui.js
     ├── run-orchestrator.js
     ├── sync-personas.js

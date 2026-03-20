@@ -8,7 +8,7 @@ _SOURCE: Standalone personas guide (PM sub-agent cluster, persona catalog, Claud
         └── README.md
 
 ```
-###  Path: `\personas\standalone/README.md`
+###  Path: `/personas/standalone/README.md`
 
 ```md
 # Standalone Personas
@@ -116,7 +116,7 @@ For detailed build commands, template syntax, and sync conventions, see:
 - [personas/docs/agents/project-manifest/README.md](../docs/agents/project-manifest/README.md) — Quick reference
 - [personas/docs/agents/project-manifest/api-surface.md](../docs/agents/project-manifest/api-surface.md) — Build script functions and template syntax
 - [personas/docs/agents/project-manifest/constraints.md](../docs/agents/project-manifest/constraints.md) — All naming, editing, and cross-system constraints
-- [personas/docs/agents/project-manifest/file-tree.md](../docs/agents/project-manifest/file-tree.md) — Annotated directory structure
+- [personas/docs/agents/project-manifest/constraints.md](../docs/agents/project-manifest/constraints.md) — All naming, editing, and cross-system constraints (includes directory layout table)
 
 **Quick commands:**
 
