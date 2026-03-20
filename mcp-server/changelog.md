@@ -1,33 +1,52 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.14.0 - Shared Workflow Manifest
+- Shared: Added `workflow-manifest.json` as single source of truth for roles, pipeline types, and statuses.
+- Schema: Added Zod manifest schema for startup validation; `AgentRole` type now inferred via enum.
+- Utils: Role and status constants now derived from the shared manifest at module load.
+- Utils: Added `ROLE_IDS` role-to-ID map; deprecated `hasDependencyBlocked` alias.
+- Pipeline: Fail-agent resolution now fully manifest-derived.
+- Workflow: Added `getSecurityAuditorHandoff()` and `getReleaseEngineerHandoff()` dispatch handlers.
+- Workflow: Refactored handoff dispatch to a typed record keyed by `AgentRole`.
+- Tests: Added drift-detection suite for workflow manifest schema invariants.
+
+## v1.13.0 - Spec v2.4 & Atomic Writes
+- Schema: Added `synthesis_generated_at`, `ledger_version`, `active_pipeline_stages` to root-index.
+- Storage: Added `createWorkPackageWithSync` and `batchUpdateWorkPackagesWithSync` sync methods.
+- Storage: Consolidated all WP write paths through sync methods; primitives marked `@internal`.
+- Pipeline: Added `firstActiveStage`, `lastActiveStage`, and `validateActiveStages` helpers.
+- Pipeline: Added advisory dependency staleness check on PASS completion.
+- Workflow: Tracked `synthesis_generated_at` across all reset and synthesis-completion paths.
+- Workflow: Populated `active_pipeline_stages` on work package summary entries.
+- Workflow: Added `SPEC_VERSION` constant; stamps `ledger_version` on project initialization.
+- Workflow: Added self-healing for legacy ledgers with forward-compatibility warning.
+- Tests: Added 83 new tests for schema, storage, pipeline, and workflow lifecycle modules.
+
 ## v1.12.0 - Work Package Pipeline Visualization
-- GUI: Added `GET /api/projects/:slug/work-packages/overview` endpoint; returns enriched WP data including `active_pipeline_stages`, per-stage pipeline status with agent names, acceptance-criteria progress, rework counts, and blocked-by details.
-- GUI: Replaced the redundant "Title" column in the project detail WP table with a colored pipeline stage badge track. Badges are colored by status (grey=pending, blue=in-progress, green=pass, red=fail) with abbreviated agent-name labels and full-name tooltips; stages with rework > 0 display an overlay count badge.
-- GUI: Added pipeline progression bar to the WP detail view, rendered above the existing Pipelines section. Derives data from the already-fetched WP detail — no new API calls.
-- Tests: Added 21-test suite covering the new overview endpoint in `api-wp-overview.test.ts`.
+- API: Added work-package overview endpoint with per-stage pipeline status, rework counts, and blocked-by details.
+- GUI: Replaced the WP table Title column with colored pipeline stage badges showing status and agent names.
+- GUI: Added pipeline progression bar to the WP detail view.
+- Tests: Added test suite for the new overview endpoint.
 
 ## v1.11.3 - Dynamic Pipeline & Agent Annotation Helpers
-- Utils: Added `describePipelineTypes(prefix)` helper to `pipeline-maps.ts`; derives pipeline type list dynamically from `PIPELINE_TYPES` const tuple.
-- Utils: Added `describePipelineAgents(prefix)` helper to `pipeline-maps.ts`; derives agent-role-to-pipeline-type mapping dynamically from `PIPELINE_AGENT_MAP`.
-- Tools: Replaced 6 hardcoded `.describe()` pipeline-type annotation strings across `observations.ts`, `begin-work.ts`, and `pipeline.ts` with `describePipelineTypes()`.
-- Tools: Replaced 2 hardcoded `.describe()` agent-role annotation strings in `StartPipelineSchema` and `CompletePipelineSchema` with `describePipelineAgents()`; now correctly lists all 6 pipeline-agent roles including `Security Auditor` and `Release Engineer`.
-- Tools: Replaced hardcoded pipeline-type prose in `ledger_start_pipeline` tool-registration description with `describePipelineTypes()`.
-- Tests: Added 4-test drift-detection suite for `describePipelineTypes` in `pipeline-maps.test.ts`.
-- Tests: Added 4-test drift-detection suite for `describePipelineAgents` in `pipeline-maps.test.ts`.
-- Docs: Documented both helpers in `api-surface.md`; added Constraint 68 to `constraints.md`.
+- Utils: Added `describePipelineTypes()` and `describePipelineAgents()` helpers.
+- Utils: Pipeline-type and agent-role annotations now derive dynamically from canonical constants instead of hardcoded strings.
+- Tools: Updated all pipeline-type and agent-role annotation strings to use the new dynamic helpers.
+- Tests: Added drift-detection tests for both new helpers.
+- Docs: Updated API surface and constraints documentation.
 
 ## v1.11.2 - GUI Archive Fix
 - GUI: Fixed the "Archive" row action displaying the alert twice.
 
 ## v1.11.1 - GUI Fix
 - GUI: Fixed archiving projects changing their last updated time.
-- GUI: Removed the grayed out style of archived projects.
+- GUI: Removed the grayed-out styling of archived projects.
 
 ## v1.11.0 - GUI Improvements
-- GUI: Per-row action buttons replaced with a kebab-menu.
+- GUI: Replaced per-row action buttons with a kebab-menu.
 - Backend: Added endpoint to mark all active work packages and the project index as COMPLETE.
-- GUI: Split app.js monolith into 9 focused modules.
-- GUI: Added interactive column sorting, keyboard-accessible.
+- GUI: Refactored front-end code into focused modules.
+- GUI: Added interactive, keyboard-accessible column sorting.
 - GUI: Fixed search input losing spaces after a sort click.
 - GUI: Fixed string column sort to be locale-deterministic.
 - GUI: Corrected dark-mode contrast ratios.
@@ -35,44 +54,44 @@
 
 ## v1.10.0 - Dark Mode Dashboard
 - GUI: Added dark mode with toggle button (🌙 / ☀️) in the nav header.
-- MCP: Improved project detection based on time diffs.
+- MCP: Improved project detection accuracy.
 
 ## v1.9.2 - Independent Title / Slug Rename
 - GUI: Added slug and title renaming.
 - GUI: Added the repository folder column.
 - Tools: Fixed invisible arguments confusing agents.
-- Tools: Fixed confusing project path argument documentation.
+- Tools: Clarified project path argument documentation.
 - Tests: Added regression guard for missing tool docs.
 
 ## v1.9.0 - VS Code Persona IDs
 - MCP: More lenient parameters for the complete pipeline tool.
-- Personas: Added unique \id\ field to all ledger and standalone persona definitions.
+- Personas: Added unique `id` field to all ledger and standalone persona definitions.
 - Registry: Extended agent discovery to cache and resolve agents by ID alongside handles.
 - Workflow: Updated handoff logic to propagate stable agent IDs in auto-handoff payloads.
-- Build: Updated persona build and sync scripts to validate the new \id\ field.
+- Build: Updated persona build and sync scripts to validate the new `id` field.
 - Tests: Added coverage for ID-based agent resolution and handoff payload structure.
 
 ## v1.8.1 - begin_work Handoff Guard Fix & Micro-Debt Cleanup
 - Workflow: Fixed cross-agent handoffs failing when agents used `ledger_begin_work`.
-- Workflow: Eliminated redundant disk reads during project manager action checks.
+- Workflow: Optimized project manager action checks.
 
 ## v1.8.0 - Phase 4: Recommendation Engine Rewrite
-- Recommendations: Rewrote all action recommendations to comply with spec §14.1–§14.5.
+- Recommendations: Rewrote all action recommendations for consistency and coverage.
 - Recommendations: Adjusted priority orderings for Developer and Documentation roles.
-- Recommendations: Added 13 new action types spanning all agent roles.
+- Recommendations: Added new action types spanning all agent roles.
 - Workflow: Separated re-engagement from first-run action paths for QA and Reviewer.
 - Workflow: Added temporal guard preventing duplicate rework cycles for Developers.
 - Workflow: Improved freshness checks for finalized documentation packages.
 
 ## v1.7.0 - Schema Foundations & GUI Enhancements
-- Gui: Added total and pending work package counters to project list.
-- Gui: Improved table visualization with progress bars and project names.
-- Gui: Introduced text search filtering for the project list.
+- GUI: Added total and pending work package counters to project list.
+- GUI: Improved table visualization with progress bars and project names.
+- GUI: Introduced text search filtering for the project list.
 - Schema: Allowed initial package revisions to start at zero.
 - Schema: Added support for tracking unassigned work packages.
 - Schema: Expanded work package IDs to support four digits and beyond.
 - Workflow: Added tracking for auto-cancelled pipelines and status timestamps.
-- Storage: Introduced dual-field backward compatibility for rework metrics.
+- Storage: Added backward-compatible rework metrics tracking.
 
 ## v1.6.0 - Workflow Specification Audit Fixes
 - Handoff: Handled cancelled pipelines as terminal statuses.
