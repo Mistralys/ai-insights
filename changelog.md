@@ -1,12 +1,15 @@
 # AI Insights Changelog
 
 ## v1.9.0 - Orchestrator Checkpoint Support
-> orchestrator v0.5.0
+> mcp v1.14.1 · orchestrator v0.5.0 · personas v3.9.2
 
 - Orchestrator: Added checkpoint support for resumable runs.
 - Orchestrator: Added concurrency guard to prevent parallel runs against the same plan.
 - Orchestrator: Improved PM phase feedback.
-- Orchestrator: Fixed sqlite imports and a runtime bug.
+- Orchestrator: Fixed sqlite imports, a runtime bug, and async errors.
+- MCP: Improved error messages when no project ledger exists.
+- Personas: Simplified Orchestrator Runner preflight to automated script.
+- CLI: Added automated pre-flight checks for the orchestrator.
 - CLI: Orchestrator launcher no longer relies on `$PATH`.
 
 ## v1.8.0 - Extended 9-Agent Workflow

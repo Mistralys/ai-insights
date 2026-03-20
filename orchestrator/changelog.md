@@ -6,6 +6,7 @@
 - CLI: Improved PM phase feedback.
 - Fix: Fixed sqlite imports.
 - Fix: Fixed a runtime bug in tool wrappers.
+- Fix: Fixed async runtime errors in graph builder and checkpointer.
 - Tests: Added tool wrapper tests.
 
 ## v0.4.0 - Manifest-Driven Configuration

@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.9.2 - Preflight & Docs Cleanup
+- Personas: Simplified Orchestrator Runner preflight to a single script call.
+- Docs: Removed `file-tree.md` from the persona manifest.
+
 ## v3.9.1 - Helper Unification & Strict-Mode Robustness
 - Build: Unified `validateCcFileName` and `validateVsFileName` into a single `validateFileName` helper.
 - Build: Fixed `--strict` false-positive by stripping fenced code blocks before scanning for unresolved markers.

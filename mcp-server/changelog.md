@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.14.1 - Improved Error Messages
+- Ledger: Improved error messages when no project ledger exists.
+
 ## v1.14.0 - Shared Workflow Manifest
 - Shared: Added `workflow-manifest.json` as single source of truth for roles, pipeline types, and statuses.
 - Schema: Added Zod manifest schema for startup validation; `AgentRole` type now inferred via enum.
