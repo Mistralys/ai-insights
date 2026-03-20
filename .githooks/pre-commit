@@ -1,2 +1,17 @@
 #!/bin/sh
 /usr/local/bin/node scripts/build-personas.js --check
+
+# Warn if a sub-project changelog changed without the root changelog
+STAGED=$(git diff --cached --name-only)
+SUB_CHANGED=0
+ROOT_CHANGED=0
+
+echo "$STAGED" | grep -qE '^(mcp-server|personas|orchestrator)/changelog\.md$' && SUB_CHANGED=1
+echo "$STAGED" | grep -q '^changelog\.md$' && ROOT_CHANGED=1
+
+if [ "$SUB_CHANGED" -eq 1 ] && [ "$ROOT_CHANGED" -eq 0 ]; then
+  echo ""
+  echo "WARNING: A sub-project changelog was updated but the root changelog.md was not."
+  echo "  Consider summarizing the changes in changelog.md before committing."
+  echo ""
+fi
