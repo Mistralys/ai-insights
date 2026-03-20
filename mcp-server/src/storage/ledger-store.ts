@@ -109,7 +109,10 @@ export class LedgerStore {
       return RootIndexSchema.parse(data);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`Root index not found at ${path}`);
+        throw new Error(
+          `Root index not found — no project ledger exists at ${path}. ` +
+          `The Project Manager agent must initialize one via ledger_initialize_project before other agents can proceed.`,
+        );
       }
 
       if (error instanceof SyntaxError) {
