@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.config import FAIL_ROUTING_AGENT_MAP, PIPELINE_AGENT_MAP
 from src.supervisor import make_supervisor_node
 
 
@@ -42,11 +43,17 @@ def _derive_next_action(
     Used exclusively by test mocks — not production code.
 
     **Drift risk:** This helper re-implements a subset of the MCP server's
-    ``ledger_get_next_action`` routing logic.  Any change to the MCP server's
-    action vocabulary (adding, renaming, or removing action strings such as
-    ``IMPLEMENT``, ``RUN_QA``, ``REWORK``, etc.) must be manually mirrored
-    here.  The authoritative source of action vocabulary is
-    ``mcp-server/src/utils/constants.ts`` (``AGENT_ACTIONS`` / ``_DISPATCH_ACTIONS``).
+    ``ledger_get_next_action`` routing logic.  One sync point must be kept
+    up to date whenever the workflow changes:
+
+    1. **Action vocabulary** (``IMPLEMENT``, ``RUN_QA``, ``REWORK``, etc.):
+       authoritative source is ``mcp-server/src/utils/constants.ts``
+       (``AGENT_ACTIONS`` / ``_DISPATCH_ACTIONS``).
+
+    Both PASS-branch and FAIL-branch routing targets are derived
+    programmatically from ``PIPELINE_AGENT_MAP`` /
+    ``FAIL_ROUTING_AGENT_MAP`` (``shared/workflow-manifest.json``) and
+    do not require manual synchronisation.
     """
 
     def latest(pipelines: list, ptype: str) -> str | None:
@@ -83,33 +90,47 @@ def _derive_next_action(
 
         impl = latest(pipelines, "implementation")
         qa = latest(pipelines, "qa")
+        sa = latest(pipelines, "security-audit")
         cr = latest(pipelines, "code-review")
+        re = latest(pipelines, "release-engineering")
         doc = latest(pipelines, "documentation")
 
         if impl is None:
-            next_role, action = "Developer", "IMPLEMENT"
+            next_role, action = PIPELINE_AGENT_MAP["implementation"], "IMPLEMENT"
         elif impl == "IN_PROGRESS":
-            next_role, action = "Developer", "CONTINUE_PIPELINE"
+            next_role, action = PIPELINE_AGENT_MAP["implementation"], "CONTINUE_PIPELINE"
         elif impl == "FAIL":
-            next_role, action = "Developer", "REWORK"
+            next_role, action = FAIL_ROUTING_AGENT_MAP["implementation"], "REWORK"
         elif impl == "PASS" and qa is None:
-            next_role, action = "QA", "RUN_QA"
+            next_role, action = PIPELINE_AGENT_MAP["qa"], "RUN_QA"
         elif qa == "IN_PROGRESS":
-            next_role, action = "QA", "CONTINUE_PIPELINE"
+            next_role, action = PIPELINE_AGENT_MAP["qa"], "CONTINUE_PIPELINE"
         elif qa == "FAIL":
-            next_role, action = "Developer", "REWORK"
-        elif qa == "PASS" and cr is None:
-            next_role, action = "Reviewer", "RUN_REVIEW"
+            next_role, action = FAIL_ROUTING_AGENT_MAP["qa"], "REWORK"
+        elif qa == "PASS" and sa is None:
+            next_role, action = PIPELINE_AGENT_MAP["security-audit"], "RUN_SECURITY_AUDIT"
+        elif sa == "IN_PROGRESS":
+            next_role, action = PIPELINE_AGENT_MAP["security-audit"], "CONTINUE_PIPELINE"
+        elif sa == "FAIL":
+            next_role, action = FAIL_ROUTING_AGENT_MAP["security-audit"], "REWORK"
+        elif sa == "PASS" and cr is None:
+            next_role, action = PIPELINE_AGENT_MAP["code-review"], "RUN_REVIEW"
         elif cr == "IN_PROGRESS":
-            next_role, action = "Reviewer", "CONTINUE_PIPELINE"
+            next_role, action = PIPELINE_AGENT_MAP["code-review"], "CONTINUE_PIPELINE"
         elif cr == "FAIL":
-            next_role, action = "Developer", "REWORK"
-        elif cr == "PASS" and doc is None:
-            next_role, action = "Documentation", "WRITE_DOCS"
+            next_role, action = FAIL_ROUTING_AGENT_MAP["code-review"], "REWORK"
+        elif cr == "PASS" and re is None:
+            next_role, action = PIPELINE_AGENT_MAP["release-engineering"], "RUN_RELEASE_ENGINEERING"
+        elif re == "IN_PROGRESS":
+            next_role, action = PIPELINE_AGENT_MAP["release-engineering"], "CONTINUE_PIPELINE"
+        elif re == "FAIL":
+            next_role, action = FAIL_ROUTING_AGENT_MAP["release-engineering"], "REWORK"
+        elif re == "PASS" and doc is None:
+            next_role, action = PIPELINE_AGENT_MAP["documentation"], "WRITE_DOCS"
         elif doc == "IN_PROGRESS":
-            next_role, action = "Documentation", "CONTINUE_PIPELINE"
+            next_role, action = PIPELINE_AGENT_MAP["documentation"], "CONTINUE_PIPELINE"
         elif doc == "FAIL":
-            next_role, action = "Documentation", "REWORK"
+            next_role, action = FAIL_ROUTING_AGENT_MAP["documentation"], "REWORK"
         else:
             continue  # WP fully done
 
@@ -284,6 +305,7 @@ class TestRouteToDeveloper:
                     [
                         pipeline("implementation", "PASS"),
                         pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
                         pipeline("code-review", "FAIL"),
                     ],
                 )
@@ -323,7 +345,33 @@ class TestRouteToQA:
 
 class TestRouteToReviewer:
     async def test_pass_qa_no_review_routes_to_reviewer(self):
-        """A PASS QA with no code-review pipeline routes to reviewer."""
+        """A PASS QA and security-audit with no code-review pipeline routes to reviewer."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines(
+                    "WP-001",
+                    [
+                        pipeline("implementation", "PASS"),
+                        pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
+                    ],
+                )
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "reviewer"
+
+
+# ---------------------------------------------------------------------------
+# Tests: routing to "security_auditor"
+# ---------------------------------------------------------------------------
+
+class TestRouteToSecurityAuditor:
+    async def test_pass_qa_no_security_audit_routes_to_security_auditor(self):
+        """A PASS QA with no security-audit pipeline routes to security_auditor."""
         tools = make_mcp_tools(
             wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
             wp_details={
@@ -339,16 +387,10 @@ class TestRouteToReviewer:
         node = make_supervisor_node(tools)
         cmd = await node(base_state())
 
-        assert cmd.goto == "reviewer"
+        assert cmd.goto == "security_auditor"
 
-
-# ---------------------------------------------------------------------------
-# Tests: routing to "docs"
-# ---------------------------------------------------------------------------
-
-class TestRouteToDocs:
-    async def test_pass_review_no_docs_routes_to_docs(self):
-        """A PASS code-review with no documentation pipeline routes to docs."""
+    async def test_security_audit_fail_routes_to_developer(self):
+        """A FAIL security-audit pipeline causes rework route to developer."""
         tools = make_mcp_tools(
             wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
             wp_details={
@@ -357,7 +399,109 @@ class TestRouteToDocs:
                     [
                         pipeline("implementation", "PASS"),
                         pipeline("qa", "PASS"),
+                        pipeline("security-audit", "FAIL"),
+                    ],
+                )
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "developer"
+
+
+# ---------------------------------------------------------------------------
+# Tests: routing to "release_engineer"
+# ---------------------------------------------------------------------------
+
+class TestRouteToReleaseEngineer:
+    async def test_pass_code_review_no_release_engineering_routes_to_release_engineer(self):
+        """A PASS code-review with no release-engineering pipeline routes to release_engineer."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines(
+                    "WP-001",
+                    [
+                        pipeline("implementation", "PASS"),
+                        pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
                         pipeline("code-review", "PASS"),
+                    ],
+                )
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "release_engineer"
+
+    async def test_release_engineering_fail_routes_to_release_engineer(self):
+        """A FAIL release-engineering pipeline causes rework route to release_engineer."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines(
+                    "WP-001",
+                    [
+                        pipeline("implementation", "PASS"),
+                        pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
+                        pipeline("code-review", "PASS"),
+                        pipeline("release-engineering", "FAIL"),
+                    ],
+                )
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "release_engineer"
+
+
+# ---------------------------------------------------------------------------
+# Tests: routing to "docs"
+# ---------------------------------------------------------------------------
+
+class TestDocumentationFail:
+    async def test_documentation_fail_routes_to_docs(self):
+        """A FAIL documentation pipeline causes rework route to docs."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines(
+                    "WP-001",
+                    [
+                        pipeline("implementation", "PASS"),
+                        pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
+                        pipeline("code-review", "PASS"),
+                        pipeline("release-engineering", "PASS"),
+                        pipeline("documentation", "FAIL"),
+                    ],
+                )
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "docs"
+
+
+class TestRouteToDocs:
+    async def test_pass_review_no_docs_routes_to_docs(self):
+        """A PASS code-review and release-engineering with no documentation pipeline routes to docs."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines(
+                    "WP-001",
+                    [
+                        pipeline("implementation", "PASS"),
+                        pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
+                        pipeline("code-review", "PASS"),
+                        pipeline("release-engineering", "PASS"),
                     ],
                 )
             },
@@ -415,7 +559,7 @@ class TestRouteToSynthesis:
         assert cmd.update["pending_wp_count"] == 0
 
     async def test_all_pipelines_pass_routes_to_synthesis(self):
-        """All four pipelines PASS → WP considered done → synthesis."""
+        """All six pipelines PASS → WP considered done → synthesis."""
         tools = make_mcp_tools(
             wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
             wp_details={
@@ -424,7 +568,9 @@ class TestRouteToSynthesis:
                     [
                         pipeline("implementation", "PASS"),
                         pipeline("qa", "PASS"),
+                        pipeline("security-audit", "PASS"),
                         pipeline("code-review", "PASS"),
+                        pipeline("release-engineering", "PASS"),
                         pipeline("documentation", "PASS"),
                     ],
                 )
@@ -787,8 +933,13 @@ class TestDirectActionRouting:
         ("Developer", "CLAIM_WP",           "developer"),
         # QA actions
         ("QA",        "RUN_QA",             "qa"),
+        # Security Auditor actions
+        ("Security Auditor",  "RUN_SECURITY_AUDIT",      "security_auditor"),
         # Reviewer actions
         ("Reviewer",  "RUN_REVIEW",         "reviewer"),
+        # Release Engineer actions
+        ("Release Engineer",  "RUN_RELEASE_ENGINEERING",  "release_engineer"),
+        ("Release Engineer",  "REWORK",                   "release_engineer"),
         # Documentation actions
         ("Documentation", "WRITE_DOCS",     "docs"),
         ("Documentation", "FINALIZE_WP",    "docs"),

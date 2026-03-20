@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { getDownstreamTypes, getUpstreamTypes } from '../../src/utils/pipeline-maps.js';
+import {
+  getDownstreamTypes,
+  getUpstreamTypes,
+  resolvePrerequisite,
+  resolveNextAgent,
+  resolveFailAgent,
+  describePipelineTypes,
+  describePipelineAgents,
+  firstActiveStage,
+  lastActiveStage,
+  validateActiveStages,
+  DEFAULT_PIPELINE_STAGES,
+  PIPELINE_TYPES,
+  PIPELINE_AGENT_MAP,
+  type PipelineType,
+} from '../../src/utils/pipeline-maps.js';
+
+const ALL_6: readonly PipelineType[] = ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
+const LEGACY_4: readonly PipelineType[] = ['implementation', 'qa', 'code-review', 'documentation'];
 
 // ─── getDownstreamTypes ─────────────────────────────────────────────────────
 // Per §8.4: returns all types that follow the given type in PIPELINE_TYPES order.
@@ -54,5 +72,388 @@ describe('getUpstreamTypes', () => {
     result.push('documentation' as any);
     // Calling again must return an unaffected fresh array
     expect(getUpstreamTypes('documentation')).toEqual(['implementation', 'qa', 'code-review']);
+  });
+
+  it('respects active-stages filter — omits qa when not active', () => {
+    const active: readonly PipelineType[] = ['implementation', 'code-review', 'documentation'];
+    expect(getUpstreamTypes('code-review', active)).toEqual(['implementation']);
+  });
+
+  it('respects active-stages filter — all-6 composition', () => {
+    expect(getUpstreamTypes('code-review', ALL_6)).toEqual(['implementation', 'qa', 'security-audit']);
+  });
+});
+
+// ─── getDownstreamTypes — active-stages filter ───────────────────────────────
+
+describe('getDownstreamTypes — active-stages filter', () => {
+  it('defaults to legacy 4-stage behaviour when no activeStages passed', () => {
+    expect(getDownstreamTypes('implementation')).toEqual(['qa', 'code-review', 'documentation']);
+  });
+
+  it('filters to only active stages — skips security-audit', () => {
+    expect(getDownstreamTypes('qa', LEGACY_4)).toEqual(['code-review', 'documentation']);
+  });
+
+  it('returns all 5 downstream for implementation in all-6 composition', () => {
+    expect(getDownstreamTypes('implementation', ALL_6)).toEqual([
+      'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation',
+    ]);
+  });
+
+  it('returns [] for a stage not present in activeStages', () => {
+    expect(getDownstreamTypes('security-audit', LEGACY_4)).toEqual([]);
+  });
+
+  it('returns [] for last active stage', () => {
+    expect(getDownstreamTypes('documentation', ALL_6)).toEqual([]);
+  });
+});
+
+// ─── resolvePrerequisite ─────────────────────────────────────────────────────
+
+describe('resolvePrerequisite', () => {
+  it('returns null for implementation (first stage, legacy-4)', () => {
+    expect(resolvePrerequisite('implementation')).toBeNull();
+  });
+
+  it('returns implementation for qa (legacy-4)', () => {
+    expect(resolvePrerequisite('qa')).toBe('implementation');
+  });
+
+  it('returns qa for code-review (legacy-4)', () => {
+    expect(resolvePrerequisite('code-review')).toBe('qa');
+  });
+
+  it('returns code-review for documentation (legacy-4)', () => {
+    expect(resolvePrerequisite('documentation')).toBe('code-review');
+  });
+
+  it('computes correct prerequisite in all-6 composition', () => {
+    expect(resolvePrerequisite('security-audit', ALL_6)).toBe('qa');
+    expect(resolvePrerequisite('code-review', ALL_6)).toBe('security-audit');
+    expect(resolvePrerequisite('release-engineering', ALL_6)).toBe('code-review');
+    expect(resolvePrerequisite('documentation', ALL_6)).toBe('release-engineering');
+  });
+
+  it('returns null for stage not in activeStages', () => {
+    expect(resolvePrerequisite('security-audit', LEGACY_4)).toBeNull();
+  });
+
+  it('documentation-only composition: first stage has no prerequisite', () => {
+    expect(resolvePrerequisite('documentation', ['documentation'])).toBeNull();
+  });
+
+  it('verify-only (qa + code-review) composition', () => {
+    const stages: readonly PipelineType[] = ['qa', 'code-review'];
+    expect(resolvePrerequisite('qa', stages)).toBeNull();
+    expect(resolvePrerequisite('code-review', stages)).toBe('qa');
+  });
+});
+
+// ─── resolveNextAgent ────────────────────────────────────────────────────────
+
+describe('resolveNextAgent', () => {
+  it('returns QA for implementation (legacy-4)', () => {
+    expect(resolveNextAgent('implementation')).toBe('QA');
+  });
+
+  it('returns Reviewer for qa (legacy-4 — skips security-audit)', () => {
+    expect(resolveNextAgent('qa')).toBe('Reviewer');
+  });
+
+  it('returns Documentation for code-review (legacy-4 — skips release-engineering)', () => {
+    expect(resolveNextAgent('code-review')).toBe('Documentation');
+  });
+
+  it('returns Synthesis for documentation (last stage, legacy-4)', () => {
+    expect(resolveNextAgent('documentation')).toBe('Synthesis');
+  });
+
+  it('returns correct agent in all-6 composition', () => {
+    expect(resolveNextAgent('implementation', ALL_6)).toBe('QA');
+    expect(resolveNextAgent('qa', ALL_6)).toBe('Security Auditor');
+    expect(resolveNextAgent('security-audit', ALL_6)).toBe('Reviewer');
+    expect(resolveNextAgent('code-review', ALL_6)).toBe('Release Engineer');
+    expect(resolveNextAgent('release-engineering', ALL_6)).toBe('Documentation');
+    expect(resolveNextAgent('documentation', ALL_6)).toBe('Synthesis');
+  });
+
+  it('documentation-only composition: returns Synthesis', () => {
+    expect(resolveNextAgent('documentation', ['documentation'])).toBe('Synthesis');
+  });
+
+  it('single-stage (implementation only): returns Synthesis', () => {
+    expect(resolveNextAgent('implementation', ['implementation'])).toBe('Synthesis');
+  });
+
+  it('verification-only (qa + code-review): qa next is Reviewer', () => {
+    const stages: readonly PipelineType[] = ['qa', 'code-review'];
+    expect(resolveNextAgent('qa', stages)).toBe('Reviewer');
+    expect(resolveNextAgent('code-review', stages)).toBe('Synthesis');
+  });
+});
+
+// ─── resolveFailAgent ────────────────────────────────────────────────────────
+
+describe('resolveFailAgent', () => {
+  it('routes implementation → Developer (legacy-4)', () => {
+    expect(resolveFailAgent('implementation')).toBe('Developer');
+  });
+
+  it('routes qa → Developer (implementation is active, legacy-4)', () => {
+    expect(resolveFailAgent('qa')).toBe('Developer');
+  });
+
+  it('routes security-audit → Developer (implementation active, all-6)', () => {
+    expect(resolveFailAgent('security-audit', ALL_6)).toBe('Developer');
+  });
+
+  it('routes code-review → Developer (implementation active, legacy-4)', () => {
+    expect(resolveFailAgent('code-review')).toBe('Developer');
+  });
+
+  it('routes release-engineering → Release Engineer (self-rework, all-6)', () => {
+    expect(resolveFailAgent('release-engineering', ALL_6)).toBe('Release Engineer');
+  });
+
+  it('routes documentation → Documentation (self-rework, legacy-4)', () => {
+    expect(resolveFailAgent('documentation')).toBe('Documentation');
+  });
+
+  it('applies fallback when Developer stage (implementation) is absent', () => {
+    // WP has only qa + code-review (no implementation stage)
+    const stages: readonly PipelineType[] = ['qa', 'code-review'];
+    // Standard fail target for qa is Developer (owns implementation), but
+    // implementation is not in activeStages → fallback to first active stage's agent (QA).
+    expect(resolveFailAgent('qa', stages)).toBe('QA');
+  });
+
+  it('applies fallback for code-review when implementation is absent', () => {
+    const stages: readonly PipelineType[] = ['code-review', 'documentation'];
+    expect(resolveFailAgent('code-review', stages)).toBe('Reviewer');
+  });
+
+  it('no fallback needed when implementation is present (qa fail → Developer)', () => {
+    const stages: readonly PipelineType[] = ['implementation', 'qa'];
+    expect(resolveFailAgent('qa', stages)).toBe('Developer');
+  });
+});
+
+// ─── describePipelineTypes (drift-detection) ────────────────────────────────
+// Ensures the helper stays in sync with PIPELINE_TYPES so future additions
+// propagate automatically to all MCP JSON Schema annotations (Constraint 68).
+
+describe('describePipelineTypes', () => {
+  it('output starts with the provided prefix', () => {
+    const result = describePipelineTypes('Pipeline type:');
+    expect(result.startsWith('Pipeline type:')).toBe(true);
+  });
+
+  it('output contains every entry in PIPELINE_TYPES as a quoted value', () => {
+    const result = describePipelineTypes('Test:');
+    for (const type of PIPELINE_TYPES) {
+      expect(result).toContain(`"${type}"`);
+    }
+  });
+
+  it('output format is stable — quoted, comma-separated values after prefix', () => {
+    const expected = `Test: ${PIPELINE_TYPES.map((t) => `"${t}"`).join(', ')}`;
+    expect(describePipelineTypes('Test:')).toBe(expected);
+  });
+
+  it('different prefixes produce different output strings', () => {
+    expect(describePipelineTypes('A:')).not.toBe(describePipelineTypes('B:'));
+  });
+});
+
+// ─── describePipelineAgents (drift-detection) ─────────────────────────────────
+// Ensures the helper stays in sync with PIPELINE_AGENT_MAP / PIPELINE_TYPES so
+// future role additions propagate automatically to all agent_role annotations.
+
+describe('describePipelineAgents', () => {
+  it('output starts with the provided prefix', () => {
+    const result = describePipelineAgents('Your agent role:');
+    expect(result.startsWith('Your agent role:')).toBe(true);
+  });
+
+  it('output contains every pipeline agent from PIPELINE_AGENT_MAP as a quoted value', () => {
+    const result = describePipelineAgents('Test:');
+    for (const type of PIPELINE_TYPES) {
+      expect(result).toContain(`"${PIPELINE_AGENT_MAP[type]}"`);
+    }
+  });
+
+  it('output format is stable — each agent quoted with its pipeline type, PM override appended', () => {
+    const mappings = PIPELINE_TYPES.map((t) => `"${PIPELINE_AGENT_MAP[t]}" for ${t}`).join(', ');
+    const expected = `Test: ${mappings}. "Project Manager" is always allowed (PM Override).`;
+    expect(describePipelineAgents('Test:')).toBe(expected);
+  });
+
+  it('different prefixes produce different output strings', () => {
+    expect(describePipelineAgents('A:')).not.toBe(describePipelineAgents('B:'));
+  });
+});
+
+// ─── firstActiveStage (§6.2.1) ─────────────────────────────────────────────
+
+describe('firstActiveStage', () => {
+  it('returns "implementation" for legacy-4 (first in canonical order)', () => {
+    expect(firstActiveStage(LEGACY_4)).toBe('implementation');
+  });
+
+  it('returns "implementation" for all-6 (first in canonical order)', () => {
+    expect(firstActiveStage(['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'])).toBe('implementation');
+  });
+
+  it('returns the only stage when a single-stage composition is used', () => {
+    expect(firstActiveStage(['documentation'])).toBe('documentation');
+  });
+
+  it('respects canonical ordering — returns "qa" for a qa+code-review composition', () => {
+    const stages: readonly PipelineType[] = ['qa', 'code-review'];
+    expect(firstActiveStage(stages)).toBe('qa');
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES[0] when stages is null', () => {
+    expect(firstActiveStage(null)).toBe(DEFAULT_PIPELINE_STAGES[0]);
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES[0] when stages is undefined', () => {
+    expect(firstActiveStage(undefined)).toBe(DEFAULT_PIPELINE_STAGES[0]);
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES[0] when stages is an empty array', () => {
+    // getOrderedActiveStages([]) returns [] — fallback to DEFAULT_PIPELINE_STAGES
+    expect(firstActiveStage([])).toBe(DEFAULT_PIPELINE_STAGES[0]);
+  });
+});
+
+// ─── lastActiveStage (§6.2.1) ──────────────────────────────────────────────
+
+describe('lastActiveStage', () => {
+  it('returns "documentation" for legacy-4 (last in canonical order)', () => {
+    expect(lastActiveStage(LEGACY_4)).toBe('documentation');
+  });
+
+  it('returns "documentation" for all-6', () => {
+    expect(lastActiveStage(['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'])).toBe('documentation');
+  });
+
+  it('returns "implementation" for implementation-only composition', () => {
+    expect(lastActiveStage(['implementation'])).toBe('implementation');
+  });
+
+  it('returns "code-review" for implementation+code-review composition', () => {
+    const stages: readonly PipelineType[] = ['implementation', 'code-review'];
+    expect(lastActiveStage(stages)).toBe('code-review');
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES last when stages is null', () => {
+    const last = DEFAULT_PIPELINE_STAGES[DEFAULT_PIPELINE_STAGES.length - 1]!;
+    expect(lastActiveStage(null)).toBe(last);
+  });
+
+  it('falls back to DEFAULT_PIPELINE_STAGES last when stages is undefined', () => {
+    const last = DEFAULT_PIPELINE_STAGES[DEFAULT_PIPELINE_STAGES.length - 1]!;
+    expect(lastActiveStage(undefined)).toBe(last);
+  });
+
+  it('returns different values from firstActiveStage for multi-stage compositions', () => {
+    expect(lastActiveStage(LEGACY_4)).not.toBe(firstActiveStage(LEGACY_4));
+  });
+
+  it('returns the same value as firstActiveStage for a single-stage composition', () => {
+    expect(lastActiveStage(['qa'])).toBe(firstActiveStage(['qa']));
+  });
+});
+
+// ─── validateActiveStages ──────────────────────────────────────────────────
+
+describe('validateActiveStages', () => {
+  it('returns no errors for the default 4-stage set', () => {
+    const { errors, warnings } = validateActiveStages([...DEFAULT_PIPELINE_STAGES] as string[]);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns no errors for the full 6-stage set', () => {
+    const { errors } = validateActiveStages([...PIPELINE_TYPES] as string[]);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns no errors for a valid 3-stage subset (qa + code-review + documentation)', () => {
+    const { errors, warnings } = validateActiveStages(['qa', 'code-review', 'documentation']);
+    expect(errors).toHaveLength(0);
+  });
+
+  it('returns error for an empty array', () => {
+    const { errors } = validateActiveStages([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('cannot be empty');
+  });
+
+  it('returns error for an unknown stage name', () => {
+    const { errors } = validateActiveStages(['implementation', 'unit-test']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('unit-test');
+  });
+
+  it('returns error for multiple unknown stage names', () => {
+    const { errors } = validateActiveStages(['unknown-a', 'unknown-b']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('unknown-a');
+    expect(errors[0]).toContain('unknown-b');
+  });
+
+  it('returns error for duplicate stages', () => {
+    const { errors } = validateActiveStages(['implementation', 'qa', 'implementation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Duplicate');
+    expect(errors[0]).toContain('implementation');
+  });
+
+  it('returns error for stages out of canonical order', () => {
+    // documentation before implementation — violates canonical ordering
+    const { errors } = validateActiveStages(['documentation', 'implementation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('canonical order');
+  });
+
+  it('returns error for reversed canonical ordering', () => {
+    const { errors } = validateActiveStages(['code-review', 'qa', 'implementation']);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('canonical order');
+  });
+
+  it('returns warning for implementation without qa', () => {
+    const { errors, warnings } = validateActiveStages(['implementation', 'code-review', 'documentation']);
+    expect(errors).toHaveLength(0);
+    expect(warnings.some((w) => w.includes('implementation') && w.includes('qa'))).toBe(true);
+  });
+
+  it('returns warning for single-stage chain', () => {
+    const { errors, warnings } = validateActiveStages(['implementation']);
+    expect(errors).toHaveLength(0);
+    // Both warnings may fire (implementation without qa + single stage)
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings.some((w) => w.toLowerCase().includes('single-stage') || w.includes('single'))).toBe(true);
+  });
+
+  it('returns both warnings when implementation-only is used', () => {
+    const { errors, warnings } = validateActiveStages(['implementation']);
+    expect(errors).toHaveLength(0);
+    // Should have at least the single-stage warning; may also have the qa warning
+    expect(warnings.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('returns no warnings for the default 4-stage workflow', () => {
+    const { warnings } = validateActiveStages([...DEFAULT_PIPELINE_STAGES] as string[]);
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('returns error (not just warning) before checking for warnings on empty input', () => {
+    const { errors, warnings } = validateActiveStages([]);
+    expect(errors).toHaveLength(1);
+    expect(warnings).toHaveLength(0); // early return before warnings
   });
 });

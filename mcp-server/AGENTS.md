@@ -20,6 +20,7 @@ All manifest documents are located in:
 
 | # | Document | Purpose | When to Consult |
 |---|----------|---------|-----------------|
+| 0 | [Workflow Specification](docs/agents/workflow-specification/README.md) | Authoritative specification of all workflow logic — state machines, routing, handoffs, edge cases | **Before modifying any pipeline, routing, status, handoff, or recommendation logic** |
 | 1 | [README.md](docs/agents/project-manifest/README.md) | Project overview, purpose, and context | **FIRST** — Before any work |
 | 2 | [tech-stack.md](docs/agents/project-manifest/tech-stack.md) | Runtime, frameworks, libraries, architectural patterns | Understanding system design |
 | 3 | [constraints.md](docs/agents/project-manifest/constraints.md) | Critical rules, gotchas, and conventions | **MANDATORY** — Before making changes |
@@ -98,6 +99,7 @@ All manifest documents are located in:
 
 | What You Need | Search Here FIRST | Search Here SECOND | Read Source Code LAST |
 |---------------|-------------------|--------------------|-----------------------|
+| **Understand workflow behavior** | [Workflow Specification](docs/agents/workflow-specification/README.md) | `constraints.md` | Only for implementation details |
 | **Find a file location** | `file-tree.md` | grep/file search | Never needed |
 | **Understand a method signature** | `api-surface.md` | Source code | Only for implementation logic |
 | **Trace how data flows** | `data-flows.md` | Source code | Only for edge cases |
@@ -174,7 +176,9 @@ Unclear → Pause and request user clarification
 | **Primary Pattern** | Schema-First Design (Zod) + Atomic Writes + File Locking |
 | **Lines of Code** | ~2,000 (src/) |
 | **Test Coverage** | ~85% (unit + integration) |
-| **MCP Tools** | 14 registered tools |
+| **MCP Tools** | 22 registered tools |
+| **Pipeline Types** | 6 (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) |
+| **Agent Roles** | 9 (`Planner`, `Project Manager`, `Developer`, `QA`, `Security Auditor`, `Reviewer`, `Release Engineer`, `Documentation`, `Synthesis`) |
 | **Dependencies** | 3 production, 4 development |
 
 ---
@@ -196,6 +200,7 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | 9 | `COMPLETE` requires all acceptance criteria met | Premature completion + false positives |
 | 10 | Pipelines require `IN_PROGRESS` work package | Starting work before claiming |
 | 11 | Pre-mutation state passed out of `updateWorkPackageWithSync` must use outer-scope `let` | TS2304 compile error + runtime ReferenceError at call site |
+| 12 | All workflow logic must implement the Workflow Specification exactly | Spec drift → behavioral divergence → test false positives → production bugs |
 
 **Memorize these constraints.** Reference [constraints.md](docs/agents/project-manifest/constraints.md) for full details.
 
@@ -212,6 +217,7 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | Check architectural patterns | [tech-stack.md](docs/agents/project-manifest/tech-stack.md) |
 | Verify a rule or constraint | [constraints.md](docs/agents/project-manifest/constraints.md) |
 | See previous implementation notes | [docs/agents/implementation-history/](docs/agents/implementation-history/) |
+| Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](docs/agents/workflow-specification/README.md) |
 
 ---
 
@@ -225,9 +231,11 @@ If you are operating in a **specific agent role**, consult the relevant persona 
 | Project Manager | `/personas/ledger/vs-code/2-project-manager.md` | `/personas/ledger/claude-code/2-project-manager.md` | Creating work packages + dependency management |
 | Developer | `/personas/ledger/vs-code/3-developer.md` | `/personas/ledger/claude-code/3-developer.md` | Implementation + pipeline execution |
 | Validator (QA) | `/personas/ledger/vs-code/4-qa.md` | `/personas/ledger/claude-code/4-qa.md` | Testing + quality assurance |
-| Reviewer | `/personas/ledger/vs-code/5-reviewer.md` | `/personas/ledger/claude-code/5-reviewer.md` | Code review + security audit |
-| Documentation | `/personas/ledger/vs-code/6-documentation.md` | `/personas/ledger/claude-code/6-documentation.md` | Manifest maintenance + README updates |
-| Synthesis | `/personas/ledger/vs-code/7-synthesis.md` | `/personas/ledger/claude-code/7-synthesis.md` | Cross-session coordination + handoff |
+| Security Auditor | `/personas/ledger/vs-code/5-security-auditor.md` | `/personas/ledger/claude-code/5-security-auditor.md` | Security review (stub — full content in Plan 2) |
+| Reviewer | `/personas/ledger/vs-code/6-reviewer.md` | `/personas/ledger/claude-code/6-reviewer.md` | Code review + architecture validation |
+| Release Engineer | `/personas/ledger/vs-code/7-release-engineer.md` | `/personas/ledger/claude-code/7-release-engineer.md` | Release validation (stub — full content in Plan 2) |
+| Documentation | `/personas/ledger/vs-code/8-documentation.md` | `/personas/ledger/claude-code/8-documentation.md` | Manifest maintenance + README updates |
+| Synthesis | `/personas/ledger/vs-code/9-synthesis.md` | `/personas/ledger/claude-code/9-synthesis.md` | Cross-session coordination + handoff |
 
 ---
 

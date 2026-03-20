@@ -9,10 +9,12 @@
  */
 
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
+import type { RootIndex } from '../schema/root-index.js';
 import { parseTimestamp } from './timestamp.js';
 import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
-import { getDownstreamTypes, getUpstreamTypes, FAIL_ROUTING_MAP } from './pipeline-maps.js';
+import { getDownstreamTypes, getUpstreamTypes, resolveFailAgent, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
 import { getConfig } from '../gui/config.js';
+import { workflowManifest } from '../schema/workflow-manifest-schema.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,46 +22,70 @@ import { getConfig } from '../gui/config.js';
 
 /**
  * Number of hours after which an IN_PROGRESS pipeline is considered stale.
+ * Derived from `constants.stale_pipeline_hours` in the shared workflow manifest.
  */
-export const STALE_PIPELINE_HOURS = 24;
+export const STALE_PIPELINE_HOURS: number = workflowManifest.constants.stale_pipeline_hours;
 
 /**
  * Maximum number of rework cycles allowed before a work package is circuit-broken.
  * When rework_count reaches this value, start_pipeline rejects with guidance to
  * cancel or restructure, and get_next_action surfaces BLOCK_FOR_REWORK_LIMIT.
+ *
+ * Derived from `constants.max_rework_count` in the shared workflow manifest.
  */
-export const MAX_REWORK_COUNT = 5;
+export const MAX_REWORK_COUNT: number = workflowManifest.constants.max_rework_count;
+
+/** Handoff depth fallback when config is unavailable. Derived from manifest. */
+const _DEFAULT_MAX_HANDOFF_DEPTH: number = workflowManifest.constants.max_handoff_depth;
+
+/** Multiplier for scaling max handoff depth by project size. Derived from manifest. */
+const _HANDOFF_DEPTH_MULTIPLIER: number = workflowManifest.constants.handoff_depth_multiplier;
 
 /**
  * Returns the maximum auto-handoff chain depth from the in-memory config cache.
- * Falls back to 50 if the config module has not yet been initialized (e.g. during
- * early startup or in test environments that don't call readConfigFromDisk()).
+ * Falls back to the manifest default if the config module has not yet been
+ * initialized (e.g. during early startup or in test environments that don't
+ * call readConfigFromDisk()).
  */
 export function getMaxHandoffDepth(): number {
   try {
     return getConfig().max_handoff_depth;
   } catch {
-    return 50;
+    return _DEFAULT_MAX_HANDOFF_DEPTH;
   }
 }
 
 /**
  * Returns the effective maximum auto-handoff depth, scaled by project size per §18.2.1.
  *
- * The floor is the config default (default 50). For larger projects the ceiling
+ * The floor is the config default. For larger projects the ceiling
  * grows to avoid terminating the chain prematurely:
- *   effectiveMax = max(configMax, totalWorkPackages × 20)
+ *   effectiveMax = max(configMax, totalWorkPackages × multiplier)
  *
- * Examples:
- *   effectiveMaxDepth(0)  → 50   (0 × 20 = 0 < 50, floor applies)
- *   effectiveMaxDepth(1)  → 50   (1 × 20 = 20 < 50, floor applies)
- *   effectiveMaxDepth(5)  → 100  (5 × 20 = 100 > 50)
+ * Examples (with defaults max=50, multiplier=30):
+ *   effectiveMaxDepth(0)  → 50   (0 × 30 = 0 < 50, floor applies)
+ *   effectiveMaxDepth(1)  → 50   (1 × 30 = 30 < 50, floor applies)
+ *   effectiveMaxDepth(5)  → 150  (5 × 30 = 150 > 50)
  */
 export function effectiveMaxDepth(
   totalWorkPackages: number,
   configMax: number = getMaxHandoffDepth(),
 ): number {
-  return Math.max(configMax, totalWorkPackages * 20);
+  return Math.max(configMax, totalWorkPackages * _HANDOFF_DEPTH_MULTIPLIER);
+}
+
+// ---------------------------------------------------------------------------
+// Synthesis state helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Clears synthesis-related fields on the root index. Centralises the two-line
+ * pattern `synthesis_generated = false; synthesis_generated_at = null;` that
+ * was previously duplicated at 5 call sites.
+ */
+export function clearSynthesisState(rootIndex: RootIndex): void {
+  rootIndex.synthesis_generated = false;
+  rootIndex.synthesis_generated_at = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,7 +131,7 @@ export const reworkActionMap: Record<PostImplPipelineType, string> = {
   'documentation': 'REWORK',
 };
 
-/** Agent role name used in next_steps tool-call guidance for each pipeline type. */
+/** @deprecated Use PIPELINE_AGENT_MAP from pipeline-maps.ts instead (manifest-derived, covers all 6 stages). */
 export const pipelineAgentRoleMap: Record<string, string> = {
   'implementation': 'Developer',
   'qa': 'QA',
@@ -146,9 +172,16 @@ export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: st
  * Returns true if any pipeline type downstream of the given type has a most-recent
  * FAIL status (excluding auto-cancelled pipelines per §21.27).
  * Per §11.3. Delegates to isMostRecentPipelineFail() to avoid duplicating filter logic.
+ *
+ * When activeStages is provided, only stages present in the WP's active set are
+ * considered downstream, preventing false-positive rework triggers for inactive stages.
  */
-export function hasDownstreamFail(pipelines: Pipeline[], pipelineType: PipelineType): boolean {
-  const downstreamTypes = getDownstreamTypes(pipelineType);
+export function hasDownstreamFail(
+  pipelines: Pipeline[],
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],
+): boolean {
+  const downstreamTypes = getDownstreamTypes(pipelineType, activeStages);
   return downstreamTypes.some((dsType) => isMostRecentPipelineFail(pipelines, dsType));
 }
 
@@ -157,29 +190,23 @@ export function hasDownstreamFail(pipelines: Pipeline[], pipelineType: PipelineT
  * is stale relative to the current pipeline type's most recent run and upstream
  * rework has occurred), or null if the pipeline may proceed.
  *
- * Guard algorithm (§11.1):
- * 1. If no effective prior run of pipelineType exists → pass (first run)
- * 2. If prerequisite PASS predates the last effective run of pipelineType → check:
- *    a. If hasDownstreamFail(prerequisite) is false → pass (no downstream failure)
- *    b. If no upstream pipeline started after prerequisite PASS → pass (self-rework)
- *    c. Otherwise → BLOCK (prerequisite is stale after upstream rework)
+ * Guard algorithm (§11.1, two-layer check):
+ *
+ * Layer 1 — Upstream rework check (unconditional, catches first-run stage-skipping):
+ *   If any upstream pipeline started after the prerequisite PASSed → BLOCK.
+ *
+ * Layer 2 — Temporal consistency check (same-type re-runs only):
+ *   If the prerequisite PASS predates the last effective run of pipelineType,
+ *   but no upstream rework occurred → ALLOW (self-rework scenario).
  */
 export function checkRevalidationGuard(
   pipelines: Pipeline[],
   pipelineType: PipelineType,
   prerequisite: PipelineType,
+  activeStages?: readonly PipelineType[],
 ): string | null {
 
-  // Step 1: Find last effective run of pipelineType
-  const priorRuns = pipelines.filter(
-    (p) => p.type === pipelineType && !p.auto_cancelled
-  );
-  if (priorRuns.length === 0) return null; // First run — always allowed
-
-  const baselineRun = priorRuns.at(-1)!;
-  if (!baselineRun.started_at) return null; // Missing timestamp — conservative pass
-
-  // Step 2: Find most recent prerequisite PASS
+  // Find most recent prerequisite PASS (already confirmed PASS by caller)
   const prereqPasses = pipelines.filter(
     (p) => p.type === prerequisite && p.status === 'PASS' && !p.auto_cancelled
   );
@@ -189,17 +216,14 @@ export function checkRevalidationGuard(
   if (!prereqPass.completed_at) return null; // Missing timestamp — conservative pass
 
   const prereqCompletedAt = parseTimestamp(prereqPass.completed_at).getTime();
-  const baselineStartedAt = parseTimestamp(baselineRun.started_at).getTime();
 
-  // Step 3: If prereq PASS is fresh (completed after the last run started) → pass
-  if (prereqCompletedAt >= baselineStartedAt) return null;
-
-  // Step 4: Check if there are any downstream failures from the prerequisite
-  if (!hasDownstreamFail(pipelines, prerequisite)) return null;
-
-  // Step 5: Check if upstream rework has occurred since the prereq PASS
-  const upstreamTypes = getUpstreamTypes(pipelineType);
-  const upstreamReworked = pipelines.some(
+  // --- Layer 1: Upstream rework check (unconditional — applies regardless of prior runs) ---
+  // Detects if any pipeline upstream of the current type was started AFTER the
+  // prerequisite PASSed — indicating stale prerequisite. This is decoupled from
+  // effectiveSamePipelines so it also catches first-run stage-skipping (e.g.,
+  // code-review starting for the first time while a new implementation is in progress).
+  const upstreamTypes = getUpstreamTypes(pipelineType, activeStages ?? DEFAULT_PIPELINE_STAGES);
+  const hasUpstreamRework = pipelines.some(
     (p) =>
       upstreamTypes.includes(p.type as PipelineType) &&
       !p.auto_cancelled &&
@@ -207,13 +231,33 @@ export function checkRevalidationGuard(
       parseTimestamp(p.started_at).getTime() > prereqCompletedAt
   );
 
-  if (!upstreamReworked) return null; // Self-rework scenario
+  if (hasUpstreamRework) {
+    return (
+      `Cannot start ${pipelineType}: the prerequisite ${prerequisite} PASS is stale. ` +
+      `Upstream rework has occurred since the last ${prerequisite} PASS. ` +
+      `Re-run ${prerequisite} to establish a fresh pass before proceeding.`
+    );
+  }
 
-  return (
-    `Cannot start ${pipelineType}: the prerequisite ${prerequisite} PASS is stale. ` +
-    `Upstream rework has occurred since the last ${prerequisite} PASS. ` +
-    `Re-run ${prerequisite} to establish a fresh pass before proceeding.`
+  // --- Layer 2: Temporal consistency check (same-type re-runs only) ---
+  // When the current pipeline type has been run before, verify the prerequisite
+  // PASSed AFTER the most recent effective run. If the prerequisite is temporally
+  // stale but no upstream rework occurred (layer 1 passed), this is a self-rework
+  // scenario (e.g., documentation retrying after its own FAIL) — allow.
+  const priorRuns = pipelines.filter(
+    (p) => p.type === pipelineType && !p.auto_cancelled
   );
+  if (priorRuns.length === 0) return null; // First run — layer 1 already checked upstream
+
+  const baselineRun = priorRuns.at(-1)!;
+  if (!baselineRun.started_at) return null; // Missing timestamp — conservative pass
+
+  // If prereq PASS is fresh relative to the baseline run → pass
+  // (prereq PASSed after or at the same time the last run started)
+  // Since layer 1 already confirmed no upstream rework, any temporal staleness
+  // here is a self-rework scenario — allow the pipeline to start.
+
+  return null;
 }
 
 /**
@@ -223,10 +267,14 @@ export function checkRevalidationGuard(
  *
  * Used by Developer recommendation engine (§14.2 priority 5) to prevent
  * redundant rework cycles (§21.52).
+ *
+ * When activeStages is provided, only considers downstream types within the WP's
+ * active stage set, preventing false-positive triggers for inactive stages.
  */
 export function hasDownstreamReengagedSince(
   pipelines: Pipeline[],
   upstreamType: PipelineType,
+  activeStages?: readonly PipelineType[],
 ): boolean {
   // Find most recent upstream PASS (excluding auto-cancelled)
   const upstreamPass = pipelines
@@ -237,12 +285,14 @@ export function hasDownstreamReengagedSince(
 
   const upstreamCompletedAt = parseTimestamp(upstreamPass.completed_at).getTime();
 
-  // Check downstream types whose FAIL routes to Developer.
-  // Derived from FAIL_ROUTING_MAP so this list never drifts when new pipeline
-  // types are added. See FAIL_ROUTING_MAP in pipeline-maps.ts.
-  const developerReworkTypes = (Object.entries(FAIL_ROUTING_MAP) as [PipelineType, string][])
-    .filter(([, agent]) => agent === 'Developer')
-    .map(([t]) => t);
+  // Determine which downstream types route FAIL back to Developer.
+  // When activeStages is provided, restrict to active downstream types to avoid
+  // triggering on stages that are not in this WP's pipeline composition.
+  const resolvedActiveStages = activeStages ?? DEFAULT_PIPELINE_STAGES;
+  const downstreamTypes = getDownstreamTypes(upstreamType, resolvedActiveStages);
+  const developerReworkTypes = downstreamTypes.filter(
+    (t) => resolveFailAgent(t, resolvedActiveStages) === 'Developer'
+  );
   for (const dsType of developerReworkTypes) {
     const dsPipelines = pipelines.filter(
       (p) => p.type === dsType && !p.auto_cancelled
@@ -262,31 +312,11 @@ export function hasDownstreamReengagedSince(
 }
 
 /**
- * Helper: Check if a work package is blocked by dependencies.
- *
- * Uses the canonical metadata-based check per §21.54: a WP is classified as
- * "blocked by dependencies" when its status is BLOCKED and either blocked_by
- * is absent (null/undefined) or blocked_by.type === 'dependency'.
- *
- * See also: isBlockedByDependencies — functionally identical, kept as a
- * separate export for call-site clarity in getHandoff* functions.
- */
-export function hasDependencyBlocked(
-  wpDetail: WorkPackageDetail,
-): boolean {
-  if (wpDetail.status !== 'BLOCKED') return false;
-  return wpDetail.blocked_by == null || wpDetail.blocked_by.type === 'dependency';
-}
-
-/**
  * Helper function: Check if a WP is blocked by incomplete dependencies.
  *
  * Uses the canonical metadata-based check per §21.54: a WP is classified as
  * "blocked by dependencies" when its status is BLOCKED and either blocked_by
  * is absent (null/undefined) or blocked_by.type === 'dependency'.
- *
- * Functionally identical to hasDependencyBlocked; kept as a separate export
- * for call-site clarity in getHandoff* functions.
  */
 export function isBlockedByDependencies(
   wp: WorkPackageDetail,
@@ -294,6 +324,12 @@ export function isBlockedByDependencies(
   if (wp.status !== 'BLOCKED') return false;
   return wp.blocked_by == null || wp.blocked_by.type === 'dependency';
 }
+
+/**
+ * @deprecated Use isBlockedByDependencies(). Alias retained for backward
+ * compatibility with existing call sites.
+ */
+export const hasDependencyBlocked = isBlockedByDependencies;
 
 /**
  * Helper: Returns true if the downstream pipeline agent should (re-)engage.
@@ -335,6 +371,24 @@ export function hasNewUpstreamPassSince(
   // Upstream completed at or after downstream started → rework triggered a new cycle
   // Uses >= per §14.6: coincident timestamps (same clock tick) should return true
   return upstreamCompletedAt >= downstreamStartedAt;
+}
+
+/**
+ * Re-engagement check for P4/P5 priority blocks (§21.66).
+ *
+ * Collapses the null-prerequisite ternary that would otherwise return `true` and
+ * trigger an infinite re-engagement loop when a WP's first active stage is the
+ * current agent's stage (i.e. `resolvePrerequisite` returns `null`).
+ *
+ * Rule: null prerequisite → false (no upstream to re-engage from).
+ * Non-null prerequisite → delegate to `hasNewUpstreamPassSince`.
+ */
+export function makeReEngagementCheck(
+  pipelines: Pipeline[],
+  prerequisite: PipelineType | null,
+  type: PipelineType,
+): boolean {
+  return prerequisite === null ? false : hasNewUpstreamPassSince(pipelines, prerequisite, type);
 }
 
 /**

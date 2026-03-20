@@ -1,0 +1,127 @@
+{
+  "$schema": "./workflow-manifest.schema.json",
+  "spec_version": "2.4.1",
+
+  "roles": [
+    {
+      "id": "planner",
+      "name": "Planner",
+      "number": 1,
+      "orchestrating": true,
+      "pipeline": null,
+      "persona_file": "personas/ledger/claude-code/1-planner.md"
+    },
+    {
+      "id": "pm",
+      "name": "Project Manager",
+      "number": 2,
+      "orchestrating": false,
+      "pipeline": null,
+      "persona_file": "personas/ledger/claude-code/2-project-manager.md"
+    },
+    {
+      "id": "developer",
+      "name": "Developer",
+      "number": 3,
+      "orchestrating": false,
+      "pipeline": "implementation",
+      "persona_file": "personas/ledger/claude-code/3-developer.md"
+    },
+    {
+      "id": "qa",
+      "name": "QA",
+      "number": 4,
+      "orchestrating": false,
+      "pipeline": "qa",
+      "persona_file": "personas/ledger/claude-code/4-qa.md"
+    },
+    {
+      "id": "security_auditor",
+      "name": "Security Auditor",
+      "number": 5,
+      "orchestrating": false,
+      "pipeline": "security-audit",
+      "persona_file": "personas/ledger/claude-code/5-security-auditor.md"
+    },
+    {
+      "id": "reviewer",
+      "name": "Reviewer",
+      "number": 6,
+      "orchestrating": false,
+      "pipeline": "code-review",
+      "persona_file": "personas/ledger/claude-code/6-reviewer.md"
+    },
+    {
+      "id": "release_engineer",
+      "name": "Release Engineer",
+      "number": 7,
+      "orchestrating": false,
+      "pipeline": "release-engineering",
+      "persona_file": "personas/ledger/claude-code/7-release-engineer.md"
+    },
+    {
+      "id": "docs",
+      "name": "Documentation",
+      "number": 8,
+      "orchestrating": false,
+      "pipeline": "documentation",
+      "persona_file": "personas/ledger/claude-code/8-documentation.md"
+    },
+    {
+      "id": "synthesis",
+      "name": "Synthesis",
+      "number": 9,
+      "orchestrating": true,
+      "pipeline": null,
+      "persona_file": "personas/ledger/claude-code/9-synthesis.md"
+    }
+  ],
+
+  "pipelines": {
+    "canonical_order": [
+      "implementation",
+      "qa",
+      "security-audit",
+      "code-review",
+      "release-engineering",
+      "documentation"
+    ],
+    "default_stages": [
+      "implementation",
+      "qa",
+      "code-review",
+      "documentation"
+    ],
+    "prerequisites": {
+      "implementation": null,
+      "qa": "implementation",
+      "security-audit": "qa",
+      "code-review": "security-audit",
+      "release-engineering": "code-review",
+      "documentation": "release-engineering"
+    },
+    "fail_routing": {
+      "implementation": "developer",
+      "qa": "developer",
+      "security-audit": "developer",
+      "code-review": "developer",
+      "release-engineering": "release_engineer",
+      "documentation": "docs"
+    }
+  },
+
+  "statuses": {
+    "project":               ["READY", "IN_PROGRESS", "COMPLETE", "BLOCKED"],
+    "work_package":          ["READY", "IN_PROGRESS", "COMPLETE", "BLOCKED", "CANCELLED"],
+    "terminal_work_package": ["COMPLETE", "CANCELLED"],
+    "pipeline":              ["IN_PROGRESS", "PASS", "FAIL"],
+    "blocker_type":          ["dependency", "decision", "external", "technical"]
+  },
+
+  "constants": {
+    "max_rework_count": 5,
+    "stale_pipeline_hours": 24,
+    "max_handoff_depth": 50,
+    "handoff_depth_multiplier": 30
+  }
+}

@@ -216,6 +216,29 @@ The server has **no stateful services**. All state is persisted to JSON files on
 
 ---
 
+### 10. **Manifest-Derived Constants**
+
+Specification-derived constants are loaded from `shared/workflow-manifest.json` at module-load time — no inline literal arrays remain in source:
+
+| Constant | Source field | File |
+|----------|-------------|------|
+| `AGENT_ROLES` | `roles[].name` | `src/utils/constants.ts` |
+| `ORCHESTRATING_ROLES` | `roles[].name` where `orchestrating: true` | `src/utils/constants.ts` |
+| `ROLE_IDS` | `roles[].id` | `src/utils/constants.ts` |
+| `SPEC_VERSION` | `spec_version` | `src/utils/constants.ts` |
+| `PIPELINE_TYPES` | `pipelines.canonical_order` | `src/utils/pipeline-maps.ts` |
+| `DEFAULT_PIPELINE_STAGES` | `pipelines.default_stages` | `src/utils/pipeline-maps.ts` |
+| `PIPELINE_AGENT_MAP` | `pipelines.agent_map[].pipeline → role` | `src/utils/pipeline-maps.ts` |
+
+Adding or renaming a role, pipeline type, or status value in the manifest propagates automatically to all constants — no parallel edits to source files are required.
+
+**Key Files:**
+- `shared/workflow-manifest.json` — single source of truth
+- `src/utils/constants.ts` — agent-role and spec-version constants
+- `src/utils/pipeline-maps.ts` — pipeline-type and routing constants
+
+---
+
 ## Key Conventions
 
 - **ESM-only:** All imports use `.js` extensions (required for Node16 module resolution)

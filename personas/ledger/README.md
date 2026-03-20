@@ -13,17 +13,42 @@ This is a structured multi-agent workflow for systematic software development. I
 - **Scalability**: Handle complex projects by breaking them into manageable work packages
 - **Corruption Resistance**: Split-file architecture isolates work package data — a bad edit to one WP doesn't affect others
 - **MCP Server**: All ledger operations are managed through a dedicated MCP server that enforces schema validation, atomic writes, and centralized storage
-- **Automatic Handoffs**: Agents 2–7 can pass control to the next agent automatically via `runSubagent` when the MCP server returns an `auto_handoff` response — no manual copy-paste required
+- **Automatic Handoffs**: Agents 2–9 can pass control to the next agent automatically via `runSubagent` when the MCP server returns an `auto_handoff` response — no manual copy-paste required
 
 ### Agents in the Workflow
 
 1. **Planner Agent**: Creates high-level strategy and implementation plan
 2. **Project Manager Agent**: Breaks plan into work packages and initializes the ledger
 3. **Developer Agent**: Implements work packages with context awareness
-4. **Validator Agent**: Verifies acceptance criteria and runs tests
-5. **Reviewer Agent**: Performs code quality and architecture review
-6. **Documentation Agent**: Updates project documentation
-7. **Synthesis Agent**: Consolidates results and generates project report
+4. **QA Agent**: Verifies acceptance criteria and runs tests
+5. **Security Auditor Agent**: Performs security review and vulnerability assessment
+6. **Reviewer Agent**: Performs code quality and architecture review
+7. **Release Engineer Agent**: Manages changelogs, versioning, and release artifacts
+8. **Documentation Agent**: Updates project documentation
+9. **Synthesis Agent**: Consolidates results and generates project report
+
+### Dynamic Pipeline Configuration
+
+Each work package runs only the pipeline stages configured by the Project Manager. The canonical ordering is:
+
+```
+implementation → qa → security-audit → code-review → release-engineering → documentation
+```
+
+> **Hard constraint:** Stages may be omitted but **never reordered**. `ledger_create_work_package` rejects any `active_pipeline_stages` array that is not a strict subsequence of the canonical order. See [personas constraints.md §44](docs/agents/project-manifest/constraints.md).
+
+Stages not included in a WP's configuration are skipped automatically. **Common composition patterns:**
+
+| Pattern | Stages | Typical Use |
+|---------|--------|-------------|
+| **Standard** | `implementation → qa → code-review → documentation` | Most code changes |
+| **Full** | `implementation → qa → security-audit → code-review → release-engineering → documentation` | Security-sensitive features or milestone releases |
+| **Security-focused** | `implementation → qa → security-audit → code-review → documentation` | Features touching auth, input handling, or external APIs |
+| **Release-engineering** | `implementation → qa → code-review → release-engineering → documentation` | Changes requiring a changelog entry or version bump |
+| **Doc-only** | `documentation` | Pure documentation updates with no code changes |
+| **Verification** | `qa → code-review` | Lightweight review of minor changes |
+
+> The PM uses the `pipeline-configurator` standalone sub-agent to select the appropriate pattern for each WP. Agents 3–9 each query `ledger_get_next_action` to discover work — they act only on WPs where their pipeline stage is configured and not yet completed.
 
 ---
 
@@ -34,15 +59,17 @@ This is a structured multi-agent workflow for systematic software development. I
 **For experienced users** - follow these steps (expand sections below for detailed instructions):
 
 1. **[Setup](#prerequisites)**: Configure the MCP server via `.mcp.json`
-2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.md](vs-code/1-planner.md) → Describe feature → Review plan
-3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-project-manager.md](vs-code/2-project-manager.md) → Review work packages & ledger
-4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work package spec → Paste [3-developer.md](vs-code/3-developer.md) → Agent reads ledger via MCP → Review code
-5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-qa.md](vs-code/4-qa.md) → Agent reads ledger via MCP → Review test results
-6. **[Review](#stage-5-code-review-per-work-package)**: New/continue chat → Paste [5-reviewer.md](vs-code/5-reviewer.md) → Agent reads ledger via MCP → Address findings
-7. **[Documentation](#stage-6-documentation-update)**: New chat → Paste [6-documentation.md](vs-code/6-documentation.md) → Agent reads ledger via MCP → Review updates
-8. **[Synthesis](#stage-7-synthesis--reporting)**: New chat → Paste [7-synthesis.md](vs-code/7-synthesis.md) → Agent reads ledger via MCP → Review final report
+2. **[Planning](#stage-1-planning)**: New chat → Open context files → Paste [1-planner.agent.md](vs-code/1-planner.agent.md) → Describe feature → Review plan
+3. **[Project Management](#stage-2-project-management)**: New chat → Open plan document → Paste [2-pm.agent.md](vs-code/2-pm.agent.md) → Review work packages & ledger
+4. **[Implementation](#stage-3-implementation-iterative)**: New chat → Open work package spec → Paste [3-dev.agent.md](vs-code/3-dev.agent.md) → Agent reads ledger via MCP → Review code
+5. **[Validation](#stage-4-validation-per-work-package)**: New/continue chat → Paste [4-qa.agent.md](vs-code/4-qa.agent.md) → Agent reads ledger via MCP → Review test results
+6. **[Security Audit](#stage-5-security-audit-per-work-package)**: New/continue chat → Paste [5-security-auditor.agent.md](vs-code/5-security-auditor.agent.md) → Agent reads ledger via MCP → Review findings
+7. **[Code Review](#stage-6-code-review-per-work-package)**: New/continue chat → Open relevant source files → Paste [6-reviewer.agent.md](vs-code/6-reviewer.agent.md) → Agent reads ledger via MCP → Address findings
+8. **[Release Engineering](#stage-7-release-engineering-per-work-package)**: New/continue chat → Paste [7-release-engineer.agent.md](vs-code/7-release-engineer.agent.md) → Agent reads ledger via MCP → Review release artifacts
+9. **[Documentation](#stage-8-documentation-update)**: New chat → Paste [8-docs.agent.md](vs-code/8-docs.agent.md) → Agent reads ledger via MCP → Review updates
+10. **[Synthesis](#stage-9-synthesis--reporting)**: New chat → Paste [9-synthesis.agent.md](vs-code/9-synthesis.agent.md) → Agent reads ledger via MCP → Review final report
 
-**Repeat steps 4-6** for each work package. See detailed instructions below for tips, troubleshooting, and best practices.
+**Repeat steps 4-8 for each work package**, including only the stages included in that WP's configured pipeline. See [Pipeline Configuration](#dynamic-pipeline-configuration) for common patterns. See detailed instructions below for tips, troubleshooting, and best practices.
 
 ---
 
@@ -106,7 +133,7 @@ If the workflow is interrupted (session ends, error, or you pause it), invoke th
 
 ### MCP Server (Required)
 
-Agents 2–7 depend on the **project-ledger MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
+Agents 2–9 depend on the **project-ledger MCP server** for all ledger operations. The server is a hard prerequisite — agents will refuse to start if it is unreachable.
 
 > **Server name is configurable.** The personas reference the server by the name defined in `_shared.yaml` → `mcp_server_name` (default: `central_pm`). If your `.mcp.json` uses a different key, update `mcp_server_name` in `personas/ledger/src/meta/_shared.yaml` and rebuild.
 
@@ -142,7 +169,7 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** in your AI IDE
 2. **Open relevant context files**: Project manifest, existing docs, related code
-3. **Copy and send** the contents of [1-planner.md](vs-code/1-planner.md)
+3. **Copy and send** the contents of [1-planner.agent.md](vs-code/1-planner.agent.md)
 4. **Describe your feature or task** when prompted
 5. **Review and refine** the plan with the agent
 6. **Verify output**: Plan saved to `/docs/agents/plans/YYYY-MM-DD-feature-name.md`
@@ -160,7 +187,7 @@ Before starting the workflow, ensure your project has:
 
 1. **Start a new chat session** (fresh context)
 2. **Open the plan document** created in Stage 1
-3. **Copy and send** the contents of [2-project-manager.md](vs-code/2-project-manager.md)
+3. **Copy and send** the contents of [2-pm.agent.md](vs-code/2-pm.agent.md)
 4. **Review the work packages** for logical sequencing and dependencies
 5. **Verify outputs** (the agent creates work package specs as markdown and initializes the ledger via MCP):
    - Work package summary index: `/docs/agents/plans/{plan-name}/work.md`
@@ -172,6 +199,15 @@ Before starting the workflow, ensure your project has:
 - Ensure each package has clear acceptance criteria
 - Verify the ledger initializes correctly via `ledger_get_project_status`
 
+**PM Sub-Agents (Advanced):**
+The Project Manager persona can invoke four specialized standalone sub-agents to decompose complex projects. These are available in `standalone/vs-code/` and `standalone/claude-code/`:
+- `wp-decomposer` — Breaks the plan into atomic, well-scoped work packages
+- `dependency-sequencer` — Orders WPs by dependency topology
+- `pipeline-configurator` — Selects the appropriate pipeline stages for each WP
+- `ledger-bootstrapper` — Registers WPs in the ledger via MCP tools
+
+> **Claude Code note:** The `ledger-bootstrapper` sub-agent requires MCP tool access (`central_pm/*`) for ledger initialization. This access is available only in VS Code builds — the standalone Claude Code frontmatter template does not support `mcpServers` configuration. Claude Code users should initialize the ledger through the full PM persona rather than invoking `ledger-bootstrapper` directly.
+
 ---
 
 ### Stage 3: Implementation (Iterative)
@@ -182,7 +218,7 @@ For **each work package**:
 
 1. **Start a new chat session** (or continue if working on related packages)
 2. **Open** the work package specification (`work/WP-###.md`) and relevant source files for context
-3. **Copy and send** the contents of [3-developer.md](vs-code/3-developer.md)
+3. **Copy and send** the contents of [3-dev.agent.md](vs-code/3-dev.agent.md)
 4. **Specify which work package** to implement (e.g., "Implement WP-1")
 5. **Monitor progress**: The agent reads and updates the ledger via MCP tools automatically
 6. **Verify outputs**:
@@ -203,7 +239,7 @@ For **each work package**:
 
 1. **Start a new chat session** or continue from implementation
 2. **Open** the work package specification (`work/WP-###.md`) and relevant source files
-3. **Copy and send** the contents of [4-qa.md](vs-code/4-qa.md)
+3. **Copy and send** the contents of [4-qa.agent.md](vs-code/4-qa.agent.md)
 4. **Specify the work package** to validate (the agent reads implementation artifacts from the ledger via MCP)
 5. **Review validation results**:
    - **PASS**: All acceptance criteria met, tests pass
@@ -218,13 +254,34 @@ For **each work package**:
 
 ---
 
-### Stage 5: Code Review (Per Work Package)
+### Stage 5: Security Audit (Per Work Package)
+
+**Goal**: Identify security vulnerabilities before code review
+
+1. **Start a new chat session** or continue from validation
+2. **Open** the work package specification and relevant source files
+3. **Copy and send** the contents of [5-security-auditor.agent.md](vs-code/5-security-auditor.agent.md)
+4. **The agent reads** WP details and implementation artifacts from the ledger via MCP
+5. **Review security findings**:
+   - **PASS**: No Critical or High severity issues found
+   - **FAIL**: Blocking vulnerability found → Agent marks pipeline FAIL, issue routes back to developer
+6. **Verify**: The agent records security findings, severity classifications, and metrics in the ledger via MCP
+
+**Tips**:
+- Pay attention to Critical and High severity findings — these block the pipeline
+- Medium and Low severity issues are recorded but do not block release
+- Check OWASP Top 10 coverage (A01–A10) in the findings
+- Ensure authentication, authorization, and input validation are verified
+
+---
+
+### Stage 6: Code Review (Per Work Package)
 
 **Goal**: Ensure code quality, maintainability, and architectural alignment
 
-1. **Start a new chat session** or continue from validation
+1. **Start a new chat session** or continue from security audit
 2. **Open** relevant source files modified by the developer
-3. **Copy and send** the contents of [5-reviewer.md](vs-code/5-reviewer.md)
+3. **Copy and send** the contents of [6-reviewer.agent.md](vs-code/6-reviewer.agent.md)
 4. **The agent reads** WP details and implementation artifacts from the ledger via MCP
 5. **Review the analysis**:
    - Maintainability assessment
@@ -242,13 +299,36 @@ For **each work package**:
 
 ---
 
-### Stage 6: Documentation Update
+### Stage 7: Release Engineering (Per Work Package)
+
+**Goal**: Prepare changelog entries, version bumps, and release artifacts
+
+1. **Start a new chat session** or continue from code review
+2. **Open** the project changelog and relevant release files
+3. **Copy and send** the contents of [7-release-engineer.agent.md](vs-code/7-release-engineer.agent.md)
+4. **The agent reads** WP details and review artifacts from the ledger via MCP
+5. **Review release artifacts**:
+   - Changelog entry for the feature or fix
+   - Version bump recommendation (semver: patch/minor/major)
+   - Migration guide (if breaking changes are present)
+   - Deployment readiness check
+6. **Verify**: The agent records release engineering results in the ledger via MCP
+
+**Tips**:
+- Check the semver decision — breaking changes require a major version bump
+- Ensure the changelog entry is user-facing and clearly describes the change
+- If a migration guide was generated, review it before release
+- Confirm all deployment readiness items are addressed
+
+---
+
+### Stage 8: Documentation Update
 
 **Goal**: Keep documentation synchronized with code changes
 
 1. **Start a new chat session**
 2. **Open** current project documentation (README, API docs) for context
-3. **Copy and send** the contents of [6-documentation.md](vs-code/6-documentation.md)
+3. **Copy and send** the contents of [8-docs.agent.md](vs-code/8-docs.agent.md)
 4. **The agent reads** completed WP details and artifacts from the ledger via MCP
 5. **Review documentation updates**:
    - Updated API references
@@ -264,12 +344,12 @@ For **each work package**:
 
 ---
 
-### Stage 7: Synthesis & Reporting
+### Stage 9: Synthesis & Reporting
 
 **Goal**: Generate comprehensive project status report
 
 1. **Start a new chat session**
-2. **Copy and send** the contents of [7-synthesis.md](vs-code/7-synthesis.md)
+3. **Copy and send** the contents of [9-synthesis.agent.md](vs-code/9-synthesis.agent.md)
 3. **The agent reads** the full project status, all WP details, and pipeline data from the ledger via MCP
 4. **Review the generated report**:
    - Executive summary of what was built
@@ -386,7 +466,7 @@ Add custom validation or review steps by:
 
 ### Integration with CI/CD
 
-- Run the Validator agent in automated test pipelines
+- Run the QA agent in automated test pipelines
 - Parse the ledger data (via MCP tools) for build status and metrics
 - Generate reports from the Synthesis agent for dashboards
 
@@ -413,44 +493,48 @@ Add custom validation or review steps by:
            └────────┬────────┘
                     │ Work Packages & Ledger
                     ▼
-        ╔═════════════════════════════════════════════╗
-        ║    ITERATIVE LOOP (for Each Work Package)   ║
-        ║                                             ║
-        ║  ┌─────────────────┐                        ║
-        ║  │  3. Developer   │◄───────────┐           ║
-        ║  │     Agent       │            │           ║
-        ║  └────────┬────────┘            │           ║
-        ║           │ Implemented Code    │           ║
-        ║           ▼                     │           ║
-        ║  ┌─────────────────┐            │           ║
-        ║  │  4. Validator   │            │           ║
-        ║  │     Agent       │            │           ║
-        ║  └────────┬────────┘            │           ║
-        ║           │                     │           ║
-        ║           ├─Tests Fail──────────┘           ║
-        ║           │                     │           ║
-        ║           │ Tests Pass          │           ║
-        ║           ▼                     │           ║
-        ║  ┌─────────────────┐            │           ║
-        ║  │  5. Reviewer    │            │           ║
-        ║  │     Agent       │            │           ║
-        ║  └────────┬────────┘            │           ║
-        ║           │                     │           ║
-        ║           ├─Blocking Issues─────┘           ║
-        ║           │                                 ║
-        ║           │ Code Approved                   ║
-        ╚═══════════╪═════════════════════════════════╝
+        ╔═══════════════════════════════════════════════╗
+        ║    ITERATIVE LOOP (for Each Work Package)     ║
+        ║                                               ║
+        ║  ┌─────────────────┐                          ║
+        ║  │  3. Developer   │◄───────────┐             ║
+        ║  │     Agent       │            │ REWORK      ║
+        ║  └────────┬────────┘            │             ║
+        ║           │                     │             ║
+        ║           ▼                     │             ║
+        ║  ┌─────────────────┐            │             ║
+        ║  │   4. QA Agent   │────FAIL────┘             ║
+        ║  └────────┬────────┘                          ║
+        ║           │ PASS                              ║
+        ║           ▼                                   ║
+        ║  ╔═════════════════╗                          ║
+        ║  ║  5. Security    ║  ← optional stage        ║
+        ║  ║     Auditor     ║────FAIL────┐             ║
+        ║  ╚════════╤════════╝            │             ║
+        ║           │ PASS / skipped      │ REWORK      ║
+        ║           ▼                     │             ║
+        ║  ┌─────────────────┐            │             ║
+        ║  │  6. Reviewer    │────FAIL────┘             ║
+        ║  │     Agent       │                          ║
+        ║  └────────┬────────┘                          ║
+        ║           │ PASS                              ║
+        ║           ▼                                   ║
+        ║  ╔═════════════════╗                          ║
+        ║  ║  7. Release     ║  ← optional stage        ║
+        ║  ║     Engineer    ║                          ║
+        ║  ╚════════╤════════╝                          ║
+        ║           │ PASS / skipped                    ║
+        ║           ▼                                   ║
+        ║  ┌─────────────────┐                          ║
+        ║  │ 8. Documenta-   │                          ║
+        ║  │    tion Agent   │                          ║
+        ║  └────────┬────────┘                          ║
+        ╚═══════════╪═══════════════════════════════════╝
                     │
                     │ All Work Packages Complete
                     ▼
            ┌─────────────────┐
-           │  6. Documenta-  │
-           │     tion Agent  │
-           └────────┬────────┘
-                    │ Updated Docs
-                    ▼
-           ┌─────────────────┐
-           │  7. Synthesis   │
+           │  9. Synthesis   │
            │     Agent       │
            └────────┬────────┘
                     │ Final Report
@@ -466,14 +550,17 @@ Add custom validation or review steps by:
 1. **Planner Agent** → Creates high-level implementation plan
 2. **Project Manager Agent** → Breaks plan into work packages and initializes ledger
 3. **Developer Agent** → Implements work packages (iterative, one at a time)
-4. **Validator Agent** → Verifies acceptance criteria and runs tests
-   - If tests fail → Returns to Developer
-5. **Reviewer Agent** → Performs code quality and architecture review
-   - If blocking issues found → Returns to Developer
-6. **Documentation Agent** → Updates project documentation (after all packages complete)
-7. **Synthesis Agent** → Generates comprehensive project report
+4. **QA Agent** → Verifies acceptance criteria and runs tests
+   - If tests fail → Returns to Developer (REWORK)
+5. **Security Auditor Agent** → Performs security review and vulnerability assessment *(optional stage)*
+   - If blocking issue found → Returns to Developer (REWORK)
+6. **Reviewer Agent** → Performs code quality and architecture review
+   - If blocking issues found → Returns to Developer (REWORK)
+7. **Release Engineer Agent** → Manages changelogs, versioning, and release artifacts *(optional stage)*
+8. **Documentation Agent** → Updates project documentation for this work package
+9. **Synthesis Agent** → Generates comprehensive project report
 
-**Note**: Steps 3-5 form an iterative loop that repeats for each work package. The workflow proceeds to Documentation only after all work packages are validated and reviewed.
+**Note**: Steps 3–8 form a configurable per-WP loop. Stages 5 (Security Audit) and 7 (Release Engineering) are **optional** — included only for WPs that require them. Which stages run for a given work package is determined by the PM during project setup (see [Pipeline Configuration](#dynamic-pipeline-configuration)). Stages not in the WP's pipeline are skipped automatically. Step 9 (Synthesis) runs once after all work packages are complete.
 
 ---
 
@@ -501,7 +588,7 @@ your-project/
 
 ## Building Personas
 
-The ledger persona files (`1-planner.md` … `7-synthesis.md`) are **auto-generated** from source templates in `personas/ledger/src/`. Do not edit them directly — changes will be overwritten on the next build.
+The ledger persona files (`1-planner.md` … `9-synthesis.md`) are **auto-generated** from source templates in `personas/ledger/src/`. Do not edit them directly — changes will be overwritten on the next build.
 
 **Quick commands:**
 

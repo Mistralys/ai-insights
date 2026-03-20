@@ -10,7 +10,14 @@ import {
   NEXT_AGENT_MAP,
   FAIL_ROUTING_MAP,
   PipelineTypeEnum,
+  describePipelineTypes,
+  describePipelineAgents,
   type PipelineType,
+  resolvePrerequisite,
+  resolveNextAgent,
+  resolveFailAgent,
+  DEFAULT_PIPELINE_STAGES,
+  lastActiveStage,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
@@ -31,17 +38,22 @@ function buildCompletionGuidance(
   status: 'PASS' | 'FAIL',
   autoFinalizeResult: 'finalized' | 'blocked' | null = null,
   unmetCriteria: string[] = [],
+  activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
 ): string {
   const currentAgent = PIPELINE_AGENT_MAP[pipelineType] ?? pipelineType;
-  const nextAgent = NEXT_AGENT_MAP[pipelineType] ?? 'the next agent';
+  const nextAgent = resolveNextAgent(pipelineType, activeStages);
+  const failAgent = resolveFailAgent(pipelineType, activeStages);
+
+  // Determine if this is the terminal (last active) stage
+  const isTerminalStage = pipelineType === lastActiveStage(activeStages);
 
   if (status === 'PASS') {
-    if (pipelineType === 'documentation') {
+    if (isTerminalStage) {
       if (autoFinalizeResult === 'finalized') {
         return (
           `\n\n--- NEXT STEP ---\n` +
           `Pipeline PASS. WP ${wpId} was auto-finalized to COMPLETE (all acceptance criteria met). ` +
-          `Call ledger_get_handoff_status (current_agent: "Documentation") to confirm handoff.`
+          `Call ledger_get_handoff_status (current_agent: "${currentAgent}") to confirm handoff.`
         );
       }
       if (autoFinalizeResult === 'blocked') {
@@ -53,10 +65,10 @@ function buildCompletionGuidance(
           `to use ledger_update_work_package_status if manual completion is needed.`
         );
       }
-      // Fallback (e.g. PM override completing a doc pipeline): preserve original guidance
+      // Fallback (e.g. PM override completing the terminal pipeline)
       return (
         `\n\n--- NEXT STEP ---\n` +
-        `Pipeline PASS. Call ledger_get_handoff_status (current_agent: "Documentation") to confirm handoff.`
+        `Pipeline PASS. Call ledger_get_handoff_status (current_agent: "${currentAgent}") to confirm handoff.`
       );
     }
     return (
@@ -76,12 +88,23 @@ function buildCompletionGuidance(
     );
   }
 
-  // QA or code-review FAIL → Developer needs to rework the implementation
+  // Non-implementation FAIL — route to failAgent
+  if (failAgent === currentAgent) {
+    // Self-rework (e.g., documentation, release-engineering)
+    return (
+      `\n\n--- NEXT STEP ---\n` +
+      `Pipeline FAIL. Leave ${wpId} as IN_PROGRESS. ` +
+      `${currentAgent} self-rework: review the FAIL summary and retry. ` +
+      `Call ledger_get_handoff_status to confirm.`
+    );
+  }
+
+  // Downstream FAIL routes back to another agent (typically Developer)
   return (
     `\n\n--- NEXT STEP ---\n` +
     `Pipeline FAIL. Do NOT set ${wpId} to BLOCKED — leave it as IN_PROGRESS. ` +
-    `The Developer will see the FAIL ${pipelineType} pipeline via ledger_get_next_action and rework the implementation. ` +
-    `Call ledger_get_handoff_status to confirm handoff back to the Developer.`
+    `${failAgent} will see the FAIL ${pipelineType} pipeline via ledger_get_next_action and rework. ` +
+    `Call ledger_get_handoff_status to confirm handoff back to ${failAgent}.`
   );
 }
 
@@ -104,10 +127,10 @@ const StartPipelineSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type:')),
   agent_role: z
     .string()
-    .describe('Your agent role. Must match the pipeline type owner: "Developer" for implementation, "QA" for qa, "Reviewer" for code-review, "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'),
+    .describe(describePipelineAgents('Your agent role. Must match the pipeline type owner:')),
 });
 
 async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
@@ -122,6 +145,10 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // 0. Resolve the WP's active pipeline stages (default to legacy 4-stage)
+      const activeStages: readonly PipelineType[] =
+        (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+
       // 1. Validate agent role — PM may bypass role ownership (PM Override gate)
       const expectedAgent = PIPELINE_AGENT_MAP[args.type];
       const isPmOverride = args.agent_role === 'Project Manager';
@@ -138,6 +165,15 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
+      // 2b. Validate requested pipeline type is in the WP's active stages
+      if (!activeStages.includes(args.type)) {
+        throw new Error(
+          `Cannot start pipeline '${args.type}' for work package ${args.work_package_id}: ` +
+          `this pipeline type is not in the WP's active stages. ` +
+          `Active stages: ${(activeStages as readonly string[]).join(' \u2192 ')}.`
+        );
+      }
+
       // 3. Check for duplicate in-progress pipeline of same type
       const existingInProgress = wp.pipelines.find(
         (p) => p.type === args.type && p.status === 'IN_PROGRESS'
@@ -149,20 +185,22 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         );
       }
 
-      // 4. Enforce pipeline ordering: check prerequisite (most-recent semantics per §8.2)
-      const prerequisite = PIPELINE_PREREQUISITES[args.type];
-      if (prerequisite !== undefined && prerequisite !== null) {
+      // 4. Enforce pipeline ordering: compute prerequisite dynamically from active stages (§8.2)
+      const prerequisite = resolvePrerequisite(args.type, activeStages);
+      if (prerequisite !== null) {
         const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
         const mostRecentPrereq = prereqPipelines.at(-1);
         if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
+          const orderedActive = (activeStages as readonly string[]).join(' \u2192 ');
           throw new Error(
-            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Pipeline order: implementation → qa → code-review → documentation.`
+            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. ` +
+            `Active pipeline order: ${orderedActive}.`
           );
         }
 
         // 4b. Revalidation guard: reject if a prior run exists and the prerequisite
         //     PASS is stale after upstream rework (§11.1).
-        const revalidError = checkRevalidationGuard(wp.pipelines, args.type, prerequisite);
+        const revalidError = checkRevalidationGuard(wp.pipelines, args.type, prerequisite, activeStages);
         if (revalidError !== null) {
           throw new Error(revalidError);
         }
@@ -183,7 +221,7 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
         (p) => p.type === args.type && !p.auto_cancelled
       );
       const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
-      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type);
+      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type, activeStages);
       const needsRework = isDirectRework || isDownstreamRework;
 
       if (needsRework) {
@@ -260,7 +298,7 @@ const CompletePipelineSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: PipelineTypeEnum.describe('Pipeline type to complete: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type to complete:')),
   status: z.enum(['PASS', 'FAIL']).describe('Pipeline result: "PASS" if successful, "FAIL" if issues found'),
   summary: z.union([z.string(), z.array(z.string())]).describe('Summary of what was done. Accepts a single string or an array of strings (e.g., "Implemented feature X" or ["Implemented feature X", "Added tests"]).'),
   artifacts: z
@@ -308,7 +346,7 @@ const CompletePipelineSchema = z.object({
     .describe('Notes for the next agent in the pipeline. Will be attached to the WP as a structured handoff note entry.'),
   agent_role: z
     .string()
-    .describe('Your agent role. Must match the pipeline type owner: "Developer" for implementation, "QA" for qa, "Reviewer" for code-review, "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'),
+    .describe(describePipelineAgents('Your agent role. Must match the pipeline type owner:')),
 });
 
 async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>) {
@@ -343,9 +381,45 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
   // Track auto-finalize result to embed in response (set inside updateWorkPackageWithSync callback)
   let autoFinalizeResult: 'finalized' | 'blocked' | null = null;
   let unmetCriteriaList: string[] = [];
+  // Captured from within the lock callback so buildCompletionGuidance can use it
+  let activeStagesForGuidance: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES;
+  // Soft warning text for empty artifacts (set inside callback, appended to response)
+  let artifactsWarning = '';
+
+  // §21.59 Advisory staleness map: pre-read dep WPs to compare their last-modification
+  // signal against the pipeline's started_at. Only populated when status is PASS.
+  // Race-safe by design: this is advisory only — PASS is never blocked.
+  const depStalenessMap = new Map<string, string | undefined>();
+  if (args.status === 'PASS') {
+    try {
+      const preWp = await store.readWorkPackage(args.work_package_id);
+      const prePipeline = preWp.pipelines
+        .filter((p) => p.type === args.type && p.status === 'IN_PROGRESS')
+        .at(-1);
+      if (prePipeline?.started_at && preWp.dependencies.length > 0) {
+        for (const depId of preWp.dependencies) {
+          try {
+            const depWp = await store.readWorkPackage(depId);
+            if (depWp.last_updated) {
+              depStalenessMap.set(depId, depWp.last_updated);
+            }
+          } catch {
+            // dep WP not readable — skip this dep
+          }
+        }
+      }
+    } catch {
+      // pre-read of current WP failed — skip staleness check
+    }
+  }
 
   try {
     await store.updateWorkPackageWithSync(args.work_package_id, (wp, root) => {
+      // Resolve the WP's active pipeline stages (default to legacy 4-stage)
+      const activeStages: readonly PipelineType[] =
+        (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+      activeStagesForGuidance = activeStages;
+
       // 0. Defense-in-depth: WP must be IN_PROGRESS to complete a pipeline
       if (wp.status !== 'IN_PROGRESS') {
         throw new Error(
@@ -391,6 +465,45 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
         pipeline.comments = args.comments;
       }
 
+      // 3b. Soft warning: emit when artifacts.files_modified is empty or absent on a PASS pipeline (§12.1).
+      // Persists a project comment for PM audit trail AND appends a text note to the response.
+      // Verification-only and documentation-only WPs may legitimately have no files_modified,
+      // but the warning prompts agents to declare any modifications they made.
+      if (args.status === 'PASS' && !isPmOverride) {
+        const filesModified = args.artifacts?.files_modified;
+        if (!filesModified || filesModified.length === 0) {
+          // §12.1: Persist as a project comment for traceability
+          root.project_comments.push({
+            type: 'warning',
+            priority: 'low',
+            timestamp: now(),
+            agent: args.agent_role,
+            note: `Pipeline ${args.type} on ${args.work_package_id} completed with PASS but declared no artifacts.files_modified — consider declaring modified files for traceability`,
+          });
+          artifactsWarning =
+            '\n\nNote: artifacts.files_modified is empty or absent. ' +
+            'If you modified any files during this pipeline, declare them in artifacts.files_modified ' +
+            'for a complete audit trail. This is expected for verification-only or documentation-only pipelines.';
+        }
+      }
+
+      // §21.59 Advisory cross-WP dependency freshness check (SHOULD level).
+      // Warns when a dependency was modified after this pipeline started.
+      // Does NOT block PASS — emits project comments only.
+      if (args.status === 'PASS' && pipeline.started_at && depStalenessMap.size > 0) {
+        for (const [depId, depLastModified] of depStalenessMap) {
+          if (depLastModified && new Date(depLastModified).getTime() > new Date(pipeline.started_at).getTime()) {
+            root.project_comments.push({
+              type: 'warning',
+              priority: 'low',
+              timestamp: now(),
+              agent: args.agent_role,
+              note: `Dependency ${depId} was modified after pipeline started — results may reflect stale assumptions`,
+            });
+          }
+        }
+      }
+
       // 4. Update acceptance criteria if provided
       if (args.acceptance_criteria_updates) {
         for (const update of args.acceptance_criteria_updates) {
@@ -406,13 +519,15 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
         }
       }
 
-      // 4b. Auto-finalize (§WP-006): fires only when Documentation agent completes a
-      // documentation pipeline with PASS and all acceptance criteria are met.
-      // The check occurs AFTER acceptance_criteria_updates so freshly-marked criteria
-      // are evaluated. PM overrides bypass auto-finalize intentionally.
-      const isDocPass = args.type === 'documentation' && args.status === 'PASS';
-      const isDocAgent = args.agent_role === 'Documentation';
-      if (isDocPass && isDocAgent) {
+      // 4b. Generalized auto-finalize (§WP-006): fires when the agent owning the LAST
+      // active stage completes that stage with PASS and all acceptance criteria are met.
+      // The terminal stage is computed dynamically from the WP's active_pipeline_stages.
+      // PM overrides bypass auto-finalize intentionally.
+      const lastStage = lastActiveStage(activeStages);
+      const terminalAgent = PIPELINE_AGENT_MAP[lastStage] ?? null;
+      const isTerminalPass = args.type === lastStage && args.status === 'PASS';
+      const isTerminalAgent = terminalAgent !== null && args.agent_role === terminalAgent;
+      if (isTerminalPass && isTerminalAgent) {
         const unmet = wp.acceptance_criteria
           .filter((ac) => !ac.met)
           .map((ac) => ac.criterion);
@@ -443,8 +558,8 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
           ? 'Project Manager (PM Override)'
           : (PIPELINE_AGENT_MAP[args.type] ?? args.type);
         const toAgent = args.status === 'FAIL'
-          ? (FAIL_ROUTING_MAP[args.type] ?? 'Developer')
-          : (NEXT_AGENT_MAP[args.type] ?? 'Unknown');
+          ? resolveFailAgent(args.type, activeStages)
+          : resolveNextAgent(args.type, activeStages);
         const note: HandoffNote = {
           from_agent: fromAgent,
           to_agent: toAgent,
@@ -480,6 +595,7 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       args.status,
       autoFinalizeResult,
       unmetCriteriaList,
+      activeStagesForGuidance,
     );
 
     // Build response payload — embed auto-finalize signals if applicable
@@ -495,7 +611,7 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(responsePayload, null, 2) + guidance,
+          text: JSON.stringify(responsePayload, null, 2) + guidance + artifactsWarning,
         },
       ],
     };
@@ -525,7 +641,7 @@ const CancelPipelineSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: PipelineTypeEnum.describe('Pipeline type to cancel: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type to cancel:')),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
 });
 
@@ -595,7 +711,7 @@ const UpdatePipelineProgressSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", or "documentation"'),
+  type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type:')),
   summary: z.array(z.string()).describe('Updated summary strings to record as partial progress'),
 });
 
@@ -657,7 +773,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_start_pipeline',
     {
-      description: 'Start a new pipeline for a work package. REQUIRED params: work_package_id, type. The type must be one of: "implementation", "qa", "code-review", "documentation". WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
+      description: `Start a new pipeline for a work package. REQUIRED params: work_package_id, type. ${describePipelineTypes('The type must be one of:')}. WP must be IN_PROGRESS (use ledger_claim_work_package first if READY). Rejects duplicate in-progress pipelines of the same type. Use cwd_path (workspace root) for auto-detection, or project_path if already known.`,
       inputSchema: StartPipelineSchema,
     },
     startPipeline as any

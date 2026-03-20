@@ -17,11 +17,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.types import Command
 
+from .config import PIPELINE_ROLE_NAMES, ROLE_IDS, WP_TERMINAL_STATUSES
 from .state import WorkflowState
 
 log = logging.getLogger(__name__)
@@ -30,15 +31,17 @@ log = logging.getLogger(__name__)
 # Routing destination constants
 # ---------------------------------------------------------------------------
 
-_DEST_PM = "pm"
-_DEST_DEVELOPER = "developer"
-_DEST_QA = "qa"
-_DEST_REVIEWER = "reviewer"
-_DEST_DOCS = "docs"
-_DEST_SYNTHESIS = "synthesis"
+_DEST_PM = ROLE_IDS["Project Manager"]
+_DEST_DEVELOPER = ROLE_IDS["Developer"]
+_DEST_QA = ROLE_IDS["QA"]
+_DEST_SECURITY_AUDITOR = ROLE_IDS["Security Auditor"]
+_DEST_REVIEWER = ROLE_IDS["Reviewer"]
+_DEST_RELEASE_ENGINEER = ROLE_IDS["Release Engineer"]
+_DEST_DOCS = ROLE_IDS["Documentation"]
+_DEST_SYNTHESIS = ROLE_IDS["Synthesis"]
 
 # Work-package statuses considered terminal (no further agent action needed).
-_TERMINAL_STATUSES: frozenset[str] = frozenset({"COMPLETE", "CANCELLED"})
+_TERMINAL_STATUSES: frozenset[str] = WP_TERMINAL_STATUSES
 
 # Actions where the role has nothing to do this iteration.
 _SKIP_ACTIONS: frozenset[str] = frozenset({
@@ -58,24 +61,32 @@ _DISPATCH_ACTIONS: frozenset[str] = frozenset({
     "UNBLOCK_WP", "REVIEW_REWORK_LIMIT", "REVIEW_STALE", "REVIEW_ABANDONED",
     "REPAIR_ORPHAN_BLOCKED",
     # Developer
-    "IMPLEMENT", "REWORK", "CLAIM_WP", "CONTINUE_PIPELINE", "RESUME_OR_CANCEL",
+    "IMPLEMENT", "CLAIM_WP", "CONTINUE_PIPELINE", "RESUME_OR_CANCEL",
+    # Multi-role (routed by fail_routing in workflow manifest)
+    "REWORK",
     # QA
     "RUN_QA",
+    # Security Auditor
+    "RUN_SECURITY_AUDIT",
     # Reviewer
     "RUN_REVIEW",
+    # Release Engineer
+    "RUN_RELEASE_ENGINEERING",
     # Documentation
     "WRITE_DOCS", "FINALIZE_WP", "UPDATE_CRITERIA",
 })
 
 # Maps each agent role name (as used in ledger_get_next_action) to the
 # corresponding LangGraph stage destination.
+# Derived from the manifest: non-orchestrating role name → role ID.
 _ROLE_STAGE_MAP: dict[str, str] = {
-    "Project Manager": _DEST_PM,
-    "Developer": _DEST_DEVELOPER,
-    "QA": _DEST_QA,
-    "Reviewer": _DEST_REVIEWER,
-    "Documentation": _DEST_DOCS,
+    name: ROLE_IDS[name]
+    for name in PIPELINE_ROLE_NAMES
 }
+
+# All non-orchestrating agent role names in manifest order.
+# The supervisor queries each role in turn to find the first with actionable work.
+_ROLES: list[str] = list(PIPELINE_ROLE_NAMES)
 
 # LangGraph END sentinel.
 try:
@@ -142,7 +153,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
         stage: str, wp_id: str, action: str, destination: str, **extra: Any
     ) -> dict:
         return {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "stage": stage,
             "wp_id": wp_id,
             "action": action,
@@ -188,7 +199,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         # ── Safety limit ─────────────────────────────────────────────
         if new_iteration > max_iterations:
-            ts = datetime.now(timezone.utc).isoformat()
+            ts = datetime.now(UTC).isoformat()
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",
@@ -220,7 +231,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             status_data = await _call_tool("ledger_get_project_status", project_path=project_path)
         except Exception as exc:
             log.error("Failed to read project status: %s", exc)
-            ts = datetime.now(timezone.utc).isoformat()
+            ts = datetime.now(UTC).isoformat()
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",
@@ -302,13 +313,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
         # Query each agent role in turn.  The first role that returns a
         # dispatchable action wins; the supervisor routes to that stage.
         # All roles returning WAIT means nothing is actionable → synthesis.
-        _ROLES = [
-            "Project Manager",
-            "Developer",
-            "QA",
-            "Reviewer",
-            "Documentation",
-        ]
+
         extra_log_entries: list = []
         extra_errors: list = []
 
@@ -353,7 +358,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             if wp_id:
                 consecutive = cf.get(wp_id, 0)
                 if consecutive >= 3:
-                    ts = datetime.now(timezone.utc).isoformat()
+                    ts = datetime.now(UTC).isoformat()
                     log.warning(
                         "WP %s halted: %d consecutive failures — skipping to prevent loop.",
                         wp_id,

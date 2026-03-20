@@ -49,14 +49,46 @@ You will be provided with:
 ## Workflow
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
-2. Read the finalized plan.
-3. Identify major deliverables and break them into work packages.
-4. Define dependencies and sequencing.
-5. Validate that all plan elements are covered.
-6. Create the `work/` subfolder, one `work/WP-###.md` detail file per WP, and a summary `work.md` index.
-7. Call `ledger_initialize_project` with the absolute path to the plan folder and the relative path to `plan.md`.
-8. For each work package (in dependency order), call `ledger_create_work_package` — the tool's parameter descriptions document the required fields.
-9. Call `ledger_get_project_status` to verify the ledger was created correctly.
+2. **Read the plan:** Read the plan document provided by the Planner Agent. Identify the project scope, key goals, and any explicit constraints or phasing notes.
+3. **Invoke WP Decomposer sub-agent:**
+{{#if target_vscode}}
+   Use `runSubagent` with the `@wp-decomposer` agent. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Expected output: A list of Work Package definitions, each with title, description, scope, and draft acceptance criteria.
+{{else}}
+   Use the `Task` tool with `description: "wp-decomposer"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Expected output: A list of Work Package definitions, each with title, description, scope, and draft acceptance criteria.
+{{/if}}
+4. **Invoke Dependency Sequencer sub-agent:**
+{{#if target_vscode}}
+   Use `runSubagent` with the `@dependency-sequencer` agent. Pass: the WP definitions received from the WP Decomposer.
+   Expected output: A dependency graph with execution ordering and identified parallelization opportunities.
+{{else}}
+   Use the `Task` tool with `description: "dependency-sequencer"`. Pass: the WP definitions received from the WP Decomposer.
+   Expected output: A dependency graph with execution ordering and identified parallelization opportunities.
+{{/if}}
+5. **Invoke Pipeline Configurator sub-agent:**
+{{#if target_vscode}}
+   Use `runSubagent` with the `@pipeline-configurator` agent. Pass: the WP definitions and dependency graph from prior sub-agents.
+   Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
+{{else}}
+   Use the `Task` tool with `description: "pipeline-configurator"`. Pass: the WP definitions and dependency graph from prior sub-agents.
+   Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
+{{/if}}
+6. **Invoke Ledger Bootstrapper sub-agent:**
+{{#if target_vscode}}
+   Use `runSubagent` with the `@ledger-bootstrapper` agent. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
+{{else}}
+   Use the `Task` tool with `description: "ledger-bootstrapper"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
+{{/if}}
+7. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`.
+8. **Verify ledger:** Call `ledger_get_project_status` to confirm the ledger was created correctly — WP count, statuses (READY/BLOCKED), and dependency graph match expectations.
+9. **Verify WP spec files exist:** For each WP in the ledger, confirm:
+   - The individual spec file exists at `work/<WP-ID>.md` inside the plan folder
+   - The summary index `work.md` exists in the plan folder root
+   
+   If any files are missing, **create them yourself** before handing off. Each `work/<WP-ID>.md` must contain the WP title, description, scope, dependencies, acceptance criteria, and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure. This is a critical gate — do not hand off with missing WP spec files.
 {{#if target_vscode}}
 10. {{> handoff-block-vscode}}
 {{else}}

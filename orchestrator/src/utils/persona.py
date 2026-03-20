@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 _CACHE: dict[str, str] = {}
 
 
-def load_persona(stage: str, workspace_root: "Path | str | None" = None) -> str:
+def load_persona(stage: str, workspace_root: Path | str | None = None) -> str:
     """
     Return the Markdown content of the persona file for *stage*.
 

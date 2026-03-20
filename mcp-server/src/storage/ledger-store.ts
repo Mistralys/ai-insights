@@ -172,6 +172,27 @@ export class LedgerStore {
   /**
    * Writes the root index after validation and automatically syncs .meta.json.
    *
+   * @internal This method should only be called from within LedgerStore sync methods
+   * (`updateWorkPackageWithSync`, `createWorkPackageWithSync`, `batchUpdateWorkPackagesWithSync`)
+   * or from one of the following explicitly approved direct callers that manage their own
+   * lock scope and cannot route through a sync method:
+   *
+   *   - `project-lifecycle.ts` — `getProjectStatus()` self-healing: repairs stale counter fields
+   *     under an explicit `withLock` before returning project status; also used in
+   *     `initializeProject()` and `completeSynthesis()` for root-index-only transitions that
+   *     don't involve any WP file writes.
+   *   - `auto-archive.ts`    — GUI auto-archive: sets `status: 'ARCHIVED'` with
+   *     `preserveLastUpdated: true` so the visible activity time is not distorted.
+   *   - `observations.ts`    — Project-level comment append: writes only the root index
+   *     (no WP file involved) after appending a project comment.
+   *   - `workflow-handoff.ts` — `buildHandoffResponse()`: increments or caps the
+   *     `auto_handoff_depth` counter on every handoff-status response; root-index-only
+   *     write with no WP file involvement.
+   *
+   * All other tool functions and helpers must NOT call this directly — use a sync method
+   * instead to guarantee atomic WP+root writes, schema validation, `last_updated`
+   * auto-stamping, and `.meta.json` sync.
+   *
    * @param data    - Root index data to write
    * @param options - Optional flags; set `preserveLastUpdated: true` for
    *                  administrative status transitions (archive / unarchive)
@@ -193,6 +214,14 @@ export class LedgerStore {
 
   /**
    * Writes a work package detail file after validation.
+   *
+   * @internal This method should only be called from within LedgerStore sync methods
+   * (`updateWorkPackageWithSync`, `createWorkPackageWithSync`, `batchUpdateWorkPackagesWithSync`).
+   * As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has NO legitimate
+   * external callers — every code path that previously called it directly (including
+   * `project-reset.ts`) has been migrated to use a sync method. Tool functions and
+   * helpers must NOT call this directly — use a sync method instead to guarantee atomic
+   * WP+root writes, schema validation, `last_updated` auto-stamping, and `.meta.json` sync.
    *
    * @param wpId - Work package ID (e.g., "WP-001")
    * @param data - Work package detail data to write
@@ -234,6 +263,9 @@ export class LedgerStore {
       // Apply the update
       const { wp: updatedWp, root: updatedRoot } = await updater(wp, root);
 
+      // Auto-stamp last_updated on every WP write (§WP-002)
+      updatedWp.last_updated = now();
+
       // Validate the updates
       const validatedWp = WorkPackageDetailSchema.parse(updatedWp);
       const validatedRoot = RootIndexSchema.parse(updatedRoot);
@@ -242,6 +274,127 @@ export class LedgerStore {
       await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
       await atomicWriteJson(this.rootIndexPath(), validatedRoot);
       // Auto-sync .meta.json inside the same lock scope — include WP counters
+      await this.writeProjectMeta('', validatedRoot.status, {
+        total_work_packages: validatedRoot.total_work_packages,
+        pending_work_packages: validatedRoot.pending_work_packages,
+      });
+    });
+  }
+
+  /**
+   * Creates a new work package and updates the root index atomically within a single lock.
+   *
+   * This is the creation-time sibling of `updateWorkPackageWithSync`. Use it when the
+   * WP file does not yet exist on disk. The callback receives the current root index
+   * and must return the new WP detail, the WP ID to write it under, and the updated
+   * root index. Both files are then written atomically within the same lock.
+   *
+   * Post-write guarantees (same as `updateWorkPackageWithSync`):
+   *   - `last_updated` is auto-stamped on the WP detail
+   *   - Both objects are validated via their Zod schemas
+   *   - `.meta.json` is synced after every successful write
+   *
+   * @param creator - Callback that receives the root index and returns the new WP detail,
+   *                  its ID, and the updated root index
+   * @throws Error if validation fails or write fails
+   */
+  async createWorkPackageWithSync(
+    creator: (
+      root: RootIndex
+    ) => { wpId: string; wp: WorkPackageDetail; root: RootIndex } | Promise<{ wpId: string; wp: WorkPackageDetail; root: RootIndex }>
+  ): Promise<string> {
+    let createdWpId = '';
+    await withLock(this.storageDir, async () => {
+      // Read the current root index
+      const root = await this.readRootIndex();
+
+      // Apply the creator callback
+      const { wpId, wp: newWp, root: updatedRoot } = await creator(root);
+      createdWpId = wpId;
+
+      // Auto-stamp last_updated on every WP write (matches updateWorkPackageWithSync behaviour)
+      newWp.last_updated = now();
+
+      // Validate both objects
+      const validatedWp = WorkPackageDetailSchema.parse(newWp);
+      const validatedRoot = RootIndexSchema.parse(updatedRoot);
+
+      // Write both atomically (within the same lock)
+      await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
+      await atomicWriteJson(this.rootIndexPath(), validatedRoot);
+      // Auto-sync .meta.json inside the same lock scope — include WP counters
+      await this.writeProjectMeta('', validatedRoot.status, {
+        total_work_packages: validatedRoot.total_work_packages,
+        pending_work_packages: validatedRoot.pending_work_packages,
+      });
+    });
+    return createdWpId;
+  }
+
+  /**
+   * Updates multiple work packages and the root index atomically within a single lock.
+   *
+   * This is the batch-write sibling of `updateWorkPackageWithSync`. It preserves the
+   * single-lock-scope semantics of the propagation helpers while routing all individual
+   * WP writes through validation and auto-stamping.
+   *
+   * The callback receives:
+   *   - `root` — the current root index (read inside the lock)
+   *   - `readWp` — a helper that reads a WP detail file (also inside the lock)
+   *
+   * The callback must return:
+   *   - `updatedWps` — a Map of WP ID → updated WorkPackageDetail for every WP that was modified
+   *   - `root` — the updated root index
+   *
+   * For each entry in `updatedWps`:
+   *   - `last_updated` is auto-stamped (overwriting any value set by the callback)
+   *   - The WP is validated via `WorkPackageDetailSchema.parse()`
+   *   - The WP file is written atomically
+   *
+   * The root index is validated via `RootIndexSchema.parse()` and written atomically.
+   * `.meta.json` is synced exactly once at the end.
+   *
+   * @param callback - Function that reads WPs and returns modified state
+   * @throws Error if files don't exist, validation fails, or write fails
+   */
+  async batchUpdateWorkPackagesWithSync(
+    callback: (
+      root: RootIndex,
+      readWp: (id: string) => Promise<WorkPackageDetail>
+    ) => Promise<{ updatedWps: Map<string, WorkPackageDetail>; root: RootIndex }>
+  ): Promise<void> {
+    await withLock(this.storageDir, async () => {
+      // Read the root index inside the lock
+      const root = await this.readRootIndex();
+
+      // Provide a readWp helper bound to this store
+      const readWp = (id: string) => this.readWorkPackage(id);
+
+      // Run the callback to get the batch of updates
+      const { updatedWps, root: updatedRoot } = await callback(root, readWp);
+
+      const timestamp = now();
+
+      // Pass 1: auto-stamp and validate every WP — collect validated objects before any write.
+      // This ensures a mid-batch validation failure cannot leave some WP files updated
+      // while the root index still reflects the pre-batch state (WP/root desync).
+      const validatedEntries: Array<[string, WorkPackageDetail]> = [];
+      for (const [wpId, wp] of updatedWps) {
+        // Auto-stamp last_updated on every WP write (mirrors updateWorkPackageWithSync)
+        wp.last_updated = timestamp;
+        validatedEntries.push([wpId, WorkPackageDetailSchema.parse(wp)]);
+      }
+
+      // Also validate the root index before writing anything
+      const validatedRoot = RootIndexSchema.parse(updatedRoot);
+
+      // Pass 2: write all validated WPs atomically (no validation can fail from here)
+      for (const [wpId, validatedWp] of validatedEntries) {
+        await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
+      }
+      await atomicWriteJson(this.rootIndexPath(), validatedRoot);
+
+      // Sync .meta.json exactly once after all WP writes
       await this.writeProjectMeta('', validatedRoot.status, {
         total_work_packages: validatedRoot.total_work_packages,
         pending_work_packages: validatedRoot.pending_work_packages,

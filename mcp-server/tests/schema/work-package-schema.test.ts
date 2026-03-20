@@ -161,6 +161,21 @@ describe('WorkPackageDetailSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.status_changed_at).toBeUndefined();
   });
+
+  it('accepts last_updated when present', () => {
+    const result = WorkPackageDetailSchema.safeParse({
+      ...minimalWpDetail,
+      last_updated: '2026-03-17T12:00:00Z',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.last_updated).toBe('2026-03-17T12:00:00Z');
+  });
+
+  it('accepts object without last_updated (optional — backward compatible)', () => {
+    const result = WorkPackageDetailSchema.safeParse(minimalWpDetail);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.last_updated).toBeUndefined();
+  });
 });
 
 // ─── WorkPackageSummarySchema ──────────────────────────────────────────────

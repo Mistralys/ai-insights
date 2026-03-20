@@ -26,7 +26,7 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_claim_work_package | cwd_path or project_path, work_package_id, agent | Claim a READY WP → IN_PROGRESS |
 | ledger_begin_work | cwd_path or project_path, work_package_id, type, agent_role | Claim + start pipeline in one atomic call |
 | ledger_update_work_package_status | cwd_path or project_path, work_package_id, status, agent | Update WP status |
-| ledger_start_pipeline | cwd_path or project_path, work_package_id, type | Start a pipeline (ordered: impl → qa → code-review → docs) |
+| ledger_start_pipeline | cwd_path or project_path, work_package_id, type | Start a pipeline for a work package (ordering determined by WP's active_pipeline_stages) |
 | ledger_complete_pipeline | cwd_path or project_path, work_package_id, type, status, summary | Complete a pipeline |
 | ledger_cancel_pipeline | cwd_path or project_path, work_package_id, type, reason | Cancel a stale IN_PROGRESS pipeline (sets to FAIL) |
 | ledger_update_pipeline_progress | cwd_path or project_path, work_package_id, type, summary | Update summary of IN_PROGRESS pipeline without completing it |
@@ -38,20 +38,25 @@ export const TOOL_HELP: Record<string, string> = {
 ## Common Mistakes
 
 1. **Forgetting the "agent" parameter** — ledger_claim_work_package, ledger_update_work_package_status, and ledger_add_project_comment ALL require an "agent" param with your agent name.
-2. **Wrong pipeline type names** — Use exactly: "implementation", "qa", "code-review", "documentation".
-3. **Trying to mark COMPLETE as non-Documentation agent** — Only the Documentation agent can set status to COMPLETE.
+2. **Wrong pipeline type names** — Use exactly: "implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation". Only the pipeline types listed in a WP's \`active_pipeline_stages\` are valid for that WP.
+3. **Trying to mark COMPLETE as the wrong terminal agent** — Only the agent owning the last active stage of the WP's pipeline can auto-finalize to COMPLETE. For the default 4-stage pipeline this is the Documentation agent. For non-standard compositions (e.g., verification-only \`["qa", "code-review"]\`), it is the agent owning the last active stage (e.g., Reviewer).
 4. **Starting a pipeline before claiming the WP** — WP must be IN_PROGRESS before starting a pipeline.
 5. **Not updating acceptance_criteria** — Use the acceptance_criteria_updates param in ledger_complete_pipeline to mark criteria as met before marking WP COMPLETE.
-6. **Starting pipelines out of order** — Pipelines must follow the enforced order: implementation → qa → code-review → documentation. Starting qa requires a PASS implementation pipeline, etc.
+6. **Starting pipelines out of order** — Pipelines must follow the WP's active stage order (a subsequence of: implementation → qa → security-audit → code-review → release-engineering → documentation). Starting a stage requires a PASS pipeline on the immediately preceding active stage. Starting a stage not in the WP's \`active_pipeline_stages\` is also rejected.
 7. **Setting WP to BLOCKED after a pipeline FAIL** — When QA or Reviewer fails a pipeline, do NOT set the WP to BLOCKED. Leave it as IN_PROGRESS so the Developer can find it via ledger_get_next_action and rework. BLOCKED should only be used for external blockers (missing APIs, pending decisions, etc.).
+8. **Test-only WP references non-existent production method** — When creating a WP whose \`active_pipeline_stages\` excludes "implementation" (test-only, verification-only, or documentation-only), verify that all methods/functions referenced in the WP's scope already exist in production code. If they don't, the WP needs the "implementation" stage — otherwise the Developer will silently expand scope by adding production code inside a non-implementation WP.
 
 ## Workflow Order
 
-1. PM creates work packages (ledger_create_work_package)
+1. PM creates work packages (ledger_create_work_package), optionally specifying a custom \`active_pipeline_stages\` to compose the pipeline (defaults to \`["implementation","qa","code-review","documentation"]\`)
 2. Developer claims WP and starts pipeline in one call (\`ledger_begin_work\` type="implementation", agent_role="Developer"), completes pipeline (ledger_complete_pipeline). Note: starting a pipeline auto-updates assigned_to on the WP.
 3. QA starts pipeline (type="qa"), completes pipeline
+3a. *(Optional — only if WP's active_pipeline_stages includes "security-audit")* Security Auditor starts pipeline (type="security-audit"), completes pipeline
 4. Reviewer starts pipeline (type="code-review"), completes pipeline
+4a. *(Optional — only if WP's active_pipeline_stages includes "release-engineering")* Release Engineer starts pipeline (type="release-engineering"), completes pipeline
 5. Documentation starts pipeline (type="documentation"), completes pipeline — if status=PASS and all acceptance criteria are met, the WP is automatically transitioned to COMPLETE (auto-finalize, no separate ledger_update_work_package_status call needed)
+
+**Note:** The terminal agent (owner of the last active stage) triggers auto-finalize on PASS. For non-standard compositions (e.g., \`["qa","code-review"]\`), the Reviewer is the terminal agent who auto-finalizes the WP to COMPLETE.
 
 **Important:** Every ledger_complete_pipeline response includes a "--- NEXT STEP ---" guidance block telling you exactly what to do next. Follow it.
 
@@ -201,6 +206,9 @@ Create a new work package. WP ID is auto-generated.
 - **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
 - **work_package_file** (string): Relative path to the WP spec file
 
+## Optional Parameters
+- **active_pipeline_stages** (array of strings): Ordered subset of pipeline stages for this WP. Omit to use the default 4-stage chain: ["implementation", "qa", "code-review", "documentation"]. Each entry must be a valid pipeline type. The array must be a contiguous subsequence of the canonical ordering and cannot be empty, contain duplicates, or be out of order. A soft warning is emitted if "implementation" is included without "qa", or if only a single stage is specified.
+
 ## Example
 \`\`\`json
 {
@@ -209,6 +217,18 @@ Create a new work package. WP ID is auto-generated.
   "dependencies": [],
   "acceptance_criteria": ["All tests pass", "No lint errors"],
   "work_package_file": "work/WP-001.md"
+}
+\`\`\`
+
+## Example: custom stages (security-audit added, release-engineering skipped)
+\`\`\`json
+{
+  "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
+  "assigned_to": "Developer",
+  "dependencies": [],
+  "acceptance_criteria": ["OWASP checks pass"],
+  "work_package_file": "work/WP-002.md",
+  "active_pipeline_stages": ["implementation", "qa", "security-audit", "code-review", "documentation"]
 }
 \`\`\`
 `,
@@ -224,7 +244,7 @@ If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the 
 - **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
 - **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
 - **work_package_id** (string): WP ID (format: WP-001)
-- **type** (string): Pipeline type — "implementation", "qa", "code-review", or "documentation"
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **agent_role** (string): Your agent role (e.g., "Developer", "QA") — used for both the claim and pipeline ownership guards
 
 ## Guards Preserved
@@ -232,7 +252,7 @@ If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the 
 - Assignment guard — WP must be assigned to your role (or already IN_PROGRESS and assigned to you)
 - Dependency completeness — all dependencies must be COMPLETE before claiming
 - Duplicate pipeline rejection — no two IN_PROGRESS pipelines of the same type
-- Pipeline ordering — implementation → qa → code-review → documentation
+- Pipeline ordering — determined per-WP by active_pipeline_stages (defaults to implementation → qa → code-review → documentation for standard WPs)
 - Rework circuit breaker — rejects if per-type rework count is at maximum
 - Agent role validation — pipeline type must match the expected owner role
 
@@ -353,7 +373,7 @@ Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 - **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
 - **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
 - **work_package_id** (string): WP ID (format: WP-001)
-- **type** (string): Pipeline type — "implementation", "qa", "code-review", or "documentation"
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 
 ## Example
 \`\`\`json
@@ -367,9 +387,8 @@ Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 ## Prerequisites
 - WP must be IN_PROGRESS (use ledger_claim_work_package first if READY)
 - No duplicate in-progress pipeline of the same type allowed
-- **Pipeline ordering is enforced:** implementation → qa → code-review → documentation
-  Starting a qa pipeline requires a PASS implementation pipeline, etc.
-- Starting a pipeline **automatically updates** the work package's \`assigned_to\` field to the responsible agent (Developer, QA, Reviewer, Documentation).
+- **Pipeline ordering is enforced per-WP:** each stage must be preceded by a PASS on the immediately preceding active stage in the WP's active_pipeline_stages list. The default 4-stage order is implementation → qa → code-review → documentation, but WPs may define custom subsets or include security-audit and release-engineering.
+- Starting a pipeline **automatically updates** the work package's \`assigned_to\` field to the responsible agent (Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation).
 `,
 
   ledger_complete_pipeline: `
@@ -392,12 +411,12 @@ Complete the most recent IN_PROGRESS pipeline of the specified type.
 - **comments** (array): Observations from the pipeline
 - **handoff_notes** (array of strings): Notes for the next agent. Creates a structured handoff note entry on the WP addressed to the next agent in the pipeline chain.
 
-## Auto-Finalize (Documentation Pipeline)
+## Auto-Finalize (Terminal Pipeline Stage)
 
-When \`type: "documentation"\`, \`status: "PASS"\`, and \`agent_role: "Documentation"\`, the server automatically checks whether all acceptance criteria are met **after** applying \`acceptance_criteria_updates\`:
+When \`status: "PASS"\` and the agent is the owner of the **last active stage** in the WP's pipeline (e.g., Documentation in the default 4-stage pipeline, or Reviewer in a verification-only \`["qa", "code-review"]\` WP), the server automatically checks whether all acceptance criteria are met **after** applying \`acceptance_criteria_updates\`:
 - **All criteria met** — WP is transitioned to \`COMPLETE\` within the same lock scope. Response includes \`auto_finalized: true\`.
 - **Criteria unmet** — WP stays \`IN_PROGRESS\`. Response includes \`auto_finalize_blocked: true\` and \`unmet_criteria: [...]\` listing the unmet criterion names.
-- **FAIL result or non-Documentation agent** — auto-finalize does not fire; WP status is unchanged.
+- **FAIL result or non-terminal-stage agent** — auto-finalize does not fire; WP status is unchanged.
 
 ## Example
 \`\`\`json
@@ -425,7 +444,7 @@ Use this to clean up stale or abandoned pipelines, typically after a RESUME_OR_C
 - **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
 - **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
 - **work_package_id** (string): WP ID (format: WP-001)
-- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation"
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **reason** (string): Human-readable reason for the cancellation
 
 ## Example
@@ -449,7 +468,7 @@ Use this for long-running pipelines where you want to record incremental progres
 - **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
 - **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
 - **work_package_id** (string): WP ID (format: WP-001)
-- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation"
+- **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **summary** (array of strings): Progress notes to append to the pipeline summary
 
 ## Example

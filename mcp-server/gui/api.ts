@@ -23,10 +23,24 @@ import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath } from '../src/utils/ledger-root.js';
 import { readProjectName } from '../src/utils/read-project-name.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX } from '../src/utils/constants.js';
+import {
+  PIPELINE_AGENT_MAP,
+  DEFAULT_PIPELINE_STAGES,
+  CANONICAL_PIPELINE_ORDERING,
+} from '../src/utils/pipeline-maps.js';
+import type { PipelineType } from '../src/utils/pipeline-maps.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
-import type { ProjectStatus } from '../src/schema/enums.js';
+import type { ProjectStatus, WorkPackageStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
 import type { IncidentContext, WorkPackageDetail } from '../src/schema/work-package.js';
+
+/**
+ * Extended WP detail response that includes the server's canonical default pipeline stages.
+ * The extra field is additive — all existing fields of WorkPackageDetail are preserved.
+ */
+export type WorkPackageDetailResponse = WorkPackageDetail & {
+  default_pipeline_stages: string[];
+};
 import { getConfig, writeConfig, GuiConfigPartialSchema } from '../src/gui/config.js';
 import type { GuiConfig } from '../src/gui/config.js';
 import {
@@ -514,7 +528,7 @@ export async function handleGetWorkPackage(
   ledgerRoot: string,
   slug: string,
   wpId: string
-): Promise<WorkPackageDetail> {
+): Promise<WorkPackageDetailResponse> {
   assertSafeSlug(slug);
   assertSafeWpId(wpId);
   const store = new LedgerStore(slug, ledgerRoot);
@@ -528,7 +542,8 @@ export async function handleGetWorkPackage(
   }
 
   try {
-    return await store.readWorkPackage(wpId);
+    const wp = await store.readWorkPackage(wpId);
+    return { ...wp, default_pipeline_stages: [...DEFAULT_PIPELINE_STAGES] };
   } catch (err) {
     if (err instanceof ApiError) throw err;
     notFound(`Work package '${wpId}' not found or corrupted: ${String(err)}`);
@@ -1026,4 +1041,126 @@ export async function handleGetProjectHealth(
     work_packages_skipped:       diagnosis.work_packages_skipped,
     total_work_packages:         rootIndex.work_packages.length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/work-packages/overview
+// ---------------------------------------------------------------------------
+
+export interface WpPipelineStage {
+  type: PipelineType;
+  agent: string;
+  status: 'pending' | 'in-progress' | 'pass' | 'fail';
+  rework_count: number;
+}
+
+export interface WpOverviewEntry {
+  work_package_id: string;
+  status: WorkPackageStatus;
+  assigned_to: string | null;
+  dependencies: string[];
+  pipeline_stages: WpPipelineStage[];
+  acceptance_criteria: { met: number; total: number };
+  blocked_by?: { type: string; description: string };
+}
+
+/**
+ * Returns an enriched summary array for every work package in the project.
+ *
+ * For each WP the handler resolves:
+ *  - pipeline_stages: ordered per CANONICAL_PIPELINE_ORDERING, with status
+ *    derived from the most recent pipeline entry of each stage type
+ *  - acceptance_criteria: met/total counts
+ *  - blocked_by: propagated from the WP detail when present
+ *
+ * Corrupt or missing WP detail files are skipped (same error-tolerance
+ * pattern as handleGetProjectHealth).
+ * STDIO discipline: this handler never writes to process.stdout.
+ */
+export async function handleGetWorkPackageOverview(
+  ledgerRoot: string,
+  slug: string
+): Promise<WpOverviewEntry[]> {
+  assertSafeSlug(slug);
+
+  const store = new LedgerStore(slug, ledgerRoot);
+
+  if (!(await store.ledgerDirExists())) {
+    notFound(`Project '${slug}' not found.`);
+  }
+
+  let rootIndex: RootIndex;
+  try {
+    rootIndex = await store.readRootIndex();
+  } catch (err) {
+    notFound(`Project '${slug}' not found or corrupted: ${String(err)}`);
+  }
+
+  const entries: WpOverviewEntry[] = (
+    await Promise.all(
+      rootIndex.work_packages.map(async (wpSummary) => {
+        let wp: WorkPackageDetail;
+        try {
+          wp = await store.readWorkPackage(wpSummary.work_package_id);
+        } catch (err) {
+          process.stderr.write(
+            `[handleGetWorkPackageOverview] Skipping WP "${wpSummary.work_package_id}": ${String(err)}\n`
+          );
+          return null;
+        }
+
+        // Resolve active stages, filtering through CANONICAL_PIPELINE_ORDERING
+        // to guarantee the output is always in canonical execution order.
+        const rawStages: string[] = wp.active_pipeline_stages ?? [...DEFAULT_PIPELINE_STAGES];
+        const orderedStages = CANONICAL_PIPELINE_ORDERING.filter((s) => rawStages.includes(s));
+
+        // Build a lookup map from stage type → latest pipeline entry.
+        // Iterating in array order means later entries for the same type overwrite
+        // earlier ones, so the map always holds the most recent execution.
+        const latestByType = new Map<string, WorkPackageDetail['pipelines'][number]>();
+        for (const pipeline of wp.pipelines) {
+          latestByType.set(pipeline.type, pipeline);
+        }
+
+        const pipeline_stages: WpPipelineStage[] = orderedStages.map((type) => {
+          const latest = latestByType.get(type);
+          let status: WpPipelineStage['status'] = 'pending';
+          if (latest) {
+            if (latest.status === 'IN_PROGRESS') status = 'in-progress';
+            else if (latest.status === 'PASS') status = 'pass';
+            else if (latest.status === 'FAIL') status = 'fail';
+          }
+          const rework_count =
+            (wp.rework_counts as Record<string, number> | undefined)?.[type] ?? 0;
+          return {
+            type,
+            agent: PIPELINE_AGENT_MAP[type],
+            status,
+            rework_count,
+          };
+        });
+
+        const metCount = wp.acceptance_criteria.filter((ac) => ac.met).length;
+        const entry: WpOverviewEntry = {
+          work_package_id: wp.work_package_id,
+          status: wp.status,
+          assigned_to: wp.assigned_to,
+          dependencies: wp.dependencies,
+          pipeline_stages,
+          acceptance_criteria: { met: metCount, total: wp.acceptance_criteria.length },
+        };
+
+        if (wp.blocked_by) {
+          entry.blocked_by = {
+            type: wp.blocked_by.type,
+            description: wp.blocked_by.description,
+          };
+        }
+
+        return entry;
+      })
+    )
+  ).filter((entry): entry is WpOverviewEntry => entry !== null);
+
+  return entries;
 }

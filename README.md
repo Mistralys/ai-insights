@@ -12,7 +12,7 @@ Pre-built prompt files that assign a specific role to an AI agent in your IDE (V
 
 | Suite | Description | Docs |
 |-------|-------------|------|
-| **Ledger-Enabled** | 7-stage workflow (Planner → PM → Developer → QA → Reviewer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
+| **Ledger-Enabled** | 9-stage workflow (Planner → PM → Developer → QA → Security Auditor → Reviewer → Release Engineer → Docs → Synthesis) backed by the MCP server for persistent state | [personas/ledger/README.md](personas/ledger/README.md) |
 | **Standalone** | Single-purpose agents with no MCP dependency — drop in and use | [personas/standalone/](personas/standalone/) |
 
 ### Project Ledger MCP Server
@@ -71,6 +71,24 @@ node scripts/install-hooks.js
 
 This enables a pre-commit guard that fails the commit if any generated persona file is stale (out of sync with its source template).
 
+### CI — Automated Quality Gate
+
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request to `main`. It runs five independent jobs:
+
+| Job | What it checks |
+|-----|---------------|
+| `mcp-server-tests` | MCP server Vitest suite (Node.js 20) |
+| `orchestrator-tests` | Orchestrator pytest suite (Python 3.11) |
+| `ruff` | Orchestrator source linting (`ruff check src/`) |
+| `manifest-validation` | `shared/workflow-manifest.json` schema + semantic checks |
+| `persona-build-check` | Detects stale generated persona output (`build-personas.js --check`) |
+
+Each job fails independently. npm and pip dependencies are cached to reduce cold-start times. All GitHub Actions refs are pinned to SHA digests (with inline version-tag comments) for supply-chain hardening. No deployment, artifact publishing, or release steps are included.
+
+### Shared manifest
+
+`shared/workflow-manifest.json` is the single source of truth for the workflow specification: all 9 agent roles, 6 pipeline types, status enums, and workflow constants. All sub-projects derive their constant definitions from this file. It is validated by `shared/workflow-manifest.schema.json`.
+
 ### Key scripts
 
 | Script | Purpose |
@@ -82,6 +100,7 @@ This enables a pre-commit guard that fails the commit if any generated persona f
 | `node scripts/check-known-roles.js` | Verify role parity between personas and MCP server |
 | `node scripts/package-personas.js` | Package standalone personas into distributable ZIPs |
 | `node scripts/bundle-docs.js` | Compile project docs into bundles (e.g. for NotebookLM) |
+| `node scripts/cli.js ctx-generate` | Generate context documentation via [CTX Generator](https://github.com/context-hub/generator) |
 | `node scripts/run-gui.js` | Launch the MCP server GUI dashboard |
 | `node scripts/run-orchestrator.js` | Launch the orchestrator (rebuilds MCP server if stale) |
 
@@ -91,9 +110,10 @@ This enables a pre-commit guard that fails the commit if any generated persona f
 
 | Resource | Description |
 |----------|-------------|
-| [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (7 stages, MCP setup, best practices) |
+| [personas/ledger/README.md](personas/ledger/README.md) | Full ledger workflow guide (9 stages, MCP setup, best practices) |
 | [mcp-server/README.md](mcp-server/README.md) | MCP server architecture, tools reference, GUI, development |
 | [orchestrator/README.md](orchestrator/README.md) | Orchestrator setup, configuration, CLI reference, troubleshooting |
 | [discussions/](discussions/) | LLM discussion archive and design notes |
 | [history/key-learnings.md](history/key-learnings.md) | Lessons learned across the project |
 | [AGENTS.md](AGENTS.md) | Agent operating instructions (for AI agents entering this workspace) |
+| `.context/` | Auto-generated codebase snapshots via [CTX Generator](https://github.com/context-hub/generator) — run `node scripts/cli.js ctx-generate` |

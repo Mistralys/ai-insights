@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -464,6 +464,44 @@ describe('propagateDependencyUnblock — non-dependency blocker guard', () => {
     const changedAt = new Date(wp002.status_changed_at!).getTime();
     expect(changedAt).toBeGreaterThanOrEqual(before);
     expect(changedAt).toBeLessThanOrEqual(after + 1000); // 1s tolerance
+  });
+});
+
+// ---------------------------------------------------------------------------
+// propagateDependencyUnblock — early-return when no BLOCKED dependents (WP-002)
+// ---------------------------------------------------------------------------
+
+describe('propagateDependencyUnblock — early-return when no BLOCKED dependents', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'unblock-early-return-'));
+    store = new LedgerStore(UNBLOCK_PLAN_PATH, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('does not call batchUpdateWorkPackagesWithSync when no BLOCKED dependents exist', async () => {
+    // Set up a root with WP-001 (COMPLETE) and WP-002 (READY, depends on WP-001).
+    // Neither WP is BLOCKED, so the early-return guard should fire before
+    // batchUpdateWorkPackagesWithSync is ever invoked.
+    const root = makeRootIndexForUnblock([
+      { id: 'WP-001', status: 'COMPLETE' },
+      { id: 'WP-002', status: 'READY', deps: ['WP-001'] },
+    ]);
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWpDetail('WP-001', 'COMPLETE'));
+    await store.writeWorkPackage('WP-002', makeWpDetail('WP-002', 'READY', ['WP-001']));
+
+    const spy = vi.spyOn(store, 'batchUpdateWorkPackagesWithSync');
+
+    await propagateDependencyUnblock(UNBLOCK_PLAN_PATH, 'WP-001', { store });
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -1480,6 +1518,208 @@ describe('createWorkPackage — assigned_to: null, blocked_by, cycle detection, 
     );
     expect(result.isError).toBe(true);
     expect((result as any).content[0].text).toContain('empty or whitespace-only');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createWorkPackage — active_pipeline_stages validation (dynamic pipeline engine)
+// ---------------------------------------------------------------------------
+
+const APS_PLAN_PATH = join(tmpdir(), '2026-03-14-active-stages-test');
+
+describe('createWorkPackage — active_pipeline_stages validation (dynamic pipeline engine)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'active-stages-'));
+    store = new LedgerStore(APS_PLAN_PATH, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'READY',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ── Hard guardrails (4 rejection cases) ──────────────────────────────────
+
+  it('rejects empty active_pipeline_stages array (hard guardrail 1)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: [],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('active_pipeline_stages cannot be empty');
+  });
+
+  it('rejects invalid pipeline type in active_pipeline_stages (hard guardrail 2)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['implementation', 'unknown-stage'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Invalid pipeline stage');
+    expect((result as any).content[0].text).toContain('unknown-stage');
+  });
+
+  it('rejects duplicate stages in active_pipeline_stages (hard guardrail 3)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['implementation', 'qa', 'implementation'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('Duplicate pipeline stage');
+    expect((result as any).content[0].text).toContain('implementation');
+  });
+
+  it('rejects stages out of canonical order (hard guardrail 4)', async () => {
+    // documentation before implementation violates canonical ordering
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['documentation', 'implementation'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBe(true);
+    expect((result as any).content[0].text).toContain('canonical order');
+  });
+
+  // ── Soft guardrails (2 warning cases) ────────────────────────────────────
+
+  it('emits warning when implementation present without qa (soft guardrail 1)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['implementation', 'code-review'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).toContain('Warning');
+    expect(text).toContain('implementation without qa');
+  });
+
+  it('emits warning for single-stage pipeline chain (soft guardrail 2)', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['qa'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).toContain('Warning');
+    expect(text).toContain('single-stage');
+  });
+
+  // ── Default behavior ──────────────────────────────────────────────────────
+
+  it('defaults to legacy 4-stage pipeline when active_pipeline_stages is omitted', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = JSON.parse((result as any).content[0].text);
+    expect(wp.active_pipeline_stages).toEqual([
+      'implementation', 'qa', 'code-review', 'documentation',
+    ]);
+  });
+
+  it('stores provided active_pipeline_stages in WP detail', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: [
+          'implementation', 'qa', 'security-audit',
+          'code-review', 'release-engineering', 'documentation',
+        ],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    const wp = JSON.parse((result as any).content[0].text);
+    expect(wp.active_pipeline_stages).toEqual([
+      'implementation', 'qa', 'security-audit',
+      'code-review', 'release-engineering', 'documentation',
+    ]);
+  });
+
+  it('accepts verification-only composition ["qa", "code-review"] as a valid subsequence', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: APS_PLAN_PATH,
+        assigned_to: 'QA',
+        dependencies: [],
+        acceptance_criteria: ['QA pass'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: ['qa', 'code-review'],
+      },
+      tempDir
+    );
+    expect(result.isError).toBeFalsy();
+    // Response may include appended soft-guardrail warning text after the JSON (§9b.2 rule 7)
+    const rawText = (result as any).content[0].text as string;
+    const jsonEnd = rawText.lastIndexOf('}') + 1;
+    const wp = JSON.parse(rawText.slice(0, jsonEnd));
+    expect(wp.active_pipeline_stages).toEqual(['qa', 'code-review']);
+    // Custom composition warning should be present
+    expect(rawText).toContain('Warning: WP uses a custom pipeline composition');
   });
 });
 
@@ -2805,5 +3045,258 @@ describe('MCP extra-argument leak — _ledgerRoot defensive type guard (regressi
       FAKE_EXTRA
     );
     expect(containsPathTypeError(result)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-008 — synthesis_generated_at clearing on COMPLETE → IN_PROGRESS
+// ---------------------------------------------------------------------------
+
+const WP008_REOPEN_PLAN_PATH = join(tmpdir(), '2026-03-17-wp008-reopen-synthesis-at');
+
+describe('updateWorkPackageStatus — clears synthesis_generated_at on COMPLETE → IN_PROGRESS (WP-008)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'wp008-reopen-'));
+    store = new LedgerStore(WP008_REOPEN_PLAN_PATH, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('clears synthesis_generated_at to null when reopening a COMPLETE WP', async () => {
+    const root: RootIndex = {
+      ...makeWp004RootIndex([{ id: 'WP-001', status: 'COMPLETE' }]),
+      synthesis_generated: true,
+      synthesis_generated_at: '2026-03-15T10:00:00Z',
+    };
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWp004Detail('WP-001', 'COMPLETE'));
+
+    await updateWorkPackageStatus(
+      { project_path: WP008_REOPEN_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Project Manager' },
+      tempDir
+    );
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.synthesis_generated).toBe(false);
+    expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+
+  it('synthesis_generated_at remains absent when it was not set before reopen', async () => {
+    const root: RootIndex = {
+      ...makeWp004RootIndex([{ id: 'WP-001', status: 'COMPLETE' }]),
+      synthesis_generated: true,
+      // no synthesis_generated_at
+    };
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWp004Detail('WP-001', 'COMPLETE'));
+
+    await updateWorkPackageStatus(
+      { project_path: WP008_REOPEN_PLAN_PATH, work_package_id: 'WP-001', status: 'IN_PROGRESS', agent: 'Project Manager' },
+      tempDir
+    );
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.synthesis_generated).toBe(false);
+    // Should be null (explicitly cleared) even if originally absent
+    expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-008 — synthesis_generated_at clearing on cascade reblock
+// ---------------------------------------------------------------------------
+
+describe('propagateDependencyReblock — clears synthesis_generated_at (WP-008)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  const WP008_REBLOCK_PLAN = join(tmpdir(), '2026-03-17-wp008-reblock-synthesis-at');
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'wp008-reblock-'));
+    store = new LedgerStore(WP008_REBLOCK_PLAN, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('clears synthesis_generated_at to null on cascade reblock', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 2,
+      pending_work_packages: 0,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [] },
+        { work_package_id: 'WP-002', file: 'work/WP-002.md', status: 'READY', assigned_to: 'Developer', dependencies: ['WP-001'] },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      synthesis_generated_at: '2026-03-15T10:00:00Z',
+    };
+    await store.writeRootIndex(root);
+    await store.writeWorkPackage('WP-001', makeWpDetail('WP-001', 'COMPLETE'));
+    await store.writeWorkPackage('WP-002', makeWpDetail('WP-002', 'READY', ['WP-001']));
+
+    await propagateDependencyReblock(WP008_REBLOCK_PLAN, 'WP-001', tempDir);
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.synthesis_generated).toBe(false);
+    expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-008 — synthesis_generated_at clearing on WP creation (COMPLETE project)
+// ---------------------------------------------------------------------------
+
+const WP008_CREATE_PLAN = join(tmpdir(), '2026-03-17-wp008-create-synthesis-at');
+
+describe('createWorkPackage — clears synthesis_generated_at on COMPLETE project (WP-008)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'wp008-create-'));
+    store = new LedgerStore(WP008_CREATE_PLAN, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('clears synthesis_generated_at to null when creating a WP on a COMPLETE project', async () => {
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'COMPLETE',
+      total_work_packages: 1,
+      pending_work_packages: 0,
+      work_packages: [
+        { work_package_id: 'WP-001', file: 'work/WP-001.md', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [] },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      synthesis_generated_at: '2026-03-15T10:00:00Z',
+    };
+    await store.writeRootIndex(root);
+
+    const result = await createWorkPackage(
+      {
+        project_path: WP008_CREATE_PLAN,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['New feature works'],
+        work_package_file: 'work/WP-002.md',
+      },
+      tempDir,
+    );
+    expect(result.isError).toBeFalsy();
+
+    const updatedRoot = await store.readRootIndex();
+    expect(updatedRoot.synthesis_generated).toBe(false);
+    expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-008 — active_pipeline_stages on WP summary (root index)
+// ---------------------------------------------------------------------------
+
+const WP008_APS_PLAN = join(tmpdir(), '2026-03-17-wp008-aps-summary');
+
+describe('createWorkPackage — active_pipeline_stages on root index summary (WP-008)', () => {
+  let tempDir: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'wp008-aps-'));
+    store = new LedgerStore(WP008_APS_PLAN, tempDir);
+    await store.writeRootIndex({
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'READY',
+      total_work_packages: 0,
+      pending_work_packages: 0,
+      work_packages: [],
+      project_comments: [],
+    });
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('populates active_pipeline_stages on root index summary when stages are provided', async () => {
+    const stages = ['implementation', 'qa', 'security-audit', 'code-review', 'documentation'];
+    const result = await createWorkPackage(
+      {
+        project_path: WP008_APS_PLAN,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: stages,
+      },
+      tempDir,
+    );
+    expect(result.isError).toBeFalsy();
+
+    const root = await store.readRootIndex();
+    const summary = root.work_packages.find((w) => w.work_package_id === 'WP-001');
+    expect(summary).toBeDefined();
+    expect(summary!.active_pipeline_stages).toEqual(stages);
+  });
+
+  it('populates default active_pipeline_stages on summary when stages are omitted', async () => {
+    const result = await createWorkPackage(
+      {
+        project_path: WP008_APS_PLAN,
+        assigned_to: 'Developer',
+        dependencies: [],
+        acceptance_criteria: ['Works'],
+        work_package_file: 'work/WP-001.md',
+      },
+      tempDir,
+    );
+    expect(result.isError).toBeFalsy();
+
+    const root = await store.readRootIndex();
+    const summary = root.work_packages.find((w) => w.work_package_id === 'WP-001');
+    expect(summary).toBeDefined();
+    expect(summary!.active_pipeline_stages).toEqual([
+      'implementation', 'qa', 'code-review', 'documentation',
+    ]);
+  });
+
+  it('summary active_pipeline_stages matches WP detail active_pipeline_stages', async () => {
+    const stages = ['qa', 'code-review'];
+    await createWorkPackage(
+      {
+        project_path: WP008_APS_PLAN,
+        assigned_to: 'QA',
+        dependencies: [],
+        acceptance_criteria: ['QA pass'],
+        work_package_file: 'work/WP-001.md',
+        active_pipeline_stages: stages,
+      },
+      tempDir,
+    );
+
+    const root = await store.readRootIndex();
+    const summary = root.work_packages.find((w) => w.work_package_id === 'WP-001');
+    const wp = await store.readWorkPackage('WP-001');
+
+    expect(summary!.active_pipeline_stages).toEqual(wp.active_pipeline_stages);
   });
 });

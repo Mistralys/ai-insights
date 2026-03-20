@@ -4,16 +4,43 @@
  * Centralising these here eliminates the risk of divergence between the two
  * modules, which is the highest-priority technical debt identified in the
  * Workflow Hardening synthesis report.
+ *
+ * All primary maps and arrays are derived from the shared workflow manifest so
+ * that a change in the manifest propagates automatically — no parallel edits
+ * to this file are required.
  */
 
 import { z } from 'zod';
+import { workflowManifest } from '../schema/workflow-manifest-schema.js';
+
+// ---------------------------------------------------------------------------
+// Role ID → role name lookup (used to resolve fail_routing IDs to names)
+// ---------------------------------------------------------------------------
+const _roleById: Record<string, string> = Object.fromEntries(
+  workflowManifest.roles.map(r => [r.id, r.name])
+);
 
 /**
- * The four valid pipeline type values as a const tuple.
+ * Manifest-derived role name for the terminal orchestrating role (Synthesis).
+ * Used as the handoff target when the last pipeline stage completes.
+ */
+const _SYNTHESIS_ROLE = workflowManifest.roles.find(r => r.id === 'synthesis')!.name;
+
+/**
+ * Manifest-derived role name for the implementation owner (Developer).
+ * Used as the ultimate safety fallback when fail-routing cannot resolve.
+ */
+const _DEVELOPER_ROLE = workflowManifest.roles.find(r => r.id === 'developer')!.name;
+
+/**
+ * The six valid pipeline type values as a const tuple, in canonical execution order.
  * Used as the source of truth for the PipelineType union, the Zod enum, and
  * all Record keys that depend on exhaustiveness checking.
+ *
+ * Derived from `pipelines.canonical_order` in the shared workflow manifest.
  */
-export const PIPELINE_TYPES = ['implementation', 'qa', 'code-review', 'documentation'] as const;
+export const PIPELINE_TYPES = workflowManifest.pipelines.canonical_order as
+  ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'];
 
 /**
  * Zod enum schema for pipeline types. Using this in tool schemas (instead of
@@ -24,67 +51,106 @@ export const PIPELINE_TYPES = ['implementation', 'qa', 'code-review', 'documenta
 export const PipelineTypeEnum = z.enum(PIPELINE_TYPES);
 
 /**
- * The four valid pipeline type keys. Using this union as a Record key provides
- * compile-time exhaustiveness checking — a misspelled or missing key is a
- * TypeScript error rather than a silent runtime gap.
+ * Union of all valid pipeline type keys (6 stages).
  */
 export type PipelineType = z.infer<typeof PipelineTypeEnum>;
 
 /**
- * Subset of PipelineType that excludes 'implementation'. Used for maps that
- * only apply to post-implementation pipeline stages (QA, code-review,
- * documentation), providing compile-time exhaustiveness on those maps.
+ * The canonical execution order for all six pipeline stages.
+ * Dynamic resolve functions filter this ordering by a WP's active_pipeline_stages
+ * to compute per-WP routing.
  */
-export type PostImplPipelineType = Exclude<PipelineType, 'implementation'>;
+export const CANONICAL_PIPELINE_ORDERING = PIPELINE_TYPES;
 
 /**
- * Enforced pipeline execution order.
- * A pipeline type may only start when the prerequisite type has a PASS pipeline.
- * null means no prerequisite (can always start).
+ * Backward-compatible default stage set (4-stage legacy workflow).
+ * Used as the default activeStages when no per-WP override is specified.
+ *
+ * Derived from `pipelines.default_stages` in the shared workflow manifest.
  */
-export const PIPELINE_PREREQUISITES: Record<PipelineType, PipelineType | null> = {
-  'implementation': null,
-  'qa': 'implementation',
-  'code-review': 'qa',
-  'documentation': 'code-review',
-};
+export const DEFAULT_PIPELINE_STAGES: readonly PipelineType[] =
+  workflowManifest.pipelines.default_stages as readonly PipelineType[];
+
+/**
+ * Post-implementation stages in the 4-stage legacy workflow.
+ * Pinned explicitly so that adding optional stages to PIPELINE_TYPES does NOT
+ * cascade into legacy display maps (agentNameMap, actionNameMap, reworkActionMap)
+ * that remain 3-entry records.
+ */
+export type PostImplPipelineType = 'qa' | 'code-review' | 'documentation';
+
+/**
+ * Legacy static prerequisite map for the default-stage workflow.
+ * Only includes entries for the default stages — new-style WPs should use
+ * resolvePrerequisite(). null means no prerequisite (can always start).
+ *
+ * Derived from `pipelines.default_stages` in the shared workflow manifest:
+ * each stage's prerequisite is its immediately preceding stage in the default
+ * order (or null for the first stage). This intentionally diverges from the
+ * full 6-stage `pipelines.prerequisites` map, which reflects the complete
+ * canonical chain including optional stages.
+ */
+export const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>> =
+  Object.fromEntries(
+    (workflowManifest.pipelines.default_stages as readonly PipelineType[]).map((stage, i, arr) => [
+      stage,
+      i === 0 ? null : (arr[i - 1] ?? null),
+    ])
+  );
 
 /**
  * Map of pipeline type to the agent role that owns it.
  * Used to automatically update assigned_to when a pipeline starts.
+ *
+ * Derived from `roles[].pipeline` (non-null) → `roles[].name` in the shared
+ * workflow manifest.
  */
-export const PIPELINE_AGENT_MAP: Record<PipelineType, string> = {
-  'implementation': 'Developer',
-  'qa': 'QA',
-  'code-review': 'Reviewer',
-  'documentation': 'Documentation',
-};
+export const PIPELINE_AGENT_MAP: Record<PipelineType, string> = Object.fromEntries(
+  workflowManifest.roles
+    .filter(r => r.pipeline !== null)
+    .map(r => [r.pipeline, r.name])
+) as Record<PipelineType, string>;
 
 /**
- * Map of pipeline type to the next agent in the pipeline chain.
- * Used to route handoff notes to the correct recipient agent on PASS.
+ * Legacy static next-agent map for the 4-stage default workflow.
+ * Partial so that new PipelineType values do not require entries here.
+ * New-style WPs should use resolveNextAgent().
+ *
+ * Derived at runtime from PIPELINE_TYPES and PIPELINE_AGENT_MAP, using the
+ * default stage set. Entries not in the default stages are excluded.
  */
-export const NEXT_AGENT_MAP: Record<PipelineType, string> = {
-  'implementation': 'QA',
-  'qa': 'Reviewer',
-  'code-review': 'Documentation',
-  'documentation': 'Synthesis',
-};
+export const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>> = (() => {
+  const defaultStages = workflowManifest.pipelines.default_stages as readonly PipelineType[];
+  const result: Partial<Record<PipelineType, string>> = {};
+  for (let i = 0; i < defaultStages.length - 1; i++) {
+    const current = defaultStages[i]!;
+    const next = defaultStages[i + 1]!;
+    result[current] = PIPELINE_AGENT_MAP[next];
+  }
+  // Last stage in default order always hands off to Synthesis
+  const lastStage = defaultStages[defaultStages.length - 1];
+  if (lastStage) result[lastStage] = _SYNTHESIS_ROLE;
+  return result;
+})();
 
 /**
- * Map of pipeline type to the agent that should handle rework on FAIL.
- * QA/code-review/implementation failures route back to Developer;
- * documentation failures stay with Documentation (self-rework).
+ * Legacy static fail-routing map for the default-stage workflow.
+ * Partial so that new PipelineType values do not require entries here.
+ * New-style WPs should use resolveFailAgent().
+ *
+ * Derived from `pipelines.fail_routing` in the shared workflow manifest.
+ * The manifest stores role IDs; they are translated to role names via the
+ * roles array lookup built at module load time.
  *
  * Cross-ref: `developerReworkTypes` in workflow-helpers.ts is derived from
  * this map at runtime so the two cannot silently diverge.
  */
-export const FAIL_ROUTING_MAP: Record<PipelineType, string> = {
-  'implementation': 'Developer',
-  'qa': 'Developer',
-  'code-review': 'Developer',
-  'documentation': 'Documentation',
-};
+export const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>> = Object.fromEntries(
+  (workflowManifest.pipelines.default_stages as readonly string[]).map(stage => [
+    stage,
+    _roleById[(workflowManifest.pipelines.fail_routing as Record<string, string>)[stage] ?? ''] ?? _DEVELOPER_ROLE,
+  ])
+);
 
 /**
  * Inverse of PIPELINE_AGENT_MAP: maps an agent role to the pipeline type it owns.
@@ -97,25 +163,252 @@ export const AGENT_PIPELINE_MAP: Record<string, PipelineType> = Object.fromEntri
 );
 
 /**
- * Returns all pipeline types that follow the given type in the canonical pipeline
- * ordering (PIPELINE_TYPES). Returns an empty array for the last stage or an
- * unknown type.
- * Per §8.4: getDownstreamTypes("implementation") → ["qa", "code-review", "documentation"]
+ * Full fail-routing map covering all 6 pipeline types.
+ * Derived from `pipelines.fail_routing` in the shared workflow manifest.
+ * Hoisted to module-level to avoid per-call reconstruction in resolveFailAgent().
  */
-export function getDownstreamTypes(pipelineType: PipelineType): PipelineType[] {
-  const index = PIPELINE_TYPES.indexOf(pipelineType);
-  if (index === -1 || index === PIPELINE_TYPES.length - 1) return [];
-  return [...PIPELINE_TYPES.slice(index + 1)];
+export const FAIL_AGENT_MAP: Record<PipelineType, string> = Object.fromEntries(
+  Object.entries(workflowManifest.pipelines.fail_routing).map(
+    ([pipeline, roleId]) => [pipeline, _roleById[roleId as string] ?? _DEVELOPER_ROLE]
+  )
+) as Record<PipelineType, string>;
+
+/**
+ * Returns all pipeline types that follow the given type in the active stage ordering.
+ * When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (4-stage legacy behaviour).
+ * Per §8.4 (updated): getDownstreamTypes("implementation") → ["qa", "code-review", "documentation"]
+ */
+export function getDownstreamTypes(
+  pipelineType: PipelineType,
+  activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
+): PipelineType[] {
+  const active = CANONICAL_PIPELINE_ORDERING.filter((t) => activeStages.includes(t));
+  const index = active.indexOf(pipelineType);
+  if (index === -1 || index === active.length - 1) return [];
+  return [...active.slice(index + 1)];
 }
 
 /**
- * Returns all pipeline types that precede the given type in the canonical pipeline
- * ordering (PIPELINE_TYPES). Returns an empty array for the first stage or an
- * unknown type.
- * Per §8.5: getUpstreamTypes("documentation") → ["implementation", "qa", "code-review"]
+ * Returns all pipeline types that precede the given type in the active stage ordering.
+ * When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (4-stage legacy behaviour).
+ * Per §8.5 (updated): getUpstreamTypes("documentation") → ["implementation", "qa", "code-review"]
  */
-export function getUpstreamTypes(pipelineType: PipelineType): PipelineType[] {
-  const index = PIPELINE_TYPES.indexOf(pipelineType);
+export function getUpstreamTypes(
+  pipelineType: PipelineType,
+  activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
+): PipelineType[] {
+  const active = CANONICAL_PIPELINE_ORDERING.filter((t) => activeStages.includes(t));
+  const index = active.indexOf(pipelineType);
   if (index === -1 || index === 0) return [];
-  return [...PIPELINE_TYPES.slice(0, index)];
+  return [...active.slice(0, index)];
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic resolve functions (6-stage aware)
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes the prerequisite pipeline type for `pipelineType` given the WP's
+ * active_pipeline_stages. The canonical ordering filters the active set, and the
+ * immediately preceding active stage is the prerequisite.
+ * Returns null when `pipelineType` is the first active stage or is not active.
+ *
+ * When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+ */
+export function resolvePrerequisite(
+  pipelineType: PipelineType,
+  activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
+): PipelineType | null {
+  const active = CANONICAL_PIPELINE_ORDERING.filter((t) => activeStages.includes(t));
+  const index = active.indexOf(pipelineType);
+  if (index <= 0) return null; // first stage or not in active set
+  return active[index - 1] ?? null;
+}
+
+/**
+ * Returns the agent that should receive the WP after `pipelineType` completes
+ * with PASS, given the WP's active_pipeline_stages.
+ * Finds the next active stage in canonical order and returns its owning agent.
+ * Returns 'Synthesis' when `pipelineType` is the last active stage.
+ *
+ * When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+ */
+export function resolveNextAgent(
+  pipelineType: PipelineType,
+  activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
+): string {
+  const active = CANONICAL_PIPELINE_ORDERING.filter((t) => activeStages.includes(t));
+  const index = active.indexOf(pipelineType);
+  if (index === -1 || index === active.length - 1) return _SYNTHESIS_ROLE;
+  const nextType = active[index + 1];
+  if (!nextType) return _SYNTHESIS_ROLE; // guard against unexpected undefined
+  return PIPELINE_AGENT_MAP[nextType];
+}
+
+/**
+ * Returns the agent that should receive the WP after `pipelineType` completes
+ * with FAIL (rework routing), given the WP's active_pipeline_stages.
+ *
+ * Base routing is fully manifest-derived: each pipeline type maps to the role
+ * name resolved from `pipelines.fail_routing` in the shared workflow manifest.
+ *
+ * Fallback: when the standard fail-target agent's stage is not present in
+ * activeStages, routes to the agent that owns the first active stage.
+ *
+ * When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+ */
+export function resolveFailAgent(
+  pipelineType: PipelineType,
+  activeStages: readonly PipelineType[] = DEFAULT_PIPELINE_STAGES,
+): string {
+  const baseAgent = FAIL_AGENT_MAP[pipelineType];
+
+  // Determine the stage the base agent owns (via reverse lookup).
+  const baseStage = AGENT_PIPELINE_MAP[baseAgent] as PipelineType | undefined;
+
+  // If the base agent's own stage is active (or there is no stage to check), use base routing.
+  if (!baseStage || activeStages.includes(baseStage)) {
+    return baseAgent;
+  }
+
+  // Fallback: route to the owner of the first active stage.
+  const firstActive = CANONICAL_PIPELINE_ORDERING.find((t) => activeStages.includes(t));
+  if (!firstActive) return _DEVELOPER_ROLE; // ultimate safety fallback
+  return PIPELINE_AGENT_MAP[firstActive];
+}
+
+/**
+ * Returns the active stages filtered and sorted by the canonical pipeline ordering.
+ * Replaces the repeated `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t))` pattern.
+ */
+export function getOrderedActiveStages(
+  activeStages: readonly PipelineType[]
+): PipelineType[] {
+  return CANONICAL_PIPELINE_ORDERING.filter((t) => activeStages.includes(t));
+}
+
+/**
+ * Returns a `.describe()` annotation string for a Zod pipeline type enum,
+ * listing all PIPELINE_TYPES in canonical order with the given prefix.
+ *
+ * Example: describePipelineTypes('Pipeline type:') →
+ *   'Pipeline type: "implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"'
+ */
+export function describePipelineTypes(prefix: string): string {
+  return `${prefix} ${PIPELINE_TYPES.map((t) => `"${t}"`).join(', ')}`;
+}
+
+/**
+ * Returns a `.describe()` annotation string for a Zod agent_role field,
+ * listing every pipeline type owner derived from PIPELINE_AGENT_MAP in
+ * canonical PIPELINE_TYPES order, plus the PM override note.
+ *
+ * Example: describePipelineAgents('Your agent role. Must match the pipeline type owner:') →
+ *   'Your agent role. Must match the pipeline type owner: "Developer" for implementation, ...
+ *    "Documentation" for documentation. "Project Manager" is always allowed (PM Override).'
+ */
+export function describePipelineAgents(prefix: string): string {
+  const mappings = PIPELINE_TYPES.map((t) => `"${PIPELINE_AGENT_MAP[t]}" for ${t}`).join(', ');
+  return `${prefix} ${mappings}. "Project Manager" is always allowed (PM Override).`;
+}
+
+/**
+ * Returns the first active pipeline stage in canonical order.
+ * Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+ * Per §6.2.1: named helper to eliminate inline orderedActive[0] patterns.
+ */
+export function firstActiveStage(stages?: readonly PipelineType[] | null): PipelineType {
+  const resolved = stages ?? DEFAULT_PIPELINE_STAGES;
+  const orderedActive = getOrderedActiveStages(resolved);
+  return orderedActive[0] ?? DEFAULT_PIPELINE_STAGES[0]!;
+}
+
+/**
+ * Returns the last active pipeline stage in canonical order.
+ * Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+ * Per §6.2.1: named helper to eliminate inline orderedActive[length-1] patterns.
+ */
+export function lastActiveStage(stages?: readonly PipelineType[] | null): PipelineType {
+  const resolved = stages ?? DEFAULT_PIPELINE_STAGES;
+  const orderedActive = getOrderedActiveStages(resolved);
+  return orderedActive[orderedActive.length - 1] ?? DEFAULT_PIPELINE_STAGES[DEFAULT_PIPELINE_STAGES.length - 1]!;
+}
+
+/**
+ * Validates a proposed active_pipeline_stages array against all hard and soft rules.
+ * Returns { errors, warnings } instead of throwing — the caller is responsible
+ * for acting on errors (typically by throwing errors[0]).
+ *
+ * Hard errors: empty array, unknown stage names, duplicates, out-of-canonical-order.
+ * Soft warnings: implementation without qa, single-stage chain.
+ */
+export function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (stages.length === 0) {
+    errors.push(
+      `active_pipeline_stages cannot be empty. At least one stage is required. ` +
+      `Omit the parameter to use the default stages: ${DEFAULT_PIPELINE_STAGES.join(' \u2192 ')}.`
+    );
+    return { errors, warnings };
+  }
+
+  const validTypes = new Set<string>(PIPELINE_TYPES);
+  const invalidTypes = stages.filter((s) => !validTypes.has(s));
+  if (invalidTypes.length > 0) {
+    errors.push(
+      `Invalid pipeline stage(s): ${invalidTypes.join(', ')}. ` +
+      `Valid types are: ${PIPELINE_TYPES.join(', ')}.`
+    );
+    return { errors, warnings };
+  }
+
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  for (const s of stages) {
+    if (seen.has(s)) duplicates.push(s);
+    else seen.add(s);
+  }
+  if (duplicates.length > 0) {
+    errors.push(`Duplicate pipeline stage(s): ${duplicates.join(', ')}. Each stage may appear at most once.`);
+    return { errors, warnings };
+  }
+
+  const asTyped = stages as PipelineType[];
+  let canonicalIdx = 0;
+  for (const stage of asTyped) {
+    while (
+      canonicalIdx < CANONICAL_PIPELINE_ORDERING.length &&
+      CANONICAL_PIPELINE_ORDERING[canonicalIdx] !== stage
+    ) {
+      canonicalIdx++;
+    }
+    if (canonicalIdx >= CANONICAL_PIPELINE_ORDERING.length) {
+      errors.push(
+        `Pipeline stages are out of canonical order. Stages must be a subsequence of: ` +
+        `${CANONICAL_PIPELINE_ORDERING.join(' \u2192 ')}. Provided: ${asTyped.join(' \u2192 ')}.`
+      );
+      return { errors, warnings };
+    }
+    canonicalIdx++;
+  }
+
+  if (asTyped.includes('implementation') && !asTyped.includes('qa')) {
+    warnings.push('Warning: pipeline contains implementation without qa. Shipping code without QA is risky but permitted.');
+  }
+  if (asTyped.length === 1) {
+    warnings.push(`Warning: single-stage pipeline chain (${asTyped[0]}). This is usually intentional but worth confirming.`);
+  }
+
+  // Soft guardrail 7 (§9b.2): non-default, non-full custom composition
+  const isDefault = asTyped.length === DEFAULT_PIPELINE_STAGES.length &&
+    asTyped.every((s, i) => s === DEFAULT_PIPELINE_STAGES[i]);
+  const isFull = asTyped.length === CANONICAL_PIPELINE_ORDERING.length &&
+    asTyped.every((s, i) => s === CANONICAL_PIPELINE_ORDERING[i]);
+  if (!isDefault && !isFull) {
+    warnings.push(`Warning: WP uses a custom pipeline composition: [${asTyped.join(', ')}] — ensure this matches the work package's intent.`);
+  }
+
+  return { errors, warnings };
 }

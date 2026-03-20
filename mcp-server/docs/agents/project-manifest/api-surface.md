@@ -1,4 +1,4 @@
-# Public API Surface
+﻿# Public API Surface
 
 This document lists **public constructors, properties, and method signatures** for all exported classes, functions, and types. Implementation details are omitted.
 
@@ -19,13 +19,23 @@ The primary public API is the set of **MCP tools** registered by the server. Age
 
 Reads the root index and returns project overview. Includes self-healing logic (`computeHealedStatus`) that recomputes counters and status from actual work package data. Self-healing separates computation (pure function) from persistence (conditional write under lock). No disk write occurs if counters and status are already correct.
 
-When a write is triggered, the write callback also resets `synthesis_generated = false` if `corruptionDetected` is true (i.e. synthesis was flagged prematurely while pending WPs still exist). After the write, `validatePipelineOrdering` runs and emits any out-of-order pipeline timestamps as `project_comments` with `type: 'warning'`, `priority: 'low'`, `agent: 'system'`.
+When a write is triggered, the write callback calls `clearSynthesisState(fresh)` if `corruptionDetected` is true (i.e. synthesis was flagged prematurely while pending WPs still exist). `validatePipelineOrdering` runs outside the lock (it only reads WP detail files) and its warnings are applied inside the consolidated lock scope along with all other repairs.
+
+**Legacy field repair (self-healing on read):** In addition to status and counter healing, `getProjectStatus` performs two legacy-field repair passes on every call:
+
+1. **`synthesis_generated_at` backfill:** If `synthesis_generated === true` and `synthesis_generated_at` is absent or `null` and `corruptionDetected` is `false`, the field is backfilled to `root.last_updated` (best-approximation for pre-WP-005 ledgers). A single soft warning project comment (`type: 'warning'`, `priority: 'low'`, `agent: 'system'`) is emitted. Deduplication: the comment is only written if no identical note already exists (idempotent on repeated reads).
+
+2. **`ledger_version` backfill:** If `ledger_version` is absent, it is silently set to `SPEC_VERSION`. No comment is emitted — absence implies the ledger pre-dates versioning.
+
+3. **Forward-compatibility warning:** If `ledger_version` is present and its numeric major/minor/patch is strictly greater than `SPEC_VERSION`, a warning project comment is emitted — the server software may be older than the ledger it is reading. Deduplicated by note text.
+
+All repairs, the forward-compat check, pipeline ordering warnings, and the synthesis timestamp repair comment are consolidated into a single `withLock` scope. The pre-lock computation identifies which repairs are needed; inside the lock, each condition is re-checked against a fresh re-read (TOCTOU symmetry) and only applied if still true. This reduces lock acquisitions from 3 to 1 when multiple repairs fire simultaneously.
 
 The response JSON also includes a `pipeline_health` sub-object computed by reading all WP detail files:
 
 ```typescript
 pipeline_health: {
-  wps_with_all_stages_pass: number;  // non-CANCELLED WPs with all 4 stages passing
+  wps_with_all_stages_pass: number;  // non-CANCELLED WPs with all active stages passing (uses wp.active_pipeline_stages.length ?? DEFAULT_PIPELINE_STAGES.length)
   wps_missing_stages: number;        // non-CANCELLED WPs with at least one stage missing
   total_stages_missing: number;      // sum of missing stage counts across all wps_missing_stages WPs
 }
@@ -42,7 +52,7 @@ pipeline_health: {
 }) => Promise<MCPResult>
 ```
 
-Creates a new project ledger with root index and centralized storage directory. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
+Creates a new project ledger with root index and centralized storage directory. Sets `ledger_version: SPEC_VERSION` on the root index at construction time. Rejects if ledger already exists. After writing the root index and project meta, copies `plan_file` into the centralized storage directory (best-effort). Response payload includes `archived_documents: string[]`, conditionally `archive_skipped: string[]` (omitted when empty), and `enrichment_cached: boolean` — `true` when step 5 meta enrichment (resolving project_name / repository_name) succeeded, `false` when it failed non-fatally. Enrichment failure is logged to stderr; the project is still created successfully.
 
 **`plan_file` constraint:** the `plan_file` argument is validated at parse time by a Zod `.refine()` check (`v === PLAN_ARCHIVE_FILENAME`). Any value other than `'plan.md'` is rejected with a validation error before handler logic runs. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on a fixed archive filename.
 
@@ -70,7 +80,7 @@ Scans the central ledger root directory and returns metadata for all projects. O
 }) => Promise<MCPResult>
 ```
 
-Marks synthesis as generated on the root index. Sets `synthesis_generated = true`, resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
+Marks synthesis as generated on the root index. Sets `synthesis_generated = true` and `synthesis_generated_at = now()` (using the same timestamp for both the root index write and the response JSON), resets `auto_handoff_depth` to `0` (per §18.4), and transitions the project to `COMPLETE`. All writes are performed atomically within a single `withLock` callback. Called by the Synthesis agent (or Project Manager) after generating the final report. Copies `synthesis_file` into the centralized storage directory inside the lock scope (best-effort). Response payload includes `archived_documents: string[]` and, conditionally, `archive_skipped: string[]` (omitted when empty).
 
 **Required:** `agent_role` must be `"Synthesis"` or `"Project Manager"` — other roles receive an error.
 
@@ -96,7 +106,7 @@ Identifies the active project by cross-referencing the supplied working-director
 
 Note: `cwd_path` must be a directory path, not a file path. The tool does NOT require `project_path` as a parameter — that is the primary purpose of this tool.
 
-> **WP-005 note:** As of WP-005, all tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
+All tools (except `ledger_initialize_project`) now accept `cwd_path` directly — passing `cwd_path` to any tool triggers automatic project detection without needing a separate `ledger_detect_project` call. This tool remains available for standalone project detection when needed.
 
 ---
 
@@ -137,6 +147,7 @@ Lists work package summaries from the root index with optional filters.
   dependencies: string[]; // Array of WP IDs
   acceptance_criteria: string[]; // min(1) — at least one criterion required; empty strings and whitespace-only strings rejected
   work_package_file: string;
+  active_pipeline_stages?: PipelineType[]; // optional — defaults to DEFAULT_PIPELINE_STAGES when omitted
 }) => Promise<MCPResult>
 ```
 
@@ -147,6 +158,10 @@ Creates a new work package with auto-generated WP ID. Creates both detail file a
 - **`blocked_by` auto-assignment:** When initial status is `BLOCKED`, `blocked_by` is automatically populated with `{ type: 'dependency', description: '...', blocking_work_package: '<first unmet dep>' }`.
 - **Cycle detection:** `hasCycle()` (BFS) is called before creation. If the new WP's dependency chain would form a cycle, the call is rejected with `'Dependency cycle detected: WP X would create a circular dependency.'`
 - **Acceptance criteria validation:** Each criterion string is validated — empty strings and whitespace-only strings are rejected.
+- **`active_pipeline_stages`:** Optional array of pipeline types that defines which stages this WP will execute. When omitted, defaults to `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) for backward compatibility. Stored on both the WP detail file and the root index summary entry (`WorkPackageSummary.active_pipeline_stages`) as `PipelineType[]`. Summary and detail are guaranteed in sync at creation time by construction (same `resolvedActiveStages` value is written to both).
+  - **Hard guardrails (reject with error):** empty array; entries that are not valid `PIPELINE_TYPES`; duplicate entries; entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING`.
+  - **Soft guardrails (warning appended to success message):** `implementation` present without `qa`; single-stage chain.
+  - Example: `active_pipeline_stages: ['implementation', 'qa', 'code-review']` — skips the documentation stage.
 
 #### `ledger_claim_work_package`
 
@@ -204,7 +219,7 @@ The `agent` field is required because the server checks which persona is attempt
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string; // WP-### format
-  pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  pipeline_type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   agent_role: string;  // Must be "Project Manager"
   reason: string;      // Non-empty, non-whitespace; stored in audit trail
 }) => Promise<MCPResult>
@@ -254,8 +269,8 @@ The `agent` field is required because the server checks which persona is attempt
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
+  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult & { claimed: boolean }>
 ```
 
@@ -278,16 +293,16 @@ The `agent` field is required because the server checks which persona is attempt
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   agent_role: string; // required — see mapping below
 }) => Promise<MCPResult>
 ```
 
-Starts a new pipeline for a work package. The `type` field is validated by a Zod enum — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
+Starts a new pipeline for a work package. The `type` field is validated by `PipelineTypeEnum` (a Zod enum derived from `PIPELINE_TYPES`) — invalid values are rejected at the MCP layer. Validates WP is `IN_PROGRESS` and no duplicate in-progress pipeline exists.
 
 **`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type and adds a `[PM Override]` marker to the pipeline summary.
 
-**Pipeline ordering (§8.2):** Enforces `implementation` → `qa` → `code-review` → `documentation` order. Checks the **most recent** prerequisite pipeline entry via `.at(-1)` — a historical PASS followed by a subsequent FAIL is treated as unmet. Returns a descriptive error if the prerequisite is absent or not PASS.
+**Pipeline ordering (§8.2):** Enforces `implementation` → `qa` → `code-review` → `documentation` order (legacy 4-stage default). Dynamic ordering via per-WP `active_pipeline_stages` is supported. Checks the **most recent** prerequisite pipeline entry via `.at(-1)` — a historical PASS followed by a subsequent FAIL is treated as unmet. Returns a descriptive error if the prerequisite is absent or not PASS.
 
 **Rework detection:** A rework is detected when either (a) the most recent same-type completed pipeline has `FAIL` status (**direct rework**) or (b) a prerequisite pipeline type was reworked after the last PASS of the current type (**downstream rework**). Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from rework detection in both cases. When rework is detected, `rework_counts[type]` is incremented.
 
@@ -302,7 +317,7 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   agent_role: string; // required — see mapping below
   status: 'PASS' | 'FAIL';
   summary: string | string[]; // single string or array — coerced to array server-side
@@ -332,9 +347,9 @@ Starts a new pipeline for a work package. The `type` field is validated by a Zod
 }) => Promise<MCPResult>
 ```
 
-Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (next agent in chain). On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (routes QA/code-review/implementation failures to Developer; documentation failures to Documentation for self-rework). Sets status, completion timestamp, summary, and optional fields.
+Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (legacy 4-stage) or `resolveNextAgent()`. On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (legacy 4-stage) or `resolveFailAgent()` — routes QA/code-review/implementation/security-audit failures to Developer; documentation failures to Documentation for self-rework; release-engineering failures to Release Engineer for self-rework; fall-back: when the standard fail-target’s stage is absent from the WP’s activeStages, routes to the first active stage’s agent. Sets status, completion timestamp, summary, and optional fields.
 
-**`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize (§WP-006) and PM Override handoff-note identity.
+**`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize and PM Override handoff-note identity.
 
 **Lenient input handling (agent-friendly):**
 - **`summary`**: Accepts a single string or an array of strings. A bare string is automatically wrapped in a single-element array.
@@ -347,12 +362,14 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
 
 **`acceptance_criteria_updates` merge semantics:** Each item is matched by exact `criterion` string. If found, its `met` flag is updated. If **not found** (unknown criterion text), a new `AcceptanceCriterion` entry `{ criterion, met }` is **appended** to the WP's `acceptance_criteria` array.
 
-**Auto-finalize (§WP-006):** When `type: 'documentation'`, `status: 'PASS'`, and `agent_role: 'Documentation'`, the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`:
+**Auto-finalize:** When `status: 'PASS'` and the calling agent owns the WP's **last active stage** (terminal stage), the server evaluates all acceptance criteria **after** applying `acceptance_criteria_updates`. The terminal stage is computed dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs this is `documentation` (Documentation agent); for custom-stage WPs it may be any stage.
 - **All criteria met** — WP is automatically transitioned to `COMPLETE` within the same lock scope. Response payload includes `auto_finalized: true`. `pending_work_packages` is decremented and the root summary is updated. After the lock is released, `propagateDependencyUnblock` is called to transition eligible BLOCKED dependents to READY (§6.3 compliance — see Gotcha 8 in constraints.md for lock-ordering details).
 - **Any criterion unmet** — WP remains `IN_PROGRESS`. Response payload includes `auto_finalize_blocked: true` and `unmet_criteria: string[]` listing the unmet criterion texts.
-- **FAIL result or non-Documentation `agent_role`** — auto-finalize does not fire; WP status is unchanged.
+- **FAIL result, PM override, or non-terminal-stage agent** — auto-finalize does not fire; WP status is unchanged.
 
-`ledger_update_work_package_status` remains registered for PM and edge-case use, but the Documentation agent no longer needs to call it after a successful pipeline PASS.
+`ledger_update_work_package_status` remains registered for PM and edge-case use, but the terminal-stage agent no longer needs to call it after a successful pipeline PASS.
+
+**Advisory dependency freshness check (§21.59):** When `status: 'PASS'` and the WP has `dependencies`, the server runs a non-blocking staleness check. Pre-reads each dependency's WP detail file before acquiring the write lock, using `dep.last_updated` directly (instead of the previous composite proxy `max(dep.status_changed_at, dep.latest_pipeline.completed_at)`). Inside the lock, emits a project comment (`type: 'warning'`, `priority: 'low'`, `agent: 'system'`) for each dep whose `last_updated` is later than the pipeline's `started_at`, using Date-based comparison (`new Date().getTime()`) instead of lexicographic string comparison. **PASS is never blocked** — warnings are purely advisory. The check is skipped when `started_at` is absent or when the WP has no dependencies.
 
 #### `ledger_cancel_pipeline`
 
@@ -361,7 +378,7 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   reason: string;
 }) => Promise<MCPResult>
 ```
@@ -375,7 +392,7 @@ Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting 
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   summary: string[];
 }) => Promise<MCPResult>
 ```
@@ -393,7 +410,7 @@ Appends to the summary array of the most recent `IN_PROGRESS` pipeline without c
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
   work_package_id: string;
-  pipeline_type: 'implementation' | 'qa' | 'code-review' | 'documentation';
+  pipeline_type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   type: string; // e.g., "code-smell", "refactor", "debt"
   priority: 'low' | 'medium' | 'high';
   note: string;
@@ -434,7 +451,7 @@ Adds a comment to the project-level comments array in the root index. For `incid
 (args: { 
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
-  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  agent_role: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
   max_results?: number; // default: 1 (single-action mode)
 }) => Promise<MCPResult>
 ```
@@ -453,7 +470,7 @@ Reads root index and work package details to recommend the next action(s) for an
 (args: { 
   project_path?: string; // fallback — use only if already known from a previous tool response
   cwd_path?: string; // preferred — auto-detects project
-  current_agent: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis';
+  current_agent: 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis';
 }) => Promise<MCPResult>
 ```
 
@@ -483,7 +500,7 @@ interface HandoffStatusPayload {
 2. The agent registry is loaded (`isRegistryLoaded()` returns `true`)
 3. The next agent has a known handle in the registry
 4. Project status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
-5. `auto_handoff_depth` in the root index is `< effectiveMaxDepth(root.total_work_packages ?? 0)` — the dynamic ceiling scales with project size per §18.2.1: `max(configMax=50, totalWorkPackages × 20)`, where `configMax` comes from `getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`)
+5. `auto_handoff_depth` in the root index is `< effectiveMaxDepth(root.total_work_packages ?? 0)` — the dynamic ceiling scales with project size per §18.2.1: `max(configMax=50, totalWorkPackages × 30)`, where `configMax` comes from `getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`) and the multiplier 30 comes from `handoff_depth_multiplier` in the shared workflow manifest
 
 Each successful emission increments `auto_handoff_depth` in the root index. The counter is reset to `0` by `ledger_complete_synthesis` per §18.4, atomically with the `synthesis_generated: true` write.
 
@@ -552,15 +569,81 @@ class LedgerStore {
   readProjectMeta(): Promise<ProjectMeta>;
 
   // Write operations (validated before writing)
-  writeRootIndex(data: RootIndex): Promise<void>;          // auto-syncs .meta.json
-  writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;
+  // @internal — both methods below must only be called from within LedgerStore sync methods
+  // (updateWorkPackageWithSync, createWorkPackageWithSync, batchUpdateWorkPackagesWithSync).
+  // Tool functions and helpers must NOT call these directly; use a sync method instead to
+  // guarantee atomic WP+root writes, schema validation, last_updated auto-stamping, and
+  // .meta.json sync.
+  //
+  // writeRootIndex — legitimate direct callers (non-tool code under explicit withLock scope):
+  //   - project-lifecycle.ts — getProjectStatus() self-healing (repairs stale counters under
+  //     explicit withLock); initializeProject() and completeSynthesis() for root-index-only
+  //     transitions that don't involve any WP file write.
+  //   - auto-archive.ts    — sets status: 'ARCHIVED' with preserveLastUpdated: true
+  //   - observations.ts    — appends a project-level comment (root-index write only)
+  //   - workflow-handoff.ts — buildHandoffResponse(): increments or caps the auto_handoff_depth counter; root-index-only write with no WP file involvement
+  //
+  // writeWorkPackage — NO legitimate external callers as of WP-002 migration
+  // (consolidate-wp-writes). Every previously-direct caller (e.g. project-reset.ts) has been
+  // migrated to use a sync method. Use updateWorkPackageWithSync, createWorkPackageWithSync,
+  // or batchUpdateWorkPackagesWithSync instead.
+  writeRootIndex(data: RootIndex, options?: { preserveLastUpdated?: boolean }): Promise<void>; // @internal — auto-syncs .meta.json
+  writeWorkPackage(wpId: string, data: WorkPackageDetail): Promise<void>;                      // @internal — zero external callers post-WP-002
 
-  // Dual-file atomic update (auto-syncs .meta.json inside lock)
+  // Dual-file atomic creation (auto-syncs .meta.json inside lock).
+  // Used when the WP file does not yet exist. The creator callback receives the current root
+  // index and must return the new WP detail, its ID, and the updated root index.
+  // Auto-stamps wp.last_updated = now() on every call (overwriting any caller-set value).
+  // Validates both objects via Zod before any write; rolls back on callback error.
+  // Returns the wpId string for caller convenience.
+  createWorkPackageWithSync(
+    creator: (
+      root: RootIndex
+    ) => { wpId: string; wp: WorkPackageDetail; root: RootIndex } |
+         Promise<{ wpId: string; wp: WorkPackageDetail; root: RootIndex }>
+  ): Promise<string>;
+
+  // Dual-file atomic update (auto-syncs .meta.json inside lock).
+  // Auto-stamps wp.last_updated = now() on every call — this is the primary choke point
+  // for the last_updated field. All callers that need to create or update a WP+root pair
+  // must use createWorkPackageWithSync (creation) or updateWorkPackageWithSync (update).
   updateWorkPackageWithSync(
     wpId: string,
-    updater: (wp: WorkPackageDetail, root: RootIndex) => 
-      { wp: WorkPackageDetail; root: RootIndex } | 
+    updater: (wp: WorkPackageDetail, root: RootIndex) =>
+      { wp: WorkPackageDetail; root: RootIndex } |
       Promise<{ wp: WorkPackageDetail; root: RootIndex }>
+  ): Promise<void>;
+
+  // Multi-WP atomic batch update (auto-syncs .meta.json inside lock).
+  // Batch-write sibling of updateWorkPackageWithSync. Acquires a single lock for the
+  // entire operation — all WPs and the root index are written within one lock scope.
+  //
+  // The callback receives:
+  //   - root — the current root index (read inside the lock)
+  //   - readWp — a helper to read any WP detail file (also inside the lock)
+  // The callback must return:
+  //   - updatedWps — a Map<wpId, WorkPackageDetail> of every WP to be written
+  //   - root — the updated root index
+  //
+  // Two-pass validate-then-write atomicity guarantee:
+  //   Pass 1 — auto-stamps last_updated (shared timestamp for all WPs in the batch)
+  //            and validates every WP via WorkPackageDetailSchema + the root index
+  //            via RootIndexSchema. If any validation fails, no files are written.
+  //   Pass 2 — writes all validated WP files atomically, then writes the root index,
+  //            then syncs .meta.json exactly once.
+  //
+  // Note: atomicity is lock-scoped, not rollback-scoped. If a WP file write succeeds
+  // but a later write fails (e.g. I/O error after validation), earlier writes are not
+  // rolled back. Validation failures in Pass 1 always prevent any writes.
+  //
+  // Used by propagateDependencyUnblock and propagateDependencyReblock (src/tools/work-package.ts)
+  // and by applyProjectReset and markProjectComplete (src/utils/project-reset.ts) to consolidate
+  // all per-WP writes into a single lock scope.
+  batchUpdateWorkPackagesWithSync(
+    callback: (
+      root: RootIndex,
+      readWp: (id: string) => Promise<WorkPackageDetail>
+    ) => Promise<{ updatedWps: Map<string, WorkPackageDetail>; root: RootIndex }>
   ): Promise<void>;
 
   // Document archiving
@@ -655,8 +738,8 @@ interface ProjectMeta {
   date_created: string;  // ISO timestamp
   last_updated: string;  // ISO timestamp
   title?: string;        // Optional, derived from plan_file content
-  // Enrichment cache fields (all optional — absent in legacy .meta.json files created before WP-006)
-  total_work_packages?: number;   // Synced by writeRootIndex and updateWorkPackageWithSync on every root index write
+  // Enrichment cache fields (all optional — absent in legacy .meta.json files)
+  total_work_packages?: number;   // Synced by writeRootIndex, createWorkPackageWithSync, and updateWorkPackageWithSync on every root index write
   pending_work_packages?: number; // Synced on same writes; decremented when WP transitions to COMPLETE/CANCELLED
   project_name?: string | null;   // Resolved at init from package.json/composer.json/pyproject.toml; null on failure
   repository_name?: string | null; // Derived from inferProjectRootFromPlanPath(plan_path); null if not detectable
@@ -671,15 +754,17 @@ Schema: `ProjectMetaSchema` (Zod).
 type ProjectStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' | 'ARCHIVED';
 type WorkPackageStatus = 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED';
 type PipelineStatus = 'IN_PROGRESS' | 'PASS' | 'FAIL'; // Note: 'READY' was removed — pipelines are always created as IN_PROGRESS
-type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Reviewer' | 'Documentation' | 'Synthesis'; // Exported from src/utils/constants.ts; canonical string-literal union for all valid agent role names.
-type PipelineType = 'implementation' | 'qa' | 'code-review' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
-type PostImplPipelineType = Exclude<PipelineType, 'implementation'>; // Subset type for maps that only apply to post-implementation stages (QA, code-review, documentation)
+type AgentRole = 'Planner' | 'Project Manager' | 'Developer' | 'QA' | 'Security Auditor' | 'Reviewer' | 'Release Engineer' | 'Documentation' | 'Synthesis'; // Inferred from AgentRoleEnum (z.infer<typeof AgentRoleEnum>) in src/schema/workflow-manifest-schema.ts; re-exported by src/utils/constants.ts. Canonical type for all valid agent role names.
+type PipelineType = 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation'; // Exported from src/utils/pipeline-maps.ts; provides compile-time exhaustiveness checking for pipeline key access across all routing maps. Also available as PipelineTypeEnum (Zod schema) for use in tool input validation.
+type PostImplPipelineType = 'qa' | 'code-review' | 'documentation'; // Explicitly pinned to the 3 legacy post-impl stages — NOT derived via Exclude<PipelineType, 'implementation'> so that adding new PipelineType values does not cascade into legacy 4-stage display maps (agentNameMap, actionNameMap, reworkActionMap) that remain 3-entry records.
 type BlockerType = 'dependency' | 'decision' | 'external' | 'technical';
 type CommentPriority = 'low' | 'medium' | 'high';
 interface ReworkCounts {
   implementation?: number; // Non-negative integer; absent until first rework of that type
   qa?: number;
+  'security-audit'?: number;
   'code-review'?: number;
+  'release-engineering'?: number;
   documentation?: number;
 }
 ```
@@ -696,8 +781,10 @@ interface RootIndex {
   pending_work_packages: number;
   work_packages: WorkPackageSummary[];
   project_comments: ProjectComment[];
-  auto_handoff_depth?: number; // Server-managed loop-guard counter; absent/undefined treated as 0
-  synthesis_generated?: boolean; // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
+  auto_handoff_depth?: number;        // Server-managed loop-guard counter; absent/undefined treated as 0
+  synthesis_generated?: boolean;      // Set to true by ledger_complete_synthesis; absent/false means synthesis not yet done
+  synthesis_generated_at?: string | null; // ISO 8601 timestamp set when synthesis_generated is marked true; null means explicitly invalidated; absent means not yet set
+  ledger_version?: string;            // Semantic version string of the MCP server that last wrote this ledger; absent on legacy ledgers
 }
 
 interface WorkPackageSummary {
@@ -706,6 +793,7 @@ interface WorkPackageSummary {
   assigned_to: string | null; // null when the WP has not yet been assigned to an agent
   dependencies: string[];
   file: string; // Path to detail file
+  active_pipeline_stages?: string[] | null; // Cached subset from WP detail; null or absent means use DEFAULT_PIPELINE_STAGES
 }
 
 interface HandoffNote {
@@ -724,9 +812,11 @@ interface WorkPackageDetail {
   blocked_by?: Blocker;
   acceptance_criteria: AcceptanceCriterion[];
   revision: number; // 0-based; new WPs start at 0 (previously started at 1)
+  active_pipeline_stages?: string[];  // Optional. The active pipeline stages for this WP. When absent or empty, defaults to DEFAULT_PIPELINE_STAGES. Must be a subsequence of CANONICAL_PIPELINE_ORDERING. Hard validation enforced by ledger_create_work_package.
   rework_count?: number;  // Legacy scalar — read-only; used only by in-memory migration in readWorkPackage() for documents that pre-date rework_counts. No longer written by production code.
   rework_counts?: ReworkCounts;  // Per-pipeline-type rework map; lazily created on first rework (§16.2)
   status_changed_at?: string;  // ISO 8601 timestamp of the last status transition (§10b.1)
+  last_updated?: string;  // ISO 8601 timestamp auto-stamped on every WP detail write (status transitions, claim, pipeline start/complete/cancel, creation, cascade reblock/unblock). Used by the advisory staleness check in completePipeline instead of the previous composite proxy.
   reset_at?: string;  // ISO 8601 timestamp set by applyProjectReset() on 'reset' actions only. Not set for 'cancel' or 'skip'. Distinguishes reset-recovery events from other status transitions.
   handoff_notes?: HandoffNote[];  // Notes appended via completePipeline's handoff_notes param
   pipelines: Pipeline[];
@@ -821,9 +911,52 @@ function canCompleteWorkPackage(
 
 ---
 
+## Workflow Manifest Schema
+
+### `src/schema/workflow-manifest-schema.ts` — Zod schema and parsed singleton
+
+Centralizes manifest parsing and TypeScript type derivation. Loaded once at module startup; parse failure surfaces a clear `ZodError` immediately (fail-fast behavior).
+
+```typescript
+// Zod enum containing all 9 agent role name literals.
+// NOTE: The literal values must be manually kept in sync with shared/workflow-manifest.json
+// roles[].name — this is the one construct NOT auto-derived from manifest data.
+// ManifestSchema.roles.nonempty() + RoleSchema.name: AgentRoleEnum provides a two-layer
+// consistency guard: any divergence between AgentRoleEnum and the manifest causes a startup-
+// time ZodError. Also validated by tests/utils/workflow-manifest.test.ts.
+const AgentRoleEnum: z.ZodEnum<['Planner', 'Project Manager', 'Developer', 'QA',
+  'Security Auditor', 'Reviewer', 'Release Engineer', 'Documentation', 'Synthesis']>;
+
+// TypeScript type inferred from AgentRoleEnum — not a manually-maintained union.
+type AgentRole = z.infer<typeof AgentRoleEnum>;
+// = 'Planner' | 'Project Manager' | 'Developer' | 'QA'
+// | 'Security Auditor' | 'Reviewer' | 'Release Engineer'
+// | 'Documentation' | 'Synthesis'
+
+// Full Zod schema for shared/workflow-manifest.json.
+// Validates structural integrity at startup. Parsed singleton available as workflowManifest.
+const ManifestSchema: z.ZodObject<...>;
+
+// TypeScript type inferred from ManifestSchema.
+type Manifest = z.infer<typeof ManifestSchema>;
+
+// Parsed and Zod-validated manifest singleton. Loaded once at module-load time.
+// All consumers (constants.ts, enums.ts, pipeline-maps.ts, workflow-helpers.ts) import from here instead
+// of using createRequire + raw cast — ensuring manifest access is always type-safe.
+const workflowManifest: Manifest;
+```
+
+**Consumers:**
+- `src/utils/constants.ts` — re-exports `AgentRole` and `AgentRoleEnum`; derives `AGENT_ROLES`, `ORCHESTRATING_ROLES`, `ROLE_IDS`, `SPEC_VERSION` from `workflowManifest`
+- `src/schema/enums.ts` — derives status enums from `workflowManifest`
+- `src/utils/pipeline-maps.ts` — derives pipeline routing maps from `workflowManifest`
+- `src/utils/workflow-helpers.ts` — derives `STALE_PIPELINE_HOURS`, `MAX_REWORK_COUNT`, `_DEFAULT_MAX_HANDOFF_DEPTH`, `_HANDOFF_DEPTH_MULTIPLIER` from `workflowManifest.constants.*`
+
+---
+
 ## Constants
 
-Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase.
+Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase. Role and status constants are **derived at module-load time from `shared/workflow-manifest.json`** via the Zod-validated `workflowManifest` singleton in `src/schema/workflow-manifest-schema.ts` — no inline literal arrays remain for spec-defined constructs.
 
 ```typescript
 // Filename used when reading the archived plan document from centralized storage.
@@ -834,27 +967,43 @@ const PLAN_ARCHIVE_FILENAME = 'plan.md' as const;
 // Used as the Zod .default() value in project-lifecycle.ts; also referenced in help-content.ts.
 const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md' as const;
 
-// Canonical array of valid agent role names. Consumers should import from here
-// rather than defining local copies to avoid silent drift.
-const AGENT_ROLES: readonly [
-  'Planner', 'Project Manager', 'Developer',
-  'QA', 'Reviewer', 'Documentation', 'Synthesis'
-];
+// Canonical array of valid agent role names.
+// Derived at module-load time from workflowManifest.roles[].name via the Zod singleton.
+// Consumers should import from here rather than defining local copies to avoid silent drift.
+const AGENT_ROLES: AgentRole[];  // runtime values come from the manifest
 
-// String-literal union type derived from AGENT_ROLES.
-type AgentRole = typeof AGENT_ROLES[number];
+// Re-exported from src/schema/workflow-manifest-schema.ts (see below).
+// AgentRole is z.infer<typeof AgentRoleEnum> — not a manually-maintained union.
+// Consumers that import agent types from utils/constants continue to work unchanged.
+export type { AgentRole } from '../schema/workflow-manifest-schema.js';
+export { AgentRoleEnum } from '../schema/workflow-manifest-schema.js';
 
 // Roles that orchestrate the workflow but do not directly execute implementation work.
+// Derived at module-load time from workflowManifest.roles[].orchestrating === true.
 // Used to derive CLAIMABLE_ROLES in work-package.ts (excludes these roles from the claimable set).
-const ORCHESTRATING_ROLES: readonly ['Planner', 'Synthesis'];
+const ORCHESTRATING_ROLES: OrchestratingRole[];  // runtime values come from the manifest
 
-// String-literal union type derived from ORCHESTRATING_ROLES.
-type OrchestratingRole = typeof ORCHESTRATING_ROLES[number];
+// Explicit string-literal union type — OrchestratingRole is not Zod-inferred because
+// orchestrating roles have no separate enum in the manifest schema.
+type OrchestratingRole = 'Planner' | 'Synthesis';
+
+// Map of agent role name → role ID (e.g. 'Project Manager' → 'pm').
+// Derived at module-load time from shared/workflow-manifest.json roles[].id.
+// Useful for graph stage names, config keys, and programmatic lookups.
+// Note: has no TypeScript consumers in the mcp-server codebase as of v1.12.0;
+// the orchestrator maintains a parallel derivation in orchestrator/src/config.py.
+const ROLE_IDS: Record<AgentRole, string>;
 
 // Pattern for valid ledger slugs: must start with a lowercase alphanumeric character,
 // followed by zero or more lowercase alphanumeric characters or hyphens. Max length 200.
 // Used by LedgerStore.renameSlug() (storage layer) and gui/api.ts (API layer).
 const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
+
+// Workflow specification version this MCP server implements.
+// Derived at module-load time from shared/workflow-manifest.json spec_version field.
+// Written into every new ledger as ledger_version on initializeProject().
+// Current value: '2.4.1'
+const SPEC_VERSION: string;  // e.g. '2.4.1'
 ```
 
 **Importers of `AGENT_ROLES`:**
@@ -871,6 +1020,64 @@ const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
 - `gui/api.ts` — imports both; `PLAN_ARCHIVE_FILENAME` used in `handleGetPlanDocument` join() call, `SYNTHESIS_ARCHIVE_FILENAME` used in `handleGetSynthesisDocument` join() call
 - `src/tools/project-lifecycle.ts` — imports `SYNTHESIS_ARCHIVE_FILENAME`; used as Zod `.default()` value
 - `src/tools/help-content.ts` — imports both; used in tool help text template expressions
+
+**Importers of `SPEC_VERSION`:**
+- `src/tools/project-lifecycle.ts` — sets `ledger_version: SPEC_VERSION` on the root index object inside `initializeProject()`; also used in forward-compatibility warning comparisons in `getProjectStatus()`
+
+**Manifest invariant test:** `tests/utils/workflow-manifest.test.ts` validates the structural invariants of `shared/workflow-manifest.json` at test time and asserts derived-constant parity — confirming that `AGENT_ROLES`, `ORCHESTRATING_ROLES`, `PIPELINE_TYPES`, `DEFAULT_PIPELINE_STAGES`, `PIPELINE_AGENT_MAP`, `MAX_REWORK_COUNT`, `STALE_PIPELINE_HOURS`, and `SPEC_VERSION` all match the manifest values exactly. Also includes a `resolveFailAgent() parity — manifest fail_routing` describe block that verifies `resolveFailAgent()` output for all 6 pipeline types matches the manifest's `fail_routing` → role name resolution — guarding against drift if manifest routing values change without updating the implementation. Any future manifest edit that causes a constant or routing resolution to diverge will fail the test suite (39 tests).
+
+---
+
+## Pipeline-Maps Constants
+
+Exported from `src/utils/pipeline-maps.ts`. Single source of truth for pipeline type definitions, routing maps, and dynamic resolve functions. All primary maps and arrays are **derived at module-load time from `shared/workflow-manifest.json`** via the Zod-validated `workflowManifest` singleton in `src/schema/workflow-manifest-schema.ts` — no inline literal arrays remain for spec-defined constructs.
+
+```typescript
+// The six valid pipeline type values as a const tuple, in canonical execution order.
+// Derived from pipelines.canonical_order in the shared workflow manifest.
+const PIPELINE_TYPES: readonly [
+  'implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'
+];
+
+// Alias of PIPELINE_TYPES. The canonical execution order for all six pipeline stages.
+// Dynamic resolve functions filter this ordering by a WP's active_pipeline_stages.
+const CANONICAL_PIPELINE_ORDERING: typeof PIPELINE_TYPES;
+
+// Backward-compatible default stage set (4-stage legacy workflow).
+// Used as the default activeStages when a WP has no active_pipeline_stages field.
+// Derived from pipelines.default_stages in the shared workflow manifest.
+const DEFAULT_PIPELINE_STAGES: readonly ['implementation', 'qa', 'code-review', 'documentation'];
+
+// Zod enum schema for pipeline types — use in tool input validation.
+const PipelineTypeEnum: z.ZodEnum<[typeof PIPELINE_TYPES[number], ...]>;
+
+// Maps pipeline type → owning agent role (all 6 types, including Security Auditor and Release Engineer).
+// Derived from roles[].pipeline (non-null) → roles[].name in the shared workflow manifest.
+const PIPELINE_AGENT_MAP: Record<PipelineType, string>;
+
+// Inverse of PIPELINE_AGENT_MAP (derived at runtime from PIPELINE_AGENT_MAP — no divergence possible).
+const AGENT_PIPELINE_MAP: Record<string, PipelineType>;
+
+// Legacy static maps — Partial<Record<PipelineType, ...>> (default-stage workflow only).
+// @deprecated For new WPs, use the dynamic resolve functions below instead.
+//
+// PIPELINE_PREREQUISITES: derived from the default_stages predecessor chain — each stage's prerequisite
+// is its immediately preceding stage in the default order, or null for the first stage.
+// NOTE: this intentionally diverges from the full 6-stage pipelines.prerequisites map in the manifest
+// (which reflects the complete canonical chain including optional stages). Using the full prerequisites
+// map would produce wrong values for the legacy 4-stage workflow (e.g. code-review would require
+// security-audit). Future maintainers should NOT change this to use the full manifest prerequisites.
+//
+// NEXT_AGENT_MAP: computed from PIPELINE_TYPES and PIPELINE_AGENT_MAP using the default stage set.
+// The last default stage always maps to 'Synthesis' (sentinel hardcoded in derivation loop — acceptable
+// because NEXT_AGENT_MAP is explicitly marked legacy; resolveNextAgent() is the go-to for new code).
+//
+// FAIL_ROUTING_MAP: derived from pipelines.fail_routing in the manifest; role IDs translated to
+// role names via the roles array lookup. Only covers the default stages.
+const PIPELINE_PREREQUISITES: Partial<Record<PipelineType, PipelineType | null>>;  // null = no prerequisite
+const NEXT_AGENT_MAP: Partial<Record<PipelineType, string>>;
+const FAIL_ROUTING_MAP: Partial<Record<PipelineType, string>>;
+```
 
 ---
 
@@ -952,7 +1159,7 @@ function parseWpId(id: string): number;  // Extracts numeric part
 // Corruption mitigation (§17.2 known-gap): if synthesis_generated === true AND
 // pendingWps > 0, the flag is treated as false for all rule evaluation and
 // corruptionDetected is set to true. The caller (getProjectStatus) then resets
-// fresh.synthesis_generated = false inside the write callback, eliminating
+// fresh.synthesis_generated = false and fresh.synthesis_generated_at = null inside the write callback, eliminating
 // a repeated-write loop on subsequent calls.
 //
 // Healing rules (first-match-wins order):
@@ -976,6 +1183,7 @@ function computeHealedStatus(rootIndex: RootIndex): {
   healedStatus: ProjectStatus;
   needsWrite: boolean;
   corruptionDetected: boolean;
+  legacySynthesisTimestampRepair: boolean; // true when synthesis_generated===true, corruptionDetected===false, and synthesis_generated_at is absent/null → signals getProjectStatus to backfill synthesis_generated_at = last_updated
 };
 
 // Returns the absolute path to the central ledger root directory.
@@ -1025,26 +1233,158 @@ const mutuallyExclusivePaths: (args: { project_path?: string | null; cwd_path?: 
 // Exported from src/utils/path-validator.ts.
 const MUTUAL_EXCLUSIVITY_PATH_MSG: string;
 
-// Returns all pipeline types that come AFTER the given type in canonical PIPELINE_TYPES order.
-// Returns [] for 'documentation' (nothing follows it). Returns [] for unknown types.
+// Returns all pipeline types that come AFTER the given type in the active stage ordering.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (4-stage legacy behaviour).
+// Returns [] when type is the last active stage or not in the active set.
 // Exported from src/utils/pipeline-maps.ts. Returns a fresh array — safe to mutate.
-// Examples: getDownstreamTypes('implementation') → ['qa','code-review','documentation']
-//           getDownstreamTypes('code-review')    → ['documentation']
-//           getDownstreamTypes('documentation')  → []
-function getDownstreamTypes(type: PipelineType): PipelineType[];
+// Examples (legacy default):
+//   getDownstreamTypes('implementation') → ['qa','code-review','documentation']
+//   getDownstreamTypes('code-review')    → ['documentation']
+//   getDownstreamTypes('documentation')  → []
+// Examples (6-stage active set):
+//   getDownstreamTypes('qa', PIPELINE_TYPES) → ['security-audit','code-review','release-engineering','documentation']
+function getDownstreamTypes(
+  type: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): PipelineType[];
 
-// Returns all pipeline types that come BEFORE the given type in canonical PIPELINE_TYPES order.
-// Returns [] for 'implementation' (nothing precedes it).
+// Returns all pipeline types that come BEFORE the given type in the active stage ordering.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (4-stage legacy behaviour).
+// Returns [] when type is the first active stage or not in the active set.
 // Exported from src/utils/pipeline-maps.ts. Returns a fresh array — safe to mutate.
-// Examples: getUpstreamTypes('documentation') → ['implementation','qa','code-review']
-//           getUpstreamTypes('qa')             → ['implementation']
-//           getUpstreamTypes('implementation') → []
-function getUpstreamTypes(type: PipelineType): PipelineType[];
+// Examples (legacy default):
+//   getUpstreamTypes('documentation') → ['implementation','qa','code-review']
+//   getUpstreamTypes('qa')             → ['implementation']
+//   getUpstreamTypes('implementation') → []
+function getUpstreamTypes(
+  type: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): PipelineType[];
+
+// Computes the prerequisite pipeline type for pipelineType given activeStages.
+// Filters CANONICAL_PIPELINE_ORDERING by activeStages; the immediately preceding active stage
+// is the prerequisite. Returns null when pipelineType is the first active stage or not active.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+// Exported from src/utils/pipeline-maps.ts. Replaces the legacy static PIPELINE_PREREQUISITES map
+// for new-stage WPs — callers should prefer this function over the static map.
+// Examples:
+//   resolvePrerequisite('qa')            → 'implementation' (both active)
+//   resolvePrerequisite('implementation') → null            (first stage)
+//   resolvePrerequisite('documentation', ['documentation']) → null  (only active stage)
+function resolvePrerequisite(
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): PipelineType | null;
+
+// Returns the agent that should receive the WP after pipelineType completes with PASS,
+// given activeStages. Finds the next active stage in CANONICAL_PIPELINE_ORDERING and returns
+// its owning agent via PIPELINE_AGENT_MAP. Returns 'Synthesis' when pipelineType is the last
+// active stage or when pipelineType is not in the active set (index === -1).
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+// Exported from src/utils/pipeline-maps.ts. Replaces the legacy static NEXT_AGENT_MAP for WPs
+// that use non-default pipeline compositions.
+// Precondition: callers must not invoke with a stage outside the WP's activeStages
+// (index-not-found path returns 'Synthesis' as a safe fallback).
+// Examples:
+//   resolveNextAgent('implementation')  → 'QA'        (legacy 4-stage default)
+//   resolveNextAgent('documentation')   → 'Synthesis'  (last stage)
+//   resolveNextAgent('documentation', ['documentation']) → 'Synthesis' (only stage)
+function resolveNextAgent(
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): string;
+
+// Returns the agent that should receive the WP after pipelineType completes with FAIL,
+// given activeStages (rework routing). Base routing is fully manifest-derived: each
+// pipeline type maps to the role resolved from `pipelines.fail_routing` in the shared
+// workflow manifest via _roleById lookup — zero hardcoded role strings. Current manifest
+// routing values:
+//   implementation, qa, security-audit, code-review → Developer
+//   release-engineering → Release Engineer (self-rework)
+//   documentation → Documentation (self-rework)
+// Fallback: when the standard fail-target agent's stage is not present in activeStages,
+// routes to the agent that owns the first active stage.
+// When activeStages is omitted, defaults to DEFAULT_PIPELINE_STAGES (legacy 4-stage).
+// Exported from src/utils/pipeline-maps.ts. Replaces the legacy static FAIL_ROUTING_MAP for
+// new-stage WPs.
+// FAIL_AGENT_MAP is the module-level backing constant (see below) — callers that only need
+// the base manifest fail-routing without the active-stage fallback can use it directly.
+// Examples:
+//   resolveFailAgent('qa')                      → 'Developer'      (Developer's stage is active)
+//   resolveFailAgent('qa', ['documentation'])   → 'Documentation'  (Developer's impl stage absent — fallback)
+//   resolveFailAgent('documentation')           → 'Documentation'  (self-rework)
+function resolveFailAgent(
+  pipelineType: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
+): string;
+
+// Module-level backing constant for resolveFailAgent(). Maps every PipelineType to the
+// agent role name that owns failed pipelines of that type, derived once at module load
+// from workflowManifest.pipelines[*].fail_routing via the _roleById lookup. Computed
+// once and never reconstructed.
+// Use FAIL_AGENT_MAP directly when you need the base manifest routing without the
+// active-stage fallback logic that resolveFailAgent() adds.
+// Exported from src/utils/pipeline-maps.ts.
+const FAIL_AGENT_MAP: Record<PipelineType, string>;
+
+// Returns the given activeStages filtered and sorted by CANONICAL_PIPELINE_ORDERING.
+// Replaces the repeated `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t))` pattern
+// that appeared at 5 call sites in pipeline.ts and workflow-next-action.ts.
+// Unlike getDownstreamTypes / getUpstreamTypes, this function does NOT take a pipelineType anchor —
+// it simply returns the full ordered subset. Internal pipeline-maps.ts functions still use the
+// raw filter directly (replacing them would be self-referential).
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   getOrderedActiveStages(['documentation','implementation']) → ['implementation','documentation']
+//   getOrderedActiveStages(['qa','security-audit','code-review']) → ['qa','security-audit','code-review']
+function getOrderedActiveStages(
+  activeStages: readonly PipelineType[],
+): PipelineType[];
+
+// Returns a `.describe()` annotation string for a Zod pipeline type field,
+// listing all PIPELINE_TYPES in canonical order with the given prefix.
+// Eliminates hardcoded pipeline type lists in Zod .describe() strings — all 6
+// tool schema call sites (observations.ts ×1, begin-work.ts ×1, pipeline.ts ×4)
+// delegates to this function instead of maintaining their own prose copy.
+// Exported from src/utils/pipeline-maps.ts (placed after getOrderedActiveStages).
+// Example:
+//   describePipelineTypes('Pipeline type:') →
+//     'Pipeline type: "implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"'
+function describePipelineTypes(prefix: string): string;
+
+// Returns the first pipeline stage in canonical order from the given active stages.
+// Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+// Secondary fallback: returns DEFAULT_PIPELINE_STAGES[0] when orderedActive is empty.
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   firstActiveStage(['qa','documentation']) → 'qa'
+//   firstActiveStage(null)                   → 'implementation'  (DEFAULT_PIPELINE_STAGES fallback)
+//   firstActiveStage(undefined)              → 'implementation'
+function firstActiveStage(stages?: readonly PipelineType[] | null): PipelineType;
+
+// Returns the last pipeline stage in canonical order from the given active stages.
+// Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
+// Secondary fallback: returns DEFAULT_PIPELINE_STAGES[last] when orderedActive is empty.
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   lastActiveStage(['implementation','qa']) → 'qa'
+//   lastActiveStage(null)                    → 'documentation'  (DEFAULT_PIPELINE_STAGES fallback)
+//   lastActiveStage(undefined)               → 'documentation'
+function lastActiveStage(stages?: readonly PipelineType[] | null): PipelineType;
+
+// Validates a proposed active_pipeline_stages array against all hard and soft rules.
+// Returns { errors, warnings } — caller is responsible for acting on errors (typically throws errors[0]).
+// Hard errors: empty array, unknown stage names, duplicates, out-of-canonical-order.
+// Soft warnings: implementation without qa, single-stage chain.
+// Exported from src/utils/pipeline-maps.ts. Used by createWorkPackage() to replace
+// the previous ~60-line inline validation block.
+// Note: accepts string[] rather than PipelineType[] — validated internally.
+function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] };
 ```
 
 ### Project Name Resolution — `src/utils/read-project-name.ts`
 
-Shared utility extracted in WP-006 to eliminate the ~55-line duplicate in `gui/api.ts`.
+Shared utility extracted to eliminate the ~55-line duplicate in `gui/api.ts`.
 
 ```typescript
 // Probes the managed workspace for a human-readable project name.
@@ -1106,7 +1446,7 @@ export interface ProjectResetResult {
 
 // Returns the set of pipeline types that have at least one PASS pipeline on a WP.
 // Pure function — no I/O. Used internally by analyzeProjectForReset() and by
-// the getProjectStatus() tool (WP-003) to compute aggregate pipeline health.
+// the getProjectStatus() tool to compute aggregate pipeline health.
 // Exported from src/utils/project-reset.ts so callers outside project-reset.ts
 // (e.g. project-lifecycle.ts) can reuse it without duplicating stage-scan logic.
 export function getPassedStages(wp: WorkPackageDetail): Set<string>;
@@ -1128,35 +1468,39 @@ export function analyzeProjectForReset(
   workPackages: WorkPackageDetail[]
 ): ProjectResetDiagnosis;
 
-// ── Mutation (async — writes under lock) ────────────────────────────────────
+// ── Mutation (async — writes via batchUpdateWorkPackagesWithSync) ────────────
 
-// Applies user-confirmed per-WP decisions atomically inside a single withLock() scope.
+// Applies user-confirmed per-WP decisions atomically via a single
+// store.batchUpdateWorkPackagesWithSync() call (single lock acquisition).
 // For each WP:
 //   'reset'  → wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
 //              wp.status_changed_at updated, wp.reset_at set to the mutation timestamp;
 //              if reset_criteria !== false, all acceptance_criteria[].met = false;
 //              blocked_by removed.
 //   'cancel' → wp.status = 'CANCELLED', wp.status_changed_at updated. reset_at NOT set.
-//   'skip'   → WP file not written.
+//   'skip'   → WP file not written (readWp is not called for skip-action WPs).
 // Missing entries in `decisions` default to 'skip'.
 // Stale-state guard: if wp.status changed since diagnosis was produced, the WP is
 // silently skipped (writes to stderr) to prevent clobbering concurrent changes.
-// Root index updates (all inside lock): pending_work_packages recomputed,
+// Root index updates (all inside batch callback): pending_work_packages recomputed,
 // status → 'IN_PROGRESS', synthesis_generated → false, auto_handoff_depth → 0,
 // project_comment appended with ISO timestamp.
+// wp.last_updated is auto-stamped by batchUpdateWorkPackagesWithSync (may differ slightly
+// from wp.status_changed_at / wp.reset_at, which are set inside the callback — cosmetic only).
 export async function applyProjectReset(
   store: LedgerStore,
   diagnosis: ProjectResetDiagnosis,
   decisions: Record<string, WpDecision>
 ): Promise<ProjectResetResult>;
 
-// ── Mark as complete (mutation function — performs I/O under lock) ──────────
+// ── Mark as complete (mutation function — performs I/O via batchUpdateWorkPackagesWithSync) ──
 
 // Forces every non-CANCELLED work package and the project itself to COMPLETE
-// status in a single lock scope. Updates WP detail files, root index
-// (status=COMPLETE, pending_work_packages=0, last_updated), and appends an
-// admin_action project comment before calling store.writeRootIndex() (which
-// auto-syncs .meta.json). CANCELLED WPs are skipped entirely.
+// status via a single store.batchUpdateWorkPackagesWithSync() call (single lock
+// acquisition). CANCELLED WPs are skipped entirely (readWp is not called for them).
+// Root index mutations (all inside batch callback): status = COMPLETE,
+// pending_work_packages = 0, last_updated, admin_action project comment appended.
+// wp.last_updated is auto-stamped by batchUpdateWorkPackagesWithSync.
 //
 // The `slug` parameter is accepted for call-site clarity but is already bound
 // on the LedgerStore (`void slug;` inside the function body).
@@ -1210,9 +1554,38 @@ export const _internal: {
 // When ledgerRootOrOpts is a { store } object, uses the provided LedgerStore directly
 // (avoids redundant construction). Otherwise constructs its own store and acquires
 // its own lock. String form preserved for backward compatibility.
+//
+// Early-return guard: reads the root index once before acquiring the batch lock.
+// If no BLOCKED WP has completedWpId in its dependencies list, the function returns
+// immediately — skipping lock acquisition, the in-batch root index read, all WP
+// detail reads, and the .meta.json sync write. The batch callback re-reads the root
+// inside the lock on the non-early-return path, making this optimization safe under
+// concurrent writes (worst-case race: a WP becomes BLOCKED after the pre-check and
+// is missed on this call; it will be caught on the next dependency completion).
 export function propagateDependencyUnblock(
   projectPath: string,
   completedWpId: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): Promise<void>;
+```
+
+```typescript
+// When ledgerRootOrOpts is a { store } object, uses the provided LedgerStore directly
+// (avoids redundant construction). Otherwise constructs its own store and acquires
+// its own lock. String form preserved for backward compatibility.
+//
+// Early-return guard: reads the root index once before acquiring the batch lock.
+// If no WP with status READY, IN_PROGRESS, or COMPLETE has reopenedWpId in its
+// dependencies list, the function returns immediately — skipping lock acquisition,
+// the in-batch root index read, all WP detail reads, and the .meta.json sync write.
+// BLOCKED and CANCELLED dependents are untouched by both processing loops so they
+// do not qualify. The batch callback re-reads the root inside the lock on the
+// non-early-return path, making this optimization safe under concurrent writes
+// (worst-case race: a WP becomes READY/IN_PROGRESS after the pre-check and is missed
+// on this call; it will be caught on the next status transition).
+async function propagateDependencyReblock(
+  projectPath: string,
+  reopenedWpId: string,
   ledgerRootOrOpts?: string | { store: LedgerStore }
 ): Promise<void>;
 ```
@@ -1241,7 +1614,7 @@ function resolveStore(
 export const _internal: {
   // Generates the human-readable status transition error guidance string.
   buildStatusTransitionGuidance: (from: WorkPackageStatus, to: WorkPackageStatus) => string;
-  // Named export promoted in WP-001; _internal reference kept for test imports.
+  // Named export promoted as public API; _internal reference kept for test imports.
   propagateDependencyUnblock: (
     projectPath: string,
     completedWpId: string,
@@ -1252,6 +1625,8 @@ export const _internal: {
   // Appends a warning comment to the last pipeline of any COMPLETE dependents.
   // Sets status_changed_at = now() on each cascade-blocked WP before writing.
   // Resets root.synthesis_generated to false if any WPs were re-blocked.
+  // Early-return guard: skips lock and all WP reads when no READY, IN_PROGRESS,
+  // or COMPLETE WP has reopenedWpId in its dependencies.
   propagateDependencyReblock: (
     projectPath: string,
     reopenedWpId: string,
@@ -1483,7 +1858,7 @@ Pure async handler functions called by the HTTP server (`gui/server.ts`). All ha
 
 **Path-traversal guards:** two module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
-- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`).
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleGetWorkPackageOverview`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
 
 Both guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
@@ -1522,7 +1897,7 @@ export interface ProjectSummary extends ProjectMeta {
   repository_name: string | null; // last path segment of inferProjectRootFromPlanPath(meta.plan_path); null if not detectable
 }
 
-// Validated query parameters for GET /api/projects (WP-007).
+// Validated query parameters for GET /api/projects.
 // All fields are optional — unrecognised or missing values fall back to listed defaults.
 export type ProjectSortField = 'last_updated' | 'date_created' | 'title' | 'slug' | 'status' | 'done';
 export interface ProjectListParams {
@@ -1534,7 +1909,7 @@ export interface ProjectListParams {
   dir?: 'asc' | 'desc';            // default 'desc'
 }
 
-// Paginated response envelope for GET /api/projects (WP-007).
+// Paginated response envelope for GET /api/projects.
 export interface ProjectListEnvelope {
   projects: ProjectSummary[];       // current page slice
   total: number;                    // total matching projects after search + status filters
@@ -1552,7 +1927,7 @@ export interface ProjectListEnvelope {
 //   4. Apply status filter (ACTIVE excludes only ARCHIVED; ALL includes everything; specific status = exact match)
 //   5. Sort by sort+dir
 //   6. Paginate: page/limit → return projects slice + envelope metadata
-// Cache fast-path (WP-006): if meta.total_work_packages !== undefined && meta.project_name !== undefined,
+// Cache fast-path: if meta.total_work_packages !== undefined && meta.project_name !== undefined,
 // the handler skips per-project root index + manifest file reads. Falls back to I/O for legacy .meta.json.
 export async function handleListProjects(
   ledgerRoot: string,
@@ -1574,6 +1949,37 @@ export async function handleGetWorkPackage(
   slug: string,
   wpId: string
 ): Promise<WorkPackageDetail>;
+
+// Enriched per-stage status object within a WpOverviewEntry.
+// Values for status: 'pending' (not yet started), 'in-progress', 'pass', 'fail'.
+export interface WpPipelineStage {
+  type: string;         // e.g. 'implementation'
+  agent: string;        // e.g. 'Developer' — resolved from PIPELINE_AGENT_MAP
+  status: 'pending' | 'in-progress' | 'pass' | 'fail';  // latest pipeline entry for this stage; 'pending' when absent
+  rework_count: number; // rework_counts[type] ?? 0
+}
+
+// Enriched work-package summary returned by handleGetWorkPackageOverview.
+export interface WpOverviewEntry {
+  work_package_id: string;
+  status: string;                // WP-level status
+  assigned_to: string | null;    // current agent
+  dependencies: string[];
+  pipeline_stages: WpPipelineStage[];  // ordered per CANONICAL_PIPELINE_ORDERING
+  acceptance_criteria: { met: number; total: number };
+  blocked_by?: { type: string; description: string };
+}
+
+// GET /api/projects/:slug/work-packages/overview — enriched WP summary array
+// Reads all WP detail files, resolves active_pipeline_stages (falling back to DEFAULT_PIPELINE_STAGES),
+// orders stages per CANONICAL_PIPELINE_ORDERING, resolves per-stage status (latest entry wins),
+// computes AC progress, propagates blocked_by, and propagates rework_counts.
+// Corrupt or missing WP detail files are skipped (same pattern as handleGetProjectHealth).
+// Route registered BEFORE the /:wpId catch-all in server.ts to avoid ambiguous matching.
+export async function handleGetWorkPackageOverview(
+  ledgerRoot: string,
+  slug: string
+): Promise<WpOverviewEntry[]>;
 
 // PATCH /api/projects/:slug — renames a project's title, slug, or both.
 //
@@ -1723,6 +2129,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/projects/:slug` | `handleGetProject` |
 | PATCH | `/api/projects/:slug` | `handleRenameProject` (body parsed inline; placed before POST reset handler) |
 | GET | `/api/projects/:slug/work-packages` | `handleListWorkPackages` |
+| GET | `/api/projects/:slug/work-packages/overview` | `handleGetWorkPackageOverview` |
 | GET | `/api/projects/:slug/work-packages/:wpId` | `handleGetWorkPackage` |
 | GET | `/api/projects/:slug/plan` | `handleGetPlanDocument` |
 | GET | `/api/projects/:slug/synthesis` | `handleGetSynthesisDocument` |
@@ -1757,7 +2164,16 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 |------|---------|
 | `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
 | `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards, reset modal, action menu dropdown |
-| `app.js` | Vanilla JS SPA: `API` client, `Router` (hash-based), utilities + 4 view render functions + reset modal (`showResetModal`) |
+| `api-client.js` | `API` object — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx) |
+| `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
+| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch |
+| `utils.js` | Shared utilities: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()` |
+| `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
+| `views/project-list.js` | `renderProjectList(app)` — project list table with filter, search, pagination, and action menu |
+| `views/project-detail.js` | `renderProjectDetail(app, slug)`, `extractSynopsis(markdown)`, `renderPlan(app, slug)`, `renderSynthesis(app, slug)`, `showResetModal(slug, diagnosis)` |
+| `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
+| `views/config.js` | `renderConfig(app)` — config settings form |
+| `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
 
@@ -1784,7 +2200,22 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.synthesis-link-row` | Row wrapper for the **View synthesis →** link on the Project Detail page; `margin-bottom: 16px`; only rendered when `project.synthesis_generated === true` |
 | `.synthesis-link` | Pill-style inline link inside `.synthesis-link-row`; styled with `var(--color-primary)` foreground, `var(--color-border)` border, `var(--color-bg-card)` background; hover lightens to `var(--color-bg)` |
 
-**`styles.css` — Project reset modal classes** (added for WP-004):
+**`styles.css` — Pipeline stage badge track classes** (shared by the project detail WP table and the WP detail pipeline progression bar):
+
+| Class | Role |
+|-------|------|
+| `.pipeline-track` | Flex row container for a sequence of `.stage-badge` elements; `gap: 3px`, `flex-wrap: nowrap` |
+| `.stage-badge` | Individual stage pill (32×22 px); `position: relative` (anchors `.rework-indicator`); abbreviated agent-name label uppercased; `title` tooltip carries full stage + agent name |
+| `.stage-pending` | Grey variant (light: `#f1f5f9` bg / `#94a3b8` text; dark: `#1e293b` bg / `#475569` text) — stage not yet started |
+| `.stage-in-progress` | Amber variant (light: `#fef3c7` bg / `var(--color-in-progress)` text; dark: `#451a03` bg / `#fbbf24` text) — pipeline currently IN_PROGRESS |
+| `.stage-pass` | Green variant (light: `#dcfce7` bg / `var(--color-complete)` text; dark: `#14532d` bg / `#86efac` text) — latest pipeline PASS |
+| `.stage-fail` | Red variant (light: `#fee2e2` bg / `var(--color-blocked)` text; dark: `#450a0a` bg / `#fca5a5` text) — latest pipeline FAIL |
+| `.rework-indicator` | Small circular overlay badge (14×14 px, absolute top-right of `.stage-badge`); red background, white text; rendered only when `rework_count > 0`; displays the count |
+| `.pipeline-track-legend` | Optional small legend line below a `.pipeline-track`; `font-size: 11px`, muted colour |
+
+Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, `.stage-fail` are provided in a `[data-theme="dark"]` block immediately following the light-mode rules.
+
+**`styles.css` — Project reset modal classes:**
 
 | Class | Role |
 |-------|------|
@@ -1800,13 +2231,13 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.reset-stage-missing` | Red variant — stage is absent or has no PASS |
 | `.reset-modal-footer` | Sticky footer with live summary text and Apply Reset / Cancel buttons |
 
-> **Resolved (WP-003):** `.priority-high/medium/low` hardcoded hex values have been promoted to `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background was updated from `#e2e8f0` to `var(--color-border)`.
+`.priority-high/medium/low` values use `:root` CSS custom properties (`--color-priority-high: #e74c3c`, `--color-priority-medium: #f39c12`, `--color-priority-low: #95a5a6`). The `.comment-type` background uses `var(--color-border)`.
 
-> **Resolved (WP-005):** `.comment-type` hardcoded `color: #475569` replaced with `var(--color-text-muted)`, keeping the full colour palette centralized in `:root`.
+> `.comment-type` uses `var(--color-text-muted)` for its text colour, keeping the full colour palette centralized in `:root`.
 
 > **Known debt (low):** `.insights-filters` duplicates `.filter-bar` layout properties. The Reviewer approved retaining `.insights-filters` as a semantic distinction for now. A future cleanup WP should consolidate them into a single utility class.
 
-**`styles.css` — Inline title edit + Repository column classes** (added for WP-003):
+**`styles.css` — Inline title edit + Repository column classes:**
 
 | Class | Role |
 |-------|------|
@@ -1816,7 +2247,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.title-edit-error` | Inline error message div displayed below the input on API failure; cleared by `exitEdit()` when the user leaves edit mode |
 | `.repo-col` | Table data cell for the Repository column in the project list table |
 
-**`styles.css` — Project action menu classes** (added for WP-001):
+**`styles.css` — Project action menu classes:**
 
 | Class | Role |
 |-------|------|
@@ -1827,18 +2258,38 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `.action-menu-item` | Individual row inside `.action-menu`; `display:block`, full width, left-aligned; hover uses `var(--color-bg)` background; anchors and buttons share identical visual treatment |
 | `.action-menu-item.danger` | Modifier for destructive actions (Delete); foreground set to `var(--color-btn-danger-bg)` |
 
-**`app.js` structure:**
-- **`API`** — async fetch wrappers for all 14 REST endpoints (throws `{ code, message }` on non-2xx); includes `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`
+**`api-client.js`:**
+- **`API`** — async fetch wrappers for all 19 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`
+
+**`theme.js`:**
+- **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
+
+**`router.js`:**
 - **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/plan`, `#/projects/:slug/synthesis`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); the `/plan` and `/synthesis` matches are registered before the generic `/:slug` match to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
-- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`, `updateNavActive(path)`, `extractSynopsis(markdown)`
-- **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
+
+**`utils.js`:**
+- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`
+
+**`app.js`:**
+- Bootstrap entry point — calls `Theme.init()` then `Router.init()`
+
+**`views/project-list.js`:**
 - **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **Repository** (`repository_name` or `—`; rendered via `<td class="repo-col">`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug`, `data-name`, and `data-repo` attributes off `<tr>` elements (full slug + raw project name + repository name, all lowercased for case-insensitive match); `data-repo` is set to `escapeHtml(p.repository_name || '')` on the `<tr>` element; em-dash fallback uses `\u2014` Unicode escape; **Actions** column uses a single ⋮ kebab button per row (`.action-menu-wrapper` / `.action-menu-btn` / `.action-menu`) rather than per-row inline buttons; dropdown items: **View** (`<a role=menuitem>`), conditional **Archive** / **Unarchive** (`<button role=menuitem data-action=archive|unarchive>`), **Delete** (`<button class=danger role=menuitem data-action=delete>` — always rendered regardless of status; backend still enforces COMPLETE/ARCHIVED guard); open/close state tracked via `openMenuWrapper` + `closeOpenMenu()` closure-scope variables; a document `mousedown` sentinel (installed once per `renderProjectList` call via `docHandlerInstalled` flag) and a `scroll` listener on `.table-wrapper` close any open menu on outside interaction; opening a second menu closes the first; `aria-haspopup='menu'` and `aria-expanded` wired to trigger button
-- **`renderProjectDetail(app, slug)`** — fetches project and plan document concurrently via `Promise.all`; `getPlanDocument` failure is absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); **title display:** `displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug` — used for both the `<h1>` heading and breadcrumb; **inline title edit:** heading is wrapped in `.page-heading-wrapper` (inline-flex) with an adjacent `.edit-title-btn` pencil button (✎); click pencil → replaces `<h1>` with `<input class="title-edit-input">` pre-filled with current title, auto-focused; Enter or blur triggers `doSave()` which calls `API.renameProject(slug, newTitle)` and updates the heading and breadcrumb on success; Escape triggers `exitEdit()` without touching the API; errors displayed in a `.title-edit-error` div (created once via `getElementById` + `createElement` to prevent duplicates on rapid retries); `inputDone` flag prevents blur+Enter double-save race; error path resets `inputDone = false` to permit retry; `currentTitle` is kept in sync with the last saved value so re-entering edit mode shows the latest title; project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+
+**`views/project-detail.js`:**
+- **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
+- **`renderProjectDetail(app, slug)`** — fetches project, plan document, and WP overview concurrently via `Promise.all` (three parallel calls: `getProject`, `getPlanDocument`, `getWorkPackageOverview`); `getPlanDocument` and `getWorkPackageOverview` failures are each absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); **WP table:** when the overview fetch succeeds, the "Title" column (which previously showed the WP ID verbatim) is replaced by a "Pipeline Stages" column rendering a `.pipeline-track` badge row per WP via `buildPipelineTrack(overviewEntry)`; when the overview fetch fails, the column header falls back to "WP ID" and cells show the plain WP ID; **title display:** `displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug` — used for both the `<h1>` heading and breadcrumb; **inline title edit:** heading is wrapped in `.page-heading-wrapper` (inline-flex) with an adjacent `.edit-title-btn` pencil button (✎); click pencil → replaces `<h1>` with `<input class="title-edit-input">` pre-filled with current title, auto-focused; Enter or blur triggers `doSave()` which calls `API.renameProject(slug, newTitle)` and updates the heading and breadcrumb on success; Escape triggers `exitEdit()` without touching the API; errors displayed in a `.title-edit-error` div (created once via `getElementById` + `createElement` to prevent duplicates on rapid retries); `inputDone` flag prevents blur+Enter double-save race; error path resets `inputDone = false` to permit retry; `currentTitle` is kept in sync with the last saved value so re-entering edit mode shows the latest title; project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
 - **`showResetModal(slug, diagnosis)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail()` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard); **mark-complete mode:** a **Mark All as Complete** button (`btn-warning`, `id=reset-mark-complete-btn`) in the bulk-controls bar toggles a closure-scoped `markCompleteMode` boolean; when active, the button relabels itself to **Cancel Override** (gains `.active` class), the apply button label changes to **Mark as Complete**, and `buildSummary()` returns a ⚠ warning text describing the forced-COMPLETE operation; confirm path invokes `API.markProjectComplete(slug)` → `closeModal()` + success toast + `renderProjectDetail()` re-render; error path shows an error toast; clicking Cancel Override reverts `markCompleteMode` to `false` and restores all prior labels; normal Apply Reset flow is unaffected when `markCompleteMode` is `false`; apply button is disabled at the start of both confirm branches to prevent double-submit
 - **`renderPlan(app, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
-- **`renderWorkPackageDetail(app, slug, wpId)`** — AC list (met/unmet), pipeline history, handoff notes
+
+**`views/work-package.js`:**
+- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; also renders AC list (met/unmet), pipeline history, handoff notes
+
+**`views/config.js`:**
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
+
+**`views/insights.js`:**
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
 
 **XSS protection:** `escapeHtml()` wraps every piece of user-supplied data interpolated into HTML strings (20+ call sites).
@@ -1850,18 +2301,31 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 Exported from `src/utils/workflow-helpers.ts`. Consumed by all three workflow tool sub-modules and re-exported via `workflow.ts`.
 
 ```typescript
-export const STALE_PIPELINE_HOURS: number; // default 24
+// Clears synthesis-related fields on a root index: sets synthesis_generated = false
+// and synthesis_generated_at = null. Centralises the two-line pattern that was
+// previously duplicated at 5 inline call sites (project-lifecycle.ts, work-package.ts x3, project-reset.ts).
+export function clearSynthesisState(rootIndex: RootIndex): void;
+
+// Number of hours after which an IN_PROGRESS pipeline is considered stale.
+// Derived from constants.stale_pipeline_hours in the shared workflow manifest (default: 24).
+export const STALE_PIPELINE_HOURS: number;
+
+// Maximum number of rework cycles allowed before a work package is circuit-broken.
+// Derived from constants.max_rework_count in the shared workflow manifest (default: 5).
+export const MAX_REWORK_COUNT: number;
 
 // Returns the current max auto-handoff chain depth from the in-memory GUI config cache.
-// Falls back to 50 if the config module has not yet been initialized.
+// Falls back to the manifest default (constants.max_handoff_depth = 50) if the config
+// module has not yet been initialized.
 export function getMaxHandoffDepth(): number;
 
 // Returns the effective maximum auto-handoff depth, scaled by project size per §18.2.1.
-// effectiveMax = max(configMax, totalWorkPackages × 20), where configMax defaults to getMaxHandoffDepth() (50).
+// effectiveMax = max(configMax, totalWorkPackages × 30), where configMax defaults to getMaxHandoffDepth() (50)
+// and the multiplier 30 comes from constants.handoff_depth_multiplier in the shared workflow manifest.
 // This ensures larger projects don't hit the ceiling prematurely:
-//   effectiveMaxDepth(0)  → 50   (0 × 20 = 0 < 50, floor applies)
-//   effectiveMaxDepth(1)  → 50   (1 × 20 = 20 < 50, floor applies)
-//   effectiveMaxDepth(5)  → 100  (5 × 20 = 100 > 50)
+//   effectiveMaxDepth(0)  → 50   (0 × 30 = 0 < 50, floor applies)
+//   effectiveMaxDepth(1)  → 50   (1 × 30 = 30 < 50, floor applies)
+//   effectiveMaxDepth(5)  → 150  (5 × 30 = 150 > 50)
 // The optional configMax parameter allows test code to inject a fixed value without
 // mocking the config singleton.
 export function effectiveMaxDepth(totalWorkPackages: number, configMax?: number): number;
@@ -1870,7 +2334,7 @@ export function effectiveMaxDepth(totalWorkPackages: number, configMax?: number)
 // Auto-cancelled pipelines (auto_cancelled: true) are filtered out before selecting the most recent entry.
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean;
 
-// Returns true if a pipeline is IN_PROGRESS and was started more than 24 hours ago.
+// Returns true if a pipeline is IN_PROGRESS and was started more than STALE_PIPELINE_HOURS ago.
 export function isStalePipeline(pipeline: Pipeline): boolean;
 
 // Returns the most recent non-auto-cancelled pipeline for the given work package,
@@ -1884,13 +2348,12 @@ export function isActivePipeline(wp: WorkPackageDetail, pipelineType: PipelineTy
 
 // Returns true when the WP is classified as blocked by dependencies using the canonical §21.54
 // metadata-based check: wp.status === 'BLOCKED' && (blocked_by == null || blocked_by.type === 'dependency').
-// Functionally identical to hasDependencyBlocked; kept as a separate export for call-site clarity.
+// Canonical implementation — prefer this over hasDependencyBlocked at new call sites.
 export function isBlockedByDependencies(wp: WorkPackageDetail): boolean;
 
-// Returns true when the WP is classified as blocked by dependencies using the canonical §21.54
-// metadata-based check: wpDetail.status === 'BLOCKED' && (blocked_by == null || blocked_by.type === 'dependency').
-// Functionally identical to isBlockedByDependencies; kept as a separate export for call-site clarity.
-export function hasDependencyBlocked(wpDetail: WorkPackageDetail): boolean;
+// @deprecated Use isBlockedByDependencies(). Const alias retained for backward compatibility
+// with existing call sites. Delegates directly to isBlockedByDependencies — no duplicate logic.
+export const hasDependencyBlocked: typeof isBlockedByDependencies;
 
 // Returns true if any downstream pipeline type (relative to pipelineType) has its most recent
 // non-auto-cancelled pipeline with FAIL status. Delegates to getDownstreamTypes() so it
@@ -1932,11 +2395,15 @@ export function extractReworkAction(wps: WorkPackageDetail[]): ActionResult | nu
 // Accepts Pipeline[] (matching the convention of sibling helpers such as isMostRecentPipelineFail,
 // hasDownstreamFail, etc.). Call sites pass wpDetail.pipelines.
 // Auto-cancelled pipelines are excluded from the temporal baseline.
+// activeStages controls which upstream types are considered; defaults to DEFAULT_PIPELINE_STAGES
+// when omitted (backward-compatible 4-stage behaviour). Pass the WP's active_pipeline_stages
+// to correctly evaluate custom-stage WPs (e.g. those including security-audit or release-engineering).
 // Exported from src/utils/workflow-helpers.ts.
 export function checkRevalidationGuard(
   pipelines: Pipeline[],
   pipelineType: PipelineType,
   prerequisite: PipelineType,
+  activeStages?: readonly PipelineType[],  // default: DEFAULT_PIPELINE_STAGES
 ): string | null;
 
 // Returns the handoff notes in the WP addressed to agentName, or undefined if none.
@@ -1982,6 +2449,7 @@ export function getProjectManagerAction(rootIndex: RootIndex, store: LedgerStore
 function getSynthesisAction(): ActionResult;
 
 // Developer-specific next-action computation. Implements the 7-priority per-WP algorithm from §14.2.
+// Skips WPs where 'implementation' is not in wp.active_pipeline_stages.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT    — rework_counts.implementation ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL          — stale implementation pipeline (via extractStalePipelineAction).
@@ -1997,51 +2465,92 @@ function getSynthesisAction(): ActionResult;
 export function getDeveloperAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // QA-specific next-action computation. Implements the 7+1b per-WP algorithm from §14.3.
+// Skips WPs where 'qa' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('qa', activeStages).
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts.qa ≥ MAX_REWORK_COUNT.
-//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts.implementation ≥ MAX_REWORK_COUNT.
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts[qaPrerequisite] ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL                 — stale QA pipeline.
 //   P3 CONTINUE_PIPELINE                — active non-stale QA pipeline (isActivePipeline = true).
 //   P4 RUN_QA (re-engagement)           — at least one prior QA pipeline (excl. auto-cancelled)
-//                                         AND hasNewUpstreamPassSince('implementation','qa')=true.
+//                                         AND hasNewUpstreamPassSince(qaPrerequisite,'qa')=true.
 //   P5 WAIT_FOR_REWORK                  — most recent QA pipeline is FAIL and P4 guard is false.
-//   P6 RUN_QA (first-run)               — most recent implementation is PASS, no QA pipeline.
+//   P6 RUN_QA (first-run)               — most recent qaPrerequisite pipeline is PASS, no QA pipeline.
 //   P7 CLAIM_WP                         — READY WP assigned to QA with dependencies satisfied.
 //   Fallback WAIT.
 export function getQaAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
 // Reviewer-specific next-action computation. Mirror of QA for §14.4 (code-review pipeline).
+// Skips WPs where 'code-review' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('code-review', activeStages).
+// P1b checks all active upstream stages for rework limit breaches.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts['code-review'] ≥ MAX_REWORK_COUNT.
-//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts.implementation OR rework_counts.qa
-//                                         ≥ MAX_REWORK_COUNT (checks BOTH upstream types).
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any active upstream stage rework_counts ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL                 — stale code-review pipeline.
 //   P3 CONTINUE_PIPELINE                — active non-stale code-review pipeline.
 //   P4 RUN_REVIEW (re-engagement)       — at least one prior code-review pipeline (excl. auto-cancelled)
-//                                         AND hasNewUpstreamPassSince('qa','code-review')=true.
+//                                         AND hasNewUpstreamPassSince(reviewPrerequisite,'code-review')=true.
 //   P5 WAIT_FOR_REWORK                  — most recent code-review pipeline is FAIL and P4 guard is false.
-//   P6 RUN_REVIEW (first-run)           — most recent QA is PASS, no code-review pipeline.
+//   P6 RUN_REVIEW (first-run)           — most recent reviewPrerequisite pipeline is PASS, no code-review pipeline.
 //   P7 CLAIM_WP                         — READY WP assigned to Reviewer with dependencies satisfied.
 //   Fallback WAIT.
 export function getReviewerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
 
+// Security Auditor-specific next-action computation. Mirrors getQaAction for §14.3a (security-audit pipeline).
+// Skips WPs where 'security-audit' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('security-audit', activeStages).
+// NO self-rework on FAIL — Developer must address Security Auditor findings before retry.
+// Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
+//   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts['security-audit'] ≥ MAX_REWORK_COUNT.
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — rework_counts[secPrerequisite] ≥ MAX_REWORK_COUNT.
+//   P2 RESUME_OR_CANCEL                 — stale security-audit pipeline.
+//   P3 CONTINUE_PIPELINE                — active non-stale security-audit pipeline.
+//   P4 RUN_SECURITY_AUDIT (re-engagement) — hasNewUpstreamPassSince(secPrerequisite,'security-audit')=true.
+//   P5 WAIT_FOR_REWORK                  — most recent security-audit pipeline is FAIL and P4 guard is false.
+//   P6 RUN_SECURITY_AUDIT (first-run)   — most recent secPrerequisite is PASS, no security-audit pipeline.
+//   P7 CLAIM_WP                         — READY WP assigned to Security Auditor.
+//   Fallback WAIT.
+export function getSecurityAuditorAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
+
+// Release Engineer-specific next-action computation. Mirrors getDocumentationAction for §14.4a (release-engineering pipeline).
+// Skips WPs where 'release-engineering' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('release-engineering', activeStages).
+// SELF-REWORK on FAIL (mirrors Documentation, not QA).
+// Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
+//   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts['release-engineering'] ≥ MAX_REWORK_COUNT.
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any active upstream stage rework_counts ≥ MAX_REWORK_COUNT.
+//   P2 RESUME_OR_CANCEL                 — stale release-engineering pipeline.
+//   P3 CONTINUE_PIPELINE                — active non-stale release-engineering pipeline.
+//   P4 REWORK (self)                    — most recent release-engineering is FAIL AND
+//                                         !hasNewUpstreamPassSince(relPrerequisite,'release-engineering').
+//   P5 RUN_RELEASE_ENGINEERING          — most recent relPrerequisite is PASS, no release-engineering pipeline
+//                                         OR hasNewUpstreamPassSince(relPrerequisite,'release-engineering')=true.
+//   P7 CLAIM_WP                         — READY WP assigned to Release Engineer.
+//   Fallback WAIT.
+export function getReleaseEngineerAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
+
 // Documentation-specific next-action computation. Implements the 7+1b per-WP algorithm from §14.5.
+// Skips WPs where 'documentation' is not in wp.active_pipeline_stages.
+// Prerequisite is computed dynamically via resolvePrerequisite('documentation', activeStages).
+// P1b checks all active upstream stages (not just impl|qa|code-review) for rework limit breaches.
+// P5/P6 freshness check uses firstActiveStage instead of hardcoded 'implementation',
+// so documentation-only WPs (firstActiveStage='documentation') correctly produce a freshness=true.
 // Evaluates each eligible IN_PROGRESS or READY WP (skipping BLOCKED and dependency-blocked WPs):
 //   P1 BLOCK_FOR_REWORK_LIMIT           — rework_counts.documentation ≥ MAX_REWORK_COUNT.
-//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any of rework_counts.implementation|qa|'code-review'
-//                                         ≥ MAX_REWORK_COUNT (checks all three upstream types).
+//   P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT  — any active upstream stage rework_counts ≥ MAX_REWORK_COUNT.
 //   P2 RESUME_OR_CANCEL                 — stale documentation pipeline.
 //   P3 CONTINUE_PIPELINE                — active non-stale documentation pipeline.
 //   P4 REWORK (self)                    — most recent documentation is FAIL AND
-//                                         !hasNewUpstreamPassSince('code-review','documentation')
+//                                         !hasNewUpstreamPassSince(docPrerequisite,'documentation')
 //                                         (guard prevents REWORK from shadowing a fresh WRITE_DOCS cycle).
 //   P5 FINALIZE_WP                      — documentation PASS, all acceptance_criteria.met===true,
-//                                         AND freshness: doc completed_at ≥ latest impl started_at.
+//                                         AND freshness: doc completed_at ≥ latest firstActiveStage started_at.
 //                                         Replaces the former non-spec MARK_COMPLETE action.
 //   P5b UPDATE_CRITERIA                 — documentation PASS, freshness passes, but at least one
 //                                         criterion has met!==true. Prompt agent to update criteria.
-//   P6 WRITE_DOCS                       — most recent code-review is PASS and no documentation
-//                                         pipeline exists OR hasNewUpstreamPassSince('code-review','documentation')=true.
+//   P6 WRITE_DOCS                       — most recent docPrerequisite is PASS and no documentation
+//                                         pipeline exists OR hasNewUpstreamPassSince(docPrerequisite,'documentation')=true.
 //   P7 CLAIM_WP                         — READY WP assigned to Documentation with dependencies satisfied.
 //   Fallback WAIT.
 export function getDocumentationAction(rootIndex: RootIndex, store: LedgerStore, preloadedWpDetails?: WorkPackageDetail[]): Promise<ActionResult>;
@@ -2138,7 +2647,7 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 //      hasNewUpstreamPassSince('qa','code-review') = true; dep-blocked routing applies.
 //   4. All terminal → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the re-engagement and FAIL short-circuit checks in source
-//      order (lines 484-487 of workflow-handoff.ts). Added (WP-005) to match the same guard
+//      order (lines 484-487 of workflow-handoff.ts). Added to match the same guard
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to QA → IN_PROGRESS.
@@ -2153,7 +2662,7 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 //      hasNewUpstreamPassSince('code-review','documentation') = true; dep-blocked routing applies.
 //   4. All terminal → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the re-engagement and FAIL short-circuit checks in source
-//      order (lines 671-674 of workflow-handoff.ts). Added (WP-005) to match the same guard
+//      order (lines 671-674 of workflow-handoff.ts). Added to match the same guard
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to Reviewer → IN_PROGRESS.

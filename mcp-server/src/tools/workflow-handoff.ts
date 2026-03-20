@@ -4,9 +4,14 @@ import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
 import { resolveProjectPath } from '../utils/path-validator.js';
-import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
+import { AGENT_ROLES, READY_STATUS_FOR_ROLE, HANDOFF_STATUS_ROLE, type AgentRole } from '../utils/constants.js';
 import { isRegistryLoaded, getAgentHandle, getAgentId } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
+import {
+  resolvePrerequisite,
+  DEFAULT_PIPELINE_STAGES,
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
 import {
   buildHandoffPrompt,
   isBlockedByDependencies,
@@ -17,6 +22,44 @@ import {
 } from '../utils/workflow-helpers.js';
 import { getConfig } from '../gui/config.js';
 import { isTerminalStatus } from '../schema/validators.js';
+
+/** Shared return type for all per-role handoff handlers. */
+type HandoffResult = { content: Array<{ type: string; text: string }>; isError?: boolean };
+
+/** Handler signature: (wpDetails, projectPath, store) → handoff result. */
+type HandoffHandler = (
+  wpDetails: WorkPackageDetail[],
+  projectPath?: string,
+  store?: LedgerStore,
+) => Promise<HandoffResult>;
+
+/**
+ * Manifest-typed dispatch map from agent role → handoff handler.
+ *
+ * Keyed by `AgentRole` (derived from the shared workflow manifest) so that
+ * TypeScript flags any mismatch when a role is added, removed, or renamed.
+ * This replaces the two former switch statements in `getHandoffStatus()` and
+ * `computeHandoffStatus()` with a single source of truth.
+ */
+const HANDOFF_DISPATCH: Record<AgentRole, HandoffHandler> = {
+  'Planner':          getPlannerHandoff,
+  'Project Manager':  getProjectManagerHandoff,
+  'Developer':        getDeveloperHandoff,
+  'QA':               getQaHandoff,
+  'Security Auditor': getSecurityAuditorHandoff,
+  'Reviewer':         getReviewerHandoff,
+  'Release Engineer': getReleaseEngineerHandoff,
+  'Documentation':    getDocumentationHandoff,
+  'Synthesis':        (_, projectPath, store) =>
+    buildHandoffResponse(
+      'Synthesis',
+      'COMPLETE',
+      'Synthesis complete.',
+      'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
+      projectPath,
+      store,
+    ),
+};
 
 /**
  * Tool: get_handoff_status
@@ -30,7 +73,7 @@ const GetHandoffStatusSchema = z.object({
   current_agent: z
     .string()
     .describe(
-      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"'
+      'REQUIRED. Your agent role, exactly one of: "Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"'
     ),
 });
 
@@ -85,32 +128,12 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
       )
     );
 
-    // Agent-specific handoff logic
-    switch (args.current_agent) {
-      case 'Planner':
-        return getPlannerHandoff(wpDetails, projectPath, store);
-      case 'Project Manager':
-        return getProjectManagerHandoff(wpDetails, projectPath, store);
-      case 'Developer':
-        return getDeveloperHandoff(wpDetails, projectPath, store);
-      case 'QA':
-        return getQaHandoff(wpDetails, projectPath, store);
-      case 'Reviewer':
-        return getReviewerHandoff(wpDetails, projectPath, store);
-      case 'Documentation':
-        return getDocumentationHandoff(wpDetails, projectPath, store);
-      case 'Synthesis':
-        return buildHandoffResponse(
-          args.current_agent,
-          'COMPLETE',
-          'Synthesis complete.',
-          'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
-          projectPath,
-          store
-        );
-      default:
-        return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, projectPath, store);
+    // Agent-specific handoff logic (dispatch map is typed by AgentRole from the manifest)
+    const handler = HANDOFF_DISPATCH[args.current_agent as AgentRole];
+    if (handler) {
+      return handler(wpDetails, projectPath, store);
     }
+    return buildHandoffResponse(args.current_agent, 'IN_PROGRESS', 'Work in progress.', undefined, projectPath, store);
   } catch (error) {
     return {
       content: [
@@ -133,18 +156,9 @@ async function getHandoffStatus(args: z.infer<typeof GetHandoffStatusSchema>) {
  * For COMPLETE, no next agent is needed.
  */
 export function nextAgentFromStatus(status: string, currentAgent: string): string | null {
-  const map: Record<string, string> = {
-    READY_FOR_DEVELOPER: 'Developer',
-    READY_FOR_QA: 'QA',
-    READY_FOR_REVIEW: 'Reviewer',
-    READY_FOR_DOCUMENTATION: 'Documentation',
-    READY_FOR_SYNTHESIS: 'Synthesis',
-    READY_FOR_PM: 'Project Manager',
-    BLOCKED: 'Project Manager',
-  };
   if (status === 'IN_PROGRESS') return currentAgent;
   if (isTerminalStatus(status)) return null;
-  return map[status] ?? null;
+  return HANDOFF_STATUS_ROLE[status] ?? null;
 }
 
 /** Build a standard handoff response payload with current_agent, next_agent, and status.
@@ -207,7 +221,9 @@ export async function buildHandoffResponse(
             prompt: buildHandoffPrompt(projectPath, agentId ?? undefined),
           };
         } else {
-          // §18.5: Depth limit reached — emit a project comment so PM has a diagnostic breadcrumb.
+          // §18.5: Depth limit reached — surface reason in the response payload and emit a
+          // project comment so the PM has a diagnostic breadcrumb in the ledger.
+          payload.handoff_suppressed_reason = 'depth_limit_reached';
           const updated = { ...root, last_updated: now() };
           updated.project_comments = [
             ...root.project_comments,
@@ -216,7 +232,7 @@ export async function buildHandoffResponse(
               priority: 'high',
               timestamp: now(),
               agent: 'System',
-              note: 'Auto-handoff depth limit reached. Manual routing required.',
+              note: `Auto-handoff depth limit reached (depth ${currentDepth} / ceiling ${effectiveMaxDepth(root.total_work_packages ?? 0)}). Manual routing required.`,
             },
           ];
           await store.writeRootIndex(updated);
@@ -287,13 +303,7 @@ export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectP
  * Used by getProjectManagerHandoff to route READY work packages to the correct agent.
  */
 function readyStatusForAgent(assignedTo: string | null): string {
-  switch (assignedTo) {
-    case 'Developer': return 'READY_FOR_DEVELOPER';
-    case 'QA': return 'READY_FOR_QA';
-    case 'Reviewer': return 'READY_FOR_REVIEW';
-    case 'Documentation': return 'READY_FOR_DOCUMENTATION';
-    default: return 'READY_FOR_DEVELOPER';
-  }
+  return READY_STATUS_FOR_ROLE[assignedTo as AgentRole] ?? 'READY_FOR_DEVELOPER';
 }
 
 /**
@@ -683,6 +693,127 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 }
 
 /**
+ * Get handoff status for Security Auditor (§5.2b)
+ *
+ * Structurally identical to QA handoff, applied to security-audit pipelines.
+ * Only active for WPs that include "security-audit" in active stages.
+ */
+export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+  // Filter only WPs that include security-audit
+  const auditWps = wpDetails.filter((wp) =>
+    (wp.active_pipeline_stages as PipelineType[] | undefined ?? DEFAULT_PIPELINE_STAGES).includes('security-audit')
+  );
+
+  if (auditWps.length > 0 && auditWps.every((wp) => isTerminalStatus(wp.status))) {
+    return buildHandoffResponse(
+      'Security Auditor',
+      'READY_FOR_SYNTHESIS',
+      'All security audit work packages are in a terminal state.',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // Step 1: Re-engagement check
+  for (const wp of auditWps) {
+    if (
+      !isTerminalStatus(wp.status) &&
+      !isBlockedByDependencies(wp) &&
+      isMostRecentPipelineFail(wp.pipelines, 'security-audit') &&
+      hasNewUpstreamPassSince(wp.pipelines, 'qa', 'security-audit')
+    ) {
+      return buildHandoffResponse(
+        'Security Auditor',
+        'IN_PROGRESS',
+        `Security re-engagement required: ${wp.work_package_id} has a security-audit FAIL but QA has since re-passed. Auditor must re-evaluate.`,
+        `Call ledger_get_next_action with agent_role: "Security Auditor" to find the work package to re-audit.`,
+        projectPath,
+        store
+      );
+    }
+  }
+
+  // FAIL conditions: if any FAIL and no re-engagement, route to Developer
+  const failWps = auditWps.filter((wp) =>
+    !isTerminalStatus(wp.status) &&
+    !isBlockedByDependencies(wp) &&
+    isMostRecentPipelineFail(wp.pipelines, 'security-audit')
+  );
+  if (failWps.length > 0) {
+    return buildHandoffResponse(
+      'Security Auditor',
+      'READY_FOR_DEVELOPER',
+      `Security audit complete but ${failWps.length} work package(s) have FAIL security-audit pipelines. Developer must fix issues.`,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // PASS conditions: route to Reviewer (with dependency-blocked WAIT gate per spec)
+  const passedAudit = auditWps.filter((wp) =>
+    !isTerminalStatus(wp.status) &&
+    wp.pipelines.some((p) => p.type === 'security-audit' && p.status === 'PASS') &&
+    !wp.pipelines.some((p) => p.type === 'code-review')
+  );
+
+  if (passedAudit.length > 0) {
+    const readyForReview = passedAudit.filter((wp) => !isBlockedByDependencies(wp));
+
+    if (readyForReview.length === 0) {
+      return buildHandoffResponse(
+        'Security Auditor',
+        'WAIT',
+        `${passedAudit.length} work package(s) passed security audit but are blocked by dependencies.`,
+        undefined,
+        projectPath,
+        store
+      );
+    }
+
+    return buildHandoffResponse(
+      'Security Auditor',
+      'READY_FOR_REVIEW',
+      `${readyForReview.length} work package(s) passed security audit and are ready for review.`,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // In-progress audit work
+  const inProgress = auditWps.filter((wp) =>
+    !isTerminalStatus(wp.status) &&
+    !isBlockedByDependencies(wp) &&
+    (
+      !wp.pipelines.some((p) => p.type === 'security-audit') ||
+      wp.pipelines.some((p) => p.type === 'security-audit' && p.status === 'IN_PROGRESS')
+    )
+  );
+
+  if (inProgress.length > 0) {
+    return buildHandoffResponse(
+      'Security Auditor',
+      'IN_PROGRESS',
+      `Security audit in progress. ${inProgress.length} work package(s) still need audit.`,
+      `Call ledger_get_next_action with agent_role: "Security Auditor" to find the next work package to audit.`,
+      projectPath,
+      store
+    );
+  }
+
+  return buildHandoffResponse(
+    'Security Auditor',
+    'WAIT',
+    'Security audit complete or awaiting prerequisite stages.',
+    undefined,
+    projectPath,
+    store
+  );
+}
+
+/**
  * Get handoff status for Reviewer (§5.3)
  *
  * Structurally identical to QA handoff, applied to code-review pipelines.
@@ -702,13 +833,17 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
   }
 
   // Step 1 of §5.3: Re-engagement check — MUST precede FAIL short-circuit.
-  // If code-review FAIL exists AND QA has since re-passed, Reviewer must re-engage.
+  // If code-review FAIL exists AND the effective upstream has since re-PASSed, Reviewer must re-engage.
   for (const wp of wpDetails) {
+    const reviewActiveStages: readonly PipelineType[] =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    const reviewUpstream = resolvePrerequisite('code-review', reviewActiveStages);
     if (
       !isTerminalStatus(wp.status) &&
       !isBlockedByDependencies(wp) &&
       isMostRecentPipelineFail(wp.pipelines, 'code-review') &&
-      hasNewUpstreamPassSince(wp.pipelines, 'qa', 'code-review')
+      reviewUpstream !== null &&
+      hasNewUpstreamPassSince(wp.pipelines, reviewUpstream, 'code-review')
     ) {
       return buildHandoffResponse(
         'Reviewer',
@@ -862,6 +997,74 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
     'Reviewer',
     'READY_FOR_DOCUMENTATION',
     'Code review complete.',
+    undefined,
+    projectPath,
+    store
+  );
+}
+
+/**
+ * Get handoff status for Release Engineer (§5.2c)
+ *
+ * Self-rework on FAIL. Only active for WPs that include "release-engineering".
+ */
+export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
+  const releaseWps = wpDetails.filter((wp) =>
+    (wp.active_pipeline_stages as PipelineType[] | undefined ?? DEFAULT_PIPELINE_STAGES).includes('release-engineering')
+  );
+
+  if (releaseWps.length > 0 && releaseWps.every((wp) => isTerminalStatus(wp.status))) {
+    return buildHandoffResponse(
+      'Release Engineer',
+      'READY_FOR_SYNTHESIS',
+      'All release engineering work packages are in a terminal state.',
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // Release engineering ready (PASS code-review, no release pipeline yet or new upstream pass)
+  const readyWps = releaseWps.filter((wp) => {
+    if (isTerminalStatus(wp.status) || isBlockedByDependencies(wp)) return false;
+    const hasPassCR = wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS');
+    const noReleaseYet = !wp.pipelines.some((p) => p.type === 'release-engineering');
+    const newUpstream = hasNewUpstreamPassSince(wp.pipelines, 'code-review', 'release-engineering');
+    return hasPassCR && (noReleaseYet || newUpstream);
+  });
+
+  if (readyWps.length > 0) {
+    return buildHandoffResponse(
+      'Release Engineer',
+      'IN_PROGRESS',
+      `Release engineering in progress. ${readyWps.length} work package(s) ready for release.`,
+      `Call ledger_get_next_action with agent_role: "Release Engineer" to find the next work package to release.`,
+      projectPath,
+      store
+    );
+  }
+
+  // FAIL conditions: self-rework
+  const failWps = releaseWps.filter((wp) =>
+    !isTerminalStatus(wp.status) &&
+    !isBlockedByDependencies(wp) &&
+    isMostRecentPipelineFail(wp.pipelines, 'release-engineering')
+  );
+  if (failWps.length > 0) {
+    return buildHandoffResponse(
+      'Release Engineer',
+      'IN_PROGRESS',
+      `Release rework required. ${failWps.length} work package(s) have FAIL release-engineering pipelines.`,
+      `Call ledger_get_next_action with agent_role: "Release Engineer" to find the work package to rework.`,
+      projectPath,
+      store
+    );
+  }
+
+  return buildHandoffResponse(
+    'Release Engineer',
+    'WAIT',
+    'Release engineering complete or awaiting code review.',
     undefined,
     projectPath,
     store
@@ -1061,37 +1264,12 @@ export async function computeHandoffStatus(
         s
       );
     } else {
-      switch (agentRole) {
-        case 'Planner':
-          mcpResult = await getPlannerHandoff(wpDetails, projectPath, s);
-          break;
-        case 'Project Manager':
-          mcpResult = await getProjectManagerHandoff(wpDetails, projectPath, s);
-          break;
-        case 'Developer':
-          mcpResult = await getDeveloperHandoff(wpDetails, projectPath, s);
-          break;
-        case 'QA':
-          mcpResult = await getQaHandoff(wpDetails, projectPath, s);
-          break;
-        case 'Reviewer':
-          mcpResult = await getReviewerHandoff(wpDetails, projectPath, s);
-          break;
-        case 'Documentation':
-          mcpResult = await getDocumentationHandoff(wpDetails, projectPath, s);
-          break;
-        case 'Synthesis':
-          mcpResult = await buildHandoffResponse(
-            agentRole,
-            'COMPLETE',
-            'Synthesis complete.',
-            'Call ledger_get_next_action first to check if synthesis work is pending before generating your report.',
-            projectPath,
-            s
-          );
-          break;
-        default:
-          mcpResult = await buildHandoffResponse(agentRole, 'IN_PROGRESS', 'Work in progress.', undefined, projectPath, s);
+      // Dispatch via manifest-typed map (same map used by getHandoffStatus)
+      const handler = HANDOFF_DISPATCH[agentRole as AgentRole];
+      if (handler) {
+        mcpResult = await handler(wpDetails, projectPath, s);
+      } else {
+        mcpResult = await buildHandoffResponse(agentRole, 'IN_PROGRESS', 'Work in progress.', undefined, projectPath, s);
       }
     }
 

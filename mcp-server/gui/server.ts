@@ -13,7 +13,7 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { join, extname, dirname } from 'node:path';
+import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot } from '../src/utils/ledger-root.js';
@@ -32,6 +32,7 @@ import {
   handleUpdateConfig,
   handleResetProject,
   handleGetProjectHealth,
+  handleGetWorkPackageOverview,
   handleRenameProject,
   handleArchiveProject,
   handleUnarchiveProject,
@@ -242,6 +243,21 @@ function matchRoute(
     return () => handleListWorkPackages(ledgerRoot, slug);
   }
 
+  // GET /api/projects/:slug/work-packages/overview
+  // IMPORTANT: this route has rest.length === 4 and must appear BEFORE the
+  // generic /:wpId handler at the same length, otherwise 'overview' would be
+  // treated as a WP ID.
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'work-packages' &&
+    rest[3] === 'overview'
+  ) {
+    const slug = rest[1]!;
+    return () => handleGetWorkPackageOverview(ledgerRoot, slug);
+  }
+
   // GET /api/projects/:slug/work-packages/:wpId
   if (
     method === 'GET' &&
@@ -317,7 +333,7 @@ async function serveStatic(
     urlPath === '/' ? join(PUBLIC_DIR, 'index.html') : join(PUBLIC_DIR, urlPath.slice(1));
 
   // Security: prevent path traversal outside PUBLIC_DIR
-  const resolved = filePath;
+  const resolved = resolve(filePath);
   if (!resolved.startsWith(PUBLIC_DIR)) {
     sendError(res, 404, 'NOT_FOUND', 'Not found.', port);
     return;

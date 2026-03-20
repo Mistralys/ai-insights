@@ -1614,3 +1614,313 @@ describe('getNextAction — cwd_path auto-detection (WP-005)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Security Auditor — respects active_pipeline_stages (dynamic pipeline engine)
+// ---------------------------------------------------------------------------
+
+describe('getSecurityAuditorAction — active_pipeline_stages filtering', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns WAIT when no WP has security-audit in active stages (default 4-stage)', async () => {
+    // WP uses DEFAULT_PIPELINE_STAGES (no active_pipeline_stages field) → no security-audit
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      pipelines: [makePipeline({ type: 'implementation', status: 'PASS' })],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+    expect(result.action).toBe('WAIT');
+  });
+
+  it('returns WAIT when WP explicitly omits security-audit from active stages', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['implementation', 'qa', 'code-review', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+    expect(result.action).toBe('WAIT');
+  });
+
+  it('returns RUN_SECURITY_AUDIT when qa PASS and security-audit is in all-6 active stages', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Security Auditor',
+      active_pipeline_stages: ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+    expect(result.action).toBe('RUN_SECURITY_AUDIT');
+    expect(result.work_package_id).toBe('WP-001');
+  });
+
+  it('returns WAIT when qa not yet PASS for a WP with security-audit in active stages', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['implementation', 'qa', 'security-audit', 'code-review', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'IN_PROGRESS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+    // No qualifying WP (qa not yet PASS) → should return WAIT
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Release Engineer — respects active_pipeline_stages (dynamic pipeline engine)
+// ---------------------------------------------------------------------------
+
+describe('getReleaseEngineerAction — active_pipeline_stages filtering', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns WAIT when no WP has release-engineering in active stages (default 4-stage)', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'PASS' }),
+        makePipeline({ type: 'code-review', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getReleaseEngineerAction(rootIndex, handle.store));
+    expect(result.action).toBe('WAIT');
+  });
+
+  it('returns WAIT when WP explicitly omits release-engineering from active stages', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      active_pipeline_stages: ['implementation', 'qa', 'code-review', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'PASS' }),
+        makePipeline({ type: 'code-review', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getReleaseEngineerAction(rootIndex, handle.store));
+    expect(result.action).toBe('WAIT');
+  });
+
+  it('returns RUN_RELEASE_ENGINEERING when code-review PASS and release-engineering is in all-6 active stages', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Release Engineer',
+      active_pipeline_stages: ['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'PASS' }),
+        makePipeline({ type: 'security-audit', status: 'PASS' }),
+        makePipeline({ type: 'code-review', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getReleaseEngineerAction(rootIndex, handle.store));
+    expect(result.action).toBe('RUN_RELEASE_ENGINEERING');
+    expect(result.work_package_id).toBe('WP-001');
+  });
+
+  it('returns WAIT when code-review not yet PASS for a WP with release-engineering in active stages', async () => {
+    const wp = makeWorkPackageDetail({
+      work_package_id: 'WP-001',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      active_pipeline_stages: ['implementation', 'qa', 'code-review', 'release-engineering', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'implementation', status: 'PASS' }),
+        makePipeline({ type: 'qa', status: 'PASS' }),
+        makePipeline({ type: 'code-review', status: 'IN_PROGRESS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getReleaseEngineerAction(rootIndex, handle.store));
+    // No qualifying WP (code-review not yet PASS) → WAIT
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// First-active-stage loop prevention — regression tests (§21.66)
+//
+// When a pipeline type is the FIRST active stage (e.g., qa in ["qa","code-review"]),
+// resolvePrerequisite() returns null. At P4/P5 re-engagement, null must resolve to
+// false ("no upstream to re-engage from"), not true ("always re-engage"). Returning
+// true would create an infinite loop: after the PASS, P4 re-fires unconditionally.
+// ---------------------------------------------------------------------------
+
+describe('first-active-stage loop prevention — Reviewer P4 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_REVIEW after code-review PASS when code-review is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: code-review is first in active_pipeline_stages,
+    // so resolvePrerequisite("code-review", stages) === null. With the old bug (null → true),
+    // P4 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      active_pipeline_stages: ['code-review', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'code-review', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(getReviewerAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_REVIEW');
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+describe('first-active-stage loop prevention — QA P4 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_QA after qa PASS when qa is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: qa is first in active_pipeline_stages,
+    // so resolvePrerequisite("qa", stages) === null. With the old bug (null → true),
+    // P4 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['qa', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'qa', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_QA');
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+describe('first-active-stage loop prevention — Security Auditor P4 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_SECURITY_AUDIT after security-audit PASS when security-audit is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: security-audit is first in active_pipeline_stages,
+    // so resolvePrerequisite("security-audit", stages) === null. With the old bug (null → true),
+    // P4 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Security Auditor',
+      active_pipeline_stages: ['security-audit', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'security-audit', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_SECURITY_AUDIT');
+    expect(result.action).toBe('WAIT');
+  });
+});
+
+describe('first-active-stage loop prevention — Release Engineer P5 (§21.66 regression)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('does NOT return RUN_RELEASE_ENGINEERING after release-engineering PASS when release-engineering is the first active stage', async () => {
+    // Reproduces the infinite-loop scenario: release-engineering is first in active_pipeline_stages,
+    // so resolvePrerequisite("release-engineering", stages) === null. With the old bug (null → true),
+    // P5 re-engagement would fire unconditionally after the PASS, looping forever.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Release Engineer',
+      active_pipeline_stages: ['release-engineering', 'documentation'],
+      pipelines: [
+        makePipeline({ type: 'release-engineering', status: 'PASS' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+
+    const result = await parseResult(_internal.getReleaseEngineerAction(rootIndex, handle.store));
+
+    expect(result.action).not.toBe('RUN_RELEASE_ENGINEERING');
+    expect(result.action).toBe('WAIT');
+  });
+});

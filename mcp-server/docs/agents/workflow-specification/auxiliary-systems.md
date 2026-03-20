@@ -98,26 +98,29 @@ MAX_HANDOFF_DEPTH = 50    // Static floor; configurable at runtime via gui-confi
 The static constant serves as a floor. Once work packages exist, the effective maximum scales with project size:
 
 ```
-effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 20)
+effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)
 ```
 
 | Project Size | Effective Max | Rationale |
 |-------------|--------------|----------|
 | 0 WPs (pre-planning) | 50 | Static floor applies |
-| 3 WPs | 60 | 3 × 20 = 60 |
-| 6 WPs | 120 | 6 × 20 = 120 |
-| 8 WPs | 160 | 8 × 20 = 160 |
+| 1 WP | 50 | 1 × 30 = 30 < 50, floor applies |
+| 3 WPs | 90 | 3 × 30 = 90 |
+| 5 WPs | 150 | 5 × 30 = 150 |
+| 8 WPs | 240 | 8 × 30 = 240 |
 
-The `× 20` multiplier accounts for:
-- **4 happy-path handoffs** per WP (Dev → QA → Reviewer → Doc)
-- **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → Review chain)
-- **~7–11 headroom** per WP for atypical rework or blocker resolution
+The `× 30` multiplier accounts for:
+- **4–6 happy-path handoffs** per WP (Dev → QA → Security Auditor → Reviewer → Release Engineer → Doc; varies by active stages — 4 for the default pipeline, up to 6 when all stages are active)
+- **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA/security-audit → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → [Security Audit] → Review chain)
+- **~10–15 headroom** per WP for atypical rework, blocker resolution, self-rework cycles (Release Engineering, Documentation), and wasted handoff cycles from handoff/recommendation priority mismatches
 
-> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 20` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 3` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
+> **Multiplier increased from 20 to 30 (v2.4.1):** Operational experience showed that the original `× 20` multiplier was insufficient for projects with complex rework patterns, multi-stage WPs, and the overhead of wasted handoff cycles (§18.4). The increased multiplier provides adequate headroom without compromising the loop-guard safety net.
+
+> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 30` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 4` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Security Auditor → Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
 
 > **Design intent:** The auto-handoff depth counter is a **safeguard against infinite loops**, not a throttle. The effective maximum should be high enough that a legitimate project completes without ever hitting it. If the counter is reached, it indicates a pathological loop — not normal workflow activity.
 
-> **⚠ Shrinking effective maximum on WP cancellation:** The depth counter only resets on `completeSynthesis` (§18.4). If WPs are cancelled mid-project, `total_work_packages` decreases and `effectiveMax` shrinks accordingly (computed at handoff time via §18.3). However, the counter retains its accumulated value. This can retroactively exhaust the handoff budget — for example, a project that consumed 90 handoffs across 5 WPs has `effectiveMax = 100`; if 3 WPs are then cancelled, `effectiveMax = max(50, 2 × 20) = 50`, and the counter (90) already exceeds the new limit. No further auto-handoffs are possible. This is consistent with the design intent (loop guard, not throttle) but may surprise implementations. If this becomes a practical issue, implementations MAY add a PM action to manually reset the counter, or reset the counter as a side effect of WP cancellation.
+> **⚠ Shrinking effective maximum on WP cancellation:** The depth counter only resets on `completeSynthesis` (§18.4). If WPs are cancelled mid-project, `total_work_packages` decreases and `effectiveMax` shrinks accordingly (computed at handoff time via §18.3). However, the counter retains its accumulated value. This can retroactively exhaust the handoff budget — for example, a project that consumed 120 handoffs across 5 WPs has `effectiveMax = 150`; if 3 WPs are then cancelled, `effectiveMax = max(50, 2 × 30) = 60`, and the counter (120) already exceeds the new limit. No further auto-handoffs are possible. This is consistent with the design intent (loop guard, not throttle) but may surprise implementations. If this becomes a practical issue, implementations MAY add a PM action to manually reset the counter, or reset the counter as a side effect of WP cancellation.
 
 ### 18.3 Increment Path
 
@@ -132,7 +135,7 @@ function buildHandoffResponse(currentAgent, status, ..., store):
   
   root = store.readRootIndex()
   currentDepth = root.auto_handoff_depth ?? 0
-  effectiveMax = max(MAX_HANDOFF_DEPTH, root.total_work_packages * 20)
+  effectiveMax = max(MAX_HANDOFF_DEPTH, root.total_work_packages * 30)
   
   if currentDepth < effectiveMax:
     root.auto_handoff_depth = currentDepth + 1
@@ -193,7 +196,7 @@ Individual WP completions do **not** reset the counter. This prevents the counte
 2. Agent registry is loaded (agent files discovered)
 3. Next agent has a known handle in the registry
 4. Status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
-5. `auto_handoff_depth` < `effectiveMax` (where `effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 20)` — see [§18.2.1](#1821-dynamic-effective-maximum))
+5. `auto_handoff_depth` < `effectiveMax` (where `effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)` — see [§18.2.1](#1821-dynamic-effective-maximum))
 
 ---
 
@@ -226,6 +229,7 @@ function completeSynthesis(projectPath, agentRole):
     ERROR("Cannot complete synthesis: no work packages exist")
   
   root.synthesis_generated = true
+  root.synthesis_generated_at = now()   // §21.57: enables staleness detection
   root.status = "COMPLETE"
   root.last_updated = now()
   
@@ -239,7 +243,7 @@ function completeSynthesis(projectPath, agentRole):
 
 ### 19.2 Idempotency
 
-Calling `completeSynthesis` multiple times after all WPs are terminal is safe. The flag is simply set to `true` again. However, calling it while WPs are still pending is rejected (not silently ignored).
+Calling `completeSynthesis` multiple times after all WPs are terminal is safe. The flag is simply set to `true` again (and `synthesis_generated_at` is updated to the current time). However, calling it while WPs are still pending is rejected (not silently ignored).
 
 > **Crash recovery and statelessness:** Unlike pipeline-owning agents, the Synthesis agent has no pipeline-based state tracking — its only persistent artifact is the binary `synthesis_generated` flag. If the Synthesis agent crashes or is interrupted during report generation, there is no "synthesis in progress" state to resume from. The `synthesis_generated` flag remains `false`, and `getNextAction` for the Synthesis role will return `GENERATE_SYNTHESIS` again. Implementations MUST treat Synthesis as a **stateless, idempotent operation**: each invocation regenerates the complete synthesis report from scratch using the current state of all work packages. The Synthesis agent should not attempt to resume or append to a partial report from a prior session.
 
@@ -248,7 +252,7 @@ Calling `completeSynthesis` multiple times after all WPs are terminal is safe. T
 A project is `COMPLETE` when:
 - All WPs have terminal status (COMPLETE or CANCELLED) ⟹ `pending_work_packages == 0`
 - At least one WP exists ⟹ `total_work_packages > 0`
-- `synthesis_generated == true`
+- `synthesis_generated == true` (and `synthesis_generated_at` records when)
 
 ---
 
@@ -291,6 +295,6 @@ Dual-file updates (WP detail + root index) are protected by file locks:
 >
 > Self-healing (§17) repairs **project-level** status drift. For **WP-level** blocking inconsistency after a suspected cascade failure, re-invoking the cascade is the prescribed repair. Implementations SHOULD detect this condition (WP is BLOCKED but all dependencies are terminal and blocker type is `dependency`) during `getNextAction` and either auto-repair or surface it as a PM action.
 
-> **⚠ Stale PASS on direct dependents:** The lock gap can also produce **stale PASS pipelines** on direct dependents, not just stale blocking state. If a dependent WP's pipeline completes with PASS during the gap between the main update (reopening the dependency) and the cascade lock acquisition, the PASS result validated pre-reopen output. Since PASS is terminal (§7.2), cascade reblock cannot retroactively cancel it. The dependent WP now carries a PASS pipeline that validated stale assumptions. This is analogous to the transitive-dependent issue documented in §21.42, but affects **direct** dependents during the lock gap. Implementations that require defense-in-depth against this race MAY add a dependency-status re-check to `completePipeline` (verifying that all of the WP's dependencies are still terminal before accepting a PASS result), though this adds overhead to every pipeline completion.
+> **⚠ Stale PASS on direct dependents:** The lock gap can also produce **stale PASS pipelines** on direct dependents, not just stale blocking state. If a dependent WP's pipeline completes with PASS during the gap between the main update (reopening the dependency) and the cascade lock acquisition, the PASS result validated pre-reopen output. Since PASS is terminal (§7.2), cascade reblock cannot retroactively cancel it. The dependent WP now carries a PASS pipeline that validated stale assumptions. This is analogous to the transitive-dependent issue documented in §21.42, but affects **direct** dependents during the lock gap. Implementations SHOULD add a dependency-status re-check to `completePipeline` (verifying that all of the WP's dependencies are still terminal before accepting a PASS result) to guard against this race. This adds minor overhead to every pipeline completion but prevents stale PASS results from propagating through the dependency graph undetected. See [§21.59](edge-cases.md#2159-cross-wp-staleness-after-dependency-reopens) for the full dependency freshness check recommendation.
 
 > **Side-effect idempotency on concurrent unblock:** When two dependencies of the same WP complete near-simultaneously, `propagateDependencyUnblock` may be invoked twice. The state mutation is idempotent (both calls write `READY`), but **side effects** such as notifications, project comments, or webhook emissions may double-fire. Implementations SHOULD ensure that unblock side effects are either idempotent or deduplicated (e.g., via an idempotency key derived from the WP ID and target status).

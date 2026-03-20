@@ -105,6 +105,8 @@ export const ReworkCountsSchema = z.object({
   qa: z.number().int().nonnegative().optional(),
   'code-review': z.number().int().nonnegative().optional(),
   documentation: z.number().int().nonnegative().optional(),
+  'security-audit': z.number().int().nonnegative().optional(),
+  'release-engineering': z.number().int().nonnegative().optional(),
 });
 export type ReworkCounts = z.infer<typeof ReworkCountsSchema>;
 
@@ -119,11 +121,13 @@ export const WorkPackageDetailSchema = z.object({
   dependencies: z.array(z.string()),
   blocked_by: BlockerSchema.optional(),
   acceptance_criteria: z.array(AcceptanceCriterionSchema),
+  active_pipeline_stages: z.array(z.string()).optional(),
   revision: z.number().int().nonnegative(),
   pipelines: z.array(PipelineSchema),
   rework_count: z.number().int().nonnegative().optional(),
   rework_counts: ReworkCountsSchema.optional(),
   status_changed_at: z.string().optional(),
+  last_updated: z.string().optional(),
   reset_at: z.string().optional(),
   handoff_notes: z.array(HandoffNoteSchema).optional(),
 });

@@ -1,21 +1,17 @@
 """
 config.py — Configuration module for the AI Insights Orchestrator.
 
-Loads environment variables, defines pipeline routing constants (mirroring
-the TypeScript source-of-truth in ``mcp-server/src/utils/pipeline-maps.ts``),
-and exposes a validated ``Config`` dataclass with auto-detected LLM provider.
-
-Canonical TypeScript source: mcp-server/src/utils/pipeline-maps.ts
-These constants are NOT auto-synced — update both files when changing routing maps.
-"""
+Loads environment variables, derives pipeline routing constants from
+``shared/workflow-manifest.json`` (the single source of truth for all
+role and pipeline definitions across the workspace), and exposes a
+validated ``Config`` dataclass with auto-detected LLM provider."""
 
 from __future__ import annotations
 
+import json
 import os
-import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -31,49 +27,92 @@ load_dotenv(_ORCHESTRATOR_ROOT / ".env", override=False)
 
 
 # ---------------------------------------------------------------------------
-# Pipeline routing constants
-# Mirrors: mcp-server/src/utils/pipeline-maps.ts
+# Manifest loading
+# ---------------------------------------------------------------------------
+
+def _load_workflow_manifest() -> dict:
+    """
+    Load ``shared/workflow-manifest.json`` from the workspace root.
+
+    Raises
+    ------
+    ImportError
+        If the manifest file is missing or not valid JSON.
+    """
+    manifest_path = _ORCHESTRATOR_ROOT.parent / "shared" / "workflow-manifest.json"
+    if not manifest_path.exists():
+        raise ImportError(
+            f"Shared workflow manifest not found: {manifest_path}\n"
+            "The file 'shared/workflow-manifest.json' is required at the workspace "
+            "root. Ensure the repository is fully checked out."
+        )
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ImportError(
+            f"Failed to parse workflow manifest at {manifest_path}: {exc}"
+        ) from exc
+
+
+_MANIFEST: dict = _load_workflow_manifest()
+_roles: list = _MANIFEST["roles"]
+_pipelines: dict = _MANIFEST["pipelines"]
+
+
+# ---------------------------------------------------------------------------
+# Pipeline routing constants (derived from manifest)
 # ---------------------------------------------------------------------------
 
 #: Enforced pipeline execution order.
 #: A pipeline type may only start when its prerequisite has a PASS pipeline.
 #: ``None`` means no prerequisite (can always start).
-PIPELINE_PREREQUISITES: dict[str, Optional[str]] = {
-    "implementation": None,
-    "qa": "implementation",
-    "code-review": "qa",
-    "documentation": "code-review",
+PIPELINE_PREREQUISITES: dict[str, str | None] = dict(_pipelines["prerequisites"])
+
+#: Map of pipeline type → owning agent role name.
+PIPELINE_AGENT_MAP: dict[str, str] = {
+    r["pipeline"]: r["name"]
+    for r in _roles
+    if r.get("pipeline")
 }
 
-#: Map of pipeline type → owning agent role.
-#: Mirrors ``PIPELINE_AGENT_MAP`` in pipeline-maps.ts.
-PIPELINE_AGENT_MAP: dict[str, str] = {
-    "implementation": "Developer",
-    "qa": "QA",
-    "code-review": "Reviewer",
-    "documentation": "Documentation",
+
+def _resolve_fail_routing_role(role_id: str) -> str:
+    """Return the role name for a role ID found in ``fail_routing``."""
+    try:
+        return next(r["name"] for r in _roles if r["id"] == role_id)
+    except StopIteration:
+        raise ImportError(
+            f"Workflow manifest integrity error: fail_routing references unknown "
+            f"role ID {role_id!r}. Check shared/workflow-manifest.json."
+        ) from None
+
+
+#: Pipeline type → agent name responsible for FAIL rework.
+#: Derived from ``pipelines.fail_routing`` in ``shared/workflow-manifest.json``.
+FAIL_ROUTING_AGENT_MAP: dict[str, str] = {
+    ptype: _resolve_fail_routing_role(role_id)
+    for ptype, role_id in _pipelines["fail_routing"].items()
 }
+
+# Roles in manifest order excluding the planner (first, orchestrating).
+# IMPORTANT: Synthesis is intentionally kept despite being orchestrating,
+# because NEXT_STAGE_MAP needs the terminal "docs → synthesis" link.
+# Filtering by `r.get("orchestrating")` would drop Synthesis and break
+# the handoff chain — do NOT "fix" this to use the orchestrating flag.
+_chain_roles: list = [r for r in _roles if r["id"] != "planner"]
 
 #: Map of graph stage name → next stage name.
 #: Provides sequential stage ordering for the supervisor routing logic.
-#: Mirrors ``NEXT_AGENT_MAP`` semantics from pipeline-maps.ts, adapted for
-#: the Python graph node names (lowercase, ``docs`` instead of ``Documentation``).
 NEXT_STAGE_MAP: dict[str, str] = {
-    "pm": "developer",
-    "developer": "qa",
-    "qa": "reviewer",
-    "reviewer": "docs",
-    "docs": "synthesis",
+    _chain_roles[i]["id"]: _chain_roles[i + 1]["id"]
+    for i in range(len(_chain_roles) - 1)
 }
 
 #: Map of graph stage name → pipeline type it owns.
-#: Inverse of the stage portion of PIPELINE_AGENT_MAP.
-#: Mirrors ``AGENT_PIPELINE_MAP`` from pipeline-maps.ts for the Python graph.
 STAGE_TO_PIPELINE: dict[str, str] = {
-    "developer": "implementation",
-    "qa": "qa",
-    "reviewer": "code-review",
-    "docs": "documentation",
+    r["id"]: r["pipeline"]
+    for r in _roles
+    if r.get("pipeline")
 }
 
 #: Inverse of STAGE_TO_PIPELINE: pipeline type → graph stage name.
@@ -81,20 +120,31 @@ PIPELINE_TO_STAGE: dict[str, str] = {v: k for k, v in STAGE_TO_PIPELINE.items()}
 
 #: Map of graph stage name → relative path to persona Markdown file.
 #: Paths are relative to the workspace root (two levels above orchestrator/).
-PERSONA_FILES: dict[str, str] = {
-    "pm": "personas/ledger/vs-code/2-project-manager.md",
-    "developer": "personas/ledger/vs-code/3-developer.md",
-    "qa": "personas/ledger/vs-code/4-qa.md",
-    "reviewer": "personas/ledger/vs-code/5-reviewer.md",
-    "docs": "personas/ledger/vs-code/6-documentation.md",
-    "synthesis": "personas/ledger/vs-code/7-synthesis.md",
-}
+PERSONA_FILES: dict[str, str] = {r["id"]: r["persona_file"] for r in _roles}
 
-#: All valid graph stage names (excludes START/END pseudo-nodes).
-VALID_STAGES: frozenset[str] = frozenset(PERSONA_FILES)
+#: All valid graph stage names — the set of all non-orchestrating role IDs.
+VALID_STAGES: frozenset[str] = frozenset(
+    r["id"] for r in _roles if not r.get("orchestrating")
+)
 
-#: Valid pipeline type names (matches TypeScript ``PIPELINE_TYPES`` tuple).
-PIPELINE_TYPES: tuple[str, ...] = ("implementation", "qa", "code-review", "documentation")
+#: Valid pipeline type names in canonical execution order.
+PIPELINE_TYPES: tuple[str, ...] = tuple(_pipelines["canonical_order"])
+
+#: Map of role name → role ID for every role in the manifest.
+#: Used by supervisor.py to derive stage destinations without hardcoding strings.
+ROLE_IDS: dict[str, str] = {r["name"]: r["id"] for r in _roles}
+
+#: Non-orchestrating role names in manifest order.
+#: The supervisor iterates this list to find the first role with actionable work.
+PIPELINE_ROLE_NAMES: list[str] = [
+    r["name"] for r in _roles if not r.get("orchestrating")
+]
+
+#: Terminal work-package statuses — no further agent action is required.
+#: Derived from the manifest's terminal_work_package status vocabulary.
+WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
+    _MANIFEST["statuses"]["terminal_work_package"]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +188,7 @@ def _resolve_provider(model_name: str) -> str:
     has_google = bool(os.environ.get("GOOGLE_API_KEY"))
 
     if not has_anthropic and not has_google:
-        raise EnvironmentError(
+        raise OSError(
             "No LLM provider API key found. "
             "Set ANTHROPIC_API_KEY (Anthropic) or GOOGLE_API_KEY (Google AI Studio) "
             "in your .env file or environment. "
@@ -250,7 +300,7 @@ class Config:
 
 def load_config(
     *,
-    workspace_root: Optional[Path] = None,
+    workspace_root: Path | None = None,
 ) -> Config:
     """
     Read environment variables and construct a validated :class:`Config`.
@@ -275,7 +325,7 @@ def load_config(
     # --- model_name ---
     model_name = os.environ.get("MODEL_NAME", "").strip()
     if not model_name:
-        raise EnvironmentError(
+        raise OSError(
             "MODEL_NAME is not set. "
             "Add MODEL_NAME=<model-id> to your .env file. "
             "Examples: claude-sonnet-4-6-20250929, gemini-2.5-pro."
@@ -291,7 +341,7 @@ def load_config(
         if max_iterations < 1:
             raise ValueError("must be a positive integer")
     except ValueError as exc:
-        raise EnvironmentError(
+        raise OSError(
             f"MAX_ITERATIONS must be a positive integer; got {raw_max_iter!r}."
         ) from exc
 
@@ -311,7 +361,7 @@ def load_config(
     log_level = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
     valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
     if log_level not in valid_levels:
-        raise EnvironmentError(
+        raise OSError(
             f"LOG_LEVEL must be one of {sorted(valid_levels)}; got {log_level!r}."
         )
 
@@ -345,4 +395,4 @@ def get_default_config() -> Config:
     return _default_config
 
 
-_default_config: Optional[Config] = None
+_default_config: Config | None = None

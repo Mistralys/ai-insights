@@ -1,0 +1,13 @@
+slug: wp-decomposer
+name: "WP Decomposer"
+description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
+vs_file_name: wp-decomposer.agent.md
+id: standalone-wp-decomposer
+cc_file_name: wp-decomposer.md
+version: "1.0.0"
+last_updated: "2026-03-14"
+
+tools:
+  - read
+  - edit
+  - search

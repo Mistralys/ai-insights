@@ -23,11 +23,11 @@ import {
   hasDependencyBlocked,
   getHandoffNotesForAgent,
   isStalePipeline,
-  pipelineAgentRoleMap,
   agentNameMap,
   actionNameMap,
   reworkActionMap,
 } from '../utils/workflow-helpers.js';
+import { PIPELINE_AGENT_MAP } from '../utils/pipeline-maps.js';
 import { computeHandoffStatus } from './workflow-handoff.js';
 
 /**
@@ -83,7 +83,7 @@ export function buildBatchNextSteps(
   wpStatus?: string,
   failedPipelineType?: string,
 ): string[] {
-  const agentRole = pipelineAgentRoleMap[pipelineType] ?? pipelineType;
+  const agentRole = PIPELINE_AGENT_MAP[pipelineType as keyof typeof PIPELINE_AGENT_MAP] ?? pipelineType;
 
   switch (action) {
     case 'IMPLEMENT': {

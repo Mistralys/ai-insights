@@ -5,9 +5,11 @@ import { now } from '../utils/timestamp.js';
 import type { Pipeline } from '../schema/work-package.js';
 import { resolveProjectPath } from '../utils/path-validator.js';
 import {
-  PIPELINE_PREREQUISITES,
   PIPELINE_AGENT_MAP,
   PipelineTypeEnum,
+  describePipelineTypes,
+  DEFAULT_PIPELINE_STAGES,
+  resolvePrerequisite,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
@@ -27,9 +29,7 @@ const BeginWorkSchema = z.object({
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
-  type: PipelineTypeEnum.describe(
-    'Pipeline type to start: "implementation", "qa", "code-review", or "documentation"'
-  ),
+  type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type to start:')),
   agent_role: z
     .string()
     .describe(
@@ -159,13 +159,16 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
       }
 
       // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
-      const prerequisite = PIPELINE_PREREQUISITES[args.type as PipelineType];
-      if (prerequisite !== undefined && prerequisite !== null) {
+      const activeStages: readonly PipelineType[] =
+        (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+      const prerequisite = resolvePrerequisite(args.type as PipelineType, activeStages);
+      if (prerequisite !== null) {
         const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
         const mostRecentPrereq = prereqPipelines.at(-1);
         if (!mostRecentPrereq || mostRecentPrereq.status !== 'PASS') {
+          const orderedActive = (activeStages as readonly string[]).join(' → ');
           throw new Error(
-            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Pipeline order: implementation → qa → code-review → documentation.`
+            `Cannot start '${args.type}' pipeline: requires a PASS '${prerequisite}' pipeline first. Active pipeline order: ${orderedActive}.`
           );
         }
 
@@ -173,7 +176,8 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
         const revalidError = checkRevalidationGuard(
           wp.pipelines,
           args.type as PipelineType,
-          prerequisite
+          prerequisite,
+          activeStages,
         );
         if (revalidError !== null) {
           throw new Error(revalidError);
@@ -185,7 +189,7 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
         (p) => p.type === args.type && !p.auto_cancelled
       );
       const isDirectRework = effectiveSamePipelines.at(-1)?.status === 'FAIL';
-      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type as PipelineType);
+      const isDownstreamRework = hasDownstreamFail(wp.pipelines, args.type as PipelineType, activeStages);
       const needsRework = isDirectRework || isDownstreamRework;
 
       if (needsRework) {

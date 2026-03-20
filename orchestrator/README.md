@@ -16,6 +16,7 @@ A headless, deterministic alternative to IDE-based agent workflows. The orchestr
 - [CLI Reference](#cli-reference)
 - [Troubleshooting](#troubleshooting)
 - [Running Tests](#running-tests)
+- [Linting](#linting)
 
 ---
 
@@ -178,8 +179,10 @@ The thread ID is printed at the start of every run and in the run summary under 
                         │       ↓                               │
                         │  pm ──────────────────────────────┐   │
                         │  developer ────────────────────── │   │
-                        │  qa ───────────────────────────── │─────supervisor
+                        │  qa ───────────────────────────── │   │
+                        │  security_auditor ─────────────── │─────supervisor
                         │  reviewer ─────────────────────── │   │
+                        │  release_engineer ─────────────── │   │
                         │  docs ─────────────────────────── ┘   │
                         │                                       │
                         │  synthesis ─────────────────────→ END │
@@ -195,7 +198,9 @@ The supervisor is a pure-Python deterministic router — **no LLM calls** are ma
 | No WPs yet | `pm` (create work packages) |
 | `IMPLEMENT` / `REWORK` / `CONTINUE_PIPELINE` / `CLAIM_WP` / `RESUME_OR_CANCEL` | `developer` |
 | `RUN_QA` | `qa` |
+| `RUN_SECURITY_AUDIT` | `security_auditor` |
 | `RUN_REVIEW` | `reviewer` |
+| `RUN_RELEASE_ENGINEERING` / `REWORK` | `release_engineer` |
 | `WRITE_DOCS` / `FINALIZE_WP` / `UPDATE_CRITERIA` | `docs` |
 | `REPAIR_ORPHAN_BLOCKED` / `UNBLOCK_WP` / `REVIEW_*` | `pm` (PM intervention) |
 | All roles return `WAIT` | `synthesis` |
@@ -207,7 +212,7 @@ For the full routing algorithm, action sets, and circuit-breaker mechanics, see 
 
 ### Stage nodes
 
-Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, and invokes it. The 6 stages are: `pm`, `developer`, `qa`, `reviewer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
+Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, and invokes it. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -219,11 +224,11 @@ Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecti
 | `src/graph.py` | LangGraph `StateGraph` assembly and compilation |
 | `src/state.py` | `WorkflowState` TypedDict with annotated reducers |
 | `src/cli.py` | CLI entry point (`orchestrate` command) |
-| `src/config.py` | `.env` loading, provider auto-detection, pipeline constants |
+| `src/config.py` | `.env` loading, provider auto-detection, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
-| `src/nodes/` | Stage node factories (pm, developer, qa, reviewer, docs, synthesis) |
+| `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger |
-| `tests/` | 216 tests — unit, integration (ScriptedLedger), and live marks |
+| `tests/` | 269 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 
 ---
@@ -349,7 +354,7 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 216 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 269 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -369,7 +374,8 @@ Tests are structured as:
 
 | File | What it tests |
 |------|---------------|
-| `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP) |
+| `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP); `_derive_next_action` test helper — PASS-branch and FAIL-branch routing both manifest-derived via `PIPELINE_AGENT_MAP`/`FAIL_ROUTING_AGENT_MAP` (no hard-coded role strings); dedicated routing classes for all pipeline stages including `TestRouteToSecurityAuditor`, `TestRouteToReleaseEngineer`, and `TestDocumentationFail` |
+| `test_config.py` | Manifest-derived config constants: `WP_TERMINAL_STATUSES`, `VALID_STAGES`, `PIPELINE_TYPES`, `ROLE_IDS`, `PIPELINE_ROLE_NAMES`, `FAIL_ROUTING_AGENT_MAP`, and `PIPELINE_AGENT_MAP` — structural assertions (type, non-emptiness, key membership, ordering) that tolerate future manifest additions; guards for orchestrating-role exclusion (Planner, Synthesis) and Release Engineer ID normalisation; `TestPipelineAgentMap` pins all pipeline-type-to-agent mappings and cross-validates against `PIPELINE_ROLE_NAMES` |
 | `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration |
 | `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool |
 | `test_graph.py` | Graph topology, edges, compilation |
@@ -400,4 +406,27 @@ Integration tests run the real LangGraph supervisor against scripted MCP-tool mo
 |------|---------|----------|
 | `@pytest.mark.integration` | ScriptedLedger tests (fast, no external services) | `-m integration` |
 | `@pytest.mark.live` | Real MCP server + LLM — skipped by default | `-m live` |
+
+---
+
+## Linting
+
+[ruff](https://docs.astral.sh/ruff/) is the linter and formatter for `orchestrator/src/`. It is included in the `dev` extras.
+
+```bash
+cd orchestrator
+
+# Check for linting issues (zero warnings expected)
+ruff check src/
+
+# Auto-fix safe issues
+ruff check --fix src/
+
+# Format source files
+ruff format src/
+```
+
+The project maintains a zero-warning `ruff` baseline. The active rule set is defined in `pyproject.toml` under `[tool.ruff.lint]`.
+
+> **CI enforcement:** Both `pytest` and `ruff check src/` run on every push and pull request to `main` via `.github/workflows/ci.yml`. All tests must pass and `ruff` must exit 0 before a PR can be merged.
 

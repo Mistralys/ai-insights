@@ -83,6 +83,7 @@ If `.venv` does not exist under `$AI_INSIGHTS_ROOT/orchestrator/`, stop and guid
 cd "$AI_INSIGHTS_ROOT"
 node scripts/cli.js setup --components orchestrator              # Anthropic (default)
 # node scripts/cli.js setup --components orchestrator --provider google   # Google AI Studio
+# node scripts/cli.js setup --components orchestrator --checkpoint         # enables --resume support
 # node scripts/cli.js setup --help                                         # see all options
 ```
 
@@ -149,7 +150,7 @@ The thread ID is printed at run start. Echo it clearly to the user immediately a
 | `--model <name>` | Override the LLM model | When testing a specific model or `.env` default needs overriding |
 | `--max-iterations <N>` | Safety ceiling on supervisor loop | Use `10`–`20` for smoke tests; default is `100` |
 | `--project-path <path>` | Set the target codebase path | **Always pass** when the plan is outside the ai-insights workspace |
-| `--resume <thread-id>` | Resume from a LangGraph checkpoint | Continuing an interrupted or safety-limited run |
+| `--resume <thread-id>` | Resume from a LangGraph checkpoint | Continuing an interrupted or safety-limited run. **Requires** the `checkpoint` extra: `pip install -e ".[checkpoint]"` — without it, runs use in-memory checkpoints only and cannot actually be resumed. |
 | `--interrupt-on <stages>` | Pause for human review at named stages | Values: `pm`, `fail`, `synthesis` (comma-separated) |
 | `--log-level DEBUG` | Verbose output | Debugging routing errors or unexpected stage failures |
 
@@ -235,6 +236,7 @@ The thread ID appears in both the console output at run start and in the `run_st
 | Exit code `2` | `max_iterations` safety limit reached | Resume with `--resume <thread-id>` or increase `--max-iterations` |
 | All WPs BLOCKED at start | Dependency cycle or unresolved blockers | Inspect ledger with MCP tools or the GUI; resolve blocker reasons first |
 | Circuit-breaker halt on a WP | 3 consecutive stage failures for one WP | Inspect the log for the failing stage; address the root cause via the ledger or codebase, then resume |
+| `--resume` starts a fresh run instead of resuming | `checkpoint` extra not installed — graph silently falls back to in-memory `MemorySaver` | `cd "$AI_INSIGHTS_ROOT/orchestrator" && pip install -e ".[checkpoint]"`, then re-run |
 
 ---
 

@@ -31,11 +31,17 @@ roster:
     title: SDET
     short: QA & Validation
   - number: 5
+    title: Security Auditor
+    short: Security Review & Threat Analysis
+  - number: 6
     title: Principal Systems Architect
     short: Code Review & Quality Check
-  - number: 6
+  - number: 7
+    title: Release Engineer
+    short: Release Curation & Version Management
+  - number: 8
     title: Technical Writing Manager
     short: Documentation & README Curation
-  - number: 7
+  - number: 9
     title: Head of Operations
     short: Synthesis & Project Reporting

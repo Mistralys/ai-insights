@@ -1,12 +1,41 @@
 # Personas Changelog
 
+## v3.9.1 - Helper Unification & Strict-Mode Robustness
+- Build: Unified `validateCcFileName` and `validateVsFileName` into a single `validateFileName` helper.
+- Build: Fixed `--strict` false-positive by stripping fenced code blocks before scanning for unresolved markers.
+- Personas: Updated Unit Test Auditor description to verb-forward, purpose-specific text.
+- Docs: Added named anchors to all 47 constraints; updated cross-references.
+
+## v3.9.0 - Build Pipeline Fixes & `mcpServers` Auto-Injection
+- Build: Fixed VS Code output filenames to use YAML-declared `vs_file_name` instead of template basename.
+- Build: Standalone Claude Code personas with MCP tools now receive `mcpServers` auto-injection in frontmatter.
+- Personas: `ledger-bootstrapper` Claude Code build now includes `mcpServers: central_pm` in frontmatter.
+- Docs: Renumbered all constraints to a clean sequential 1–47 scheme.
+- Docs: Updated standalone README to document MCP server auto-injection.
+
+## v3.8.1 - 9-Agent Personas (Post-Synthesis Polish)
+- Docs: Added `personas/standalone/README.md` — user-facing guide for all 15 standalone personas.
+- Docs: Added pipeline stage ordering and WP ID auto-generation constraints.
+- Docs: Updated `personas/ledger/README.md` for the 9-agent workflow layout.
+- Personas: Reviewer (6) mission statement now scopes security to the dedicated Security Auditor.
+- Partials: Added explicit comment type documentation to `release-engineer-output-format.md`.
+
+---
+
+## v3.8.0 - 9-Agent Personas & PM Sub-Agents
+- Personas: Added Security Auditor v3.6.1 at pipeline position 5 with OWASP A01–A10 coverage.
+- Personas: Added Release Engineer v3.6.1 at pipeline position 7.
+- Personas: Renumbered Reviewer (5→6), Documentation (6→8), and Synthesis (7→9).
+- Personas: Project Manager now delegates WP decomposition to four focused sub-agents.
+- Personas: Developer now requires all modified files listed in `artifacts.files_modified`.
+- Personas: Reviewer security review scope delegated to Security Auditor.
+- Personas: Added WP Decomposer, Dependency Sequencer, Pipeline Configurator, and Ledger Bootstrapper standalone sub-agents.
+- Partials: Added shared partials for Security Auditor and Release Engineer protocols and output formats.
+
 ## v3.7.3 - Per-Persona Model Field
-- Ledger: Added `default_model: "Claude Sonnet 4.6"` to `_shared.yaml` as suite-wide model default.
-- Ledger: Planner (1) and Project Manager (2) now specify `model: "Claude Opus 4.6"` in per-persona YAML; Agents 3–7 inherit `default_model`.
-- Build: Added `model: '{{model}}'` to `FRONTMATTER_LEDGER_VSCODE` template.
-- Build: Added model resolution chain in `buildForTarget()`: per-persona `model` → `default_model` → `cc_model` → `'inherit'`.
-- Build: Unified `cc_model` derivation — now resolved from the computed `model` value rather than passing through `_shared.cc_model` directly.
-- Docs: Documented `default_model`, `model`, and `cc_model` resolution chain across manifest API surface, constraints, and data-flows.
+- Ledger: Added `default_model` to `_shared.yaml`; Planner and Project Manager use Claude Opus 4.6.
+- Build: Added model field and resolution chain to persona frontmatter templates.
+- Docs: Documented model resolution chain across manifest.
 
 ## v3.7.2 - CTX Architect Persona
 - CTX Architect v1.0.0: New standalone persona for CTX Generator documentation workflows.
@@ -18,24 +47,7 @@
 - Developer v3.6.1: Compressed overly verbose operational protocol.
 
 ## v3.7.0 - ID Update
-- VS Code: Using IDs for agent handoffs in `runSubagent` tool.
-- Planner v1.3.2: Added ID.
-- Project Manager v3.6.0: Added ID + handoff fix.
-- Developer v3.6.0: Added ID + handoff fix.
-- QA v3.6.0: Added ID + handoff fix.
-- Reviewer v3.6.0: Added ID + handoff fix.
-- Documentation v3.6.0: Added ID + handoff fix.
-- Synthesis v3.5.3: Added ID.
-- AgentsMD Curator v1.0.1: Added ID.
-- Changelog Curator v1.1.1: Added ID.
-- Composer Curator v1.0.1: Added ID.
-- Manifest Curator v1.0.4: Added ID.
-- Module Intent Archictect v1.0.3: Added ID.
-- Orchestator Runner v1.0.2: Added ID.
-- Readme Curator v1.2.2: Added ID.
-- Researcher v1.0.2: Added ID.
-- Unit Test Auditor v1.0.2: Added ID.
-- Whatsnew Curator v1.0.1: Added ID.
+- All Personas: Added `id` fields to all personas for `runSubagent` handoffs in VS Code.
 
 ## v3.6.3 - Strict Mode Limitations (2026-02-23)
 - Docs: Documented strict-mode code-fence false-positive risk.

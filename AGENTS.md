@@ -11,12 +11,12 @@ This is a **monorepo-style workspace** containing two distinct sub-projects and 
 | Sub-Project | Path | Language | Purpose |
 |-------------|------|----------|---------|
 | **Project Ledger MCP Server** | `mcp-server/` | TypeScript (ESM) | MCP server that provides typed tools for managing project ledgers in AI agent workflows |
-| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 7 ledger persona Markdown files from YAML/Markdown sources |
+| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 9 ledger persona Markdown files from YAML/Markdown sources |
 | **Orchestrator** | `orchestrator/` | Python (3.11+) | LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows |
 
 The `scripts/` directory contains cross-project scripts that orchestrate persona deployment and role-parity checks.
 
-> **Key relationship:** The personas sub-project generates agent instructions that reference MCP tools exposed by the mcp-server sub-project. The `AGENT_ROLES` constant in `mcp-server/src/utils/constants.ts` must stay in sync with `KNOWN_ROLES` in `scripts/sync-personas.js` and the `role` values in persona YAML metadata.
+> **Key relationship:** The personas sub-project generates agent instructions that reference MCP tools exposed by the mcp-server sub-project. All three consumers of agent role names — `AGENT_ROLES` in `mcp-server/src/utils/constants.ts`, `KNOWN_ROLES` in `scripts/sync-personas.js`, and the `role` values in persona YAML metadata — now derive from or are validated against `shared/workflow-manifest.json`. The manifest is the single source of truth; adding a role there propagates automatically to `AGENT_ROLES` and `KNOWN_ROLES`. Persona YAML `role` fields are validated by `scripts/build-personas.js` against manifest role names.
 
 ---
 
@@ -128,6 +128,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Change `.mcp.json` server key | `personas/` → `constraints.md` (mcp_server_name reference) |
 | Add root-level script | Root `README.md` |
 | Restructure workspace | Both `file-tree.md` files, this `AGENTS.md` |
+| Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints.md` |
 
 ---
 
@@ -151,8 +152,8 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | `mcp-server/src/`, `mcp-server/tests/` | MCP Server manifest |
 | `personas/ledger/src/`, `scripts/build-personas.js` | Personas manifest |
 | `personas/standalone/src/` | Personas manifest |
-| `personas/ledger/vs-code/*.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
-| `personas/standalone/vs-code/*.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/ledger/vs-code/*.agent.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
+| `personas/standalone/vs-code/*.agent.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
 | `orchestrator/src/`, `orchestrator/tests/` | [orchestrator/README.md](orchestrator/README.md) |
 
@@ -164,6 +165,44 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Read generated persona files to understand template logic | Read `personas/…/api-surface.md` + `data-flows.md` |
 | Read 10 source files to understand status transitions | Read `mcp-server/…/constraints.md` |
 | Search code to find where a file lives | Check the relevant `file-tree.md` |
+| Get a full module overview (API + source + tests) | Read `.context/{module}/` generated docs | Manifest `api-surface.md` | Source code |
+
+### Generated Context Docs (`.context/`)
+
+The [CTX Generator](https://github.com/context-hub/generator) produces Markdown snapshots of the entire codebase. Run `node scripts/cli.js ctx-generate` to regenerate. Output lives in `.context/` (gitignored).
+
+| Path | Contents |
+|------|----------|
+| `.context/README.md` | Workspace overview (mirrors root `README.md`) |
+| `.context/agents.md` | Root `AGENTS.md` content |
+| `.context/workspace-structure.md` | Top-level directory tree (depth 3) |
+| `.context/scripts.md` | All workspace scripts source |
+| `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
+| `.context/mcp-server/overview.md` | MCP server README |
+| `.context/mcp-server/manifest.md` | MCP server project manifest (all 6 docs) |
+| `.context/mcp-server/workflow-specification.md` | Workflow spec docs |
+| `.context/mcp-server/source-tools.md` | Tool handler source |
+| `.context/mcp-server/source-storage.md` | LedgerStore + schema source |
+| `.context/mcp-server/source-utils.md` | Utility module source |
+| `.context/mcp-server/tests.md` | Test suite source |
+| `.context/mcp-server/file-structure.md` | MCP server directory tree |
+| `.context/orchestrator/overview.md` | Orchestrator README |
+| `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
+| `.context/orchestrator/source-core.md` | Core modules (CLI, config, graph, state, supervisor) |
+| `.context/orchestrator/source-nodes.md` | Pipeline stage node factories |
+| `.context/orchestrator/source-utils.md` | Utility modules (tool wrappers, persona loader, etc.) |
+| `.context/orchestrator/tests.md` | Test suite source |
+| `.context/orchestrator/file-structure.md` | Orchestrator directory tree |
+| `.context/personas/overview.md` | Personas README |
+| `.context/personas/manifest.md` | Personas project manifest |
+| `.context/personas/ledger-suite.md` | Ledger workflow user guide |
+| `.context/personas/standalone-suite.md` | Standalone personas guide |
+| `.context/personas/shared-partials.md` | Cross-suite Markdown partials |
+| `.context/personas/ledger-metadata.md` | Ledger persona YAML metadata |
+| `.context/personas/standalone-metadata.md` | Standalone persona YAML metadata |
+| `.context/personas/file-structure.md` | Personas directory tree |
+
+> **Tip:** These files are ideal for feeding into LLMs or external tools (e.g. NotebookLM) that need a full codebase snapshot without cloning the repo.
 
 ---
 
@@ -175,7 +214,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | **Ambiguous requirement** | Use most restrictive interpretation. Document assumption. | MUST |
 | **Missing manifest documentation** | Flag gap. Do not invent facts. Draft entry for review. | MUST |
 | **Untested code path** | Proceed with caution. Add test recommendation. | SHOULD |
-| **Cross-project role mismatch** | Verify `AGENT_ROLES`, `KNOWN_ROLES`, and persona YAML are aligned. Flag any divergence. | MUST |
+| **Cross-project role mismatch** | Both `AGENT_ROLES` and `KNOWN_ROLES` derive from `shared/workflow-manifest.json` — run `node scripts/validate-workflow-manifest.js` to verify the manifest is self-consistent. Verify persona YAML `role` fields are valid manifest role names (validated automatically by `build-personas.js`). Flag any divergence. | MUST |
 | **Unclear which manifest applies** | If change touches both sub-projects, consult both. When in doubt, default to the MCP server manifest. | SHOULD |
 | **Generated file needs change** | Never edit generated persona files. Trace back to the relevant suite source (`personas/ledger/src/` or `personas/standalone/src/`) and change the template source. | MUST |
 | **Breaking change proposed** | Document in work package. Flag for review. Never implement silently. | MUST |
@@ -209,19 +248,23 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 | Dependency | Source of Truth | Must Stay In Sync With |
 |------------|----------------|------------------------|
-| Agent role names | `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` | `scripts/sync-personas.js` → `KNOWN_ROLES`; persona YAML → `role` field |
+| Agent role names | `shared/workflow-manifest.json` → `roles[].name` | `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` (auto-derived); `scripts/sync-personas.js` → `KNOWN_ROLES` (auto-derived); persona YAML → `role` field (validated by `build-personas.js`) |
 | MCP server name | `personas/ledger/src/meta/_shared.yaml` → `mcp_server_name` | `.mcp.json` → server key (default: `central_pm`) |
 | Persona `vs_file_name` | Per-persona YAML (`personas/ledger/src/meta/N-name.yaml`) | Agent Registry scan pattern (`*.agent.md`) in `mcp-server/src/utils/agent-registry.ts` |
 | Version (MCP server) | `mcp-server/changelog.md` | `mcp-server/package.json` (via `npm run sync-version`) |
 | Version (Personas) | `personas/changelog.md` | `personas/ledger/src/meta/_shared.yaml` → `default_version` |
 | Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
-| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/vs-code/` generated output filenames |
+| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/claude-code/` generated output filenames |
+| Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
+| `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
+| `release-engineering` pipeline → Release Engineer role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['release-engineering']` | `personas/ledger/src/meta/7-release-engineer.yaml` → `role: Release Engineer`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
 
 ### Validation Scripts
 
 | Script | Purpose | Run From |
 |--------|---------|----------|
-| `node scripts/check-known-roles.js` | Verify `KNOWN_ROLES` ↔ `AGENT_ROLES` parity | Workspace root |
+| `node scripts/validate-workflow-manifest.js` | Validate `shared/workflow-manifest.json` structure and semantics | Workspace root |
+| `node scripts/check-known-roles.js` | Delegates to `validate-workflow-manifest.js` (previously compared `KNOWN_ROLES` ↔ `AGENT_ROLES`; now both are manifest-derived) | Workspace root |
 | `node scripts/build-personas.js --check` | Detect stale generated persona output | Workspace root |
 
 ---
@@ -245,11 +288,13 @@ These are the critical synchronization points between sub-projects. Breaking any
 |------|---------|  
 | `scripts/cli.js` | **Interactive command center + direct CLI** for all workspace operations. Replaces `setup-orchestrator.js` as the user-facing entry point. |
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
-| `scripts/build-personas.js` | Assemble 36 persona files (7 ledger + 11 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
-| `scripts/check-known-roles.js` | Drift check between `KNOWN_ROLES` and `AGENT_ROLES` |
+| `scripts/build-personas.js` | Assemble 48 persona files (9 ledger + 15 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
+| `scripts/check-known-roles.js` | Manifest validation delegate (previously `KNOWN_ROLES` ↔ `AGENT_ROLES` drift check; superseded by `validate-workflow-manifest.js` now that both derive from the manifest) |
 | `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
 | `scripts/install-hooks.js` | One-time setup: sets `git config core.hooksPath .githooks` to activate the pre-commit persona freshness guard |
-| `context.yaml` | Context Hub configuration for documentation generation |
+| `shared/workflow-manifest.json` | **Single source of truth** for specification-derived constructs: 9 agent roles, 6 pipeline types, status enums (project/WP/pipeline/blocker), and workflow constants. All sub-projects derive their constants from this file. Validated by `shared/workflow-manifest.schema.json`. |
+| `shared/workflow-manifest.schema.json` | JSON Schema (Draft-07) enforcing structural constraints on `workflow-manifest.json`. Semantic cross-reference checks (unique IDs, fail_routing references, default_stages subset) are enforced by `scripts/validate-workflow-manifest.js`. |
+| `context.yaml` | [CTX Generator](https://github.com/context-hub/generator) root config. Imports `**/module-context.yaml` and defines workspace-wide documents. Run via `node scripts/cli.js ctx-generate` (requires `ctx` on PATH). Output goes to `.context/` (gitignored). |
 | `.mcp.dist.json` | Template MCP server configuration (copy to `.mcp.json` and update paths) |
 
 ---
@@ -268,10 +313,12 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Find a file in personas | [personas/…/file-tree.md](personas/docs/agents/project-manifest/file-tree.md) |
 | See MCP server constraints | [mcp-server/…/constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) |
 | See persona system constraints | [personas/…/constraints.md](personas/docs/agents/project-manifest/constraints.md) |
-| Understand the 7-stage workflow | [personas/ledger/README.md](personas/ledger/README.md) |
+| Understand the 9-agent workflow | [personas/ledger/README.md](personas/ledger/README.md) |
+| Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) |
 | Review past discussions | [discussions/](discussions/) |
 | Review error history | [history/error-ledger.md](history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](history/key-learnings.md) |
+| Get a full codebase snapshot for LLMs | `.context/` (run `node scripts/cli.js ctx-generate` to regenerate) |
 
 ---
 

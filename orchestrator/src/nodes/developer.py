@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 from . import create_stage_node
 
 
-def _build_developer_prompt(state: "WorkflowState") -> str:
+def _build_developer_prompt(state: WorkflowState) -> str:
     """Construct the developer agent's user-turn prompt."""
     project_path: str = state["project_path"]
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
@@ -54,7 +54,7 @@ def _build_developer_prompt(state: "WorkflowState") -> str:
     )
 
 
-def make_developer_node(config: "Config", mcp_tools: list[Any]):
+def make_developer_node(config: Config, mcp_tools: list[Any]):
     """
     Return the LangGraph node function for the Developer stage.
 

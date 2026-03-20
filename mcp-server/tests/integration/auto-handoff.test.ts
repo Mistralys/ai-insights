@@ -344,6 +344,7 @@ describe('Auto-handoff chain integration', () => {
 
       expect(result.status).toBe('READY_FOR_QA');
       expect(result.auto_handoff).toBeUndefined();
+      expect(result.handoff_suppressed_reason).toBe('depth_limit_reached');
     });
 
     it('standard handoff block is still present when depth limit is reached', async () => {
@@ -418,7 +419,7 @@ describe('Auto-handoff chain integration', () => {
 
       const root = await store.readRootIndex();
       const warningComment = root.project_comments.find(
-        (c: any) => c.note === 'Auto-handoff depth limit reached. Manual routing required.',
+        (c: any) => c.note?.startsWith('Auto-handoff depth limit reached'),
       );
       expect(warningComment).toBeDefined();
       expect(warningComment?.type).toBe('warning');

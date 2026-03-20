@@ -515,3 +515,68 @@ describe('beginWork — guard violations (WP-003)', () => {
     expect(resultText(result)).toContain('"Developer"');
   });
 });
+
+// ─── Dynamic active_pipeline_stages support ─────────────────────────────────
+
+describe('beginWork — respects active_pipeline_stages (custom stage ordering)', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'begin-work-active-stages-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('allows code-review without qa when active_pipeline_stages skips qa', async () => {
+    // WP with active_pipeline_stages: ["implementation", "code-review"] — QA is excluded.
+    // Implementation has PASS'd. code-review should proceed without requiring QA.
+    const wp: WorkPackageDetail = {
+      ...makeWpDetail('IN_PROGRESS', 'Reviewer', [
+        { type: 'implementation', status: 'PASS', started_at: now(), completed_at: now(), summary: [] },
+      ]),
+      active_pipeline_stages: ['implementation', 'code-review'] as any,
+    };
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Reviewer'));
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'code-review',
+      agent_role: 'Reviewer',
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const payload = resultPayload(result);
+    expect(payload.claimed).toBe(false);
+    const codeReviewPipeline = payload.pipelines?.find((p: any) => p.type === 'code-review');
+    expect(codeReviewPipeline?.status).toBe('IN_PROGRESS');
+  });
+
+  it('rejects code-review on custom-stage WP when the preceding active stage (implementation) has not PASS\'d', async () => {
+    const wp: WorkPackageDetail = {
+      ...makeWpDetail('IN_PROGRESS', 'Reviewer', []),
+      active_pipeline_stages: ['implementation', 'code-review'] as any,
+    };
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Reviewer'));
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'code-review',
+      agent_role: 'Reviewer',
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect(resultText(result)).toContain("requires a PASS 'implementation' pipeline first");
+  });
+});

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 from . import create_stage_node
 
 
-def _build_pm_prompt(state: "WorkflowState") -> str:
+def _build_pm_prompt(state: WorkflowState) -> str:
     """Construct the PM agent's user-turn prompt from the plan document."""
     project_path: str = state["project_path"]
     plan_file: str = state.get("plan_file", "plan.md")  # type: ignore[call-overload]
@@ -48,17 +48,19 @@ def _build_pm_prompt(state: "WorkflowState") -> str:
         f"`ledger_initialize_project` with `project_path={project_path!r}` "
         f"and `plan_file={plan_file!r}`.\n"
         f"3. For each work package defined in the plan, call "
-        f"`ledger_create_work_package` with `project_path={project_path!r}` to register it in the ledger, "
+        f"`ledger_create_work_package` with `project_path={project_path!r}` "
+        f"to register it in the ledger, "
         f"including correct dependencies and acceptance criteria.\n"
         f"4. Once all work packages are created, confirm by calling "
-        f"`ledger_get_project_status` with `project_path={project_path!r}` and report the final count.\n\n"
+        f"`ledger_get_project_status` with `project_path={project_path!r}` "
+        f"and report the final count.\n\n"
         f"---\n\n"
         f"# Plan Document\n\n"
         f"{plan_content}"
     )
 
 
-def make_pm_node(config: "Config", mcp_tools: list[Any]):
+def make_pm_node(config: Config, mcp_tools: list[Any]):
     """
     Return the LangGraph node function for the Project Manager stage.
 

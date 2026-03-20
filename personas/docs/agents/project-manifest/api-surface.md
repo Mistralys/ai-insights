@@ -1,6 +1,15 @@
 # Public API Surface
 
-## Build Script (`scripts/build-personas.js`)
+## Build Scripts
+
+The persona build system is split across two files:
+
+| File | Role |
+|------|------|
+| `scripts/build-personas.js` | CLI entry point — handles flags, suite/target selection, file I/O, and assembly |
+| `scripts/lib/persona-helpers.js` | Pure helper module — 12 stateless functions imported by `build-personas.js` and the test suite |
+
+### `scripts/build-personas.js`
 
 ### CLI Flags
 
@@ -10,7 +19,7 @@
 | `--target` | `vscode \| claude-code \| all` | `all` | Select which IDE target to generate. Can be combined with `--suite`. |
 | `--check` | *(flag)* | off | Verify output is up-to-date without writing. Exits 1 if any file is stale or if any `note_only: true` tool entry appears as a rendered table row in generated output (`[note_only-violation]`). Suite-aware: use `--suite all --check` to check all suites. |
 | `--dry-run` | *(flag)* | off | Preview build without writing files. |
-| `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block (no current persona triggers this — see constraint 9 GN-4); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see constraint 9 GN-5). |
+| `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block — fenced blocks are stripped before scanning (WP-002), eliminating this risk (see [constraint 10 GN-4](constraints.md#c10)); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see [constraint 10 GN-5](constraints.md#c10)). |
 
 ### Constants
 
@@ -31,6 +40,8 @@ The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
 
 ### Template Functions
 
+> **Module split (WP-001/WP-002):** 12 of the functions below are defined in `scripts/lib/persona-helpers.js` and imported by `build-personas.js`. The remaining functions — `expandSuites`, `loadPartials`, `discoverPersonaYamls`, `ccFrontmatterFields`, and `buildForTarget` — are defined directly in `build-personas.js` (they require filesystem I/O, process.exit, or CLI state). The `scripts/tests/persona-helpers.test.js` vitest suite covers the 12 extracted functions.
+
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `expandSuites` | `(suiteArg: string) → string[]` | Expands a `--suite` CLI argument (possibly comma-separated, possibly containing `"all"`) to a deduplicated ordered list of concrete suite names. |
@@ -40,11 +51,11 @@ The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
 | `resolveConditionals` | `(text: string, context: Object) → string` | Processes `{{#if flag}}…{{/if}}` blocks. Truthy = keep inner content; falsy = remove block. |
 | `resolveVariables` | `(text: string, context: Object, filename: string) → string` | Replaces `{{variable}}` with `String(context[variable])`. Warns on unresolved variables. |
 | `collapseBlankLines` | `(text: string) → string` | Reduces 3+ consecutive blank lines to 2. Post-processing step. |
-| `renderRoster` | `(roster: Array, activeNumber: number) → string` | Renders the 7-agent roster as a numbered Markdown list, tagging the current agent with `(YOU)`. |
+| `renderRoster` | `(roster: Array, activeNumber: number) → string` | Renders the 9-agent roster as a numbered Markdown list, tagging the current agent with `(YOU)`. |
 | `renderMcpToolsTable` | `(tools: Array) → string` | Renders MCP tool entries as Markdown table rows (`| \`tool\` | purpose |`). |
 | `serializeTools` | `(tools: string[]) → string` | Serializes a tools array to YAML flow format **with** outer brackets: `['vscode', 'execute', ...]`. Used in ledger frontmatter. |
 | `serializeToolsList` | `(tools: string[]) → string` | Serializes a tools array **without** outer brackets: `'vscode', 'execute', ...`. Used inside `[…]` literals in standalone frontmatter templates. |
-| `validateCcFileName` | `(persona: Object, suite: string) → void` | Validates that a persona object has a `cc_file_name` field set. Exits with code 1 and prints an error if the field is missing. Called before any Claude Code output is written. |
+| `validateFileName` | `(persona: Object, fieldName: 'cc_file_name' \| 'vs_file_name', suite: string) → void` | Validates that a persona object has the specified filename field set. Exits with code 1 and prints an error if the field is missing. Replaces the former `validateCcFileName` / `validateVsFileName` pair (WP-002). |
 | `ccFrontmatterFields` | `() → string` | Returns the three shared Claude Code frontmatter fields (`permissionMode`, `model`, `memory`) as a YAML fragment string with no leading or trailing newlines. Interpolated into both `FRONTMATTER_LEDGER_CC` and `FRONTMATTER_STANDALONE_CC` template literals to eliminate verbatim duplication. |
 | `buildForTarget` | `(suite: string, target: 'vscode' \| 'claude-code') → void` | Executes one complete build pass for the given suite + target combination. Loads suite config, reads `_shared.yaml`, loads merged partials, discovers persona YAMLs, selects the correct frontmatter template, and writes all persona files to the appropriate output directory. |
 
@@ -111,7 +122,7 @@ These are generated by the build script — they cannot be set in YAML files:
 
 | Variable | Suite | Source | Output |
 |----------|-------|--------|--------|
-| `{{roster_rendered}}` | ledger | `_shared.yaml` → `roster[]` | Numbered Markdown list of all 7 agents, with `(YOU)` marker |
+| `{{roster_rendered}}` | ledger | `_shared.yaml` → `roster[]` | Numbered Markdown list of all 9 agents, with `(YOU)` marker |
 | `{{mcp_tools_table}}` | ledger | per-persona YAML → `mcp_tools[]` | Markdown table rows: `\| \`tool\` \| purpose \|` |
 | `{{tools_json}}` | ledger | per-persona YAML → `tools[]` | YAML flow sequence with brackets: `['vscode', 'execute', ...]` — used in `FRONTMATTER_LEDGER_VSCODE` |
 | `{{tools_list}}` | standalone | per-persona YAML → `tools[]` | Comma-separated quoted list **without** brackets: `'vscode', 'execute', ...` — embedded inside `[…]` in standalone frontmatter |
@@ -153,7 +164,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `default_version` | `string` | **Required.** Default version string (e.g. `"3.4.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
 | `default_model` | `string` | Default AI model for generated frontmatter (e.g. `"Claude Sonnet 4.6"`). Per-persona `model` overrides this. |
 | `mcp_server_name` | `string` | MCP server name used in tool patterns and references (e.g. `"central_pm"`) |
-| `roster` | `Array<{number, title, short}>` | 7-entry list of agent identities |
+| `roster` | `Array<{number, title, short}>` | 9-entry list of agent identities |
 | `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
 | `cc_model` | `string` | Claude Code model override — `"inherit"` to defer to user config. Also serves as the final named fallback in the VS Code `model` resolution chain (after `default_model`), so suites without `default_model` (e.g. standalone) resolve to this value. |
 | `cc_memory` | `string` | Claude Code memory scope — e.g. `"project"` |
@@ -163,7 +174,7 @@ Use these flags in content templates to write platform-conditional blocks:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `number` | `int` | yes | Agent position (1–7) |
+| `number` | `int` | yes | Agent position (1–9) |
 | `role` | `string` | yes | Workflow role identifier — must match `AGENT_ROLES` in MCP server |
 | `model` | `string` | no | AI model override — replaces `default_model` for this persona (e.g. `"Claude Opus 4.6"`) |
 | `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `ledger-{vs_file_name stem}` (e.g. `ledger-3-dev` for `3-dev.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
@@ -263,7 +274,7 @@ Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Sour
 
 ## Standalone Suite Metadata Schema
 
-The standalone suite (`personas/standalone/src/`) uses a slug-based schema for special-purpose personas that do not fit the 7-stage workflow.
+The standalone suite (`personas/standalone/src/`) uses a slug-based schema for special-purpose personas that do not fit the 9-stage workflow.
 
 ### Standalone `_shared.yaml`
 
@@ -295,7 +306,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` (e.g. `module-intent-architect` omits `TodoRead`/`TodoWrite`) |
 | `mcp_server_name` | `string` | no | MCP server name for Claude Code frontmatter (e.g. `"central_pm"`). When set, triggers the `{{#if mcp_server_name}}` conditional in `FRONTMATTER_STANDALONE_CC` and adds an `mcpServers` block to the CC output. Absent from `_shared.yaml` — must be set per-persona when MCP support is needed. |
 
-> **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 7-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
+> **Note:** `role` is intentionally absent — standalone personas are not part of the MCP-backed 9-stage workflow and have no role-based routing. The `vs_file_name` field uses `.agent.md` extension (e.g. `researcher.agent.md`) — this convention was established by WP-004.
 
 ### Feature Flags by Agent
 
@@ -305,9 +316,11 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | 2 — Project Manager | ✓ | — | — | — |
 | 3 — Developer | ✓ | ✓ | ✓ | ✓ |
 | 4 — QA | ✓ | ✓ | ✓ | ✓ |
-| 5 — Reviewer | ✓ | ✓ | ✓ | — |
-| 6 — Documentation | ✓ | ✓ | ✓ | ✓ |
-| 7 — Synthesis | ✓ | ✓ | ✓ | — |
+| 5 — Security Auditor | ✓ | ✓ | ✓ | ✓ |
+| 6 — Reviewer | ✓ | ✓ | ✓ | ✓ |
+| 7 — Release Engineer | ✓ | ✓ | ✓ | ✓ |
+| 8 — Documentation | ✓ | ✓ | ✓ | ✓ |
+| 9 — Synthesis | ✓ | ✓ | ✓ | — |
 
 
 
@@ -339,7 +352,8 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 ```javascript
 const KNOWN_ROLES = [
   'Planner', 'Project Manager', 'Developer', 'QA',
-  'Reviewer', 'Documentation', 'Synthesis',
+  'Security Auditor', 'Reviewer', 'Release Engineer',
+  'Documentation', 'Synthesis',
 ];
 ```
 
@@ -355,7 +369,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 
 | Partial | Used By | Embeds Variables / Notes |
 |---------|---------|-------------------------|
-| `agent-roster.md` | All 7 agents | `{{roster_rendered}}` |
+| `agent-roster.md` | All 9 agents | `{{roster_rendered}}` |
 | `planner-output-template.md` | Agent 1 | *(none)* |
 | `planner-core-rules.md` | Agent 1 | *(none)* |
 | `pm-output-format.md` | Agent 2 | *(none)* |
@@ -364,26 +378,30 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `developer-output-format.md` | Agent 3 | *(none)* |
 | `qa-operational-protocol.md` | Agent 4 | *(none)* |
 | `qa-output-format.md` | Agent 4 | *(none)* |
-| `reviewer-operational-protocol.md` | Agent 5 | *(none)* |
-| `reviewer-output-format.md` | Agent 5 | *(none)* |
-| `docs-operational-protocol.md` | Agent 6 | Embeds `{{> incident-logging}}` — same ledger coupling as `developer-strict-constraints.md` |
-| `docs-output-format.md` | Agent 6 | *(none)* |
-| `synthesis-operational-protocol.md` | Agent 7 | *(none)* |
-| `synthesis-output-format.md` | Agent 7 | *(none)* |
+| `security-auditor-operational-protocol.md` | Agent 5 | *(none)* |
+| `security-auditor-output-format.md` | Agent 5 | *(none)* |
+| `reviewer-operational-protocol.md` | Agent 6 | *(none)* |
+| `reviewer-output-format.md` | Agent 6 | *(none)* |
+| `release-engineer-operational-protocol.md` | Agent 7 | *(none)* |
+| `release-engineer-output-format.md` | Agent 7 | *(none)* |
+| `docs-operational-protocol.md` | Agent 8 | Embeds `{{> incident-logging}}` — same ledger coupling as `developer-strict-constraints.md` |
+| `docs-output-format.md` | Agent 8 | *(none)* |
+| `synthesis-operational-protocol.md` | Agent 9 | *(none)* |
+| `synthesis-output-format.md` | Agent 9 | *(none)* |
 
 ### Ledger-Specific Partials (`personas/ledger/src/partials/`)
 
 | Partial | Used By | Embeds Variables |
 |---------|---------|------------------|
-| `mcp-intro.md` | Agents 2–7 | `{{mcp_server_name}}`, `{{mcp_tools_table}}` |
-| `role-boundaries.md` | Agents 2–7 | *(none)* |
-| `mcp-tools-note.md` | Agents 3–7 | *(none)* |
-| `mcp-preflight-header-vscode.md` | Agents 2–7 (VS Code target) | `{{mcp_server_name}}` |
-| `mcp-preflight-header-claude-code.md` | Agents 2–7 (Claude Code target) | `{{mcp_server_name}}` |
-| `mcp-preflight-detect.md` | Agents 3–7 | *(none)* |
-| `mcp-preflight-verify-with-detect.md` | Agents 3–7 | *(none)* |
+| `mcp-intro.md` | Agents 2–9 | `{{mcp_server_name}}`, `{{mcp_tools_table}}` |
+| `role-boundaries.md` | Agents 2–9 | *(none)* |
+| `mcp-tools-note.md` | Agents 3–9 | *(none)* |
+| `mcp-preflight-header-vscode.md` | Agents 2–9 (VS Code target) | `{{mcp_server_name}}` |
+| `mcp-preflight-header-claude-code.md` | Agents 2–9 (Claude Code target) | `{{mcp_server_name}}` |
+| `mcp-preflight-detect.md` | Agents 3–9 | *(none)* |
+| `mcp-preflight-verify-with-detect.md` | Agents 3–9 | *(none)* |
 | `mcp-preflight-verify-no-detect.md` | Agent 2 only | *(none)* |
-| `mcp-unavailable.md` | Agents 2–7 | `{{mcp_server_name}}` |
-| `handoff-block-vscode.md` | Agents 2–6 (VS Code target) | `{{role}}` |
-| `handoff-block-claude-code.md` | Agents 2–6 (Claude Code target) | `{{role}}` |
-| `incident-logging.md` | Agents 3, 4, 6 (via shared partials or directly) | *(none)* |
+| `mcp-unavailable.md` | Agents 2–9 | `{{mcp_server_name}}` |
+| `handoff-block-vscode.md` | Agents 2–8 (VS Code target) | `{{role}}` |
+| `handoff-block-claude-code.md` | Agents 2–8 (Claude Code target) | `{{role}}` |
+| `incident-logging.md` | Agents 3–8 (via shared partials or directly) | *(none)* |

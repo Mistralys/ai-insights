@@ -1,6 +1,20 @@
+moduleMetaData:
+  id: "mcp-server"
+  label: "Project Ledger MCP Server"
+  description: "MCP server providing typed tools for managing project ledgers in AI agent workflows."
+  keywords:
+    - MCP
+    - Model Context Protocol
+    - project ledger
+    - work packages
+    - pipeline
+  relatedModules:
+    - orchestrator
+    - personas
+
 documents:
-  - description: 'Ledger MCP Server - Overview'
-    outputPath: 'ledger/overview.md'
+  - description: 'MCP Server - Overview'
+    outputPath: 'mcp-server/overview.md'
     sources:
       - type: file
         description: "Overview"
@@ -8,8 +22,8 @@ documents:
           - README.md
         filePattern: "README.md"
 
-  - description: 'Ledger MCP Server - Manifest'
-    outputPath: 'ledger/manifest.md'
+  - description: 'MCP Server - Manifest'
+    outputPath: 'mcp-server/manifest.md'
     sources:
       - type: file
         description: "Public Interfaces and APIs"
@@ -17,4 +31,66 @@ documents:
           - docs/agents/project-manifest
         filePattern: "*.md"
 
-  
+  - description: 'MCP Server - Workflow Specification'
+    outputPath: 'mcp-server/workflow-specification.md'
+    sources:
+      - type: file
+        description: "Workflow logic: state machines, routing, handoffs, edge cases"
+        sourcePaths:
+          - docs/agents/workflow-specification
+        filePattern: "*.md"
+
+  - description: 'MCP Server - Source (Tools)'
+    outputPath: 'mcp-server/source-tools.md'
+    sources:
+      - type: file
+        description: "MCP tool handler implementations"
+        sourcePaths:
+          - src/tools
+        filePattern: "*.ts"
+
+  - description: 'MCP Server - Source (Storage & Schema)'
+    outputPath: 'mcp-server/source-storage.md'
+    sources:
+      - type: file
+        description: "LedgerStore, schema validation, and data models"
+        sourcePaths:
+          - src/storage
+          - src/schema
+        filePattern: "*.ts"
+
+  - description: 'MCP Server - Source (Utils)'
+    outputPath: 'mcp-server/source-utils.md'
+    sources:
+      - type: file
+        description: "Utility modules: constants, agent registry, pipeline maps, formatters"
+        sourcePaths:
+          - src/utils
+        filePattern: "*.ts"
+
+  - description: 'MCP Server - Tests'
+    outputPath: 'mcp-server/tests.md'
+    sources:
+      - type: file
+        description: "Test suite (unit, integration)"
+        sourcePaths:
+          - tests
+        filePattern: "*.ts"
+        excludePatterns:
+          - 'helpers/'
+
+  - description: 'MCP Server - File Structure'
+    outputPath: 'mcp-server/file-structure.md'
+    sources:
+      - type: tree
+        description: 'Directory tree'
+        sourcePaths:
+          - ./
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 8
+        excludePatterns:
+          - 'node_modules/'
+          - 'dist/'
+          - 'storage/ledger/*/'
+

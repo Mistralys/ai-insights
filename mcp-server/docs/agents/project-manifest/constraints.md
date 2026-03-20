@@ -16,6 +16,22 @@ New constraint entries should follow this structure (modelled on Constraint 2):
 
 ---
 
+## Workflow Specification Governance
+
+### 0. The Workflow Specification Is the Source of Truth for All Workflow Logic
+
+**Rule:** The [Workflow Specification](../workflow-specification/README.md) is the authoritative definition of all workflow logic — state machines, pipeline routing, status transitions, handoff behavior, recommendation engine behavior, edge cases, and constants. Implementation code must conform to the specification. When code contradicts the specification, the code is wrong.
+
+**Spec-first development:** Changes to workflow logic MUST be made in the specification first, then implemented in code, then validated by tests, then documented in the project manifest — in that order.
+
+**Test traceability:** Test descriptions SHOULD reference the workflow specification section they validate (e.g., `// §14.13 row 1: returns true when QA FAIL started after impl PASS completed`). This convention is already practiced in several test files and should be followed consistently.
+
+**Rationale:** The specification was designed to be a language-agnostic, formally reviewed reference. Treating code as the source of truth defeats this purpose and leads to silent behavioral drift between the TypeScript (MCP server) and Python (orchestrator) implementations.
+
+**Scope:** This constraint applies to workflow logic only — file I/O, schema validation, concurrency primitives, and other infrastructure concerns are governed by their respective constraints below and the project manifest.
+
+---
+
 ## File System Constraints
 
 ### 1. All File I/O Must Be Atomic
@@ -42,7 +58,7 @@ await atomicWriteJson(targetPath, data);
 
 ### 2. Dual-File Updates Require Locking
 
-**Rule:** When updating both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use `LedgerStore.updateWorkPackageWithSync()` or manually wrap with `withLock(store.storageDir, ...)`. **`store.storageDir` is the only acceptable first argument to `withLock` — never pass `projectPath`, `ledgerRoot`, or `ledgerRoot ?? projectPath`.** Once a `LedgerStore` is constructed, use its `.storageDir` property to obtain the canonical lock directory.
+**Rule:** When writing both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use the appropriate high-level method: `LedgerStore.createWorkPackageWithSync()` for creating a new WP, `LedgerStore.updateWorkPackageWithSync()` for updating a single existing WP, or `LedgerStore.batchUpdateWorkPackagesWithSync()` for updating multiple WPs in one operation (see Constraint 2b). Only fall back to a manual `withLock(store.storageDir, ...)` scope when none of these methods covers the use case. **`store.storageDir` is the only acceptable first argument to `withLock` — never pass `projectPath`, `ledgerRoot`, or `ledgerRoot ?? projectPath`.** Once a `LedgerStore` is constructed, use its `.storageDir` property to obtain the canonical lock directory.
 
 **Extension — Single-File Read-Modify-Write:** Even when updating only the root index, any read-modify-write sequence must also be wrapped in `withLock(store.storageDir, ...)` to prevent TOCTOU races. Example: `completeSynthesis` reads the root index, mutates `synthesis_generated` and project status, then writes it back — this entire sequence must occur inside a single lock scope.
 
@@ -57,12 +73,83 @@ await store.writeRootIndex(updatedRoot);
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — atomic dual-file update
+// ✅ CORRECT — atomic dual-file creation (new WP)
+await store.createWorkPackageWithSync(async (root) => {
+  // ... build new WP detail and updated root ...
+  return { wpId, wp: newWpDetail, root: updatedRoot };
+});
+
+// ✅ CORRECT — atomic dual-file update (existing WP)
 await store.updateWorkPackageWithSync(wpId, (wp, root) => {
   // ... update both wp and root ...
   return { wp: updatedWp, root: updatedRoot };
 });
 ```
+
+---
+
+### 2b. Batch Multi-WP Writes Must Use `batchUpdateWorkPackagesWithSync`
+
+**Rule:** When updating multiple work packages and the root index in a single operation, always use `LedgerStore.batchUpdateWorkPackagesWithSync()`. Never loop over `updateWorkPackageWithSync()` calls or acquire multiple separate `withLock` scopes to write a batch of WPs — this produces one lock acquisition per WP instead of one per operation.
+
+**Rationale:** A loop of per-WP lock acquisitions is not atomic at the operation level: a crash or concurrent write between iterations can leave some WPs updated while others are not, desynchronizing WP state and the root index. `batchUpdateWorkPackagesWithSync` consolidates all reads, validation, writes, and the root index sync into a single lock scope.
+
+**Atomicity invariant (two-pass validate-then-write):** The method validates all WPs via Zod **before** writing any of them. A validation failure on any WP in the batch aborts the entire operation with no disk writes. This is stronger than the per-WP atomicity provided by `updateWorkPackageWithSync`, which validates and writes one WP at a time.
+
+**Note on lock-scope vs. rollback-scope atomicity:** If a file write succeeds for WP-A but a subsequent I/O error prevents writing WP-B, WP-A's write is not rolled back. This characteristic is shared with `updateWorkPackageWithSync`. Validation failures are fully atomic (no writes); I/O failures after the write phase begin are not.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — multiple lock acquisitions; not atomic across the batch
+for (const wpId of candidateIds) {
+  await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+    // ...
+    return { wp: updatedWp, root: updatedRoot };
+  });
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock; all WPs validated before any write
+await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+  const updatedWps = new Map<string, WorkPackageDetail>();
+  for (const wpId of candidateIds) {
+    const wp = await readWp(wpId);
+    // ... mutate wp ...
+    updatedWps.set(wpId, wp);
+  }
+  // ... mutate root ...
+  return { updatedWps, root: updatedRoot };
+});
+```
+
+**Known callers:** `propagateDependencyUnblock` and `propagateDependencyReblock` in `src/tools/work-package.ts`; `applyProjectReset` and `markProjectComplete` in `src/utils/project-reset.ts`.
+
+---
+
+### 2c. `writeWorkPackage` and `writeRootIndex` Are `@internal` — Tool Code Must Not Call Them Directly
+
+**Rule:** `LedgerStore.writeWorkPackage()` and `LedgerStore.writeRootIndex()` are marked `@internal` in source. Tool functions (`src/tools/`) and shared helpers (`src/utils/`) must never call these methods directly. All WP+root writes must go through one of the three sync methods (Constraints 2 and 2b).
+
+**Rationale:** Bypassing the sync methods skips `last_updated` auto-stamping, Zod validation, `.meta.json` sync, and the single-lock atomicity guarantee. The `@internal` tag is documentation-only (TypeScript does not enforce it) — this constraint encodes the boundary as a project rule.
+
+**Legitimate direct callers of `writeRootIndex` (non-tool code):**
+- `src/tools/project-lifecycle.ts` — `getProjectStatus()` self-healing: repairs stale counter fields under an explicit `withLock` scope; `initializeProject()` and `completeSynthesis()` for root-index-only transitions that don't involve any WP file write
+- `auto-archive.ts` — sets `status: 'ARCHIVED'` with `preserveLastUpdated: true` (root-index write only; sync methods do not apply)
+- `observations.ts` — appends a project-level comment (root-index write only; no WP file involved)
+- `workflow-handoff.ts` — `buildHandoffResponse()`: increments or caps the `auto_handoff_depth` counter on every handoff-status response; root-index-only write with no WP file involvement
+
+**`writeWorkPackage` — zero external callers (post-WP-002):** As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has no legitimate external callers. Every previously-direct caller (e.g., `project-reset.ts`) has been migrated to a sync method. The `@internal` boundary for `writeWorkPackage` is now absolute.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — bypasses auto-stamping, validation, and .meta.json sync
+await store.writeWorkPackage(wpId, updatedWp);
+await store.writeRootIndex(updatedRoot);
+```
+
+**Correct pattern:** Use `updateWorkPackageWithSync`, `createWorkPackageWithSync`, or `batchUpdateWorkPackagesWithSync` as shown in Constraints 2 and 2b.
 
 ---
 
@@ -92,7 +179,7 @@ await store.updateWorkPackageWithSync(wpId, (wp, root) => {
 
 ### 5. `.meta.json` Must Be Written Under the Project Lock
 
-**Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync).
+**Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync). Note: `writeRootIndex` is `@internal` — see Constraint 2c for the list of legitimate direct callers.
 
 **Rationale:** Prevents `.meta.json` from lagging behind the root index in a concurrent environment.
 
@@ -202,6 +289,8 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
   - Criterion 2
 ```
 
+> Full specification: [Workflow Specification §6.2](../workflow-specification/state-machines.md#62-transition-table).
+
 ---
 
 ### 13. Only Documentation Agent Can Set COMPLETE
@@ -210,18 +299,22 @@ Cannot mark work package as COMPLETE: the following acceptance criteria are not 
 
 **Enforcement:** Hard guard in `updateWorkPackageStatus()`. The error message includes the full workflow reminder (Developer → QA → Reviewer → Documentation → COMPLETE).
 
-**Rationale:** Enforces the 7-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly.
+**Rationale:** Enforces the multi-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly. As of WP-005, auto-finalize on terminal-stage PASS (see Constraint 13b) is the preferred COMPLETE path — `ledger_update_work_package_status` remains registered for PM and edge-case use only.
+
+> Full specification: [Workflow Specification §6.5, §21.10](../workflow-specification/state-machines.md#65-agent-guards).
 
 ---
 
-### 13b. Auto-Finalize on Documentation Pipeline PASS (§WP-006)
+### 13b. Auto-Finalize on Terminal-Stage Pipeline PASS (WP-005)
 
-**Rule:** When `ledger_complete_pipeline` is called with `type: "documentation"`, `status: "PASS"`, and `agent_role: "Documentation"`, the server automatically evaluates whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`. If all criteria are met, the WP is transitioned to `COMPLETE` **within the same lock scope** as the pipeline completion — no separate `ledger_update_work_package_status` call is required.
+**Rule:** When `ledger_complete_pipeline` is called with `status: "PASS"` and the calling agent owns the WP's **last active stage** (terminal stage), the server automatically evaluates whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`. If all criteria are met, the WP is transitioned to `COMPLETE` **within the same lock scope** as the pipeline completion — no separate `ledger_update_work_package_status` call is required.
+
+The terminal stage is determined dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs (`DEFAULT_PIPELINE_STAGES`), this is `documentation` (Documentation agent). For custom-stage WPs it may be any stage.
 
 **Conditions (all must apply):**
-- `type === 'documentation'`
+- `type === lastActiveStage` (the last entry in the WP's ordered active stages)
 - `status === 'PASS'`
-- `agent_role === 'Documentation'` (PM overrides bypass auto-finalize)
+- `agent_role === PIPELINE_AGENT_MAP[lastActiveStage]` (PM overrides bypass auto-finalize)
 - All `wp.acceptance_criteria[*].met === true` after applying `acceptance_criteria_updates`
 
 **Response signals:**
@@ -303,17 +396,19 @@ Otherwise, only claim work packages assigned to your role.
 
 ### 19. Pipelines Must Follow the Required Ordering
 
-**Rule:** Pipelines must be started in order: `implementation` → `qa` → `code-review` → `documentation`. Attempting to start a pipeline without the **most recent** prerequisite pipeline having a `PASS` status throws a descriptive error. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
+**Rule:** Pipelines must be started in the order defined by the work package's `active_pipeline_stages` (defaults to `DEFAULT_PIPELINE_STAGES` — `['implementation', 'qa', 'code-review', 'documentation']` — when omitted). Each stage requires a PASS on its immediately preceding active stage. Attempting to start a pipeline without the **most recent** prerequisite pipeline having a `PASS` status throws a descriptive error. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
 
-**Enforcement:** `ledger_start_pipeline` looks up the `PIPELINE_PREREQUISITES` map, finds the most recent pipeline of the prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
+**Enforcement:** `ledger_start_pipeline` calls `resolvePrerequisite(type, activeStages)` — which filters `CANONICAL_PIPELINE_ORDERING` by the WP's `active_pipeline_stages` and returns the immediately preceding active stage — then finds the most recent pipeline of that prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
 
 **Error message format:**
 ```
 Cannot start 'qa' pipeline: requires a PASS 'implementation' pipeline first.
-Pipeline order: implementation → qa → code-review → documentation.
+Active pipeline order: implementation → qa → code-review → documentation.
 ```
 
-**Exception:** `implementation` has no prerequisite and can always be started (subject to other constraints).
+**Exception:** The first active stage in the WP's ordering has no prerequisite and can always be started (subject to other constraints). For `DEFAULT_PIPELINE_STAGES`, this is `implementation`.
+
+> Full specification: [Workflow Specification §8](../workflow-specification/pipeline-routing.md).
 
 ---
 
@@ -325,7 +420,9 @@ Pipeline order: implementation → qa → code-review → documentation.
 |---|---|
 | `implementation` | `Developer` |
 | `qa` | `QA` |
+| `security-audit` | `Security Auditor` |
 | `code-review` | `Reviewer` |
+| `release-engineering` | `Release Engineer` |
 | `documentation` | `Documentation` |
 
 **Enforcement:** `ledger_start_pipeline` applies the map atomically alongside the pipeline creation. Both WP detail and root index summary are updated.
@@ -360,27 +457,36 @@ Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from both rew
 
 ---
 
-### 22. Handoff Notes Are Routed via NEXT_AGENT_MAP / FAIL_ROUTING_MAP
+### 22. Handoff Notes Are Routed via resolveNextAgent / resolveFailAgent
 
-**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined automatically based on pipeline status:
+**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined dynamically based on pipeline status and the WP's `active_pipeline_stages`:
 
-- **On PASS:** `NEXT_AGENT_MAP` routes to the next agent in the chain.
-- **On FAIL:** `FAIL_ROUTING_MAP` routes to the agent responsible for fixing the failure.
+- **On PASS:** `resolveNextAgent(type, activeStages)` returns the owner of the next active stage in canonical order, or `'Synthesis'` when the type is the last active stage.
+- **On FAIL:** `resolveFailAgent(type, activeStages)` uses a base routing map extended to all 6 stages. If the base fail-target's stage is absent from `activeStages`, the fallback is the agent that owns the first active stage.
 
-| Pipeline type | PASS → to_agent (NEXT_AGENT_MAP) | FAIL → to_agent (FAIL_ROUTING_MAP) |
+**Routing for the default 4-stage pipeline (`DEFAULT_PIPELINE_STAGES`):**
+
+| Pipeline type | PASS → to_agent | FAIL → to_agent |
 |---|---|---|
 | `implementation` | `QA` | `Developer` |
 | `qa` | `Reviewer` | `Developer` |
 | `code-review` | `Documentation` | `Developer` |
 | `documentation` | `Synthesis` | `Documentation` |
 
-> Documentation is the only pipeline type with self-rework on FAIL. All other FAIL paths route back to the Developer.
+**Additional types (dynamic, per-WP routing):**
+
+| Pipeline type | PASS → to_agent (next active stage) | FAIL → to_agent (base routing) |
+|---|---|---|
+| `security-audit` | `Reviewer` (if `code-review` is next active) or subsequent active stage | `Developer` |
+| `release-engineering` | `Documentation` (if `documentation` is next active) or subsequent active stage | `Release Engineer` (self-rework) |
+
+> `documentation` and `release-engineering` self-rework on FAIL. All other FAIL paths route to the Developer (base routing). When the base fail-target's stage is absent from the WP's `active_pipeline_stages`, routing falls back to the first active stage's agent.
 
 **Schema:**
 ```typescript
 interface HandoffNote {
   from_agent: string; // PIPELINE_AGENT_MAP[type], or 'Project Manager (PM Override)' when PM override is active
-  to_agent: string;   // NEXT_AGENT_MAP (PASS) or FAIL_ROUTING_MAP (FAIL)
+  to_agent: string;   // resolveNextAgent(type, activeStages) on PASS; resolveFailAgent(type, activeStages) on FAIL
   timestamp: string;
   notes: string[];    // The strings passed in handoff_notes
 }
@@ -391,6 +497,8 @@ interface HandoffNote {
 2. **Agent role guard:** `agent_role` must match `PIPELINE_AGENT_MAP[type]`. Exception: `agent_role === 'Project Manager'` bypasses this check (PM Override). When PM override is active, `from_agent` is set to `'Project Manager (PM Override)'`.
 
 **Consumption:** `ledger_get_next_action` and `ledger_get_next_actions` include any handoff notes addressed to the requesting agent in their response, so the next agent sees the notes immediately when they ask for their next action.
+
+> Full specification: [Workflow Specification §9, §12](../workflow-specification/pipeline-routing.md).
 
 ---
 
@@ -442,6 +550,8 @@ interface HandoffNote {
 ---
 
 ## Testing Constraints
+
+> **CI gate:** The MCP server Vitest test suite (`npm test` in `mcp-server/`) is enforced on every push and pull request to `main` via `.github/workflows/ci.yml` (`mcp-server-tests` job, Node.js 20). All tests must pass before a PR can be merged.
 
 ### 27. Test Timeout Is 10 Seconds
 
@@ -697,7 +807,7 @@ Hand off to the Project Manager or Documentation agent to formally reopen this w
 
 **Rationale:** Prevents developer or QA agents from silently reopening completed work, bypassing the formal re-planning and documentation steps.
 
-**Additional effect:** On `COMPLETE → IN_PROGRESS`, rework state is fully reset: `rework_counts` is set to `{}`, `rework_count` is set to `0`, and `root.synthesis_generated` is cleared. This ensures that a reopened WP starts with a clean rework slate and prevents the Synthesis agent from being gated by stale synthesis state.
+**Additional effect:** On `COMPLETE → IN_PROGRESS`, rework state is fully reset: `rework_counts` is set to `{}`, `rework_count` is set to `0`, `root.synthesis_generated` is cleared, and `root.synthesis_generated_at` is set to `null`. This ensures that a reopened WP starts with a clean rework slate and prevents the Synthesis agent from being gated by stale synthesis state.
 
 ---
 
@@ -848,10 +958,24 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 **Additional behaviors:**
 - **COMPLETE dependents:** For each `COMPLETE` WP that lists the reopened WP as a dependency, a warning comment is appended to its last pipeline (type: `"warning"`, priority: `"high"`).
-- **`synthesis_generated` reset:** If any WP was re-blocked (i.e., `candidates.length > 0`), `root.synthesis_generated` is reset to `false` to ensure the Synthesis agent must re-run.
-- If no candidates were re-blocked, `synthesis_generated` is **not** changed.
+- **`synthesis_generated` reset:** If any WP was re-blocked (i.e., `candidates.length > 0`), `root.synthesis_generated` is reset to `false` and `root.synthesis_generated_at` is set to `null` to ensure the Synthesis agent must re-run.
+- If no candidates were re-blocked, `synthesis_generated` and `synthesis_generated_at` are **not** changed.
 
 **Enforcement:** `propagateDependencyReblock()` in `src/tools/work-package.ts`.
+
+---
+
+## Manifest Documentation Constraints
+
+### 53. No Implementation Provenance in Manifest Documents
+
+**Rule:** Project manifest documents (`api-surface.md`, `constraints.md`, `data-flows.md`, etc.) describe the **current state** of the codebase. They must not contain work package IDs, plan references, or other implementation-history markers (e.g., `WP-003`, `added in WP-005`, `wired in WP-004`).
+
+**Where provenance belongs:** Plan documents, synthesis reports, and changelog entries — not the manifest.
+
+**Rationale:** WP IDs are scoped to individual plans. A reader who has not ingested the plan history cannot resolve `WP-006` to a meaningful context. Provenance markers also accumulate over time and add noise without aiding comprehension of current behavior.
+
+**What is allowed:** References to `WP-###` as a *data format specifier* (e.g., `work_package_id: string // WP-### format`) are fine — these describe the runtime data model, not implementation history.
 
 ---
 
@@ -914,7 +1038,7 @@ Work package summaries in the root index duplicate a subset of data from the wor
 
 **Reason:** Performance — agents can list work packages without loading all detail files.
 
-**Invariant:** Summaries must always match the corresponding detail files. This is enforced by `updateWorkPackageWithSync()`.
+**Invariant:** Summaries must always match the corresponding detail files. This is enforced by `createWorkPackageWithSync()` (creation) and `updateWorkPackageWithSync()` (updates).
 
 ---
 
@@ -1292,7 +1416,7 @@ await addProjectComment({ ..., agent: "Developer Agent" });
 - Assuming `project_comments.agent` and `assigned_to` share the same validation rules — they do not.
 - Hardcoding role strings anywhere other than constants. Use `AGENT_ROLES` entries or the `AgentRole` type for `assigned_to`-typed fields.
 
-**Reference:** `AGENT_ROLES` is defined in `src/utils/constants.ts`. `ProjectCommentSchema` is in `src/schema/validators.ts`.
+**Reference:** `AGENT_ROLES` is derived from `shared/workflow-manifest.json` (`roles[].name`) and re-exported from `src/utils/constants.ts`. `ProjectCommentSchema` is in `src/schema/validators.ts`. See [tech-stack.md — Architectural Pattern 10](tech-stack.md#10-manifest-derived-constants) for the full list of manifest-derived constants.
 
 ---
 
@@ -1406,6 +1530,109 @@ describe('pipeline schemas', () => {
 
 ---
 
+### 65. All Six Pipeline Stages Are PM-Composable — No Mandatory/Optional Distinction
+
+**Rule:** All six pipeline stages (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) are equally composable by the Project Manager. There is no inherent "mandatory" or "optional" designation for any stage. The PM selects any valid subsequence of `CANONICAL_PIPELINE_ORDERING` per work package via the `active_pipeline_stages` field.
+
+**Default:** When `active_pipeline_stages` is omitted, `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) is used for backward compatibility.
+
+**Rationale:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. The PM-composable model enables custom workflows (e.g., skipping QA for documentation-only WPs, adding a security audit before code review) without encoding assumptions into the server.
+
+**Extension:** The `CANONICAL_PIPELINE_ORDERING` constant (`['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation']`) defines the only valid execution order — stages may be omitted but not reordered. `resolvePrerequisite`, `resolveNextAgent`, and `resolveFailAgent` derive routing dynamically from the per-WP `active_pipeline_stages` array.
+
+**Enforcement:** `ledger_create_work_package` validates the `active_pipeline_stages` input (see Constraint 66). Pipeline start and completion routing use the dynamic resolve functions, not static maps.
+
+> Full specification: [Workflow Specification §4.2, §9b](../workflow-specification/data-model.md#42-pipeline-stage-constants).
+
+---
+
+### 66. `active_pipeline_stages` Validation: Hard Guardrails (Reject) and Soft Guardrails (Warn)
+
+**Rule:** When `ledger_create_work_package` receives an `active_pipeline_stages` value, it validates the array before persisting the work package.
+
+**Hard guardrails (reject with error — creation is aborted):**
+- Empty array (`[]`)
+- Entries that are not valid `PIPELINE_TYPES` values
+- Duplicate entries
+- Entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING` (relative ordering must be preserved; gaps are allowed)
+
+**Soft guardrails (warning appended to the success response message — creation is NOT aborted):**
+- `implementation` present without `qa` (unusual composition)
+- Single-stage chain (degenerate case)
+
+**Omitted field:** When `active_pipeline_stages` is omitted (the common case for standard 4-stage workflows), validation is bypassed entirely. The field is absent on the WP detail and dynamic resolve functions substitute `DEFAULT_PIPELINE_STAGES` at runtime.
+
+**Enforcement:** `validateActiveStages()` helper called inside `createWorkPackage()` in `src/tools/work-package.ts`. Hard rejection throws before the WP is written; soft warning is appended to the response string after the WP is written.
+
+> Full specification: [Workflow Specification §9b.2](../workflow-specification/operations.md#9b2-active-pipeline-stages-validation).
+
+---
+
+### 67. Artifact Declaration Expectation — Soft Warning on Empty `files_modified`
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` and the `artifacts.files_modified` array is either absent or empty, the server appends a soft-warning note to the pipeline response indicating that no files were declared. This is a non-blocking warning — the pipeline completion is still accepted.
+
+**Rationale:** Agents often forget to populate `files_modified`, reducing the value of the pipeline record for auditing and documentation. The soft warning creates a visible signal in the response without blocking legitimate zero-file-change completions (e.g., investigation pipelines that produced no code changes).
+
+**Exception:** The warning is only emitted on `PASS` completions — `FAIL` pipelines are not expected to declare modified files.
+
+**Enforcement:** Soft check in `completePipeline()` in `src/tools/pipeline.ts` (step 3b). Does not reject the call; appended as a text note in the response body only.
+
+---
+
+### 68. Zod `.describe()` Annotations for Pipeline Type Must Use `describePipelineTypes()`
+
+**Rule:** All Zod `.describe()` strings that enumerate pipeline type values MUST be generated by calling `describePipelineTypes(prefix)` from `src/utils/pipeline-maps.ts`. Hardcoding a pipeline type list inline in a `.describe()` string is forbidden.
+
+**Rationale:** `PIPELINE_TYPES` is the single source of truth for the canonical pipeline type list. Hardcoded `.describe()` strings drift silently when a new pipeline type is added — as demonstrated when `observations.ts` still listed only 4 types after `security-audit` and `release-engineering` were introduced. `describePipelineTypes()` derives the annotation from `PIPELINE_TYPES` at schema definition time, so any future addition to `PIPELINE_TYPES` propagates automatically to all MCP JSON Schema annotations.
+
+❌ **Anti-pattern:**
+```typescript
+PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", "documentation"')
+```
+
+✅ **Correct pattern:**
+```typescript
+import { describePipelineTypes } from '../utils/pipeline-maps.js';
+// ...
+PipelineTypeEnum.describe(describePipelineTypes('Pipeline type:'))
+```
+
+**Enforcement:** A drift-detection test in `tests/utils/pipeline-maps.test.ts` asserts that the output of `describePipelineTypes()` contains every entry in `PIPELINE_TYPES` — future additions to `PIPELINE_TYPES` that are not reflected in the helper will be caught automatically.
+
+---
+
+### 69. CSS Class Derivation from API Values Is Only Safe for Zod-Enum-Validated Fields
+
+**Rule:** CSS class derivation from raw API values is only safe when the field is a Zod-enum-validated type. For non-enum fields, apply `escapeHtml()` or a whitelist map.
+
+**Rationale:** The pattern `(field).toLowerCase().replace(/ /g, '_')` generates a CSS class string from a server-supplied value. If the field is a closed Zod enum, the server guarantees the value is one of a finite safe set — class injection is not possible. If the field is a free-form string (`z.string()`), a tampered ledger JSON (or a future schema relaxation) could insert arbitrary characters into a `class=""` attribute, enabling CSS injection or layout-breaking attacks.
+
+**Anti-pattern:**
+```javascript
+// ❌ WRONG — open string field; output is injected into class="" without escaping
+var cls = (someOpenStringField || '').toLowerCase().replace(/ /g, '_');
+el.innerHTML = `<span class="badge ${cls}">…</span>`;
+```
+
+**Correct patterns:**
+```javascript
+// ✅ OPTION A — field is a closed Zod enum (safe by schema contract)
+// p.status is WorkPackageStatus — a Zod enum with a fixed value set
+var cls = (p.status || '').toLowerCase().replace(/ /g, '_');
+
+// ✅ OPTION B — whitelist map (safe for any field type)
+var STATUS_CLASS = { READY: 'ready', IN_PROGRESS: 'in_progress', COMPLETE: 'complete', BLOCKED: 'blocked', CANCELLED: 'cancelled' };
+var cls = STATUS_CLASS[p.status] ?? 'unknown';
+
+// ✅ OPTION C — escapeHtml() before insertion (safe for any field type)
+var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
+```
+
+**Scope:** This convention applies to all client-side JavaScript in `mcp-server/gui/public/` (currently `views/work-package.js`, `utils.js`). When adding new attribute values derived from API data, determine whether the field is enum-backed before using the raw-derivation pattern.
+
+---
+
 ## Runtime Config Monitoring
 
 - `gui-config.json` is the single source of truth for runtime-adjustable settings (`auto_handoff_enabled`, `max_handoff_depth`).
@@ -1415,3 +1642,23 @@ describe('pipeline schemas', () => {
 - The 250ms debounce is mandatory — do not reduce it. Windows `fs.watch()` commonly emits duplicate events within <100ms of a file write.
 - On watcher error or file parse failure, the cache retains its last known good values. The server continues operating with stale config rather than crashing.
 - `ledger_root` in `gui-config.json` is **read-only** from the GUI perspective. `writeConfig()` strips it from incoming data. API handlers **MUST NOT** allow callers to overwrite it via `PUT /api/config`.
+
+---
+
+### 70. Advisory Dependency Freshness Check on PASS Completion (§21.59)
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` on a WP that has `dependencies`, the server performs an advisory staleness check. For each dependency, the server reads the full WP detail (pre-lock, before lock acquisition) and uses `dep.last_updated` directly. Inside the lock callback, if `dep.last_updated` is later than `pipeline.started_at` (using Date-based comparison via `new Date().getTime()` instead of lexicographic string comparison), a project comment is appended:
+
+```typescript
+{ type: 'warning', priority: 'low', agent: 'system', note: '<dep WP-XXX was modified after this pipeline started>' }
+```
+
+**PASS is never blocked.** This check is purely advisory — no pipeline status is changed, no error is thrown.
+
+**Skip conditions:** The check is entirely skipped when:
+- `pipeline.started_at` is absent (unstarted or legacy pipeline record), OR
+- the WP's `dependencies` array is empty.
+
+**`last_updated` field:** `WorkPackageDetail` now includes a dedicated `last_updated: z.string().optional()` field that is auto-stamped with `now()` on every WP detail write path (status transitions, claim, pipeline start/complete/cancel, creation, cascade reblock/unblock). The previous composite proxy (`max(status_changed_at, latest_pipeline.completed_at)`) is no longer used. The `last_updated` field is auto-stamped via `updateWorkPackageWithSync` (the primary choke point), plus explicit setting in `createWorkPackage`, `propagateDependencyUnblock`, and `propagateDependencyReblock` (which bypass the choke point). Existing WP detail files without the field parse without error (the field is optional).
+
+**Race window (acceptable):** Dependency WP files are read before lock acquisition. A dependency could theoretically be modified between the pre-read and the lock. For an advisory-only check this race window is acceptable — false negatives do not affect correctness.

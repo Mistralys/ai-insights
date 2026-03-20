@@ -183,7 +183,7 @@ All four file types are kept in sync automatically — when an agent updates a w
    - Agents will perform a pre-flight check (`ledger_get_project_status`) before starting work
    - If the server is unreachable, agents will report configuration errors
    - On startup, the server logs agent discovery results to stderr:
-     - ✅ Success: `[project-ledger-mcp] Agent registry: 7 agents discovered from /path/to/prompts`
+     - ✅ Success: `[project-ledger-mcp] Agent registry: 9 agents discovered from /path/to/prompts`
      - ⚠️ Not found: `[project-ledger-mcp] agents_dir not found: /path. Auto-handoff disabled.`
 
 ---
@@ -299,6 +299,8 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - View project-level comments and incidents (sorted newest-first) on the Project Detail page
 - **View archived plan** — **View full plan →** link on the Project Detail page (shown when a plan synopsis is available); renders as formatted HTML at `#/projects/:slug/plan`
 - **View archived synthesis** — **View synthesis →** link on the Project Detail page (shown when `synthesis_generated === true`); renders the final synthesis report as formatted HTML at `#/projects/:slug/synthesis`
+- **Pipeline stage badge track** — the work-packages table in the Project Detail view replaces the redundant Title column with a colored stage badge track per WP; badges are colored by pipeline status (grey=pending, blue=in-progress, green=pass, red=fail) and show abbreviated agent-role labels with full-name tooltips; stages with rework > 0 display an overlay count badge; falls back to a plain WP ID cell when the overview data is unavailable
+- **Pipeline progression bar** — the WP Detail view renders a "Pipeline Progression" card above the Pipelines section, showing the WP's active stages as status-colored badges; derives all data from the already-fetched WP detail (no extra API call); all stages default to pending when no pipelines have run yet
 - Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - Delete completed projects permanently
 - Toggle auto-handoff and adjust the max handoff depth at runtime (no restart required)
@@ -490,7 +492,7 @@ npm run check:roles
 `check:roles` computes the symmetric difference between the two arrays. A clean run prints:
 
 ```
-[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync.
+[check-known-roles] OK: KNOWN_ROLES and AGENT_ROLES are in sync (9 roles).
 ```
 
 If the arrays diverge it exits 1 with a labelled diff:
@@ -551,7 +553,7 @@ For developers and curious users who want to understand the internals:
 
 - **[Ledger-Enabled Agent Workflow](../personas/ledger/)** — How to use this server with AI agents
 - **[Ledger Schema Reference](../personas/ledger/project-ledger-schema.md)** — JSON structure specification
-- **[Agent Personas](../personas/ledger/)** — The 7 agents that use this server
+- **[Agent Personas](../personas/ledger/)** — The 9 agents that use this server
 
 ---
 

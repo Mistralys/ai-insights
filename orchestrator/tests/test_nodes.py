@@ -105,7 +105,9 @@ class TestModuleStructure:
         ("src.nodes.developer", "make_developer_node"),
         ("src.nodes.qa", "make_qa_node"),
         ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.security_auditor", "make_security_auditor_node"),
         ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.release_engineer", "make_release_engineer_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
     def test_module_importable_and_has_factory(self, module_name, factory_name):
@@ -127,7 +129,9 @@ class TestModuleStructure:
         ("src.nodes.developer", "make_developer_node"),
         ("src.nodes.qa", "make_qa_node"),
         ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.security_auditor", "make_security_auditor_node"),
         ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.release_engineer", "make_release_engineer_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
     def test_factory_returns_callable(self, module_name, factory_name):
@@ -157,7 +161,9 @@ class TestNodeSuccessPath:
         ("src.nodes.developer", "make_developer_node"),
         ("src.nodes.qa", "make_qa_node"),
         ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.security_auditor", "make_security_auditor_node"),
         ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.release_engineer", "make_release_engineer_node"),
         ("src.nodes.synthesis", "make_synthesis_node"),
     ])
     async def test_success_sets_stage_success_true(self, module_name, factory_name):

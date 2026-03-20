@@ -114,7 +114,7 @@ function propagateDependencyUnblock(projectPath, completedWpId):
 >
 > The `assigned_to` field is preserved through the block/unblock cycle, so the recommendation engine will still route the WP to the correct agent. The re-claim step is lightweight (single tool call) and provides explicit confirmation of intent.
 
-> **\u26a0 Stuck-agent limitation:** Because `assigned_to` is preserved through the block/unblock cycle, the WP is routed exclusively to the preserved agent after auto-unblock. If that agent is no longer available (session ended, agent crashed), no other pipeline agent can claim the WP without PM override (`claimWorkPackage` §10.1 rejects when `wp.assigned_to` is set and the caller differs). The WP will eventually be surfaced via the PM's `REVIEW_ABANDONED` action ([§14.1.2](handoff-and-recommendations.md#1412-project-manager-action-logic), priority 3b), but this requires the staleness threshold to elapse. Implementations that need faster recovery MAY detect assignment-to-absent-agent conditions (e.g., cross-referencing `assigned_to` with active agent sessions) and proactively unclaim the WP.
+> **\u26a0 Stuck-agent limitation:** Because `assigned_to` is preserved through the block/unblock cycle, the WP is routed exclusively to the preserved agent after auto-unblock. If that agent is no longer available (session ended, agent crashed), no other pipeline agent can claim the WP without PM override (`claimWorkPackage` §10.1 rejects when `wp.assigned_to` is set and the caller differs). The WP will eventually be surfaced via the PM's `REVIEW_ABANDONED` action ([§14.1.2](recommendations.md#1412-project-manager-action-logic), priority 3b), but this requires the staleness threshold to elapse. Implementations that need faster recovery MAY detect assignment-to-absent-agent conditions (e.g., cross-referencing `assigned_to` with active agent sessions) and proactively unclaim the WP.
 
 ### 15.5 Cascade Reblocking (propagateDependencyReblock)
 
@@ -192,6 +192,7 @@ function propagateDependencyReblock(projectPath, reopenedWpId):
   // this catches the case where that reset was missed due to a crash.
   if root.synthesis_generated:
     root.synthesis_generated = false
+    root.synthesis_generated_at = null    // §21.57: clear staleness timestamp
   
   root.last_updated = now()
   write root index
@@ -229,7 +230,7 @@ needsRework = isDirectRework OR isDownstreamRework
 ### 16.2 Rework Counts (Per-Pipeline)
 
 - Field: `rework_counts` on WorkPackageDetail (map of PipelineType → integer)
-- Initial value: absent; lazily created as `{ implementation: 0, qa: 0, code-review: 0, documentation: 0 }` on first rework
+- Initial value: absent; lazily initialized on first rework. For WPs with `active_pipeline_stages`, the map includes one entry per active stage: e.g., `{ implementation: 0, qa: 0, security-audit: 0, code-review: 0, release-engineering: 0, documentation: 0 }` for a full 6-stage WP, or `{ implementation: 0, qa: 0, code-review: 0, documentation: 0 }` for a default 4-stage WP (see §11.1 for initialization logic)
 - Each pipeline type's counter increments independently when starting that pipeline type after a direct or downstream FAIL
 - Not incremented when: no previous pipeline, or most recent same-type is PASS with no downstream FAIL
 
@@ -289,6 +290,8 @@ function resetReworkCount(wp, root, pipelineType, agentRole, reason):
 
 ### 16.4 Rework Flow
 
+The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
+
 ```
                     ┌───────────┐
                     │ Developer │
@@ -301,25 +304,45 @@ function resetReworkCount(wp, root, pipelineType, agentRole, reason):
                     └─────┬─────┘
                           │
                    ┌──────┴──────┐
-                   │             │
-                 PASS          FAIL
-                   │             │
-            ┌──────▼──────┐   ┌─▼──────────────┐
-            │  Reviewer   │   │ Developer fixes │
-            │  reviews    │   │(rework_counts   │
-            └──────┬──────┘   │.implementation++)│
-                   │          └────────┬─────────┘
-                   │                   │
-            ┌──────┴──────┐     ┌──────▼──────┐
-           PASS          FAIL   │  QA re-runs │
-            │             │     │  tests      │
-     ┌──────▼──────┐    ┌─▼───────────────┐  └─────────────┘
-     │Documentation│    │ Developer fixes  │
-     │  writes     │    │(rework_counts    │
-     └──────┬──────┘    │.implementation++)│
-                        └─────────────────┘
+                 PASS           FAIL ──► Developer fixes
+                   │                    (rework_counts.implementation++)
+            ┌──────▼──────────┐
+            │[Security Audit] │  ◄── optional; skipped if not in active stages
+            └──────┬──────────┘
+                   │
+            ┌──────┴──────┐
+          PASS           FAIL ──► Developer fixes
+            │                    (rework_counts.implementation++)
             │
-         PASS → Synthesis (after all WPs complete)
+            ┌──────▼──────┐
+            │  Reviewer   │
+            │  reviews    │
+            └──────┬──────┘
+                   │
+            ┌──────┴──────┐
+          PASS           FAIL ──► Developer fixes
+            │                    (rework_counts.implementation++)
+            │
+     ┌──────▼─────────────────┐
+     │[Release Engineering]   │  ◄── optional; skipped if not in active stages
+     └──────┬─────────────────┘
+            │
+         ┌──┴──┐
+       PASS   FAIL ──► Release Engineer self-reworks
+         │            (rework_counts.release-engineering++)
+         │
+     ┌───▼──────────┐
+     │Documentation │
+     │  writes      │
+     └──────┬───────┘
+            │
+         ┌──┴──┐
+       PASS   FAIL ──► Documentation self-reworks
+         │            (rework_counts.documentation++)
+         │
+      COMPLETE → Synthesis (after all WPs complete)
 ```
 
-> **Note:** `rework_counts.implementation` increments on every Developer rework cycle, regardless of whether the FAIL originated from the implementation pipeline itself or from a downstream pipeline (QA, review). This ensures the circuit breaker ([§16.3](#163-circuit-breaker)) engages for repeated downstream failures, not just direct implementation failures. Documentation self-rework cycles only increment `rework_counts.documentation`, keeping the two rework budgets independent.
+> **FAIL routing summary:** QA, Security Audit, and Code Review FAILs route to Developer (`rework_counts.implementation++`). Release Engineering and Documentation FAILs route to self-rework (`rework_counts.release-engineering++` and `rework_counts.documentation++` respectively). Each rework budget is independent — reaching the circuit breaker limit on one pipeline type does not block other pipeline types (§16.3).
+>
+> **Stage skipping:** When a stage is not in a WP's `active_pipeline_stages`, the corresponding box in the diagram is skipped entirely — PASS from the preceding stage flows directly to the next active stage via `resolveNextAgent` (§9.2).
