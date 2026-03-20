@@ -58,8 +58,8 @@ description: "Generate, update, and maintain AGENTS.md files — the operating m
 vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
-version: "1.0.1"
-last_updated: "2026-03-04"
+version: "1.1.0"
+last_updated: "2026-03-20"
 
 tools:
   - vscode
