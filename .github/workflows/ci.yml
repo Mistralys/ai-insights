@@ -99,5 +99,8 @@ jobs:
       - name: Install personas dependencies
         run: cd personas && npm ci
 
-      - name: Check persona build freshness
+      - name: Build all personas
+        run: node scripts/build-personas.js
+
+      - name: Verify persona build (note_only regression guard)
         run: node scripts/build-personas.js --check
