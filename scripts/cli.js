@@ -408,6 +408,9 @@ function cmdBuildMaintain(args) {
   // 3. Build Personas (all suites: ledger + standalone)
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   runScript('build-personas.js', buildArgs);
+
+  // 4. Check role parity (persona ↔ MCP server roles)
+  runScript('check-known-roles.js');
 }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
@@ -441,7 +444,7 @@ function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-
 const COMMANDS = [
   {
     id:          'setup',
-    key:         '1',
+    key:         's',
     label:       'First-time setup',
     category:    'Setup & Configuration',
     description: 'Full workspace setup wizard',
@@ -449,7 +452,7 @@ const COMMANDS = [
   },
   {
     id:          'mcp-json',
-    key:         '2',
+    key:         'm',
     label:       'Scaffold .mcp.json',
     category:    'Setup & Configuration',
     description: 'Generate IDE MCP config',
@@ -457,7 +460,7 @@ const COMMANDS = [
   },
   {
     id:          'git-hooks',
-    key:         '3',
+    key:         'o',
     label:       'Install git hooks',
     category:    'Setup & Configuration',
     description: 'Pre-commit persona guard',
@@ -465,16 +468,15 @@ const COMMANDS = [
   },
   {
     id:          'sync-personas',
-    key:         '4',
+    key:         'p',
     label:       'Sync personas',
     category:    'Personas',
     description: 'Deploy to VS Code & Claude Code',
     run:         cmdSyncPersonas,
   },
-
   {
     id:          'package-personas',
-    key:         '6',
+    key:         'z',
     label:       'Package personas',
     category:    'Personas',
     description: 'ZIP standalone personas',
@@ -482,7 +484,7 @@ const COMMANDS = [
   },
   {
     id:          'gui',
-    key:         '7',
+    key:         'g',
     label:       'Launch GUI dashboard',
     category:    'MCP Server',
     description: 'Open the ledger GUI in browser',
@@ -490,23 +492,15 @@ const COMMANDS = [
   },
   {
     id:          'build-maintain',
-    key:         '0',
+    key:         'b',
     label:       'Build & Maintain',
     category:    'Validation & Utilities',
-    description: 'Sync versions & build personas',
+    description: 'Sync versions, build & validate',
     run:         cmdBuildMaintain,
   },
   {
-    id:          'check-roles',
-    key:         '8',
-    label:       'Check role parity',
-    category:    'Validation & Utilities',
-    description: 'Verify persona ↔ MCP server roles',
-    run:         cmdCheckRoles,
-  },
-  {
     id:          'bundle-docs',
-    key:         '9',
+    key:         'd',
     label:       'Bundle docs',
     category:    'Validation & Utilities',
     description: 'Compile doc bundles',
@@ -542,7 +536,6 @@ function printHelp() {
     ['gui',                      'Launch MCP GUI dashboard (long-running)'],
     // Note: orchestrator requires --plan <path>; not available in interactive menu
     ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
-    ['check-roles',              'Verify persona ↔ MCP server role parity'],
     ['bundle-docs',              'Compile doc bundles'],    ['ctx-generate',             'Generate context documentation (ctx generate)'],    ['help',                     'Show this help'],
   ];
   for (const [cmd, desc] of rows) {
