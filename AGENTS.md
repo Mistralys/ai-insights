@@ -128,6 +128,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Add root-level script | Root `README.md` |
 | Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md`, regenerate `.context/` |
 | Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints.md` |
+| Change changelog convention | This `AGENTS.md` → Changelog Convention section; Changelog Curator persona source |
 
 ---
 
@@ -257,6 +258,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
 | `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
 | `release-engineering` pipeline → Release Engineer role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['release-engineering']` | `personas/ledger/src/meta/7-release-engineer.yaml` → `role: Release Engineer`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
+| Changelogs | Root `changelog.md` (Git-tagged releases) | `mcp-server/changelog.md`, `orchestrator/changelog.md`, `personas/changelog.md` (module-level detail, not tagged). Root entry references module versions via `> mcp vX · personas vY · orchestrator vZ`. |
 
 ### Validation Scripts
 
@@ -268,7 +270,50 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 ---
 
-## 📊 Project Statistics
+## � Changelog Convention
+
+This workspace uses a **hub-and-spoke changelog model**: each sub-project maintains its own detailed changelog, and the root changelog aggregates the highlights into versioned releases.
+
+### File Locations
+
+| File | Scope | Versioning |
+|------|-------|------------|
+| `changelog.md` (root) | Workspace-wide release summary | SemVer, tagged in Git (`v1.9.0`, …) |
+| `mcp-server/changelog.md` | MCP server changes only | Own SemVer (`v1.14.0`, …), **not** Git-tagged |
+| `orchestrator/changelog.md` | Orchestrator changes only | Own SemVer (`v0.5.0`, …), **not** Git-tagged |
+| `personas/changelog.md` | Persona build system changes only | Own SemVer (`v3.9.1`, …), **not** Git-tagged |
+
+### Rules
+
+1. **Only the root changelog triggers Git tags/releases.** Module changelogs track internal history but have no corresponding Git tags.
+2. **Module changelogs come first.** When preparing a release, update each affected module changelog before writing the root entry.
+3. **Root entries reference module versions.** Use the blockquote line format to link back: `> mcp v1.14.0 · personas v3.9.1 · orchestrator v0.4.0`. Omit modules that had no changes.
+4. **Root entries summarize, not duplicate.** Each root bullet condenses multiple module-level bullets into one outcome-oriented line. Implementation detail stays in the module changelog.
+5. **House style applies everywhere.** All changelogs follow the Changelog Curator's house style: flat bullet list with category prefixes, no `### Added/Changed/Fixed` sub-headers, ≤ 100-char lines.
+6. **Version bumps:** Root version follows SemVer based on the most significant change across all modules. Module versions are incremented independently.
+7. **`scripts/extract-changelog-entry.js`** parses the topmost root changelog entry for CI/GitHub Actions release automation.
+
+### Two-Step Workflow
+
+```
+Step 1 — Module changelogs
+    For each module with changes since the last Git tag:
+      → Run git log / diff for that module's directory
+      → Add a new entry to {module}/changelog.md
+
+Step 2 — Root changelog
+    → Read the new module entries
+    → Write a single new root entry summarizing the highlights
+    → Assign the next SemVer version
+```
+
+### Prompt Template
+
+See the root [README.md → Changelog Workflow](README.md) section for the copy-paste prompt template.
+
+---
+
+## �📊 Project Statistics
 
 | Property | MCP Server | Personas | Orchestrator |
 |----------|-----------|----------|--------------|
@@ -319,6 +364,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Review error history | [history/error-ledger.md](history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](history/key-learnings.md) |
 | Get a full codebase snapshot for LLMs | `.context/` (run `node scripts/cli.js ctx-generate` to regenerate) |
+| Understand changelog workflow | Changelog Convention section (this file) |
 
 ---
 
