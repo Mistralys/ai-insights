@@ -93,9 +93,11 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     CompiledGraph
         The compiled LangGraph state graph, ready to invoke or stream.
     """
+    import sqlite3
+
     from langgraph.graph import END, START, StateGraph
 
-    from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
+    from langgraph.checkpoint.sqlite import SqliteSaver
 
     from src.nodes.developer import make_developer_node
     from src.nodes.docs import make_docs_node
@@ -146,7 +148,8 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     db_path = config.checkpoint_dir / "workflow.sqlite"
 
-    checkpointer = SqliteSaver.from_conn_string(str(db_path))
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
 
     log.info(
         "Building graph: 9 nodes, %d loop edges, checkpoint=%s",

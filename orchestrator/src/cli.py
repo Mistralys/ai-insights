@@ -260,8 +260,10 @@ def _build_graph_for_run(
     """
     if dry_run:
         # Build with dry-run stubs instead of real Deep Agent nodes.
+        import sqlite3
+
         from langgraph.graph import END, START, StateGraph
-        from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
+        from langgraph.checkpoint.sqlite import SqliteSaver
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
@@ -277,7 +279,8 @@ def _build_graph_for_run(
 
         config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         db_path = config.checkpoint_dir / "workflow.sqlite"
-        checkpointer = SqliteSaver.from_conn_string(str(db_path))
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
 
         return builder.compile(
             checkpointer=checkpointer,
