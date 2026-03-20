@@ -8,10 +8,13 @@ remain valid if the manifest gains new roles or pipeline types in the future.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src.config import (
     FAIL_ROUTING_AGENT_MAP,
+    PERSONA_FILES,
     PIPELINE_AGENT_MAP,
     PIPELINE_ROLE_NAMES,
     PIPELINE_TYPES,
@@ -179,3 +182,28 @@ class TestFailRoutingAgentMap:
     def test_documentation_routes_to_documentation(self):
         """Non-obvious mapping: documentation FAIL → Documentation."""
         assert FAIL_ROUTING_AGENT_MAP["documentation"] == "Documentation"
+
+
+class TestPersonaFilesExist:
+    """Validate that every persona_file entry in the manifest points to an
+    actual file on disk.  This catches stale paths whenever the persona build
+    system renames its output files."""
+
+    # Workspace root is two levels above the orchestrator package.
+    _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+
+    def test_persona_files_is_dict(self):
+        assert isinstance(PERSONA_FILES, dict)
+
+    def test_persona_files_non_empty(self):
+        assert len(PERSONA_FILES) > 0
+
+    @pytest.mark.parametrize("stage,relative_path", list(PERSONA_FILES.items()))
+    def test_persona_file_exists(self, stage: str, relative_path: str):
+        """Every stage's persona file must exist on the local filesystem."""
+        full_path = self._WORKSPACE_ROOT / relative_path
+        assert full_path.exists(), (
+            f"Persona file for stage {stage!r} not found at: {full_path}\n"
+            f"  Manifest says: {relative_path}\n"
+            f"  Check shared/workflow-manifest.json persona_file entries."
+        )
