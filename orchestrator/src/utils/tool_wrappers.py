@@ -66,7 +66,7 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
         # This prevents wrapper stacking when the same tool object is passed
         # to inject_project_path more than once (shallow-copy scenario).
         if not hasattr(tool, "_orig_ainvoke"):
-            tool._orig_ainvoke = tool.ainvoke  # type: ignore[attr-defined]
+            object.__setattr__(tool, "_orig_ainvoke", tool.ainvoke)
         _original_ainvoke = tool._orig_ainvoke  # type: ignore[attr-defined]
 
         async def _wrapped_ainvoke(
@@ -82,7 +82,7 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
                     input.setdefault("project_path", _proj)
             return await _orig(input, *args, **kwargs)
 
-        tool.ainvoke = _wrapped_ainvoke  # type: ignore[method-assign]
+        object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)
 
     return tools
 

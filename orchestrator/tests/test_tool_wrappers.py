@@ -345,3 +345,91 @@ class TestMultipleTools:
         assert seen_a[0]["project_path"] == PROJECT
         assert seen_b[0]["project_path"] == PROJECT
 
+
+# ---------------------------------------------------------------------------
+# 9. Pydantic model compatibility — guards against __setattr__ regression
+# ---------------------------------------------------------------------------
+
+class TestPydanticModelCompatibility:
+    """Verify that inject_project_path works on Pydantic BaseModel subclasses.
+
+    The production tool objects are ``StructuredTool`` instances, which inherit
+    from Pydantic's ``BaseModel``.  Pydantic v2 rejects attribute writes to
+    undeclared fields via ``BaseModel.__setattr__``.  These tests ensure the
+    wrapper correctly bypasses that guard.
+
+    See: bug-report-orchestrator.md (2026-03-20)
+    """
+
+    async def test_pydantic_basemodel_subclass_can_be_wrapped(self):
+        """inject_project_path must not raise on a Pydantic BaseModel subclass."""
+        from pydantic import BaseModel, ConfigDict
+
+        seen: list[Any] = []
+
+        class PydanticTool(BaseModel):
+            model_config = ConfigDict(arbitrary_types_allowed=True)
+            name: str = "pydantic_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                seen.append(input)
+                return "ok"
+
+        tool = PydanticTool()
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 1
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_structured_tool_can_be_wrapped(self):
+        """inject_project_path must work on a real StructuredTool instance."""
+        from langchain_core.tools import StructuredTool
+
+        seen: list[Any] = []
+
+        async def _fake_func(project_path: str = "", **kwargs: Any) -> str:
+            seen.append({"project_path": project_path, **kwargs})
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            coroutine=_fake_func,
+            name="fake_mcp_tool",
+            description="A fake tool for testing.",
+        )
+
+        # This is the line that raised ValueError before the fix.
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 1
+        assert seen[0].get("project_path") == PROJECT
+
+    async def test_structured_tool_idempotency(self):
+        """Double-wrapping a StructuredTool must not stack closures."""
+        from langchain_core.tools import StructuredTool
+
+        call_count = 0
+
+        async def _counting_func(project_path: str = "", **kwargs: Any) -> str:
+            nonlocal call_count
+            call_count += 1
+            return "ok"
+
+        tool = StructuredTool.from_function(
+            coroutine=_counting_func,
+            name="counting_tool",
+            description="Counts calls.",
+        )
+
+        inject_project_path([tool], PROJECT)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert call_count == 1, (
+            f"Original ainvoke called {call_count} times — wrapper stacking on StructuredTool"
+        )
+
