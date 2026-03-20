@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import fcntl
 import logging
 import os
 import sys
@@ -402,6 +403,23 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
 
     project_path = Path(args.project_path).resolve() if args.project_path else config.workspace_root
 
+    # ── Acquire process lock (prevent concurrent runs on same plan) ──────
+    lock_path = plan_dir / ".orchestrator.lock"
+    lock_file = None
+    try:
+        lock_file = open(lock_path, "w")  # noqa: SIM115
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.stderr.write(
+            f"orchestrate: error: another orchestrator process is already running "
+            f"against {plan_dir}.\n"
+            f"  Lock file: {lock_path}\n"
+            f"  If no other process is running, delete the lock file and retry.\n"
+        )
+        if lock_file:
+            lock_file.close()
+        return EXIT_ERROR
+
     # ── Set up JSONL run logger ──────────────────────────────────────────────
     from src.utils.logging import WorkflowLogger
     run_logger = WorkflowLogger.create(label=plan_dir.name)
@@ -522,6 +540,15 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         )
     finally:
         run_logger.close()
+
+    # ── Release process lock ────────────────────────────────────────────────
+    if lock_file:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            lock_file.close()
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     duration = time.monotonic() - start_time
     print(f"\n  Log file   : {run_logger._path}")

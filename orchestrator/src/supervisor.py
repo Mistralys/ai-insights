@@ -257,10 +257,12 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 },
             )
 
+        wp_list_error: str | None = None
         try:
             wp_list_data = await _call_tool("ledger_list_work_packages", project_path=project_path)
         except Exception as exc:
             log.error("Failed to list work packages: %s", exc)
+            wp_list_error = str(exc)
             wp_list_data = []
 
         # Normalise: tool may return list or dict with "work_packages" key.
@@ -286,6 +288,25 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         # ── No WPs → PM needs to create them ─────────────────────────
         if not wp_summaries:
+            extra_entries: list = []
+            extra_errs: list = []
+            if wp_list_error:
+                ts = datetime.now(UTC).isoformat()
+                err_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="mcp_error",
+                    destination=_DEST_PM,
+                    error=wp_list_error,
+                    level="WARNING",
+                )
+                if run_logger:
+                    run_logger.stream_entry(err_entry)
+                extra_entries.append(err_entry)
+                extra_errs.append({
+                    "timestamp": ts,
+                    "message": f"ledger_list_work_packages failed: {wp_list_error}",
+                })
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",
@@ -297,7 +318,12 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 run_logger.stream_entry(log_entry)
             return Command(
                 goto=_DEST_PM,
-                update={**base_update, "current_stage": _DEST_PM, "run_log": [log_entry]},
+                update={
+                    **base_update,
+                    "current_stage": _DEST_PM,
+                    "run_log": extra_entries + [log_entry],
+                    "errors": extra_errs,
+                },
             )
 
         # ── All WPs terminal (COMPLETE or CANCELLED) → synthesis ───────────────────

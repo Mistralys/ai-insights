@@ -104,6 +104,15 @@ Do not print API key values to the console under any circumstance.
 
 ## Launching the Orchestrator
 
+**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions: duplicate work, state machine conflicts, and cascading errors. The CLI enforces this with a lock file (`.orchestrator.lock` in the plan directory), but always verify no background process is already running before launching:
+
+```bash
+# Check for active orchestrator processes
+ps aux | grep -i orchestrate | grep -v grep
+```
+
+If a prior process appears to be stuck or orphaned, kill it first and remove the lock file before retrying.
+
 Once all pre-flight checks pass, always pass `--project-path` pointing to the plan's project root (resolved in pre-flight step 2). Without it, the orchestrator infers the project path from the plan's directory — which breaks when the plan lives outside the ai-insights workspace.
 
 `scripts/run-orchestrator.js` is the canonical, cross-platform launch path. It automatically rebuilds the MCP server dist if any source file under `mcp-server/src/` is newer than the compiled `dist/index.js`, preventing silent failures from a stale build. It works identically on macOS, Linux, and Windows.
