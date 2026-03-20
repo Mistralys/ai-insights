@@ -20,3 +20,5 @@
 /.idea
 /dist/*.zip
 /node_modules/
+/.claude/agent-memory
+.vscode/settings.json
