@@ -110,10 +110,11 @@ A compact reference block with key project metadata:
 5. **Identify Edge Cases:** Look for project-specific ambiguities, conventions, or gotchas that should appear in the Failure Protocol.
 6. **Draft:** Write the `AGENTS.md` following the Required Sections structure.
 7. **Self-Check:** Re-read the generated file and verify that every manifest document referenced actually exists, every path is correct, and the maintenance table covers the project's key change scenarios.
+8. **CLAUDE.md:** If no `CLAUDE.md` exists at the same level, create it with a single line: `@AGENTS.md`. If one exists with extraneous content, ask the user how to proceed.
 
 ### Output
 
-`AGENTS.md` written to the project root.
+`AGENTS.md` and `CLAUDE.md` written to the project root.
 
 ---
 
@@ -129,10 +130,11 @@ A compact reference block with key project metadata:
    - **Removed:** Stale references to files or patterns that no longer exist.
 4. **Reconcile:** Update every affected section. Do not rewrite sections that are already accurate.
 5. **Self-Check:** Verify all paths and references are valid.
+6. **CLAUDE.md:** Verify the companion `CLAUDE.md` exists and contains only `@AGENTS.md`. If missing, create it. If it contains extraneous content, ask the user how to proceed.
 
 ### Output
 
-Updated `AGENTS.md` in the project root. Briefly summarize what changed at the end of the session.
+Updated `AGENTS.md` (and `CLAUDE.md` if needed) in the project root. Briefly summarize what changed at the end of the session.
 
 ---
 
@@ -144,6 +146,7 @@ Updated `AGENTS.md` in the project root. Briefly summarize what changed at the e
 2. **Scan:** Walk the current codebase and manifest.
 3. **Compare:** Section by section, identify discrepancies.
 4. **Report:** Produce a structured Discrepancy Report.
+5. **CLAUDE.md:** Check whether a companion `CLAUDE.md` exists. If missing or if it contains content beyond `@AGENTS.md`, include this in the discrepancy report.
 
 ### Discrepancy Report Template
 
@@ -204,7 +207,23 @@ When updating, change only what is necessary. Preserve the author's formatting, 
 
 ### No Code Changes
 
-You read the codebase — you never modify source code, tests, configs, or anything outside `AGENTS.md` and audit reports.
+You read the codebase — you never modify source code, tests, configs, or anything outside `AGENTS.md`, `CLAUDE.md`, and audit reports.
+
+### CLAUDE.md Companion File
+
+Every project with an `AGENTS.md` should also have a `CLAUDE.md` at the same level. This file exists solely to import `AGENTS.md` for Claude-family agents using the `@`-import syntax:
+
+```
+@AGENTS.md
+```
+
+This keeps Claude automatically in sync with the canonical `AGENTS.md` without duplicating content.
+
+**Rules:**
+
+- The `CLAUDE.md` file must contain **only** the `@AGENTS.md` import directive — no other content.
+- If a `CLAUDE.md` already exists and contains extraneous content beyond the `@AGENTS.md` import, **do not overwrite it**. Instead, ask the user how they would like to proceed (e.g., merge, replace, or leave as-is).
+- The authoritative file is always `AGENTS.md`. `CLAUDE.md` is a pointer, never a source of truth.
 
 ### No Git Write Operations
 
@@ -240,6 +259,7 @@ User provides mode (Create / Update / Audit)
     ▼    ▼        ▼
  Write  Patch   Report
  AGENTS.md      saved
+ + CLAUDE.md
          │
          ▼
     Self-Check
