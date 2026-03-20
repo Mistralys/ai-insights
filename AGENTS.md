@@ -270,7 +270,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 ---
 
-## � Changelog Convention
+## 📝 Changelog Convention
 
 This workspace uses a **hub-and-spoke changelog model**: each sub-project maintains its own detailed changelog, and the root changelog aggregates the highlights into versioned releases.
 
@@ -313,7 +313,7 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 
 ---
 
-## �📊 Project Statistics
+## 📊 Project Statistics
 
 | Property | MCP Server | Personas | Orchestrator |
 |----------|-----------|----------|--------------|
