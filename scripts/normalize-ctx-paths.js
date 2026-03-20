@@ -4,16 +4,19 @@
 /**
  * normalize-ctx-paths.js
  *
- * Post-processes CTX-generated Markdown files in .context/ to replace
- * Windows backslash path separators with forward slashes.
+ * Post-processes CTX-generated Markdown files in .context/ to normalise
+ * two OS-dependent artefacts so output is stable across platforms:
  *
- * CTX emits OS-native separators in its "###  Path:" header lines.
- * On Windows these contain backslashes, which causes noisy Git diffs
- * when the same files are regenerated on Linux/macOS.
+ *   1. **Path separators** — CTX emits OS-native separators in its
+ *      "###  Path:" header lines and directory-tree drawings.  On Windows
+ *      these contain backslashes; we replace them with forward slashes.
  *
- * This script surgically targets only the CTX structural patterns
- * (Path headers, directory-structure lines) and leaves fenced code
- * blocks untouched so source-code content is never mangled.
+ *   2. **Line endings** — On Windows the CTX binary (or Node `writeFileSync`)
+ *      may produce CRLF line endings.  We normalise every file to LF so
+ *      regenerating on a different OS never causes a full-file diff.
+ *
+ * Fenced code blocks are left untouched by rule (1) so source-code
+ * content is never mangled.  Rule (2) applies unconditionally.
  *
  * Usage:
  *   node scripts/normalize-ctx-paths.js          # default: .context/
@@ -107,21 +110,31 @@ function normalizePaths(content) {
 // ── Main ────────────────────────────────────────────────────────────────────────
 
 const files = collectMarkdown(targetDir);
-let totalFixed = 0;
+let pathsFixed    = 0;
+let newlinesFixed = 0;
 
 for (const file of files) {
-  const content = fs.readFileSync(file, 'utf8');
-  const updated = normalizePaths(content);
-  if (updated !== null) {
-    fs.writeFileSync(file, updated, 'utf8');
-    totalFixed++;
+  const raw     = fs.readFileSync(file, 'utf8');
+  const content = raw.replace(/\r/g, '');       // normalise to LF
+  const hadCR   = content !== raw;
+
+  const updated = normalizePaths(content);      // path-separator pass
+
+  if (updated !== null || hadCR) {
+    fs.writeFileSync(file, updated ?? content, 'utf8');
+    if (updated !== null) pathsFixed++;
+    if (hadCR) newlinesFixed++;
     const rel = path.relative(process.cwd(), file).replace(/\\/g, '/');
     console.log(`  normalized: ${rel}`);
   }
 }
 
-if (totalFixed > 0) {
-  console.log(`\nNormalized paths in ${totalFixed} file(s).`);
+const total = pathsFixed + newlinesFixed;
+if (total > 0) {
+  const parts = [];
+  if (pathsFixed)    parts.push(`paths in ${pathsFixed} file(s)`);
+  if (newlinesFixed) parts.push(`line endings in ${newlinesFixed} file(s)`);
+  console.log(`\nNormalized ${parts.join(', ')}.`);
 } else {
-  console.log('All paths already use forward slashes.');
+  console.log('All files already normalized.');
 }
