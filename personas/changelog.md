@@ -1,5 +1,11 @@
 # Personas Changelog
 
+## v3.9.3 - CTX Architect: Tree Exclusion Guidance
+- Personas: CTX Architect v1.1.0 — added `notPath` vs `excludePatterns` warning
+  for tree vs file source types (silent ignore bug).
+- Personas: CTX Architect v1.1.0 — added constraint to always exclude package
+  manager artifacts (`node_modules/`, `vendor/`, `.venv/`, etc.) from tree sources.
+
 ## v3.9.2 - Preflight & Docs Cleanup
 - Personas: Simplified Orchestrator Runner preflight to a single script call.
 - Docs: Removed `file-tree.md` from the persona manifest.

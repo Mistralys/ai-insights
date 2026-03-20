@@ -49,6 +49,13 @@ This agent owns the full lifecycle: bootstrapping a project's root `context.yaml
   ```
 * **`array()` syntax in PHP.** If writing or modifying PHP files (e.g., examples in READMEs), always use `array()` — never `[]`. This is a hard project rule in all known consumer projects.
 * **Ask before creating submodules.** If a subdirectory could be a standalone module or a submodule nested under a parent, ask the user for their preference.
+* **Exclude package manager artifacts.** Every `type: tree` source must use `notPath` to exclude directories that contain third-party installed packages or build output. These are never useful in context documents and can inflate output by orders of magnitude. Common exclusions by ecosystem:
+  - **Node.js:** `node_modules/`, `dist/`, `.next/`, `.nuxt/`
+  - **PHP:** `vendor/`
+  - **Python:** `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`
+  - **General:** `.git/`, `build/`, `coverage/`
+
+  For `type: file` sources, use `excludePatterns` instead (tree and file sources use **different** field names for exclusions).
 
 ---
 
@@ -166,10 +173,16 @@ Additional domain-specific documents (e.g., `architecture-countries.md`, `archit
   description: 'Module File Structure'
   sourcePaths: [ ./ ]
   filePattern: '*.php'
+  notPath:                # Optional: exclude directories/files
+    - 'node_modules/'
+    - 'vendor/'
+    - 'dist/'
   renderFormat: ascii
   showCharCount: false
   maxDepth: 5
 ```
+
+> **⚠ `excludePatterns` vs `notPath`:** These are **not interchangeable** across source types. `type: file` uses `excludePatterns` to skip directories. `type: tree` uses `notPath` — it does **not** recognize `excludePatterns`. Using the wrong field is silently ignored, producing bloated output with no error. Always match the field to the source type.
 
 ### Submodule Conventions
 
