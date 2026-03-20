@@ -141,28 +141,30 @@ class TestDoesNotOverrideExplicitProjectPath:
 # 3. No injection when cwd_path present
 # ---------------------------------------------------------------------------
 
-class TestNoInjectionWhenCwdPathPresent:
-    async def test_cwd_path_suppresses_injection(self):
-        """When cwd_path is present, project_path must NOT be injected."""
+class TestCwdPathReplacedWithProjectPath:
+    async def test_cwd_path_stripped_and_project_path_injected(self):
+        """cwd_path must be removed and project_path injected instead."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
         await tool.ainvoke({"cwd_path": "/some/workspace"})
 
-        assert "project_path" not in seen[0], (
-            "project_path must not be injected when cwd_path is present"
+        assert "cwd_path" not in seen[0], (
+            "cwd_path must be stripped in the orchestrator context"
         )
+        assert seen[0]["project_path"] == PROJECT
 
-    async def test_cwd_path_preserved_unchanged(self):
-        """cwd_path value itself must not be modified."""
+    async def test_explicit_project_path_wins_over_cwd_path(self):
+        """When both cwd_path and project_path are present, project_path is kept."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
-        await tool.ainvoke({"cwd_path": "/cwd/value"})
+        await tool.ainvoke({"cwd_path": "/cwd/value", "project_path": "/explicit"})
 
-        assert seen[0]["cwd_path"] == "/cwd/value"
+        assert "cwd_path" not in seen[0]
+        assert seen[0]["project_path"] == "/explicit"
 
 
 # ---------------------------------------------------------------------------

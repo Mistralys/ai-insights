@@ -95,20 +95,7 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     """
     from langgraph.graph import END, START, StateGraph
 
-    # SqliteSaver lives in a separately-installable package.
-    # Fall back to MemorySaver (in-memory, no persistence) when not available.
-    try:
-        from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
-        _use_sqlite = True
-    except ImportError:
-        from langgraph.checkpoint.memory import (
-            MemorySaver as SqliteSaver,  # type: ignore[import,assignment]
-        )
-        _use_sqlite = False
-        log.warning(
-            "langgraph-checkpoint-sqlite is not installed; using in-memory checkpointer. "
-            "Run 'pip install langgraph-checkpoint-sqlite' to enable persistent checkpointing."
-        )
+    from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
 
     from src.nodes.developer import make_developer_node
     from src.nodes.docs import make_docs_node
@@ -159,11 +146,7 @@ def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[
     config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
     db_path = config.checkpoint_dir / "workflow.sqlite"
 
-    # WAL mode is set via PRAGMA inside the saver — prevents corruption on Windows.
-    if _use_sqlite:
-        checkpointer = SqliteSaver.from_conn_string(str(db_path))
-    else:
-        checkpointer = SqliteSaver()  # MemorySaver takes no arguments.
+    checkpointer = SqliteSaver.from_conn_string(str(db_path))
 
     log.info(
         "Building graph: 9 nodes, %d loop edges, checkpoint=%s",

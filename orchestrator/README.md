@@ -49,8 +49,7 @@ pip install -e ".[anthropic]"   # Anthropic (Claude)
 # — or —
 pip install -e ".[google]"      # Google AI Studio (Gemini)
 
-# Optional: enable --resume checkpoint support (SQLite-backed graph snapshots)
-pip install -e ".[checkpoint]"
+# Checkpoint support (SQLite-backed) is included by default.
 
 # 4. Configure environment
 cp .env.example .env

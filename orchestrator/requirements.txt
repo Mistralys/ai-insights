@@ -8,16 +8,13 @@ langchain-mcp-adapters>=0.2
 langgraph>=0.4
 deepagents>=0.3
 python-dotenv>=1.0
+langgraph-checkpoint-sqlite
 
 # Optional: Anthropic provider
 langchain-anthropic>=0.3.10
 
 # Optional: Google provider
 # langchain-google-genai>=2.0
-
-# Optional: required for --resume support (persistent checkpoints across restarts).
-# Install with: pip install -e '.[checkpoint]'
-# langgraph-checkpoint-sqlite
 
 # Dev dependencies
 pytest>=8.0

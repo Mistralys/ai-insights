@@ -19,8 +19,9 @@ Design notes
   ``description``, ``args_schema``, etc.) remain untouched so that tool
   discovery and schema introspection work as normal.
 - Injection uses ``setdefault`` semantics: an explicitly-provided
-  ``project_path`` (or a ``cwd_path`` used by ``ledger_detect_project``)
-  is never overwritten.
+  ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
+  (following persona instructions meant for IDE agents), the wrapper
+  strips it and falls through to ``project_path`` injection.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 
@@ -77,9 +78,14 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
-                # Only inject when neither project_path nor cwd_path is present.
-                if "cwd_path" not in input:
-                    input.setdefault("project_path", _proj)
+                # In the orchestrator context we always know the exact
+                # project_path, so cwd_path-based auto-detection is never
+                # needed.  If the LLM agent followed persona instructions
+                # meant for interactive IDE agents and passed cwd_path,
+                # replace it with the authoritative project_path.
+                if "cwd_path" in input:
+                    del input["cwd_path"]
+                input.setdefault("project_path", _proj)
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)

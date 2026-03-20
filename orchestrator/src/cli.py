@@ -257,14 +257,7 @@ def _build_graph_for_run(
     if dry_run:
         # Build with dry-run stubs instead of real Deep Agent nodes.
         from langgraph.graph import END, START, StateGraph
-        try:
-            from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
-            _use_sqlite = True
-        except ImportError:
-            from langgraph.checkpoint.memory import (
-                MemorySaver as SqliteSaver,  # type: ignore[import,assignment]
-            )
-            _use_sqlite = False
+        from langgraph_checkpoint_sqlite import SqliteSaver  # type: ignore[import]
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
@@ -280,10 +273,7 @@ def _build_graph_for_run(
 
         config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         db_path = config.checkpoint_dir / "workflow.sqlite"
-        if _use_sqlite:
-            checkpointer = SqliteSaver.from_conn_string(str(db_path))  # type: ignore[union-attr]
-        else:
-            checkpointer = SqliteSaver()  # type: ignore[operator]
+        checkpointer = SqliteSaver.from_conn_string(str(db_path))
 
         return builder.compile(
             checkpointer=checkpointer,
