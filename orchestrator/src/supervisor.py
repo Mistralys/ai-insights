@@ -20,10 +20,12 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 
 from .config import PIPELINE_ROLE_NAMES, ROLE_IDS, WP_TERMINAL_STATUSES
 from .state import WorkflowState
+from .utils.logging import get_run_logger
 
 log = logging.getLogger(__name__)
 
@@ -166,8 +168,9 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # The node function itself
     # ------------------------------------------------------------------
 
-    async def supervisor_node(state: WorkflowState) -> Command:
+    async def supervisor_node(state: WorkflowState, config: RunnableConfig | None = None) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
+        run_logger = get_run_logger(config)
         project_path: str = state["project_path"]
         new_iteration: int = state.get("iteration", 0) + 1  # type: ignore[call-overload]
         max_iterations: int = state.get("max_iterations", 100)  # type: ignore[call-overload]
@@ -208,6 +211,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 iteration=new_iteration,
                 level="WARNING",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=END,
                 update={
@@ -240,6 +245,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 error=str(exc),
                 level="ERROR",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=END,
                 update={
@@ -286,6 +293,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 destination=_DEST_PM,
                 reason="no work packages found",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=_DEST_PM,
                 update={**base_update, "current_stage": _DEST_PM, "run_log": [log_entry]},
@@ -300,6 +309,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 destination=_DEST_SYNTHESIS,
                 reason="all work packages terminal (COMPLETE or CANCELLED)",
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             return Command(
                 goto=_DEST_SYNTHESIS,
                 update={
@@ -372,6 +383,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                         consecutive_failures=consecutive,
                         level="WARNING",
                     )
+                    if run_logger:
+                        run_logger.stream_entry(entry)
                     extra_log_entries.append(entry)
                     extra_errors.append({
                         "timestamp": ts,
@@ -395,6 +408,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 agent_role=role,
                 ledger_action=action,
             )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
             log.info(
                 "Routing WP %s (role=%s, action=%s) → %s", wp_id, role, action, destination
             )
@@ -417,6 +432,8 @@ def make_supervisor_node(mcp_tools: list[Any]):
             destination=_DEST_SYNTHESIS,
             reason="all roles returned WAIT",
         )
+        if run_logger:
+            run_logger.stream_entry(log_entry)
         return Command(
             goto=_DEST_SYNTHESIS,
             update={

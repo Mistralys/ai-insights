@@ -196,24 +196,27 @@ def _make_dryrun_node(stage: str):
     success without invoking the Deep Agent.
     """
     from datetime import datetime
+    from src.utils.logging import get_run_logger
 
-    def _stub(state: Any) -> dict:
+    def _stub(state: Any, config: Any = None) -> dict:
         ts = datetime.now(UTC).isoformat()
         wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
         log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "—")
         print(f"  [dry-run] {stage}: WP={wp_id or '—'}")
+        log_entry = {
+            "timestamp": ts,
+            "stage": stage,
+            "wp_id": wp_id,
+            "action": "dry_run",
+            "result": "SKIP",
+        }
+        run_logger = get_run_logger(config)
+        if run_logger:
+            run_logger.stream_entry(log_entry)
         return {
             "stage_result": f"[dry-run] {stage} stub",
             "stage_success": True,
-            "run_log": [
-                {
-                    "timestamp": ts,
-                    "stage": stage,
-                    "wp_id": wp_id,
-                    "action": "dry_run",
-                    "result": "SKIP",
-                }
-            ],
+            "run_log": [log_entry],
         }
 
     _stub.__name__ = f"{stage}_dryrun"
@@ -471,7 +474,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 interrupt_before=interrupt_before,
             )
 
-            run_config = {"configurable": {"thread_id": thread_id}}
+            run_config = {"configurable": {"thread_id": thread_id, "run_logger": run_logger}}
 
             try:
                 if args.resume:
@@ -495,28 +498,11 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         log.error("MCP server startup failed: %s", exc, exc_info=True)
         outside_errors.append(f"MCP server error: {exc}")
 
-    # ── Flush run_log to JSONL ──────────────────────────────────────────────
+    # ── Write final entries to JSONL ────────────────────────────────────────
+    # Run-log entries from graph nodes are already streamed to the JSONL file
+    # in real time (via run_logger passed through LangGraph config).  Only
+    # outside errors and the run_end sentinel still need to be written here.
     try:
-        run_log_entries: list = (final_state or {}).get("run_log", [])
-        for entry in run_log_entries:
-            # Map LangGraph state run_log fields to WorkflowLogger schema.
-            stage = entry.get("stage", "")
-            wp_id = entry.get("wp_id", "")
-            action = entry.get("action", "unknown")
-            result_val = entry.get("result", "")
-            # Remaining fields forwarded as **extra.
-            extra = {
-                k: v for k, v in entry.items()
-                if k not in {"stage", "wp_id", "action", "result", "timestamp"}
-            }
-            run_logger.log(
-                stage=stage,
-                wp_id=wp_id,
-                action=action,
-                result=result_val,
-                **extra,
-            )
-        # Write a run_error entry for each outside error captured before run_end.
         for err_msg in outside_errors:
             run_logger.log(
                 stage="cli",

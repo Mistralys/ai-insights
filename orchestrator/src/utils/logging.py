@@ -213,6 +213,45 @@ class WorkflowLogger:
         self._console.info(" ".join(parts))
 
     # ------------------------------------------------------------------
+    # Streaming helper — write a pre-built log-entry dict immediately
+    # ------------------------------------------------------------------
+
+    def stream_entry(self, entry: dict[str, Any]) -> None:
+        """
+        Write a pre-built log-entry dict to the JSONL file immediately.
+
+        This is used by graph nodes that build their own log-entry dicts
+        (for LangGraph state ``run_log``) and also want them persisted to
+        the JSONL file in real time — before the graph finishes.
+
+        Parameters
+        ----------
+        entry:
+            A dict matching the JSONL schema (must contain at least
+            ``"action"``).  A ``"timestamp"`` is added if missing.
+        """
+        if "timestamp" not in entry:
+            entry["timestamp"] = datetime.now(UTC).isoformat()
+        self._fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        self._fh.flush()
+
+        # Also emit a console line so stderr stays in sync.
+        stage = entry.get("stage", "")
+        wp_id = entry.get("wp_id", "")
+        action = entry.get("action", "")
+        result = entry.get("result", "")
+        parts = [f"[{stage}]" if stage else "[—]"]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(action)
+        if result:
+            parts.append(f"→ {result}")
+        tokens = entry.get("tokens_used")
+        if tokens is not None:
+            parts.append(f"({tokens} tokens)")
+        self._console.info(" ".join(parts))
+
+    # ------------------------------------------------------------------
     # Resource management
     # ------------------------------------------------------------------
 
@@ -236,3 +275,25 @@ class WorkflowLogger:
     def __del__(self) -> None:
         # Best-effort cleanup if close() was not called explicitly.
         self.close()
+
+
+# ---------------------------------------------------------------------------
+# LangGraph config helper
+# ---------------------------------------------------------------------------
+
+def get_run_logger(config: Any) -> WorkflowLogger | None:
+    """
+    Extract the :class:`WorkflowLogger` from a LangGraph ``RunnableConfig``.
+
+    Returns ``None`` if the config is missing or does not contain a logger,
+    so callers can safely do ``if logger: logger.stream_entry(entry)``.
+
+    Parameters
+    ----------
+    config:
+        The LangGraph ``RunnableConfig`` dict passed to node functions.
+    """
+    if config is None:
+        return None
+    configurable = config.get("configurable") or {}
+    return configurable.get("run_logger")
