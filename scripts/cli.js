@@ -431,6 +431,9 @@ function cmdCtxGenerate(args) {
     log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
     process.exit(result.status ?? 1);
   }
+  // Normalize Windows backslash paths to forward slashes for cross-platform consistency
+  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir]);
+
   fs.writeFileSync(
     path.join(ctxDir, 'generated-at.txt'),
     new Date().toISOString() + '\n',
