@@ -1,0 +1,94 @@
+moduleMetaData:
+  id: "orchestrator"
+  label: "Orchestrator"
+  description: "LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows."
+  keywords:
+    - LangGraph
+    - Deep Agents
+    - headless pipeline
+    - orchestrator
+  relatedModules:
+    - mcp-server
+    - personas
+
+documents:
+  - description: 'Orchestrator - Overview'
+    outputPath: 'orchestrator/overview.md'
+    sources:
+      - type: file
+        description: "Overview"
+        sourcePaths:
+          - README.md
+        filePattern: "README.md"
+
+  - description: 'Orchestrator - Documentation'
+    outputPath: 'orchestrator/documentation.md'
+    sources:
+      - type: file
+        description: "Technical deep-dives (architecture, routing, log schema, smoke tests, public API)"
+        sourcePaths:
+          - docs
+        filePattern: "*.md"
+
+  - description: 'Orchestrator - File Structure'
+    outputPath: 'orchestrator/file-structure.md'
+    sources:
+      - type: tree
+        description: 'Directory tree'
+        sourcePaths:
+          - ./
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 8
+        excludePatterns:
+          - '__pycache__/'
+          - '.venv/'
+          - '.pytest_cache/'
+          - 'checkpoints/'
+          - '*.pyc'
+
+  - description: 'Orchestrator - Core Source'
+    outputPath: 'orchestrator/source-core.md'
+    sources:
+      - type: file
+        description: "Core modules: CLI, config, graph, state, supervisor, MCP client"
+        sourcePaths:
+          - src
+        filePattern: "*.py"
+        excludePatterns:
+          - 'nodes/'
+          - 'utils/'
+          - '__pycache__/'
+
+  - description: 'Orchestrator - Stage Nodes'
+    outputPath: 'orchestrator/source-nodes.md'
+    sources:
+      - type: file
+        description: "Pipeline stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis)"
+        sourcePaths:
+          - src/nodes
+        filePattern: "*.py"
+        excludePatterns:
+          - '__pycache__/'
+
+  - description: 'Orchestrator - Utilities'
+    outputPath: 'orchestrator/source-utils.md'
+    sources:
+      - type: file
+        description: "Utility modules: tool wrappers, persona loader, plan parser, JSONL logger"
+        sourcePaths:
+          - src/utils
+        filePattern: "*.py"
+        excludePatterns:
+          - '__pycache__/'
+
+  - description: 'Orchestrator - Tests'
+    outputPath: 'orchestrator/tests.md'
+    sources:
+      - type: file
+        description: "Test suite (unit, integration, live marks)"
+        sourcePaths:
+          - tests
+        filePattern: "*.py"
+        excludePatterns:
+          - '__pycache__/'

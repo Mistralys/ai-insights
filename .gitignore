@@ -1,7 +1,6 @@
 .DS_Store
 /mcp-server/node_modules/
 /.mcp.json
-/.context/
 /docs/agents/**/work.md
 /docs/agents/**/work/
 /docs/agents/**/dependency-analysis.md

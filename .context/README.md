@@ -1,3 +1,14 @@
+# AI Insights - Overview
+_SOURCE: Overview_
+# Overview
+```
+// Structure of documents
+└── README.md
+
+```
+###  Path: `README.md`
+
+```md
 # AI Insights
 
 A toolkit for structured, multi-agent AI development workflows. It gives AI coding agents a shared memory, a defined set of roles, and a headless execution path — so complex projects can be tackled across multiple chat sessions without losing context.
@@ -116,4 +127,10 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | [discussions/](discussions/) | LLM discussion archive and design notes |
 | [history/key-learnings.md](history/key-learnings.md) | Lessons learned across the project |
 | [AGENTS.md](AGENTS.md) | Agent operating instructions (for AI agents entering this workspace) |
-| `.context/` | Auto-generated codebase snapshots via [CTX Generator](https://github.com/context-hub/generator) — run `node scripts/cli.js ctx-generate` |
+
+```
+---
+**File Statistics**
+- **Size**: 5.94 KB
+- **Lines**: 137
+File: `README.md`

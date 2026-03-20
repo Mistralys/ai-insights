@@ -1,13 +1,16 @@
 $schema: 'https://raw.githubusercontent.com/context-hub/generator/refs/heads/main/json-schema.json'
 
+project:
+  path: "."
+  alias: "ai-insights"
+
 # Import all module context files
 import:
   - path: "**/module-context.yaml"
 
 # DOCUMENT GENERATION - To create documentation from codebase
 documents:
-  -
-    description: 'AI Insights - Overview'
+  - description: 'AI Insights - Overview'
     outputPath: README.md
     overwrite: true
     sources:
@@ -16,3 +19,51 @@ documents:
         sourcePaths:
           - README.md
         filePattern: "README.md"
+
+  - description: 'AI Insights - Agent Operating System'
+    outputPath: agents.md
+    sources:
+      - type: file
+        description: "Authoritative entry point for AI agents entering this workspace"
+        sourcePaths:
+          - .
+        filePattern: "AGENTS.md"
+
+  - description: 'AI Insights - Workspace Structure'
+    outputPath: workspace-structure.md
+    sources:
+      - type: tree
+        description: 'Top-level directory tree'
+        sourcePaths:
+          - ./
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 3
+        excludePatterns:
+          - 'node_modules/'
+          - '.context/'
+          - 'dist/'
+          - '.venv/'
+          - '__pycache__/'
+          - 'build/'
+          - '.git/'
+
+  - description: 'AI Insights - Scripts'
+    outputPath: scripts.md
+    sources:
+      - type: file
+        description: "Workspace scripts (CLI, persona sync, build, bundling, validation)"
+        sourcePaths:
+          - scripts
+        filePattern: "*.js"
+        excludePatterns:
+          - 'tests/'
+
+  - description: 'AI Insights - Shared Manifest'
+    outputPath: shared-manifest.md
+    sources:
+      - type: file
+        description: "Workflow manifest (single source of truth for roles, pipelines, statuses)"
+        sourcePaths:
+          - shared
+        filePattern: "*.json"

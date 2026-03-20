@@ -412,6 +412,26 @@ function cmdBuildMaintain(args) {
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
+function cmdCtxGenerate(args) {
+  const ctxDir = path.join(WORKSPACE_ROOT, '.context');
+  if (fs.existsSync(ctxDir)) {
+    fs.rmSync(ctxDir, { recursive: true, force: true });
+    log('Cleaned .context/', 'dim');
+  }
+  const result = spawnSync('ctx', ['generate', ...args], {
+    cwd: WORKSPACE_ROOT,
+    stdio: 'inherit',
+    shell: true,
+  });
+  if (result.status !== 0) {
+    log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
+    process.exit(result.status ?? 1);
+  }
+  fs.writeFileSync(
+    path.join(ctxDir, 'generated-at.txt'),
+    new Date().toISOString() + '\n',
+  );
+}
 function cmdMcpJson(args)         { scaffoldMcpJson(args.includes('--force')); }
 function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]); }
 
@@ -492,6 +512,14 @@ const COMMANDS = [
     description: 'Compile doc bundles',
     run:         cmdBundleDocs,
   },
+  {
+    id:          'ctx-generate',
+    key:         'c',
+    label:       'CTX generate',
+    category:    'Validation & Utilities',
+    description: 'Generate context documentation',
+    run:         cmdCtxGenerate,
+  },
 ];
 
 // ─── Help ─────────────────────────────────────────────────────────────────────
@@ -515,8 +543,7 @@ function printHelp() {
     // Note: orchestrator requires --plan <path>; not available in interactive menu
     ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
     ['check-roles',              'Verify persona ↔ MCP server role parity'],
-    ['bundle-docs',              'Compile doc bundles'],
-    ['help',                     'Show this help'],
+    ['bundle-docs',              'Compile doc bundles'],    ['ctx-generate',             'Generate context documentation (ctx generate)'],    ['help',                     'Show this help'],
   ];
   for (const [cmd, desc] of rows) {
     process.stdout.write('  ' + cmd.padEnd(28) + C.dim(desc) + '\n');

@@ -1,0 +1,90 @@
+moduleMetaData:
+  id: "personas"
+  label: "Ledger Personas Build System"
+  description: "Template engine that assembles ledger and standalone persona Markdown files from YAML/Markdown sources."
+  keywords:
+    - personas
+    - agent roles
+    - template engine
+    - prompt engineering
+  relatedModules:
+    - mcp-server
+    - orchestrator
+
+documents:
+  - description: 'Personas - Overview'
+    outputPath: 'personas/overview.md'
+    sources:
+      - type: file
+        description: "Overview"
+        sourcePaths:
+          - README.md
+        filePattern: "README.md"
+
+  - description: 'Personas - Manifest'
+    outputPath: 'personas/manifest.md'
+    sources:
+      - type: file
+        description: "Project manifest (tech stack, constraints, API surface, data flows, file tree)"
+        sourcePaths:
+          - docs/agents/project-manifest
+        filePattern: "*.md"
+
+  - description: 'Personas - File Structure'
+    outputPath: 'personas/file-structure.md'
+    sources:
+      - type: tree
+        description: 'Directory tree'
+        sourcePaths:
+          - ./
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 8
+        excludePatterns:
+          - 'node_modules/'
+          - '.gitkeep'
+
+  - description: 'Personas - Ledger Suite Guide'
+    outputPath: 'personas/ledger-suite.md'
+    sources:
+      - type: file
+        description: "Ledger workflow user guide (9-agent pipeline usage, prerequisites, step-by-step)"
+        sourcePaths:
+          - ledger
+        filePattern: "README.md"
+
+  - description: 'Personas - Standalone Suite Guide'
+    outputPath: 'personas/standalone-suite.md'
+    sources:
+      - type: file
+        description: "Standalone personas guide (PM sub-agent cluster, persona catalog, Claude Code injection)"
+        sourcePaths:
+          - standalone
+        filePattern: "README.md"
+
+  - description: 'Personas - Shared Partials'
+    outputPath: 'personas/shared-partials.md'
+    sources:
+      - type: file
+        description: "Cross-suite Markdown partials (operational protocols, output formats, incident logging)"
+        sourcePaths:
+          - shared/partials
+        filePattern: "*.md"
+
+  - description: 'Personas - Ledger Metadata'
+    outputPath: 'personas/ledger-metadata.md'
+    sources:
+      - type: file
+        description: "YAML metadata for all 9 ledger personas (shared defaults + per-persona overrides)"
+        sourcePaths:
+          - ledger/src/meta
+        filePattern: "*.yaml"
+
+  - description: 'Personas - Standalone Metadata'
+    outputPath: 'personas/standalone-metadata.md'
+    sources:
+      - type: file
+        description: "YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)"
+        sourcePaths:
+          - standalone/src/meta
+        filePattern: "*.yaml"
