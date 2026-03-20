@@ -590,8 +590,3 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
 
 
 ```
----
-**File Statistics**
-- **Size**: 18.99 KB
-- **Lines**: 598
-File: `orchestrator/source-utils.md`

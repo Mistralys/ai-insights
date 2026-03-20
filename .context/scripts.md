@@ -1376,6 +1376,11 @@ function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); 
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
 function cmdCtxGenerate(args) {
+  const ctxDir = path.join(WORKSPACE_ROOT, '.context');
+  if (fs.existsSync(ctxDir)) {
+    fs.rmSync(ctxDir, { recursive: true, force: true });
+    log('Cleaned .context/', 'dim');
+  }
   const result = spawnSync('ctx', ['generate', ...args], {
     cwd: WORKSPACE_ROOT,
     stdio: 'inherit',
@@ -1385,6 +1390,10 @@ function cmdCtxGenerate(args) {
     log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
     process.exit(result.status ?? 1);
   }
+  fs.writeFileSync(
+    path.join(ctxDir, 'generated-at.txt'),
+    new Date().toISOString() + '\n',
+  );
 }
 function cmdMcpJson(args)         { scaffoldMcpJson(args.includes('--force')); }
 function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]); }
@@ -3559,8 +3568,3 @@ if (errors.length === 0) {
 }
 
 ```
----
-**File Statistics**
-- **Size**: 127.46 KB
-- **Lines**: 3561
-File: `scripts.md`

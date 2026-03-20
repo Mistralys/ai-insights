@@ -432,8 +432,3 @@ tools:
   - search
 
 ```
----
-**File Statistics**
-- **Size**: 10.05 KB
-- **Lines**: 440
-File: `personas/standalone-metadata.md`

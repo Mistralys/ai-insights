@@ -1433,8 +1433,3 @@ This frontmatter is consumed by:
 - MCP Agent Registry → reads `role` for automatic handoff routing
 
 ```
----
-**File Statistics**
-- **Size**: 94.12 KB
-- **Lines**: 1441
-File: `personas/manifest.md`

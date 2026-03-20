@@ -4028,8 +4028,3 @@ Inactive stages are skipped entirely when not in `active_pipeline_stages` — `r
 | Complete Pipeline | Missing artifacts | PASS with empty/absent `artifacts.files_modified` (§12.1, [§21.64](edge-cases.md#2164-artifact-declaration-soft-warning)) |
 
 ```
----
-**File Statistics**
-- **Size**: 291.08 KB
-- **Lines**: 4030
-File: `mcp-server/workflow-specification.md`

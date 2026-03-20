@@ -460,8 +460,3 @@ roster:
     short: Synthesis & Project Reporting
 
 ```
----
-**File Statistics**
-- **Size**: 14.24 KB
-- **Lines**: 468
-File: `personas/ledger-metadata.md`

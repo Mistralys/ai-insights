@@ -163,6 +163,7 @@ _SOURCE: Directory tree_
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
+            ├── workflow-orchestrator.md
             ├── wp-decomposer.md
         └── src/
             ├── content/
@@ -215,11 +216,7 @@ _SOURCE: Directory tree_
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
             └── whatsnew-curator.agent.md
+            └── workflow-orchestrator.agent.md
             └── wp-decomposer.agent.md
 
 ```
----
-**File Statistics**
-- **Size**: 9.37 KB
-- **Lines**: 226
-File: `personas/file-structure.md`

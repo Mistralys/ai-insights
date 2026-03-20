@@ -359,8 +359,3 @@ The `consecutive_failures` field in `WorkflowState` tracks per-WP failure counts
 A WP that accumulates **≥ 3 consecutive failures** is skipped for the remainder of the run (its `ledger_get_next_action` dispatch is bypassed). Skipped WPs do not terminate the run — the supervisor continues checking the remaining roles. Only when all roles return `WAIT` or are circuit-broken does the supervisor fall through to `synthesis`.
 
 ```
----
-**File Statistics**
-- **Size**: 19.03 KB
-- **Lines**: 367
-File: `orchestrator/documentation.md`

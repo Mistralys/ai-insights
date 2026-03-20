@@ -26308,8 +26308,3 @@ describe('WP ID gap-resilient generation (createWorkPackage logic)', () => {
 });
 
 ```
----
-**File Statistics**
-- **Size**: 1011.05 KB
-- **Lines**: 26310
-File: `mcp-server/tests.md`

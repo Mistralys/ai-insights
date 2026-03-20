@@ -86,8 +86,3 @@ node scripts/sync-personas.js
 - [Project Manifest](docs/agents/project-manifest/README.md) — Authoritative technical reference (API surface, constraints, data flows)
 
 ```
----
-**File Statistics**
-- **Size**: 4.89 KB
-- **Lines**: 94
-File: `personas/overview.md`

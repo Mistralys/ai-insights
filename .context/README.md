@@ -127,10 +127,6 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | [discussions/](discussions/) | LLM discussion archive and design notes |
 | [history/key-learnings.md](history/key-learnings.md) | Lessons learned across the project |
 | [AGENTS.md](AGENTS.md) | Agent operating instructions (for AI agents entering this workspace) |
+| `.context/` | Auto-generated codebase snapshots via [CTX Generator](https://github.com/context-hub/generator) — run `node scripts/cli.js ctx-generate` |
 
 ```
----
-**File Statistics**
-- **Size**: 5.94 KB
-- **Lines**: 137
-File: `README.md`

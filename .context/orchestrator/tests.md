@@ -3958,8 +3958,3 @@ class TestMultipleTools:
 
 
 ```
----
-**File Statistics**
-- **Size**: 147.68 KB
-- **Lines**: 3966
-File: `orchestrator/tests.md`

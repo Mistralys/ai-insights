@@ -178,6 +178,44 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Read generated persona files to understand template logic | Read `personas/…/api-surface.md` + `data-flows.md` |
 | Read 10 source files to understand status transitions | Read `mcp-server/…/constraints.md` |
 | Search code to find where a file lives | Check the relevant `file-tree.md` |
+| Get a full module overview (API + source + tests) | Read `.context/{module}/` generated docs | Manifest `api-surface.md` | Source code |
+
+### Generated Context Docs (`.context/`)
+
+The [CTX Generator](https://github.com/context-hub/generator) produces Markdown snapshots of the entire codebase. Run `node scripts/cli.js ctx-generate` to regenerate. Output lives in `.context/` (gitignored).
+
+| Path | Contents |
+|------|----------|
+| `.context/README.md` | Workspace overview (mirrors root `README.md`) |
+| `.context/agents.md` | Root `AGENTS.md` content |
+| `.context/workspace-structure.md` | Top-level directory tree (depth 3) |
+| `.context/scripts.md` | All workspace scripts source |
+| `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
+| `.context/mcp-server/overview.md` | MCP server README |
+| `.context/mcp-server/manifest.md` | MCP server project manifest (all 6 docs) |
+| `.context/mcp-server/workflow-specification.md` | Workflow spec docs |
+| `.context/mcp-server/source-tools.md` | Tool handler source |
+| `.context/mcp-server/source-storage.md` | LedgerStore + schema source |
+| `.context/mcp-server/source-utils.md` | Utility module source |
+| `.context/mcp-server/tests.md` | Test suite source |
+| `.context/mcp-server/file-structure.md` | MCP server directory tree |
+| `.context/orchestrator/overview.md` | Orchestrator README |
+| `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
+| `.context/orchestrator/source-core.md` | Core modules (CLI, config, graph, state, supervisor) |
+| `.context/orchestrator/source-nodes.md` | Pipeline stage node factories |
+| `.context/orchestrator/source-utils.md` | Utility modules (tool wrappers, persona loader, etc.) |
+| `.context/orchestrator/tests.md` | Test suite source |
+| `.context/orchestrator/file-structure.md` | Orchestrator directory tree |
+| `.context/personas/overview.md` | Personas README |
+| `.context/personas/manifest.md` | Personas project manifest |
+| `.context/personas/ledger-suite.md` | Ledger workflow user guide |
+| `.context/personas/standalone-suite.md` | Standalone personas guide |
+| `.context/personas/shared-partials.md` | Cross-suite Markdown partials |
+| `.context/personas/ledger-metadata.md` | Ledger persona YAML metadata |
+| `.context/personas/standalone-metadata.md` | Standalone persona YAML metadata |
+| `.context/personas/file-structure.md` | Personas directory tree |
+
+> **Tip:** These files are ideal for feeding into LLMs or external tools (e.g. NotebookLM) that need a full codebase snapshot without cloning the repo.
 
 ---
 
@@ -293,6 +331,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Review past discussions | [discussions/](discussions/) |
 | Review error history | [history/error-ledger.md](history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](history/key-learnings.md) |
+| Get a full codebase snapshot for LLMs | `.context/` (run `node scripts/cli.js ctx-generate` to regenerate) |
 
 ---
 
@@ -549,8 +588,3 @@ If you are operating in a **specific agent role**, consult the relevant persona 
 **Last Updated:** 2026-02-23  
 **Maintained By:** Manifest Curator Agent
 ```
----
-**File Statistics**
-- **Size**: 35.17 KB
-- **Lines**: 551
-File: `agents.md`

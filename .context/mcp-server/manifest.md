@@ -6189,8 +6189,3 @@ Adding or renaming a role, pipeline type, or status value in the manifest propag
 - **File Naming:** Work package IDs follow the pattern `WP-###` (minimum 3 digits; no upper bound — supports `WP-001` through `WP-9999+`)
 
 ```
----
-**File Statistics**
-- **Size**: 355.65 KB
-- **Lines**: 6191
-File: `mcp-server/manifest.md`

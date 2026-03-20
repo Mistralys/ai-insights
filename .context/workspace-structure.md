@@ -1927,6 +1927,7 @@ _SOURCE: Top-level directory tree_
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
+    │       ├── workflow-orchestrator.md
     │       ├── wp-decomposer.md
     │   └── vs-code/
     │       └── agents-md-curator.agent.md
@@ -1943,6 +1944,7 @@ _SOURCE: Top-level directory tree_
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md
     │       └── whatsnew-curator.agent.md
+    │       └── workflow-orchestrator.agent.md
     │       └── wp-decomposer.agent.md
 └── scripts/
     ├── build-personas.js
@@ -1966,8 +1968,3 @@ _SOURCE: Top-level directory tree_
 └── vitest.config.ts
 
 ```
----
-**File Statistics**
-- **Size**: 73.42 KB
-- **Lines**: 1968
-File: `workspace-structure.md`

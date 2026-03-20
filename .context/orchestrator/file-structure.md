@@ -84,8 +84,3 @@ _SOURCE: Directory tree_
         └── test_tool_wrappers.py
 
 ```
----
-**File Statistics**
-- **Size**: 3.4 KB
-- **Lines**: 92
-File: `orchestrator/file-structure.md`
