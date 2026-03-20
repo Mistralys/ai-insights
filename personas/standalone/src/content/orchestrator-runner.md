@@ -29,7 +29,7 @@ If no plan path is provided and a Markdown file is currently open in the editor,
 
 ## Pre-Flight Checklist
 
-Before launching, verify each of the following in order. Stop and report clearly if any check fails — do not proceed to the next check.
+Before launching, perform two steps: locate the ai-insights workspace, then run the automated preflight script.
 
 ### 1. Locate the ai-insights workspace
 
@@ -40,78 +40,36 @@ The ai-insights workspace is the directory containing both `orchestrator/` and `
 3. **Neither found** — stop and ask the user to set the variable:
 
    ```bash
-   # macOS / Linux / Git Bash / WSL
    export AI_INSIGHTS_ROOT=/path/to/ai-insights-dev
    # To persist, add this line to ~/.zshrc (or ~/.bashrc)
-
-   # Windows PowerShell (current session)
-   $env:AI_INSIGHTS_ROOT = "C:\path\to\ai-insights-dev"
-   # Windows PowerShell (persistent — User scope)
-   [System.Environment]::SetEnvironmentVariable("AI_INSIGHTS_ROOT", "C:\path\to\ai-insights-dev", "User")
-
-   # Windows Command Prompt (persistent)
-   setx AI_INSIGHTS_ROOT "C:\path\to\ai-insights-dev"
    ```
 
 Once resolved, verify `$AI_INSIGHTS_ROOT/scripts/run-orchestrator.js` exists before continuing.
 
-### 2. Confirm the plan file exists
+### 2. Run the preflight script
 
-Resolve the plan path as provided by the user (relative paths are relative to the **current working directory or the user's project root**, not to `$AI_INSIGHTS_ROOT`). If the file does not exist, stop and report the full path that was checked. Do not guess an alternative path.
-
-Also note the plan's **project root** — this is the directory that the orchestrator should treat as the target codebase. Unless the user specifies otherwise, use the closest ancestor directory that looks like a project root (contains `.git`, `package.json`, `pyproject.toml`, etc.). This path will be passed as `--project-path`.
-
-### 3. Check that `orchestrate` is on PATH
-
-```bash
-which orchestrate
-```
-
-If not found, the Python virtual environment is not active. Try to activate it:
-
-```bash
-# macOS / Linux / Git Bash / WSL
-source "$AI_INSIGHTS_ROOT/orchestrator/.venv/bin/activate"
-
-# Windows PowerShell
-& "$env:AI_INSIGHTS_ROOT\orchestrator\.venv\Scripts\Activate.ps1"
-```
-
-If `.venv` does not exist under `$AI_INSIGHTS_ROOT/orchestrator/`, stop and guide the user through setup using the unified CLI (they must complete this before proceeding):
+The preflight script validates all operational requirements in one step: venv existence, `.env` configuration, MCP server dist freshness, and absence of conflicting processes.
 
 ```bash
 cd "$AI_INSIGHTS_ROOT"
-node scripts/cli.js setup --components orchestrator              # Anthropic (default)
-# node scripts/cli.js setup --components orchestrator --provider google   # Google AI Studio
-# node scripts/cli.js setup --components orchestrator --checkpoint         # enables --resume support
-# node scripts/cli.js setup --help                                         # see all options
+node scripts/preflight-orchestrator.js --plan <plan-path>
 ```
 
-The setup wizard creates `.venv`, upgrades pip, installs the package with the chosen LLM provider extra, and scaffolds `.env` from `.env.example` automatically. After it completes, activate the venv and re-run the pre-flight check.
+If all checks pass (exit code 0), proceed to launch. If any check fails (exit code 1), the script prints the failing check, a description, and a suggested fix command. Report the failure and fix to the user — do not proceed.
 
-### 4. Verify `.env` is configured
+Also resolve the plan's **project root** — this is the directory that the orchestrator should treat as the target codebase. Unless the user specifies otherwise, use the closest ancestor directory that looks like a project root (contains `.git`, `package.json`, `pyproject.toml`, etc.). This path will be passed as `--project-path`.
 
-Check that `$AI_INSIGHTS_ROOT/orchestrator/.env` exists and contains both a `MODEL_NAME` value and at least one API key (`ANTHROPIC_API_KEY` or `GOOGLE_API_KEY`). If `.env` is missing, inform the user to copy and populate the example:
+For machine-readable output (useful for scripting), add `--json`:
 
 ```bash
-cp "$AI_INSIGHTS_ROOT/orchestrator/.env.example" "$AI_INSIGHTS_ROOT/orchestrator/.env"
-# Edit .env: set MODEL_NAME and the relevant API key
+node scripts/preflight-orchestrator.js --plan <plan-path> --json
 ```
-
-Do not print API key values to the console under any circumstance.
 
 ---
 
 ## Launching the Orchestrator
 
-**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions: duplicate work, state machine conflicts, and cascading errors. The CLI enforces this with a lock file (`.orchestrator.lock` in the plan directory), but always verify no background process is already running before launching:
-
-```bash
-# Check for active orchestrator processes
-ps aux | grep -i orchestrate | grep -v grep
-```
-
-If a prior process appears to be stuck or orphaned, kill it first and remove the lock file before retrying.
+**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions. The preflight script checks for running processes, and the CLI enforces a lock file (`.orchestrator.lock` in the plan directory). If the preflight script reports a conflict, resolve it before proceeding.
 
 Once all pre-flight checks pass, always pass `--project-path` pointing to the plan's project root (resolved in pre-flight step 2). Without it, the orchestrator infers the project path from the plan's directory — which breaks when the plan lives outside the ai-insights workspace.
 
@@ -233,19 +191,21 @@ The thread ID appears in both the console output at run start and in the `run_st
 
 ## Common Errors and Fixes
 
+> **Tip:** Most of these are caught automatically by `node scripts/preflight-orchestrator.js`. Run it first.
+
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `AI_INSIGHTS_ROOT` not set, `scripts/run-orchestrator.js` not found | ai-insights workspace not configured | Set `AI_INSIGHTS_ROOT` to the ai-insights workspace path (see Pre-Flight step 1) |
-| `command not found: orchestrate` | venv not activated | `source "$AI_INSIGHTS_ROOT/orchestrator/.venv/bin/activate"` — or run `node scripts/cli.js setup --components orchestrator` first if `.venv` is missing |
-| `ModuleNotFoundError` on startup | Package not installed in active venv | Re-run `node scripts/cli.js setup --components orchestrator` from `$AI_INSIGHTS_ROOT` to reinstall |
-| `[run-orchestrator.js] mcp-server/dist is stale` then build fails | TypeScript compile error in mcp-server | `cd "$AI_INSIGHTS_ROOT/mcp-server" && npm run build` and inspect output |
-| `MCP connection failed` at runtime | `dist/` missing or corrupted | `cd "$AI_INSIGHTS_ROOT/mcp-server" && npm run build` |
-| `ANTHROPIC_API_KEY not set` or equivalent | Missing key in `.env` | Populate `$AI_INSIGHTS_ROOT/orchestrator/.env` |
+| `AI_INSIGHTS_ROOT` not set | ai-insights workspace not configured | Set `AI_INSIGHTS_ROOT` (see Pre-Flight step 1) |
+| Preflight fails on `venv` | venv missing or incomplete | `node scripts/cli.js setup --components orchestrator` |
+| Preflight fails on `env` | `.env` missing or incomplete | Copy and edit: `cp orchestrator/.env.example orchestrator/.env` |
+| Preflight fails on `mcp-dist` | MCP server dist stale or missing | `cd mcp-server && npm run build` |
+| `ModuleNotFoundError` on startup | Package not installed in active venv | Re-run `node scripts/cli.js setup --components orchestrator` |
+| `MCP connection failed` at runtime | `dist/` corrupted after build | `cd mcp-server && npm run build` |
 | Wrong project path inferred | Plan is outside ai-insights workspace | Always pass `--project-path` pointing to the plan's own project root |
 | Exit code `2` | `max_iterations` safety limit reached | Resume with `--resume <thread-id>` or increase `--max-iterations` |
-| All WPs BLOCKED at start | Dependency cycle or unresolved blockers | Inspect ledger with MCP tools or the GUI; resolve blocker reasons first |
-| Circuit-breaker halt on a WP | 3 consecutive stage failures for one WP | Inspect the log for the failing stage; address the root cause via the ledger or codebase, then resume |
-| `--resume` starts a fresh run instead of resuming | `checkpoint` extra not installed — graph silently falls back to in-memory `MemorySaver` | `cd "$AI_INSIGHTS_ROOT/orchestrator" && pip install -e ".[checkpoint]"`, then re-run |
+| All WPs BLOCKED at start | Dependency cycle or unresolved blockers | Inspect ledger with MCP tools or the GUI; resolve blockers first |
+| Circuit-breaker halt on a WP | 3 consecutive stage failures for one WP | Inspect the log; address root cause, then resume |
+| `--resume` starts a fresh run | `checkpoint` extra not installed | `cd orchestrator && pip install -e ".[checkpoint]"`, then re-run |
 
 ---
 

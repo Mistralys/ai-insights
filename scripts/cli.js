@@ -413,6 +413,7 @@ function cmdBuildMaintain(args) {
   runScript('check-known-roles.js');
 }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
+function cmdPreflight(args)       { runScript('preflight-orchestrator.js', args); }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
 function cmdCtxGenerate(args) {
@@ -424,7 +425,7 @@ function cmdCtxGenerate(args) {
   const result = spawnSync('ctx', ['generate', ...args], {
     cwd: WORKSPACE_ROOT,
     stdio: 'inherit',
-    shell: true,
+    shell: IS_WIN,
   });
   if (result.status !== 0) {
     log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
@@ -514,6 +515,14 @@ const COMMANDS = [
     description: 'Generate context documentation',
     run:         cmdCtxGenerate,
   },
+  {
+    id:          'preflight',
+    key:         'f',
+    label:       'Pre-flight checks',
+    category:    'Orchestrator',
+    description: 'Validate orchestrator readiness',
+    run:         cmdPreflight,
+  },
 ];
 
 // ─── Help ─────────────────────────────────────────────────────────────────────
@@ -535,6 +544,8 @@ function printHelp() {
     ['package-personas',         'ZIP standalone personas'],
     ['gui',                      'Launch MCP GUI dashboard (long-running)'],
     // Note: orchestrator requires --plan <path>; not available in interactive menu
+    ['preflight',                'Pre-flight checks for orchestrator readiness'],
+    ['preflight --plan <path>',  'Also verify plan file exists'],
     ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
     ['bundle-docs',              'Compile doc bundles'],    ['ctx-generate',             'Generate context documentation (ctx generate)'],    ['help',                     'Show this help'],
   ];
