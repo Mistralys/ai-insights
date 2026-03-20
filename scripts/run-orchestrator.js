@@ -94,10 +94,11 @@ if (needBuild) {
 // ---------------------------------------------------------------------------
 const forwardedArgs = process.argv.slice(2);
 
-// Python venv installs orchestrate as "orchestrate.exe" on Windows, not
-// "orchestrate.cmd" (the .cmd suffix is for npm-installed wrappers).
-// Using "orchestrate" works cross-platform: Node resolves .exe via PATHEXT.
-const orchestrateCmd = 'orchestrate';
+// Resolve the orchestrate binary from the local venv to avoid picking up a
+// stale system-wide install via $PATH.  Python venv uses "Scripts" on Windows
+// and "bin" elsewhere; the binary is "orchestrate.exe" on Windows.
+const venvBin = process.platform === 'win32' ? 'Scripts' : 'bin';
+const orchestrateCmd = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv', venvBin, 'orchestrate');
 const result = spawnSync(orchestrateCmd, forwardedArgs, {
   stdio: 'inherit',
   shell: false,
