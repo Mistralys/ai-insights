@@ -68,7 +68,12 @@ _LOOP_STAGES = (
 )
 
 
-async def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before: list[str] | None = None):
+async def build_graph(
+    config: Config,
+    mcp_tools: list[Any],
+    *,
+    interrupt_before: list[str] | None = None,
+):
     """
     Build and compile the hub-and-spoke LangGraph ``StateGraph``.
 
@@ -94,10 +99,8 @@ async def build_graph(config: Config, mcp_tools: list[Any], *, interrupt_before:
         The compiled LangGraph state graph, ready to invoke or stream.
     """
     import aiosqlite
-
-    from langgraph.graph import END, START, StateGraph
-
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+    from langgraph.graph import END, START, StateGraph
 
     from src.nodes.developer import make_developer_node
     from src.nodes.docs import make_docs_node
