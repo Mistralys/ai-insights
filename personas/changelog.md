@@ -1,5 +1,13 @@
 # Personas Changelog
 
+## v3.10.1 - Release Engineer: Delegate Changelog & CTX
+- Personas: Release Engineer v3.7.0 — delegates changelog curation to
+  Changelog Curator sub-agent instead of writing entries inline.
+- Personas: Release Engineer v3.7.0 — delegates CTX context.yaml updates
+  to CTX Architect sub-agent when the project uses CTX Generator.
+- Partials: Updated `release-engineer-operational-protocol.md` to reflect
+  delegated changelog and CTX steps.
+
 ## v3.10.0 - AGENTS.md Curator: CLAUDE.md Companion
 - Personas: AGENTS.md Curator v1.1.0 — now creates a CLAUDE.md companion file.
 - Docs: Split constraints into build-system and cross-system sub-documents.

@@ -53,6 +53,18 @@ describe('PipelineSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.auto_cancelled).toBe(false);
   });
+
+  it('accepts duration_ms as an optional number', () => {
+    const result = PipelineSchema.safeParse({ ...minimalPipeline, duration_ms: 12345 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.duration_ms).toBe(12345);
+  });
+
+  it('accepts pipeline without duration_ms (backward compatibility)', () => {
+    const result = PipelineSchema.safeParse(minimalPipeline);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.duration_ms).toBeUndefined();
+  });
 });
 
 // ─── ReworkCountsSchema ────────────────────────────────────────────────────

@@ -193,7 +193,12 @@ class TestNodeSuccessPath:
     async def test_success_appends_run_log_entry(self, module_name, factory_name):
         result = await self._invoke_node(module_name, factory_name)
         assert result.get("run_log"), "run_log must be non-empty on success"
-        entry = result["run_log"][0]
+        # stage_start is now at index 0; find the stage_complete entry by action.
+        complete_entries = [
+            e for e in result["run_log"] if e.get("action") == "stage_complete"
+        ]
+        assert complete_entries, "run_log must contain a stage_complete entry"
+        entry = complete_entries[0]
         assert entry["result"] == "PASS"
         assert "stage" in entry
         assert "timestamp" in entry
@@ -560,3 +565,256 @@ class TestToolWrappingInNode:
         await tool.ainvoke({"project_path": "/explicit-path", "type": "qa"})
 
         assert seen[0]["project_path"] == "/explicit-path"
+
+
+# ---------------------------------------------------------------------------
+# Tests: stage_start event
+# ---------------------------------------------------------------------------
+
+class TestStageStartEvent:
+    """stage_start must be the first entry in run_log and carry required fields."""
+
+    async def _invoke_developer(self) -> dict:
+        from src.nodes.developer import make_developer_node
+        node_fn = make_developer_node(FAKE_CONFIG, FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            return await node_fn(base_state(current_wp_id="WP-042"))
+
+    async def test_stage_start_is_first_entry(self):
+        result = await self._invoke_developer()
+        assert result.get("run_log"), "run_log must be non-empty"
+        assert result["run_log"][0]["action"] == "stage_start"
+
+    async def test_stage_start_has_required_fields(self):
+        result = await self._invoke_developer()
+        entry = result["run_log"][0]
+        assert entry["action"] == "stage_start"
+        assert "stage" in entry
+        assert "wp_id" in entry
+        assert "iteration" in entry
+        assert "timestamp" in entry
+        assert "level" in entry
+
+    async def test_stage_start_wp_id_matches_state(self):
+        result = await self._invoke_developer()
+        entry = result["run_log"][0]
+        assert entry["wp_id"] == "WP-042"
+
+    async def test_stage_start_emitted_on_error_path(self):
+        """stage_start must be in run_log even when the agent raises."""
+        from src.nodes.developer import make_developer_node
+        node_fn = make_developer_node(FAKE_CONFIG, FAKE_TOOLS)
+        with _patch_persona(), patch(
+            "deepagents.create_deep_agent",
+            side_effect=RuntimeError("boom"),
+        ), patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-042"))
+
+        assert result["run_log"][0]["action"] == "stage_start", (
+            "stage_start must be first in run_log even on error path"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: duration_s on stage_complete and stage_error
+# ---------------------------------------------------------------------------
+
+class TestDurationS:
+    """duration_s must be present on stage_complete and stage_error entries."""
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_complete_has_duration_s(self, module_name, factory_name):
+        """stage_complete entry must include duration_s as a float."""
+        mod = __import__(module_name, fromlist=[factory_name])
+        node_fn = getattr(mod, factory_name)(FAKE_CONFIG, FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state())
+
+        entries = [e for e in result["run_log"] if e.get("action") == "stage_complete"]
+        assert entries, "stage_complete entry missing from run_log"
+        entry = entries[0]
+        assert "duration_s" in entry, "stage_complete must include duration_s"
+        assert isinstance(entry["duration_s"], (int, float)), (
+            f"duration_s must be numeric, got {type(entry['duration_s'])}"
+        )
+        assert entry["duration_s"] >= 0
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_error_has_duration_s(self, module_name, factory_name):
+        """stage_error entry must include duration_s (time until failure)."""
+        mod = __import__(module_name, fromlist=[factory_name])
+        node_fn = getattr(mod, factory_name)(FAKE_CONFIG, FAKE_TOOLS)
+        with _patch_persona(), patch(
+            "deepagents.create_deep_agent",
+            side_effect=RuntimeError("agent crash"),
+        ), patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state())
+
+        entries = [e for e in result["run_log"] if e.get("action") == "stage_error"]
+        assert entries, "stage_error entry missing from run_log"
+        entry = entries[0]
+        assert "duration_s" in entry, "stage_error must include duration_s"
+        assert isinstance(entry["duration_s"], (int, float)), (
+            f"duration_s must be numeric, got {type(entry['duration_s'])}"
+        )
+        assert entry["duration_s"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: pipeline_result read-back
+# ---------------------------------------------------------------------------
+
+class TestPipelineResult:
+    """pipeline_result must be emitted when ledger_get_work_package is available."""
+
+    def _make_wp_tool(self, pipelines: list) -> Any:
+        """Return a plain-class ledger_get_work_package tool returning *pipelines*.
+
+        MagicMock is intentionally avoided: MagicMock auto-creates ``_orig_ainvoke``
+        on attribute lookup, which causes ``inject_project_path`` to skip wrapping
+        and call the wrong callable, silently breaking the read-back.
+        """
+        import json as _json
+
+        return_value = _json.dumps({"work_package_id": "WP-001", "pipelines": pipelines})
+
+        class _WPTool:
+            """Plain-class stub so inject_project_path can wrap it correctly."""
+            name = "ledger_get_work_package"
+
+            def __init__(self, rv: str) -> None:
+                self._rv = rv
+
+            async def ainvoke(self, input: Any, *a: Any, **kw: Any) -> str:  # noqa: A002
+                return self._rv
+
+        return _WPTool(return_value)
+
+    async def test_pipeline_result_emitted_when_tool_available(self):
+        """pipeline_result entry must appear in run_log when a WP tool is present."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {
+                "type": "implementation",
+                "status": "PASS",
+                "artifacts": {"files_modified": ["src/foo.py"]},
+                "metrics": {"tests_passed": 5},
+                "summary": ["Implemented feature X"],
+                "duration_ms": 5000,
+            }
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert pr_entries, "pipeline_result entry expected in run_log"
+        entry = pr_entries[0]
+        assert entry["wp_id"] == "WP-001"
+        assert entry["pipeline_type"] == "implementation"
+        assert entry["pipeline_status"] == "PASS"
+        assert entry["files_modified"] == ["src/foo.py"]
+        assert entry["metrics"] == {"tests_passed": 5}
+        assert entry["summary"] == ["Implemented feature X"]
+        assert entry["duration_s"] == 5.0
+
+    async def test_pipeline_result_duration_s_from_duration_ms(self):
+        """duration_s must be derived from duration_ms (ms / 1000, rounded to 1 dp)."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {"type": "qa", "status": "PASS", "duration_ms": 3700}
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert pr_entries
+        assert pr_entries[0]["duration_s"] == 3.7
+
+    async def test_pipeline_result_none_duration_when_no_duration_ms(self):
+        """duration_s must be None when duration_ms is absent from WP data."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {"type": "implementation", "status": "PASS"}
+            # no duration_ms
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert pr_entries
+        assert pr_entries[0]["duration_s"] is None
+
+    async def test_pipeline_result_not_emitted_when_no_wp_id(self):
+        """pipeline_result must not be emitted when current_wp_id is empty."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {"type": "implementation", "status": "PASS"}
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id=""))  # empty wp_id
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert not pr_entries, "pipeline_result must not be emitted when wp_id is empty"
+
+    async def test_pipeline_result_not_emitted_without_tool(self):
+        """No pipeline_result when FAKE_TOOLS has no ledger_get_work_package tool."""
+        from src.nodes.developer import make_developer_node
+
+        node_fn = make_developer_node(FAKE_CONFIG, FAKE_TOOLS)  # FAKE_TOOLS = []
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert not pr_entries, "pipeline_result must not be emitted when no wp tool exists"
+
+    async def test_read_back_failure_does_not_affect_stage_success(self):
+        """Failure in ledger_get_work_package must not set stage_success=False."""
+        from src.nodes.developer import make_developer_node
+
+        class _FailingWPTool:
+            """Plain-class stub that always raises on invocation."""
+            name = "ledger_get_work_package"
+
+            async def ainvoke(self, input: Any, *a: Any, **kw: Any) -> None:  # noqa: A002
+                raise RuntimeError("MCP unavailable")
+
+        node_fn = make_developer_node(FAKE_CONFIG, [_FailingWPTool()])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is True, (
+            "Read-back failure must not affect stage_success"
+        )
+        # Also confirm no pipeline_result was emitted.
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert not pr_entries

@@ -452,6 +452,15 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       pipeline.completed_at = now();
       pipeline.summary = args.summary;
 
+      // Compute duration_ms from timestamps (write-time computation, no extra reads)
+      if (pipeline.started_at) {
+        const startMs = new Date(pipeline.started_at).getTime();
+        const endMs = new Date(pipeline.completed_at).getTime();
+        if (!isNaN(startMs) && !isNaN(endMs) && endMs >= startMs) {
+          pipeline.duration_ms = endMs - startMs;
+        }
+      }
+
       // 3. Set optional fields
       if (args.artifacts) {
         pipeline.artifacts = args.artifacts;

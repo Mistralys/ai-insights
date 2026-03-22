@@ -26,6 +26,7 @@ from langgraph.types import Command
 from .config import PIPELINE_ROLE_NAMES, ROLE_IDS, WP_TERMINAL_STATUSES
 from .state import WorkflowState
 from .utils.logging import get_run_logger
+from .utils.mcp_parse import parse_tool_response
 
 log = logging.getLogger(__name__)
 
@@ -134,22 +135,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 f"Available: {sorted(tools_by_name)}"
             )
         raw = await tool.ainvoke(kwargs)
-        # langchain-mcp-adapters 0.1.0 returns a list of content objects:
-        # [{"type": "text", "text": "<json-string>"}]
-        # Extract and parse the text from the first text-type content block.
-        if isinstance(raw, list):
-            for block in raw:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block["text"]
-                    try:
-                        return json.loads(text)
-                    except json.JSONDecodeError:
-                        return text
-            # No text block found; return the raw list (caller handles it).
-            return raw
-        if isinstance(raw, str):
-            return json.loads(raw)
-        return raw
+        return parse_tool_response(raw)
 
     def _log_entry(
         stage: str, wp_id: str, action: str, destination: str, **extra: Any
@@ -286,7 +272,77 @@ def make_supervisor_node(mcp_tools: list[Any]):
             "wp_summaries": wp_summaries,
             "pending_wp_count": pending_count,
             "consecutive_failures": cf,
+            "prev_wp_summaries": wp_summaries,  # stored for next iteration's diff
         }
+
+        # ── WP status-change detection ────────────────────────────────
+        _prev_summaries: list = state.get("prev_wp_summaries", [])  # type: ignore[call-overload]
+        _prev_status_map: dict[str, str] = {
+            _w.get("work_package_id", ""): _w.get("status", "")
+            for _w in _prev_summaries
+            if _w.get("work_package_id")
+        }
+        status_change_entries: list = []
+        for _w in wp_summaries:
+            _wp_id_sc = _w.get("work_package_id", "")
+            _new_st = _w.get("status", "")
+            _old_st = _prev_status_map.get(_wp_id_sc)
+            if _old_st is not None and _old_st != _new_st:
+                _sc_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id=_wp_id_sc,
+                    action="wp_status_change",
+                    destination="",
+                    old_status=_old_st,
+                    new_status=_new_st,
+                )
+                if run_logger:
+                    run_logger.stream_entry(_sc_entry)
+                status_change_entries.append(_sc_entry)
+                if _new_st == "COMPLETE":
+                    _wc_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id=_wp_id_sc,
+                        action="wp_complete",
+                        destination="",
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(_wc_entry)
+                    status_change_entries.append(_wc_entry)
+
+        # ── Progress snapshot (all data from memory, no extra MCP calls) ──────
+        _status_counts: dict[str, int] = {}
+        for _w in wp_summaries:
+            _s = _w.get("status", "UNKNOWN")
+            _status_counts[_s] = _status_counts.get(_s, 0) + 1
+        _elapsed_s: float | None = None
+        _run_start_ts: str = state.get("run_start_ts", "")  # type: ignore[call-overload]
+        if _run_start_ts:
+            try:
+                _elapsed_s = round(
+                    (
+                        datetime.now(UTC) - datetime.fromisoformat(_run_start_ts)
+                    ).total_seconds(),
+                    1,
+                )
+            except (ValueError, TypeError):
+                pass
+        progress_snapshot = _log_entry(
+            stage="supervisor",
+            wp_id="",
+            action="progress_snapshot",
+            destination="",
+            total_wps=len(wp_summaries),
+            status_breakdown=_status_counts,
+            pending=pending_count,
+            wps_completed_this_run=state.get("wps_completed_this_run", 0),  # type: ignore[call-overload]
+            iteration=new_iteration,
+            max_iterations=max_iterations,
+            elapsed_s=_elapsed_s,
+            run_start_ts=_run_start_ts or None,
+        )
+        if run_logger:
+            run_logger.stream_entry(progress_snapshot)
 
         # ── No WPs → PM needs to create them ─────────────────────────
         if not wp_summaries:
@@ -323,7 +379,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 update={
                     **base_update,
                     "current_stage": _DEST_PM,
-                    "run_log": extra_entries + [log_entry],
+                    "run_log": status_change_entries + extra_entries + [log_entry, progress_snapshot],
                     "errors": extra_errs,
                 },
             )
@@ -344,7 +400,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 update={
                     **base_update,
                     "current_stage": _DEST_SYNTHESIS,
-                    "run_log": [log_entry],
+                    "run_log": status_change_entries + [log_entry, progress_snapshot],
                 },
             )
 
@@ -428,6 +484,21 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 log.warning("No stage mapped for role %r; skipping.", role)
                 continue
 
+            # Emit rework_detected when the ledger dispatches a REWORK action.
+            if action == "REWORK":
+                rework_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id=wp_id,
+                    action="rework_detected",
+                    destination=destination,
+                    agent_role=role,
+                    pipeline_type=action_data.get("pipeline_type", ""),
+                    rework_count=action_data.get("rework_count"),
+                )
+                if run_logger:
+                    run_logger.stream_entry(rework_entry)
+                extra_log_entries.append(rework_entry)
+
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id=wp_id,
@@ -435,6 +506,9 @@ def make_supervisor_node(mcp_tools: list[Any]):
                 destination=destination,
                 agent_role=role,
                 ledger_action=action,
+                prev_stage=state.get("current_stage", ""),  # type: ignore[call-overload]
+                prev_wp_id=prev_wp_id,
+                prev_result="PASS" if prev_success else ("FAIL" if prev_wp_id else ""),
             )
             if run_logger:
                 run_logger.stream_entry(log_entry)
@@ -447,7 +521,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
                     **base_update,
                     "current_wp_id": wp_id,
                     "current_stage": destination,
-                    "run_log": extra_log_entries + [log_entry],
+                    "run_log": status_change_entries + extra_log_entries + [log_entry, progress_snapshot],
                     "errors": extra_errors,
                 },
             )
@@ -467,7 +541,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
             update={
                 **base_update,
                 "current_stage": _DEST_SYNTHESIS,
-                "run_log": extra_log_entries + [log_entry],
+                "run_log": status_change_entries + extra_log_entries + [log_entry, progress_snapshot],
                 "errors": extra_errors,
             },
         )

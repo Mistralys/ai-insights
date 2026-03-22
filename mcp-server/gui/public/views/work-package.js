@@ -68,6 +68,34 @@ function renderWorkPackageDetail(app, slug, wpId) {
       '</li>';
     }).join('');
 
+    // WP aggregate timing
+    var totalActiveMs = 0;
+    var hasDurationData = false;
+    var firstStartAt = null;
+    var lastCompletedAt = null;
+    (wp.pipelines || []).forEach(function (p) {
+      if (p.duration_ms != null) {
+        totalActiveMs += p.duration_ms;
+        hasDurationData = true;
+      }
+      if (p.started_at) {
+        var tsStart = new Date(p.started_at).getTime();
+        if (!isNaN(tsStart) && (firstStartAt === null || tsStart < firstStartAt)) firstStartAt = tsStart;
+      }
+      if (p.completed_at) {
+        var tsEnd = new Date(p.completed_at).getTime();
+        if (!isNaN(tsEnd) && (lastCompletedAt === null || tsEnd > lastCompletedAt)) lastCompletedAt = tsEnd;
+      }
+    });
+    var wallClockMs = (firstStartAt !== null && lastCompletedAt !== null) ? (lastCompletedAt - firstStartAt) : null;
+    var wpTimingHtml = (hasDurationData || wallClockMs !== null)
+      ? '<div class="wp-timing">' +
+          (hasDurationData ? '<strong>Active time:</strong> ' + escapeHtml(formatDuration(totalActiveMs)) : '') +
+          (hasDurationData && wallClockMs !== null ? ' &nbsp;·&nbsp; ' : '') +
+          (wallClockMs !== null ? '<strong>Wall-clock:</strong> ' + escapeHtml(formatDuration(wallClockMs)) : '') +
+        '</div>'
+      : '';
+
     // Pipelines
     var pipelinesHtml = (wp.pipelines || []).slice().reverse().map(function (p) {
       var cls = (p.status || '').toLowerCase().replace(/ /g, '_');
@@ -81,10 +109,12 @@ function renderWorkPackageDetail(app, slug, wpId) {
       return '<div class="pipeline-item ' + cls + '">' +
         '<div class="pipeline-header">' +
           escapeHtml(p.type.toUpperCase()) + ' — ' + statusBadge(p.status) +
+          (p.duration_ms != null ? ' <span class="badge badge-neutral">' + escapeHtml(formatDuration(p.duration_ms)) + '</span>' : '') +
         '</div>' +
         '<div class="pipeline-meta">' +
           'Started: ' + escapeHtml(formatDate(p.started_at)) +
           (p.completed_at ? ' &nbsp; Completed: ' + escapeHtml(formatDate(p.completed_at)) : '') +
+          (p.duration_ms != null ? ' &nbsp; Duration: ' + escapeHtml(formatDuration(p.duration_ms)) : '') +
         '</div>' +
         (summaryItems ? '<div class="pipeline-summary"><ul>' + summaryItems + '</ul></div>' : '') +
         (commentsHtml ? '<div class="pipeline-comments mt-8">' + commentsHtml + '</div>' : '') +
@@ -124,7 +154,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
         : '') +
       buildWpDetailBar(wp) +
       (pipelinesHtml
-        ? '<div class="card"><div class="card-title">Pipelines</div>' + pipelinesHtml + '</div>'
+        ? '<div class="card"><div class="card-title">Pipelines</div>' + wpTimingHtml + pipelinesHtml + '</div>'
         : '') +
       handoffHtml;
   }).catch(function (err) {

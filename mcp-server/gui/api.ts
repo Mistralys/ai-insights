@@ -461,7 +461,15 @@ export async function handleListProjects(
 // GET /api/projects/:slug
 // ---------------------------------------------------------------------------
 
-export type ProjectDetail = RootIndex & { meta: ProjectMeta; project_name: string | null };
+export type ProjectDetail = RootIndex & {
+  meta: ProjectMeta;
+  project_name: string | null;
+  timing?: {
+    project_elapsed_ms: number | null;
+    total_active_ms: number;
+    pipeline_runs: number;
+  };
+};
 
 /**
  * Returns the combined root index + meta for a project.
@@ -507,7 +515,35 @@ export async function handleGetProject(
       project_name = meta.title;
     }
 
-    return { ...rootIndex, meta, project_name };
+    // Compute timing: sum duration_ms across all WP pipelines
+    const wpDetails = (
+      await Promise.all(
+        rootIndex.work_packages.map(async (wpSummary) => {
+          try {
+            return await store.readWorkPackage(wpSummary.work_package_id);
+          } catch {
+            return null;
+          }
+        })
+      )
+    ).filter((wp): wp is WorkPackageDetail => wp !== null);
+
+    let total_active_ms = 0;
+    let pipeline_runs = 0;
+    for (const wp of wpDetails) {
+      for (const p of wp.pipelines) {
+        if (p.duration_ms != null) {
+          total_active_ms += p.duration_ms;
+          pipeline_runs++;
+        }
+      }
+    }
+    const createdAt = meta.date_created ? new Date(meta.date_created).getTime() : NaN;
+    const updatedAt = meta.last_updated ? new Date(meta.last_updated).getTime() : NaN;
+    const project_elapsed_ms = (!isNaN(createdAt) && !isNaN(updatedAt)) ? updatedAt - createdAt : null;
+
+    const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };
+    return { ...rootIndex, meta, project_name, timing };
   } catch (err) {
     if (err instanceof ApiError) throw err;
     notFound(`Project '${slug}' not found or corrupted: ${String(err)}`);

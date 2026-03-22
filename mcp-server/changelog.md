@@ -19,6 +19,14 @@
 - Tests: Verified `tests/utils/runner.test.ts` (10 unit tests) covers all four `classifyRunner` output variants plus edge cases: `undefined` input (no throw), empty-string name, unrecognized client name, case-insensitive substring matching, raw `runner_client`/`runner_version` value preservation.
 - Tests: Verified `tests/tools/runner-integration.test.ts` (9 integration tests) covers all four runner types via mocked `getClientInfo()`, runner fields written to both root index and `.meta.json` (AC1/AC2), graceful `'unknown'` default when `getClientInfo()` returns `undefined` (AC3), and no runner info written to stdout (AC5).
 - Tests: Verified `tests/schema/project-meta-runner.test.ts` (10 backward-compatibility tests) confirms `ProjectMetaSchema` and `RootIndexSchema` accept optional runner fields when present, parse cleanly without them, reject invalid enum values, and parse a full real-world legacy `project-ledger.json` fixture that predates runner fields.
+- Schema: Added `duration_ms?: number` (optional) to `PipelineSchema` in `src/schema/work-package.ts`; `Pipeline` TypeScript type gains `duration_ms?: number` automatically via `z.infer`. Backward-compatible — existing pipelines without the field continue to validate.
+- Pipeline: `ledger_complete_pipeline` now computes and stores `duration_ms` (integer milliseconds) from `started_at` → `completed_at` when both are present and parseable; guarded against missing `started_at`, invalid timestamps (NaN), and clock skew (endMs >= startMs). Absent for in-progress, cancelled, or legacy pipelines.
+- GUI: Added `formatDuration(ms)` utility to `gui/public/utils.js` — null/NaN/negative → '—', <1s → '< 1s', seconds/minutes/hours formatted correctly. HTML-unsafe (contains `<`); all call sites wrapped with `escapeHtml()`.
+- GUI: Per-pipeline duration badge in WP Detail view; shown conditionally when `duration_ms` is present.
+- GUI: WP aggregate "Active time" (sum of pipeline durations) and "Wall-clock" (first start → last complete) displayed above pipeline list.
+- GUI: Project Detail page shows Duration and Active time from new `timing` field in the `/api/project/:slug` response.
+- API: `handleGetProject` in `gui/api.ts` now computes `timing: { project_elapsed_ms, total_active_ms, pipeline_runs }` by reading all WP detail files in parallel; `ProjectDetail` type extended with optional `timing` field.
+- Tests: Added `tests/tools/pipeline-duration.test.ts` (3 integration tests: duration_ms computed correctly, absent without started_at, no crash for invalid started_at); added 2 Zod schema assertions to `tests/schema/work-package-schema.test.ts` (accepts with/without `duration_ms`).
 
 ## v1.15.0 - Version Tracking & Freshness Guard
 - Lifecycle: Project init now rejects stale server instances.

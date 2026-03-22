@@ -221,7 +221,7 @@ For the full routing algorithm, action sets, and circuit-breaker mechanics, see 
 
 ### Stage nodes
 
-Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, and invokes it. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
+Each stage node emits a `stage_start` event, loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, invokes it, and emits `stage_complete` (with `duration_s`) followed by a best-effort `pipeline_result` read-back. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -236,7 +236,7 @@ Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecti
 | `src/config.py` | `.env` loading, provider auto-detection, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
-| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking |
+| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`) |
 | `tests/` | 269 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 
@@ -248,7 +248,7 @@ Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecti
 |----------|---------|
 | [docs/architecture.md](docs/architecture.md) | Stage node lifecycle, MCP tool wrapping, WorkflowState fields, JSONL log entry types |
 | [docs/supervisor-routing.md](docs/supervisor-routing.md) | Full routing algorithm, special exits, action sets, circuit-breaker |
-| [docs/jsonl-log-schema.md](docs/jsonl-log-schema.md) | Complete JSONL field reference (11 fields) |
+| [docs/jsonl-log-schema.md](docs/jsonl-log-schema.md) | Complete JSONL field reference (stage lifecycle events, routing events, run lifecycle events) |
 | [docs/smoke-testing.md](docs/smoke-testing.md) | Runbook for verifying the dispatch loop |
 | [docs/public-api.md](docs/public-api.md) | Public functions, classes, and entry points |
 
@@ -360,10 +360,15 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 
 ## Running Tests
 
+> **Dev dependencies:** The full test suite requires `pytest-asyncio`, `aiosqlite`, and `langgraph-checkpoint-sqlite`. These are listed in `requirements.txt` as runtime dependencies but must be explicitly present in the test environment. If you see `"async functions are not natively supported"` or `ModuleNotFoundError` errors, install them manually:
+> ```bash
+> pip install pytest-asyncio aiosqlite langgraph-checkpoint-sqlite
+> ```
+
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 287 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 322 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -383,9 +388,9 @@ Tests are structured as:
 
 | File | What it tests |
 |------|---------------|
-| `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP); `_derive_next_action` test helper — PASS-branch and FAIL-branch routing both manifest-derived via `PIPELINE_AGENT_MAP`/`FAIL_ROUTING_AGENT_MAP` (no hard-coded role strings); dedicated routing classes for all pipeline stages including `TestRouteToSecurityAuditor`, `TestRouteToReleaseEngineer`, and `TestDocumentationFail` |
+| `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP); `_derive_next_action` test helper — PASS-branch and FAIL-branch routing both manifest-derived via `PIPELINE_AGENT_MAP`/`FAIL_ROUTING_AGENT_MAP` (no hard-coded role strings); dedicated routing classes for all pipeline stages including `TestRouteToSecurityAuditor`, `TestRouteToReleaseEngineer`, and `TestDocumentationFail`; `TestProgressSnapshot` (4 tests — emitted every iteration with correct fields, elapsed_s guard); `TestWPStatusChangeEvents` (4 tests — change detection, wp_complete sub-event, first-iteration guard); `TestPrevWPSummariesStored` (1 test); `TestEnrichedRouteEvents` (2 tests — prev_stage/wp_id/result on route entries); `TestReworkDetectedEvent` (2 tests) |
 | `test_config.py` | Manifest-derived config constants: `WP_TERMINAL_STATUSES`, `VALID_STAGES`, `PIPELINE_TYPES`, `ROLE_IDS`, `PIPELINE_ROLE_NAMES`, `FAIL_ROUTING_AGENT_MAP`, and `PIPELINE_AGENT_MAP` — structural assertions (type, non-emptiness, key membership, ordering) that tolerate future manifest additions; guards for orchestrating-role exclusion (Planner, Synthesis) and Release Engineer ID normalisation; `TestPipelineAgentMap` pins all pipeline-type-to-agent mappings and cross-validates against `PIPELINE_ROLE_NAMES` |
-| `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration |
+| `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration; `TestStageStartEvent` (4 tests — `stage_start` emitted before agent invocation, correct fields); `TestDurationS` (12 parametrized tests — `duration_s` on both `stage_complete` and `stage_error` across all 6 factories); `TestPipelineResult` (7 tests — successful read-back emission, read-back failure isolation, no-pipeline guard) |
 | `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool |
 | `test_graph.py` | Graph topology, edges, compilation |
 | `test_cli.py` | Argument parsing, interrupt mapping, exit codes |

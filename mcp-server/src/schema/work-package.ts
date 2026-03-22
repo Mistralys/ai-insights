@@ -78,6 +78,7 @@ export const PipelineSchema = z.object({
   status: PipelineStatus,
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
+  duration_ms: z.number().optional(),
   summary: z.array(z.string()),
   artifacts: ArtifactsSchema.optional(),
   metrics: MetricsSchema.optional(),

@@ -92,6 +92,146 @@ def _slugify(text: str, max_len: int = 40) -> str:
     return _SLUG_RE.sub("-", text.lower())[:max_len].strip("-")
 
 
+def _format_duration(seconds: float | None) -> str:
+    """Format *seconds* as a human-readable duration string.
+
+    Examples::
+
+        _format_duration(None)   == ""
+        _format_duration(0)      == "0s"
+        _format_duration(45)     == "45s"
+        _format_duration(204)    == "3m 24s"
+        _format_duration(4320)   == "1h 12m"
+    """
+    if seconds is None:
+        return ""
+    secs = round(seconds)
+    if secs < 60:
+        return f"{secs}s"
+    minutes, remaining_secs = divmod(secs, 60)
+    if minutes < 60:
+        return f"{minutes}m {remaining_secs}s"
+    hours, remaining_mins = divmod(minutes, 60)
+    return f"{hours}h {remaining_mins}m"
+
+
+def _build_stream_console_line(entry: dict[str, Any]) -> str:
+    """Build a human-readable console line for a streamed log entry.
+
+    Produces rich, structured output for the event types introduced in
+    WP-002 and WP-003.  Falls back to the generic ``action → result``
+    format for all other event types so that existing output is unchanged.
+    """
+    stage = entry.get("stage") or ""
+    wp_id = entry.get("wp_id") or ""
+    action = entry.get("action") or ""
+    prefix = f"[{stage}]" if stage else "[—]"
+
+    if action == "stage_start":
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append("▶ stage_start")
+        return " ".join(parts)
+
+    if action == "stage_complete":
+        result = entry.get("result") or ""
+        duration = _format_duration(entry.get("duration_s"))
+        tokens = entry.get("tokens_used")
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append("stage_complete")
+        if result:
+            parts.append(f"→ {result}")
+        detail: list[str] = []
+        if duration:
+            detail.append(duration)
+        if tokens is not None:
+            detail.append(f"{tokens} tokens")
+        if detail:
+            parts.append(f"({', '.join(detail)})")
+        return " ".join(parts)
+
+    if action == "wp_status_change":
+        old_st = entry.get("old_status") or ""
+        new_st = entry.get("new_status") or ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"status: {old_st} → {new_st}")
+        return " ".join(parts)
+
+    if action == "wp_complete":
+        parts = [prefix, "✓"]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append("COMPLETE")
+        return " ".join(parts)
+
+    if action == "progress_snapshot":
+        total = entry.get("total_wps") or 0
+        breakdown: dict[str, int] = entry.get("status_breakdown") or {}
+        completed = breakdown.get("COMPLETE", 0)
+        in_progress = breakdown.get("IN_PROGRESS", 0)
+        iteration = entry.get("iteration") or 0
+        max_iter = entry.get("max_iterations") or 0
+        elapsed = _format_duration(entry.get("elapsed_s"))
+        line = f"{prefix} Progress: {completed}/{total} WPs done"
+        if in_progress:
+            line += f" · {in_progress} in-progress"
+        if max_iter:
+            line += f" · iter {iteration}/{max_iter}"
+        if elapsed:
+            line += f" · {elapsed} elapsed"
+        return line
+
+    if action == "pipeline_result":
+        pipeline_status = entry.get("pipeline_status") or entry.get("result") or ""
+        files: list = entry.get("files_modified") or []
+        duration = _format_duration(entry.get("duration_s"))
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        detail_parts: list[str] = []
+        if pipeline_status:
+            detail_parts.append(pipeline_status)
+        if files:
+            detail_parts.append(f"{len(files)} files modified")
+        if duration:
+            detail_parts.append(duration)
+        detail_str = " · ".join(detail_parts) if detail_parts else "pipeline_result"
+        parts.append(f"pipeline: {detail_str}")
+        return " ".join(parts)
+
+    if action == "rework_detected":
+        rework_count = entry.get("rework_count")
+        pipeline_type = entry.get("pipeline_type") or ""
+        agent_role = entry.get("agent_role") or ""
+        agent_stage = agent_role.lower().replace(" ", "_")
+        parts = [prefix, "⟳"]
+        if wp_id:
+            parts.append(wp_id)
+        rework_label = f"rework #{rework_count}" if rework_count is not None else "rework"
+        if pipeline_type and agent_stage:
+            rework_label += f" ({pipeline_type} → {agent_stage})"
+        parts.append(rework_label)
+        return " ".join(parts)
+
+    # ── Default fallback (preserves existing behavior for all other events) ──
+    result = entry.get("result") or ""
+    tokens = entry.get("tokens_used")
+    parts = [prefix]
+    if wp_id:
+        parts.append(wp_id)
+    parts.append(action)
+    if result:
+        parts.append(f"→ {result}")
+    if tokens is not None:
+        parts.append(f"({tokens} tokens)")
+    return " ".join(parts)
+
+
 class WorkflowLogger:
     """
     Structured JSONL logger for a single orchestrator run.
@@ -236,20 +376,7 @@ class WorkflowLogger:
         self._fh.flush()
 
         # Also emit a console line so stderr stays in sync.
-        stage = entry.get("stage", "")
-        wp_id = entry.get("wp_id", "")
-        action = entry.get("action", "")
-        result = entry.get("result", "")
-        parts = [f"[{stage}]" if stage else "[—]"]
-        if wp_id:
-            parts.append(wp_id)
-        parts.append(action)
-        if result:
-            parts.append(f"→ {result}")
-        tokens = entry.get("tokens_used")
-        if tokens is not None:
-            parts.append(f"({tokens} tokens)")
-        self._console.info(" ".join(parts))
+        self._console.info(_build_stream_console_line(entry))
 
     # ------------------------------------------------------------------
     # Resource management

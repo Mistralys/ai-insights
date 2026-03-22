@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.runnables import RunnableConfig
 
 from src.utils.logging import get_run_logger
+from src.utils.mcp_parse import parse_tool_response
 from src.utils.tool_wrappers import inject_project_path
 
 if TYPE_CHECKING:
@@ -71,6 +72,19 @@ def create_stage_node(
 
         run_logger = get_run_logger(config)
 
+        # ── stage_start ───────────────────────────────────────────────
+        stage_start_time = datetime.now(UTC)
+        start_entry: dict = {
+            "timestamp": stage_start_time.isoformat(),
+            "stage": stage,
+            "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+            "action": "stage_start",
+            "level": "INFO",
+            "iteration": state.get("iteration", 0),  # type: ignore[call-overload]
+        }
+        if run_logger:
+            run_logger.stream_entry(start_entry)
+
         try:
             persona_prompt = load_persona(stage, workspace_root=_app_config.workspace_root)
             user_prompt = build_prompt(state)
@@ -96,18 +110,71 @@ def create_stage_node(
             final_content: str = last_msg.content if last_msg is not None else ""  # type: ignore[union-attr]
             tokens_used = getattr(last_msg, "usage_metadata", None)
 
+            # ── duration ──────────────────────────────────────────────
+            stage_end_time = datetime.now(UTC)
+            duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
+
             log.info("Stage %s completed successfully.", stage)
             log_entry = {
-                "timestamp": datetime.now(UTC).isoformat(),
+                "timestamp": stage_end_time.isoformat(),
                 "stage": stage,
                 "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
                 "action": "stage_complete",
                 "result": "PASS",
                 "level": "INFO",
                 "tokens_used": tokens_used,
+                "duration_s": duration_s,
             }
             if run_logger:
                 run_logger.stream_entry(log_entry)
+
+            # ── pipeline_result read-back (best-effort) ───────────────
+            extra_log_entries: list = []
+            wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
+            if wp_id and wrapped_tools:
+                try:
+                    get_wp_tool = next(
+                        (t for t in wrapped_tools if t.name == "ledger_get_work_package"),
+                        None,
+                    )
+                    if get_wp_tool:
+                        raw = await get_wp_tool.ainvoke(
+                            {"work_package_id": wp_id, "project_path": project_path}
+                        )
+                        wp_detail = parse_tool_response(raw)
+                        if isinstance(wp_detail, dict):
+                            pipelines = wp_detail.get("pipelines", [])
+                            if pipelines:
+                                latest = pipelines[-1]
+                                pipeline_duration_s = None
+                                if latest.get("duration_ms") is not None:
+                                    pipeline_duration_s = round(
+                                        latest["duration_ms"] / 1000, 1
+                                    )
+                                pipeline_result_entry: dict = {
+                                    "timestamp": datetime.now(UTC).isoformat(),
+                                    "stage": stage,
+                                    "wp_id": wp_id,
+                                    "action": "pipeline_result",
+                                    "level": "INFO",
+                                    "pipeline_type": latest.get("type", ""),
+                                    "pipeline_status": latest.get("status", ""),
+                                    "files_modified": (
+                                        latest.get("artifacts") or {}
+                                    ).get("files_modified", []),
+                                    "metrics": latest.get("metrics"),
+                                    "summary": latest.get("summary", []),
+                                    "duration_s": pipeline_duration_s,
+                                }
+                                if run_logger:
+                                    run_logger.stream_entry(pipeline_result_entry)
+                                extra_log_entries.append(pipeline_result_entry)
+                except Exception:  # noqa: BLE001
+                    log.debug(
+                        "Could not read back WP detail for pipeline_result event",
+                        exc_info=True,
+                    )
+
             return {
                 "stage_result": final_content,
                 # True = agent ran to completion without error. At this level the best
@@ -115,11 +182,13 @@ def create_stage_node(
                 # finished without raising an exception. The supervisor's circuit breaker
                 # treats this as a successful stage turn.
                 "stage_success": True,
-                "run_log": [log_entry],
+                "run_log": [start_entry, log_entry] + extra_log_entries,
             }
 
         except Exception as exc:  # noqa: BLE001
-            ts = datetime.now(UTC).isoformat()
+            stage_end_time = datetime.now(UTC)
+            ts = stage_end_time.isoformat()
+            duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
             log.error("Stage %s failed: %s", stage, exc, exc_info=True)
             log_entry = {
                 "timestamp": ts,
@@ -129,6 +198,7 @@ def create_stage_node(
                 "result": "FAIL",
                 "error": str(exc),
                 "level": "ERROR",
+                "duration_s": duration_s,
             }
             if run_logger:
                 run_logger.stream_entry(log_entry)
@@ -143,7 +213,7 @@ def create_stage_node(
                         "message": str(exc),
                     }
                 ],
-                "run_log": [log_entry],
+                "run_log": [start_entry, log_entry],
             }
 
     node_fn.__name__ = f"{stage}_node"

@@ -77,11 +77,30 @@ When `ledger_get_next_action` returns `REWORK`, a previous release-engineering p
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
 2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Follow the returned `next_steps` array — it tells you exactly which tools to call and in what order.
 3. **Read Context & Start Pipeline:** Follow the `next_steps` guidance to load the WP detail and start the release-engineering pipeline.
-4. **Execute Release Engineering:** Perform version bump, changelog update, migration guide, and deployment readiness check (as defined in Operational Protocol).
-5. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, artifacts, comments, acceptance_criteria_updates).
-6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_RELEASE_ENGINEERING` (full release pass), `REWORK` (fix release issues — see Rework Handling), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
+4. **Execute Release Engineering:** Perform version bump, package manifest update, migration guide, and deployment readiness check (as defined in Operational Protocol).
+5. **Delegate Changelog Curation:**
 {{#if target_vscode}}
-7. {{> handoff-block-vscode}}
+   Use `runSubagent` with the `@changelog-curator` agent. Pass: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
+   Expected output: A well-formatted changelog entry added under the new version heading, following the project's established style.
 {{else}}
-7. {{> handoff-block-claude-code}}
+   Use the `Task` tool with `description: "changelog-curator"`. Pass: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
+   Expected output: A well-formatted changelog entry added under the new version heading, following the project's established style.
+{{/if}}
+   Review the returned changelog entry for accuracy and completeness before proceeding.
+6. **Delegate CTX Context Update (if applicable):**
+   If the project has a `context.yaml` at the workspace or module root (indicating [CTX Generator](https://github.com/context-hub/generator) usage):
+{{#if target_vscode}}
+   Use `runSubagent` with the `@ctx-architect` agent. Pass: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
+   Expected output: Updated `context.yaml` configuration reflecting any new modules, changed file paths, or removed documents.
+{{else}}
+   Use the `Task` tool with `description: "ctx-architect"`. Pass: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
+   Expected output: Updated `context.yaml` configuration reflecting any new modules, changed file paths, or removed documents.
+{{/if}}
+   Skip this step if no `context.yaml` exists in the project.
+7. **Complete Pipeline:** Call `ledger_complete_pipeline` — parameter descriptions document the required fields (status, summary, artifacts, comments, acceptance_criteria_updates).
+8. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_RELEASE_ENGINEERING` (full release pass), `REWORK` (fix release issues — see Rework Handling), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
+{{#if target_vscode}}
+9. {{> handoff-block-vscode}}
+{{else}}
+9. {{> handoff-block-claude-code}}
 {{/if}}

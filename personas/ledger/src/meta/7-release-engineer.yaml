@@ -3,8 +3,8 @@ role: Release Engineer
 vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
-version: "3.6.1"
-last_updated: "2026-03-14"
+version: "3.7.0"
+last_updated: "2026-03-22"
 
 tools:
   - vscode

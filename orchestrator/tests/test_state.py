@@ -25,6 +25,7 @@ class TestWorkflowStateFields:
     LEDGER_FIELDS = {"project_status", "wp_summaries", "pending_wp_count"}
     CIRCUIT_BREAKER_FIELDS = {"consecutive_failures"}
     DELTA_COUNTER_FIELDS = {"wps_completed_this_run"}
+    PROGRESS_TRACKING_FIELDS = {"prev_wp_summaries", "run_start_ts"}
     APPEND_ONLY_FIELDS = {"run_log", "errors"}
 
     def _all_expected(self) -> set:
@@ -35,6 +36,7 @@ class TestWorkflowStateFields:
             | self.LEDGER_FIELDS
             | self.CIRCUIT_BREAKER_FIELDS
             | self.DELTA_COUNTER_FIELDS
+            | self.PROGRESS_TRACKING_FIELDS
             | self.APPEND_ONLY_FIELDS
         )
 
