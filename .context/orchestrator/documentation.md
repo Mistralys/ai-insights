@@ -81,6 +81,19 @@ All 16 fields with their types and reducers are documented in the source: `orche
 
 ---
 
+## Platform Support
+
+**Supported platforms:** Windows, macOS, and Linux. The orchestrator must work on all three.
+
+- **File locking:** `src/utils/filelock.py` provides `lock_exclusive()` and `unlock()` using `msvcrt.locking` on Windows and `fcntl.flock` on Unix. No third-party dependencies.
+- **Path handling:** Use `pathlib.Path` / `os.path.join()` — never hardcode separators.
+- **Temp directories:** Tests must use `tempfile.mkdtemp()` — never hardcode `/tmp/`.
+- **Shell commands:** The orchestrator invokes the MCP server via `node dist/index.js`. Ensure any subprocess invocations work on all three OSs (no Unix-only shell syntax).
+
+See root `AGENTS.md` → Cross-Platform Policy for the full workspace-wide policy.
+
+---
+
 ## JSONL Log Entry Types
 
 Each run writes a JSONL file to `orchestrator/logs/` (path printed at run start). Key entry types:
@@ -216,6 +229,8 @@ All follow the same pattern via `create_stage_node()`:
 | `load_persona(stage)` | `src.utils.persona` | Reads and caches the persona Markdown for a given stage. |
 | `parse_plan(path)` | `src.utils.plan_parser` | Extracts title, summary, and content from a plan `.md` file. Returns `PlanMetadata`. |
 | `WorkflowLogger` | `src.utils.logging` | JSONL + console logger. Use `WorkflowLogger.create(label=...)` context manager. |
+| `lock_exclusive(fd)` | `src.utils.filelock` | Acquire a non-blocking exclusive lock on an open file descriptor. Raises `OSError` on contention. Uses `msvcrt.locking` on Windows, `fcntl.flock` on Unix. **Windows invariant:** the lock file must be opened in `'w'` mode so the file pointer stays at 0. **Not re-entrant on Windows:** calling twice on the same fd without an intervening `unlock` raises `OSError(EACCES)`. |
+| `unlock(fd)` | `src.utils.filelock` | Release the lock on an open file descriptor. Silently swallows `OSError` if the fd is not locked (idempotent). |
 
 ```
 ###  Path: `/orchestrator/docs/smoke-testing.md`

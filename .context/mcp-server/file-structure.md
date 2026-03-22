@@ -89,6 +89,7 @@ _SOURCE: Directory tree_
         │   └── pipeline-maps.ts
         │   └── project-reset.ts
         │   └── read-project-name.ts
+        │   └── server-version.ts
         │   └── timestamp.ts
         │   └── workflow-helpers.ts
         │   └── wp-id.ts
@@ -656,6 +657,7 @@ _SOURCE: Directory tree_
         │   ├── schema-integrity.test.ts
         │   ├── start-pipeline-guards.test.ts
         │   ├── synthesis-terminal.test.ts
+        │   ├── version-freshness.test.ts
         │   ├── work-package.test.ts
         │   ├── workflow-batch-actions.test.ts
         │   ├── workflow-handoff.test.ts

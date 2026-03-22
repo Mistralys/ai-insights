@@ -19,7 +19,7 @@ The persona build system is split across two files:
 | `--target` | `vscode \| claude-code \| all` | `all` | Select which IDE target to generate. Can be combined with `--suite`. |
 | `--check` | *(flag)* | off | Verify output is up-to-date without writing. Exits 1 if any file is stale or if any `note_only: true` tool entry appears as a rendered table row in generated output (`[note_only-violation]`). Suite-aware: use `--suite all --check` to check all suites. |
 | `--dry-run` | *(flag)* | off | Preview build without writing files. |
-| `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block — fenced blocks are stripped before scanning (WP-002), eliminating this risk (see [constraint 10 GN-4](constraints.md#c10)); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see [constraint 10 GN-5](constraints.md#c10)). |
+| `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block — fenced blocks are stripped before scanning (WP-002), eliminating this risk (see [constraint 6 GN-4](constraints-build-system.md#c10)); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see [constraint 6 GN-5](constraints-build-system.md#c10)). |
 
 ### Constants
 
@@ -322,7 +322,59 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | 8 — Documentation | ✓ | ✓ | ✓ | ✓ |
 | 9 — Synthesis | ✓ | ✓ | ✓ | — |
 
+---
 
+## MCP Tool Allocation Matrix
+
+This table is the **normative reference** for which MCP tools belong in each persona's `mcp_tools` YAML. When editing persona YAML files, consult this matrix to verify that tool additions or removals are intentional. The `note_only` column indicates tools present in the YAML but excluded from the rendered table (see [constraint 7](constraints-build-system.md#c34)).
+
+### Legend
+
+| Symbol | Meaning |
+|--------|-------|
+| **✓** | Tool is listed in the persona's `mcp_tools` table |
+| *(note)* | Tool is in YAML with `note_only: true` — available but not rendered in the table |
+| — | Tool is not assigned to this persona |
+
+### Allocation Table
+
+| MCP Tool | 1-Plan | 2-PM | 3-Dev | 4-QA | 5-SecAudit | 6-Rev | 7-RelEng | 8-Doc | 9-Syn |
+|---|---|---|---|---|---|---|---|---|---|
+| `ledger_initialize_project` | — | **✓** | — | — | — | — | — | — | — |
+| `ledger_create_work_package` | — | **✓** | — | — | — | — | — | — | — |
+| `ledger_get_next_action` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| `ledger_begin_work` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | — |
+| `ledger_get_work_package` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| `ledger_complete_pipeline` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | — |
+| `ledger_cancel_pipeline` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | — |
+| `ledger_add_project_comment` | — | — | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** | **✓** |
+| `ledger_add_observation` | — | — | **✓** | — | — | — | — | — | — |
+| `ledger_get_project_status` | — | **✓** | — | — | — | — | — | — | **✓** |
+| `ledger_list_work_packages` | — | — | — | — | — | — | — | **✓** | **✓** |
+| `ledger_update_work_package_status` | — | — | — | — | — | — | — | **✓** | — |
+| `ledger_get_handoff_status` | — | **✓** | — | — | — | — | — | — | **✓** |
+| `ledger_complete_synthesis` | — | — | — | — | — | — | — | — | **✓** |
+| `ledger_help` | — | — | *(note)* | *(note)* | *(note)* | *(note)* | *(note)* | *(note)* | *(note)* |
+
+### Rationale
+
+**1 — Planner:** Has no MCP tools. The Planner produces a plan document before any ledger exists. It operates entirely on the filesystem and has no ledger to interact with.
+
+**2 — Project Manager:** Initializes the ledger (`ledger_initialize_project`) and creates all work packages (`ledger_create_work_package`). Uses `ledger_get_project_status` to verify the ledger after creation. Uses `ledger_get_handoff_status` to compute the handoff block — required because PM does not use `ledger_get_next_action` (it has no pipeline loop) and therefore cannot rely on the embedded `handoff_status` in WAIT responses.
+
+**3 — Developer:** Full pipeline agent. Uses `ledger_get_next_action` → `ledger_begin_work` → `ledger_complete_pipeline` as the core loop. Has `ledger_add_observation` (unique to Developer) for the Code Insight Observer role — recording observations after a pipeline is already completed. Has `ledger_cancel_pipeline` for stale pipeline recovery.
+
+**4 — QA:** Pipeline agent with the same core loop as Developer (get next action → begin work → complete pipeline). Does not need `ledger_add_observation` because QA records all findings as pipeline comments in `ledger_complete_pipeline`. Does not need `ledger_get_project_status` — reachability is confirmed by the `ledger_get_next_action` call in the preflight detect step.
+
+**5 — Security Auditor:** Same tool set as QA and for the same reasons. The Security Auditor's distinct behavior (OWASP-based vulnerability analysis, severity classification, findings recorded via `ledger_add_project_comment` and `ledger_complete_pipeline`) is expressed through how the tools are used, not which tools are available.
+
+**6 — Reviewer:** Same tool set as Security Auditor. The Reviewer's distinct behavior (review dimensions, PASS/FAIL logic, cross-cutting architectural insights via `ledger_add_project_comment`) is expressed through how the tools are used, not which tools are available.
+
+**7 — Release Engineer:** Same tool set as Security Auditor and Reviewer. Manages changelog entries, version bumps, and deployment readiness checks. Results recorded via `ledger_complete_pipeline`.
+
+**8 — Documentation:** Pipeline agent with `ledger_list_work_packages` (unique among pipeline agents) to scan across WPs for documentation gaps, and `ledger_update_work_package_status` to finalize WPs when auto-finalize did not fire during `ledger_complete_pipeline`. Does not have `ledger_get_handoff_status` — the handoff status is embedded in the WAIT response from `ledger_get_next_action` (the handoff partial provides a fallback path if absent).
+
+**9 — Synthesis:** Read-heavy agent. Uses `ledger_get_project_status` and `ledger_list_work_packages` to iterate all WPs, `ledger_get_work_package` for deep reads, and `ledger_complete_synthesis` (unique to Synthesis) to archive the report and transition the project to COMPLETE. Uses `ledger_get_handoff_status` explicitly because its handoff step is a custom block that directly calls this tool rather than relying on the WAIT-embedded status. Does not have `ledger_begin_work` or `ledger_complete_pipeline` — Synthesis does not run standard pipelines.
 
 ---
 

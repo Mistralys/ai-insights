@@ -21,9 +21,11 @@ Generated persona files are consumed in two ways:
 | Section | Description |
 |---------|-------------|
 | [Tech Stack & Patterns](tech-stack.md) | Runtime, dependencies, build tools, and architectural patterns |
-| [Public API Surface](api-surface.md) | Build script functions, template syntax, and metadata schema |
+| [Public API Surface](api-surface.md) | Build script functions, template syntax, metadata schema, and MCP tool allocation matrix |
 | [Key Data Flows](data-flows.md) | Build pipeline, template resolution, and sync flows |
-| [Constraints & Conventions](constraints.md) | Established rules, conventions, and gotchas |
+| [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
+| [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
+| [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
 
 ---
 

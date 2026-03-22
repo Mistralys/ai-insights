@@ -3869,6 +3869,18 @@ Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NO
 
 ---
 
+## Cross-Platform Constraints
+
+### 54. All Code Must Run on Windows, macOS, and Linux
+
+**Rule:** The MCP server must work on all three supported platforms (Windows, macOS, Linux). Do not introduce OS-specific APIs without a cross-platform fallback. Use `path.join()` / `path.resolve()` for all file paths — never hardcode `/` or `\` separators.
+
+**File locking:** Uses `proper-lockfile` (cross-platform npm package). Do not replace with a platform-specific alternative.
+
+**Rationale:** The workspace-wide cross-platform policy (see root `AGENTS.md` → Cross-Platform Policy) applies to all sub-projects. The MCP server runs alongside the user's IDE on their desktop OS.
+
+---
+
 ## Gotchas
 
 ### ⚠️ Gotcha 1: Revision Only Increments on COMPLETE → IN_PROGRESS

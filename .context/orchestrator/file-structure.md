@@ -14,6 +14,9 @@ _SOURCE: Directory tree_
         ├── top_level.txt
     └── changelog.md
     └── docs/
+        ├── agents/
+        │   ├── project-manifest/
+        │   │   └── README.md
         ├── architecture.md
         ├── jsonl-log-schema.md
         ├── public-api.md
@@ -42,6 +45,7 @@ _SOURCE: Directory tree_
         ├── supervisor.py
         ├── utils/
         │   └── __init__.py
+        │   └── filelock.py
         │   └── logging.py
         │   └── persona.py
         │   └── plan_parser.py
@@ -50,6 +54,7 @@ _SOURCE: Directory tree_
         └── __init__.py
         └── test_cli.py
         └── test_config.py
+        └── test_filelock.py
         └── test_graph.py
         └── test_integration.py
         └── test_nodes.py

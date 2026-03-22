@@ -11,6 +11,8 @@ _SOURCE: Directory tree_
         │   └── project-manifest/
         │       ├── README.md
         │       ├── api-surface.md
+        │       ├── constraints-build-system.md
+        │       ├── constraints-cross-system.md
         │       ├── constraints.md
         │       ├── data-flows.md
         │       ├── tech-stack.md

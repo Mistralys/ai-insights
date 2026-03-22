@@ -37,32 +37,17 @@ The `scripts/` directory contains cross-project scripts that orchestrate persona
 
 **Core Philosophy:** The Project Manifests are the canonical documentation of this codebase. If implementation code contradicts a manifest, the **code is likely wrong**.
 
-This workspace has **two independent manifests** — one per sub-project.
+**Unified entry point:** [`docs/agents/project-manifest/`](docs/agents/project-manifest/README.md) — links to all three module manifests, cross-system dependencies, shared infrastructure reference, and navigation guide.
 
-### MCP Server Manifest
+Each sub-project maintains its own detailed manifest:
 
-**Location:** `mcp-server/docs/agents/project-manifest/`
+| Module | Manifest Location |
+|--------|-------------------|
+| **MCP Server** | [`mcp-server/docs/agents/project-manifest/`](mcp-server/docs/agents/project-manifest/README.md) |
+| **Personas** | [`personas/docs/agents/project-manifest/`](personas/docs/agents/project-manifest/README.md) |
+| **Orchestrator** | [`orchestrator/docs/agents/project-manifest/`](orchestrator/docs/agents/project-manifest/README.md) |
 
-| # | Document | Purpose |
-|---|----------|---------|
-| 1 | [README.md](mcp-server/docs/agents/project-manifest/README.md) | Project overview, MCP server purpose, development commands |
-| 2 | [tech-stack.md](mcp-server/docs/agents/project-manifest/tech-stack.md) | TypeScript runtime, Zod, MCP SDK, architectural patterns |
-| 3 | [constraints.md](mcp-server/docs/agents/project-manifest/constraints.md) | Atomic writes, file locking, STDIO discipline, schema rules |
-| 4 | [file-tree.md](mcp-server/docs/agents/project-manifest/file-tree.md) | Annotated directory structure for mcp-server/ |
-| 5 | [api-surface.md](mcp-server/docs/agents/project-manifest/api-surface.md) | 19 MCP tools, LedgerStore class, utility functions |
-| 6 | [data-flows.md](mcp-server/docs/agents/project-manifest/data-flows.md) | Initialization, pipeline execution, handoff, detection flows |
-
-### Personas Manifest
-
-**Location:** `personas/docs/agents/project-manifest/`
-
-| # | Document | Purpose |
-|---|----------|---------|
-| 1 | [README.md](personas/docs/agents/project-manifest/README.md) | Build system overview, quick reference commands |
-| 2 | [tech-stack.md](personas/docs/agents/project-manifest/tech-stack.md) | Node.js runtime, js-yaml, template engine patterns |
-| 3 | [constraints.md](personas/docs/agents/project-manifest/constraints.md) | Source editing rules, template limitations, naming conventions, directory layout |
-| 4 | [api-surface.md](personas/docs/agents/project-manifest/api-surface.md) | Build script functions, template syntax, metadata schema |
-| 5 | [data-flows.md](personas/docs/agents/project-manifest/data-flows.md) | Build pipeline, sync pipeline, template resolution |
+**See also:** [Workflow Specification](mcp-server/docs/agents/workflow-specification/README.md) — state machines, routing, handoffs, and edge cases (MCP server scope).
 
 ### Sub-Project AGENTS.md
 
@@ -137,6 +122,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | Change Made | Documents to Update |
 |-------------|---------------------|
 | Add/modify agent role | `mcp-server/` → `constraints.md`, `personas/` → `constraints.md` |
+| Add OS-specific code or dependency | This `AGENTS.md` → Cross-Platform Policy; affected sub-project's `constraints.md` |
 | Change `.mcp.json` server key | `personas/` → `constraints.md` (mcp_server_name reference) |
 | Add root-level script | Root `README.md` |
 | Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md`, regenerate `.context/` |
@@ -168,7 +154,7 @@ If your work touches both sub-projects or root-level scripts, review the Manifes
 | `personas/ledger/vs-code/*.agent.md`, `personas/ledger/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `personas/standalone/vs-code/*.agent.md`, `personas/standalone/claude-code/*.md` (generated output) | Personas manifest — **never edit these directly** |
 | `scripts/sync-personas.js`, `scripts/build-personas.js`, other `scripts/` | Both manifests + root `README.md` |
-| `orchestrator/src/`, `orchestrator/tests/` | [orchestrator/README.md](orchestrator/README.md) |
+| `orchestrator/src/`, `orchestrator/tests/` | [Orchestrator manifest](orchestrator/docs/agents/project-manifest/README.md) |
 
 ### Anti-Patterns
 
@@ -191,6 +177,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/workspace-structure.md` | Top-level directory tree (depth 3) |
 | `.context/scripts.md` | All workspace scripts source |
 | `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
+| `.context/project-manifest.md` | Root manifest hub (module links, cross-system deps) |
 | `.context/mcp-server/overview.md` | MCP server README |
 | `.context/mcp-server/manifest.md` | MCP server project manifest (all 6 docs) |
 | `.context/mcp-server/workflow-specification.md` | Workflow spec docs |
@@ -201,6 +188,7 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/mcp-server/file-structure.md` | MCP server directory tree |
 | `.context/orchestrator/overview.md` | Orchestrator README |
 | `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
+| `.context/orchestrator/manifest.md` | Orchestrator project manifest |
 | `.context/orchestrator/source-core.md` | Core modules (CLI, config, graph, state, supervisor) |
 | `.context/orchestrator/source-nodes.md` | Pipeline stage node factories |
 | `.context/orchestrator/source-utils.md` | Utility modules (tool wrappers, persona loader, etc.) |
@@ -283,7 +271,33 @@ These are the critical synchronization points between sub-projects. Breaking any
 
 ---
 
-## 📝 Changelog Convention
+## �️ Cross-Platform Policy
+
+**Supported platforms:** Windows, macOS, and Linux. All sub-projects (MCP server, orchestrator, personas build system, root-level scripts) must work correctly on all three.
+
+### Rules
+
+1. **No OS-specific APIs without a cross-platform fallback.** When platform-specific code is unavoidable (e.g., file locking), provide per-platform implementations gated by runtime detection (`process.platform` / `sys.platform`) and document the invariants for each OS. Prefer stdlib-only solutions over third-party wrappers when the stdlib covers all three targets.
+2. **Use framework path utilities — never hardcode separators.** Use `path.join()` / `path.resolve()` (Node.js) and `pathlib.Path` / `os.path.join()` (Python). Never assume `/` or `\` as a path separator in string literals.
+3. **Shell commands must be cross-platform.** Root-level `scripts/` run on Node.js and must not rely on Unix-only utilities (e.g., `grep`, `sed`). Use Node.js built-in APIs or npm packages instead. When a script delegates to a shell, document any OS-specific invocation difference (e.g., venv activation).
+4. **File locking must work on all platforms.** The MCP server uses `proper-lockfile` (cross-platform). The orchestrator uses `src/utils/filelock.py` (`msvcrt` on Windows, `fcntl` on Unix). Any new locking mechanism must support all three OSs.
+5. **Tests must be platform-agnostic.** Avoid hardcoded Unix paths (`/tmp/…`) in test fixtures. Use the language's temp-directory API (`os.tmpdir()` / `tempfile.mkdtemp()`). Do not assert path separators — compare via `path.resolve()` or `pathlib` equivalents.
+6. **Line endings:** Rely on Git's `core.autocrlf` / `.gitattributes` for normalization. Never assume `\n` when reading user-edited files; use language-level line-splitting APIs.
+
+### Existing Cross-Platform Implementations
+
+| Component | Mechanism | Reference |
+|-----------|-----------|----------|
+| MCP server file locking | `proper-lockfile` (npm) | `mcp-server/src/storage/file-lock.ts` |
+| Orchestrator file locking | `msvcrt` (Win) / `fcntl` (Unix) | `orchestrator/src/utils/filelock.py` |
+| Root scripts | Node.js `fs`, `path`, `child_process` — no Unix shell deps | `scripts/` |
+| Personas build | Node.js CJS — inherently cross-platform | `scripts/build-personas.js` |
+
+> **Rationale:** The MCP server runs alongside the user's IDE on their desktop OS. The orchestrator is a developer tool that must work on contributor machines across all major platforms. Failing on any OS is a shipping bug.
+
+---
+
+## �📝 Changelog Convention
 
 This workspace uses a **hub-and-spoke changelog model**: each sub-project maintains its own detailed changelog, and the root changelog aggregates the highlights into versioned releases.
 
@@ -362,9 +376,10 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | I Need To… | Go Here |
 |------------|---------|
 | Understand the whole workspace | [README.md](README.md) |
+| See all project manifests | [docs/agents/project-manifest/](docs/agents/project-manifest/README.md) |
 | Work on the MCP server | [mcp-server/AGENTS.md](mcp-server/AGENTS.md) → then its manifest |
 | Work on persona templates | [personas/docs/agents/project-manifest/](personas/docs/agents/project-manifest/) |
-| Work on the orchestrator | [orchestrator/README.md](orchestrator/README.md) |
+| Work on the orchestrator | [orchestrator/docs/agents/project-manifest/](orchestrator/docs/agents/project-manifest/README.md) |
 | Look up an MCP tool signature | [mcp-server/…/api-surface.md](mcp-server/docs/agents/project-manifest/api-surface.md) |
 | Look up template syntax | [personas/…/api-surface.md](personas/docs/agents/project-manifest/api-surface.md) |
 | Find a file in mcp-server | [mcp-server/…/file-tree.md](mcp-server/docs/agents/project-manifest/file-tree.md) |
@@ -382,7 +397,7 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 ---
 
 **Version:** 1.0.0
-**Last Updated:** 2026-02-22
+**Last Updated:** 2026-03-22
 **Maintained By:** AGENTS.md Curator Agent
 
 ```

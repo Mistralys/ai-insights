@@ -64,6 +64,19 @@ All 16 fields with their types and reducers are documented in the source: `orche
 
 ---
 
+## Platform Support
+
+**Supported platforms:** Windows, macOS, and Linux. The orchestrator must work on all three.
+
+- **File locking:** `src/utils/filelock.py` provides `lock_exclusive()` and `unlock()` using `msvcrt.locking` on Windows and `fcntl.flock` on Unix. No third-party dependencies.
+- **Path handling:** Use `pathlib.Path` / `os.path.join()` — never hardcode separators.
+- **Temp directories:** Tests must use `tempfile.mkdtemp()` — never hardcode `/tmp/`.
+- **Shell commands:** The orchestrator invokes the MCP server via `node dist/index.js`. Ensure any subprocess invocations work on all three OSs (no Unix-only shell syntax).
+
+See root `AGENTS.md` → Cross-Platform Policy for the full workspace-wide policy.
+
+---
+
 ## JSONL Log Entry Types
 
 Each run writes a JSONL file to `orchestrator/logs/` (path printed at run start). Key entry types:

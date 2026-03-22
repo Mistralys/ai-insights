@@ -17,6 +17,8 @@ _SOURCE: Top-level directory tree_
 └── docs/
     ├── agents/
     │   └── implementation-history/
+    │       ├── README.md
+    │   └── project-manifest/
     │       └── README.md
 └── history/
     ├── error-ledger.md
@@ -80,6 +82,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── pipeline-maps.ts
     │   │   └── project-reset.ts
     │   │   └── read-project-name.ts
+    │   │   └── server-version.ts
     │   │   └── timestamp.ts
     │   │   └── workflow-helpers.ts
     │   │   └── wp-id.ts
@@ -126,6 +129,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── schema-integrity.test.ts
     │   │   ├── start-pipeline-guards.test.ts
     │   │   ├── synthesis-terminal.test.ts
+    │   │   ├── version-freshness.test.ts
     │   │   ├── work-package.test.ts
     │   │   ├── workflow-batch-actions.test.ts
     │   │   ├── workflow-handoff.test.ts
@@ -154,6 +158,9 @@ _SOURCE: Top-level directory tree_
     │   ├── requires.txt
     │   ├── top_level.txt
     ├── changelog.md
+    ├── checkpoints/
+    │   ├── test/
+    │   │   └── workflow.sqlite
     ├── docs/
     │   ├── architecture.md
     │   ├── jsonl-log-schema.md
@@ -183,6 +190,7 @@ _SOURCE: Top-level directory tree_
     │   ├── supervisor.py
     │   ├── utils/
     │   │   └── __init__.py
+    │   │   └── filelock.py
     │   │   └── logging.py
     │   │   └── persona.py
     │   │   └── plan_parser.py
@@ -191,6 +199,7 @@ _SOURCE: Top-level directory tree_
     │   └── __init__.py
     │   └── test_cli.py
     │   └── test_config.py
+    │   └── test_filelock.py
     │   └── test_graph.py
     │   └── test_integration.py
     │   └── test_nodes.py

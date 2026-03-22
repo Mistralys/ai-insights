@@ -59,6 +59,15 @@ documents:
         excludePatterns:
           - 'tests/'
 
+  - description: 'AI Insights - Project Manifest Hub'
+    outputPath: project-manifest.md
+    sources:
+      - type: file
+        description: "Unified entry point linking all module manifests, cross-system dependencies, and shared infrastructure"
+        sourcePaths:
+          - docs/agents/project-manifest
+        filePattern: "*.md"
+
   - description: 'AI Insights - Shared Manifest'
     outputPath: shared-manifest.md
     sources:

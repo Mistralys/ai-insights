@@ -21,6 +21,15 @@ documents:
           - README.md
         filePattern: "README.md"
 
+  - description: 'Orchestrator - Manifest'
+    outputPath: 'orchestrator/manifest.md'
+    sources:
+      - type: file
+        description: "Project manifest (overview, tech stack, constraints, API surface, architecture)"
+        sourcePaths:
+          - docs/agents/project-manifest
+        filePattern: "*.md"
+
   - description: 'Orchestrator - Documentation'
     outputPath: 'orchestrator/documentation.md'
     sources:
@@ -29,6 +38,8 @@ documents:
         sourcePaths:
           - docs
         filePattern: "*.md"
+        excludePatterns:
+          - 'agents/'
 
   - description: 'Orchestrator - File Structure'
     outputPath: 'orchestrator/file-structure.md'

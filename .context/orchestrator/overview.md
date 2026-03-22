@@ -248,7 +248,7 @@ Each stage node loads a persona prompt, wraps the shared MCP tools (auto-injecti
 | `src/config.py` | `.env` loading, provider auto-detection, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
-| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger |
+| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking |
 | `tests/` | 269 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 
@@ -375,7 +375,7 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 269 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 287 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -403,6 +403,7 @@ Tests are structured as:
 | `test_cli.py` | Argument parsing, interrupt mapping, exit codes |
 | `test_state.py` | WorkflowState schema and reducer semantics |
 | `test_plan_parser.py` | Plan document parsing (title, summary, edge cases) |
+| `test_filelock.py` | Cross-platform file locking: successful acquire, contention raises `OSError`, double-unlock idempotency |
 | `test_integration.py` | End-to-end graph execution (7 scenarios, ScriptedLedger) |
 
 ### Integration Tests (`test_integration.py`)

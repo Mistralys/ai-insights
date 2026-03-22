@@ -57,7 +57,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import fcntl
 import logging
 import os
 import sys
@@ -66,6 +65,8 @@ import uuid
 from datetime import UTC
 from pathlib import Path
 from typing import Any
+
+from src.utils.filelock import lock_exclusive, unlock
 
 log = logging.getLogger(__name__)
 
@@ -442,7 +443,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     lock_file = None
     try:
         lock_file = open(lock_path, "w")  # noqa: SIM115
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_exclusive(lock_file.fileno())
     except OSError:
         sys.stderr.write(
             f"orchestrate: error: another orchestrator process is already running "
@@ -578,7 +579,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     # ── Release process lock ────────────────────────────────────────────────
     if lock_file:
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            unlock(lock_file.fileno())
             lock_file.close()
             lock_path.unlink(missing_ok=True)
         except OSError:
