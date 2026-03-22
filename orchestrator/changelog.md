@@ -4,6 +4,7 @@
 - Fix: Replaced unconditional `import fcntl` in `cli.py` with a cross-platform `filelock` module; the orchestrator now starts on Windows without `ModuleNotFoundError`.
 - Core: Added `src/utils/filelock.py` — stdlib-only file locking (`fcntl.flock` on Unix, `msvcrt.locking` on Windows, no third-party dependencies).
 - Tests: Added `tests/test_filelock.py` with 3 platform-agnostic unit tests: acquire succeeds, contention raises `OSError`, `unlock` is idempotent.
+- Docs: Created project manifest documentation.
 
 ## v0.5.0 - Checkpoint Support & Stability
 - Core: Added checkpoint support for resumable runs.

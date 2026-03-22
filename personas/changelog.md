@@ -1,5 +1,10 @@
 # Personas Changelog
 
+## v3.10.0 - AGENTS.md Curator: CLAUDE.md Companion
+- Personas: AGENTS.md Curator v1.1.0 — now creates a CLAUDE.md companion file.
+- Docs: Split constraints into build-system and cross-system sub-documents.
+- Docs: Added persona versioning constraint.
+
 ## v3.9.3 - CTX Architect: Tree Exclusion Guidance
 - Personas: CTX Architect v1.1.0 — added `notPath` vs `excludePatterns` warning
   for tree vs file source types (silent ignore bug).

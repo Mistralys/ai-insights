@@ -1,5 +1,16 @@
 # AI Insights Changelog
 
+## v1.10.0 - Cross-Platform & Version Tracking
+> mcp v1.15.0 · personas v3.10.0 · orchestrator v0.6.0
+
+- MCP: Server now rejects project init when running a stale version.
+- MCP: GUI project detail displays server and spec versions.
+- Orchestrator: Fixed Windows startup with cross-platform file locking.
+- Personas: AGENTS.md Curator now creates CLAUDE.md companion files.
+- Personas: CTX Architect warns about tree vs file source exclusions.
+- Docs: Added unified project manifest hub and cross-platform policy.
+- Scripts: Added CTX document path normalization.
+
 ## v1.9.0 - Orchestrator Checkpoint Support
 > mcp v1.14.1 · orchestrator v0.5.0 · personas v3.9.2
 

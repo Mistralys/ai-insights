@@ -1,5 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.15.0 - Version Tracking & Freshness Guard
+- Lifecycle: Project init now rejects stale server instances.
+- Schema: Added `server_version` to the root index.
+- GUI: Project detail now displays server and spec versions.
+- Fix: Fixed a startup error in the server entry point.
+- Tests: Added version freshness guard test suite.
+
 ## v1.14.1 - Improved Error Messages
 - Ledger: Improved error messages when no project ledger exists.
 
