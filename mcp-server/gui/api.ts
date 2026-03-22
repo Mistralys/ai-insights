@@ -195,7 +195,8 @@ export type ProjectSortField =
   | 'total_work_packages'
   | 'done'
   | 'date_created'
-  | 'last_updated';
+  | 'last_updated'
+  | 'runner';
 
 /** Raw query parameters accepted by GET /api/projects. */
 export interface ProjectListParams {
@@ -209,6 +210,8 @@ export interface ProjectListParams {
   sort?: string;
   /** 'asc' or 'desc'. Defaults to 'desc'. */
   dir?: string;
+  /** Normalized runner filter ('orchestrator', 'vscode', 'claude-code', 'unknown'). Unrecognized values return empty results without a 500. */
+  runner?: string;
 }
 
 /** Paginated response envelope returned by handleListProjects. */
@@ -220,6 +223,8 @@ export interface ProjectListEnvelope {
   total_pages: number;
   /** Per-status counts computed from the search-filtered set (before status filter). */
   status_counts: Record<string, number>;
+  /** Per-runner counts computed from the search-filtered set (before runner filter). 'unknown' for projects without a stored runner field. */
+  runner_counts: Record<string, number>;
 }
 
 const SORT_FIELDS = new Set<ProjectSortField>([
@@ -230,6 +235,7 @@ const SORT_FIELDS = new Set<ProjectSortField>([
   'done',
   'date_created',
   'last_updated',
+  'runner',
 ]);
 
 const VALID_STATUS_FILTERS = new Set([
@@ -270,6 +276,9 @@ export async function handleListProjects(
     ? (sortRaw as ProjectSortField)
     : 'last_updated';
   const dir: 'asc' | 'desc' = rawParams.dir === 'asc' ? 'asc' : 'desc';
+  // runner filter — undefined means no filter; any string value (including unrecognized ones) is accepted
+  // so that unrecognized runners return an empty set rather than a 500 error.
+  const runnerFilter: string | undefined = rawParams.runner;
 
   const allProjects = await LedgerStore.listAllProjects(ledgerRoot);
 
@@ -342,6 +351,9 @@ export async function handleListProjects(
 
       return {
         ...meta,
+        // Normalize runner: projects without a stored runner field default to 'unknown'
+        // for consistent filtering and display.
+        runner: meta.runner ?? 'unknown',
         total_work_packages,
         pending_work_packages,
         project_name,
@@ -361,19 +373,28 @@ export async function handleListProjects(
       )
     : enrichedAll;
 
-  // --- Step 3: Compute status_counts from search-filtered set (before status filter) ---
+  // --- Step 3: Compute status_counts and runner_counts from search-filtered set (before status/runner filter) ---
   const status_counts: Record<string, number> = {};
+  const runner_counts: Record<string, number> = {};
   for (const p of searchFiltered) {
     status_counts[p.status] = (status_counts[p.status] ?? 0) + 1;
+    const r = p.runner ?? 'unknown';
+    runner_counts[r] = (runner_counts[r] ?? 0) + 1;
   }
 
-  // --- Step 4: Status filter ---
-  const filtered =
+  // --- Step 4a: Status filter ---
+  const statusFiltered =
     statusFilter === 'ALL'
       ? searchFiltered
       : statusFilter === 'ACTIVE'
         ? searchFiltered.filter((p) => p.status !== 'ARCHIVED')
         : searchFiltered.filter((p) => p.status === statusFilter);
+
+  // --- Step 4b: Runner filter (applied after status filter; unrecognized values return empty set) ---
+  const filtered =
+    runnerFilter !== undefined
+      ? statusFiltered.filter((p) => (p.runner ?? 'unknown') === runnerFilter)
+      : statusFiltered;
 
   // --- Step 5: Sort ---
   const sorted = [...filtered].sort((a, b) => {
@@ -404,6 +425,10 @@ export async function handleListProjects(
         aVal = a.date_created ?? '';
         bVal = b.date_created ?? '';
         break;
+      case 'runner':
+        aVal = (a.runner ?? 'unknown').toLowerCase();
+        bVal = (b.runner ?? 'unknown').toLowerCase();
+        break;
       case 'last_updated':
       default:
         aVal = a.last_updated ?? '';
@@ -428,6 +453,7 @@ export async function handleListProjects(
     limit,
     total_pages,
     status_counts,
+    runner_counts,
   };
 }
 

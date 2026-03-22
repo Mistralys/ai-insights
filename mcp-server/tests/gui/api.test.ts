@@ -1138,5 +1138,101 @@ describe('gui/api.ts', () => {
       expect(result.status_counts['ARCHIVED']).toBeGreaterThanOrEqual(1);
     });
   });
+
+  // ─── handleListProjects — runner filtering (WP-003) ──────────────────────
+
+  describe('handleListProjects — runner field and runner_counts (WP-003)', () => {
+    it('AC1: each project includes a runner field; projects without stored runner return runner: unknown', async () => {
+      // createProject writes a root index with no runner field (backward compat)
+      await createProject(ledgerRoot, '2026-01-01-no-runner');
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL' });
+      const p = result.projects.find((x) => x.slug === '2026-01-01-no-runner');
+      expect(p).toBeDefined();
+      expect(p!.runner).toBe('unknown');
+    });
+
+    it('AC1: each project includes a runner field when runner is stored in root index', async () => {
+      const store = await createProject(ledgerRoot, '2026-01-01-has-runner');
+      await store.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL' });
+      const p = result.projects.find((x) => x.slug === '2026-01-01-has-runner');
+      expect(p).toBeDefined();
+      expect(p!.runner).toBe('orchestrator');
+    });
+
+    it('AC1: response includes runner_counts object whose keys are runner values and values are integer counts', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-rc-orch');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-rc-vscode');
+      await storeB.writeRootIndex(makeRoot({ runner: 'vscode' }));
+      await createProject(ledgerRoot, '2026-01-03-rc-no-runner'); // no runner → 'unknown'
+
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL' });
+      expect(typeof result.runner_counts).toBe('object');
+      expect(result.runner_counts['orchestrator']).toBe(1);
+      expect(result.runner_counts['vscode']).toBe(1);
+      expect(result.runner_counts['unknown']).toBeGreaterThanOrEqual(1);
+    });
+
+    it('AC2: runner=orchestrator returns only projects with runner orchestrator', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-rf-orch1');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-rf-orch2');
+      await storeB.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeC = await createProject(ledgerRoot, '2026-01-03-rf-vscode');
+      await storeC.writeRootIndex(makeRoot({ runner: 'vscode' }));
+
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'orchestrator' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-rf-orch1');
+      expect(slugs).toContain('2026-01-02-rf-orch2');
+      expect(slugs).not.toContain('2026-01-03-rf-vscode');
+      expect(result.total).toBe(2);
+    });
+
+    it('AC3: runner_counts reflects the full unfiltered set (not affected by active runner filter)', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-rc-full-orch');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-rc-full-vscode');
+      await storeB.writeRootIndex(makeRoot({ runner: 'vscode' }));
+
+      // Filter by runner=orchestrator — result contains only 1 project,
+      // but runner_counts must still include vscode count from the full search-filtered set.
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'orchestrator' });
+      expect(result.projects).toHaveLength(1);
+      expect(result.runner_counts['orchestrator']).toBe(1);
+      expect(result.runner_counts['vscode']).toBe(1);
+    });
+
+    it('AC4: projects without stored runner field return runner: unknown', async () => {
+      // Root index has no runner field set
+      await createProject(ledgerRoot, '2026-01-01-unknown-default');
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'unknown' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-unknown-default');
+    });
+
+    it('AC5: unrecognized runner query value returns empty result set without 500 error', async () => {
+      await createProject(ledgerRoot, '2026-01-01-unrecognized-runner');
+      // Should not throw, should return empty projects
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'nonexistent-runner-xyz' });
+      expect(result.projects).toHaveLength(0);
+      expect(result.total).toBe(0);
+    });
+
+    it('runner filter combined with status filter works correctly', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-combo-orch-active');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator', status: 'IN_PROGRESS' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-combo-orch-archived');
+      await storeB.writeRootIndex(makeRoot({ runner: 'orchestrator', status: 'ARCHIVED' }));
+      await storeB.writeProjectMeta('plan.md', 'ARCHIVED');
+
+      // ACTIVE + orchestrator → only non-archived orchestrator projects
+      const result = await handleListProjects(ledgerRoot, { status: 'ACTIVE', runner: 'orchestrator' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-combo-orch-active');
+      expect(slugs).not.toContain('2026-01-02-combo-orch-archived');
+    });
+  });
 });
 

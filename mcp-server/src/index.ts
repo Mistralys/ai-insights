@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { mkdirSync } from 'fs';
 import { join, resolve } from 'path';
@@ -58,12 +59,35 @@ function resolveAgentsDir(): string {
  * with typed tools, enforcing consistency, validation, and atomicity.
  */
 
+/**
+ * Module-level MCP server instance.
+ * Set once in main() after the McpServer is created.
+ * Used by getClientInfo() to expose client identity to tool handlers.
+ */
+let _mcpServer: McpServer | undefined;
+
+/**
+ * Returns the MCP client identity reported during the initialization handshake.
+ *
+ * Since the server uses STDIO transport (single client per process), the returned
+ * value is stable for the entire session. Returns undefined before the transport
+ * connects or if the client did not identify itself.
+ *
+ * @returns The client's { name, version } implementation object, or undefined.
+ */
+export function getClientInfo(): Implementation | undefined {
+  return _mcpServer?.server.getClientVersion();
+}
+
 async function main(): Promise<void> {
   // Create the MCP server instance
   const server = new McpServer({
     name: 'project-ledger',
     version: SERVER_VERSION,
   });
+
+  // Expose server instance for getClientInfo() accessor
+  _mcpServer = server;
 
   // NOTE: The tool list printed in the startup log below must be kept in sync
   // with the tools registered here. Update the log message whenever a tool is

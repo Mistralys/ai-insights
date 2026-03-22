@@ -8,11 +8,15 @@ export const ProjectMetaSchema = z.object({
   date_created: z.string(),              // ISO timestamp
   last_updated: z.string(),             // ISO timestamp
   title: z.string().optional(),         // optional, derived from plan_file content
-  // Enrichment cache fields — optional for backward compatibility
+  // Enrichment cache fields - optional for backward compatibility
   total_work_packages: z.number().int().nonnegative().optional(),
   pending_work_packages: z.number().int().nonnegative().optional(),
   project_name: z.string().nullable().optional(),
   repository_name: z.string().nullable().optional(),
+  // Runner metadata - optional for backward compatibility
+  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'unknown']).optional(),
+  runner_client: z.string().optional(),   // raw clientInfo.name
+  runner_version: z.string().optional(),  // raw clientInfo.version
 });
 
 export type ProjectMeta = z.infer<typeof ProjectMetaSchema>;

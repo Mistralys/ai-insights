@@ -189,6 +189,7 @@ function matchRoute(
       search: sp.get('search') ?? undefined,
       sort: sp.get('sort') ?? undefined,
       dir: sp.get('dir') ?? undefined,
+      runner: sp.get('runner') ?? undefined,
     };
     return () => handleListProjects(ledgerRoot, params);
   }
