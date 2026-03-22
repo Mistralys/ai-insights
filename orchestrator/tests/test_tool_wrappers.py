@@ -435,3 +435,84 @@ class TestPydanticModelCompatibility:
             f"Original ainvoke called {call_count} times — wrapper stacking on StructuredTool"
         )
 
+
+# ---------------------------------------------------------------------------
+# 10. ToolCall dict structure — LangGraph ToolNode passes nested args
+# ---------------------------------------------------------------------------
+
+class TestToolCallDictStructure:
+    """Verify that injection works when ainvoke receives a ToolCall dict.
+
+    LangGraph's ToolNode passes ``{"name": ..., "args": {...}, "id": ...,
+    "type": "tool_call"}`` to ``tool.ainvoke``.  The wrapper must inject
+    ``project_path`` into ``input["args"]``, not the top-level dict.
+    """
+
+    async def test_toolcall_injects_project_path_into_args(self):
+        """project_path must be injected into input['args'], not top level."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_create_work_package",
+            "args": {"work_package_id": "WP-001"},
+            "id": "call-1",
+            "type": "tool_call",
+        })
+
+        result = seen[0]
+        assert result["args"]["project_path"] == PROJECT
+        assert "project_path" not in {k for k in result if k != "args"}
+
+    async def test_toolcall_strips_cwd_path_from_args(self):
+        """cwd_path inside input['args'] must be stripped and replaced."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_get_project_status",
+            "args": {"cwd_path": "/"},
+            "id": "call-2",
+            "type": "tool_call",
+        })
+
+        result = seen[0]
+        assert "cwd_path" not in result["args"]
+        assert result["args"]["project_path"] == PROJECT
+
+    async def test_toolcall_preserves_explicit_project_path(self):
+        """An explicit project_path in args must not be overwritten."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        explicit = "/explicit/project"
+        await tool.ainvoke({
+            "name": "some_tool",
+            "args": {"project_path": explicit},
+            "id": "call-3",
+            "type": "tool_call",
+        })
+
+        assert seen[0]["args"]["project_path"] == explicit
+
+    async def test_toolcall_preserves_other_args(self):
+        """Other args in the ToolCall must survive untouched."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_claim_work_package",
+            "args": {"work_package_id": "WP-007", "agent_role": "Developer"},
+            "id": "call-4",
+            "type": "tool_call",
+        })
+
+        result = seen[0]["args"]
+        assert result["work_package_id"] == "WP-007"
+        assert result["agent_role"] == "Developer"
+        assert result["project_path"] == PROJECT
+

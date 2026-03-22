@@ -78,14 +78,24 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
+                # LangGraph ToolNode passes a ToolCall dict with args nested
+                # inside input["args"], while direct invocations pass a flat
+                # dict of tool arguments.  Handle both structures.
+                if "args" in input and isinstance(input["args"], dict):
+                    # ToolCall structure: {"name": ..., "args": {...}, ...}
+                    target = input["args"]
+                else:
+                    # Flat dict of tool arguments
+                    target = input
+
                 # In the orchestrator context we always know the exact
                 # project_path, so cwd_path-based auto-detection is never
                 # needed.  If the LLM agent followed persona instructions
                 # meant for interactive IDE agents and passed cwd_path,
                 # replace it with the authoritative project_path.
-                if "cwd_path" in input:
-                    del input["cwd_path"]
-                input.setdefault("project_path", _proj)
+                if "cwd_path" in target:
+                    del target["cwd_path"]
+                target.setdefault("project_path", _proj)
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)
