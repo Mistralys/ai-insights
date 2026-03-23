@@ -158,9 +158,18 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
         );
       }
 
-      // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
+      // Guard 2b: Pipeline type must be in the WP's active stages (§11.1).
       const activeStages: readonly PipelineType[] =
         (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+      if (!activeStages.includes(args.type as PipelineType)) {
+        throw new Error(
+          `Cannot start pipeline '${args.type}' for work package ${args.work_package_id}: ` +
+          `this pipeline type is not in the WP's active stages. ` +
+          `Active stages: ${(activeStages as readonly string[]).join(' \u2192 ')}.`
+        );
+      }
+
+      // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
       const prerequisite = resolvePrerequisite(args.type as PipelineType, activeStages);
       if (prerequisite !== null) {
         const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
