@@ -237,7 +237,7 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`) |
-| `tests/` | 269 tests — unit, integration (ScriptedLedger), and live marks |
+| `tests/` | 374 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 
 ---
@@ -368,7 +368,7 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 322 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 375 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -397,6 +397,7 @@ Tests are structured as:
 | `test_state.py` | WorkflowState schema and reducer semantics |
 | `test_plan_parser.py` | Plan document parsing (title, summary, edge cases) |
 | `test_filelock.py` | Cross-platform file locking: successful acquire, contention raises `OSError`, double-unlock idempotency |
+| `test_logging.py` | `_format_duration` edge cases (None, 0, sub-minute, multi-minute, multi-hour); all 7 new event-type console format patterns (`stage_start`, `stage_complete`, `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`); existing event-type stability (generic fallback unchanged); robustness against missing/null fields — 48 tests |
 | `test_integration.py` | End-to-end graph execution (7 scenarios, ScriptedLedger) |
 
 ### Integration Tests (`test_integration.py`)
