@@ -17,11 +17,18 @@ _SOURCE: Directory tree_
         ├── agents/
         │   ├── project-manifest/
         │   │   └── README.md
+        │   │   └── api-surface.md
         ├── architecture.md
         ├── jsonl-log-schema.md
         ├── public-api.md
         ├── smoke-testing.md
         ├── supervisor-routing.md
+    └── logs/
+        ├── 20260302T154735-2026-03-02-perceval-category-graceful-fa.jsonl
+        ├── 20260302T181937-2026-03-02-orchestrator-project-path-fix.jsonl
+        ├── 20260302T182103-2026-03-02-orchestrator-project-path-fix.jsonl
+        ├── 20260320T102813-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T115836-2026-03-20-synthesis-followups.jsonl
     └── module-context.yaml
     └── pyproject.toml
     └── requirements.txt
@@ -47,6 +54,7 @@ _SOURCE: Directory tree_
         │   └── __init__.py
         │   └── filelock.py
         │   └── logging.py
+        │   └── mcp_parse.py
         │   └── persona.py
         │   └── plan_parser.py
         │   └── tool_wrappers.py
@@ -57,6 +65,7 @@ _SOURCE: Directory tree_
         └── test_filelock.py
         └── test_graph.py
         └── test_integration.py
+        └── test_logging.py
         └── test_nodes.py
         └── test_plan_parser.py
         └── test_state.py

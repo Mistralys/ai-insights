@@ -18,6 +18,7 @@ _SOURCE: Test suite (unit, integration)_
             ├── full-workflow.test.ts
         └── schema/
             ├── project-archiving-schema.test.ts
+            ├── project-meta-runner.test.ts
             ├── root-index.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
@@ -34,9 +35,11 @@ _SOURCE: Test suite (unit, integration)_
             ├── list-projects.test.ts
             ├── meta-enrichment.test.ts
             ├── observations.test.ts
+            ├── pipeline-duration.test.ts
             ├── pipeline.test.ts
             ├── project-lifecycle.test.ts
             ├── rework-circuit-breaker.test.ts
+            ├── runner-integration.test.ts
             ├── schema-integrity.test.ts
             ├── start-pipeline-guards.test.ts
             ├── synthesis-terminal.test.ts
@@ -53,6 +56,7 @@ _SOURCE: Test suite (unit, integration)_
             └── path-validator.test.ts
             └── pipeline-maps.test.ts
             └── project-reset.test.ts
+            └── runner.test.ts
             └── timestamp.test.ts
             └── workflow-helpers.test.ts
             └── workflow-manifest.test.ts
@@ -2033,6 +2037,102 @@ describe('gui/api.ts', () => {
       const result = await handleListProjects(ledgerRoot, { status: 'ACTIVE', search: 'sc-search' });
       // ARCHIVED project is in the search-filtered set so it should appear in status_counts
       expect(result.status_counts['ARCHIVED']).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // ─── handleListProjects — runner filtering (WP-003) ──────────────────────
+
+  describe('handleListProjects — runner field and runner_counts (WP-003)', () => {
+    it('AC1: each project includes a runner field; projects without stored runner return runner: unknown', async () => {
+      // createProject writes a root index with no runner field (backward compat)
+      await createProject(ledgerRoot, '2026-01-01-no-runner');
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL' });
+      const p = result.projects.find((x) => x.slug === '2026-01-01-no-runner');
+      expect(p).toBeDefined();
+      expect(p!.runner).toBe('unknown');
+    });
+
+    it('AC1: each project includes a runner field when runner is stored in root index', async () => {
+      const store = await createProject(ledgerRoot, '2026-01-01-has-runner');
+      await store.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL' });
+      const p = result.projects.find((x) => x.slug === '2026-01-01-has-runner');
+      expect(p).toBeDefined();
+      expect(p!.runner).toBe('orchestrator');
+    });
+
+    it('AC1: response includes runner_counts object whose keys are runner values and values are integer counts', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-rc-orch');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-rc-vscode');
+      await storeB.writeRootIndex(makeRoot({ runner: 'vscode' }));
+      await createProject(ledgerRoot, '2026-01-03-rc-no-runner'); // no runner → 'unknown'
+
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL' });
+      expect(typeof result.runner_counts).toBe('object');
+      expect(result.runner_counts['orchestrator']).toBe(1);
+      expect(result.runner_counts['vscode']).toBe(1);
+      expect(result.runner_counts['unknown']).toBeGreaterThanOrEqual(1);
+    });
+
+    it('AC2: runner=orchestrator returns only projects with runner orchestrator', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-rf-orch1');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-rf-orch2');
+      await storeB.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeC = await createProject(ledgerRoot, '2026-01-03-rf-vscode');
+      await storeC.writeRootIndex(makeRoot({ runner: 'vscode' }));
+
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'orchestrator' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-rf-orch1');
+      expect(slugs).toContain('2026-01-02-rf-orch2');
+      expect(slugs).not.toContain('2026-01-03-rf-vscode');
+      expect(result.total).toBe(2);
+    });
+
+    it('AC3: runner_counts reflects the full unfiltered set (not affected by active runner filter)', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-rc-full-orch');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-rc-full-vscode');
+      await storeB.writeRootIndex(makeRoot({ runner: 'vscode' }));
+
+      // Filter by runner=orchestrator — result contains only 1 project,
+      // but runner_counts must still include vscode count from the full search-filtered set.
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'orchestrator' });
+      expect(result.projects).toHaveLength(1);
+      expect(result.runner_counts['orchestrator']).toBe(1);
+      expect(result.runner_counts['vscode']).toBe(1);
+    });
+
+    it('AC4: projects without stored runner field return runner: unknown', async () => {
+      // Root index has no runner field set
+      await createProject(ledgerRoot, '2026-01-01-unknown-default');
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'unknown' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-unknown-default');
+    });
+
+    it('AC5: unrecognized runner query value returns empty result set without 500 error', async () => {
+      await createProject(ledgerRoot, '2026-01-01-unrecognized-runner');
+      // Should not throw, should return empty projects
+      const result = await handleListProjects(ledgerRoot, { status: 'ALL', runner: 'nonexistent-runner-xyz' });
+      expect(result.projects).toHaveLength(0);
+      expect(result.total).toBe(0);
+    });
+
+    it('runner filter combined with status filter works correctly', async () => {
+      const storeA = await createProject(ledgerRoot, '2026-01-01-combo-orch-active');
+      await storeA.writeRootIndex(makeRoot({ runner: 'orchestrator', status: 'IN_PROGRESS' }));
+      const storeB = await createProject(ledgerRoot, '2026-01-02-combo-orch-archived');
+      await storeB.writeRootIndex(makeRoot({ runner: 'orchestrator', status: 'ARCHIVED' }));
+      await storeB.writeProjectMeta('plan.md', 'ARCHIVED');
+
+      // ACTIVE + orchestrator → only non-archived orchestrator projects
+      const result = await handleListProjects(ledgerRoot, { status: 'ACTIVE', runner: 'orchestrator' });
+      const slugs = result.projects.map((p) => p.slug);
+      expect(slugs).toContain('2026-01-01-combo-orch-active');
+      expect(slugs).not.toContain('2026-01-02-combo-orch-archived');
     });
   });
 });
@@ -5241,6 +5341,153 @@ describe('GuiConfigSchema', () => {
 });
 
 ```
+###  Path: `/mcp-server/tests/schema/project-meta-runner.test.ts`
+
+```ts
+/**
+ * Tests for runner fields added to ProjectMetaSchema and RootIndexSchema.
+ *
+ * Verifies:
+ * - New runner fields are accepted when present
+ * - Existing .meta.json files without runner fields parse successfully (AC5)
+ */
+
+import { describe, it, expect } from 'vitest';
+import { ProjectMetaSchema } from '../../src/schema/project-meta.js';
+import { RootIndexSchema } from '../../src/schema/root-index.js';
+
+// --- Shared base objects (no runner fields) ---
+
+const BASE_META = {
+  slug: '2026-01-01-my-project',
+  plan_path: '/plans/2026-01-01-my-project',
+  status: 'READY' as const,
+  date_created: '2026-01-01T00:00:00.000Z',
+  last_updated: '2026-01-01T00:00:00.000Z',
+};
+
+const BASE_ROOT = {
+  plan_file: 'plan.md',
+  date_created: '2026-01-01T00:00:00.000Z',
+  last_updated: '2026-01-01T00:00:00.000Z',
+  status: 'READY' as const,
+  total_work_packages: 0,
+  pending_work_packages: 0,
+  work_packages: [],
+  project_comments: [],
+};
+
+// --- ProjectMetaSchema runner fields ---
+
+describe('ProjectMetaSchema - runner fields', () => {
+  it('accepts all runner fields when present', () => {
+    const result = ProjectMetaSchema.safeParse({
+      ...BASE_META,
+      runner: 'orchestrator',
+      runner_client: 'langchain-mcp-adapters',
+      runner_version: '1.0',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runner).toBe('orchestrator');
+      expect(result.data.runner_client).toBe('langchain-mcp-adapters');
+      expect(result.data.runner_version).toBe('1.0');
+    }
+  });
+
+  it('accepts vscode runner', () => {
+    const result = ProjectMetaSchema.safeParse({ ...BASE_META, runner: 'vscode', runner_client: 'Visual Studio Code', runner_version: '1.99' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.runner).toBe('vscode');
+  });
+
+  it('accepts claude-code runner', () => {
+    const result = ProjectMetaSchema.safeParse({ ...BASE_META, runner: 'claude-code', runner_client: 'claude-code', runner_version: '0.2' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.runner).toBe('claude-code');
+  });
+
+  // AC5: backward compatibility
+  it('accepts existing meta without runner fields (AC5 - backward compat)', () => {
+    const result = ProjectMetaSchema.safeParse(BASE_META);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runner).toBeUndefined();
+      expect(result.data.runner_client).toBeUndefined();
+      expect(result.data.runner_version).toBeUndefined();
+    }
+  });
+
+  it('rejects invalid runner enum value', () => {
+    const result = ProjectMetaSchema.safeParse({ ...BASE_META, runner: 'cursor' });
+    expect(result.success).toBe(false);
+  });
+
+  it('runner_client and runner_version accept empty strings', () => {
+    const result = ProjectMetaSchema.safeParse({ ...BASE_META, runner: 'unknown', runner_client: '', runner_version: '' });
+    expect(result.success).toBe(true);
+  });
+});
+
+// --- RootIndexSchema runner fields ---
+
+describe('RootIndexSchema - runner fields', () => {
+  it('accepts all runner fields when present', () => {
+    const result = RootIndexSchema.safeParse({
+      ...BASE_ROOT,
+      runner: 'orchestrator',
+      runner_client: 'langchain-mcp-adapters',
+      runner_version: '1.0',
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runner).toBe('orchestrator');
+    }
+  });
+
+  // AC5: backward compatibility for root index
+  it('accepts existing root index without runner fields (AC5 - backward compat)', () => {
+    const result = RootIndexSchema.safeParse(BASE_ROOT);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runner).toBeUndefined();
+      expect(result.data.runner_client).toBeUndefined();
+      expect(result.data.runner_version).toBeUndefined();
+    }
+  });
+
+  it('rejects invalid runner enum value', () => {
+    const result = RootIndexSchema.safeParse({ ...BASE_ROOT, runner: 'cursor' });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a full legacy root index without runner fields', () => {
+    // Simulates a real project-ledger.json written before runner fields were added
+    const legacy = {
+      plan_file: 'plan.md',
+      date_created: '2025-12-01T08:00:00.000Z',
+      last_updated: '2025-12-15T14:30:00.000Z',
+      status: 'COMPLETE',
+      total_work_packages: 2,
+      pending_work_packages: 0,
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Documentation', dependencies: [], file: 'ledger/WP-001.json' },
+      ],
+      project_comments: [],
+      synthesis_generated: true,
+      ledger_version: '2.3.0',
+    };
+    const result = RootIndexSchema.safeParse(legacy);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.runner).toBeUndefined();
+      expect(result.data.runner_client).toBeUndefined();
+      expect(result.data.runner_version).toBeUndefined();
+    }
+  });
+});
+
+```
 ###  Path: `/mcp-server/tests/schema/root-index.test.ts`
 
 ```ts
@@ -5760,6 +6007,18 @@ describe('PipelineSchema', () => {
     const result = PipelineSchema.safeParse({ ...minimalPipeline, auto_cancelled: false });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.auto_cancelled).toBe(false);
+  });
+
+  it('accepts duration_ms as an optional number', () => {
+    const result = PipelineSchema.safeParse({ ...minimalPipeline, duration_ms: 12345 });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.duration_ms).toBe(12345);
+  });
+
+  it('accepts pipeline without duration_ms (backward compatibility)', () => {
+    const result = PipelineSchema.safeParse(minimalPipeline);
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.duration_ms).toBeUndefined();
   });
 });
 
@@ -9418,6 +9677,160 @@ describe('AddObservationSchema work_package_id regex (WP-\\d{3,})', () => {
 
   it('rejects a trailing-alpha WP ID (WP-123abc) — L-6', () => {
     expect(() => AddObservationSchema.parse({ ...base, work_package_id: 'WP-123abc' })).toThrow();
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/tools/pipeline-duration.test.ts`
+
+```ts
+/**
+ * Unit tests for WP-009: duration_ms computation in completePipeline.
+ *
+ * Tests that duration_ms is correctly computed from started_at, absent when
+ * started_at is missing, and absent (without error) when started_at is invalid.
+ * Uses the same process.argv injection pattern as complete-pipeline-guards.test.ts.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { now } from '../../src/utils/timestamp.js';
+import { _internal } from '../../src/tools/pipeline.js';
+import type { RootIndex } from '../../src/schema/root-index.js';
+import type { WorkPackageDetail } from '../../src/schema/work-package.js';
+
+const PLAN_PATH = join(tmpdir(), '2026-01-01-pipeline-duration-test');
+
+describe('pipeline duration_ms computation', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'pipeline-duration-'));
+    store = new LedgerStore(PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+
+    const root: RootIndex = {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'work/WP-001.md',
+        },
+      ],
+      project_comments: [],
+    };
+    await store.writeRootIndex(root);
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  async function writeWpWithPipeline(startedAt?: string): Promise<void> {
+    const pipeline: WorkPackageDetail['pipelines'][number] = {
+      type: 'implementation',
+      status: 'IN_PROGRESS',
+      summary: [],
+      ...(startedAt !== undefined ? { started_at: startedAt } : {}),
+    };
+    const wp: WorkPackageDetail = {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [pipeline],
+    };
+    await store.writeWorkPackage('WP-001', wp);
+  }
+
+  it('duration_ms is computed correctly when started_at is present', async () => {
+    const startedAt = new Date(Date.now() - 5000).toISOString();
+    await writeWpWithPipeline(startedAt);
+
+    await _internal.completePipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = wp.pipelines.find((p) => p.type === 'implementation' && p.status === 'PASS');
+    expect(pipeline?.duration_ms).toBeDefined();
+    // started_at is ~5s ago; allow ±1s tolerance
+    expect(pipeline!.duration_ms!).toBeGreaterThanOrEqual(4000);
+    expect(pipeline!.duration_ms!).toBeLessThanOrEqual(6000);
+  });
+
+  it('duration_ms is absent when started_at is missing', async () => {
+    await writeWpWithPipeline(/* no started_at */);
+
+    await _internal.completePipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+    });
+
+    const wp = await store.readWorkPackage('WP-001');
+    const pipeline = wp.pipelines.find((p) => p.type === 'implementation' && p.status === 'PASS');
+    expect(pipeline?.duration_ms).toBeUndefined();
+  });
+
+  it('duration_ms is absent and no error is thrown for invalid started_at', async () => {
+    // Bypass Zod validation by using the store directly with a known-invalid date string
+    const wp: WorkPackageDetail = {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [
+        // Cast to bypass type-level ISO string constraint — the storage layer
+        // accepts any string and the computation guard handles non-parseable values.
+        { type: 'implementation', status: 'IN_PROGRESS', started_at: 'not-a-valid-date' as any, summary: [] },
+      ],
+    };
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await _internal.completePipeline({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBeFalsy();
+    const completed = await store.readWorkPackage('WP-001');
+    const pipeline = completed.pipelines.find(
+      (p) => p.type === 'implementation' && p.status === 'PASS'
+    );
+    expect(pipeline?.duration_ms).toBeUndefined();
   });
 });
 
@@ -14134,6 +14547,229 @@ describe('BLOCK_FOR_REWORK_LIMIT in getDeveloperAction', () => {
 
     // Should get CLAIM_WP (READY WP → claim before implement), not BLOCK_FOR_REWORK_LIMIT
     expect(parsed.action).toBe('CLAIM_WP');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/tools/runner-integration.test.ts`
+
+```ts
+/**
+ * Tests for WP-002: runner metadata written to .meta.json and root index
+ * during initializeProject.
+ *
+ * Verifies:
+ * - After initializeProject, root index contains runner, runner_client, runner_version (AC1, AC2)
+ * - After initializeProject, .meta.json also contains the runner fields (AC1, AC2)
+ * - When getClientInfo() returns undefined, runner defaults to 'unknown' without throwing (AC3)
+ * - No errors when runner fields are absent (backward compat, AC4)
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { mkdtemp, rm, mkdir } from 'fs/promises';
+
+// Mock index.ts BEFORE importing the tool under test.
+// This controls what getClientInfo() returns during initializeProject.
+let mockClientInfo: { name: string; version: string } | undefined = {
+  name: 'langchain-mcp-adapters',
+  version: '0.1.0',
+};
+
+vi.mock('../../src/index.js', () => ({
+  getClientInfo: () => mockClientInfo,
+}));
+
+// Import AFTER the mock is established
+const { _internal } = await import('../../src/tools/project-lifecycle.js');
+const { initializeProject } = _internal;
+
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseResult(result: unknown): { text: string; parsed?: unknown; isError?: boolean } {
+  const r = result as { content: { type: string; text: string }[]; isError?: boolean };
+  const text = r.content[0].text;
+  try {
+    return { text, parsed: JSON.parse(text), isError: r.isError };
+  } catch {
+    return { text, isError: r.isError };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AC1 + AC2: runner fields appear in root index AND .meta.json
+// ---------------------------------------------------------------------------
+
+describe('initializeProject – runner fields in root index and .meta.json (AC1, AC2)', () => {
+  let planDir: string;
+  let tempLedgerRoot: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp002-runner-'));
+    planDir = join(tmpdir(), '2026-03-20-runner-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    // Use orchestrator client for these tests
+    mockClientInfo = { name: 'langchain-mcp-adapters', version: '0.2.5' };
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('root index returned in response contains runner fields (AC1)', async () => {
+    const result = await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+    expect((result as any).isError).toBeFalsy();
+
+    const { parsed } = parseResult(result);
+    const data = parsed as Record<string, unknown>;
+    expect(data.runner).toBe('orchestrator');
+    expect(data.runner_client).toBe('langchain-mcp-adapters');
+    expect(data.runner_version).toBe('0.2.5');
+  });
+
+  it('root index on disk contains runner fields (AC1)', async () => {
+    await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.runner).toBe('orchestrator');
+    expect(root.runner_client).toBe('langchain-mcp-adapters');
+    expect(root.runner_version).toBe('0.2.5');
+  });
+
+  it('.meta.json on disk contains runner fields (AC2)', async () => {
+    await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const meta = await store.readProjectMeta();
+    expect(meta.runner).toBe('orchestrator');
+    expect(meta.runner_client).toBe('langchain-mcp-adapters');
+    expect(meta.runner_version).toBe('0.2.5');
+  });
+
+  it('classifies VS Code client correctly (AC1)', async () => {
+    mockClientInfo = { name: 'Visual Studio Code', version: '1.99.0' };
+
+    await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.runner).toBe('vscode');
+    expect(root.runner_client).toBe('Visual Studio Code');
+    expect(root.runner_version).toBe('1.99.0');
+  });
+
+  it('classifies Claude Code client correctly (AC1)', async () => {
+    mockClientInfo = { name: 'claude-code', version: '0.2.1' };
+
+    await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.runner).toBe('claude-code');
+    expect(root.runner_client).toBe('claude-code');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC3: undefined clientInfo defaults gracefully
+// ---------------------------------------------------------------------------
+
+describe('initializeProject – undefined clientInfo defaults to unknown (AC3)', () => {
+  let planDir: string;
+  let tempLedgerRoot: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp002-runner-undef-'));
+    planDir = join(tmpdir(), '2026-03-20-runner-undef-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    // Simulate no client identity
+    mockClientInfo = undefined;
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('does not throw when getClientInfo() returns undefined (AC3)', async () => {
+    await expect(
+      initializeProject({ project_path: planDir, plan_file: 'plan.md' })
+    ).resolves.toBeDefined();
+  });
+
+  it('runner defaults to "unknown" when getClientInfo() returns undefined (AC3)', async () => {
+    await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const root = await store.readRootIndex();
+    expect(root.runner).toBe('unknown');
+    expect(root.runner_client).toBe('');
+    expect(root.runner_version).toBe('');
+  });
+
+  it('.meta.json runner defaults to "unknown" when clientInfo is undefined (AC3)', async () => {
+    await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+
+    const store = new LedgerStore(planDir, tempLedgerRoot);
+    const meta = await store.readProjectMeta();
+    expect(meta.runner).toBe('unknown');
+    expect(meta.runner_client).toBe('');
+    expect(meta.runner_version).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC5: No stdout output (stderr-only logging)
+// ---------------------------------------------------------------------------
+
+describe('initializeProject – runner logging goes to stderr only (AC5)', () => {
+  let planDir: string;
+  let tempLedgerRoot: string;
+  let originalArgv: string[];
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'wp002-runner-stdout-'));
+    planDir = join(tmpdir(), '2026-03-20-runner-stdout-test');
+    await mkdir(planDir, { recursive: true });
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    mockClientInfo = { name: 'langchain-mcp-adapters', version: '0.2.5' };
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+    await rm(planDir, { recursive: true, force: true });
+  });
+
+  it('initializeProject does not write runner info to stdout (AC5)', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await initializeProject({ project_path: planDir, plan_file: 'plan.md' });
+      // Verify no stdout writes contain runner info
+      const stdoutCalls = stdoutSpy.mock.calls.map((c) => String(c[0]));
+      const runnerInStdout = stdoutCalls.some(
+        (s) => s.includes('runner') || s.includes('langchain')
+      );
+      expect(runnerInStdout).toBe(false);
+    } finally {
+      stdoutSpy.mockRestore();
+    }
   });
 });
 
@@ -25146,6 +25782,82 @@ describe('applyProjectReset — clears synthesis_generated_at (WP-008)', () => {
     const updatedRoot = await store.readRootIndex();
     expect(updatedRoot.synthesis_generated).toBe(false);
     expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/utils/runner.test.ts`
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { classifyRunner } from '../../src/utils/runner.js';
+
+describe('classifyRunner', () => {
+
+  // --- Acceptance criterion 1: langchain-mcp-adapters ---
+  it('classifies langchain-mcp-adapters as orchestrator (AC1)', () => {
+    const result = classifyRunner({ name: 'langchain-mcp-adapters', version: '1.0' });
+    expect(result).toEqual({
+      runner: 'orchestrator',
+      runner_client: 'langchain-mcp-adapters',
+      runner_version: '1.0',
+    });
+  });
+
+  // --- Acceptance criterion 2: Visual Studio Code ---
+  it('classifies Visual Studio Code as vscode (AC2)', () => {
+    const result = classifyRunner({ name: 'Visual Studio Code', version: '1.99' });
+    expect(result).toEqual({
+      runner: 'vscode',
+      runner_client: 'Visual Studio Code',
+      runner_version: '1.99',
+    });
+  });
+
+  // --- Acceptance criterion 3: claude-code ---
+  it('classifies claude-code as claude-code (AC3)', () => {
+    const result = classifyRunner({ name: 'claude-code', version: '0.2' });
+    expect(result).toEqual({
+      runner: 'claude-code',
+      runner_client: 'claude-code',
+      runner_version: '0.2',
+    });
+  });
+
+  // --- Acceptance criterion 4: undefined input ---
+  it('returns unknown runner for undefined input without throwing (AC4)', () => {
+    const result = classifyRunner(undefined);
+    expect(result).toEqual({ runner: 'unknown', runner_client: '', runner_version: '' });
+  });
+
+  // --- Additional edge cases ---
+  it('classifies lowercase vscode as vscode', () => {
+    expect(classifyRunner({ name: 'vscode', version: '1.0' }).runner).toBe('vscode');
+  });
+
+  it('classifies Visual Studio Code (case insensitive) as vscode', () => {
+    expect(classifyRunner({ name: 'visual studio code extension host', version: '1.0' }).runner).toBe('vscode');
+  });
+
+  it('classifies Claude (uppercase C) as claude-code', () => {
+    expect(classifyRunner({ name: 'Claude', version: '3.5' }).runner).toBe('claude-code');
+  });
+
+  it('classifies langchain variants as orchestrator', () => {
+    expect(classifyRunner({ name: 'langchain-core', version: '0.1' }).runner).toBe('orchestrator');
+    expect(classifyRunner({ name: 'mcp-adapters-py', version: '0.1' }).runner).toBe('orchestrator');
+  });
+
+  it('classifies unknown clients as unknown', () => {
+    expect(classifyRunner({ name: 'cursor', version: '0.1' }).runner).toBe('unknown');
+    expect(classifyRunner({ name: '', version: '' }).runner).toBe('unknown');
+  });
+
+  it('preserves raw name and version in runner_client and runner_version', () => {
+    const r = classifyRunner({ name: 'My Custom Client', version: '2.0.1' });
+    expect(r.runner_client).toBe('My Custom Client');
+    expect(r.runner_version).toBe('2.0.1');
+    expect(r.runner).toBe('unknown');
   });
 });
 

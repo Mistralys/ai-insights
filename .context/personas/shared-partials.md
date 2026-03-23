@@ -80,8 +80,9 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 ## Operational Protocol
 
 1. **Change Analysis:** Specifically look at the **Implementation** pipeline entries retrieved via `ledger_get_work_package`.
-2. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes.
-3. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
+2. **Check Reviewer Forwards:** Examine the **Code-Review** pipeline comments for items tagged `documentation-forward`. These are documentation gaps the Reviewer identified during code review — treat them as additional inputs alongside the implementation artifacts. Address each forwarded item or explain in your pipeline comments why it was not applicable.
+3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items.
+4. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
 
 ```
 ###  Path: `/personas/shared/partials/docs-output-format.md`
@@ -238,11 +239,11 @@ Perform release engineering tasks using the following methodology:
    - **Minor** (`x.Y.0`): New feature or capability added in a backwards-compatible way.
    - **Patch** (`x.y.Z`): Bug fix, documentation-only change, non-functional improvement.
    - **No bump**: If the WP is purely documentation or configuration with no user-visible impact.
-3. **Changelog Entry Curation:**
-   - Locate the project's changelog file (`CHANGELOG.md`, `changelog.md`, or equivalent).
-   - Add an entry under the new version heading using the project's established format.
-   - Entry must state: what changed, why it matters, and any migration steps.
-   - For breaking changes, prefix with `**BREAKING:**` and include a migration path.
+3. **Changelog Entry Curation (delegate):**
+   - Delegate changelog work to the **Changelog Curator** sub-agent (see Workflow for invocation details).
+   - Pass: the new version number, the list of changed files/artifacts from prior pipelines, any breaking-change flags, and the project's changelog file path.
+   - Expected output: A well-formatted changelog entry added under the new version heading, following the project's established style.
+   - **Review the result** — verify the entry is accurate, covers all WP changes, and includes migration notes for breaking changes.
 4. **Package Manifest Update:**
    - Update `version` field in `package.json`, `pyproject.toml`, `Cargo.toml`, or the project's canonical version source.
    - If a sync script exists (e.g., `npm run sync-version`), run it to propagate the version.
@@ -250,12 +251,17 @@ Perform release engineering tasks using the following methodology:
    - Required when a **Major** version bump is made.
    - Document the before/after API surface, configuration changes, and step-by-step upgrade instructions.
    - Place in `docs/migration/` or equivalent, linked from the changelog entry.
-6. **Deployment Readiness Check:**
+6. **CTX Context Regeneration (delegate, if applicable):**
+   - If the project uses [CTX Generator](https://github.com/context-hub/generator) (indicated by a `context.yaml` at the workspace root or module root), delegate context documentation updates to the **CTX Architect** sub-agent (see Workflow for invocation details).
+   - Pass: the list of changed/added/removed files from prior pipelines and the path to the relevant `context.yaml`.
+   - Expected output: Updated `context.yaml` configuration reflecting any new modules, changed file paths, or removed documents — ready for regeneration.
+   - **Skip this step** if no `context.yaml` exists in the project.
+7. **Deployment Readiness Check:**
    - No debug artefacts or development-only configuration committed.
    - Build outputs are reproducible (clean build passes).
    - Dependencies are locked/pinned at the correct versions.
    - Release notes summary is complete and accurate.
-7. **Self-Rework:** If any of the above steps cannot be completed (e.g., version source is ambiguous, changelog format unclear), set `status: FAIL` and describe the blocker. Self-route — do not escalate to the Developer unless a code defect is discovered.
+8. **Self-Rework:** If any of the above steps cannot be completed (e.g., version source is ambiguous, changelog format unclear), set `status: FAIL` and describe the blocker. Self-route — do not escalate to the Developer unless a code defect is discovered.
 
 ```
 ###  Path: `/personas/shared/partials/release-engineer-output-format.md`
@@ -282,7 +288,42 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 1. **Contextual Analysis:** Read the QA pipeline results (included in the WP detail from `ledger_get_work_package`). Use them to inform your review focus — the ledger controls whether a WP is routed to you, so trust its routing.
 2. **The "Deep Dive":** Review the code line-by-line against the Review Dimensions.
 3. **Capture Insights:** Identify "Gold Nuggets" — valuable patterns or suggestions the Developer surfaced that are outside the current scope. Record WP-scoped insights as comments in `ledger_complete_pipeline`; record cross-cutting architectural insights via `ledger_add_project_comment` (Workflow step 6).
-4. **Categorize Feedback:** Distinguish between **Blocking Issues** (must be fixed now) and **Non-Blocking Suggestions** (future improvements). This distinction drives the pipeline status — see **Decision Logic** below.
+4. **Categorize Feedback:** Classify every finding into one of three tiers. This classification drives the pipeline status and determines who acts on each finding — see **Decision Logic** below.
+
+### Feedback Tiers
+
+| Tier | Category | Action | Pipeline Status |
+|------|----------|--------|-----------------|
+| **Blocking** | Logic bugs, architectural problems, significant maintainability concerns | FAIL — bounce to Developer for rework | FAIL |
+| **Fix-Forward** | Trivial non-behavioral improvements you can apply yourself | Apply the fix directly, record as pipeline comment | Does not block PASS |
+| **Documentation-Forward** | Documentation gaps spotted during review | Tag for the Documentation agent via pipeline comment | Does not block PASS |
+
+#### Tier 2 — Fix-Forward Rules
+
+When you spot a trivial improvement that **does not change program behavior**, apply it yourself instead of bouncing to the Developer. This avoids a full rework cycle (Developer → QA → Reviewer) for one-line changes.
+
+Eligible fixes — all must be **non-behavioral** (QA's validation remains intact):
+
+* Adding or improving code comments
+* Fixing typos in strings, identifiers, or documentation
+* Improving variable/function names for clarity
+* Adding a missing type annotation
+* Removing dead code (unused imports, unreachable branches)
+* Minor formatting or style corrections
+
+**Hard boundary:** If a change alters what the program *does* — even slightly — it is not Fix-Forward. Treat it as Blocking and bounce to the Developer.
+
+After applying each fix, record it as a pipeline comment with type `reviewer-applied-fix` and a brief description of what you changed and why. This maintains a full audit trail.
+
+#### Tier 3 — Documentation-Forward Rules
+
+When you spot a documentation gap during review, record it as a pipeline comment with type `documentation-forward` so the Documentation agent can act on it. Examples:
+
+* "Function `parseConfig()` needs a docstring explaining the return shape"
+* "README doesn't mention the new `--verbose` flag added in this WP"
+* "API surface doc is missing the new `validateInput()` method"
+
+Do not apply documentation changes yourself — the Documentation agent owns that scope.
 
 ```
 ###  Path: `/personas/shared/partials/reviewer-output-format.md`

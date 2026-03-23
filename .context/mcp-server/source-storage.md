@@ -96,11 +96,15 @@ export const ProjectMetaSchema = z.object({
   date_created: z.string(),              // ISO timestamp
   last_updated: z.string(),             // ISO timestamp
   title: z.string().optional(),         // optional, derived from plan_file content
-  // Enrichment cache fields — optional for backward compatibility
+  // Enrichment cache fields - optional for backward compatibility
   total_work_packages: z.number().int().nonnegative().optional(),
   pending_work_packages: z.number().int().nonnegative().optional(),
   project_name: z.string().nullable().optional(),
   repository_name: z.string().nullable().optional(),
+  // Runner metadata - optional for backward compatibility
+  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'unknown']).optional(),
+  runner_client: z.string().optional(),   // raw clientInfo.name
+  runner_version: z.string().optional(),  // raw clientInfo.version
 });
 
 export type ProjectMeta = z.infer<typeof ProjectMetaSchema>;
@@ -156,6 +160,10 @@ export const RootIndexSchema = z.object({
   synthesis_generated_at: z.string().nullable().optional(),
   ledger_version: z.string().optional(),
   server_version: z.string().optional(),
+  // Runner metadata - optional for backward compatibility
+  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'unknown']).optional(),
+  runner_client: z.string().optional(),   // raw clientInfo.name
+  runner_version: z.string().optional(),  // raw clientInfo.version
 });
 export type RootIndex = z.infer<typeof RootIndexSchema>;
 
@@ -378,6 +386,7 @@ export const PipelineSchema = z.object({
   status: PipelineStatus,
   started_at: z.string().optional(),
   completed_at: z.string().optional(),
+  duration_ms: z.number().optional(),
   summary: z.array(z.string()),
   artifacts: ArtifactsSchema.optional(),
   metrics: MetricsSchema.optional(),
@@ -884,10 +893,13 @@ export class LedgerStore {
 
     const path = this.rootIndexPath();
     await atomicWriteJson(path, validated);
-    // Auto-sync .meta.json after every root index write — include WP counters
+    // Auto-sync .meta.json after every root index write — include WP counters and runner metadata
     await this.writeProjectMeta('', validated.status, {
       total_work_packages: validated.total_work_packages,
       pending_work_packages: validated.pending_work_packages,
+      ...(validated.runner !== undefined ? { runner: validated.runner } : {}),
+      ...(validated.runner_client !== undefined ? { runner_client: validated.runner_client } : {}),
+      ...(validated.runner_version !== undefined ? { runner_version: validated.runner_version } : {}),
     }, options);
   }
 
@@ -1103,6 +1115,9 @@ export class LedgerStore {
       pending_work_packages?: number;
       project_name?: string | null;
       repository_name?: string | null;
+      runner?: string;
+      runner_client?: string;
+      runner_version?: string;
     },
     options?: { preserveLastUpdated?: boolean }
   ): Promise<void> {
@@ -1140,6 +1155,13 @@ export class LedgerStore {
       ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
       ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
       ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
+      // Runner metadata: preserve existing values (backward compat), then apply overrides
+      ...(existing.runner !== undefined ? { runner: existing.runner } : {}),
+      ...(existing.runner_client !== undefined ? { runner_client: existing.runner_client } : {}),
+      ...(existing.runner_version !== undefined ? { runner_version: existing.runner_version } : {}),
+      ...(cacheUpdates !== undefined && 'runner' in cacheUpdates && cacheUpdates.runner !== undefined ? { runner: cacheUpdates.runner as 'vscode' | 'claude-code' | 'orchestrator' | 'unknown' } : {}),
+      ...(cacheUpdates !== undefined && 'runner_client' in cacheUpdates ? { runner_client: cacheUpdates.runner_client } : {}),
+      ...(cacheUpdates !== undefined && 'runner_version' in cacheUpdates ? { runner_version: cacheUpdates.runner_version } : {}),
     });
 
     await atomicWriteJson(path, meta);
