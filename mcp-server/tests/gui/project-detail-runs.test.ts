@@ -123,35 +123,41 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     if (app.parentNode) app.parentNode.removeChild(app);
   });
 
-  // ── Guard clause ──────────────────────────────────────────────────────────
+  // ── Hidden by default ─────────────────────────────────────────────────────
 
-  it('does not render "Orchestrator Runs" section when runner is not orchestrator', async () => {
+  it('keeps "Orchestrator Runs" wrapper hidden when getRunLogs returns [] (vscode runner)', async () => {
     await renderWithAPI(app, 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
+      getRunLogs: () => Promise.resolve([]),
     });
 
-    expect(app.innerHTML).not.toContain('Orchestrator Runs');
-    expect(app.querySelector('#orchestrator-runs-section')).toBeNull();
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('none');
   });
 
-  it('does not render "Orchestrator Runs" section when runner is undefined', async () => {
+  it('keeps "Orchestrator Runs" wrapper hidden when runner is undefined and no logs', async () => {
     await renderWithAPI(app, 'my-project', {
       getProject: () => Promise.resolve(makeProject({})), // no runner field
+      getRunLogs: () => Promise.resolve([]),
     });
 
-    expect(app.innerHTML).not.toContain('Orchestrator Runs');
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('none');
   });
 
   // ── Empty state ───────────────────────────────────────────────────────────
 
-  it('shows empty-state message when runner is orchestrator and getRunLogs returns []', async () => {
+  it('keeps wrapper hidden when getRunLogs returns empty array', async () => {
     await renderWithAPI(app, 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve([]),
     });
 
-    expect(app.innerHTML).toContain('Orchestrator Runs');
-    expect(app.innerHTML).toContain('No orchestrator run logs found');
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('none');
   });
 
   // ── Populated state ───────────────────────────────────────────────────────
@@ -167,7 +173,10 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       getRunLogs: () => Promise.resolve(logs),
     });
 
-    expect(app.innerHTML).toContain('Orchestrator Runs');
+    // Wrapper becomes visible when logs exist
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('');
 
     // Both filenames appear
     expect(app.innerHTML).toContain('20260225T113355-my-project.jsonl');
@@ -194,20 +203,30 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     expect(app.innerHTML).toContain(encodeURIComponent('slug/with/slashes'));
   });
 
+  it('shows logs for non-orchestrator runner when log files exist', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
+      getRunLogs: () => Promise.resolve(['20260225T113355-my-project.jsonl']),
+    });
+
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('');
+    expect(app.innerHTML).toContain('20260225T113355-my-project.jsonl');
+  });
+
   // ── Error handling ────────────────────────────────────────────────────────
 
-  it('shows an error message on getRunLogs failure without crashing', async () => {
+  it('keeps wrapper hidden on getRunLogs failure without crashing', async () => {
     await renderWithAPI(app, 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.reject({ message: 'Network error', code: 'ERROR' }),
     });
 
-    // Section container is present (from the synchronous render)
-    expect(app.querySelector('#orchestrator-runs-section')).not.toBeNull();
-
-    // Error message displayed
-    expect(app.innerHTML).toContain('Failed to load orchestrator runs');
-    expect(app.innerHTML).toContain('Network error');
+    // Wrapper stays hidden on error (silent failure)
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('none');
 
     // Page still rendered (Work Packages section present)
     expect(app.innerHTML).toContain('Work Packages');
@@ -219,13 +238,15 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
       getRunLogs: () => Promise.reject(null),
     });
 
-    // Should not throw; error banner present
-    expect(app.innerHTML).toContain('Failed to load orchestrator runs');
+    // Should not throw; wrapper stays hidden
+    const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.style.display).toBe('none');
   });
 
   // ── Existing content unaffected ───────────────────────────────────────────
 
-  it('existing page content (WPs, comments, breadcrumb) is unaffected when runner is orchestrator', async () => {
+  it('existing page content (WPs, comments, breadcrumb) is unaffected', async () => {
     await renderWithAPI(app, 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
       getRunLogs: () => Promise.resolve([]),
