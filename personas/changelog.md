@@ -1,11 +1,12 @@
 # Personas Changelog
 
 ## v3.10.2 - Orchestrator Runner: JSONL Event Coverage
-- Personas: Orchestrator Runner v1.2.0 — expanded Monitoring Progress
-  section to cover all 16 JSONL event types (was 6), including
-  `progress_snapshot`, `wp_status_change`, `rework_detected`,
-  `stage_start`, `pipeline_result`, and run lifecycle events.
-- Personas: Orchestrator Runner v1.2.0 — added duration fields
+- Personas: Orchestrator Runner v1.3.0 — restructured Monitoring
+  Progress to use live terminal output as primary channel (zero
+  extra tokens) and demote `tail -f` to secondary/fallback.
+- Personas: Orchestrator Runner v1.3.0 — expanded event coverage
+  to all 16 JSONL event types with console line examples.
+- Personas: Orchestrator Runner v1.3.0 — added duration fields
   reference (`duration_s`, `elapsed_s`, `total_duration_s`).
 
 ## v3.10.1 - Release Engineer: Delegate Changelog & CTX
