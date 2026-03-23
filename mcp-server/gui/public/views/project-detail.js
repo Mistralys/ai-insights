@@ -226,7 +226,13 @@ function renderProjectDetail(app, slug) {
           '</table></div>'
         : '<p class="text-muted">No work packages.</p>') +
       '<div class="card-title" style="margin-top:24px">Project Comments</div>' +
-      commentCards;
+      commentCards +
+
+      // Orchestrator Runs section — only rendered for orchestrator runner projects
+      (meta.runner === 'orchestrator'
+        ? '<div class="card-title" style="margin-top:24px">Orchestrator Runs</div>' +
+          '<div id="orchestrator-runs-section"><p class="loading">Loading runs\u2026</p></div>'
+        : '');
 
     // Unarchive banner button handler
     var unarchiveBannerBtn = document.getElementById('unarchive-banner-btn');
@@ -458,6 +464,33 @@ function renderProjectDetail(app, slug) {
         if (healthBadge.parentNode) healthBadge.parentNode.removeChild(healthBadge);
       });
     }
+    // Orchestrator Runs — async, non-blocking (only when runner is 'orchestrator')
+    if (meta.runner === 'orchestrator') {
+      API.getRunLogs(slug).then(function (logs) {
+        var runsEl = document.getElementById('orchestrator-runs-section');
+        if (!runsEl) return;
+        if (!Array.isArray(logs) || logs.length === 0) {
+          runsEl.innerHTML = '<p class="text-muted">No orchestrator run logs found.</p>';
+          return;
+        }
+        runsEl.innerHTML = logs.map(function (filename) {
+          var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
+          // Extract a human-readable timestamp from the filename prefix (e.g. 20260225T113355)
+          var label = escapeHtml(filename);
+          return '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
+            '<span class="monospace" style="font-size:12px">' + label + '</span>' +
+            '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
+          '</div>';
+        }).join('');
+      }).catch(function (err) {
+        var runsEl = document.getElementById('orchestrator-runs-section');
+        if (!runsEl) return;
+        runsEl.innerHTML =
+          '<p class="error-banner">Failed to load orchestrator runs: ' +
+          escapeHtml((err && err.message) || String(err)) + '</p>';
+      });
+    }
+
   }).catch(function (err) {
     showError(app, 'Failed to load project: ' + (err.message || String(err)));
   });

@@ -579,4 +579,25 @@ describe('beginWork — respects active_pipeline_stages (custom stage ordering)'
     expect((result as any).isError).toBe(true);
     expect(resultText(result)).toContain("requires a PASS 'implementation' pipeline first");
   });
+
+  it('rejects a pipeline type not in the WP active_pipeline_stages (§11.1 active-stage guard)', async () => {
+    // WP with active_pipeline_stages: ["qa", "code-review"] — implementation is excluded.
+    // Developer should not be able to start an implementation pipeline.
+    const wp: WorkPackageDetail = {
+      ...makeWpDetail('IN_PROGRESS', 'Developer', []),
+      active_pipeline_stages: ['qa', 'code-review'] as any,
+    };
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Developer'));
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect(resultText(result)).toContain('not in the WP\'s active stages');
+  });
 });

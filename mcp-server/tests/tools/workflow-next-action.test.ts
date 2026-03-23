@@ -1924,3 +1924,123 @@ describe('first-active-stage loop prevention — Release Engineer P5 (§21.66 re
     expect(result.action).toBe('WAIT');
   });
 });
+
+// ---------------------------------------------------------------------------
+// First-active-stage self-rework deadlock tests (§21.67)
+// ---------------------------------------------------------------------------
+
+describe('first-active-stage self-rework fallback — QA P4b (§21.67)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RUN_QA (self-rework) when qa is the first active stage and most recent QA is FAIL', async () => {
+    // QA is the first active stage → FAIL routing falls back to QA (self-rework).
+    // P4b should fire instead of P5 WAIT_FOR_REWORK.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['qa', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'qa', status: 'FAIL', started_at: '2026-01-01T09:00:00', completed_at: '2026-01-01T10:00:00' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_QA');
+    expect(result.reason).toContain('self-rework');
+  });
+
+  it('returns WAIT_FOR_REWORK when qa is NOT the first active stage and most recent QA is FAIL', async () => {
+    // Standard WP with implementation active → QA FAIL routes to Developer, not self-rework.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      pipelines: [
+        makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+        makePipeline('qa', 'FAIL', '2026-01-01T09:30:00', '2026-01-01T10:00:00'),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('WAIT_FOR_REWORK');
+  });
+
+  it('returns RUN_QA (first run, P6) when qa is the first active stage with no prior QA pipeline', async () => {
+    // First run — no prior QA pipeline, QA is first active stage → P6 fires.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['qa', 'code-review'],
+      pipelines: [],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_QA');
+  });
+});
+
+describe('first-active-stage self-rework fallback — Reviewer P4b (§21.67)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RUN_REVIEW (self-rework) when code-review is the first active stage and most recent review is FAIL', async () => {
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      active_pipeline_stages: ['code-review'],
+      pipelines: [
+        makePipeline({ type: 'code-review', status: 'FAIL', started_at: '2026-01-01T09:00:00', completed_at: '2026-01-01T10:00:00' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getReviewerAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_REVIEW');
+    expect(result.reason).toContain('self-rework');
+  });
+});
+
+describe('first-active-stage self-rework fallback — Security Auditor P4b (§21.67)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RUN_SECURITY_AUDIT (self-rework) when security-audit is the first active stage and most recent audit is FAIL', async () => {
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Security Auditor',
+      active_pipeline_stages: ['security-audit', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'security-audit', status: 'FAIL', started_at: '2026-01-01T09:00:00', completed_at: '2026-01-01T10:00:00' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_SECURITY_AUDIT');
+    expect(result.reason).toContain('self-rework');
+  });
+});

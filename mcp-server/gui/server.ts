@@ -17,8 +17,13 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot } from '../src/utils/ledger-root.js';
-import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
+import { readConfigFromDisk, startConfigWatcher, getConfig } from '../src/gui/config.js';
 import { startAutoArchiveTimer } from '../src/gui/auto-archive.js';
+import { resolveOrchestratorLogsDir } from '../src/gui/log-resolver.js';
+import {
+  handleListRunLogs,
+  handleGetRunLog,
+} from '../src/gui/handlers/run-log-handlers.js';
 import {
   handleListProjects,
   handleGetProject,
@@ -153,7 +158,8 @@ type RouteHandler = () => Promise<unknown>;
 function matchRoute(
   method: string,
   url: string,
-  ledgerRoot: string
+  ledgerRoot: string,
+  logsDir: string
 ): RouteHandler | null {
   const [path] = url.split('?') as [string];
   const segments = path.split('/').filter(Boolean);
@@ -271,6 +277,36 @@ function matchRoute(
     return () => handleGetWorkPackage(ledgerRoot, slug, wpId);
   }
 
+  // GET /api/projects/:slug/runs
+  // rest.length === 3, rest[2] === 'runs' — does not shadow work-packages (different rest[2] value)
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'runs'
+  ) {
+    const slug = decodeURIComponent(rest[1]!);
+    return () => handleListRunLogs(slug, logsDir);
+  }
+
+  // GET /api/projects/:slug/runs/:filename
+  // rest.length === 4, rest[2] === 'runs' — does not shadow work-packages/:wpId (different rest[2] value)
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'runs'
+  ) {
+    const slug = decodeURIComponent(rest[1]!);
+    const filename = decodeURIComponent(rest[3]!);
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const afterParam = sp.get('after');
+    const afterLine = afterParam !== null ? parseInt(afterParam, 10) : undefined;
+    return () => handleGetRunLog(slug, filename, logsDir, afterLine);
+  }
+
   // DELETE /api/projects/:slug
   if (method === 'DELETE' && rest.length === 2 && rest[0] === 'projects') {
     const slug = rest[1]!;
@@ -360,12 +396,13 @@ async function serveStatic(
 // Main request handler
 // ---------------------------------------------------------------------------
 
-async function handleRequest(
+export async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
   ledgerRoot: string,
   configPath: string,
-  port: number
+  port: number,
+  logsDir: string
 ): Promise<void> {
   const method = req.method?.toUpperCase() ?? 'GET';
   const url = req.url ?? '/';
@@ -485,7 +522,7 @@ async function handleRequest(
   }
 
   // General API route matching
-  const handler = matchRoute(method, url, ledgerRoot);
+  const handler = matchRoute(method, url, ledgerRoot, logsDir);
   if (!handler) {
     sendError(res, 404, 'NOT_FOUND', 'Route not found.', port);
     return;
@@ -517,12 +554,17 @@ async function main(): Promise<void> {
   await readConfigFromDisk(configPath);
   startConfigWatcher(configPath);
 
+  // Resolve the orchestrator logs directory once at startup and close over it.
+  // When orchestrator_logs_dir is absent from config, resolveOrchestratorLogsDir
+  // returns the default path (~/.ai-insights/orchestrator-logs) silently.
+  const logsDir = resolveOrchestratorLogsDir(getConfig().orchestrator_logs_dir);
+
   // Start the auto-archive background service. Reads auto_archive_days from
   // config; no-op if the setting is 0.
   startAutoArchiveTimer(ledgerRoot);
 
   const server = createServer((req, res) => {
-    handleRequest(req, res, ledgerRoot, configPath, port).catch((err) => {
+    handleRequest(req, res, ledgerRoot, configPath, port, logsDir).catch((err) => {
       process.stderr.write(`[server] Unhandled error: ${String(err)}\n`);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -550,7 +592,15 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((err) => {
-  process.stderr.write(`[server] Fatal startup error: ${String(err)}\n`);
-  process.exit(1);
-});
+// Only run main() when this file is the entry point (e.g. `tsx gui/server.ts`),
+// not when it is imported by test code (e.g. to access the exported handleRequest).
+const isEntryPoint =
+  process.argv[1] !== undefined &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (isEntryPoint) {
+  main().catch((err) => {
+    process.stderr.write(`[server] Fatal startup error: ${String(err)}\n`);
+    process.exit(1);
+  });
+}

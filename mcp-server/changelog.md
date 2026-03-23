@@ -1,5 +1,13 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.17.0 - Orchestrator Run Log Resolver
+- GUI Backend: Added `src/gui/log-resolver.ts` — a new backend utility module for locating and reading orchestrator run log files (JSONL format).
+- GUI Backend: `resolveOrchestratorLogsDir(configured)` — returns the configured logs directory path if provided, otherwise defaults to `~/.ai-insights/orchestrator-logs`.
+- GUI Backend: `findRunLogs(logsDir, slug)` — lists `.jsonl` files in `logsDir` whose names end with `-{slug}.jsonl`; requires a non-empty prefix so bare `-slug.jsonl` entries are excluded; returns an empty array when the directory does not exist.
+- GUI Backend: `readLogEntries(logsDir, filename, afterLine?)` — reads and parses a JSONL log file with dual-layer path-traversal defence: (1) filename allowlist `[A-Za-z0-9._-]+` (rejects `..`, `/`, backslash, null-byte, and all special characters); (2) `path.resolve()` escape check ensures the resolved path stays within `logsDir`. Supports incremental reads via `afterLine` (zero-based skip); malformed JSON lines are silently skipped.
+- Tests: Added `tests/gui/log-resolver.test.ts` — 22 real-filesystem tests covering all 6 acceptance criteria plus edge cases (empty directory, non-existent directory, `afterLine=0`, all-malformed file, path-traversal attempts).
+- Security: All 10 OWASP categories assessed; 0 Critical/High findings. Known limitation: `resolveOrchestratorLogsDir` and `findRunLogs` do not validate that the path is absolute — a `path.isAbsolute()` guard is planned before HTTP exposure (tracked as technical debt).
+
 ## v1.16.0 - Project Runner Metadata & GUI Filtering
 - Utils: Added `classifyRunner()` in `src/utils/runner.ts` — normalises raw MCP `clientInfo.name` into a stable `RunnerType` enum (`vscode` | `claude-code` | `orchestrator` | `unknown`) using case-insensitive substring matching with a fixed priority order.
 - Schema: Added optional `runner`, `runner_client`, and `runner_version` fields to `ProjectMetaSchema` and `RootIndexSchema`; all fields optional for full backward compatibility with existing projects.

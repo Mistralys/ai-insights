@@ -1693,3 +1693,109 @@ th[data-sort="total_work_packages"] {
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* ----------------------------------------------------------
+   Run Log Viewer
+   ---------------------------------------------------------- */
+
+/* ── Event severity cards ──────────────────────────────── */
+
+/* Base card for a single orchestrator run log event.
+   Left-border accent color is driven by .run-event--* modifier. */
+.run-event {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Info — blue accent */
+.run-event--info    { border-left-color: var(--color-ready); }
+
+/* Warning — amber accent */
+.run-event--warning { border-left-color: var(--color-in-progress); }
+
+/* Error — red accent */
+.run-event--error   { border-left-color: var(--color-blocked); }
+
+/* ── Progress bar ──────────────────────────────────────── */
+
+/* Fixed-height track; background is opaque so the fill
+   contrasts on any surface. Width is set via inline style. */
+.run-progress-track {
+  height: 8px;
+  background: var(--color-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+/* The fill bar. Width is controlled 100% by inline style="width: X%".
+   No width rule here — see CSS comment in acceptance criteria. */
+.run-progress-bar {
+  height: 100%;
+  background: var(--color-ready);
+  border-radius: var(--radius-pill);
+  transition: width 0.2s ease;
+}
+
+/* ── Stage / status badges ─────────────────────────────── */
+
+.run-stage-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+}
+
+.run-stage-badge--active {
+  background: #fef3c7;
+  color: var(--color-in-progress);
+  border-color: #fde68a;
+}
+
+.run-stage-badge--done {
+  background: #dcfce7;
+  color: var(--color-complete);
+  border-color: #bbf7d0;
+}
+
+.run-stage-badge--error {
+  background: #fee2e2;
+  color: var(--color-blocked);
+  border-color: #fecaca;
+}
+
+/* ── Dark theme overrides ──────────────────────────────── */
+
+[data-theme="dark"] .run-event--info    { border-left-color: var(--color-ready); }
+[data-theme="dark"] .run-event--warning { border-left-color: var(--color-in-progress); }
+[data-theme="dark"] .run-event--error   { border-left-color: var(--color-blocked); }
+
+[data-theme="dark"] .run-stage-badge--active {
+  background: #451a03;
+  color: #fbbf24;
+  border-color: #92400e;
+}
+
+[data-theme="dark"] .run-stage-badge--done {
+  background: #14532d;
+  color: #86efac;
+  border-color: #166534;
+}
+
+[data-theme="dark"] .run-stage-badge--error {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #7f1d1d;
+}

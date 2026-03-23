@@ -289,7 +289,7 @@ describe('QA/Reviewer next-action returns WAIT_FOR_REWORK on FAIL (no self-rewor
     const result = await parseResult(getQaAction(root, store));
     expect(result.action).toBe('WAIT_FOR_REWORK');
     expect(result.reason).toContain('FAIL QA pipeline');
-    expect(result.reason).toContain('Developer must rework');
+    expect(result.reason).toContain('fail-target agent must rework');
   });
 
   it('Reviewer returns WAIT_FOR_REWORK when most-recent code-review pipeline is FAIL', async () => {
@@ -303,7 +303,7 @@ describe('QA/Reviewer next-action returns WAIT_FOR_REWORK on FAIL (no self-rewor
     const result = await parseResult(getReviewerAction(root, store));
     expect(result.action).toBe('WAIT_FOR_REWORK');
     expect(result.reason).toContain('FAIL code-review pipeline');
-    expect(result.reason).toContain('Developer must rework');
+    expect(result.reason).toContain('fail-target agent must rework');
   });
 
   it('Documentation returns REWORK when most-recent documentation pipeline is FAIL', async () => {
@@ -392,7 +392,7 @@ describe('Full FAIL → Developer rework → QA re-trigger → PASS flow', () =>
     const root2 = await store.readRootIndex();
     const qaAction = await parseResult(getQaAction(root2, store));
     expect(qaAction.action).toBe('WAIT_FOR_REWORK');
-    expect(qaAction.reason).toContain('Developer must rework');
+    expect(qaAction.reason).toContain('fail-target agent must rework');
 
     // --- PHASE 3: Developer reworks (new PASS implementation) ---
     await store.updateWorkPackageWithSync('WP-001', (wp, root) => {

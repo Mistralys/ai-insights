@@ -64,6 +64,12 @@ var Router = (function () {
       return;
     }
 
+    var runLogMatch = path.match(/^\/projects\/([^/]+)\/runs\/([^/]+)$/);
+    if (runLogMatch) {
+      renderRunLog(app, decodeURIComponent(runLogMatch[1]), decodeURIComponent(runLogMatch[2]));
+      return;
+    }
+
     if (path === '/config') {
       renderConfig(app);
       return;

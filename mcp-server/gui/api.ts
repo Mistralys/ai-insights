@@ -55,22 +55,12 @@ import type {
   ProjectResetResult,
   MarkProjectCompleteResult,
 } from '../src/utils/project-reset.js';
+import { ApiError } from '../src/gui/errors.js';
+export { ApiError };
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/** Structured error thrown by all API handlers. */
-export class ApiError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly details?: unknown
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
 
 function notFound(message: string): never {
   throw new ApiError('NOT_FOUND', message);

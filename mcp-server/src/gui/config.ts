@@ -23,16 +23,18 @@ export const GuiConfigSchema = z.object({
   max_handoff_depth: z.number().int().min(1).default(50),
   auto_archive_days: z.number().int().min(0).default(6),
   ledger_root: z.string().default(''),
+  orchestrator_logs_dir: z.string().optional(),
 });
 
 export type GuiConfig = z.infer<typeof GuiConfigSchema>;
 
 /**
  * Partial update schema for incoming config PUT bodies.
- * ledger_root is intentionally omitted — it is read-only in the GUI.
+ * ledger_root and orchestrator_logs_dir are intentionally omitted — they are
+ * server-only concerns and read-only from the GUI's perspective.
  * Derived from GuiConfigSchema to guarantee it always tracks additions to the full schema.
  */
-export const GuiConfigPartialSchema = GuiConfigSchema.omit({ ledger_root: true }).partial();
+export const GuiConfigPartialSchema = GuiConfigSchema.omit({ ledger_root: true, orchestrator_logs_dir: true }).partial();
 export type GuiConfigPartial = z.infer<typeof GuiConfigPartialSchema>;
 
 // ---------------------------------------------------------------------------
@@ -135,9 +137,9 @@ export async function writeConfig(
   configPath: string,
   data: Partial<GuiConfig>
 ): Promise<GuiConfig> {
-  // Strip ledger_root — it is read-only from the caller's perspective
+  // Strip ledger_root and orchestrator_logs_dir — they are read-only from the caller's perspective
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { ledger_root: _ignored, ...safeData } = data;
+  const { ledger_root: _ignored, orchestrator_logs_dir: _ignored2, ...safeData } = data;
   const merged = { ..._cache, ...safeData };
   const validated = GuiConfigSchema.parse(merged); // throws ZodError on failure
   await atomicWriteJson(configPath, validated);
