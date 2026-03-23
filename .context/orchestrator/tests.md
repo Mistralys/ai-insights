@@ -11,6 +11,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_filelock.py
         └── test_graph.py
         └── test_integration.py
+        └── test_logging.py
         └── test_nodes.py
         └── test_plan_parser.py
         └── test_state.py
@@ -1719,6 +1720,467 @@ def test_live_happy_path_with_real_mcp():
     pytest.skip("Live test — requires real MCP server and LLM API key.")
 
 ```
+###  Path: `/orchestrator/tests/test_logging.py`
+
+```py
+"""
+test_logging.py — Unit tests for WorkflowLogger console formatting (WP-007).
+
+Tests verify:
+- _format_duration handles all documented edge cases.
+- _build_stream_console_line produces the correct console output for each
+  of the 7 new event types introduced in WP-002 and WP-003.
+- Duration is included in stage_complete output.
+- progress_snapshot reports completed/total WP counts and elapsed time.
+- Existing event type formatting (route, run_start, etc.) is unchanged.
+- No crashes on missing or unexpected fields in log entries.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from src.utils.logging import _build_stream_console_line, _format_duration
+
+
+# ---------------------------------------------------------------------------
+# _format_duration
+# ---------------------------------------------------------------------------
+
+
+class TestFormatDuration:
+    """Verify the human-readable duration formatter."""
+
+    def test_none_returns_empty(self):
+        assert _format_duration(None) == ""
+
+    def test_zero_returns_0s(self):
+        assert _format_duration(0) == "0s"
+
+    def test_sub_minute_whole(self):
+        assert _format_duration(45) == "45s"
+
+    def test_sub_minute_one_second(self):
+        assert _format_duration(1) == "1s"
+
+    def test_sub_minute_boundary(self):
+        assert _format_duration(59) == "59s"
+
+    def test_multi_minute_exact(self):
+        # 3m 24s = 204 seconds
+        assert _format_duration(204) == "3m 24s"
+
+    def test_multi_minute_one_minute(self):
+        assert _format_duration(60) == "1m 0s"
+
+    def test_multi_minute_boundary(self):
+        # 59m 59s = 3599 seconds
+        assert _format_duration(3599) == "59m 59s"
+
+    def test_multi_hour_exact(self):
+        # 1h 12m = 4320 seconds
+        assert _format_duration(4320) == "1h 12m"
+
+    def test_multi_hour_one_hour(self):
+        assert _format_duration(3600) == "1h 0m"
+
+    def test_multi_hour_two_hours(self):
+        assert _format_duration(7200) == "2h 0m"
+
+    def test_rounding_up(self):
+        assert _format_duration(45.6) == "46s"
+
+    def test_rounding_down(self):
+        assert _format_duration(44.4) == "44s"
+
+    def test_float_multi_minute(self):
+        # 3m 24.9s → round to 3m 25s
+        assert _format_duration(204.9) == "3m 25s"
+
+
+# ---------------------------------------------------------------------------
+# _build_stream_console_line — new event types
+# ---------------------------------------------------------------------------
+
+
+class TestStageStart:
+    def test_format(self):
+        entry = {"stage": "developer", "wp_id": "WP-003", "action": "stage_start"}
+        line = _build_stream_console_line(entry)
+        assert line == "[developer] WP-003 ▶ stage_start"
+
+    def test_no_wp_id(self):
+        entry = {"stage": "developer", "wp_id": "", "action": "stage_start"}
+        line = _build_stream_console_line(entry)
+        assert "▶ stage_start" in line
+        assert "WP-" not in line
+
+    def test_no_stage(self):
+        entry = {"stage": "", "wp_id": "WP-001", "action": "stage_start"}
+        line = _build_stream_console_line(entry)
+        assert "[—]" in line
+        assert "▶ stage_start" in line
+
+
+class TestStageComplete:
+    """stage_complete is an enriched existing event (adds duration_s)."""
+
+    def test_includes_duration_and_tokens(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "stage_complete",
+            "result": "PASS",
+            "duration_s": 204,
+            "tokens_used": 1850,
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "WP-003" in line
+        assert "stage_complete" in line
+        assert "→ PASS" in line
+        assert "3m 24s" in line
+        assert "1850 tokens" in line
+
+    def test_includes_duration_without_tokens(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "stage_complete",
+            "result": "PASS",
+            "duration_s": 45,
+        }
+        line = _build_stream_console_line(entry)
+        assert "45s" in line
+        assert "tokens" not in line
+
+    def test_no_duration_field(self):
+        # duration_s absent — no crash, no empty parens
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "stage_complete",
+            "result": "PASS",
+            "tokens_used": 500,
+        }
+        line = _build_stream_console_line(entry)
+        assert "stage_complete" in line
+        assert "500 tokens" in line
+
+    def test_no_result_no_tokens_no_duration(self):
+        entry = {"stage": "developer", "wp_id": "WP-001", "action": "stage_complete"}
+        line = _build_stream_console_line(entry)
+        assert "stage_complete" in line
+        assert "()" not in line  # no empty parens
+
+
+class TestWpStatusChange:
+    def test_format(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "WP-003",
+            "action": "wp_status_change",
+            "old_status": "IN_PROGRESS",
+            "new_status": "COMPLETE",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[supervisor]" in line
+        assert "WP-003" in line
+        assert "status:" in line
+        assert "IN_PROGRESS" in line
+        assert "COMPLETE" in line
+        assert "→" in line
+
+    def test_missing_status_fields_no_crash(self):
+        entry = {"stage": "supervisor", "wp_id": "WP-001", "action": "wp_status_change"}
+        line = _build_stream_console_line(entry)
+        assert "status:" in line  # doesn't crash
+
+
+class TestWpComplete:
+    def test_format(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "WP-003",
+            "action": "wp_complete",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[supervisor]" in line
+        assert "✓" in line
+        assert "WP-003" in line
+        assert "COMPLETE" in line
+
+    def test_no_wp_id(self):
+        entry = {"stage": "supervisor", "wp_id": "", "action": "wp_complete"}
+        line = _build_stream_console_line(entry)
+        assert "✓" in line
+        assert "COMPLETE" in line
+
+
+class TestProgressSnapshot:
+    def test_format_full(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "",
+            "action": "progress_snapshot",
+            "total_wps": 5,
+            "status_breakdown": {"COMPLETE": 3, "IN_PROGRESS": 2},
+            "iteration": 12,
+            "max_iterations": 100,
+            "elapsed_s": 872,  # 14m 32s
+        }
+        line = _build_stream_console_line(entry)
+        assert "[supervisor]" in line
+        assert "Progress:" in line
+        assert "3/5" in line
+        assert "WPs done" in line
+        assert "2 in-progress" in line
+        assert "iter 12/100" in line
+        assert "14m 32s" in line
+        assert "elapsed" in line
+
+    def test_completed_count_reflects_breakdown(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "",
+            "action": "progress_snapshot",
+            "total_wps": 10,
+            "status_breakdown": {"COMPLETE": 7, "IN_PROGRESS": 1, "READY": 2},
+            "iteration": 5,
+            "max_iterations": 50,
+            "elapsed_s": 300,
+        }
+        line = _build_stream_console_line(entry)
+        assert "7/10" in line
+
+    def test_no_elapsed_s(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "",
+            "action": "progress_snapshot",
+            "total_wps": 3,
+            "status_breakdown": {"COMPLETE": 1},
+            "iteration": 2,
+            "max_iterations": 100,
+        }
+        line = _build_stream_console_line(entry)
+        assert "1/3" in line
+        assert "elapsed" not in line
+
+    def test_zero_in_progress_not_shown(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "",
+            "action": "progress_snapshot",
+            "total_wps": 5,
+            "status_breakdown": {"COMPLETE": 5},
+            "iteration": 20,
+            "max_iterations": 100,
+            "elapsed_s": 600,
+        }
+        line = _build_stream_console_line(entry)
+        assert "in-progress" not in line
+
+    def test_missing_fields_no_crash(self):
+        line = _build_stream_console_line({"action": "progress_snapshot"})
+        assert "Progress:" in line
+        assert "0/0" in line
+
+
+class TestPipelineResult:
+    def test_format_full(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "pipeline_result",
+            "pipeline_status": "PASS",
+            "files_modified": ["a.py", "b.py", "c.py", "d.py"],
+            "duration_s": 204,
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "WP-003" in line
+        assert "pipeline:" in line
+        assert "PASS" in line
+        assert "4 files modified" in line
+        assert "3m 24s" in line
+
+    def test_uses_result_field_as_fallback(self):
+        # pipeline_status absent — falls back to result
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "pipeline_result",
+            "result": "FAIL",
+            "files_modified": [],
+        }
+        line = _build_stream_console_line(entry)
+        assert "FAIL" in line
+
+    def test_no_files_no_duration(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "pipeline_result",
+            "pipeline_status": "PASS",
+        }
+        line = _build_stream_console_line(entry)
+        assert "pipeline: PASS" in line
+
+    def test_missing_fields_no_crash(self):
+        line = _build_stream_console_line({"action": "pipeline_result"})
+        assert "pipeline" in line
+
+
+class TestReworkDetected:
+    def test_format_full(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "WP-003",
+            "action": "rework_detected",
+            "rework_count": 2,
+            "pipeline_type": "qa",
+            "agent_role": "Developer",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[supervisor]" in line
+        assert "⟳" in line
+        assert "WP-003" in line
+        assert "rework #2" in line
+        assert "qa" in line
+        assert "developer" in line
+
+    def test_agent_role_lowercased(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "WP-001",
+            "action": "rework_detected",
+            "rework_count": 1,
+            "pipeline_type": "code-review",
+            "agent_role": "Reviewer",
+        }
+        line = _build_stream_console_line(entry)
+        assert "reviewer" in line
+        assert "Reviewer" not in line
+
+    def test_no_rework_count(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "WP-001",
+            "action": "rework_detected",
+            "pipeline_type": "qa",
+            "agent_role": "Developer",
+        }
+        line = _build_stream_console_line(entry)
+        assert "⟳" in line
+        assert "rework" in line
+        assert "#" not in line
+
+    def test_missing_fields_no_crash(self):
+        line = _build_stream_console_line(
+            {"stage": "supervisor", "wp_id": "WP-001", "action": "rework_detected"}
+        )
+        assert "⟳" in line
+        assert "rework" in line
+
+
+# ---------------------------------------------------------------------------
+# Existing event type formatting is unchanged
+# ---------------------------------------------------------------------------
+
+
+class TestExistingEventTypes:
+    """Verify that events not listed in WP-007 still use the legacy format."""
+
+    def test_route_event(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "WP-003",
+            "action": "route",
+            "result": "PASS",
+            "tokens_used": 500,
+        }
+        line = _build_stream_console_line(entry)
+        assert "[supervisor]" in line
+        assert "WP-003" in line
+        assert "route" in line
+        assert "→ PASS" in line
+        assert "500 tokens" in line
+
+    def test_run_start_event(self):
+        entry = {"stage": "cli", "wp_id": "", "action": "run_start"}
+        line = _build_stream_console_line(entry)
+        assert "[cli]" in line
+        assert "run_start" in line
+
+    def test_run_end_event(self):
+        entry = {"stage": "cli", "wp_id": "", "action": "run_end", "result": ""}
+        line = _build_stream_console_line(entry)
+        assert "run_end" in line
+
+    def test_mcp_error_event(self):
+        entry = {
+            "stage": "supervisor",
+            "wp_id": "",
+            "action": "mcp_error",
+            "result": "ERROR",
+        }
+        line = _build_stream_console_line(entry)
+        assert "mcp_error" in line
+        assert "→ ERROR" in line
+
+    def test_stage_error_event(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "stage_error",
+            "result": "FAIL",
+        }
+        line = _build_stream_console_line(entry)
+        assert "stage_error" in line
+        assert "→ FAIL" in line
+
+    def test_safety_limit_event(self):
+        entry = {"stage": "supervisor", "wp_id": "", "action": "safety_limit"}
+        line = _build_stream_console_line(entry)
+        assert "safety_limit" in line
+
+
+# ---------------------------------------------------------------------------
+# Robustness — no crashes on missing/unexpected fields
+# ---------------------------------------------------------------------------
+
+
+class TestRobustness:
+    def test_empty_entry(self):
+        line = _build_stream_console_line({})
+        assert isinstance(line, str)
+
+    def test_action_only(self):
+        line = _build_stream_console_line({"action": "unknown_future_event"})
+        assert "unknown_future_event" in line
+
+    def test_none_values_in_fields(self):
+        entry = {
+            "stage": None,
+            "wp_id": None,
+            "action": "stage_start",
+        }
+        line = _build_stream_console_line(entry)
+        assert "stage_start" in line
+
+    def test_extra_unknown_fields_ignored(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "route",
+            "future_field": "future_value",
+            "another_unknown": 42,
+        }
+        line = _build_stream_console_line(entry)
+        assert "route" in line  # doesn't crash, ignores unknown fields
+
+```
 ###  Path: `/orchestrator/tests/test_nodes.py`
 
 ```py
@@ -1917,7 +2379,12 @@ class TestNodeSuccessPath:
     async def test_success_appends_run_log_entry(self, module_name, factory_name):
         result = await self._invoke_node(module_name, factory_name)
         assert result.get("run_log"), "run_log must be non-empty on success"
-        entry = result["run_log"][0]
+        # stage_start is now at index 0; find the stage_complete entry by action.
+        complete_entries = [
+            e for e in result["run_log"] if e.get("action") == "stage_complete"
+        ]
+        assert complete_entries, "run_log must contain a stage_complete entry"
+        entry = complete_entries[0]
         assert entry["result"] == "PASS"
         assert "stage" in entry
         assert "timestamp" in entry
@@ -2285,6 +2752,259 @@ class TestToolWrappingInNode:
 
         assert seen[0]["project_path"] == "/explicit-path"
 
+
+# ---------------------------------------------------------------------------
+# Tests: stage_start event
+# ---------------------------------------------------------------------------
+
+class TestStageStartEvent:
+    """stage_start must be the first entry in run_log and carry required fields."""
+
+    async def _invoke_developer(self) -> dict:
+        from src.nodes.developer import make_developer_node
+        node_fn = make_developer_node(FAKE_CONFIG, FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            return await node_fn(base_state(current_wp_id="WP-042"))
+
+    async def test_stage_start_is_first_entry(self):
+        result = await self._invoke_developer()
+        assert result.get("run_log"), "run_log must be non-empty"
+        assert result["run_log"][0]["action"] == "stage_start"
+
+    async def test_stage_start_has_required_fields(self):
+        result = await self._invoke_developer()
+        entry = result["run_log"][0]
+        assert entry["action"] == "stage_start"
+        assert "stage" in entry
+        assert "wp_id" in entry
+        assert "iteration" in entry
+        assert "timestamp" in entry
+        assert "level" in entry
+
+    async def test_stage_start_wp_id_matches_state(self):
+        result = await self._invoke_developer()
+        entry = result["run_log"][0]
+        assert entry["wp_id"] == "WP-042"
+
+    async def test_stage_start_emitted_on_error_path(self):
+        """stage_start must be in run_log even when the agent raises."""
+        from src.nodes.developer import make_developer_node
+        node_fn = make_developer_node(FAKE_CONFIG, FAKE_TOOLS)
+        with _patch_persona(), patch(
+            "deepagents.create_deep_agent",
+            side_effect=RuntimeError("boom"),
+        ), patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-042"))
+
+        assert result["run_log"][0]["action"] == "stage_start", (
+            "stage_start must be first in run_log even on error path"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: duration_s on stage_complete and stage_error
+# ---------------------------------------------------------------------------
+
+class TestDurationS:
+    """duration_s must be present on stage_complete and stage_error entries."""
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_complete_has_duration_s(self, module_name, factory_name):
+        """stage_complete entry must include duration_s as a float."""
+        mod = __import__(module_name, fromlist=[factory_name])
+        node_fn = getattr(mod, factory_name)(FAKE_CONFIG, FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state())
+
+        entries = [e for e in result["run_log"] if e.get("action") == "stage_complete"]
+        assert entries, "stage_complete entry missing from run_log"
+        entry = entries[0]
+        assert "duration_s" in entry, "stage_complete must include duration_s"
+        assert isinstance(entry["duration_s"], (int, float)), (
+            f"duration_s must be numeric, got {type(entry['duration_s'])}"
+        )
+        assert entry["duration_s"] >= 0
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_error_has_duration_s(self, module_name, factory_name):
+        """stage_error entry must include duration_s (time until failure)."""
+        mod = __import__(module_name, fromlist=[factory_name])
+        node_fn = getattr(mod, factory_name)(FAKE_CONFIG, FAKE_TOOLS)
+        with _patch_persona(), patch(
+            "deepagents.create_deep_agent",
+            side_effect=RuntimeError("agent crash"),
+        ), patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state())
+
+        entries = [e for e in result["run_log"] if e.get("action") == "stage_error"]
+        assert entries, "stage_error entry missing from run_log"
+        entry = entries[0]
+        assert "duration_s" in entry, "stage_error must include duration_s"
+        assert isinstance(entry["duration_s"], (int, float)), (
+            f"duration_s must be numeric, got {type(entry['duration_s'])}"
+        )
+        assert entry["duration_s"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: pipeline_result read-back
+# ---------------------------------------------------------------------------
+
+class TestPipelineResult:
+    """pipeline_result must be emitted when ledger_get_work_package is available."""
+
+    def _make_wp_tool(self, pipelines: list) -> Any:
+        """Return a plain-class ledger_get_work_package tool returning *pipelines*.
+
+        MagicMock is intentionally avoided: MagicMock auto-creates ``_orig_ainvoke``
+        on attribute lookup, which causes ``inject_project_path`` to skip wrapping
+        and call the wrong callable, silently breaking the read-back.
+        """
+        import json as _json
+
+        return_value = _json.dumps({"work_package_id": "WP-001", "pipelines": pipelines})
+
+        class _WPTool:
+            """Plain-class stub so inject_project_path can wrap it correctly."""
+            name = "ledger_get_work_package"
+
+            def __init__(self, rv: str) -> None:
+                self._rv = rv
+
+            async def ainvoke(self, input: Any, *a: Any, **kw: Any) -> str:  # noqa: A002
+                return self._rv
+
+        return _WPTool(return_value)
+
+    async def test_pipeline_result_emitted_when_tool_available(self):
+        """pipeline_result entry must appear in run_log when a WP tool is present."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {
+                "type": "implementation",
+                "status": "PASS",
+                "artifacts": {"files_modified": ["src/foo.py"]},
+                "metrics": {"tests_passed": 5},
+                "summary": ["Implemented feature X"],
+                "duration_ms": 5000,
+            }
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert pr_entries, "pipeline_result entry expected in run_log"
+        entry = pr_entries[0]
+        assert entry["wp_id"] == "WP-001"
+        assert entry["pipeline_type"] == "implementation"
+        assert entry["pipeline_status"] == "PASS"
+        assert entry["files_modified"] == ["src/foo.py"]
+        assert entry["metrics"] == {"tests_passed": 5}
+        assert entry["summary"] == ["Implemented feature X"]
+        assert entry["duration_s"] == 5.0
+
+    async def test_pipeline_result_duration_s_from_duration_ms(self):
+        """duration_s must be derived from duration_ms (ms / 1000, rounded to 1 dp)."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {"type": "qa", "status": "PASS", "duration_ms": 3700}
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert pr_entries
+        assert pr_entries[0]["duration_s"] == 3.7
+
+    async def test_pipeline_result_none_duration_when_no_duration_ms(self):
+        """duration_s must be None when duration_ms is absent from WP data."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {"type": "implementation", "status": "PASS"}
+            # no duration_ms
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert pr_entries
+        assert pr_entries[0]["duration_s"] is None
+
+    async def test_pipeline_result_not_emitted_when_no_wp_id(self):
+        """pipeline_result must not be emitted when current_wp_id is empty."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([
+            {"type": "implementation", "status": "PASS"}
+        ])
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id=""))  # empty wp_id
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert not pr_entries, "pipeline_result must not be emitted when wp_id is empty"
+
+    async def test_pipeline_result_not_emitted_without_tool(self):
+        """No pipeline_result when FAKE_TOOLS has no ledger_get_work_package tool."""
+        from src.nodes.developer import make_developer_node
+
+        node_fn = make_developer_node(FAKE_CONFIG, FAKE_TOOLS)  # FAKE_TOOLS = []
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert not pr_entries, "pipeline_result must not be emitted when no wp tool exists"
+
+    async def test_read_back_failure_does_not_affect_stage_success(self):
+        """Failure in ledger_get_work_package must not set stage_success=False."""
+        from src.nodes.developer import make_developer_node
+
+        class _FailingWPTool:
+            """Plain-class stub that always raises on invocation."""
+            name = "ledger_get_work_package"
+
+            async def ainvoke(self, input: Any, *a: Any, **kw: Any) -> None:  # noqa: A002
+                raise RuntimeError("MCP unavailable")
+
+        node_fn = make_developer_node(FAKE_CONFIG, [_FailingWPTool()])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is True, (
+            "Read-back failure must not affect stage_success"
+        )
+        # Also confirm no pipeline_result was emitted.
+        pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
+        assert not pr_entries
+
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
 
@@ -2458,6 +3178,7 @@ class TestWorkflowStateFields:
     LEDGER_FIELDS = {"project_status", "wp_summaries", "pending_wp_count"}
     CIRCUIT_BREAKER_FIELDS = {"consecutive_failures"}
     DELTA_COUNTER_FIELDS = {"wps_completed_this_run"}
+    PROGRESS_TRACKING_FIELDS = {"prev_wp_summaries", "run_start_ts"}
     APPEND_ONLY_FIELDS = {"run_log", "errors"}
 
     def _all_expected(self) -> set:
@@ -2468,6 +3189,7 @@ class TestWorkflowStateFields:
             | self.LEDGER_FIELDS
             | self.CIRCUIT_BREAKER_FIELDS
             | self.DELTA_COUNTER_FIELDS
+            | self.PROGRESS_TRACKING_FIELDS
             | self.APPEND_ONLY_FIELDS
         )
 
@@ -3749,6 +4471,286 @@ class TestCircuitBreakerDirect:
         assert cmd.goto == "qa"
         assert cmd.update.get("current_wp_id") == "WP-002"
 
+
+# ---------------------------------------------------------------------------
+# Tests: progress_snapshot — WP-004 AC3, AC4
+# ---------------------------------------------------------------------------
+
+class TestProgressSnapshot:
+    """progress_snapshot must be in every iteration's run_log."""
+
+    async def test_progress_snapshot_in_run_log(self):
+        """progress_snapshot must appear in run_log on every supervisor call."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots, "progress_snapshot entry expected in run_log"
+
+    async def test_progress_snapshot_has_required_fields(self):
+        """progress_snapshot must contain total_wps, status_breakdown, pending,
+        iteration, max_iterations."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS"), wp_summary("WP-002", "READY")],
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state(iteration=2))
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots
+        snap = snapshots[0]
+        assert "total_wps" in snap
+        assert snap["total_wps"] == 2
+        assert "status_breakdown" in snap
+        assert "pending" in snap
+        assert snap["iteration"] == 3  # incremented from 2
+
+    async def test_progress_snapshot_elapsed_s_omitted_without_run_start_ts(self):
+        """elapsed_s must be absent (None) when run_start_ts is not in state."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # No run_start_ts key.
+        cmd = await node(state)
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots
+        # elapsed_s should be None (not a number) when run_start_ts is absent.
+        assert snapshots[0].get("elapsed_s") is None
+
+    async def test_progress_snapshot_elapsed_s_computed_when_run_start_ts_set(self):
+        """elapsed_s must be a non-negative float when run_start_ts is valid."""
+        from datetime import datetime, UTC, timedelta
+
+        # Set run_start_ts to 60 seconds ago.
+        past_ts = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["run_start_ts"] = past_ts
+
+        cmd = await node(state)
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots
+        elapsed = snapshots[0].get("elapsed_s")
+        assert elapsed is not None, "elapsed_s must be present when run_start_ts is valid"
+        assert isinstance(elapsed, (int, float))
+        assert elapsed >= 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: wp_status_change and wp_complete — WP-004 AC1, AC2
+# ---------------------------------------------------------------------------
+
+class TestWPStatusChangeEvents:
+    """wp_status_change and wp_complete must fire on transitions."""
+
+    async def test_wp_status_change_emitted_when_status_differs(self):
+        """wp_status_change must appear when a WP's status differs from prev."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # Simulate a previous iteration where WP-001 was READY.
+        state["prev_wp_summaries"] = [{"work_package_id": "WP-001", "status": "READY"}]
+
+        cmd = await node(state)
+
+        sc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "wp_status_change"
+        ]
+        assert sc_entries, "wp_status_change entry expected in run_log"
+        entry = sc_entries[0]
+        assert entry["wp_id"] == "WP-001"
+        assert entry["old_status"] == "READY"
+        assert entry["new_status"] == "IN_PROGRESS"
+
+    async def test_wp_status_change_not_emitted_when_unchanged(self):
+        """wp_status_change must NOT fire when status is the same as previous."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # Same status as current iteration.
+        state["prev_wp_summaries"] = [{"work_package_id": "WP-001", "status": "IN_PROGRESS"}]
+
+        cmd = await node(state)
+
+        sc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "wp_status_change"
+        ]
+        assert not sc_entries, "No wp_status_change expected when status unchanged"
+
+    async def test_wp_complete_emitted_when_wp_transitions_to_complete(self):
+        """wp_complete must be emitted when new_status == COMPLETE."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "COMPLETE")],
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["prev_wp_summaries"] = [{"work_package_id": "WP-001", "status": "IN_PROGRESS"}]
+
+        cmd = await node(state)
+
+        wc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "wp_complete"
+        ]
+        assert wc_entries, "wp_complete entry expected when WP transitions to COMPLETE"
+        assert wc_entries[0]["wp_id"] == "WP-001"
+
+    async def test_wp_status_change_not_emitted_on_first_iteration(self):
+        """No wp_status_change when prev_wp_summaries is empty (first iteration)."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # No prev_wp_summaries → first iteration.
+        cmd = await node(state)
+
+        sc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") in ("wp_status_change", "wp_complete")
+        ]
+        assert not sc_entries, "No status-change events expected on first iteration"
+
+
+# ---------------------------------------------------------------------------
+# Tests: prev_wp_summaries stored in state — WP-004 AC7
+# ---------------------------------------------------------------------------
+
+class TestPrevWPSummariesStored:
+    async def test_prev_wp_summaries_stored_in_base_update(self):
+        """supervisor must store current wp_summaries as prev_wp_summaries."""
+        wp_list = [wp_summary("WP-001", "READY"), wp_summary("WP-002", "IN_PROGRESS")]
+        tools = make_mcp_tools(
+            wp_list=wp_list,
+            wp_details={
+                "WP-001": wp_with_pipelines("WP-001", []),
+                "WP-002": wp_with_pipelines("WP-002", [pipeline("implementation", "IN_PROGRESS")]),
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        stored = cmd.update.get("prev_wp_summaries")
+        assert stored is not None, "prev_wp_summaries must be in state update"
+        # Should match what ledger_list_work_packages returned.
+        stored_ids = {w.get("work_package_id") for w in stored}
+        assert "WP-001" in stored_ids
+        assert "WP-002" in stored_ids
+
+
+# ---------------------------------------------------------------------------
+# Tests: enriched route events — WP-004 AC5
+# ---------------------------------------------------------------------------
+
+class TestEnrichedRouteEvents:
+    async def test_route_includes_prev_stage_and_prev_wp_id(self):
+        """route log entry must include prev_stage and prev_wp_id."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_stage"] = "developer"
+        state["current_wp_id"] = "WP-001"
+
+        cmd = await node(state)
+
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route"
+        ]
+        assert route_entries
+        entry = route_entries[0]
+        assert "prev_stage" in entry, "route entry must include prev_stage"
+        assert "prev_wp_id" in entry, "route entry must include prev_wp_id"
+        assert "prev_result" in entry, "route entry must include prev_result"
+
+    async def test_route_prev_result_pass_when_stage_success(self):
+        """prev_result must be 'PASS' when prev stage succeeded and wp_id is set."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines("WP-001", [pipeline("implementation", "PASS")])
+            },
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["stage_success"] = True
+        state["current_wp_id"] = "WP-001"
+
+        cmd = await node(state)
+
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route"
+        ]
+        if route_entries:
+            assert route_entries[0].get("prev_result") == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# Tests: rework_detected event — WP-004 AC6
+# ---------------------------------------------------------------------------
+
+class TestReworkDetectedEvent:
+    async def test_rework_detected_emitted_on_rework_action(self):
+        """rework_detected must appear in run_log when supervisor dispatches REWORK."""
+        tools = make_mcp_tools_with_actions(
+            {"Developer": {"action": "REWORK", "work_package_id": "WP-001",
+                           "pipeline_type": "qa", "rework_count": 2}}
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        rd_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "rework_detected"
+        ]
+        assert rd_entries, "rework_detected entry expected in run_log for REWORK action"
+        entry = rd_entries[0]
+        assert entry["wp_id"] == "WP-001"
+        assert entry["agent_role"] == "Developer"
+
+    async def test_rework_detected_not_emitted_for_implement(self):
+        """rework_detected must NOT appear for a normal IMPLEMENT action."""
+        tools = make_mcp_tools_with_actions(
+            {"Developer": {"action": "IMPLEMENT", "work_package_id": "WP-001"}}
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        rd_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "rework_detected"
+        ]
+        assert not rd_entries, "rework_detected must not appear for IMPLEMENT action"
+
 ```
 ###  Path: `/orchestrator/tests/test_tool_wrappers.py`
 
@@ -4189,6 +5191,87 @@ class TestPydanticModelCompatibility:
         assert call_count == 1, (
             f"Original ainvoke called {call_count} times — wrapper stacking on StructuredTool"
         )
+
+
+# ---------------------------------------------------------------------------
+# 10. ToolCall dict structure — LangGraph ToolNode passes nested args
+# ---------------------------------------------------------------------------
+
+class TestToolCallDictStructure:
+    """Verify that injection works when ainvoke receives a ToolCall dict.
+
+    LangGraph's ToolNode passes ``{"name": ..., "args": {...}, "id": ...,
+    "type": "tool_call"}`` to ``tool.ainvoke``.  The wrapper must inject
+    ``project_path`` into ``input["args"]``, not the top-level dict.
+    """
+
+    async def test_toolcall_injects_project_path_into_args(self):
+        """project_path must be injected into input['args'], not top level."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_create_work_package",
+            "args": {"work_package_id": "WP-001"},
+            "id": "call-1",
+            "type": "tool_call",
+        })
+
+        result = seen[0]
+        assert result["args"]["project_path"] == PROJECT
+        assert "project_path" not in {k for k in result if k != "args"}
+
+    async def test_toolcall_strips_cwd_path_from_args(self):
+        """cwd_path inside input['args'] must be stripped and replaced."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_get_project_status",
+            "args": {"cwd_path": "/"},
+            "id": "call-2",
+            "type": "tool_call",
+        })
+
+        result = seen[0]
+        assert "cwd_path" not in result["args"]
+        assert result["args"]["project_path"] == PROJECT
+
+    async def test_toolcall_preserves_explicit_project_path(self):
+        """An explicit project_path in args must not be overwritten."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        explicit = "/explicit/project"
+        await tool.ainvoke({
+            "name": "some_tool",
+            "args": {"project_path": explicit},
+            "id": "call-3",
+            "type": "tool_call",
+        })
+
+        assert seen[0]["args"]["project_path"] == explicit
+
+    async def test_toolcall_preserves_other_args(self):
+        """Other args in the ToolCall must survive untouched."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_claim_work_package",
+            "args": {"work_package_id": "WP-007", "agent_role": "Developer"},
+            "id": "call-4",
+            "type": "tool_call",
+        })
+
+        result = seen[0]["args"]
+        assert result["work_package_id"] == "WP-007"
+        assert result["agent_role"] == "Developer"
+        assert result["project_path"] == PROJECT
 
 
 ```

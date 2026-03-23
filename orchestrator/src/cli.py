@@ -33,7 +33,7 @@ import os
 import sys
 import time
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -437,6 +437,8 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         log.info("Resuming run: thread_id=%s", thread_id)
     else:
         log.info("Starting new run: thread_id=%s", thread_id)
+    # Capture run start timestamp for duration tracking and progress snapshots.
+    run_start_ts: str = datetime.now(UTC).isoformat()
     # Write a run_start sentinel immediately so the JSONL file is never empty
     # even if the graph crashes before producing any state output.
     run_logger.log(
@@ -447,6 +449,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         level="INFO",
         dry_run=args.dry_run,
         plan=str(plan_path),
+        run_start_ts=run_start_ts,
     )
     # ── Parse --interrupt-on ────────────────────────────────────────────────
     interrupt_before: list[str] = []
@@ -470,6 +473,8 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         "pending_wp_count": 0,
         "consecutive_failures": {},
         "wps_completed_this_run": 0,
+        "prev_wp_summaries": [],
+        "run_start_ts": run_start_ts,
         "run_log": [],
         "errors": [],
     }
@@ -537,13 +542,23 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 thread_id=thread_id,
             )
         # Always write a run-end sentinel entry.
-        run_logger.log(
-            stage="cli",
-            action="run_end",
-            result="COMPLETE" if not outside_errors else "ERROR",
-            level="ERROR" if outside_errors else "INFO",
-            thread_id=thread_id,
-        )
+        total_duration_s: float | None = None
+        try:
+            total_duration_s = round(
+                (datetime.now(UTC) - datetime.fromisoformat(run_start_ts)).total_seconds(), 1
+            )
+        except (ValueError, TypeError):
+            pass
+        run_end_kwargs: dict = {
+            "stage": "cli",
+            "action": "run_end",
+            "result": "COMPLETE" if not outside_errors else "ERROR",
+            "level": "ERROR" if outside_errors else "INFO",
+            "thread_id": thread_id,
+        }
+        if total_duration_s is not None:
+            run_end_kwargs["total_duration_s"] = total_duration_s
+        run_logger.log(**run_end_kwargs)
     finally:
         run_logger.close()
 

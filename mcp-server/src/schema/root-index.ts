@@ -45,5 +45,9 @@ export const RootIndexSchema = z.object({
   synthesis_generated_at: z.string().nullable().optional(),
   ledger_version: z.string().optional(),
   server_version: z.string().optional(),
+  // Runner metadata - optional for backward compatibility
+  runner: z.enum(['vscode', 'claude-code', 'orchestrator', 'unknown']).optional(),
+  runner_client: z.string().optional(),   // raw clientInfo.name
+  runner_version: z.string().optional(),  // raw clientInfo.version
 });
 export type RootIndex = z.infer<typeof RootIndexSchema>;

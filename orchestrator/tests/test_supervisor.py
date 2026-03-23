@@ -1205,3 +1205,283 @@ class TestCircuitBreakerDirect:
         # WP-001 skipped, WP-002/QA dispatches → qa.
         assert cmd.goto == "qa"
         assert cmd.update.get("current_wp_id") == "WP-002"
+
+
+# ---------------------------------------------------------------------------
+# Tests: progress_snapshot — WP-004 AC3, AC4
+# ---------------------------------------------------------------------------
+
+class TestProgressSnapshot:
+    """progress_snapshot must be in every iteration's run_log."""
+
+    async def test_progress_snapshot_in_run_log(self):
+        """progress_snapshot must appear in run_log on every supervisor call."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots, "progress_snapshot entry expected in run_log"
+
+    async def test_progress_snapshot_has_required_fields(self):
+        """progress_snapshot must contain total_wps, status_breakdown, pending,
+        iteration, max_iterations."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS"), wp_summary("WP-002", "READY")],
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state(iteration=2))
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots
+        snap = snapshots[0]
+        assert "total_wps" in snap
+        assert snap["total_wps"] == 2
+        assert "status_breakdown" in snap
+        assert "pending" in snap
+        assert snap["iteration"] == 3  # incremented from 2
+
+    async def test_progress_snapshot_elapsed_s_omitted_without_run_start_ts(self):
+        """elapsed_s must be absent (None) when run_start_ts is not in state."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # No run_start_ts key.
+        cmd = await node(state)
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots
+        # elapsed_s should be None (not a number) when run_start_ts is absent.
+        assert snapshots[0].get("elapsed_s") is None
+
+    async def test_progress_snapshot_elapsed_s_computed_when_run_start_ts_set(self):
+        """elapsed_s must be a non-negative float when run_start_ts is valid."""
+        from datetime import datetime, UTC, timedelta
+
+        # Set run_start_ts to 60 seconds ago.
+        past_ts = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["run_start_ts"] = past_ts
+
+        cmd = await node(state)
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots
+        elapsed = snapshots[0].get("elapsed_s")
+        assert elapsed is not None, "elapsed_s must be present when run_start_ts is valid"
+        assert isinstance(elapsed, (int, float))
+        assert elapsed >= 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: wp_status_change and wp_complete — WP-004 AC1, AC2
+# ---------------------------------------------------------------------------
+
+class TestWPStatusChangeEvents:
+    """wp_status_change and wp_complete must fire on transitions."""
+
+    async def test_wp_status_change_emitted_when_status_differs(self):
+        """wp_status_change must appear when a WP's status differs from prev."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # Simulate a previous iteration where WP-001 was READY.
+        state["prev_wp_summaries"] = [{"work_package_id": "WP-001", "status": "READY"}]
+
+        cmd = await node(state)
+
+        sc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "wp_status_change"
+        ]
+        assert sc_entries, "wp_status_change entry expected in run_log"
+        entry = sc_entries[0]
+        assert entry["wp_id"] == "WP-001"
+        assert entry["old_status"] == "READY"
+        assert entry["new_status"] == "IN_PROGRESS"
+
+    async def test_wp_status_change_not_emitted_when_unchanged(self):
+        """wp_status_change must NOT fire when status is the same as previous."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # Same status as current iteration.
+        state["prev_wp_summaries"] = [{"work_package_id": "WP-001", "status": "IN_PROGRESS"}]
+
+        cmd = await node(state)
+
+        sc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "wp_status_change"
+        ]
+        assert not sc_entries, "No wp_status_change expected when status unchanged"
+
+    async def test_wp_complete_emitted_when_wp_transitions_to_complete(self):
+        """wp_complete must be emitted when new_status == COMPLETE."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "COMPLETE")],
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["prev_wp_summaries"] = [{"work_package_id": "WP-001", "status": "IN_PROGRESS"}]
+
+        cmd = await node(state)
+
+        wc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "wp_complete"
+        ]
+        assert wc_entries, "wp_complete entry expected when WP transitions to COMPLETE"
+        assert wc_entries[0]["wp_id"] == "WP-001"
+
+    async def test_wp_status_change_not_emitted_on_first_iteration(self):
+        """No wp_status_change when prev_wp_summaries is empty (first iteration)."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # No prev_wp_summaries → first iteration.
+        cmd = await node(state)
+
+        sc_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") in ("wp_status_change", "wp_complete")
+        ]
+        assert not sc_entries, "No status-change events expected on first iteration"
+
+
+# ---------------------------------------------------------------------------
+# Tests: prev_wp_summaries stored in state — WP-004 AC7
+# ---------------------------------------------------------------------------
+
+class TestPrevWPSummariesStored:
+    async def test_prev_wp_summaries_stored_in_base_update(self):
+        """supervisor must store current wp_summaries as prev_wp_summaries."""
+        wp_list = [wp_summary("WP-001", "READY"), wp_summary("WP-002", "IN_PROGRESS")]
+        tools = make_mcp_tools(
+            wp_list=wp_list,
+            wp_details={
+                "WP-001": wp_with_pipelines("WP-001", []),
+                "WP-002": wp_with_pipelines("WP-002", [pipeline("implementation", "IN_PROGRESS")]),
+            },
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        stored = cmd.update.get("prev_wp_summaries")
+        assert stored is not None, "prev_wp_summaries must be in state update"
+        # Should match what ledger_list_work_packages returned.
+        stored_ids = {w.get("work_package_id") for w in stored}
+        assert "WP-001" in stored_ids
+        assert "WP-002" in stored_ids
+
+
+# ---------------------------------------------------------------------------
+# Tests: enriched route events — WP-004 AC5
+# ---------------------------------------------------------------------------
+
+class TestEnrichedRouteEvents:
+    async def test_route_includes_prev_stage_and_prev_wp_id(self):
+        """route log entry must include prev_stage and prev_wp_id."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_stage"] = "developer"
+        state["current_wp_id"] = "WP-001"
+
+        cmd = await node(state)
+
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route"
+        ]
+        assert route_entries
+        entry = route_entries[0]
+        assert "prev_stage" in entry, "route entry must include prev_stage"
+        assert "prev_wp_id" in entry, "route entry must include prev_wp_id"
+        assert "prev_result" in entry, "route entry must include prev_result"
+
+    async def test_route_prev_result_pass_when_stage_success(self):
+        """prev_result must be 'PASS' when prev stage succeeded and wp_id is set."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={
+                "WP-001": wp_with_pipelines("WP-001", [pipeline("implementation", "PASS")])
+            },
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["stage_success"] = True
+        state["current_wp_id"] = "WP-001"
+
+        cmd = await node(state)
+
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route"
+        ]
+        if route_entries:
+            assert route_entries[0].get("prev_result") == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# Tests: rework_detected event — WP-004 AC6
+# ---------------------------------------------------------------------------
+
+class TestReworkDetectedEvent:
+    async def test_rework_detected_emitted_on_rework_action(self):
+        """rework_detected must appear in run_log when supervisor dispatches REWORK."""
+        tools = make_mcp_tools_with_actions(
+            {"Developer": {"action": "REWORK", "work_package_id": "WP-001",
+                           "pipeline_type": "qa", "rework_count": 2}}
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        rd_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "rework_detected"
+        ]
+        assert rd_entries, "rework_detected entry expected in run_log for REWORK action"
+        entry = rd_entries[0]
+        assert entry["wp_id"] == "WP-001"
+        assert entry["agent_role"] == "Developer"
+
+    async def test_rework_detected_not_emitted_for_implement(self):
+        """rework_detected must NOT appear for a normal IMPLEMENT action."""
+        tools = make_mcp_tools_with_actions(
+            {"Developer": {"action": "IMPLEMENT", "work_package_id": "WP-001"}}
+        )
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        rd_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "rework_detected"
+        ]
+        assert not rd_entries, "rework_detected must not appear for IMPLEMENT action"

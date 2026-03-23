@@ -9,6 +9,7 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
             └── __init__.py
             └── filelock.py
             └── logging.py
+            └── mcp_parse.py
             └── persona.py
             └── plan_parser.py
             └── tool_wrappers.py
@@ -165,6 +166,146 @@ def _slugify(text: str, max_len: int = 40) -> str:
     return _SLUG_RE.sub("-", text.lower())[:max_len].strip("-")
 
 
+def _format_duration(seconds: float | None) -> str:
+    """Format *seconds* as a human-readable duration string.
+
+    Examples::
+
+        _format_duration(None)   == ""
+        _format_duration(0)      == "0s"
+        _format_duration(45)     == "45s"
+        _format_duration(204)    == "3m 24s"
+        _format_duration(4320)   == "1h 12m"
+    """
+    if seconds is None:
+        return ""
+    secs = round(seconds)
+    if secs < 60:
+        return f"{secs}s"
+    minutes, remaining_secs = divmod(secs, 60)
+    if minutes < 60:
+        return f"{minutes}m {remaining_secs}s"
+    hours, remaining_mins = divmod(minutes, 60)
+    return f"{hours}h {remaining_mins}m"
+
+
+def _build_stream_console_line(entry: dict[str, Any]) -> str:
+    """Build a human-readable console line for a streamed log entry.
+
+    Produces rich, structured output for the event types introduced in
+    WP-002 and WP-003.  Falls back to the generic ``action → result``
+    format for all other event types so that existing output is unchanged.
+    """
+    stage = entry.get("stage") or ""
+    wp_id = entry.get("wp_id") or ""
+    action = entry.get("action") or ""
+    prefix = f"[{stage}]" if stage else "[—]"
+
+    if action == "stage_start":
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append("▶ stage_start")
+        return " ".join(parts)
+
+    if action == "stage_complete":
+        result = entry.get("result") or ""
+        duration = _format_duration(entry.get("duration_s"))
+        tokens = entry.get("tokens_used")
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append("stage_complete")
+        if result:
+            parts.append(f"→ {result}")
+        detail: list[str] = []
+        if duration:
+            detail.append(duration)
+        if tokens is not None:
+            detail.append(f"{tokens} tokens")
+        if detail:
+            parts.append(f"({', '.join(detail)})")
+        return " ".join(parts)
+
+    if action == "wp_status_change":
+        old_st = entry.get("old_status") or ""
+        new_st = entry.get("new_status") or ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"status: {old_st} → {new_st}")
+        return " ".join(parts)
+
+    if action == "wp_complete":
+        parts = [prefix, "✓"]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append("COMPLETE")
+        return " ".join(parts)
+
+    if action == "progress_snapshot":
+        total = entry.get("total_wps") or 0
+        breakdown: dict[str, int] = entry.get("status_breakdown") or {}
+        completed = breakdown.get("COMPLETE", 0)
+        in_progress = breakdown.get("IN_PROGRESS", 0)
+        iteration = entry.get("iteration") or 0
+        max_iter = entry.get("max_iterations") or 0
+        elapsed = _format_duration(entry.get("elapsed_s"))
+        line = f"{prefix} Progress: {completed}/{total} WPs done"
+        if in_progress:
+            line += f" · {in_progress} in-progress"
+        if max_iter:
+            line += f" · iter {iteration}/{max_iter}"
+        if elapsed:
+            line += f" · {elapsed} elapsed"
+        return line
+
+    if action == "pipeline_result":
+        pipeline_status = entry.get("pipeline_status") or entry.get("result") or ""
+        files: list = entry.get("files_modified") or []
+        duration = _format_duration(entry.get("duration_s"))
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        detail_parts: list[str] = []
+        if pipeline_status:
+            detail_parts.append(pipeline_status)
+        if files:
+            detail_parts.append(f"{len(files)} files modified")
+        if duration:
+            detail_parts.append(duration)
+        detail_str = " · ".join(detail_parts) if detail_parts else "pipeline_result"
+        parts.append(f"pipeline: {detail_str}")
+        return " ".join(parts)
+
+    if action == "rework_detected":
+        rework_count = entry.get("rework_count")
+        pipeline_type = entry.get("pipeline_type") or ""
+        agent_role = entry.get("agent_role") or ""
+        agent_stage = agent_role.lower().replace(" ", "_")
+        parts = [prefix, "⟳"]
+        if wp_id:
+            parts.append(wp_id)
+        rework_label = f"rework #{rework_count}" if rework_count is not None else "rework"
+        if pipeline_type and agent_stage:
+            rework_label += f" ({pipeline_type} → {agent_stage})"
+        parts.append(rework_label)
+        return " ".join(parts)
+
+    # ── Default fallback (preserves existing behavior for all other events) ──
+    result = entry.get("result") or ""
+    tokens = entry.get("tokens_used")
+    parts = [prefix]
+    if wp_id:
+        parts.append(wp_id)
+    parts.append(action)
+    if result:
+        parts.append(f"→ {result}")
+    if tokens is not None:
+        parts.append(f"({tokens} tokens)")
+    return " ".join(parts)
+
+
 class WorkflowLogger:
     """
     Structured JSONL logger for a single orchestrator run.
@@ -309,20 +450,7 @@ class WorkflowLogger:
         self._fh.flush()
 
         # Also emit a console line so stderr stays in sync.
-        stage = entry.get("stage", "")
-        wp_id = entry.get("wp_id", "")
-        action = entry.get("action", "")
-        result = entry.get("result", "")
-        parts = [f"[{stage}]" if stage else "[—]"]
-        if wp_id:
-            parts.append(wp_id)
-        parts.append(action)
-        if result:
-            parts.append(f"→ {result}")
-        tokens = entry.get("tokens_used")
-        if tokens is not None:
-            parts.append(f"({tokens} tokens)")
-        self._console.info(" ".join(parts))
+        self._console.info(_build_stream_console_line(entry))
 
     # ------------------------------------------------------------------
     # Resource management
@@ -370,6 +498,85 @@ def get_run_logger(config: Any) -> WorkflowLogger | None:
         return None
     configurable = config.get("configurable") or {}
     return configurable.get("run_logger")
+
+```
+###  Path: `/orchestrator/src/utils/mcp_parse.py`
+
+```py
+"""
+mcp_parse — Shared MCP tool response parser.
+
+Handles the multiple response formats returned by
+``langchain-mcp-adapters`` when invoking MCP tools, providing a
+unified parsed output for callers.
+
+Formats handled
+---------------
+- **List of content blocks** (``langchain-mcp-adapters`` 0.1.0 format):
+  ``[{"type": "text", "text": "<json-string>"}]``
+- **JSON string**: parsed via ``json.loads``; falls back to raw string if
+  not valid JSON.
+- **ToolMessage-like** (LangChain): object with a ``.content`` attribute
+  is unwrapped before applying the above rules.
+- **Direct dict** or any other object: returned as-is.
+
+This logic was originally inlined in ``supervisor.py``'s ``_call_tool``.
+Extracting it here allows both the supervisor and the node factory to
+share the same response-parsing behaviour without duplication.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+
+def parse_tool_response(raw: Any) -> dict | list | str | None:
+    """
+    Parse an MCP tool response into a usable Python object.
+
+    Parameters
+    ----------
+    raw:
+        The raw value returned by ``tool.ainvoke()``.
+
+    Returns
+    -------
+    dict | list | str | None
+        - ``dict`` — successfully JSON-parsed object.
+        - ``list``  — raw list when no parseable text block found.
+        - ``str``   — raw string when JSON parsing fails.
+        - ``None``  — when *raw* is ``None``.
+    """
+    if raw is None:
+        return None
+
+    # Unwrap ToolMessage-like objects (LangChain ``ToolMessage`` etc.)
+    # that expose their payload via a ``.content`` attribute.
+    if hasattr(raw, "content") and not isinstance(raw, (dict, list)):
+        raw = raw.content
+
+    # langchain-mcp-adapters 0.1.0 returns a list of content objects:
+    # [{"type": "text", "text": "<json-string>"}]
+    if isinstance(raw, list):
+        for block in raw:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block["text"]
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    return text
+        # No parseable text block found; return the raw list.
+        return raw
+
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+
+    # Direct dict or any other object.
+    return raw
 
 ```
 ###  Path: `/orchestrator/src/utils/persona.py`
@@ -688,14 +895,24 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
+                # LangGraph ToolNode passes a ToolCall dict with args nested
+                # inside input["args"], while direct invocations pass a flat
+                # dict of tool arguments.  Handle both structures.
+                if "args" in input and isinstance(input["args"], dict):
+                    # ToolCall structure: {"name": ..., "args": {...}, ...}
+                    target = input["args"]
+                else:
+                    # Flat dict of tool arguments
+                    target = input
+
                 # In the orchestrator context we always know the exact
                 # project_path, so cwd_path-based auto-detection is never
                 # needed.  If the LLM agent followed persona instructions
                 # meant for interactive IDE agents and passed cwd_path,
                 # replace it with the authoritative project_path.
-                if "cwd_path" in input:
-                    del input["cwd_path"]
-                input.setdefault("project_path", _proj)
+                if "cwd_path" in target:
+                    del target["cwd_path"]
+                target.setdefault("project_path", _proj)
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)

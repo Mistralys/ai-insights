@@ -16,6 +16,7 @@ import * as helpTools from './tools/help.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
+import { setMcpServer } from './utils/client-info.js';
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
@@ -64,6 +65,9 @@ async function main(): Promise<void> {
     name: 'project-ledger',
     version: SERVER_VERSION,
   });
+
+  // Expose server instance for getClientInfo() accessor
+  setMcpServer(server);
 
   // NOTE: The tool list printed in the startup log below must be kept in sync
   // with the tools registered here. Update the log message whenever a tool is

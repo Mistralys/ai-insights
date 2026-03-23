@@ -436,7 +436,7 @@ Starts a new pipeline for a work package. The `type` field is validated by `Pipe
 }) => Promise<MCPResult>
 ```
 
-Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (legacy 4-stage) or `resolveNextAgent()`. On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (legacy 4-stage) or `resolveFailAgent()` — routes QA/code-review/implementation/security-audit failures to Developer; documentation failures to Documentation for self-rework; release-engineering failures to Release Engineer for self-rework; fall-back: when the standard fail-target’s stage is absent from the WP’s activeStages, routes to the first active stage’s agent. Sets status, completion timestamp, summary, and optional fields.
+Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `handoff_notes` is provided, a structured `HandoffNote` entry is appended to the work package. On PASS, the recipient is determined by `NEXT_AGENT_MAP` (legacy 4-stage) or `resolveNextAgent()`. On FAIL, the recipient is determined by `FAIL_ROUTING_MAP` (legacy 4-stage) or `resolveFailAgent()` — routes QA/code-review/implementation/security-audit failures to Developer; documentation failures to Documentation for self-rework; release-engineering failures to Release Engineer for self-rework; fall-back: when the standard fail-target’s stage is absent from the WP’s activeStages, routes to the first active stage’s agent. Sets status, completion timestamp, summary, optional fields, and automatically computes `duration_ms` from `started_at` to `completed_at` when `started_at` is present and the result is non-negative.
 
 **`agent_role` is required (§52).** Must match the pipeline type’s owner role per `PIPELINE_AGENT_MAP`: `"Developer"` for `implementation`, `"QA"` for `qa`, `"Reviewer"` for `code-review`, `"Documentation"` for `documentation`. **Exception:** `agent_role: 'Project Manager'` bypasses the role check for any pipeline type (PM Override). This field must be explicit because it drives auto-finalize and PM Override handoff-note identity.
 
@@ -916,6 +916,7 @@ interface Pipeline {
   status: PipelineStatus;
   started_at?: string;
   completed_at?: string;
+  duration_ms?: number; // wall-clock duration in milliseconds; computed by ledger_complete_pipeline when started_at is present and non-negative (absent for in-progress, cancelled, or legacy pipelines)
   summary: string[];
   artifacts?: Artifacts;
   metrics?: Metrics;
@@ -2023,7 +2024,11 @@ export async function handleListProjects(
   rawParams?: ProjectListParams
 ): Promise<ProjectListEnvelope>;
 
-// GET /api/projects/:slug — returns combined root index + meta
+// GET /api/projects/:slug — returns combined root index + meta + optional timing aggregate
+// ProjectDetail = RootIndex & { meta: ProjectMeta; project_name: string | null;
+//   timing?: { project_elapsed_ms: number | null; total_active_ms: number; pipeline_runs: number }; }
+// timing is computed server-side: project_elapsed_ms = last_updated - date_created (ms);
+// total_active_ms = sum of duration_ms across all WP pipelines; pipeline_runs = count of pipelines with duration_ms set.
 export async function handleGetProject(ledgerRoot: string, slug: string): Promise<ProjectDetail>;
 
 // GET /api/projects/:slug/work-packages — returns WP summary array
@@ -2357,7 +2362,7 @@ Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, 
 - **`Router`** — hash-based dispatch (`#/`, `#/projects/:slug`, `#/projects/:slug/plan`, `#/projects/:slug/synthesis`, `#/projects/:slug/wp/:wpId`, `#/config`, `#/insights`); the `/plan` and `/synthesis` matches are registered before the generic `/:slug` match to prevent prefix collision; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch
 
 **`utils.js`:**
-- **Utilities**: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()`
+- **Utilities**: `escapeHtml()`, `formatDate()`, `formatDuration(ms)`, `statusBadge()`, `showLoading()`, `showError()`. `formatDuration(ms)` renders a millisecond count as a human-readable string (e.g. `"3m 24s"`, `"1h 12m"`, `"45s"`, `"< 1s"`); returns `'—'` for `null` / negative values.
 
 **`app.js`:**
 - Bootstrap entry point — calls `Theme.init()` then `Router.init()`
@@ -2367,13 +2372,13 @@ Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, 
 
 **`views/project-detail.js`:**
 - **`extractSynopsis(markdown)`** — regex-extracts the content of a `## Summary` section from a Markdown string; returns the trimmed text or `null` if the section is absent or empty
-- **`renderProjectDetail(app, slug)`** — fetches project, plan document, and WP overview concurrently via `Promise.all` (three parallel calls: `getProject`, `getPlanDocument`, `getWorkPackageOverview`); `getPlanDocument` and `getWorkPackageOverview` failures are each absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); **WP table:** when the overview fetch succeeds, the "Title" column (which previously showed the WP ID verbatim) is replaced by a "Pipeline Stages" column rendering a `.pipeline-track` badge row per WP via `buildPipelineTrack(overviewEntry)`; when the overview fetch fails, the column header falls back to "WP ID" and cells show the plain WP ID; **title display:** `displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug` — used for both the `<h1>` heading and breadcrumb; **inline title edit:** heading is wrapped in `.page-heading-wrapper` (inline-flex) with an adjacent `.edit-title-btn` pencil button (✎); click pencil → replaces `<h1>` with `<input class="title-edit-input">` pre-filled with current title, auto-focused; Enter or blur triggers `doSave()` which calls `API.renameProject(slug, newTitle)` and updates the heading and breadcrumb on success; Escape triggers `exitEdit()` without touching the API; errors displayed in a `.title-edit-error` div (created once via `getElementById` + `createElement` to prevent duplicates on rapid retries); `inputDone` flag prevents blur+Enter double-save race; error path resets `inputDone = false` to permit retry; `currentTitle` is kept in sync with the last saved value so re-entering edit mode shows the latest title; project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
+- **`renderProjectDetail(app, slug)`** — fetches project, plan document, and WP overview concurrently via `Promise.all` (three parallel calls: `getProject`, `getPlanDocument`, `getWorkPackageOverview`); `getPlanDocument` and `getWorkPackageOverview` failures are each absorbed (`.catch(() => null)`) so the detail page always renders; if the plan has a `## Summary` section, injects a `.plan-synopsis` card with a **View full plan →** link above the Work Packages table; if `project.synthesis_generated === true`, renders a `.synthesis-link-row` with a **View synthesis →** link (driven by the flag alone — no extra HTTP call); **WP table:** when the overview fetch succeeds, the "Title" column (which previously showed the WP ID verbatim) is replaced by a "Pipeline Stages" column rendering a `.pipeline-track` badge row per WP via `buildPipelineTrack(overviewEntry)`; when the overview fetch fails, the column header falls back to "WP ID" and cells show the plain WP ID; **title display:** `displayTitle = (meta.title && meta.title.trim()) ? meta.title : slug` — used for both the `<h1>` heading and breadcrumb; **inline title edit:** heading is wrapped in `.page-heading-wrapper` (inline-flex) with an adjacent `.edit-title-btn` pencil button (✎); click pencil → replaces `<h1>` with `<input class="title-edit-input">` pre-filled with current title, auto-focused; Enter or blur triggers `doSave()` which calls `API.renameProject(slug, newTitle)` and updates the heading and breadcrumb on success; Escape triggers `exitEdit()` without touching the API; errors displayed in a `.title-edit-error` div (created once via `getElementById` + `createElement` to prevent duplicates on rapid retries); `inputDone` flag prevents blur+Enter double-save race; error path resets `inputDone = false` to permit retry; `currentTitle` is kept in sync with the last saved value so re-entering edit mode shows the latest title; **project timing:** when `project.timing` is present (returned by `GET /api/projects/:slug`), renders **Duration** (`formatDuration(project.timing.project_elapsed_ms)`) and, when `pipeline_runs > 0`, **Active** (`formatDuration(project.timing.total_active_ms)` + ` across N pipeline runs`) inline in the project header; omitted when `project.timing` is absent; project header (includes **Reset Project** button) + WP summary table (clickable rows) + Project Comments section (sorted newest-first; each card shows agent, `.comment-type` badge, priority left-border accent, timestamp, and note; incident entries render `context` key/value pairs in a `.comment-context` sub-section; renders 'No comments yet.' when `project_comments` is empty)
 - **`showResetModal(slug, diagnosis)`** — builds and renders the reset confirmation modal from a `ProjectResetDiagnosis` object; features: per-WP diagnosis rows (collapsed by default, expand/collapse toggle), pipeline stage badges (`.reset-stage-present`/`.reset-stage-missing`), action radio buttons pre-selected per `suggested_action`, reset-criteria checkbox (visible only when Reset is selected, pre-checked from `suggested_reset_criteria`), bulk controls (Reset All Broken / Skip All via `refreshRadios()`), live summary footer updated on every change (`updateSummary()` → `buildSummary()`), Apply Reset button disabled when 0 WPs have an action; CANCELLED WPs rendered non-interactive with `.reset-wp-cancelled`; apply success path: closes modal via `closeModal()`, shows success toast, calls `renderProjectDetail()` to refresh data; close paths: × button, Cancel button, backdrop click (`e.target === overlay` guard); **mark-complete mode:** a **Mark All as Complete** button (`btn-warning`, `id=reset-mark-complete-btn`) in the bulk-controls bar toggles a closure-scoped `markCompleteMode` boolean; when active, the button relabels itself to **Cancel Override** (gains `.active` class), the apply button label changes to **Mark as Complete**, and `buildSummary()` returns a ⚠ warning text describing the forced-COMPLETE operation; confirm path invokes `API.markProjectComplete(slug)` → `closeModal()` + success toast + `renderProjectDetail()` re-render; error path shows an error toast; clicking Cancel Override reverts `markCompleteMode` to `false` and restores all prior labels; normal Apply Reset flow is unaffected when `markCompleteMode` is `false`; apply button is disabled at the start of both confirm branches to prevent double-submit
 - **`renderPlan(app, slug)`** — renders the archived plan as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Plan document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 - **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 
 **`views/work-package.js`:**
-- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; also renders AC list (met/unmet), pipeline history, handoff notes
+- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes
 
 **`views/config.js`:**
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
@@ -5792,120 +5797,126 @@ mcp-server/
 │           ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
 │           └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
 │
-├── gui/                         # GUI server process code (separate STDIO-safe HTTP server)
-│   ├── api.ts               # REST API route handlers (handleListProjects, handleGetProject, handleListWorkPackages, handleGetWorkPackage, handleGetWorkPackageOverview, handleGetPlanDocument, handleDeleteProject, handleGetConfig, handleUpdateConfig, …)
-│   ├── server.ts            # Standalone Node.js HTTP server (node:http); routes /api/* to api.ts handlers, serves static files from gui/public/; started via `npm run gui`
+├── gui/                         # GUI server process code
+│   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); routes /api/* to api.ts handlers, serves static files from gui/public/
 │   └── public/              # Static assets served by gui/server.ts
-│       ├── index.html       # Dashboard SPA shell — nav header (#theme-toggle), main#app, FOUC-prevention inline <script> in <head>; loads scripts in dependency order: libs/marked.min.js → api-client.js → theme.js → router.js → utils.js → views/*.js → app.js
-│       ├── styles.css       # Full CSS: :root custom properties, [data-theme="dark"] override block, status badges (.badge-archived — grey, light + dark variants), tables, cards, forms, loading/error states, plan-content/plan-synopsis, hardcoded-hex dark overrides for badges/banners/health, tr[data-status="ARCHIVED"] opacity rule (muted rows), .info-banner with light/dark variants (archive banner in detail view), sortable column header rules block (placed immediately after tbody tr.clickable in the table section): th.sortable cursor+user-select+transition(color 0.15s ease), th.sortable:hover color, th.sort-asc::after / th.sort-desc::after arrow indicators; pipeline stage badge block: .pipeline-track, .stage-badge, .stage-pending, .stage-in-progress, .stage-pass, .stage-fail, .rework-indicator (with [data-theme="dark"] overrides)
-│       ├── api-client.js    # API IIFE — all fetch helpers (getProjects, getProject, getWorkPackage, getWorkPackageOverview, getPlanDocument, deleteProject, archiveProject, unarchiveProject, getConfig, updateConfig, getInsightsStats); buildQueryString(params) helper used by getProjects
-│       ├── theme.js         # Theme IIFE — localStorage key 'mcp-theme'; defaults dark; init() applies saved theme and wires #theme-toggle button
-│       ├── router.js        # Router IIFE — hash-based routing; dispatches to renderProjectList, renderPlan, renderSynthesis, renderProjectDetail, renderWorkPackageDetail, renderConfig, renderInsights globals
+│       ├── index.html       # Dashboard SPA shell
+│       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides
+│       ├── api-client.js    # API IIFE; buildQueryString(params) helper used by getProjects
+│       ├── theme.js         # Theme IIFE; localStorage key mcp-theme; init() applies saved theme
+│       ├── router.js        # Router IIFE; hash-based routing
 │       ├── utils.js         # Shared helpers: escapeHtml, formatDate, statusBadge, showLoading, showError
-│       ├── app.js           # Bootstrap entry point (~7 lines): Theme.init(); Router.init()
+│       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init()
 │       ├── views/
-│       │   ├── project-list.js    # renderProjectList — status filter, search, sortable columns (sortProjects(), localStorage keys 'mcp-sort-key'/'mcp-sort-dir'), archive/unarchive/delete row buttons, pagination, 10 s polling; searchRaw preserves verbatim input; th headers tabindex+role+keydown for keyboard accessibility; localeCompare sort
-│       │   ├── project-detail.js  # extractSynopsis, renderPlan, renderSynthesis, renderProjectDetail; STAGE_ABBREV (stage type → abbreviated label), buildPipelineTrack (WpOverviewEntry → .pipeline-track HTML); PIPELINE_STAGES constant; showResetModal (includes markCompleteMode toggle — Mark All as Complete button force-completes all non-CANCELLED WPs via API.markProjectComplete; cancel override reverts to normal reset mode); archive banner with inline unarchive action
-│       │   ├── work-package.js    # WP_DEFAULT_STAGES (fallback stage list when active_pipeline_stages absent), buildWpDetailBar (wp → Pipeline Progression .pipeline-track card HTML), renderWorkPackageDetail
-│       │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days inputs; PUT via API.updateConfig
-│       │   └── insights.js        # renderInsights — project health stats; 15 s polling
+│   │   ├── project-list.js    # renderProjectList — status filter, search, sortable columns, archive/unarchive/delete row buttons, pagination, 10s polling; runner filter dropdown (RUNNER_STORAGE key mcp-runner-filter, buildRunnerOptions() dynamically filters runner_counts to count only — fixed: previously hardcoded all 4 types; preserves stale localStorage selections as zero-count entry); runnerBadge() renders .badge.badge-runner.badge-runner-{type} — fixed: previously emitted badge-unknown instead of badge-runner-unknown; runnerLabel() unused — cleanup candidate; sortable Runner column
+│   │   ├── project-detail.js  # extractSynopsis, renderPlan, renderSynthesis, renderProjectDetail; STAGE_ABBREV, buildPipelineTrack; showResetModal; archive banner
+│   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
+│   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
+│   │   └── insights.js        # renderInsights — project health stats; 15 s polling
 │       └── libs/
-│           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB); loaded first; used by plan/synthesis viewers
+│           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB)
 │
 ├── src/                         # Source code
 │   ├── index.ts                 # MCP server entry point and tool registration
 │   │
-│   ├── gui/                     # Shared GUI/config module (also used by the HTTP GUI server process)
-│   │   ├── auto-archive.ts      # Auto-archive service: runAutoArchive(), startAutoArchiveTimer(), stopAutoArchiveTimer(), _resetTimerForTesting()
-│   │   └── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig(), startConfigWatcher(), stopConfigWatcher()
+│   ├── gui/                     # Shared GUI/config module
+│   │   ├── auto-archive.ts      # Auto-archive service
+│   │   └── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
-│   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json (ProjectStatus, WorkPackageStatus, PipelineStatus, BlockerType)
+│   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json
 │   │   ├── project-meta.ts      # ProjectMetaSchema / ProjectMeta — per-project .meta.json
-│   │   ├── root-index.ts        # RootIndex schema (storage/ledger/{slug}/project-ledger.json structure)
-│   │   ├── validators.ts        # Business rule validators (status transitions, dependencies)
-│   │   ├── workflow-manifest-schema.ts  # Zod schema for shared/workflow-manifest.json; exports AgentRoleEnum (z.enum with 9 role names), ManifestSchema (full schema), workflowManifest (parsed singleton), and inferred types AgentRole + Manifest
-│   │   └── work-package.ts      # WorkPackageDetail schema (storage/ledger/{slug}/WP-###.json structure)
+│   │   ├── root-index.ts        # RootIndex schema
+│   │   ├── validators.ts        # Business rule validators
+│   │   ├── workflow-manifest-schema.ts  # Zod schema for shared/workflow-manifest.json
+│   │   └── work-package.ts      # WorkPackageDetail schema
 │   │
 │   ├── storage/                 # File I/O abstractions
-│   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename implementation
+│   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
 │   │   ├── file-lock.ts         # File locking with proper-lockfile
-│   │   └── ledger-store.ts      # Central storage abstraction (reads, writes, dual-file sync)
+│   │   └── ledger-store.ts      # Central storage abstraction
 │   │
 │   ├── tools/                   # MCP tool implementations
-│   │   ├── help.ts              # ledger_help — thin handler (schema + register); static strings live in help-content.ts
+│   │   ├── help.ts              # ledger_help
 │   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 20 MCP tools
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
-│   │   ├── work-package.ts      # WP CRUD tools (get, list, create, claim, update_status)
-│   │   ├── workflow.ts          # Thin aggregator — delegates register() to the three sub-modules; re-exports backward-compat symbols
+│   │   ├── work-package.ts      # WP CRUD tools
+│   │   ├── workflow.ts          # Thin aggregator
 │   │   ├── workflow-handoff.ts              # ledger_get_handoff_status
-│   │   ├── workflow-next-action.ts          # ledger_get_next_action (per-role single-action logic)
-│   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module: embedHandoffStatusInWait, buildBatchNextSteps, getNextActionsCollector
+│   │   ├── workflow-next-action.ts          # ledger_get_next_action
+│   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module
 │   │
 │   └── utils/                   # Utility functions
-│       ├── workflow-helpers.ts  # Shared constants and stateless helpers used by all three workflow tool sub-modules; exports STALE_PIPELINE_HOURS and MAX_REWORK_COUNT (both derived from shared/workflow-manifest.json constants), getMaxHandoffDepth() (reads from GUI config cache; falls back to manifest default), effectiveMaxDepth() (scales handoff ceiling by project size using manifest handoff_depth_multiplier), clearSynthesisState(rootIndex) (centralised synthesis field reset)
-│       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs by scanning *.agent.md files; exports discoverAgents(), getAgentHandle(), getAgentId(), isRegistryLoaded(), resetRegistry()
-│       ├── constants.ts         # Shared constants derived from shared/workflow-manifest.json (AGENT_ROLES, ROLE_IDS, SPEC_VERSION, ORCHESTRATING_ROLES)
+│       ├── workflow-helpers.ts  # Shared constants and stateless helpers
+│       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs
+│       ├── constants.ts         # Shared constants derived from shared/workflow-manifest.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
-│       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath() — central ledger location and plan-path utilities
-│       ├── path-validator.ts    # Project path validation; exports planFolderBasename(), validatePlanPath(), resolveProjectPath()
-│       ├── pipeline-maps.ts     # Shared routing constants (PIPELINE_PREREQUISITES, PIPELINE_AGENT_MAP, NEXT_AGENT_MAP, FAIL_ROUTING_MAP, AGENT_PIPELINE_MAP) and utility functions (getDownstreamTypes, getUpstreamTypes, getOrderedActiveStages, firstActiveStage, lastActiveStage, validateActiveStages)
-│       ├── project-reset.ts     # Semi-intelligent project reset — analysis (pure) + mutation; exports analyzeProjectForReset(), applyProjectReset(), and interfaces WpResetDiagnosis, ProjectResetDiagnosis, WpDecision, ProjectResetResult
-│       ├── timestamp.ts         # Timestamp formatting — now() returns UTC ISO 8601 YYYY-MM-DDTHH:MM:SSZ; parseTimestamp() handles legacy space format
+│       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
+│       ├── path-validator.ts    # Project path validation
+│       ├── pipeline-maps.ts     # Shared routing constants and utility functions
+│       ├── project-reset.ts     # Semi-intelligent project reset
+│       ├── timestamp.ts         # Timestamp formatting
+│       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
     ├── helpers/                 # Shared test utilities (NEVER write to production storage)
     │   ├── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
-    │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline() (positional or overrides), makeWorkPackageSummary() — spec-compliant fixture factories (revision: 0 default)
-    │   └── test-utils.ts        # injectLedgerDir() — injects --ledger-dir argv before a test; nowFloor() — returns current timestamp truncated to second precision
+    │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline(), makeWorkPackageSummary()
+    │   └── test-utils.ts        # injectLedgerDir(), nowFloor()
     │
     ├── gui/                     # GUI and config module tests
-    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts — all 8 ACs: old COMPLETE archived, fresh skipped, non-COMPLETE statuses skipped, maxAgeDays=0 no-op, empty ledger, error isolation, multi-project scan, timer idempotency/stop (14 tests)
-    │   ├── api-reset.test.ts    # Integration tests for handleResetProject — dry_run, apply decisions, cancel, skip, error cases (13 tests)
-    │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview — happy path, fallback stages, custom active_pipeline_stages ordering, all pipeline statuses, rework entry selection, agent mapping, AC progress, rework_counts propagation, blocked_by propagation, corrupt file skip, STDIO discipline, empty project (21 tests)
-    │   ├── config.test.ts       # Unit tests for src/gui/config.ts (cache, read, write, watcher lifecycle)
-    │   ├── api.test.ts          # Unit tests for gui/api.ts (all handlers, NOT_FOUND / FORBIDDEN / VALIDATION_ERROR guards); includes handleRenameProject (7 cases: success, empty, max-length boundary, NOT_FOUND, path-traversal, persistence round-trip), handleListProjects repository_name and title-priority assertions
-    │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse at runtime
+    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── api-reset.test.ts    # Integration tests for handleResetProject (13 tests)
+    │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
+    │   ├── config.test.ts       # Unit tests for src/gui/config.ts
+    │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
+    │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
     │
     ├── integration/             # End-to-end workflow tests
     │   ├── auto-handoff.test.ts
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
-    │   ├── root-index.test.ts   # RootIndexSchema and WorkPackageSummarySchema field-level parse/reject tests — synthesis_generated_at (string|null|absent), ledger_version (string|absent), active_pipeline_stages on summary (array|null|absent), backward compatibility with legacy ledgers (20 tests)
+    │   ├── project-meta-runner.test.ts  # 10 backward-compatibility tests (WP-005 verification of WP-001 AC5): ProjectMetaSchema and RootIndexSchema accept runner fields when present (orchestrator, vscode, claude-code), accept empty strings for runner_client/runner_version, reject invalid enum values, and parse cleanly without runner fields (legacy fixture and full real-world legacy project-ledger.json simulation)
+    │   ├── root-index.test.ts   # RootIndexSchema and WorkPackageSummarySchema tests (20 tests)
     │   ├── validators.test.ts
-    │   └── work-package-schema.test.ts  # Zod parse-level tests for PipelineSchema and WorkPackageDetailSchema new fields including last_updated (present/absent) (24 tests)
+    │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
     ├── storage/                 # Storage layer tests
-    │   ├── ledger-store.test.ts # LedgerStore unit tests; includes updateTitle() — sets title, updates last_updated, persists to disk, overwrites previous title
+    │   ├── ledger-store.test.ts # LedgerStore unit tests
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
-    │   ├── cancelled-status.test.ts  # CANCELLED status transitions and dependency satisfaction
-    │   ├── cascade-reblock.test.ts  # Cascade-block on COMPLETE → IN_PROGRESS reopen
-    │   ├── claim-guard.test.ts  # Assignment guard for ledger_claim_work_package
-    │   ├── pipeline.test.ts     # Pipeline tool tests; includes cross-WP staleness advisory checks (positive and negative cases)
-    │   ├── project-lifecycle.test.ts  # ledger_complete_synthesis, self-healing with synthesis_generated; initializeProject ledger_version assignment; synthesis_generated_at lifecycle across completeSynthesis and reset paths
-    │   ├── rework-circuit-breaker.test.ts  # Circuit breaker on MAX_REWORK_COUNT    ├── schema-integrity.test.ts  # Regression guard: all 22 registered tool schemas produce non-empty JSON Schema properties (guards against .refine()/.transform() on outer ZodObject — see Constraint 63)    │   ├── synthesis-terminal.test.ts  # Synthesis terminal state and project COMPLETE transition
-    │   ├── work-package.test.ts  # WP tool tests; includes synthesis_generated_at clearing on WP status changes, active_pipeline_stages propagation to WP summary on creation
+    │   ├── cancelled-status.test.ts
+    │   ├── cascade-reblock.test.ts
+    │   ├── claim-guard.test.ts
+    │   ├── pipeline.test.ts
+    │   ├── project-lifecycle.test.ts
+    │   ├── rework-circuit-breaker.test.ts
+    │   ├── schema-integrity.test.ts
+    │   ├── synthesis-terminal.test.ts
+    │   ├── work-package.test.ts
     │   ├── workflow-handoff.test.ts
-    │   ├── workflow-next-action.test.ts  # REWORK routing, Documentation FAIL routing, BLOCK_FOR_REWORK_LIMIT
-    │   └── workflow-rework-loop.test.ts  # End-to-end rework loop covering FAIL → REWORK → PASS cycles
+    │   ├── workflow-next-action.test.ts
+    │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
+    │   └── workflow-rework-loop.test.ts
     │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
-        ├── pipeline-maps.test.ts  # Tests for getDownstreamTypes, getUpstreamTypes, resolvePrerequisite, resolveNextAgent, resolveFailAgent, getOrderedActiveStages, describePipelineTypes (drift-detection), firstActiveStage, lastActiveStage, validateActiveStages (hard/soft guardrails)
-        ├── project-reset.test.ts  # Unit tests for analyzeProjectForReset() — all WP status branches, auto-cancelled exclusion, most-recent-wins, mixed project scenarios; synthesis_generated_at clearing on project reset
-        ├── timestamp.test.ts    # UTC ISO 8601 formatting by now()
-        ├── workflow-helpers.test.ts  # MAX_REWORK_COUNT, isTerminalStatus, hasNewUpstreamPassSince, clearSynthesisState
-        ├── workflow-manifest.test.ts  # Structural invariants for shared/workflow-manifest.json: 9 roles (unique id/name/number, id pattern ^[a-z][a-z0-9_]*$), pipeline-to-role ownership, default_stages subsequence, canonical_order ↔ prerequisites ↔ fail_routing coverage, fail_routing → valid role IDs, DAG (no cycles via Kahn's algorithm), non-empty status arrays, positive constants; also verifies derived-constant parity (AGENT_ROLES, ORCHESTRATING_ROLES, PIPELINE_TYPES, DEFAULT_PIPELINE_STAGES, PIPELINE_AGENT_MAP, MAX_REWORK_COUNT, STALE_PIPELINE_HOURS, SPEC_VERSION) — 34 tests
-        └── wp-id.test.ts        # WP ID generation: variable-width, max-based incrementing
+        ├── pipeline-maps.test.ts
+        ├── project-reset.test.ts
+        ├── runner.test.ts       # 10 unit tests for classifyRunner() (WP-005 verification of WP-001 ACs): all four output variants (vscode, claude-code, orchestrator, unknown), undefined input without throw, empty-string name, unrecognized client name, case-insensitive substring matching (vscode keyword, Claude uppercase, langchain variants), and raw runner_client/runner_version value preservation
+        ├── timestamp.test.ts
+        ├── workflow-helpers.test.ts
+        ├── workflow-manifest.test.ts  # Structural invariants (34 tests)
+        └── wp-id.test.ts
 ```
 
 ---
@@ -5924,29 +5935,15 @@ File I/O layer with atomicity and locking guarantees. `LedgerStore` is the prima
 
 Each file exports a `register(server: McpServer)` function that registers one or more MCP tools. Tools are grouped by functional category (lifecycle, work packages, pipelines, observations, workflow).
 
-The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (per-role single-action logic for `ledger_get_next_action`), `workflow-next-action-batch.ts` (batch/collector sub-module: `embedHandoffStatusInWait`, `buildBatchNextSteps`, `getNextActionsCollector`), and `workflow-handoff.ts` (`ledger_get_handoff_status`). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
-
-### `tests/`
-
-Vitest test suites organized by layer (helpers, integration, schema, storage, tools, utils). Tests run with `npm test` or `npm run test:watch`.
-
-`tests/helpers/create-temp-store.ts` provides `createTempStore(planPath)` and `cleanupTempStore(handle)` — a shared factory that always injects a `mkdtemp` ledger root, enforcing the test isolation contract (see Constraint 20).
-
-`tests/helpers/fixtures.ts` provides `makeWorkPackageDetail()`, `makePipeline()`, and `makeWorkPackageSummary()` — lightweight fixture factories with spec-compliant defaults (`revision: 0`, `assigned_to: 'Developer'`). `makePipeline` supports two calling conventions: positional `(type, status, started_at?, completed_at?)` and overrides `(Partial<Pipeline>)`. All factories accept an `overrides` partial to customize individual fields. Use these instead of inline fixtures to reduce churn when schema fields are added in future phases.
-
-`tests/helpers/test-utils.ts` provides `injectLedgerDir(dir)` — injects `--ledger-dir <dir>` into `process.argv` before a test and returns a cleanup function to restore the original state — and `nowFloor()` — returns the current UTC timestamp truncated to second precision (matching ledger timestamp format). Both utilities are available for adoption in any test file that needs ledger-dir injection or precise timestamp comparison.
-
----
+The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (per-role single-action logic for `ledger_get_next_action`), `workflow-next-action-batch.ts` (batch/collector sub-module), and `workflow-handoff.ts` (`ledger_get_handoff_status`). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
 
 ## Generated/Ignored Directories
 
 The following directories are not version-controlled:
+- node_modules/ — npm dependencies
+- dist/ — TypeScript compilation output
+- storage/ledger/{slug}/ — per-project ledger runtime data
 
-- `node_modules/` — npm dependencies
-- `dist/` — TypeScript compilation output (when built)
-- `storage/ledger/{slug}/` — per-project ledger runtime data (excluded via `.gitignore`; only `storage/ledger/.gitkeep` is committed)
-
-> **Note:** Plan folders (e.g. `docs/agents/plans/2026-02-16-feature/`) contain only human-authored Markdown files. No machine-generated JSON is ever written inside a plan folder.
 
 ```
 ###  Path: `/mcp-server/docs/agents/project-manifest/tech-stack.md`

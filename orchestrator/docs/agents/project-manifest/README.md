@@ -12,7 +12,7 @@
 | **Runtime** | CPython |
 | **Architecture** | LangGraph StateGraph + Deep Agents |
 | **Package Manager** | pip (setuptools) |
-| **Test Framework** | pytest (269 tests) |
+| **Test Framework** | pytest (374 tests) |
 | **Entry Point** | `orchestrate` CLI (`src/cli.py`) |
 
 ### Development Commands
@@ -37,7 +37,8 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Architecture & Data Flows** | [architecture.md](../../architecture.md) | Stage node lifecycle, MCP tool wrapping, `WorkflowState` fields, JSONL log entry types |
 | **Routing Logic** | [supervisor-routing.md](../../supervisor-routing.md) | Deterministic supervisor algorithm, special exits, action sets, circuit-breaker mechanics |
 | **Public API Surface** | [public-api.md](../../public-api.md) | CLI entry point, graph construction, supervisor factory, utility functions |
-| **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL field reference (11 fields) |
+| **API Surface (manifest)** | [project-manifest/api-surface.md](api-surface.md) | Quick-reference: 16 JSONL event types, enriched fields, `_format_duration`, `parse_tool_response`, progress-tracking state fields |
+| **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
 
 ---
@@ -103,6 +104,6 @@ orchestrator/
 │   ├── mcp_client.py           # MCP server subprocess lifecycle
 │   ├── nodes/                  # Stage node factories (8 stages)
 │   └── utils/                  # Tool wrappers, persona loader, logger, filelock
-├── tests/                      # 269 tests (unit, integration, live)
+├── tests/                      # 374 tests (unit, integration, live)
 └── checkpoints/                # SQLite checkpoint storage
 ```

@@ -66,8 +66,9 @@ Evaluate the submission based on these four criteria:
 
 ## Decision Logic
 
-* **PASS:** The code meets quality standards across all Review Dimensions. Non-blocking suggestions and Gold Nuggets are recorded as pipeline comments but do not prevent approval.
-* **FAIL (Bounce):** One or more blocking issues were found — problems that would cause bugs or significant maintainability concerns. Provide detailed comments describing each blocking issue so the Developer knows exactly what to fix.
+* **PASS:** The code meets quality standards across all Review Dimensions. Fix-Forward changes you applied and Documentation-Forward items you tagged are recorded as pipeline comments but do not prevent approval.
+* **PASS with Fix-Forward:** You applied minor non-behavioral improvements directly (see Operational Protocol → Feedback Tiers). The pipeline still PASSes — these fixes don't invalidate QA's validation. Each applied fix is recorded as a `reviewer-applied-fix` comment for audit trail.
+* **FAIL (Bounce):** One or more Blocking issues were found — problems that would cause bugs or significant maintainability concerns. Provide detailed comments describing each blocking issue so the Developer knows exactly what to fix.
 
 ---
 

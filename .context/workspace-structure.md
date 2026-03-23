@@ -60,6 +60,7 @@ _SOURCE: Top-level directory tree_
     │   ├── storage/
     │   │   ├── atomic-writer.ts
     │   │   ├── file-lock.ts
+    │   │   ├── ledger-store-copy.txt
     │   │   ├── ledger-store.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
@@ -82,6 +83,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── pipeline-maps.ts
     │   │   └── project-reset.ts
     │   │   └── read-project-name.ts
+    │   │   └── runner.ts
     │   │   └── server-version.ts
     │   │   └── timestamp.ts
     │   │   └── workflow-helpers.ts
@@ -107,6 +109,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── full-workflow.test.ts
     │   ├── schema/
     │   │   ├── project-archiving-schema.test.ts
+    │   │   ├── project-meta-runner.test.ts
     │   │   ├── root-index.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
@@ -123,9 +126,11 @@ _SOURCE: Top-level directory tree_
     │   │   ├── list-projects.test.ts
     │   │   ├── meta-enrichment.test.ts
     │   │   ├── observations.test.ts
+    │   │   ├── pipeline-duration.test.ts
     │   │   ├── pipeline.test.ts
     │   │   ├── project-lifecycle.test.ts
     │   │   ├── rework-circuit-breaker.test.ts
+    │   │   ├── runner-integration.test.ts
     │   │   ├── schema-integrity.test.ts
     │   │   ├── start-pipeline-guards.test.ts
     │   │   ├── synthesis-terminal.test.ts
@@ -142,6 +147,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── path-validator.test.ts
     │   │   └── pipeline-maps.test.ts
     │   │   └── project-reset.test.ts
+    │   │   └── runner.test.ts
     │   │   └── timestamp.test.ts
     │   │   └── workflow-helpers.test.ts
     │   │   └── workflow-manifest.test.ts
@@ -158,15 +164,18 @@ _SOURCE: Top-level directory tree_
     │   ├── requires.txt
     │   ├── top_level.txt
     ├── changelog.md
-    ├── checkpoints/
-    │   ├── test/
-    │   │   └── workflow.sqlite
     ├── docs/
     │   ├── architecture.md
     │   ├── jsonl-log-schema.md
     │   ├── public-api.md
     │   ├── smoke-testing.md
     │   ├── supervisor-routing.md
+    ├── logs/
+    │   ├── 20260302T154735-2026-03-02-perceval-category-graceful-fa.jsonl
+    │   ├── 20260302T181937-2026-03-02-orchestrator-project-path-fix.jsonl
+    │   ├── 20260302T182103-2026-03-02-orchestrator-project-path-fix.jsonl
+    │   ├── 20260320T102813-2026-03-20-synthesis-followups.jsonl
+    │   ├── 20260320T115836-2026-03-20-synthesis-followups.jsonl
     ├── module-context.yaml
     ├── pyproject.toml
     ├── requirements.txt
@@ -192,6 +201,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── __init__.py
     │   │   └── filelock.py
     │   │   └── logging.py
+    │   │   └── mcp_parse.py
     │   │   └── persona.py
     │   │   └── plan_parser.py
     │   │   └── tool_wrappers.py
@@ -202,6 +212,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_filelock.py
     │   └── test_graph.py
     │   └── test_integration.py
+    │   └── test_logging.py
     │   └── test_nodes.py
     │   └── test_plan_parser.py
     │   └── test_state.py
@@ -219,29 +230,19 @@ _SOURCE: Top-level directory tree_
     │   │   ├── 2-project-manager.md
     │   │   ├── 3-developer.md
     │   │   ├── 4-qa.md
-    │   │   ├── 5-reviewer.md
     │   │   ├── 5-security-auditor.md
-    │   │   ├── 6-documentation.md
     │   │   ├── 6-reviewer.md
     │   │   ├── 7-release-engineer.md
-    │   │   ├── 7-synthesis.md
     │   │   ├── 8-documentation.md
     │   │   ├── 9-synthesis.md
     │   ├── vs-code/
     │   │   └── 1-planner.agent.md
-    │   │   └── 1-planner.md
     │   │   └── 2-pm.agent.md
-    │   │   └── 2-project-manager.md
     │   │   └── 3-dev.agent.md
-    │   │   └── 3-developer.md
     │   │   └── 4-qa.agent.md
-    │   │   └── 4-qa.md
-    │   │   └── 5-reviewer.md
     │   │   └── 5-security-auditor.agent.md
-    │   │   └── 6-documentation.md
     │   │   └── 6-reviewer.agent.md
     │   │   └── 7-release-engineer.agent.md
-    │   │   └── 7-synthesis.md
     │   │   └── 8-docs.agent.md
     │   │   └── 9-synthesis.agent.md
     ├── module-context.yaml
@@ -290,30 +291,19 @@ _SOURCE: Top-level directory tree_
     │       ├── wp-decomposer.md
     │   └── vs-code/
     │       └── agents-md-curator.agent.md
-    │       └── agents-md-curator.md
     │       └── changelog-curator.agent.md
-    │       └── changelog-curator.md
     │       └── composer-curator.agent.md
-    │       └── composer-curator.md
     │       └── ctx-architect.agent.md
-    │       └── ctx-architect.md
     │       └── dependency-sequencer.agent.md
     │       └── ledger-bootstrapper.agent.md
     │       └── manifest-curator.agent.md
-    │       └── manifest-curator.md
     │       └── module-intent-architect.agent.md
-    │       └── module-intent-architect.md
     │       └── orchestrator-runner.agent.md
-    │       └── orchestrator-runner.md
     │       └── pipeline-configurator.agent.md
     │       └── readme-curator.agent.md
-    │       └── readme-curator.md
     │       └── researcher.agent.md
-    │       └── researcher.md
     │       └── unit-test-auditor.agent.md
-    │       └── unit-test-auditor.md
     │       └── whatsnew-curator.agent.md
-    │       └── whatsnew-curator.md
     │       └── workflow-orchestrator.agent.md
     │       └── wp-decomposer.agent.md
 └── scripts/

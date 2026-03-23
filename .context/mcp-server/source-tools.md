@@ -1820,6 +1820,15 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       pipeline.completed_at = now();
       pipeline.summary = args.summary;
 
+      // Compute duration_ms from timestamps (write-time computation, no extra reads)
+      if (pipeline.started_at) {
+        const startMs = new Date(pipeline.started_at).getTime();
+        const endMs = new Date(pipeline.completed_at).getTime();
+        if (!isNaN(startMs) && !isNaN(endMs) && endMs >= startMs) {
+          pipeline.duration_ms = endMs - startMs;
+        }
+      }
+
       // 3. Set optional fields
       if (args.artifacts) {
         pipeline.artifacts = args.artifacts;
@@ -2216,6 +2225,8 @@ import { getPassedStages } from '../utils/project-reset.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
+import { getClientInfo } from '../index.js';
+import { classifyRunner } from '../utils/runner.js';
 
 /**
  * Tool: detect_project
@@ -2759,6 +2770,13 @@ async function initializeProject(
 
   // 4. Create the root index structure
   const timestamp = now();
+  // Classify the connected MCP client and capture runner metadata
+  const runnerInfo = classifyRunner(getClientInfo());
+  // Log to stderr for diagnostics (never stdout - that's for MCP protocol)
+  process.stderr.write(
+    `[initializeProject] runner=${runnerInfo.runner} client=${runnerInfo.runner_client} version=${runnerInfo.runner_version}\n`
+  );
+
   const rootIndex: RootIndex = {
     plan_file: args.plan_file,
     date_created: timestamp,
@@ -2770,6 +2788,7 @@ async function initializeProject(
     project_comments: [],
     ledger_version: SPEC_VERSION,
     server_version: SERVER_VERSION,
+    ...runnerInfo,
   };
 
   try {
@@ -2789,6 +2808,7 @@ async function initializeProject(
         pending_work_packages: 0,
         project_name: projectName,
         repository_name: repositoryName,
+        ...runnerInfo,
       });
       enrichmentCached = true;
     } catch (enrichErr) {

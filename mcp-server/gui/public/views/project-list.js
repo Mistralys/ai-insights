@@ -12,6 +12,7 @@ function renderProjectList(app) {
   var SORT_DIR_STORAGE = 'mcp-sort-dir';
   var PAGE_LIMIT_STORAGE = 'mcp-page-limit';
   var STATUS_STORAGE = 'mcp-status-filter';
+  var RUNNER_STORAGE = 'mcp-runner-filter';
 
   // --- Pagination / filter state (localStorage-persisted where noted) ---
   var currentPage = 1;
@@ -20,6 +21,7 @@ function renderProjectList(app) {
     return (!isNaN(v) && (v === 25 || v === 50 || v === 100)) ? v : 50;
   }());
   var currentStatus = localStorage.getItem(STATUS_STORAGE) || 'ACTIVE';
+  var currentRunner = localStorage.getItem(RUNNER_STORAGE) || '';
   var currentSearch = '';
   var currentSort = localStorage.getItem(SORT_KEY_STORAGE) || 'last_updated';
   var currentDir = localStorage.getItem(SORT_DIR_STORAGE) || 'desc';
@@ -53,6 +55,69 @@ function renderProjectList(app) {
     }
   }
 
+  // ── Runner display helpers ──
+
+  var RUNNER_LABELS = {
+    'vscode':       'VS Code',
+    'claude-code':  'Claude Code',
+    'orchestrator': 'Orchestrator',
+    'unknown':      'Unknown',
+  };
+
+  function runnerLabel(runner) {
+    return RUNNER_LABELS[runner] || (runner ? runner : '—');
+  }
+
+  function runnerBadge(runner) {
+    var safeRunner = runner && runner !== 'unknown' ? runner : 'unknown';
+    var label = RUNNER_LABELS[safeRunner] || (runner ? runner : 'Unknown');
+    return '<span class="badge badge-runner badge-runner-' + escapeHtml(safeRunner) + '">' + escapeHtml(label) + '</span>';
+  }
+
+  // ── Build runner filter dropdown options ──
+  // Only includes runner values that have at least one project (from runner_counts).
+  // Preserves a canonical display order; runners not in runner_counts are omitted.
+  // If currentRunner is set to a value absent from runner_counts (stale state),
+  // it is included as a zero-count entry so the user can see and clear it.
+
+  function buildRunnerOptions(runnerCounts) {
+    var counts = runnerCounts || {};
+
+    // Canonical ordering for display (determines option order in dropdown)
+    var RUNNER_ORDER = ['orchestrator', 'vscode', 'claude-code', 'unknown'];
+
+    // Collect runner values that have at least one project, in canonical order
+    var activeRunners = RUNNER_ORDER.filter(function (r) {
+      return counts[r] !== undefined && counts[r] > 0;
+    });
+
+    // Also include any non-canonical runner values that have projects
+    Object.keys(counts).forEach(function (r) {
+      if (counts[r] > 0 && RUNNER_ORDER.indexOf(r) === -1) {
+        activeRunners.push(r);
+      }
+    });
+
+    // If the current selection is stale (no longer in runner_counts), keep it
+    // visible so the user can see and clear the filter, even with zero count.
+    if (currentRunner && counts[currentRunner] === undefined) {
+      activeRunners.push(currentRunner);
+    }
+
+    // Build <option> elements: "All" first, then one per active runner
+    var allSel = currentRunner === '' ? ' selected' : '';
+    var html = '<option value=""' + allSel + '>All</option>';
+
+    activeRunners.forEach(function (r) {
+      var label = RUNNER_LABELS[r] || r;
+      var cnt = counts[r] !== undefined ? ' (' + counts[r] + ')' : '';
+      var sel = r === currentRunner ? ' selected' : '';
+      html += '<option value="' + escapeHtml(r) + '"' + sel + '>' + escapeHtml(label + cnt) + '</option>';
+    });
+
+    return html;
+  }
+
   // ── Build table HTML (projects already sorted/filtered server-side) ──
 
   function buildTable(projects) {
@@ -83,6 +148,7 @@ function renderProjectList(app) {
         '<td class="num-col">' + wpCount + '</td>' +
         '<td>' + doneCellHtml + '</td>' +
         '<td>' + statusBadge(p.status) + '</td>' +
+        '<td>' + runnerBadge(p.runner) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.date_created)) + '</td>' +
         '<td class="text-muted">' + escapeHtml(formatDate(p.last_updated)) + '</td>' +
         '<td>' +
@@ -101,6 +167,7 @@ function renderProjectList(app) {
         thSort('WPs', 'total_work_packages') +
         thSort('% Done', 'done') +
         thSort('Status', 'status') +
+        thSort('Runner', 'runner') +
         thSort('Created', 'date_created') +
         thSort('Updated', 'last_updated') +
         '<th>Actions</th>' +
@@ -185,6 +252,7 @@ function renderProjectList(app) {
     lastTotalPages = envelope.total_pages;
     var projects = envelope.projects;
     var statusCounts = envelope.status_counts || {};
+    var runnerCounts = envelope.runner_counts || {};
 
     app.innerHTML =
       '<div class="page-header">' +
@@ -195,8 +263,10 @@ function renderProjectList(app) {
       '</div>' +
       '<div class="filter-bar">' +
         '<input type="text" id="project-search" placeholder="Search projects\u2026" value="' + escapeHtml(currentSearch) + '">' +
-        '<label for="status-filter">Filter by status:</label>' +
+        '<label for="status-filter">Status:</label>' +
         '<select id="status-filter">' + buildStatusOptions(statusCounts) + '</select>' +
+        '<label for="runner-filter">Runner:</label>' +
+        '<select id="runner-filter">' + buildRunnerOptions(runnerCounts) + '</select>' +
       '</div>' +
       buildTable(projects) +
       buildPagination(envelope.page, envelope.total_pages, envelope.total, envelope.limit);
@@ -239,6 +309,17 @@ function renderProjectList(app) {
       filterEl.addEventListener('change', function () {
         currentStatus = this.value;
         localStorage.setItem(STATUS_STORAGE, currentStatus);
+        currentPage = 1;
+        load();
+      });
+    }
+
+    // Runner filter
+    var runnerFilterEl = document.getElementById('runner-filter');
+    if (runnerFilterEl) {
+      runnerFilterEl.addEventListener('change', function () {
+        currentRunner = this.value;
+        localStorage.setItem(RUNNER_STORAGE, currentRunner);
         currentPage = 1;
         load();
       });
@@ -388,6 +469,7 @@ function renderProjectList(app) {
       search: currentSearch,
       sort: currentSort,
       dir: currentDir,
+      runner: currentRunner || undefined,
     }).then(function (envelope) {
       render(envelope);
     }).catch(function (err) {

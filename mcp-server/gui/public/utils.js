@@ -51,3 +51,17 @@ function showLoading(container) {
 function showError(container, message) {
   container.innerHTML = '<div class="error-banner">' + escapeHtml(message) + '</div>';
 }
+
+function formatDuration(ms) {
+  if (ms == null || isNaN(ms) || ms < 0) return '—';
+  if (ms < 1000) return '< 1s';
+  var totalSec = Math.floor(ms / 1000);
+  var hours = Math.floor(totalSec / 3600);
+  var minutes = Math.floor((totalSec % 3600) / 60);
+  var seconds = totalSec % 60;
+  var parts = [];
+  if (hours > 0) parts.push(hours + 'h');
+  if (minutes > 0) parts.push(minutes + 'm');
+  if (seconds > 0 && hours === 0) parts.push(seconds + 's');
+  return parts.join(' ') || '< 1s';
+}
