@@ -174,7 +174,8 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 2. **RESUME_OR_CANCEL**: stale QA pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `qa` pipeline
 4. **RUN_QA** (re-engagement after rework): WP has at least one prior `qa` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
-5. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL AND NOT `hasNewUpstreamPassSince("implementation", "qa")` — QA cannot act; Developer must fix and re-pass implementation first
+4b. **RUN_QA** (self-rework fallback): most recent QA pipeline is FAIL AND `resolveFailAgent('qa', activeStages)` returns `'QA'` (self-rework — QA FAIL normally routes to Developer, but when `implementation` is not in active stages, the §9.3.1 fallback routes back to QA). QA should re-run, addressing the issues identified in the FAIL pipeline's summary and comments. See [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)
+5. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL AND NOT `hasNewUpstreamPassSince("implementation", "qa")` AND `resolveFailAgent('qa', activeStages)` does not return `'QA'` — QA cannot act; the fail-target agent must fix and re-pass first
 6. **RUN_QA** (first run): WP with PASS implementation and no QA pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "QA" with all dependencies satisfied (post auto-unblock scenario)
 
@@ -182,7 +183,7 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 >
 > The "at least one prior `qa` pipeline" guard ensures that first-run scenarios (no QA pipeline exists yet) fall through to Priority 6 (`RUN_QA` first run), which is semantically more accurate. Without the guard, `hasNewUpstreamPassSince` returns `true` when no downstream pipeline exists (§14.6), making Priority 6 unreachable dead code.
 >
-> **Null-prerequisite guard (P4):** The `"implementation"` argument to `hasNewUpstreamPassSince` is hardcoded; conceptually it should be `resolvePrerequisite("qa", activeStages)` for consistency with the dynamic pattern in §14.4. When `resolvePrerequisite("qa", activeStages)` returns `null` (i.e., `qa` is the first active stage, e.g., `active_pipeline_stages: ["qa", "code-review"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 5/6.
+> **Null-prerequisite guard (P4):** The `"implementation"` argument to `hasNewUpstreamPassSince` is hardcoded; conceptually it should be `resolvePrerequisite("qa", activeStages)` for consistency with the dynamic pattern in §14.4. When `resolvePrerequisite("qa", activeStages)` returns `null` (i.e., `qa` is the first active stage, e.g., `active_pipeline_stages: ["qa", "code-review"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 4b, which checks whether QA should self-rework (see [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)), then to priority 5/6.
 
 ### 14.4 Reviewer Action Logic
 
@@ -193,13 +194,14 @@ Same pattern, applied to `code-review` pipelines:
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `code-review` pipeline
 4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` is true — where `effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)` (i.e., `"security-audit"` when active, `"qa"` otherwise). Upstream re-passed after previous review; Reviewer should re-engage regardless of previous review result
-5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` — Reviewer cannot act; upstream agents must fix and re-pass first
+4b. **RUN_REVIEW** (self-rework fallback): most recent code-review pipeline is FAIL AND `resolveFailAgent('code-review', activeStages)` returns `'Reviewer'` (self-rework — code-review FAIL normally routes to Developer, but when `implementation` is not in active stages, the §9.3.1 fallback routes back to Reviewer). Reviewer should re-run. See [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)
+5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` AND `resolveFailAgent('code-review', activeStages)` does not return `'Reviewer'` — Reviewer cannot act; upstream agents must fix and re-pass first
 6. **RUN_REVIEW** (first run): WP with PASS QA and no review pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Reviewer" with all dependencies satisfied (post auto-unblock scenario)
 
 > **Priority 4 before 5 rationale:** Same as QA (§14.3) — `hasNewUpstreamPassSince` must be checked before WAIT_FOR_REWORK to avoid short-circuiting on a stale FAIL when upstream rework has already completed. The "at least one prior pipeline" guard ensures first-run scenarios fall through to Priority 6 (see §14.3 rationale for details).
 >
-> **Null-prerequisite guard (P4):** When `effectiveUpstream` is `null` (i.e., `code-review` is the first active stage, e.g., `active_pipeline_stages: ["code-review", "documentation"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 5/6.
+> **Null-prerequisite guard (P4):** When `effectiveUpstream` is `null` (i.e., `code-review` is the first active stage, e.g., `active_pipeline_stages: ["code-review", "documentation"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 4b, which checks whether Reviewer should self-rework (see [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)), then to priority 5/6.
 
 ### 14.5 Documentation Action Logic
 
@@ -242,13 +244,14 @@ Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
 2. **RESUME_OR_CANCEL**: stale security-audit pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `security-audit` pipeline
 4. **RUN_SECURITY_AUDIT** (re-engagement after rework): WP has at least one prior `security-audit` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` is true — where `effectiveUpstream = resolvePrerequisite("security-audit", wp.active_pipeline_stages)` (i.e., `"qa"` in the standard chain). Upstream re-passed after previous security audit; Security Auditor should re-engage
-5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` — where `effectiveUpstream = resolvePrerequisite("security-audit", wp.active_pipeline_stages)` (same as P4). Security Auditor cannot act; Developer must fix and re-pass the prerequisite stage first
+4b. **RUN_SECURITY_AUDIT** (self-rework fallback): most recent security-audit pipeline is FAIL AND `resolveFailAgent('security-audit', activeStages)` returns `'Security Auditor'` (self-rework — security-audit FAIL normally routes to Developer, but when `implementation` is not in active stages, the §9.3.1 fallback routes back to Security Auditor). Security Auditor should re-run. See [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)
+5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` AND `resolveFailAgent('security-audit', activeStages)` does not return `'Security Auditor'` — Security Auditor cannot act; Developer must fix and re-pass the prerequisite stage first
 6. **RUN_SECURITY_AUDIT** (first run): WP with PASS qa and no security-audit pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Security Auditor" with all dependencies satisfied
 
 > **Scope filter:** The Security Auditor's `getNextAction` only considers WPs where `"security-audit"` is in `active_pipeline_stages`. WPs with only the default stages are excluded from all priority checks, as the Security Auditor has no work to do on those WPs.
 >
-> **Null-prerequisite guard (P4/P5):** When `effectiveUpstream` is `null` (i.e., `security-audit` is the first active stage), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Priority 5 uses the same `effectiveUpstream`; when null, there is no upstream stage to wait for, so control falls through to priority 6.
+> **Null-prerequisite guard (P4/P5):** When `effectiveUpstream` is `null` (i.e., `security-audit` is the first active stage), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Priority 5 uses the same `effectiveUpstream`; when null, there is no upstream stage to wait for, so control falls through to priority 4b, which checks whether Security Auditor should self-rework (see [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)), then to priority 6.
 
 ### 14.5c Release Engineer Action Logic
 

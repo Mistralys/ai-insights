@@ -598,4 +598,57 @@ Any `active_pipeline_stages` composition where a non-`implementation` stage is *
 - **Documentation P4:** The self-rework guard at P4 uses an OR-exit pattern — `docPrerequisite === null || !hasNewUpstreamPassSince(...)` — gated behind `isMostRecentPipelineFail("documentation")`. When `null`, the OR short-circuits to `true`, making the outer condition reduce to "latest pipeline is FAIL → self-rework." This is safe because the guard only fires on FAIL (triggering REWORK, not RUN), so no loop can occur. The null case appears in an OR-exit guard on the self-rework block, not a ternary that collapses to `true` for re-engagement.
 - **Release Engineer P4:** Same OR-exit guard structure as Documentation P4 — `releasePrerequisite === null || !hasNewUpstreamPassSince(...)` gated behind `isMostRecentPipelineFail("release-engineering")`. Immune for the same reason: when `null`, the OR short-circuits into the self-rework path (REWORK, not RUN), so no loop can form. The null-collapsing issue affects Release Engineer only at P5 (re-engagement after upstream rework), not P4 (self-rework after own FAIL).
 
-**Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions)
+**Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions), [§21.67](#2167-first-active-stage-self-rework-deadlock) (WAIT_FOR_REWORK deadlock when FAIL routes to self)
+
+### 21.67 First-Active-Stage Self-Rework Deadlock
+
+**Affected agents:** QA, Reviewer, Security Auditor  
+**Prerequisite:** §21.66 (null-prerequisite guard correctly returns `false`), §21.63 (FAIL routing falls back to self-rework), §9.3.1 (`resolveFailAgent` fallback)
+
+**The deadlock pattern:**
+
+When an agent's pipeline type is the first active stage (e.g., `qa` in `["qa", "code-review"]`) and its pipeline FAILs:
+
+1. `resolveFailAgent` (§9.3.1) routes to the first-active-stage agent itself (self-rework), because the standard FAIL target (Developer) owns `implementation`, which is not in `active_pipeline_stages`
+2. The recommendation engine's P4 re-engagement check returns `false` (correct per §21.66 — no upstream to re-engage from)
+3. P5 (`WAIT_FOR_REWORK`) fires: "most recent pipeline is FAIL AND no new upstream PASS" → returns `WAIT_FOR_REWORK`
+4. **Deadlock:** The agent is told to wait for an upstream rework that can never happen — the fail routing says the agent should self-rework, but the recommendation engine says to wait
+
+This is a spec gap between the FAIL routing system (§9.3.1, which correctly identifies the self-rework target) and the recommendation engine (§14.3–§14.5b, which unconditionally returns `WAIT_FOR_REWORK` on FAIL without considering whether the fail target is the agent itself).
+
+**The fix — P4b self-rework fallback:**
+
+Between P4 (re-engagement) and P5 (WAIT_FOR_REWORK), each affected agent MUST check whether the FAIL routing for its pipeline type resolves to itself. If so, return the agent's run action (e.g., `RUN_QA`) with self-rework semantics instead of falling through to `WAIT_FOR_REWORK`.
+
+```pseudocode
+// P4b: Self-rework fallback (§21.67)
+// When this agent's FAIL routes back to itself (§9.3.1 fallback),
+// return RUN_* for self-rework instead of WAIT_FOR_REWORK.
+if isMostRecentPipelineFail(pipelines, ownPipelineType):
+  failAgent = resolveFailAgent(ownPipelineType, activeStages)
+  if failAgent == ownAgentName:
+    return RUN_* (self-rework)
+```
+
+This check fires only when all of:
+- The most recent pipeline of the agent's type is FAIL (same gate as P5)
+- The FAIL routing resolves to the agent itself (via §9.3.1 fallback — standard fail target's stage is not active)
+
+When the FAIL routing resolves to a different agent (the normal case), P4b does not fire and P5 proceeds as before.
+
+**Affected priority chains (updated):**
+
+| Agent | P4 | P4b (new) | P5 |
+|-------|----|-----------|----|
+| QA (§14.3) | Re-engagement (upstream PASS since last QA) | Self-rework (`resolveFailAgent('qa', stages) == 'QA'`) | WAIT_FOR_REWORK (fail target is another agent) |
+| Reviewer (§14.4) | Re-engagement (upstream PASS since last review) | Self-rework (`resolveFailAgent('code-review', stages) == 'Reviewer'`) | WAIT_FOR_REWORK (fail target is another agent) |
+| Security Auditor (§14.5b) | Re-engagement (upstream PASS since last audit) | Self-rework (`resolveFailAgent('security-audit', stages) == 'Security Auditor'`) | WAIT_FOR_REWORK (fail target is another agent) |
+
+**Agents NOT affected:**
+- **Developer:** Does not use `resolvePrerequisite`-based re-engagement; uses `isMostRecentPipelineFail("implementation")` directly. No deadlock possible.
+- **Documentation:** Self-reworks at P4 already (REWORK action on FAIL). No WAIT_FOR_REWORK exists in its priority chain.
+- **Release Engineer:** Self-reworks at P4 already (REWORK action on FAIL). No WAIT_FOR_REWORK exists in its priority chain.
+
+**Interaction with §21.66:** This fix is complementary. §21.66 prevents the infinite re-engagement loop (`null → false`). §21.67 prevents the resulting deadlock when the agent should self-rework but the recommendation engine tells it to wait. Both fixes are required for correct behavior of first-active-stage compositions.
+
+**Related sections:** [§9.3.1](pipeline-routing.md#931-fail-routing-fallback) (`resolveFailAgent` fallback), [§14.3](recommendations.md#143-qa-action-logic) (QA action priorities), [§14.4](recommendations.md#144-reviewer-action-logic) (Reviewer action priorities), [§14.5b](recommendations.md#145b-security-auditor-action-logic) (Security Auditor action priorities), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback examples), [§21.66](#2166-first-active-stage-re-engagement-loop) (re-engagement loop fix)
