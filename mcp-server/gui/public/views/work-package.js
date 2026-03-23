@@ -191,6 +191,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
           // Human-readable label: stage-r{revision index}
           var label = escapeHtml(stage + '-r' + idx);
           return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
+            'aria-expanded="false" ' +
             'data-slug="' + escapeHtml(slug) + '" ' +
             'data-filename="' + escapeHtml(d.filename) + '">' +
             label +
@@ -224,6 +225,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
             if (prevContent) { prevContent.style.display = 'none'; prevContent.innerHTML = ''; }
           }
           activeBtn.classList.remove('dialogue-btn-active');
+          activeBtn.setAttribute('aria-expanded', 'false');
         }
 
         // If same button is clicked again, collapse it
@@ -234,12 +236,14 @@ function renderWorkPackageDetail(app, slug, wpId) {
             if (curContent) { curContent.style.display = 'none'; curContent.innerHTML = ''; }
           }
           btn.classList.remove('dialogue-btn-active');
+          btn.setAttribute('aria-expanded', 'false');
           activeBtn = null;
           return;
         }
 
         activeBtn = btn;
         btn.classList.add('dialogue-btn-active');
+        btn.setAttribute('aria-expanded', 'true');
 
         var dlgSlug = btn.getAttribute('data-slug');
         var dlgFilename = btn.getAttribute('data-filename');

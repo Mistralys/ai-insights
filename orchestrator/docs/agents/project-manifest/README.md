@@ -73,6 +73,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 4. **Circuit-breaker.** A work package accumulating ≥3 consecutive stage failures is skipped for the remainder of the run.
 5. **Stage node isolation.** Each stage node creates its own Deep Agent instance per invocation — no shared state between stages.
 6. **Cross-platform.** File locking uses `msvcrt` on Windows and `fcntl` on Unix. All path handling uses `pathlib`.
+7. **LangGraph config annotations.** With `from __future__ import annotations`, Python stringifies all type hints. LangGraph's config injection depends on exact annotation string matching — `RunnableConfig | None` becomes the string `"RunnableConfig | None"` which LangGraph does not recognise. Use `Optional[RunnableConfig]` instead (produces `"Optional[RunnableConfig]"` which is in the allowlist). Symptom: `get_run_logger: config is None` warnings, events only flushed at run end.
 
 ---
 

@@ -93,6 +93,20 @@ function corsHeaders(port: number): Record<string, string> {
 }
 
 // ---------------------------------------------------------------------------
+// Security headers
+// ---------------------------------------------------------------------------
+
+function securityHeaders(): Record<string, string> {
+  return {
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Content-Security-Policy':
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Response helpers
 // ---------------------------------------------------------------------------
 
@@ -107,6 +121,7 @@ function sendJson(
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
     ...corsHeaders(port),
+    ...securityHeaders(),
   });
   res.end(body);
 }
@@ -417,6 +432,7 @@ async function serveStatic(
       'Content-Type': mimeType,
       'Content-Length': content.length,
       ...corsHeaders(port),
+      ...securityHeaders(),
     });
     res.end(content);
   } catch {
@@ -444,7 +460,7 @@ export async function handleRequest(
 
   // Handle OPTIONS preflight
   if (method === 'OPTIONS') {
-    res.writeHead(200, corsHeaders(port));
+    res.writeHead(200, { ...corsHeaders(port), ...securityHeaders() });
     res.end();
     return;
   }
@@ -599,7 +615,7 @@ async function main(): Promise<void> {
     handleRequest(req, res, ledgerRoot, configPath, port, logsDir).catch((err) => {
       process.stderr.write(`[server] Unhandled error: ${String(err)}\n`);
       if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.writeHead(500, { 'Content-Type': 'application/json', ...securityHeaders() });
         res.end(
           JSON.stringify({
             error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' },

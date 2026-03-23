@@ -1723,6 +1723,67 @@ th[data-sort="total_work_packages"] {
 /* Error — red accent */
 .run-event--error   { border-left-color: var(--color-blocked); }
 
+/* Success — green accent */
+.run-event--success { border-left-color: var(--color-complete); }
+
+/* ── WP badge (shown in event card header) ─────────────── */
+
+.run-wp-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+/* ── Inline result badges ──────────────────────────────── */
+
+.badge-pass {
+  background: #dcfce7;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-fail {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ── Pipeline summary block ────────────────────────────── */
+
+.run-event-summary {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.run-event-summary p {
+  margin: 0 0 4px 0;
+}
+
+.run-event-summary p:last-child {
+  margin-bottom: 0;
+}
+
 /* ── Progress bar ──────────────────────────────────────── */
 
 /* Fixed-height track; background is opaque so the fill
@@ -1782,6 +1843,29 @@ th[data-sort="total_work_packages"] {
 [data-theme="dark"] .run-event--info    { border-left-color: var(--color-ready); }
 [data-theme="dark"] .run-event--warning { border-left-color: var(--color-in-progress); }
 [data-theme="dark"] .run-event--error   { border-left-color: var(--color-blocked); }
+[data-theme="dark"] .run-event--success { border-left-color: var(--color-complete); }
+
+[data-theme="dark"] .badge-pass {
+  background: #14532d;
+  color: #86efac;
+  border-color: #166534;
+}
+
+[data-theme="dark"] .badge-fail {
+  background: #450a0a;
+  color: #fca5a5;
+  border-color: #7f1d1d;
+}
+
+[data-theme="dark"] .run-event-summary {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .run-wp-badge {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
 
 [data-theme="dark"] .run-stage-badge--active {
   background: #451a03;

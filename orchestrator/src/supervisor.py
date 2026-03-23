@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
@@ -155,7 +155,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # ------------------------------------------------------------------
 
     async def supervisor_node(
-        state: WorkflowState, config: RunnableConfig | None = None,
+        state: WorkflowState, config: Optional[RunnableConfig] = None,
     ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)

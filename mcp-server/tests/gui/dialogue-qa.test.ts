@@ -566,3 +566,96 @@ describe('Edge cases', () => {
     expect(calls[0]).toBe('/api/projects/proj%2Fsub/dialogues?wp=WP-001');
   });
 });
+
+// ============================================================
+// WP-004 — aria-expanded on dialogue toggle buttons
+// ============================================================
+
+describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
+  async function renderWithDialogue(app: HTMLElement) {
+    installFetchMock([
+      { match: '/work-packages/',  body: { ...baseWp } },
+      {
+        match: /\/dialogues\?wp=/,
+        body: [
+          { filename: 'qa-r0.md',        stage: 'qa' },
+          { filename: 'developer-r0.md', stage: 'developer' },
+        ],
+      },
+      { match: /\/dialogues\//, text: '# Hello' },
+    ]);
+    document.body.appendChild(app);
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+  }
+
+  it('AC19: dialogue buttons render with aria-expanded="false" by default', async () => {
+    const app = document.createElement('div');
+    await renderWithDialogue(app);
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const buttons = section.querySelectorAll('button.dialogue-btn');
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons.forEach((btn) => {
+      expect(btn.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    document.body.removeChild(app);
+  });
+
+  it('AC20: clicking a dialogue button sets aria-expanded="true"', async () => {
+    const app = document.createElement('div');
+    await renderWithDialogue(app);
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const btn = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
+
+    btn.click();
+    await new Promise(r => setTimeout(r, WAIT));
+
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+
+    document.body.removeChild(app);
+  });
+
+  it('AC21: clicking the same button again sets aria-expanded back to "false"', async () => {
+    const app = document.createElement('div');
+    await renderWithDialogue(app);
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const btn = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
+
+    btn.click();
+    await new Promise(r => setTimeout(r, WAIT));
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+
+    btn.click();
+    await new Promise(r => setTimeout(r, WAIT));
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+
+    document.body.removeChild(app);
+  });
+
+  it('AC21: clicking a different button sets first button aria-expanded back to "false"', async () => {
+    const app = document.createElement('div');
+    await renderWithDialogue(app);
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const buttons = section.querySelectorAll('button.dialogue-btn');
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    const btn1 = buttons[0] as HTMLButtonElement;
+    const btn2 = buttons[1] as HTMLButtonElement;
+
+    btn1.click();
+    await new Promise(r => setTimeout(r, WAIT));
+    expect(btn1.getAttribute('aria-expanded')).toBe('true');
+    expect(btn2.getAttribute('aria-expanded')).toBe('false');
+
+    btn2.click();
+    await new Promise(r => setTimeout(r, WAIT));
+    expect(btn1.getAttribute('aria-expanded')).toBe('false');
+    expect(btn2.getAttribute('aria-expanded')).toBe('true');
+
+    document.body.removeChild(app);
+  });
+});

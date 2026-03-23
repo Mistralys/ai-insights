@@ -184,7 +184,7 @@ describe('renderRunLog', () => {
 
   it('renders run_start', async () => {
     await render(app, 'my-project', 'run.jsonl', makeResult([
-      entry('run_start', { run_id: 'abc-123' }),
+      entry('run_start', { thread_id: 'abc-123' }),
     ]));
     expect(app.innerHTML).toContain('Run started');
     expect(app.innerHTML).toContain('abc-123');

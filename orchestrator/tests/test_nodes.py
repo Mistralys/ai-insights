@@ -934,3 +934,59 @@ class TestDialogueCaptured:
         assert not dc_entries, (
             "dialogue_captured must not appear in run_log when write_dialogue raises"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: slug derivation uses Path(...).name (WP-002)
+# ---------------------------------------------------------------------------
+
+
+class TestSlugDerivation:
+    """create_stage_node must use Path(project_path_obj).name to derive the slug,
+    which handles trailing-slash paths and pathlib.Path-typed inputs correctly."""
+
+    async def _invoke_and_capture_slug_dir(self, project_path: Any) -> list[Path]:
+        """Invoke developer node with the given project_path; return every
+        slug_dir passed to write_dialogue."""
+        from src.nodes.developer import make_developer_node
+
+        captured_slug_dirs: list[Path] = []
+
+        # write_dialogue(content, slug_dir, wp_id, stage) — positional signature.
+        def _fake_write_dialogue(
+            content: str, slug_dir: Path, wp_id: str, stage: str
+        ) -> Path:
+            captured_slug_dirs.append(slug_dir)
+            return slug_dir / f"{wp_id}-{stage}-r0.md"
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch("src.nodes.write_dialogue", side_effect=_fake_write_dialogue), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Dialogue"):
+            await node_fn(base_state(project_path=project_path, current_wp_id="WP-001"))
+
+        return captured_slug_dirs
+
+    async def test_trailing_slash_path_extracts_correct_slug(self):
+        """Path with a trailing '/' must still produce the correct slug segment."""
+        slug_dirs = await self._invoke_and_capture_slug_dir(
+            "/some/ledger/root/2026-03-20-my-project/"
+        )
+        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        # slug_dir is workspace_root / "mcp-server" / "storage" / "ledger" / slug
+        # — the last component must be the project slug, not an empty string.
+        assert slug_dirs[0].name == "2026-03-20-my-project", (
+            f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
+        )
+
+    async def test_pathlib_path_typed_input_extracts_correct_slug(self):
+        """A pathlib.Path-typed project_path must produce the correct slug segment."""
+        slug_dirs = await self._invoke_and_capture_slug_dir(
+            Path("/some/ledger/root/2026-03-20-my-project")
+        )
+        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        assert slug_dirs[0].name == "2026-03-20-my-project", (
+            f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
+        )

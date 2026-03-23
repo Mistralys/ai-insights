@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 
@@ -65,7 +66,7 @@ def create_stage_node(
     # with the LangGraph ``config`` parameter passed to the node at runtime.
     _app_config = config
 
-    async def node_fn(state: WorkflowState, config: RunnableConfig | None = None) -> dict:
+    async def node_fn(state: WorkflowState, config: Optional[RunnableConfig] = None) -> dict:
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
@@ -119,7 +120,7 @@ def create_stage_node(
                     # Derive slug_dir from workspace_root + mcp-server/storage/ledger/<slug>
                     # where slug is the last path segment of the ledger plan directory.
                     project_path_obj = state["project_path"]  # type: ignore[index]
-                    slug = str(project_path_obj).rstrip("/").split("/")[-1]
+                    slug = Path(project_path_obj).name
                     slug_dir = (
                         _app_config.workspace_root
                         / "mcp-server"

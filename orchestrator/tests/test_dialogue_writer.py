@@ -13,7 +13,9 @@ from typing import Any
 
 import pytest
 
-from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
+from langchain_core.messages import SystemMessage
+
+from src.utils.dialogue_writer import _msg_role, serialize_messages_to_markdown, write_dialogue
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +306,18 @@ class TestWriteDialogueNoSideEffects:
         assert not (tmp_path / "dialogues").exists()
         # Only the project dir's dialogues subdir should exist.
         assert (separate_dir / "dialogues").exists()
+
+
+# ---------------------------------------------------------------------------
+# _msg_role helper — SystemMessage coverage (WP-005)
+# ---------------------------------------------------------------------------
+
+class TestMsgRoleSystem:
+    """_msg_role() correctly identifies a SystemMessage and returns 'System'."""
+
+    def test_system_message_returns_system(self):
+        msg = SystemMessage(content="You are a helpful assistant.")
+        assert _msg_role(msg) == "System"
 
 
 # ---------------------------------------------------------------------------

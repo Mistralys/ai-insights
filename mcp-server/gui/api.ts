@@ -1224,6 +1224,9 @@ export async function handleGetWorkPackageOverview(
 /** Filename allowlist pattern: only alphanumeric, hyphens, underscores + .md */
 const DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/;
 
+/** WP ID allowlist pattern: must be 'WP-' followed by one or more digits */
+const WP_ID_RE = /^WP-\d+$/;
+
 /**
  * Returns an array of dialogue filenames from the project's dialogues/ directory.
  *
@@ -1257,8 +1260,12 @@ export async function handleListDialogues(
   // Filter to .md files only.
   let filenames = entries.filter((f) => f.endsWith('.md'));
 
-  // Optional WP ID prefix filter.
+  // Optional WP ID prefix filter — validate the value before using it.
   if (wpId) {
+    if (!WP_ID_RE.test(wpId)) {
+      // Invalid wpId (e.g. injection attempt or malformed value): return empty list.
+      return [];
+    }
     const prefix = `${wpId}-`;
     filenames = filenames.filter((f) => f.startsWith(prefix));
   }
@@ -1293,6 +1300,7 @@ export async function handleGetDialogueFile(
 
   // Allowlist check — rejects path traversal attempts like '../secret.md'.
   if (!DIALOGUE_FILENAME_RE.test(filename)) {
+    console.warn(`[handleGetDialogueFile] Rejected filename (regex check): '${filename}'`);
     notFound(`Dialogue file not found: '${filename}'.`);
   }
 
@@ -1301,6 +1309,7 @@ export async function handleGetDialogueFile(
 
   // Defence-in-depth: ensure resolved path stays inside dialoguesDir.
   if (!filePath.startsWith(dialoguesDir + '/') && filePath !== dialoguesDir) {
+    console.warn(`[handleGetDialogueFile] Rejected filename (prefix check): '${filename}'`);
     notFound(`Dialogue file not found: '${filename}'.`);
   }
 
