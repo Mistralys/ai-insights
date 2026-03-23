@@ -375,6 +375,15 @@ export const PLAN_ARCHIVE_FILENAME      = 'plan.md'       as const;
 export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
 
 /**
+ * Subdirectory name used to store agent dialogue capture files.
+ *
+ * The orchestrator's `write_dialogue()` utility writes Markdown files to a
+ * `dialogues/` subdirectory inside the project plan folder.  This constant
+ * keeps the directory name in sync between the MCP server and the orchestrator.
+ */
+export const DIALOGUES_DIR = 'dialogues' as const;
+
+/**
  * Workflow specification version this MCP server implements.
  * Derived from the shared workflow manifest's `spec_version` field.
  */
@@ -1710,7 +1719,7 @@ export interface ClientInfo {
  *
  * 1. **`vscode`** — name contains `"visual studio code"` or `"vscode"`
  * 2. **`claude-code`** — name contains `"claude"`
- * 3. **`orchestrator`** — name contains `"langchain"` or `"mcp-adapters"`
+ * 3. **`orchestrator`** — name contains `"langchain"` or `"mcp-adapters"`, or is exactly `"mcp"`
  * 4. **`unknown`** — anything else, or when `clientInfo` is `undefined`
  *
  * The first matching rule wins. Raw `name` and `version` strings are preserved
@@ -1749,7 +1758,7 @@ export function classifyRunner(clientInfo: ClientInfo | undefined): RunnerInfo {
     runner = 'vscode';
   } else if (lower.includes('claude')) {
     runner = 'claude-code';
-  } else if (lower.includes('langchain') || lower.includes('mcp-adapters')) {
+  } else if (lower.includes('langchain') || lower.includes('mcp-adapters') || lower === 'mcp') {
     runner = 'orchestrator';
   } else {
     runner = 'unknown';

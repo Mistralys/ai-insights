@@ -7,6 +7,7 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
     └── src/
         └── utils/
             └── __init__.py
+            └── dialogue_writer.py
             └── filelock.py
             └── logging.py
             └── mcp_parse.py
@@ -21,6 +22,269 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
 """
 utils — shared helper utilities.
 """
+
+```
+###  Path: `/orchestrator/src/utils/dialogue_writer.py`
+
+```py
+"""
+dialogue_writer.py — Utilities for serialising agent dialogues to Markdown files.
+
+Public API
+----------
+serialize_messages_to_markdown(messages, stage, wp_id, timestamp) -> str
+    Convert a LangChain message list to a human-readable Markdown document.
+
+write_dialogue(content, slug_dir, wp_id, stage) -> Path
+    Persist *content* to ``{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md``,
+    auto-incrementing the revision number *N* when prior revisions exist.
+
+Supported message roles
+-----------------------
+The following LangChain message types are recognised by ``_msg_role()``:
+
+* ``HumanMessage`` (``type="human"``) → **Human**
+* ``AIMessage`` (``type="ai"``) → **Assistant**
+* ``ToolMessage`` (``type="tool"``) → **Tool Result**
+* ``SystemMessage`` (``type="system"``) → **System**
+* Any other type falls back to a capitalised form of the type name.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Sequence
+
+
+# ---------------------------------------------------------------------------
+# Message serialisation
+# ---------------------------------------------------------------------------
+
+def _msg_role(message: Any) -> str:
+    """Return the canonical role string for *message*."""
+    # LangChain message objects expose a ``type`` attribute (``"human"``,
+    # ``"ai"``, ``"tool"``, etc.).  We fall back to class-name sniffing for
+    # objects that only quack like messages.
+    msg_type = getattr(message, "type", None) or type(message).__name__.lower()
+    if msg_type in ("human", "humanmessage"):
+        return "Human"
+    if msg_type in ("ai", "aimessage"):
+        return "Assistant"
+    if msg_type in ("tool", "toolmessage"):
+        return "Tool Result"
+    if msg_type in ("system", "systemmessage"):
+        return "System"
+    return msg_type.replace("message", "").capitalize() or "Message"
+
+
+def _render_content(content: Any) -> str:
+    """Return *content* as a plain string suitable for Markdown body text.
+
+    LangChain's Anthropic and OpenAI adapters can return ``AIMessage.content``
+    as a **list of content blocks** rather than a plain string.  Each block is
+    a dict with a ``"type"`` key (e.g. ``{"type": "text", "text": "…"}`` or
+    ``{"type": "tool_use", …}``).  Only ``"text"`` blocks are rendered as plain
+    text; all other block types (``"tool_use"``, ``"image"``, etc.) are
+    serialised as compact JSON fences so no information is silently lost.
+
+    Empty-string parts produced by content blocks are intentionally discarded
+    (they would produce blank ``\\n\\n`` gaps in the Markdown output).
+    """
+    if isinstance(content, str):
+        return content
+    # Anthropic / OpenAI provider adapters may return a list of content blocks.
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                btype = block.get("type", "")
+                if btype == "text":
+                    parts.append(block.get("text", ""))
+                else:
+                    # Non-text blocks (tool_use, image, …) rendered as JSON.
+                    parts.append(f"```json\n{json.dumps(block, indent=2)}\n```")
+            else:
+                parts.append(str(block))
+        return "\n\n".join(p for p in parts if p)
+    return str(content) if content is not None else ""
+
+
+def _render_tool_calls(tool_calls: list[dict[str, Any]]) -> str:
+    """Render *tool_calls* as fenced Markdown code blocks."""
+    blocks: list[str] = []
+    for tc in tool_calls:
+        name = tc.get("name", "unknown_tool")
+        args = tc.get("args", {})
+        tc_id = tc.get("id", "")
+        header = f"**Tool call:** `{name}`" + (f" (id: `{tc_id}`)" if tc_id else "")
+        body = f"```json\n{json.dumps(args, indent=2)}\n```"
+        blocks.append(f"{header}\n\n{body}")
+    return "\n\n".join(blocks)
+
+
+def _collect_usage(messages: Sequence[Any]) -> dict[str, int] | None:
+    """
+    Aggregate ``usage_metadata`` from all messages in *messages*.
+
+    Returns a merged dict or ``None`` when no usage data is present.
+    """
+    totals: dict[str, int] = {}
+    for msg in messages:
+        meta = getattr(msg, "usage_metadata", None)
+        if meta and isinstance(meta, dict):
+            for key, value in meta.items():
+                if isinstance(value, (int, float)):
+                    totals[key] = totals.get(key, 0) + int(value)
+    return totals if totals else None
+
+
+def serialize_messages_to_markdown(
+    messages: Sequence[Any],
+    stage: str,
+    wp_id: str,
+    timestamp: str | None = None,
+) -> str:
+    """
+    Serialise *messages* to a Markdown string.
+
+    Parameters
+    ----------
+    messages:
+        Sequence of LangChain message objects (HumanMessage, AIMessage,
+        ToolMessage, …) or any objects with a ``type`` attribute.
+    stage:
+        Pipeline stage name (e.g. ``"developer"``).
+    wp_id:
+        Work-package identifier (e.g. ``"WP-001"``).
+    timestamp:
+        ISO 8601 timestamp string.  Defaults to the current UTC time when
+        ``None``.
+
+    Returns
+    -------
+    str
+        A Markdown document with a header, per-message sections, and an
+        optional token-usage footer.
+    """
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    lines: list[str] = [
+        f"# Dialogue — {stage} / {wp_id}",
+        "",
+        f"| Field | Value |",
+        f"| ----- | ----- |",
+        f"| Stage | `{stage}` |",
+        f"| WP ID | `{wp_id}` |",
+        f"| Captured | {timestamp} |",
+        "",
+    ]
+
+    if not messages:
+        lines.append("*No messages recorded.*")
+        return "\n".join(lines) + "\n"
+
+    for idx, msg in enumerate(messages, start=1):
+        role = _msg_role(msg)
+        lines.append(f"## {role}")
+        lines.append("")
+
+        # Render tool calls for AI messages first.
+        tool_calls: list[dict[str, Any]] = getattr(msg, "tool_calls", None) or []
+        content_str = _render_content(getattr(msg, "content", ""))
+
+        if content_str:
+            lines.append(content_str)
+            lines.append("")
+
+        if tool_calls:
+            lines.append(_render_tool_calls(tool_calls))
+            lines.append("")
+
+    # Token-usage footer.
+    usage = _collect_usage(messages)
+    if usage:
+        lines.append("---")
+        lines.append("")
+        lines.append("## Token Usage")
+        lines.append("")
+        lines.append("| Metric | Count |")
+        lines.append("| ------ | ----- |")
+        for key, value in sorted(usage.items()):
+            lines.append(f"| {key.replace('_', ' ').title()} | {value} |")
+        lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# File persistence
+# ---------------------------------------------------------------------------
+
+def write_dialogue(
+    content: str,
+    slug_dir: Path,
+    wp_id: str,
+    stage: str,
+) -> Path:
+    """
+    Write *content* to ``{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md``.
+
+    The revision number *N* is determined by globbing existing
+    ``{wp_id}-{stage}-r*.md`` files inside ``{slug_dir}/dialogues/``.
+    The first call writes ``r0``; subsequent calls for the same
+    ``wp_id``/``stage`` pair increment the revision.
+
+    .. note:: Cross-language coupling
+        The subdirectory name ``"dialogues"`` is intentionally kept in sync
+        with the MCP server's ``DIALOGUES_DIR`` constant defined in
+        ``mcp-server/src/utils/constants.ts``.  If this value ever needs to
+        change, both files must be updated together.
+
+    Parameters
+    ----------
+    content:
+        Markdown string to write.
+    slug_dir:
+        Parent directory (e.g. the plan/project directory).
+    wp_id:
+        Work-package identifier (e.g. ``"WP-001"``).
+    stage:
+        Pipeline stage name (e.g. ``"developer"``).
+
+    Returns
+    -------
+    Path
+        Absolute path to the file that was written.
+    """
+    dialogues_dir = slug_dir / "dialogues"
+    dialogues_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine next revision number.
+    pattern = f"{wp_id}-{stage}-r*.md"
+    existing: list[Path] = sorted(dialogues_dir.glob(pattern))
+
+    revision = 0
+    if existing:
+        # Extract the revision number from the last (highest) filename.
+        for candidate in existing:
+            stem = candidate.stem  # e.g. "WP-001-developer-r3"
+            # The revision part is everything after the last "-r".
+            try:
+                rev_str = stem.rsplit("-r", 1)[1]
+                rev_num = int(rev_str)
+                revision = max(revision, rev_num + 1)
+            except (IndexError, ValueError):
+                pass
+
+    filename = f"{wp_id}-{stage}-r{revision}.md"
+    dest = dialogues_dir / filename
+    dest.write_text(content, encoding="utf-8")
+    return dest
 
 ```
 ###  Path: `/orchestrator/src/utils/filelock.py`
@@ -107,13 +371,17 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Console logging configuration
@@ -278,6 +546,22 @@ def _build_stream_console_line(entry: dict[str, Any]) -> str:
         parts.append(f"pipeline: {detail_str}")
         return " ".join(parts)
 
+    if action == "dialogue_captured":
+        file_path = entry.get("file_path") or ""
+        filename = file_path.split("/")[-1] if file_path else ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"dialogue saved → {filename}" if filename else "dialogue saved")
+        return " ".join(parts)
+
+    if action == "heartbeat":
+        silence = _format_duration(entry.get("silence_s"))
+        line = f"{prefix} ♥ alive"
+        if silence:
+            line += f" (quiet for {silence})"
+        return line
+
     if action == "rework_detected":
         rework_count = entry.get("rework_count")
         pipeline_type = entry.get("pipeline_type") or ""
@@ -326,6 +610,9 @@ class WorkflowLogger:
         self._fh = log_path.open("a", encoding="utf-8")
         self._closed = False
         self._console = logging.getLogger("workflow")
+        self._last_emit: float = time.monotonic()
+        self._heartbeat_task: asyncio.Task[None] | None = None
+        self._streamed_count: int = 0  # entries written via stream_entry
 
     # ------------------------------------------------------------------
     # Factory
@@ -415,6 +702,8 @@ class WorkflowLogger:
         self._fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         self._fh.flush()
 
+        self._last_emit = time.monotonic()
+
         # --- Human-readable console output ---
         parts = [f"[{stage}]" if stage else "[—]"]
         if wp_id:
@@ -449,8 +738,93 @@ class WorkflowLogger:
         self._fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         self._fh.flush()
 
+        self._last_emit = time.monotonic()
+        self._streamed_count += 1
+
         # Also emit a console line so stderr stays in sync.
         self._console.info(_build_stream_console_line(entry))
+
+    def flush_unstreamed(self, run_log: list[dict[str, Any]]) -> None:
+        """Write any *run_log* entries that were NOT already streamed.
+
+        Graph nodes accumulate log entries in the LangGraph state
+        ``run_log`` list.  Ideally every entry is also streamed in real
+        time via :meth:`stream_entry`.  When that path is unavailable
+        (e.g. the ``run_logger`` was not reachable inside graph nodes),
+        calling this method after the graph completes ensures the JSONL
+        file still contains every event.
+
+        Entries already written via :meth:`stream_entry` are skipped by
+        comparing the count of streamed entries against the total
+        ``run_log`` length — works because ``run_log`` is append-only
+        (LangGraph ``operator.add`` reducer) and entries are streamed in
+        order.
+
+        Parameters
+        ----------
+        run_log:
+            The ``run_log`` list from the final LangGraph state.
+        """
+        if not run_log:
+            return
+        unstreamed = run_log[self._streamed_count:]
+        if not unstreamed:
+            return
+        log.info(
+            "Flushing %d un-streamed run_log entries to JSONL.", len(unstreamed)
+        )
+        for entry in unstreamed:
+            self.stream_entry(entry)
+
+    # ------------------------------------------------------------------
+    # Heartbeat — periodic "I'm alive" console + JSONL message
+    # ------------------------------------------------------------------
+
+    async def start_heartbeat(self, interval_s: int = 120) -> None:
+        """Start a background task that emits a heartbeat if no other
+        log line has been written within *interval_s* seconds.
+
+        Parameters
+        ----------
+        interval_s:
+            Minimum quiet period (in seconds) before a heartbeat fires.
+            Set to ``0`` to disable heartbeat entirely.
+        """
+        if interval_s <= 0:
+            return
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(interval_s),
+        )
+
+    async def stop_heartbeat(self) -> None:
+        """Cancel the heartbeat background task, if running."""
+        task = self._heartbeat_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        self._heartbeat_task = None
+
+    async def _heartbeat_loop(self, interval_s: int) -> None:
+        """Internal loop: sleep, check last-emit, emit if quiet."""
+        try:
+            while not self._closed:
+                await asyncio.sleep(interval_s)
+                if self._closed:
+                    break
+                silence = time.monotonic() - self._last_emit
+                if silence >= interval_s:
+                    self.stream_entry({
+                        "stage": "heartbeat",
+                        "action": "heartbeat",
+                        "level": "INFO",
+                        "silence_s": round(silence, 1),
+                    })
+        except asyncio.CancelledError:
+            return
 
     # ------------------------------------------------------------------
     # Resource management
@@ -495,9 +869,17 @@ def get_run_logger(config: Any) -> WorkflowLogger | None:
         The LangGraph ``RunnableConfig`` dict passed to node functions.
     """
     if config is None:
+        log.warning("get_run_logger: config is None")
         return None
     configurable = config.get("configurable") or {}
-    return configurable.get("run_logger")
+    logger = configurable.get("run_logger")
+    if logger is None:
+        log.warning(
+            "get_run_logger: run_logger not found in configurable. "
+            "Keys present: %s",
+            sorted(configurable.keys()),
+        )
+    return logger
 
 ```
 ###  Path: `/orchestrator/src/utils/mcp_parse.py`

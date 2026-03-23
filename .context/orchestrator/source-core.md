@@ -457,6 +457,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     from src.utils.logging import WorkflowLogger
     run_logger = WorkflowLogger.create(label=plan_dir.name)
     log.info("JSONL log: %s", run_logger._path)
+    await run_logger.start_heartbeat(config.heartbeat_interval_s)
 
     # ── Generate or reuse thread ID ─────────────────────────────────────────
     thread_id: str = args.resume if args.resume else str(uuid.uuid4())
@@ -555,10 +556,17 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         outside_errors.append(f"MCP server error: {exc}")
 
     # ── Write final entries to JSONL ────────────────────────────────────────
-    # Run-log entries from graph nodes are already streamed to the JSONL file
-    # in real time (via run_logger passed through LangGraph config).  Only
-    # outside errors and the run_end sentinel still need to be written here.
+    # Run-log entries from graph nodes are supposed to be streamed to the
+    # JSONL file in real time (via run_logger passed through LangGraph
+    # config).  However, if the run_logger was not accessible inside graph
+    # nodes (e.g. the configurable key was stripped), the entries only exist
+    # in the final LangGraph state's ``run_log`` list.  Flush any un-streamed
+    # entries here as a safety net so the log file is always complete.
     try:
+        if final_state is not None:
+            run_log_entries: list = final_state.get("run_log", [])
+            run_logger.flush_unstreamed(run_log_entries)
+
         for err_msg in outside_errors:
             run_logger.log(
                 stage="cli",
@@ -587,6 +595,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             run_end_kwargs["total_duration_s"] = total_duration_s
         run_logger.log(**run_end_kwargs)
     finally:
+        await run_logger.stop_heartbeat()
         run_logger.close()
 
     # ── Release process lock ────────────────────────────────────────────────
@@ -648,6 +657,13 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    # Suppress noisy third-party loggers so orchestrator status lines
+    # ([pm], [supervisor], Progress:) stay visible in the terminal.
+    # When --log-level DEBUG is set, leave them unsuppressed for diagnosis.
+    if log_level != "DEBUG":
+        for noisy_logger in ("httpx", "httpcore", "mcp", "openai", "anthropic"):
+            logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
     # ── Run ─────────────────────────────────────────────────────────────────
     try:
@@ -822,6 +838,11 @@ WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
 _ANTHROPIC_PREFIXES = ("claude",)
 _GOOGLE_PREFIXES = ("gemini", "models/gemini")
 
+#: Environment variable values that enable ``capture_dialogues`` (matched after
+#: ``.strip().lower()``). Kept as a module-level constant so it is visible
+#: alongside the other private config constants and easy to extend.
+_CAPTURE_DIALOGUES_TRUTHY: frozenset[str] = frozenset({"true", "1", "yes"})
+
 
 def _model_is_anthropic(model_name: str) -> bool:
     """Return True if *model_name* looks like an Anthropic model."""
@@ -915,6 +936,13 @@ class Config:
         ``orchestrator/``).
     log_level:
         Python logging level string (``"DEBUG"``, ``"INFO"``, etc.).
+    heartbeat_interval_s:
+        Seconds of console silence before emitting a heartbeat. ``0`` disables.
+    capture_dialogues:
+        When ``True``, the orchestrator writes agent dialogue artefacts to disk.
+        Controlled by the ``CAPTURE_DIALOGUES`` environment variable (truthy
+        values: ``"true"``, ``"1"``, ``"yes"``; case-insensitive). Defaults to
+        ``False``.
     """
 
     model_name: str
@@ -924,6 +952,8 @@ class Config:
     mcp_server_cmd: list[str]
     workspace_root: Path
     log_level: str
+    heartbeat_interval_s: int = 120
+    capture_dialogues: bool = False
 
     def get_chat_model(self):
         """
@@ -1033,6 +1063,20 @@ def load_config(
             f"LOG_LEVEL must be one of {sorted(valid_levels)}; got {log_level!r}."
         )
 
+    # --- capture_dialogues ---
+    capture_dialogues = os.environ.get("CAPTURE_DIALOGUES", "").strip().lower() in _CAPTURE_DIALOGUES_TRUTHY
+
+    # --- heartbeat_interval_s ---
+    raw_heartbeat = os.environ.get("HEARTBEAT_INTERVAL_S", "120").strip()
+    try:
+        heartbeat_interval_s = int(raw_heartbeat)
+        if heartbeat_interval_s < 0:
+            raise ValueError("must be a non-negative integer")
+    except ValueError as exc:
+        raise OSError(
+            f"HEARTBEAT_INTERVAL_S must be a non-negative integer; got {raw_heartbeat!r}."
+        ) from exc
+
     return Config(
         model_name=model_name,
         provider=provider,
@@ -1041,6 +1085,8 @@ def load_config(
         mcp_server_cmd=mcp_server_cmd,
         workspace_root=workspace_root,
         log_level=log_level,
+        capture_dialogues=capture_dialogues,
+        heartbeat_interval_s=heartbeat_interval_s,
     )
 
 
@@ -1600,7 +1646,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
@@ -1737,7 +1783,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # ------------------------------------------------------------------
 
     async def supervisor_node(
-        state: WorkflowState, config: RunnableConfig | None = None,
+        state: WorkflowState, config: Optional[RunnableConfig] = None,
     ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)

@@ -1161,6 +1161,35 @@ _SOURCE: Directory tree_
         │       ├── plan.md
         │       ├── project-ledger.json
         │       ├── synthesis.md
+        │   └── 2026-03-20-dialogue-capture-rework-1/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
+        │   └── 2026-03-20-dialogue-capture/
+        │       ├── WP-001.json
+        │       ├── WP-002.json
+        │       ├── WP-003.json
+        │       ├── WP-004.json
+        │       ├── WP-005.json
+        │       ├── WP-006.json
+        │       ├── WP-007.json
+        │       ├── WP-008.json
+        │       ├── WP-009.json
+        │       ├── WP-010.json
+        │       ├── WP-011.json
+        │       ├── WP-012.json
+        │       ├── WP-013.json
+        │       ├── WP-014.json
+        │       ├── WP-015.json
+        │       ├── WP-016.json
+        │       ├── plan.md
+        │       ├── project-ledger.json
+        │       ├── synthesis.md
         │   └── 2026-03-20-naming-convention-sweep/
         │       ├── WP-001.json
         │       ├── WP-002.json
@@ -1198,12 +1227,14 @@ _SOURCE: Directory tree_
         │   ├── auto-archive.test.ts
         │   ├── client-rendering.test.ts
         │   ├── config.test.ts
+        │   ├── dialogue-qa.test.ts
         │   ├── handoff-config-integration.test.ts
         │   ├── log-resolver.test.ts
         │   ├── project-detail-runs.test.ts
         │   ├── run-log-handlers.test.ts
         │   ├── run-log-server.test.ts
         │   ├── run-log.test.ts
+        │   ├── security-headers.test.ts
         ├── helpers/
         │   ├── create-temp-store.ts
         │   ├── fixtures.ts

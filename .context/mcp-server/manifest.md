@@ -1940,6 +1940,75 @@ export function _resetTimerForTesting(): void;
 
 ---
 
+## GUI Run Log Module
+
+### `src/gui/log-resolver.ts` — orchestrator run log locator and reader
+
+Locates and reads orchestrator JSONL run log files on behalf of the run log API endpoints. Enforces path-traversal security for both directory listing and individual file reads.
+
+```typescript
+// Returned by findRunLogs() — one entry per matching log file.
+export interface RunLogEntry {
+  filename: string;   // Bare filename (no directory component), e.g. "20260323T143701-my-project.jsonl"
+  is_active: boolean; // true when file does not end with a terminal action (run_end / run_error)
+}
+
+// Returns the configured logs directory, falling back to ~/.ai-insights/orchestrator-logs.
+export function resolveOrchestratorLogsDir(configured: string | undefined): string;
+
+// Lists .jsonl files whose names end with -{slug}.jsonl.
+// Results are sorted newest-first by filename prefix. Self-heals stale runs (see below).
+export async function findRunLogs(logsDir: string, slug: string): Promise<RunLogEntry[]>;
+
+// Reads and parses a single JSONL log file with incremental-read support.
+// Security: filename allowlist + resolved-path escape check. Throws ApiError FORBIDDEN / NOT_FOUND.
+export async function readLogEntries(
+  logsDir: string,
+  filename: string,
+  afterLine?: number
+): Promise<{ entries: unknown[]; totalLines: number }>;
+```
+
+**Self-healing stale runs (`findRunLogs`):**
+
+An orchestrator run is considered *active* when its last non-empty JSONL line does not have `action: "run_end"` or `action: "run_error"`. Runs that are killed or crash without writing a terminal entry remain active on disk indefinitely.
+
+On every call to `findRunLogs`, the function sorts results newest-first and then heals any run at index 1+ (i.e. not the newest) that still appears active. Healing appends a synthetic `run_error` entry:
+
+```json
+{"action": "run_error", "error": "Run terminated without completing (healed by GUI on next page load)", "ts": "<ISO timestamp>"}
+```
+
+The file is updated on disk so subsequent calls skip the heal entirely. Healing failures are swallowed — best-effort only, never surfaced to callers. The newest run is never healed regardless of its active state.
+
+**Empty-file rule:** a file with zero non-empty lines is treated as active (the orchestrator has just created it and not yet written any events).
+
+**Security guards (`readLogEntries`):**
+- `filename` must match `/^[A-Za-z0-9._-]+$/` (allowlist)
+- `filename` must not contain `..` or `/`
+- `resolve(logsDir + filename)` must start with `resolve(logsDir) + '/'`
+
+### `src/gui/handlers/run-log-handlers.ts` — run log API handlers
+
+Thin wrappers that add slug validation before delegating to `log-resolver.ts`.
+
+```typescript
+// GET /api/projects/:slug/runs → sorted RunLogEntry[] (heals stale runs as a side-effect)
+export async function handleListRunLogs(slug: string, logsDir: string): Promise<RunLogEntry[]>;
+
+// GET /api/projects/:slug/runs/:filename → { entries, totalLines }
+export async function handleGetRunLog(
+  slug: string,
+  filename: string,
+  logsDir: string,
+  afterLine?: number
+): Promise<{ entries: unknown[]; totalLines: number }>;
+```
+
+Slug validation: throws `ApiError NOT_FOUND` for slugs that are empty, contain `/`, or contain `..`.
+
+---
+
 ## GUI API Module
 
 ### `gui/api.ts` — REST API route handlers
@@ -2189,6 +2258,31 @@ export async function handleGetProjectHealth(
   ledgerRoot: string,
   slug: string
 ): Promise<ProjectHealthSummary>;
+
+// GET /api/projects/:slug/dialogues[?wp=WP-001]
+// Returns an array of dialogue filenames from the project's dialogues/ directory.
+// slug is validated via assertSafeSlug(). Returns [] when the directory is absent (no error thrown).
+// Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
+// All returned filenames are sorted alphabetically.
+export async function handleListDialogues(
+  ledgerRoot: string,
+  slug: string,
+  wpId?: string
+): Promise<string[]>;
+
+// GET /api/projects/:slug/dialogues/:filename
+// Returns the raw Markdown content of a single dialogue file.
+// Security (two-layer path-traversal defence):
+//   1. Primary allowlist: DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/ — rejects any filename
+//      containing '.', '/', or other special characters (including percent-decoded traversals).
+//   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
+//      the project's dialogues/ directory.
+// Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
+export async function handleGetDialogueFile(
+  ledgerRoot: string,
+  slug: string,
+  filename: string
+): Promise<string>;
 ```
 
 **HTTP status code mapping** (implemented in `gui/server.ts`):
@@ -2225,6 +2319,10 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/projects/:slug/work-packages` | `handleListWorkPackages` |
 | GET | `/api/projects/:slug/work-packages/overview` | `handleGetWorkPackageOverview` |
 | GET | `/api/projects/:slug/work-packages/:wpId` | `handleGetWorkPackage` |
+| GET | `/api/projects/:slug/runs` | `handleListRunLogs` — sorted `RunLogEntry[]`; heals stale runs as side-effect |
+| GET | `/api/projects/:slug/runs/:filename` | `handleGetRunLog` — `{ entries, totalLines }`; optional `?after=N` for incremental polling |
+| GET | `/api/projects/:slug/dialogues` | `handleListDialogues` (optional `?wp=WP-001` filter) |
+| GET | `/api/projects/:slug/dialogues/:filename` | `handleGetDialogueFile` (filename allowlist + resolve() prefix guard) |
 | GET | `/api/projects/:slug/plan` | `handleGetPlanDocument` |
 | GET | `/api/projects/:slug/synthesis` | `handleGetSynthesisDocument` |
 | GET | `/api/projects/:slug/health` | `handleGetProjectHealth` |
@@ -2352,8 +2450,26 @@ Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, 
 | `.action-menu-item` | Individual row inside `.action-menu`; `display:block`, full width, left-aligned; hover uses `var(--color-bg)` background; anchors and buttons share identical visual treatment |
 | `.action-menu-item.danger` | Modifier for destructive actions (Delete); foreground set to `var(--color-btn-danger-bg)` |
 
+**`styles.css` — Dialogue component classes** (added for the Dialogues card in the WP detail view):
+
+| Class | Role |
+|-------|------|
+| `.dialogue-stage` | Grouping container for one pipeline stage's revision buttons and expanded content; `margin-bottom: 10px` |
+| `.dialogue-stage-label` | Uppercase muted label (12 px, 600 weight) preceding the revision buttons; inline-block, vertically aligned |
+| `.dialogue-btn` | Pill-shaped revision button (`border-radius: var(--radius-pill)`); default state: surface background, border `var(--color-border)` |
+| `.dialogue-btn:hover` | Border and text change to `var(--color-ready)` on hover |
+| `.dialogue-btn-latest` | Applied to the last revision button in a stage; bold weight, `var(--color-ready)` border + text — marks it as the most recent dialogue |
+| `.dialogue-btn-active` | Applied to the currently expanded button; filled background (`var(--color-btn-bg)`), white text |
+| `.dialogue-content` | Scrollable container for rendered Markdown (`max-height: 480px`, `overflow-y: auto`); hidden by default (`display:none`); shown/hidden by the click handler |
+| `.dialogue-markdown` | Wrapper `<div>` inside `.dialogue-content`; applies typography rules for rendered Markdown (`h1–h3` margins, `pre` / `code` block styling) |
+| `.text-danger` | Utility class for inline error messages (red text via `var(--color-blocked)`); used both for `getDialogueContent` fetch errors and `getDialogues` list errors |
+
+Dark mode overrides for `.dialogue-btn`, `.dialogue-btn-latest`, and `.dialogue-btn-active` are provided in a `[data-theme="dark"]` block.
+
+> **Accessibility note (future work):** `.dialogue-btn` toggle buttons do not currently set `aria-expanded` — screen readers cannot infer the expanded/collapsed state from the DOM. A future accessibility pass should add `aria-expanded="false"` initially and toggle it alongside `.dialogue-btn-active` on click.
+
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 19 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`
+- **`API`** — async fetch wrappers for all 23 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(slug)` → `GET /api/projects/:slug/runs`; `getRunLogEntries(slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns raw Markdown text via `res.text()` — uses direct `fetch()` rather than the private `request()` helper, which calls `res.json()`)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
@@ -2378,7 +2494,7 @@ Dark theme overrides for `.stage-pending`, `.stage-in-progress`, `.stage-pass`, 
 - **`renderSynthesis(app, slug)`** — renders the archived synthesis document as formatted HTML using `marked.parse()`; breadcrumb links to `#/projects` and `#/projects/:slug`; shows 'Synthesis document not available for this project.' when the API returns NOT_FOUND; generic error banner for other failures
 
 **`views/work-package.js`:**
-- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes
+- **`renderWorkPackageDetail(app, slug, wpId)`** — renders a **Pipeline Progression** card (via `buildWpDetailBar(wp)`) above the existing Pipelines section; the card shows the WP's active stages as a `.pipeline-track` badge row using the same `.stage-badge` / `.stage-pending` / `.stage-in-progress` / `.stage-pass` / `.stage-fail` / `.rework-indicator` CSS as `buildPipelineTrack`; derives all data from the already-fetched WP detail (no extra API call); `WP_DEFAULT_STAGES = ['implementation','qa','code-review','documentation']` used as fallback when `active_pipeline_stages` is absent; `wp.pipelines` is never mutated — a `.slice().reverse()` copy is used for newest-first rendering so the bar's chronological pass still sees the original order; **timing summary:** renders a `<div class="wp-timing">` block above the pipeline list showing **Active time** (sum of all pipeline `duration_ms` values via `formatDuration`) and, when both the first `started_at` and last `completed_at` are available, **Wall-clock** (elapsed from first pipeline start to last completion); also shows a `badge-neutral` duration badge next to each pipeline's status badge and an inline `Duration:` label next to the `Completed:` timestamp (both via `formatDuration(p.duration_ms)`; omitted when `duration_ms` is absent); also renders AC list (met/unmet), pipeline history, handoff notes; **Dialogues card:** rendered asynchronously after Handoff Notes via a `<div id="wp-dialogues-section">` placeholder injected synchronously into the DOM (race-condition-free); calls `API.getDialogues(slug, wpId)` — if the result is empty the placeholder is filled with a "No dialogues available" message; if non-empty, dialogues are grouped by stage name (insertion order preserved) and each stage row shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision visually highlighted (`.dialogue-btn-latest`); clicking a button fetches the Markdown via `API.getDialogueContent()` and renders it with `marked.parse()` inside a `.dialogue-content` container (trusted HTML — no sanitization, consistent with the rest of the SPA); clicking a second button collapses the previously expanded one via an `activeBtn` closure variable; clicking the same button again is a toggle-off; a fetch error shows an inline `.text-danger` message without crashing the WP view; a `getDialogues()` failure shows a `.text-danger` error inside the Dialogues card; the card is always **below the Pipelines card** in DOM order — the placeholder is appended after `handoffHtml` in `app.innerHTML`
 
 **`views/config.js`:**
 - **`renderConfig(app)`** — form pre-populated from `GET /api/config`; save sends only `auto_handoff_enabled` + `max_handoff_depth` (ledger_root is readonly)
@@ -5703,6 +5819,54 @@ auto_archive_days === 0?
 
 ---
 
+## Flow 14: GUI — Orchestrator Run Log Listing (with Self-Healing)
+
+**Entry Point:** Browser sends `GET /api/projects/:slug/runs` when the project detail page loads.
+
+```
+GET /api/projects/:slug/runs
+  ↓
+gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir)
+  ↓
+src/gui/handlers/run-log-handlers.ts — handleListRunLogs
+  assertSafeSlug(slug)   ← throws ApiError NOT_FOUND for empty / '/' / '..'
+  findRunLogs(logsDir, slug)
+  ↓
+src/gui/log-resolver.ts — findRunLogs
+  readdir(logsDir)       ← returns [] if directory absent/unreadable
+  filter by suffix "-{slug}.jsonl" (prefix required — exact suffix rejected)
+  for each matching filename:
+    isRunActive(filePath) ← reads last non-empty JSONL line;
+                            active = no terminal action (run_end / run_error);
+                            empty file = active; parse error = inactive
+  sort descending by filename (lexicographic; timestamp prefix makes this chronological)
+  ↓
+Self-healing pass (entries at index 1+):
+  for each non-newest entry where is_active === true:
+    appendFile(filePath, '\n' + JSON.stringify({ action: 'run_error', error: '...healed...', ts: '...' }) + '\n')
+    entry.is_active = false
+  (failures swallowed — best-effort only; newest run at index 0 is never touched)
+  ↓
+Return RunLogEntry[]
+  [{ filename: '20260325T090000-slug.jsonl', is_active: true  },   ← newest, potentially running
+   { filename: '20260324T120000-slug.jsonl', is_active: false },   ← healed if was stale
+   { filename: '20260323T100000-slug.jsonl', is_active: false }]   ← completed or healed
+```
+
+**Frontend rendering (`views/project-detail.js`):**
+- Array is already sorted newest-first by the server
+- Assigns chronological run numbers: oldest = #1, newest = #N (index 0 = #N)
+- Only index 0 can show a "Running" badge (`is_active` on older entries is ignored client-side as a second defence)
+- Timestamp parsed from filename prefix (YYYYMMDDTHHmmss) and formatted via `formatDate()`
+
+**Key properties:**
+- Self-healing is idempotent: once a stale file gains a `run_error` closing entry, it will never be re-healed
+- Healing runs as a side-effect of the GET — no dedicated endpoint or background job needed
+- `logsDir` is resolved from GUI config (`orchestrator_logs_dir`), falling back to `~/.ai-insights/orchestrator-logs`
+- Security: slug validated in both `server.ts` dispatch and handler; filename validated in `readLogEntries` (allowlist + path escape check)
+
+---
+
 ## Flow 13: GUI — Paginated Project Listing
 
 **Entry Point:** Browser or client sends `GET /api/projects` (with optional query params)
@@ -5822,7 +5986,11 @@ mcp-server/
 │   │
 │   ├── gui/                     # Shared GUI/config module
 │   │   ├── auto-archive.ts      # Auto-archive service
-│   │   └── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
+│   │   ├── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
+│   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
+│   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir
+│   │   └── handlers/
+│   │       └── run-log-handlers.ts  # handleListRunLogs, handleGetRunLog — thin wrappers adding slug validation over log-resolver.ts
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json

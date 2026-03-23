@@ -38,10 +38,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 
+from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
 from src.utils.tool_wrappers import inject_project_path
@@ -86,7 +88,7 @@ def create_stage_node(
     # with the LangGraph ``config`` parameter passed to the node at runtime.
     _app_config = config
 
-    async def node_fn(state: WorkflowState, config: RunnableConfig | None = None) -> dict:
+    async def node_fn(state: WorkflowState, config: Optional[RunnableConfig] = None) -> dict:
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
@@ -132,6 +134,41 @@ def create_stage_node(
             last_msg = _msgs[-1] if _msgs else None
             final_content: str = last_msg.content if last_msg is not None else ""  # type: ignore[union-attr]
             tokens_used = getattr(last_msg, "usage_metadata", None)
+
+            # ── dialogue capture (optional, non-fatal) ────────────────
+            dialogue_captured_entry: dict | None = None
+            if _app_config.capture_dialogues and _wp_id:
+                try:
+                    # Derive slug_dir from workspace_root + mcp-server/storage/ledger/<slug>
+                    # where slug is the last path segment of the ledger plan directory.
+                    project_path_obj = state["project_path"]  # type: ignore[index]
+                    slug = Path(project_path_obj).name
+                    slug_dir = (
+                        _app_config.workspace_root
+                        / "mcp-server"
+                        / "storage"
+                        / "ledger"
+                        / slug
+                    )
+                    ts_str = stage_start_time.isoformat()
+                    content = serialize_messages_to_markdown(_msgs, stage, _wp_id, ts_str)
+                    written_path = write_dialogue(content, slug_dir, _wp_id, stage)
+                    dialogue_captured_entry = {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "action": "dialogue_captured",
+                        "stage": stage,
+                        "wp_id": _wp_id,
+                        "file_path": str(written_path),
+                        "level": "INFO",
+                    }
+                    if run_logger:
+                        run_logger.stream_entry(dialogue_captured_entry)
+                except Exception:  # noqa: BLE001
+                    log.debug(
+                        "Dialogue capture failed for stage %s; continuing normally.",
+                        stage,
+                        exc_info=True,
+                    )
 
             # ── duration ──────────────────────────────────────────────
             stage_end_time = datetime.now(UTC)
@@ -196,6 +233,10 @@ def create_stage_node(
                         "Could not read back WP detail for pipeline_result event",
                         exc_info=True,
                     )
+
+            # Append dialogue_captured to run_log when present.
+            if dialogue_captured_entry is not None:
+                extra_log_entries.append(dialogue_captured_entry)
 
             return {
                 "stage_result": final_content,

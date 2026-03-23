@@ -8,6 +8,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── __init__.py
         └── test_cli.py
         └── test_config.py
+        └── test_dialogue_writer.py
         └── test_filelock.py
         └── test_graph.py
         └── test_integration.py
@@ -354,7 +355,9 @@ remain valid if the manifest gains new roles or pipeline types in the future.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -367,6 +370,7 @@ from src.config import (
     ROLE_IDS,
     VALID_STAGES,
     WP_TERMINAL_STATUSES,
+    load_config,
 )
 
 
@@ -553,6 +557,442 @@ class TestPersonaFilesExist:
             f"  Manifest says: {relative_path}\n"
             f"  Check shared/workflow-manifest.json persona_file entries."
         )
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by TestCaptureDialogues
+# ---------------------------------------------------------------------------
+
+# Minimum valid env required by load_config() so we can isolate the flag.
+_BASE_ENV = {
+    "MODEL_NAME": "claude-test",
+    "ANTHROPIC_API_KEY": "sk-test",
+}
+
+
+def _load(extra_env: dict | None = None) -> "Config":  # noqa: F821 – forward ref ok
+    """Call load_config() with a clean environment plus *extra_env* overrides."""
+    env = {**_BASE_ENV, **(extra_env or {})}
+    # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.
+    env.setdefault("CAPTURE_DIALOGUES", "")
+    with patch.dict(os.environ, env, clear=True):
+        return load_config()
+
+
+class TestCaptureDialogues:
+    """Tests for Config.capture_dialogues and CAPTURE_DIALOGUES env var parsing."""
+
+    # ------------------------------------------------------------------
+    # Default / falsy values
+    # ------------------------------------------------------------------
+
+    def test_default_is_false_when_env_var_unset(self):
+        """capture_dialogues defaults to False when CAPTURE_DIALOGUES is absent."""
+        env = {**_BASE_ENV}
+        with patch.dict(os.environ, env, clear=True):
+            cfg = load_config()
+        assert cfg.capture_dialogues is False
+
+    def test_false_when_env_var_is_empty_string(self):
+        assert _load({"CAPTURE_DIALOGUES": ""}).capture_dialogues is False
+
+    def test_false_when_env_var_is_false(self):
+        assert _load({"CAPTURE_DIALOGUES": "false"}).capture_dialogues is False
+
+    def test_false_when_env_var_is_zero(self):
+        assert _load({"CAPTURE_DIALOGUES": "0"}).capture_dialogues is False
+
+    def test_false_when_env_var_is_no(self):
+        assert _load({"CAPTURE_DIALOGUES": "no"}).capture_dialogues is False
+
+    def test_false_when_env_var_is_arbitrary_value(self):
+        assert _load({"CAPTURE_DIALOGUES": "maybe"}).capture_dialogues is False
+
+    # ------------------------------------------------------------------
+    # Truthy values
+    # ------------------------------------------------------------------
+
+    def test_true_when_env_var_is_lowercase_true(self):
+        assert _load({"CAPTURE_DIALOGUES": "true"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_titlecase_True(self):
+        assert _load({"CAPTURE_DIALOGUES": "True"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_uppercase_TRUE(self):
+        assert _load({"CAPTURE_DIALOGUES": "TRUE"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_one(self):
+        assert _load({"CAPTURE_DIALOGUES": "1"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_yes(self):
+        assert _load({"CAPTURE_DIALOGUES": "yes"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_YES(self):
+        assert _load({"CAPTURE_DIALOGUES": "YES"}).capture_dialogues is True
+
+    # ------------------------------------------------------------------
+    # Type check
+    # ------------------------------------------------------------------
+
+    def test_field_is_bool_type(self):
+        """capture_dialogues must be a plain Python bool, not a truthy string."""
+        cfg = _load({"CAPTURE_DIALOGUES": "true"})
+        assert isinstance(cfg.capture_dialogues, bool)
+
+    def test_field_is_bool_type_when_false(self):
+        cfg = _load()
+        assert isinstance(cfg.capture_dialogues, bool)
+
+```
+###  Path: `/orchestrator/tests/test_dialogue_writer.py`
+
+```py
+"""
+test_dialogue_writer.py — Unit tests for orchestrator/src/utils/dialogue_writer.py.
+
+All filesystem operations use pytest's ``tmp_path`` fixture; no real files are
+created outside the temporary directory.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from langchain_core.messages import SystemMessage
+
+from src.utils.dialogue_writer import _msg_role, serialize_messages_to_markdown, write_dialogue
+
+
+# ---------------------------------------------------------------------------
+# Minimal message stubs (no LangChain dependency required for unit tests)
+# ---------------------------------------------------------------------------
+
+def _human(content: str) -> Any:
+    return SimpleNamespace(type="human", content=content, tool_calls=None, usage_metadata=None)
+
+
+def _ai(content: str, tool_calls: list | None = None, usage: dict | None = None) -> Any:
+    return SimpleNamespace(
+        type="ai",
+        content=content,
+        tool_calls=tool_calls or [],
+        usage_metadata=usage,
+    )
+
+
+def _tool(content: str, tool_call_id: str = "tc-1") -> Any:
+    return SimpleNamespace(
+        type="tool",
+        content=content,
+        tool_calls=None,
+        tool_call_id=tool_call_id,
+        usage_metadata=None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# serialize_messages_to_markdown
+# ---------------------------------------------------------------------------
+
+class TestSerializeHeader:
+    """Document header is always present regardless of message content."""
+
+    def test_header_contains_stage(self):
+        md = serialize_messages_to_markdown([], stage="developer", wp_id="WP-001")
+        assert "developer" in md
+
+    def test_header_contains_wp_id(self):
+        md = serialize_messages_to_markdown([], stage="developer", wp_id="WP-001")
+        assert "WP-001" in md
+
+    def test_header_contains_custom_timestamp(self):
+        ts = "2026-01-15T10:00:00+00:00"
+        md = serialize_messages_to_markdown([], stage="developer", wp_id="WP-001", timestamp=ts)
+        assert ts in md
+
+    def test_header_auto_timestamp_when_none(self):
+        md = serialize_messages_to_markdown([], stage="qa", wp_id="WP-002")
+        # A UTC ISO timestamp contains "T" and ends with "+00:00" or "Z".
+        assert "T" in md  # rough sanity — there is some ISO-looking timestamp
+
+    def test_title_line_format(self):
+        md = serialize_messages_to_markdown([], stage="reviewer", wp_id="WP-003")
+        assert "# Dialogue" in md
+
+
+class TestSerializeEmptyMessages:
+    """Empty message lists must not raise and must produce a valid document."""
+
+    def test_no_exception(self):
+        serialize_messages_to_markdown([], stage="developer", wp_id="WP-001")
+
+    def test_returns_string(self):
+        result = serialize_messages_to_markdown([], stage="developer", wp_id="WP-001")
+        assert isinstance(result, str)
+
+    def test_minimal_placeholder_present(self):
+        md = serialize_messages_to_markdown([], stage="developer", wp_id="WP-001")
+        assert "No messages" in md or "no messages" in md.lower()
+
+
+class TestSerializeHumanMessage:
+    """Human messages appear under ## Human."""
+
+    def test_human_section_header(self):
+        msgs = [_human("Hello, agent.")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "## Human" in md
+
+    def test_human_content_preserved(self):
+        msgs = [_human("Please implement the feature.")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "Please implement the feature." in md
+
+    def test_multi_paragraph_content(self):
+        text = "Paragraph one.\n\nParagraph two."
+        msgs = [_human(text)]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "Paragraph one." in md
+        assert "Paragraph two." in md
+
+
+class TestSerializeAIMessage:
+    """AI messages appear under ## Assistant."""
+
+    def test_assistant_section_header(self):
+        msgs = [_ai("I will implement the feature.")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "## Assistant" in md
+
+    def test_ai_content_preserved(self):
+        msgs = [_ai("Implementation complete.")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "Implementation complete." in md
+
+    def test_tool_call_rendered_as_fenced_block(self):
+        tc = [{"name": "read_file", "args": {"path": "/foo/bar.py"}, "id": "tc-abc"}]
+        msgs = [_ai("Let me read the file.", tool_calls=tc)]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "read_file" in md
+        assert "```" in md
+        assert "/foo/bar.py" in md
+
+    def test_tool_call_name_highlighted(self):
+        tc = [{"name": "write_file", "args": {}, "id": "tc-1"}]
+        msgs = [_ai("", tool_calls=tc)]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "write_file" in md
+
+    def test_multiple_tool_calls_all_rendered(self):
+        tc = [
+            {"name": "tool_a", "args": {"x": 1}, "id": "tc-1"},
+            {"name": "tool_b", "args": {"y": 2}, "id": "tc-2"},
+        ]
+        msgs = [_ai("Using two tools.", tool_calls=tc)]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "tool_a" in md
+        assert "tool_b" in md
+
+
+class TestSerializeToolMessage:
+    """Tool messages appear under ## Tool Result."""
+
+    def test_tool_result_section_header(self):
+        msgs = [_tool("File content here.")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "## Tool Result" in md
+
+    def test_tool_content_preserved(self):
+        msgs = [_tool("The answer is 42.")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "The answer is 42." in md
+
+
+class TestSerializeMultipleMessages:
+    """Multiple messages are all rendered in order."""
+
+    def test_all_roles_present(self):
+        msgs = [
+            _human("Do the thing."),
+            _ai("Calling tool.", tool_calls=[{"name": "x", "args": {}, "id": "tc-1"}]),
+            _tool("Tool returned value."),
+            _ai("Done."),
+        ]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "## Human" in md
+        assert "## Assistant" in md
+        assert "## Tool Result" in md
+
+    def test_ordering_preserved(self):
+        msgs = [_human("First"), _ai("Second"), _tool("Third")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        pos_human = md.index("## Human")
+        pos_ai = md.index("## Assistant")
+        pos_tool = md.index("## Tool Result")
+        assert pos_human < pos_ai < pos_tool
+
+
+class TestSerializeUsageMetadata:
+    """Aggregate token-usage table is appended when usage_metadata is present."""
+
+    def test_usage_section_present_when_metadata_available(self):
+        msgs = [_ai("Done.", usage={"input_tokens": 100, "output_tokens": 50})]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "Token Usage" in md
+
+    def test_usage_counts_appear_in_output(self):
+        msgs = [_ai("Done.", usage={"input_tokens": 123, "output_tokens": 456})]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "123" in md
+        assert "456" in md
+
+    def test_usage_section_absent_when_no_metadata(self):
+        msgs = [_human("Hello"), _ai("Hi")]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "Token Usage" not in md
+
+    def test_usage_aggregated_across_messages(self):
+        msgs = [
+            _ai("First.", usage={"input_tokens": 10, "output_tokens": 20}),
+            _ai("Second.", usage={"input_tokens": 5, "output_tokens": 15}),
+        ]
+        md = serialize_messages_to_markdown(msgs, stage="developer", wp_id="WP-001")
+        assert "15" in md  # 10 + 5
+        assert "35" in md  # 20 + 15
+
+    def test_usage_section_absent_for_empty_messages(self):
+        md = serialize_messages_to_markdown([], stage="developer", wp_id="WP-001")
+        assert "Token Usage" not in md
+
+
+# ---------------------------------------------------------------------------
+# write_dialogue
+# ---------------------------------------------------------------------------
+
+class TestWriteDialogueCreatesDirectory:
+    """The dialogues/ subdirectory is created when absent."""
+
+    def test_creates_dialogues_dir(self, tmp_path: Path):
+        write_dialogue("# Hello", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert (tmp_path / "dialogues").is_dir()
+
+    def test_no_error_when_dir_already_exists(self, tmp_path: Path):
+        (tmp_path / "dialogues").mkdir()
+        write_dialogue("# Hello", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+
+
+class TestWriteDialogueRevisionNumbers:
+    """Revision counter starts at 0 and increments on each call."""
+
+    def test_first_file_is_r0(self, tmp_path: Path):
+        path = write_dialogue("content", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert path.name == "WP-001-developer-r0.md"
+
+    def test_second_call_is_r1(self, tmp_path: Path):
+        write_dialogue("v1", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        path2 = write_dialogue("v2", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert path2.name == "WP-001-developer-r1.md"
+
+    def test_third_call_is_r2(self, tmp_path: Path):
+        for _ in range(2):
+            write_dialogue("v", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        path3 = write_dialogue("v3", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert path3.name == "WP-001-developer-r2.md"
+
+    def test_different_stage_starts_at_r0(self, tmp_path: Path):
+        write_dialogue("v1", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        path = write_dialogue("v1", slug_dir=tmp_path, wp_id="WP-001", stage="qa")
+        assert path.name == "WP-001-qa-r0.md"
+
+    def test_different_wp_id_starts_at_r0(self, tmp_path: Path):
+        write_dialogue("v1", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        path = write_dialogue("v1", slug_dir=tmp_path, wp_id="WP-002", stage="developer")
+        assert path.name == "WP-002-developer-r0.md"
+
+
+class TestWriteDialogueContent:
+    """Written file contains exactly the provided content."""
+
+    def test_content_written_correctly(self, tmp_path: Path):
+        content = "# My Dialogue\n\nHello world.\n"
+        path = write_dialogue(content, slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert path.read_text(encoding="utf-8") == content
+
+    def test_empty_content_written(self, tmp_path: Path):
+        path = write_dialogue("", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert path.read_text(encoding="utf-8") == ""
+
+
+class TestWriteDialogueReturnValue:
+    """write_dialogue() returns the Path of the written file."""
+
+    def test_returns_path_object(self, tmp_path: Path):
+        result = write_dialogue("x", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert isinstance(result, Path)
+
+    def test_returned_path_exists(self, tmp_path: Path):
+        result = write_dialogue("x", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert result.exists()
+
+    def test_returned_path_is_inside_dialogues_dir(self, tmp_path: Path):
+        result = write_dialogue("x", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        assert result.parent == tmp_path / "dialogues"
+
+
+class TestWriteDialogueNoSideEffects:
+    """Files are only created inside tmp_path — not in the working directory."""
+
+    def test_no_dialogues_dir_in_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.chdir(tmp_path)
+        separate_dir = tmp_path / "project"
+        separate_dir.mkdir()
+        write_dialogue("x", slug_dir=separate_dir, wp_id="WP-001", stage="developer")
+        # The CWD (tmp_path) should not have a dialogues/ dir.
+        assert not (tmp_path / "dialogues").exists()
+        # Only the project dir's dialogues subdir should exist.
+        assert (separate_dir / "dialogues").exists()
+
+
+# ---------------------------------------------------------------------------
+# _msg_role helper — SystemMessage coverage (WP-005)
+# ---------------------------------------------------------------------------
+
+class TestMsgRoleSystem:
+    """_msg_role() correctly identifies a SystemMessage and returns 'System'."""
+
+    def test_system_message_returns_system(self):
+        msg = SystemMessage(content="You are a helpful assistant.")
+        assert _msg_role(msg) == "System"
+
+
+# ---------------------------------------------------------------------------
+# Round-trip: serialize → write → read back
+# ---------------------------------------------------------------------------
+
+class TestRoundTrip:
+    """Ensure the serialiser output can be written and read back intact."""
+
+    def test_round_trip(self, tmp_path: Path):
+        msgs = [
+            _human("Implement the feature."),
+            _ai("Done.", usage={"input_tokens": 10, "output_tokens": 5}),
+        ]
+        content = serialize_messages_to_markdown(
+            msgs,
+            stage="developer",
+            wp_id="WP-001",
+            timestamp="2026-01-01T00:00:00+00:00",
+        )
+        path = write_dialogue(content, slug_dir=tmp_path, wp_id="WP-001", stage="developer")
+        recovered = path.read_text(encoding="utf-8")
+        assert recovered == content
+        assert "## Human" in recovered
+        assert "## Assistant" in recovered
+        assert "Token Usage" in recovered
 
 ```
 ###  Path: `/orchestrator/tests/test_filelock.py`
@@ -2086,6 +2526,58 @@ class TestReworkDetected:
 
 
 # ---------------------------------------------------------------------------
+# dialogue_captured event formatting
+# ---------------------------------------------------------------------------
+
+
+class TestDialogueCaptured:
+    """_build_stream_console_line handles the dialogue_captured event."""
+
+    def test_format_with_file_path(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "dialogue_captured",
+            "file_path": "/some/path/dialogues/WP-003-developer-r0.md",
+            "level": "INFO",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "WP-003" in line
+        assert "dialogue saved" in line
+        assert "WP-003-developer-r0.md" in line
+
+    def test_format_includes_stage_and_wp(self):
+        entry = {
+            "stage": "qa",
+            "wp_id": "WP-007",
+            "action": "dialogue_captured",
+            "file_path": "/tmp/dialogues/WP-007-qa-r1.md",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[qa]" in line
+        assert "WP-007" in line
+
+    def test_format_no_file_path(self):
+        """Must not crash when file_path is missing or empty."""
+        entry = {"stage": "developer", "wp_id": "WP-001", "action": "dialogue_captured"}
+        line = _build_stream_console_line(entry)
+        assert line  # non-empty
+        assert "dialogue saved" in line
+
+    def test_no_wp_id(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "",
+            "action": "dialogue_captured",
+            "file_path": "/tmp/dialogue.md",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "dialogue saved" in line
+
+
+# ---------------------------------------------------------------------------
 # Existing event type formatting is unchanged
 # ---------------------------------------------------------------------------
 
@@ -2364,6 +2856,7 @@ class _FakeConfig:
     """Minimal Config-like object for test injection."""
     model_name = "claude-test"
     workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
+    capture_dialogues = False  # Default off; override in specific test classes
 
 
 FAKE_CONFIG = _FakeConfig()
@@ -3171,6 +3664,159 @@ class TestPipelineResult:
         ]
         assert not pr_entries, (
             "pipeline_result must not be emitted when WP has no pipelines"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: dialogue_captured event
+# ---------------------------------------------------------------------------
+
+
+class _CaptureConfig:
+    """Config stub with capture_dialogues=True."""
+    model_name = "claude-test"
+    workspace_root = Path(__file__).resolve().parent.parent.parent
+    capture_dialogues = True
+
+
+class _NoCaptureConfig:
+    """Config stub with capture_dialogues=False."""
+    model_name = "claude-test"
+    workspace_root = Path(__file__).resolve().parent.parent.parent
+    capture_dialogues = False
+
+
+class TestDialogueCaptured:
+    """dialogue_captured must appear in run_log when capture_dialogues=True."""
+
+    async def _invoke_with_capture(self, capture: bool, wp_id: str = "WP-001") -> dict:
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig() if capture else _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch(
+                 "src.nodes.write_dialogue",
+                 return_value=Path("/tmp/WP-001-developer-r0.md"),
+             ), \
+             patch(
+                 "src.nodes.serialize_messages_to_markdown",
+                 return_value="# Dialogue",
+             ):
+            return await node_fn(base_state(current_wp_id=wp_id))
+
+    async def test_dialogue_captured_emitted_when_flag_true(self):
+        """dialogue_captured must appear in run_log when capture_dialogues=True."""
+        result = await self._invoke_with_capture(capture=True)
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, "dialogue_captured entry expected in run_log when capture_dialogues=True"
+
+    async def test_dialogue_captured_has_required_fields(self):
+        """dialogue_captured entry must have action, stage, wp_id, file_path, level."""
+        result = await self._invoke_with_capture(capture=True)
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, "dialogue_captured entry missing"
+        entry = dc_entries[0]
+        assert entry["action"] == "dialogue_captured"
+        assert "stage" in entry
+        assert "wp_id" in entry
+        assert entry.get("file_path"), "file_path must be a non-empty string"
+        assert entry.get("level") == "INFO"
+
+    async def test_dialogue_captured_not_emitted_when_flag_false(self):
+        """No dialogue_captured entry when capture_dialogues=False."""
+        result = await self._invoke_with_capture(capture=False)
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, "dialogue_captured must not appear when capture_dialogues=False"
+
+    async def test_dialogue_captured_not_emitted_when_wp_id_empty(self):
+        """No dialogue_captured entry when wp_id is empty (even if flag is True)."""
+        result = await self._invoke_with_capture(capture=True, wp_id="")
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
+
+    async def test_write_dialogue_failure_does_not_affect_stage_success(self):
+        """A PermissionError (or any exception) from write_dialogue must not
+        cause stage_success=False or propagate as an exception."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch(
+                 "src.nodes.serialize_messages_to_markdown",
+                 return_value="# Dialogue",
+             ), \
+             patch(
+                 "src.nodes.write_dialogue",
+                 side_effect=PermissionError("disk full"),
+             ):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is True, (
+            "write_dialogue failure must not set stage_success=False"
+        )
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear in run_log when write_dialogue raises"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: slug derivation uses Path(...).name (WP-002)
+# ---------------------------------------------------------------------------
+
+
+class TestSlugDerivation:
+    """create_stage_node must use Path(project_path_obj).name to derive the slug,
+    which handles trailing-slash paths and pathlib.Path-typed inputs correctly."""
+
+    async def _invoke_and_capture_slug_dir(self, project_path: Any) -> list[Path]:
+        """Invoke developer node with the given project_path; return every
+        slug_dir passed to write_dialogue."""
+        from src.nodes.developer import make_developer_node
+
+        captured_slug_dirs: list[Path] = []
+
+        # write_dialogue(content, slug_dir, wp_id, stage) — positional signature.
+        def _fake_write_dialogue(
+            content: str, slug_dir: Path, wp_id: str, stage: str
+        ) -> Path:
+            captured_slug_dirs.append(slug_dir)
+            return slug_dir / f"{wp_id}-{stage}-r0.md"
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch("src.nodes.write_dialogue", side_effect=_fake_write_dialogue), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Dialogue"):
+            await node_fn(base_state(project_path=project_path, current_wp_id="WP-001"))
+
+        return captured_slug_dirs
+
+    async def test_trailing_slash_path_extracts_correct_slug(self):
+        """Path with a trailing '/' must still produce the correct slug segment."""
+        slug_dirs = await self._invoke_and_capture_slug_dir(
+            "/some/ledger/root/2026-03-20-my-project/"
+        )
+        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        # slug_dir is workspace_root / "mcp-server" / "storage" / "ledger" / slug
+        # — the last component must be the project slug, not an empty string.
+        assert slug_dirs[0].name == "2026-03-20-my-project", (
+            f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
+        )
+
+    async def test_pathlib_path_typed_input_extracts_correct_slug(self):
+        """A pathlib.Path-typed project_path must produce the correct slug segment."""
+        slug_dirs = await self._invoke_and_capture_slug_dir(
+            Path("/some/ledger/root/2026-03-20-my-project")
+        )
+        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        assert slug_dirs[0].name == "2026-03-20-my-project", (
+            f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
         )
 
 ```

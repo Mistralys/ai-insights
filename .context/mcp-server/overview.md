@@ -315,10 +315,11 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - **Pipeline progression bar** — the WP Detail view renders a "Pipeline Progression" card above the Pipelines section, showing the WP's active stages as status-colored badges; derives all data from the already-fetched WP detail (no extra API call); all stages default to pending when no pipelines have run yet
 - **Per-pipeline duration badge** — each pipeline entry in the WP Detail view shows a duration badge (e.g. `2m 15s`) when `duration_ms` is present; pipelines without timing data render without a badge (backward-compatible with older pipeline records)
 - **WP aggregate timing** — the WP Detail view displays an "Active time" total (sum of all pipeline `duration_ms` values) and a "Wall-clock" span (time from first pipeline `started_at` to last `completed_at`); the section is shown conditionally only when at least one pipeline has timing data
+- **Dialogues card** — the WP Detail view fetches and displays agent dialogue files captured by the orchestrator; dialogues are grouped by stage name with one pill button per revision; the latest revision is visually highlighted; clicking a button fetches and renders the Markdown content inline (with collapse/toggle); errors are shown inline without crashing the rest of the view; the card appears after Handoff Notes at the bottom of the page
 - **Project-level timing** — the Project Detail page shows a "Duration" field (elapsed time since project creation) and an "Active time" field (aggregate of all pipeline durations across all WPs); computed server-side by `handleGetProject` reading all WP detail files in parallel
 - Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - Delete completed projects permanently
-- Toggle auto-handoff and adjust the max handoff depth at runtime (no restart required)
+- Toggle auto-handoff, adjust the max handoff depth, and toggle dialogue capture at runtime (no restart required)
 - **Dark mode** — theme toggle button (🌙 / ☀️) in the nav header persists the preference to `localStorage`; defaults to dark on first visit. FOUC-prevention inline script in `<head>` applies the saved theme before first paint
 
 > The GUI server is a **separate process** from the MCP server. Both can run simultaneously and share the same ledger directory. The MCP server monitors `gui-config.json` for configuration changes via `fs.watch()` — changes take effect immediately without restarting.
@@ -332,6 +333,7 @@ The GUI backend is composed of focused utility modules in `src/gui/`:
 | `config.ts` | Reads and watches `gui-config.json`; exposes typed configuration to the API layer |
 | `auto-archive.ts` | Background job that auto-archives completed projects after a configurable delay |
 | `log-resolver.ts` | Locates and reads orchestrator run log files (JSONL); provides `resolveOrchestratorLogsDir`, `findRunLogs`, and `readLogEntries` — see below |
+| `api.ts` (dialogue handlers) | `handleListDialogues` and `handleGetDialogueFile` serve the project's `dialogues/` directory — see below |
 
 #### `log-resolver.ts` — Orchestrator Run Log Resolver
 
@@ -348,6 +350,38 @@ Provides three exported functions for reading orchestrator run logs:
 Both layers throw `ApiError FORBIDDEN` on violation. Errors are written to **stderr only** (STDIO discipline preserved).
 
 > **Known limitation:** `resolveOrchestratorLogsDir` and `findRunLogs` do not currently validate that the supplied path is absolute. If a relative path is stored in `gui-config.json`, `findRunLogs` may resolve it against the process CWD. `readLogEntries` is immune to this (its escape-check uses `path.resolve()`). A `path.isAbsolute()` guard is planned before these functions are wired into any HTTP-facing endpoint.
+
+#### Dialogue API handlers — `GET /api/projects/:slug/dialogues[?wp=WP-001]` and `GET /api/projects/:slug/dialogues/:filename`
+
+Two API handlers in `gui/api.ts` expose the agent dialogue files written by the orchestrator's dialogue capture feature:
+
+- **`handleListDialogues(ledgerRoot, slug, wpId?): Promise<string[]>`** — Returns a sorted array of `.md` filenames from `storage/ledger/{slug}/dialogues/`. Returns `[]` when the directory is absent (no error thrown). Optional `wpId` argument filters to filenames that start with `{wpId}-` (e.g. `'WP-001'` returns only `WP-001-*.md` files).
+- **`handleGetDialogueFile(ledgerRoot, slug, filename): Promise<string>`** — Returns the raw Markdown content of a single dialogue file. Throws `ApiError NOT_FOUND` when the filename is rejected by the allowlist or the file does not exist.
+
+**Security:** `handleGetDialogueFile` enforces a dual-layer path-traversal defence identical in structure to `readLogEntries`:
+1. **Filename allowlist** — `DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/` rejects any filename containing `.`, `/`, or other special characters. The `filename` path segment is decoded with `decodeURIComponent()` in `server.ts` before the check, so percent-encoded traversals (e.g. `%2E%2E%2Fsecret.md`) are also rejected.
+2. **Resolved-path escape check** — `path.resolve()` verifies the resolved file path stays within the project's `dialogues/` directory.
+
+Both layers throw `ApiError NOT_FOUND` on violation (no leaking of filesystem layout).
+
+#### GUI Frontend — Dialogues card (`views/work-package.js`)
+
+The WP Detail view includes a **Dialogues card** rendered asynchronously after the Handoff Notes section. Two new methods on the `API` object (in `api-client.js`) back this feature:
+
+- **`API.getDialogues(slug, wpId)`** — `GET /api/projects/:slug/dialogues?wp={wpId}`. Returns a parsed JSON array of `{ filename, stage, wp_id }` objects. Hand-rolls its `?wp=` query string (consistent with `getRunLogEntries`).
+- **`API.getDialogueContent(slug, filename)`** — `GET /api/projects/:slug/dialogues/:filename`. Returns raw Markdown text via `res.text()`. Uses a direct `fetch()` call rather than the internal `request()` helper, which calls `res.json()`.
+
+**Rendering flow:**
+
+1. A `<div id="wp-dialogues-section">` placeholder is injected synchronously into `app.innerHTML` at the bottom of the WP detail DOM (after `handoffHtml`). A closure reference (`dialoguesEl`) is captured before the async call resolves.
+2. `API.getDialogues()` is called. If the response is empty, a "No dialogues available" message is rendered in the placeholder.
+3. For a non-empty response, dialogues are grouped by `stage` (insertion order preserved). Each stage renders as a row with a label and pill buttons — one per revision (`stage-r0`, `stage-r1`, …). The last revision gets the `.dialogue-btn-latest` class (bold, blue-bordered).
+4. A single delegated `click` listener on `dialoguesEl` handles all button presses via `e.target.closest('.dialogue-btn')`.
+5. Clicking a button calls `API.getDialogueContent()` and renders the result with `marked.parse()` inside a `.dialogue-content` container. The output is set via `innerHTML` (trusted HTML — consistent with plan/synthesis rendering; no sanitization).
+6. An `activeBtn` closure variable tracks the currently expanded button for collapse/toggle behaviour: clicking a different button collapses the current one; clicking the same button again toggles it off.
+7. `getDialogueContent` errors render an inline `.text-danger` message. `getDialogues` errors render a `.text-danger` message inside the Dialogues card. Neither error propagates to the surrounding WP view.
+
+> **Accessibility (future):** `.dialogue-btn` buttons do not set `aria-expanded`. A future pass should toggle it alongside `.dialogue-btn-active`.
 
 ---
 

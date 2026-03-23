@@ -89,6 +89,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 4. **Circuit-breaker.** A work package accumulating ≥3 consecutive stage failures is skipped for the remainder of the run.
 5. **Stage node isolation.** Each stage node creates its own Deep Agent instance per invocation — no shared state between stages.
 6. **Cross-platform.** File locking uses `msvcrt` on Windows and `fcntl` on Unix. All path handling uses `pathlib`.
+7. **LangGraph config annotations.** With `from __future__ import annotations`, Python stringifies all type hints. LangGraph's config injection depends on exact annotation string matching — `RunnableConfig | None` becomes the string `"RunnableConfig | None"` which LangGraph does not recognise. Use `Optional[RunnableConfig]` instead (produces `"Optional[RunnableConfig]"` which is in the allowlist). Symptom: `get_run_logger: config is None` warnings, events only flushed at run end.
 
 ---
 
@@ -139,7 +140,7 @@ For complete signatures and full field descriptions see the linked documents abo
 
 ## JSONL Event Types — Logging Module (`src/utils/logging.py`)
 
-The schema supports **16 event types** across three emitters. For the full field reference,
+The schema supports **17 event types** across three emitters. For the full field reference,
 duration conventions, JSON examples, and backward-compatibility notes see
 [jsonl-log-schema.md](../../jsonl-log-schema.md).
 
@@ -161,6 +162,12 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `progress_snapshot` | `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, **`elapsed_s`**, `run_start_ts` (optional) | **New.** Emitted every iteration. `elapsed_s` — seconds since `run_start_ts`; omitted when `run_start_ts` absent. `run_start_ts` — echoes `WorkflowState.run_start_ts`; `None` when unavailable. |
 | `rework_detected` | `wp_id`, `agent_role`, `pipeline_type`, `rework_count` | **New.** Fired when supervisor dispatches a `REWORK` action. |
 | `route` | `destination`, `agent_role`, `ledger_action`, **`prev_stage`**, **`prev_wp_id`**, **`prev_result`** | Enriched: `prev_stage`, `prev_wp_id`, `prev_result` (`"PASS"` / `"FAIL"` / `""`) added to provide previous-stage context. |
+
+### Heartbeat events (`src/utils/logging.py`)
+
+| `action` | Key fields | Notes |
+|----------|-----------|-------|
+| `heartbeat` | `stage="heartbeat"`, `silence_s` | Emitted by `WorkflowLogger._heartbeat_loop` when no log entry has been written for `HEARTBEAT_INTERVAL_S` seconds. Console line: `[heartbeat] ♥ alive (quiet for 2m 0s)`. Configure via `HEARTBEAT_INTERVAL_S` env var (default `120`, `0` to disable). |
 
 ### CLI events (`src/cli.py`)
 
@@ -187,7 +194,7 @@ All duration values are floats rounded to 1 decimal place.
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `WorkflowLogger` | `WorkflowLogger.create(label)` → context manager | JSONL + console logger. `stream_entry(entry)` writes a log entry dict to JSONL and emits event-type-specific console output. `log(...)` writes a freeform entry. |
+| `WorkflowLogger` | `WorkflowLogger.create(label)` → context manager | JSONL + console logger. `stream_entry(entry)` writes a log entry dict to JSONL and emits event-type-specific console output. `log(...)` writes a freeform entry. `flush_unstreamed(run_log)` writes any `run_log` entries not already persisted via `stream_entry` (safety net for when the logger is unreachable inside graph nodes). `start_heartbeat(interval_s)` / `stop_heartbeat()` — async methods managing a background heartbeat task. |
 | `_format_duration` | `_format_duration(seconds: float \| None) -> str` | Formats a float of seconds as a human-readable string. Examples: `"3m 24s"`, `"1h 12m"`, `"45s"`, `"0s"`. Returns `"0s"` for `None` or zero. Used internally by `stream_entry` for console output of `stage_complete`, `progress_snapshot`, and `pipeline_result` events. **Private** — not part of the public API but documented here as it drives all human-readable duration display. |
 | `get_run_logger` | `get_run_logger(config) -> WorkflowLogger \| None` | Extracts the `WorkflowLogger` instance from a LangGraph `RunnableConfig`. Returns `None` when no logger is attached (e.g. in unit tests). |
 

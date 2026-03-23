@@ -5,6 +5,7 @@ _SOURCE: Directory tree_
 ```
 └── orchestrator/
     └── README.md
+    └── _test_config.py
     └── ai_insights_orchestrator.egg-info/
         ├── PKG-INFO/
         ├── SOURCES.txt
@@ -44,6 +45,12 @@ _SOURCE: Directory tree_
         ├── 20260320T135939-2026-03-20-naming-convention-sweep.jsonl
         ├── 20260323T091956-2026-03-23-progress-reporting-followup.jsonl
         ├── 20260323T104010-2026-03-23-orchestrator-run-log-viewer.jsonl
+        ├── 20260323T143701-2026-03-20-dialogue-capture.jsonl
+        ├── 20260323T143922-2026-03-20-dialogue-capture.jsonl
+        ├── 20260323T160604-2026-03-20-dialogue-capture.jsonl
+        ├── 20260323T173850-2026-03-20-dialogue-capture-rework-1.jsonl
+        ├── 20260323T174105-2026-03-20-dialogue-capture-rework-1.jsonl
+        ├── 20260323T180014-2026-03-20-dialogue-capture-rework-1.jsonl
     └── module-context.yaml
     └── pyproject.toml
     └── requirements.txt
@@ -67,6 +74,7 @@ _SOURCE: Directory tree_
         ├── supervisor.py
         ├── utils/
         │   └── __init__.py
+        │   └── dialogue_writer.py
         │   └── filelock.py
         │   └── logging.py
         │   └── mcp_parse.py
@@ -77,6 +85,7 @@ _SOURCE: Directory tree_
         └── __init__.py
         └── test_cli.py
         └── test_config.py
+        └── test_dialogue_writer.py
         └── test_filelock.py
         └── test_graph.py
         └── test_integration.py
