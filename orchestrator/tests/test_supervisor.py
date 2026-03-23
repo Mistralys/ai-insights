@@ -1485,3 +1485,101 @@ class TestReworkDetectedEvent:
             if e.get("action") == "rework_detected"
         ]
         assert not rd_entries, "rework_detected must not appear for IMPLEMENT action"
+
+
+# ---------------------------------------------------------------------------
+# Tests: prev_result=FAIL and malformed run_start_ts — WP-006 AC2 / AC3
+# ---------------------------------------------------------------------------
+
+class TestEnrichedRouteEventsFailResult:
+    """Extra coverage for enriched route-event fields added in WP-006."""
+
+    async def test_route_prev_result_fail_when_stage_failed_with_wp_id(self):
+        """prev_result must be 'FAIL' when stage_success=False and prev_wp_id
+        is non-empty.  This exercises the 'FAIL if prev_wp_id' branch in the
+        supervisor's _log_entry call for route events."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-002", "IN_PROGRESS")],
+            wp_details={"WP-002": wp_with_pipelines("WP-002", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # Simulate the previous stage having failed for WP-001.
+        state["stage_success"] = False
+        state["current_wp_id"] = "WP-001"  # non-empty prev_wp_id
+
+        cmd = await node(state)
+
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route"
+        ]
+        assert route_entries, "route entry expected in run_log"
+        entry = route_entries[0]
+        assert entry.get("prev_result") == "FAIL", (
+            f"Expected prev_result='FAIL', got {entry.get('prev_result')!r}"
+        )
+
+    async def test_route_prev_result_empty_when_stage_failed_but_no_prev_wp_id(self):
+        """prev_result must be '' (empty string) when stage_success=False but
+        prev_wp_id is also empty (first routing iteration with no prior WP).
+
+        Uses a READY WP so the supervisor emits a role-dispatch route entry
+        (the 'no work packages' path doesn't include prev_result at all).
+        """
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["stage_success"] = False
+        state["current_wp_id"] = ""  # no previous wp_id
+
+        cmd = await node(state)
+
+        # Filter to the role-dispatch route entry (has prev_result).
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route" and "prev_result" in e
+        ]
+        assert route_entries, "role-dispatch route entry with prev_result expected"
+        entry = route_entries[0]
+        assert entry.get("prev_result") == "", (
+            f"Expected prev_result='', got {entry.get('prev_result')!r}"
+        )
+
+
+class TestProgressSnapshotMalformedTs:
+    """elapsed_s must be None (not raise) when run_start_ts is a malformed string."""
+
+    async def test_elapsed_s_none_when_run_start_ts_malformed(self):
+        """Malformed run_start_ts must cause elapsed_s=None in progress_snapshot
+        rather than raising ValueError."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["run_start_ts"] = "not-a-valid-iso-timestamp"
+
+        cmd = await node(state)
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots, "progress_snapshot entry expected in run_log"
+        elapsed = snapshots[0].get("elapsed_s")
+        assert elapsed is None, (
+            f"Expected elapsed_s=None for malformed timestamp, got {elapsed!r}"
+        )
+
+    async def test_supervisor_does_not_raise_on_malformed_run_start_ts(self):
+        """A malformed run_start_ts must not propagate as an exception."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["run_start_ts"] = "2026-99-99T99:99:99"  # invalid date parts
+
+        # Must not raise.
+        cmd = await node(state)
+        assert cmd is not None

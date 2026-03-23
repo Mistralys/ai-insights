@@ -818,3 +818,21 @@ class TestPipelineResult:
         # Also confirm no pipeline_result was emitted.
         pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
         assert not pr_entries
+
+    async def test_pipeline_result_not_emitted_when_pipelines_list_is_empty(self):
+        """No pipeline_result entry must appear when ledger_get_work_package
+        returns a WP whose pipelines list is empty (no pipeline has run yet)."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([])  # empty pipelines list
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [
+            e for e in result["run_log"] if e.get("action") == "pipeline_result"
+        ]
+        assert not pr_entries, (
+            "pipeline_result must not be emitted when WP has no pipelines"
+        )

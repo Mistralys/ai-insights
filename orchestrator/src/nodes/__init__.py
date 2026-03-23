@@ -71,13 +71,14 @@ def create_stage_node(
         from src.utils.persona import load_persona
 
         run_logger = get_run_logger(config)
+        _wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
         # ── stage_start ───────────────────────────────────────────────
         stage_start_time = datetime.now(UTC)
         start_entry: dict = {
             "timestamp": stage_start_time.isoformat(),
             "stage": stage,
-            "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+            "wp_id": _wp_id,
             "action": "stage_start",
             "level": "INFO",
             "iteration": state.get("iteration", 0),  # type: ignore[call-overload]
@@ -118,7 +119,7 @@ def create_stage_node(
             log_entry = {
                 "timestamp": stage_end_time.isoformat(),
                 "stage": stage,
-                "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+                "wp_id": _wp_id,
                 "action": "stage_complete",
                 "result": "PASS",
                 "level": "INFO",
@@ -130,8 +131,7 @@ def create_stage_node(
 
             # ── pipeline_result read-back (best-effort) ───────────────
             extra_log_entries: list = []
-            wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-            if wp_id and wrapped_tools:
+            if _wp_id and wrapped_tools:
                 try:
                     get_wp_tool = next(
                         (t for t in wrapped_tools if t.name == "ledger_get_work_package"),
@@ -139,7 +139,7 @@ def create_stage_node(
                     )
                     if get_wp_tool:
                         raw = await get_wp_tool.ainvoke(
-                            {"work_package_id": wp_id, "project_path": project_path}
+                            {"work_package_id": _wp_id, "project_path": project_path}
                         )
                         wp_detail = parse_tool_response(raw)
                         if isinstance(wp_detail, dict):
@@ -154,7 +154,7 @@ def create_stage_node(
                                 pipeline_result_entry: dict = {
                                     "timestamp": datetime.now(UTC).isoformat(),
                                     "stage": stage,
-                                    "wp_id": wp_id,
+                                    "wp_id": _wp_id,
                                     "action": "pipeline_result",
                                     "level": "INFO",
                                     "pipeline_type": latest.get("type", ""),
@@ -193,7 +193,7 @@ def create_stage_node(
             log_entry = {
                 "timestamp": ts,
                 "stage": stage,
-                "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+                "wp_id": _wp_id,
                 "action": "stage_error",
                 "result": "FAIL",
                 "error": str(exc),
@@ -209,7 +209,7 @@ def create_stage_node(
                     {
                         "timestamp": ts,
                         "stage": stage,
-                        "wp_id": state.get("current_wp_id", ""),  # type: ignore[call-overload]
+                        "wp_id": _wp_id,
                         "message": str(exc),
                     }
                 ],

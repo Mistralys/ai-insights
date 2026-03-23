@@ -1684,3 +1684,12 @@ th[data-sort="total_work_packages"] {
   color: #fca5a5;
   border-color: #7f1d1d;
 }
+
+/* ----------------------------------------------------------
+   WP timing summary block (work-package detail view)
+   ---------------------------------------------------------- */
+.wp-timing {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}

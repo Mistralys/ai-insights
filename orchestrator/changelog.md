@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v0.8.1 - Dev Dependency Hygiene
+- Fix: Added `aiosqlite>=0.19.0` to the `[dev]` optional-dependencies in `pyproject.toml`; previously it was only an implicit transitive dependency via `langgraph-checkpoint-sqlite`, causing `ModuleNotFoundError` in async tests when the transitive dependency graph changed.
+- Fix: `pip install -e ".[dev]"` is now sufficient to run the full async test suite — no manual extras required. All 374 async tests pass (previously 9 failed with `No module named 'aiosqlite'`).
+- Docs: Replaced the manual `pip install pytest-asyncio aiosqlite langgraph-checkpoint-sqlite` workaround in the *Running Tests* section of `README.md` with the canonical `pip install -e ".[dev]"` command.
+- Docs: Clarified in `README.md` that `langgraph-checkpoint-sqlite` is a **runtime** dependency (installed automatically) while `pytest-asyncio` and `aiosqlite` are `[dev]` extras.
+
 ## v0.8.0 - Supervisor Progress & Status Events
 - Supervisor: Emits `wp_status_change` (old_status, new_status) and `wp_complete` events when WP status changes between consecutive iterations.
 - Supervisor: Emits `progress_snapshot` every iteration with total_wps, status_breakdown, pending, wps_completed_this_run, iteration, max_iterations, elapsed_s, run_start_ts. No additional MCP calls.
