@@ -18,6 +18,7 @@ import {
   resolveFailAgent,
   DEFAULT_PIPELINE_STAGES,
   lastActiveStage,
+  ARTIFACT_EXPECTED_PIPELINE_TYPES,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
@@ -475,10 +476,11 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       }
 
       // 3b. Soft warning: emit when artifacts.files_modified is empty or absent on a PASS pipeline (§12.1).
-      // Persists a project comment for PM audit trail AND appends a text note to the response.
-      // Verification-only and documentation-only WPs may legitimately have no files_modified,
-      // but the warning prompts agents to declare any modifications they made.
-      if (args.status === 'PASS' && !isPmOverride) {
+      // Only fires for pipeline types in ARTIFACT_EXPECTED_PIPELINE_TYPES (implementation,
+      // code-review, release-engineering, documentation). Verification-only stages (qa,
+      // security-audit) are exempt since those agents do not modify files.
+      // code-review is included because the Reviewer may apply Fix-Forward edits.
+      if (args.status === 'PASS' && !isPmOverride && ARTIFACT_EXPECTED_PIPELINE_TYPES.has(args.type)) {
         const filesModified = args.artifacts?.files_modified;
         if (!filesModified || filesModified.length === 0) {
           // §12.1: Persist as a project comment for traceability
@@ -492,7 +494,7 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
           artifactsWarning =
             '\n\nNote: artifacts.files_modified is empty or absent. ' +
             'If you modified any files during this pipeline, declare them in artifacts.files_modified ' +
-            'for a complete audit trail. This is expected for verification-only or documentation-only pipelines.';
+            'for a complete audit trail.';
         }
       }
 

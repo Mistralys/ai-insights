@@ -313,6 +313,20 @@ export function describePipelineAgents(prefix: string): string {
 }
 
 /**
+ * Pipeline types where agents are expected to declare `artifacts.files_modified`.
+ * Verification-only stages (`qa`, `security-audit`) are excluded because those
+ * agents verify but do not modify files. `code-review` is included because the
+ * Reviewer may apply Fix-Forward edits (Tier 2 feedback).
+ * Used by `completePipeline` to scope the §12.1 soft warning.
+ */
+export const ARTIFACT_EXPECTED_PIPELINE_TYPES: ReadonlySet<PipelineType> = new Set<PipelineType>([
+  'implementation',
+  'code-review',
+  'release-engineering',
+  'documentation',
+]);
+
+/**
  * Returns the first active pipeline stage in canonical order.
  * Falls back to DEFAULT_PIPELINE_STAGES when stages is absent or null.
  * Per §6.2.1: named helper to eliminate inline orderedActive[0] patterns.

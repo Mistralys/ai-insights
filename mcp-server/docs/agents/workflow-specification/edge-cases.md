@@ -534,11 +534,11 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 
 ### 21.64 Artifact Declaration Soft Warning
 
-- When `completePipeline` records a PASS result and the `artifacts.files_modified` field is absent, null, or an empty array, a `"warning"` project comment is emitted (§12.1)
+- When `completePipeline` records a PASS result for a pipeline type in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (`implementation`, `code-review`, `release-engineering`, `documentation`) and the `artifacts.files_modified` field is absent, null, or an empty array, a `"warning"` project comment is emitted (§12.1)
+- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** — those agents verify but do not modify files
+- `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared
 - This is a **soft warning** only — it does not block the PASS or affect routing
 - The warning serves as an audit trail prompt: agents that modify files should declare what they changed for traceability and downstream awareness
-- **Not all PASS results require artifacts:** Some pipeline types (e.g., QA, code-review, security-audit) may complete with PASS without modifying files — the warning is intentionally lenient
-- Implementations MAY suppress this warning for specific pipeline types where artifact-free PASS is expected (e.g., verification-only pipelines)
 
 ### 21.65 Test-Only WP Production Method Prerequisite
 

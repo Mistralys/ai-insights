@@ -1693,6 +1693,39 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     expect(text).not.toContain('artifacts.files_modified is empty or absent');
   });
 
+  it('does NOT emit artifacts warning for verification-only pipeline types (qa, security-audit)', async () => {
+    // Verification-only pipeline types should be exempt from the artifacts warning
+    // because those agents verify but do not modify files.
+    await store.writeRootIndex(makeRoot2());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      dependencies: [],
+      acceptance_criteria: [],
+      active_pipeline_stages: ['implementation', 'qa', 'code-review', 'documentation'],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'PASS', started_at: now(), completed_at: now(), summary: ['Done'] },
+        { type: 'qa', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    } as any);
+
+    const result = await completePipeline({
+      project_path: DYN_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'qa',
+      status: 'PASS',
+      summary: ['All tests passed'],
+      agent_role: 'QA',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).not.toContain('artifacts.files_modified is empty or absent');
+  });
+
   it('auto-finalizes documentation-only WP when documentation is the terminal stage', async () => {
     // Documentation-only WP: ["documentation"]. Documentation is both first and terminal agent.
     await store.writeRootIndex({

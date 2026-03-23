@@ -13,6 +13,7 @@ import {
   DEFAULT_PIPELINE_STAGES,
   PIPELINE_TYPES,
   PIPELINE_AGENT_MAP,
+  ARTIFACT_EXPECTED_PIPELINE_TYPES,
   type PipelineType,
 } from '../../src/utils/pipeline-maps.js';
 
@@ -365,6 +366,22 @@ describe('lastActiveStage', () => {
 
   it('returns the same value as firstActiveStage for a single-stage composition', () => {
     expect(lastActiveStage(['qa'])).toBe(firstActiveStage(['qa']));
+  });
+});
+
+// ─── ARTIFACT_EXPECTED_PIPELINE_TYPES ───────────────────────────────────────
+
+describe('ARTIFACT_EXPECTED_PIPELINE_TYPES', () => {
+  it('contains implementation, code-review, release-engineering, documentation', () => {
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('implementation')).toBe(true);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('code-review')).toBe(true);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('release-engineering')).toBe(true);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('documentation')).toBe(true);
+  });
+
+  it('does NOT contain verification-only types (qa, security-audit)', () => {
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('qa')).toBe(false);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('security-audit')).toBe(false);
   });
 });
 

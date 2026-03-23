@@ -172,11 +172,12 @@ Implementation agents **must** declare all files modified during a pipeline in `
 
 **Enforcement:** This is a process rule, not a hard validation gate.
 
-- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent (see implementation in §12.1).
-- Agent personas explicitly instruct agents to declare all modified files before calling `completePipeline`.
+- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent **and** the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (see implementation in §12.1).
+- `ARTIFACT_EXPECTED_PIPELINE_TYPES` contains `implementation`, `code-review`, `release-engineering`, and `documentation` — pipeline types where agents may modify files.
+- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** from this warning because those agents verify but do not modify files.
+- `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared for traceability.
+- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline`.
 - The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge.
-
-**Legitimate empty-artifact scenarios:** Verification-only or documentation-audit pipelines that make no file changes may naturally have an empty `files_modified`. These will receive the soft warning but are not defects.
 
 **Rationale:** Complete artifact declarations enable accurate audit trails, support diff review, and allow future tooling to compute cumulative change sets. Partial or missing declarations impede these capabilities without preventing pipeline progress.
 
@@ -710,8 +711,8 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
     }
     wp.handoff_notes = (wp.handoff_notes ?? []).append(handoffNote)
   
-  // Artifact completeness soft warning
-  if status == "PASS" AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
+  // Artifact completeness soft warning (scoped to creative/modifying pipeline types)
+  if status == "PASS" AND pipelineType in ARTIFACT_EXPECTED_PIPELINE_TYPES AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
     root.project_comments.append(ProjectComment {
       type: "warning",
       priority: "low",
