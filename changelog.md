@@ -1,5 +1,20 @@
 # AI Insights Changelog
 
+## v1.11.0 - Progress Reporting & Run Log Viewer
+> mcp v1.18.0 · orchestrator v0.9.0 · personas v3.10.3
+
+- MCP: Added orchestrator run log viewer with auto-refresh to the GUI.
+- MCP: GUI now shows project and pipeline duration metrics.
+- MCP: Projects capture runner identity; GUI adds runner filtering.
+- MCP: Fixed a workflow deadlock when all work packages are blocked.
+- Orchestrator: Supervisor emits progress snapshots and status events.
+- Orchestrator: Stage nodes emit lifecycle events with duration tracking.
+- Orchestrator: Fixed tool wrapper input argument handling.
+- Personas: Reviewer now uses three-tier feedback with Fix-Forward.
+- Personas: Orchestrator Runner expanded to all 16 JSONL event types.
+- Personas: Release Engineer delegates changelog and CTX to sub-agents.
+- CI: Bumped GitHub Actions to latest versions.
+
 ## v1.10.0 - Cross-Platform & Version Tracking
 > mcp v1.15.0 · personas v3.10.0 · orchestrator v0.6.0
 

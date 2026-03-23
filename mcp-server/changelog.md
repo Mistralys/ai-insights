@@ -1,40 +1,25 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.17.0 - Orchestrator Run Log Resolver
-- GUI Backend: Added `src/gui/log-resolver.ts` — a new backend utility module for locating and reading orchestrator run log files (JSONL format).
-- GUI Backend: `resolveOrchestratorLogsDir(configured)` — returns the configured logs directory path if provided, otherwise defaults to `~/.ai-insights/orchestrator-logs`.
-- GUI Backend: `findRunLogs(logsDir, slug)` — lists `.jsonl` files in `logsDir` whose names end with `-{slug}.jsonl`; requires a non-empty prefix so bare `-slug.jsonl` entries are excluded; returns an empty array when the directory does not exist.
-- GUI Backend: `readLogEntries(logsDir, filename, afterLine?)` — reads and parses a JSONL log file with dual-layer path-traversal defence: (1) filename allowlist `[A-Za-z0-9._-]+` (rejects `..`, `/`, backslash, null-byte, and all special characters); (2) `path.resolve()` escape check ensures the resolved path stays within `logsDir`. Supports incremental reads via `afterLine` (zero-based skip); malformed JSON lines are silently skipped.
-- Tests: Added `tests/gui/log-resolver.test.ts` — 22 real-filesystem tests covering all 6 acceptance criteria plus edge cases (empty directory, non-existent directory, `afterLine=0`, all-malformed file, path-traversal attempts).
-- Security: All 10 OWASP categories assessed; 0 Critical/High findings. Known limitation: `resolveOrchestratorLogsDir` and `findRunLogs` do not validate that the path is absolute — a `path.isAbsolute()` guard is planned before HTTP exposure (tracked as technical debt).
+## v1.18.0 - Deadlock Fix & Artifact Restrictions
+- Workflow: Fixed a deadlock when all work packages are blocked.
+- Pipeline: Artifacts now required only for edit pipelines.
+- Docs: Updated workflow specification for deadlock edge case.
+- Tests: Added deadlock, begin-work, and pipeline-map tests.
 
-## v1.16.0 - Project Runner Metadata & GUI Filtering
-- Utils: Added `classifyRunner()` in `src/utils/runner.ts` — normalises raw MCP `clientInfo.name` into a stable `RunnerType` enum (`vscode` | `claude-code` | `orchestrator` | `unknown`) using case-insensitive substring matching with a fixed priority order.
-- Schema: Added optional `runner`, `runner_client`, and `runner_version` fields to `ProjectMetaSchema` and `RootIndexSchema`; all fields optional for full backward compatibility with existing projects.
-- Lifecycle: `initializeProject` now calls `classifyRunner(getClientInfo())` and persists runner metadata (`runner`, `runner_client`, `runner_version`) to both `project-ledger.json` and `.meta.json` at project creation time.
-- Server: Exported `getClientInfo()` accessor from `src/index.ts` -- exposes the connected MCP client identity (`{ name, version }`) to tool handlers without threading per-request context.
-- Compatibility: Runner fields default to `{ runner: "unknown" }` when the client does not identify itself; existing projects without runner fields load without errors.
-- Tests: Added `tests/utils/runner.test.ts` (10 unit tests for `classifyRunner`), `tests/schema/project-meta-runner.test.ts` (10 backward-compatibility schema tests), and `tests/tools/runner-integration.test.ts` (9 integration tests verifying end-to-end runner capture in `initializeProject`).
-- API: Extended `GET /api/projects` response with a `runner` field per project (normalized to `'unknown'` for projects without a stored runner) and a `runner_counts` object (keyed by runner value, computed from the search-filtered set before any status or runner filter is applied — mirrors `status_counts` semantics).
-- API: Added `runner` query parameter to `GET /api/projects` for server-side filtering; unrecognized runner values return an empty set without a 500 error; added `'runner'` to `ProjectSortField` and `SORT_FIELDS` for sortable runner column support.
-- GUI: Added runner filter dropdown to the project list with live counts drawn from `runner_counts`; runner selection is localStorage-persisted (`mcp-runner-filter` key) and survives page reload.
-- GUI: Added sortable `Runner` column to the project table; runner badges rendered via `runnerBadge()` with XSS-safe `escapeHtml` on both the class suffix and label text; `badge-runner-{type}` CSS classes added to `styles.css` for runner-specific badge colors (light and dark variants).
-- Tests: Added 7 GUI API unit tests in `tests/gui/api.test.ts` covering all 5 WP-003 acceptance criteria: `runner` field presence and `'unknown'` default, `runner_counts` object shape and values, `runner=orchestrator` filtering, `runner_counts` unaffected by the active runner filter, and unrecognized runner values returning an empty set without a 500 error.
-- Fix: `buildRunnerOptions()` in `project-list.js` now builds dropdown options dynamically from the `runner_counts` API response rather than hardcoding all 4 runner types unconditionally — previously zero-count runners would appear in the dropdown even when no matching projects existed; fixed to include only runners with `count > 0`.
-- Fix: `runnerBadge()` in `project-list.js` now emits the correct CSS class `badge-runner badge-runner-unknown` for null/unknown runners — previously emitted `badge-unknown` (no matching CSS rule), leaving unknown runner badges unstyled; all 5 runner badge variants now render with consistent `badge-runner-{type}` classes.
-- GUI: `buildRunnerOptions()` preserves stale localStorage runner selections (runner values absent from `runner_counts`) as a zero-count dropdown entry so users can see and clear a stale filter without the value silently disappearing.
-- Tests: Added `handleListProjects` runner filter suite in `tests/gui/api.test.ts` (6 tests, WP-005): `runner` field present and `'unknown'` default for projects without a stored runner (AC1), `runner_counts` object shape and values (AC1), `runner=orchestrator` filter returns only matching projects (AC2), `runner_counts` computed from full unfiltered set and unaffected by the active runner filter (AC3), `runner: 'unknown'` filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined `status + runner` filter.
-- Tests: Verified `tests/utils/runner.test.ts` (10 unit tests) covers all four `classifyRunner` output variants plus edge cases: `undefined` input (no throw), empty-string name, unrecognized client name, case-insensitive substring matching, raw `runner_client`/`runner_version` value preservation.
-- Tests: Verified `tests/tools/runner-integration.test.ts` (9 integration tests) covers all four runner types via mocked `getClientInfo()`, runner fields written to both root index and `.meta.json` (AC1/AC2), graceful `'unknown'` default when `getClientInfo()` returns `undefined` (AC3), and no runner info written to stdout (AC5).
-- Tests: Verified `tests/schema/project-meta-runner.test.ts` (10 backward-compatibility tests) confirms `ProjectMetaSchema` and `RootIndexSchema` accept optional runner fields when present, parse cleanly without them, reject invalid enum values, and parse a full real-world legacy `project-ledger.json` fixture that predates runner fields.
-- Schema: Added `duration_ms?: number` (optional) to `PipelineSchema` in `src/schema/work-package.ts`; `Pipeline` TypeScript type gains `duration_ms?: number` automatically via `z.infer`. Backward-compatible — existing pipelines without the field continue to validate.
-- Pipeline: `ledger_complete_pipeline` now computes and stores `duration_ms` (integer milliseconds) from `started_at` → `completed_at` when both are present and parseable; guarded against missing `started_at`, invalid timestamps (NaN), and clock skew (endMs >= startMs). Absent for in-progress, cancelled, or legacy pipelines.
-- GUI: Added `formatDuration(ms)` utility to `gui/public/utils.js` — null/NaN/negative → '—', <1s → '< 1s', seconds/minutes/hours formatted correctly. HTML-unsafe (contains `<`); all call sites wrapped with `escapeHtml()`.
-- GUI: Per-pipeline duration badge in WP Detail view; shown conditionally when `duration_ms` is present.
-- GUI: WP aggregate "Active time" (sum of pipeline durations) and "Wall-clock" (first start → last complete) displayed above pipeline list.
-- GUI: Project Detail page shows Duration and Active time from new `timing` field in the `/api/project/:slug` response.
-- API: `handleGetProject` in `gui/api.ts` now computes `timing: { project_elapsed_ms, total_active_ms, pipeline_runs }` by reading all WP detail files in parallel; `ProjectDetail` type extended with optional `timing` field.
-- Tests: Added `tests/tools/pipeline-duration.test.ts` (3 integration tests: duration_ms computed correctly, absent without started_at, no crash for invalid started_at); added 2 Zod schema assertions to `tests/schema/work-package-schema.test.ts` (accepts with/without `duration_ms`).
+## v1.17.0 - Run Log Viewer & GUI Progress
+- GUI: Added orchestrator run log viewer with auto-refresh.
+- GUI: Project detail shows run history and timing metrics.
+- GUI: Work package detail shows pipeline duration badges.
+- Backend: Added log resolver with path-traversal protection.
+- Tests: Added run log, log resolver, and API client test suites.
+
+## v1.16.0 - Runner Metadata & Pipeline Duration
+- Lifecycle: Projects now capture runner identity at creation time.
+- Schema: Added runner and duration fields to project and pipeline schemas.
+- GUI: Added runner filter and sortable runner column to project list.
+- GUI: Added pipeline and project duration display.
+- API: Extended project list with runner filtering and counts.
+- Tests: Added runner classification, schema, and integration test suites.
 
 ## v1.15.0 - Version Tracking & Freshness Guard
 - Lifecycle: Project init now rejects stale server instances.

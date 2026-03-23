@@ -1,27 +1,24 @@
 # Orchestrator Changelog
 
+## v0.9.0 - Tool Wrapper Fix
+- Fix: Fixed tool wrapper input argument handling.
+- Tests: Added tool wrapper test suite.
+
 ## v0.8.1 - Dev Dependency Hygiene
-- Fix: Added `aiosqlite>=0.19.0` to the `[dev]` optional-dependencies in `pyproject.toml`; previously it was only an implicit transitive dependency via `langgraph-checkpoint-sqlite`, causing `ModuleNotFoundError` in async tests when the transitive dependency graph changed.
-- Fix: `pip install -e ".[dev]"` is now sufficient to run the full async test suite — no manual extras required. All 374 async tests pass (previously 9 failed with `No module named 'aiosqlite'`).
-- Docs: Replaced the manual `pip install pytest-asyncio aiosqlite langgraph-checkpoint-sqlite` workaround in the *Running Tests* section of `README.md` with the canonical `pip install -e ".[dev]"` command.
-- Docs: Clarified in `README.md` that `langgraph-checkpoint-sqlite` is a **runtime** dependency (installed automatically) while `pytest-asyncio` and `aiosqlite` are `[dev]` extras.
+- Fix: Added missing dev dependency for async tests.
+- Docs: Simplified test setup instructions.
 
 ## v0.8.0 - Supervisor Progress & Status Events
-- Supervisor: Emits `wp_status_change` (old_status, new_status) and `wp_complete` events when WP status changes between consecutive iterations.
-- Supervisor: Emits `progress_snapshot` every iteration with total_wps, status_breakdown, pending, wps_completed_this_run, iteration, max_iterations, elapsed_s, run_start_ts. No additional MCP calls.
-- Supervisor: Enriched `route` entries with prev_stage, prev_wp_id, prev_result fields.
-- Supervisor: Emits `rework_detected` (wp_id, agent_role, pipeline_type, rework_count) when routing to REWORK.
-- Supervisor: Stores prev_wp_summaries in base_update for status-change diffing on next iteration.
-- Tests: Added `TestProgressSnapshot` (4), `TestWPStatusChangeEvents` (4), `TestPrevWPSummariesStored` (1), `TestEnrichedRouteEvents` (2), `TestReworkDetectedEvent` (2) to `test_supervisor.py`.
-- Docs: Updated JSONL log schema, architecture deep-dive, and README for all new supervisor events.
+- Supervisor: Emits progress snapshots and WP status change events.
+- Supervisor: Emits rework detection and enriched route entries.
+- Tests: Added progress, status change, and rework event tests.
+- Docs: Updated JSONL log schema and architecture docs.
 
-## v0.7.0 - Stage Lifecycle Events & Pipeline Result Read-back
-- Nodes: Emits `stage_start` event (timestamp, stage, wp_id, iteration) before every Deep Agent invocation.
-- Nodes: Added `duration_s` (wallclock seconds) to `stage_complete` and `stage_error` log entries.
-- Nodes: Added best-effort `pipeline_result` read-back after successful stage completion — emits pipeline type, status, files_modified, metrics, summary, and duration_s; failures caught silently at DEBUG level.
-- Utils: Extracted `parse_tool_response()` to `src/utils/mcp_parse.py`; shared by both `supervisor.py` and `nodes/__init__.py`.
-- Tests: Added `TestStageStartEvent` (4 tests), `TestDurationS` (12 parametrized tests), `TestPipelineResult` (7 tests) to `test_nodes.py`. Total: 322 tests.
-- Docs: Updated JSONL log schema, architecture deep-dive, public API, and README to reflect new events and `mcp_parse` utility.
+## v0.7.0 - Stage Lifecycle Events & Pipeline Read-back
+- Nodes: Emits stage start/complete events with duration tracking.
+- Nodes: Added pipeline result read-back after stage completion.
+- Utils: Extracted shared MCP response parser.
+- Tests: Added stage lifecycle and pipeline result test suites.
 
 ## v0.6.0 - Windows Cross-Platform Fix
 - Fix: Replaced unconditional `import fcntl` in `cli.py` with a cross-platform `filelock` module; the orchestrator now starts on Windows without `ModuleNotFoundError`.

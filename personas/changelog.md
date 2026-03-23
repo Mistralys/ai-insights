@@ -1,21 +1,23 @@
 # Personas Changelog
 
+## v3.10.3 - Reviewer Feedback Tiers
+- Personas: Reviewer now uses three-tier feedback (Blocking,
+  Fix-Forward, Documentation-Forward) instead of binary pass/fail.
+- Personas: Reviewer applies trivial non-behavioral fixes directly.
+- Personas: Documentation agent checks reviewer-forwarded items.
+
 ## v3.10.2 - Orchestrator Runner: JSONL Event Coverage
-- Personas: Orchestrator Runner v1.3.0 — restructured Monitoring
-  Progress to use live terminal output as primary channel (zero
-  extra tokens) and demote `tail -f` to secondary/fallback.
+- Personas: Orchestrator Runner v1.3.0 — restructured progress
+  monitoring to use live terminal output as primary channel.
 - Personas: Orchestrator Runner v1.3.0 — expanded event coverage
-  to all 16 JSONL event types with console line examples.
-- Personas: Orchestrator Runner v1.3.0 — added duration fields
-  reference (`duration_s`, `elapsed_s`, `total_duration_s`).
+  to all 16 JSONL event types with duration fields reference.
 
 ## v3.10.1 - Release Engineer: Delegate Changelog & CTX
-- Personas: Release Engineer v3.7.0 — delegates changelog curation to
-  Changelog Curator sub-agent instead of writing entries inline.
-- Personas: Release Engineer v3.7.0 — delegates CTX context.yaml updates
-  to CTX Architect sub-agent when the project uses CTX Generator.
-- Partials: Updated `release-engineer-operational-protocol.md` to reflect
-  delegated changelog and CTX steps.
+- Personas: Release Engineer v3.7.0 — delegates changelog curation
+  to Changelog Curator sub-agent.
+- Personas: Release Engineer v3.7.0 — delegates CTX updates to CTX
+  Architect sub-agent.
+- Partials: Updated release engineer operational protocol.
 
 ## v3.10.0 - AGENTS.md Curator: CLAUDE.md Companion
 - Personas: AGENTS.md Curator v1.1.0 — now creates a CLAUDE.md companion file.
