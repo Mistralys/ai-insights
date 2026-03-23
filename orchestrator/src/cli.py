@@ -428,6 +428,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     from src.utils.logging import WorkflowLogger
     run_logger = WorkflowLogger.create(label=plan_dir.name)
     log.info("JSONL log: %s", run_logger._path)
+    await run_logger.start_heartbeat(config.heartbeat_interval_s)
 
     # ── Generate or reuse thread ID ─────────────────────────────────────────
     thread_id: str = args.resume if args.resume else str(uuid.uuid4())
@@ -558,6 +559,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             run_end_kwargs["total_duration_s"] = total_duration_s
         run_logger.log(**run_end_kwargs)
     finally:
+        await run_logger.stop_heartbeat()
         run_logger.close()
 
     # ── Release process lock ────────────────────────────────────────────────
@@ -619,6 +621,13 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    # Suppress noisy third-party loggers so orchestrator status lines
+    # ([pm], [supervisor], Progress:) stay visible in the terminal.
+    # When --log-level DEBUG is set, leave them unsuppressed for diagnosis.
+    if log_level != "DEBUG":
+        for noisy_logger in ("httpx", "httpcore", "mcp", "openai", "anthropic"):
+            logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
     # ── Run ─────────────────────────────────────────────────────────────────
     try:

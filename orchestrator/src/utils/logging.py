@@ -33,10 +33,12 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -204,6 +206,13 @@ def _build_stream_console_line(entry: dict[str, Any]) -> str:
         parts.append(f"pipeline: {detail_str}")
         return " ".join(parts)
 
+    if action == "heartbeat":
+        silence = _format_duration(entry.get("silence_s"))
+        line = f"{prefix} ♥ alive"
+        if silence:
+            line += f" (quiet for {silence})"
+        return line
+
     if action == "rework_detected":
         rework_count = entry.get("rework_count")
         pipeline_type = entry.get("pipeline_type") or ""
@@ -252,6 +261,8 @@ class WorkflowLogger:
         self._fh = log_path.open("a", encoding="utf-8")
         self._closed = False
         self._console = logging.getLogger("workflow")
+        self._last_emit: float = time.monotonic()
+        self._heartbeat_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
     # Factory
@@ -341,6 +352,8 @@ class WorkflowLogger:
         self._fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         self._fh.flush()
 
+        self._last_emit = time.monotonic()
+
         # --- Human-readable console output ---
         parts = [f"[{stage}]" if stage else "[—]"]
         if wp_id:
@@ -375,8 +388,60 @@ class WorkflowLogger:
         self._fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
         self._fh.flush()
 
+        self._last_emit = time.monotonic()
+
         # Also emit a console line so stderr stays in sync.
         self._console.info(_build_stream_console_line(entry))
+
+    # ------------------------------------------------------------------
+    # Heartbeat — periodic "I'm alive" console + JSONL message
+    # ------------------------------------------------------------------
+
+    async def start_heartbeat(self, interval_s: int = 120) -> None:
+        """Start a background task that emits a heartbeat if no other
+        log line has been written within *interval_s* seconds.
+
+        Parameters
+        ----------
+        interval_s:
+            Minimum quiet period (in seconds) before a heartbeat fires.
+            Set to ``0`` to disable heartbeat entirely.
+        """
+        if interval_s <= 0:
+            return
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(interval_s),
+        )
+
+    async def stop_heartbeat(self) -> None:
+        """Cancel the heartbeat background task, if running."""
+        task = self._heartbeat_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        self._heartbeat_task = None
+
+    async def _heartbeat_loop(self, interval_s: int) -> None:
+        """Internal loop: sleep, check last-emit, emit if quiet."""
+        try:
+            while not self._closed:
+                await asyncio.sleep(interval_s)
+                if self._closed:
+                    break
+                silence = time.monotonic() - self._last_emit
+                if silence >= interval_s:
+                    self.stream_entry({
+                        "stage": "heartbeat",
+                        "action": "heartbeat",
+                        "level": "INFO",
+                        "silence_s": round(silence, 1),
+                    })
+        except asyncio.CancelledError:
+            return
 
     # ------------------------------------------------------------------
     # Resource management

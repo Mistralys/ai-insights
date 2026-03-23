@@ -85,6 +85,7 @@ MODEL_NAME=claude-sonnet-4-6
 MAX_ITERATIONS=100        # Safety ceiling on supervisor loop iterations
 CHECKPOINT_DIR=./checkpoints   # SQLite checkpoint directory (enable --resume)
 LOG_LEVEL=INFO            # DEBUG | INFO | WARNING | ERROR | CRITICAL
+HEARTBEAT_INTERVAL_S=120  # Heartbeat interval in seconds (0 = disabled)
 ```
 
 ### Environment Variable Reference
@@ -97,6 +98,7 @@ LOG_LEVEL=INFO            # DEBUG | INFO | WARNING | ERROR | CRITICAL
 | `MAX_ITERATIONS` | no | `100` | Maximum supervisor loop iterations before abort |
 | `CHECKPOINT_DIR` | no | `./checkpoints` | Directory for LangGraph SQLite checkpoint files |
 | `LOG_LEVEL` | no | `INFO` | Python logging verbosity |
+| `HEARTBEAT_INTERVAL_S` | no | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled) |
 
 The provider is **auto-detected** from which API key is set. If both are set, the `MODEL_NAME` prefix is used as a tiebreaker (`claude-*` → Anthropic, `gemini-*` → Google).
 

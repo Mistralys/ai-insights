@@ -247,6 +247,8 @@ class Config:
         ``orchestrator/``).
     log_level:
         Python logging level string (``"DEBUG"``, ``"INFO"``, etc.).
+    heartbeat_interval_s:
+        Seconds of console silence before emitting a heartbeat. ``0`` disables.
     """
 
     model_name: str
@@ -256,6 +258,7 @@ class Config:
     mcp_server_cmd: list[str]
     workspace_root: Path
     log_level: str
+    heartbeat_interval_s: int
 
     def get_chat_model(self):
         """
@@ -365,6 +368,17 @@ def load_config(
             f"LOG_LEVEL must be one of {sorted(valid_levels)}; got {log_level!r}."
         )
 
+    # --- heartbeat_interval_s ---
+    raw_heartbeat = os.environ.get("HEARTBEAT_INTERVAL_S", "120").strip()
+    try:
+        heartbeat_interval_s = int(raw_heartbeat)
+        if heartbeat_interval_s < 0:
+            raise ValueError("must be a non-negative integer")
+    except ValueError as exc:
+        raise OSError(
+            f"HEARTBEAT_INTERVAL_S must be a non-negative integer; got {raw_heartbeat!r}."
+        ) from exc
+
     return Config(
         model_name=model_name,
         provider=provider,
@@ -373,6 +387,7 @@ def load_config(
         mcp_server_cmd=mcp_server_cmd,
         workspace_root=workspace_root,
         log_level=log_level,
+        heartbeat_interval_s=heartbeat_interval_s,
     )
 
 
