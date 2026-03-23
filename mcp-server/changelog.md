@@ -1,5 +1,33 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.18.4 - Dialogues Card in WP Detail View
+- GUI Frontend: Added Dialogues card to the Work Package detail view (`views/work-package.js`). The card is rendered asynchronously after the Handoff Notes section via a `#wp-dialogues-section` placeholder injected synchronously into `app.innerHTML`.
+- GUI Frontend: Dialogues are fetched via `API.getDialogues(slug, wpId)` and grouped by stage name. Each stage shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision highlighted (`.dialogue-btn-latest`).
+- GUI Frontend: Clicking a revision button fetches the Markdown via `API.getDialogueContent()` and renders it inline with `marked.parse()`. Clicking a second button collapses the first; clicking the same button again toggles it off.
+- GUI Frontend: Fetch errors (both list and content) render as inline `.text-danger` messages without crashing the surrounding WP view.
+- API Client: Added `API.getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}`, returns parsed JSON.
+- API Client: Added `API.getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename`, returns raw Markdown text via `res.text()` (uses direct `fetch()`, not the `request()` helper, which calls `res.json()`).
+- Styles: Added `.dialogue-stage`, `.dialogue-stage-label`, `.dialogue-btn`, `.dialogue-btn-latest`, `.dialogue-btn-active`, `.dialogue-content`, `.dialogue-markdown`, and `.text-danger` CSS classes to `styles.css`, with dark-mode overrides.
+- Tests: Added 22 new jsdom tests in `tests/gui/dialogue-qa.test.ts` covering all 10 acceptance criteria and 3 edge cases. Full suite: 1665 tests passing, 0 regressions.
+
+## v1.18.3 - Dialogue File API Endpoints
+- API: Added `GET /api/projects/:slug/dialogues` — returns a sorted array of `.md` filenames from the project's `dialogues/` directory; supports optional `?wp=WP-001` prefix filter; returns `[]` when the directory is absent.
+- API: Added `GET /api/projects/:slug/dialogues/:filename` — returns the raw Markdown content of a single dialogue file.
+- Security: `handleGetDialogueFile` enforces a dual-layer path-traversal defence: (1) `DIALOGUE_FILENAME_RE` allowlist (`/^[A-Za-z0-9_-]+\.md$/`) applied after `decodeURIComponent()`; (2) `path.resolve()` prefix check as a second containment layer. Both layers return `NOT_FOUND` on violation.
+- Tests: Added 11 new tests in `tests/gui/api.test.ts` covering absent directory, sorted listing, WP prefix filter, slug traversal rejection, file content serving, filename traversal rejections, missing file, and underscore filenames. All 110 api.test.ts tests pass.
+
+## v1.18.2 - Dialogue Capture GUI Toggle
+- GUI: Added "Capture agent dialogues" checkbox to the Settings page (`/#/config`), inserted between Max handoff depth and Auto-archive after (days).
+- GUI: Checkbox is pre-populated from `config.capture_dialogues` on load and included as `capture_dialogues` in the `API.updateConfig()` payload on submit.
+- GUI: Form note explains that the setting takes effect on the next orchestrator run.
+- All existing settings form fields (auto-handoff, max-depth, auto-archive-days, ledger-root) are unchanged.
+
+## v1.18.1 - Dialogue Capture Config
+- Config: Added `capture_dialogues: boolean` (default `false`) to `GuiConfigSchema` and `DEFAULT_CONFIG`.
+- Config: `GuiConfigPartialSchema` inherits `capture_dialogues` automatically — a PUT body with only `{ capture_dialogues: true }` is accepted by `writeConfig()`.
+- Constants: Exported `DIALOGUES_DIR = 'dialogues' as const` from `src/utils/constants.ts` to keep the dialogues subdirectory name in sync with the Python orchestrator's `write_dialogue()`.
+- Tests: Added 6 new tests in `config.test.ts` covering default value, read-back with field absent/present, round-trip (true and false), and partial body preservation.
+
 ## v1.18.0 - Deadlock Fix & Artifact Restrictions
 - Workflow: Fixed a deadlock when all work packages are blocked.
 - Pipeline: Artifacts now required only for edit pipelines.

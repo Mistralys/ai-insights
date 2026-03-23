@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
+import { mkdtemp, rm, writeFile, readFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
@@ -81,8 +81,10 @@ describe('findRunLogs', () => {
 
     const results = await findRunLogs(tempDir, 'my-project');
     expect(results).toHaveLength(2);
-    expect(results).toContain('2024-01-01T10-00-00-my-project.jsonl');
-    expect(results).toContain('2024-01-02T10-00-00-my-project.jsonl');
+    expect(results.map((r) => r.filename)).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(results.map((r) => r.filename)).toContain('2024-01-02T10-00-00-my-project.jsonl');
+    // Each entry has an is_active field
+    results.forEach((r) => expect(typeof r.is_active).toBe('boolean'));
   });
 
   it('does not return files that do not match the slug', async () => {
@@ -91,8 +93,9 @@ describe('findRunLogs', () => {
 
     const results = await findRunLogs(tempDir, 'my-project');
     expect(results).toHaveLength(1);
-    expect(results).toContain('2024-01-01T10-00-00-my-project.jsonl');
-    expect(results).not.toContain('2024-01-01T10-00-00-other-project.jsonl');
+    const filenames = results.map((r) => r.filename);
+    expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(filenames).not.toContain('2024-01-01T10-00-00-other-project.jsonl');
   });
 
   it('does not return a file named exactly -{slug}.jsonl (requires a prefix)', async () => {
@@ -101,6 +104,115 @@ describe('findRunLogs', () => {
 
     const results = await findRunLogs(tempDir, 'my-project');
     expect(results).toHaveLength(0);
+  });
+
+  it('marks a completed run (run_end last line) as is_active: false', async () => {
+    const file = join(tempDir, '20260323T120000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'run_start' }, { action: 'run_end' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_active).toBe(false);
+  });
+
+  it('marks an errored run (run_error last line) as is_active: false', async () => {
+    const file = join(tempDir, '20260323T130000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'run_start' }, { action: 'run_error', error: 'boom' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_active).toBe(false);
+  });
+
+  it('marks an in-progress run (no terminal action) as is_active: true', async () => {
+    const file = join(tempDir, '20260323T140000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'run_start' }, { action: 'step_start', step_name: 'qa' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_active).toBe(true);
+  });
+
+  it('marks an empty log file as is_active: true', async () => {
+    await writeFile(join(tempDir, '20260323T150000-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_active).toBe(true);
+  });
+
+  it('returns results sorted newest-first by filename prefix', async () => {
+    await writeFile(join(tempDir, '20260323T100000-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(tempDir, '20260325T090000-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(tempDir, '20260324T120000-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(3);
+    expect(results[0]!.filename).toBe('20260325T090000-my-project.jsonl');
+    expect(results[1]!.filename).toBe('20260324T120000-my-project.jsonl');
+    expect(results[2]!.filename).toBe('20260323T100000-my-project.jsonl');
+  });
+
+  // ── Self-healing ──────────────────────────────────────────────────────────
+
+  it('heals a stale older run by appending a run_error entry to disk', async () => {
+    const olderFile = join(tempDir, '20260323T100000-my-project.jsonl');
+    const newerFile = join(tempDir, '20260325T090000-my-project.jsonl');
+    await writeJsonl(olderFile, [{ action: 'run_start' }, { action: 'step_start', step_name: 'qa' }]);
+    await writeJsonl(newerFile, [{ action: 'run_start' }, { action: 'run_end' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+
+    // Older run is healed in memory
+    const older = results.find((r) => r.filename.includes('20260323'))!;
+    expect(older.is_active).toBe(false);
+
+    // Healing entry was written to disk — file now ends with run_error
+    const content = await readFile(olderFile, 'utf-8');
+    const lastLine = content.trim().split('\n').pop()!;
+    const entry = JSON.parse(lastLine);
+    expect(entry.action).toBe('run_error');
+    expect(entry).toHaveProperty('ts');
+  });
+
+  it('does not heal the newest run even if it is active', async () => {
+    const newerFile = join(tempDir, '20260325T090000-my-project.jsonl');
+    await writeJsonl(newerFile, [{ action: 'run_start' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results[0]!.is_active).toBe(true);
+
+    // File on disk should be unchanged (no extra line appended)
+    const content = await readFile(newerFile, 'utf-8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    const lastEntry = JSON.parse(lines[lines.length - 1]!);
+    expect(lastEntry.action).toBe('run_start');
+  });
+
+  it('heals multiple stale older runs in one call', async () => {
+    const files = [
+      join(tempDir, '20260323T100000-my-project.jsonl'),
+      join(tempDir, '20260324T120000-my-project.jsonl'),
+      join(tempDir, '20260325T090000-my-project.jsonl'),
+    ];
+    // All three appear active (interrupted)
+    for (const f of files) {
+      await writeJsonl(f, [{ action: 'run_start' }]);
+    }
+
+    const results = await findRunLogs(tempDir, 'my-project');
+
+    // Only the newest (index 0) stays active
+    expect(results[0]!.is_active).toBe(true);   // newest
+    expect(results[1]!.is_active).toBe(false);  // healed
+    expect(results[2]!.is_active).toBe(false);  // healed
+
+    // Both older files have a run_error entry on disk
+    for (const f of [files[0]!, files[1]!]) {
+      const content = await readFile(f, 'utf-8');
+      const lastLine = content.trim().split('\n').pop()!;
+      expect(JSON.parse(lastLine).action).toBe('run_error');
+    }
   });
 
   it('does not return non-jsonl files', async () => {

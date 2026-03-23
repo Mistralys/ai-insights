@@ -156,7 +156,117 @@ function renderWorkPackageDetail(app, slug, wpId) {
       (pipelinesHtml
         ? '<div class="card"><div class="card-title">Pipelines</div>' + wpTimingHtml + pipelinesHtml + '</div>'
         : '') +
-      handoffHtml;
+      handoffHtml +
+      '<div id="wp-dialogues-section"></div>';
+
+    // Fetch and render Dialogues card asynchronously (after DOM is set)
+    var dialoguesEl = document.getElementById('wp-dialogues-section');
+    API.getDialogues(slug, wpId).then(function (dialogues) {
+      if (!dialoguesEl) return;
+      if (!dialogues || dialogues.length === 0) {
+        dialoguesEl.innerHTML =
+          '<div class="card">' +
+            '<div class="card-title">Dialogues</div>' +
+            '<p class="text-muted">No dialogues available for this work package.</p>' +
+          '</div>';
+        return;
+      }
+
+      // Group by stage, preserving insertion order
+      var stageMap = {};
+      var stageOrder = [];
+      dialogues.forEach(function (d) {
+        var stage = d.stage || 'unknown';
+        if (!stageMap[stage]) {
+          stageMap[stage] = [];
+          stageOrder.push(stage);
+        }
+        stageMap[stage].push(d);
+      });
+
+      var stagesHtml = stageOrder.map(function (stage) {
+        var entries = stageMap[stage];
+        var buttonsHtml = entries.map(function (d, idx) {
+          var isLatest = (idx === entries.length - 1);
+          // Human-readable label: stage-r{revision index}
+          var label = escapeHtml(stage + '-r' + idx);
+          return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
+            'data-slug="' + escapeHtml(slug) + '" ' +
+            'data-filename="' + escapeHtml(d.filename) + '">' +
+            label +
+          '</button>';
+        }).join('');
+        return '<div class="dialogue-stage">' +
+          '<span class="dialogue-stage-label">' + escapeHtml(stage) + '</span> ' +
+          buttonsHtml +
+          '<div class="dialogue-content" style="display:none"></div>' +
+        '</div>';
+      }).join('');
+
+      dialoguesEl.innerHTML =
+        '<div class="card" id="wp-dialogues-card">' +
+          '<div class="card-title">Dialogues</div>' +
+          stagesHtml +
+        '</div>';
+
+      // Track the currently expanded button
+      var activeBtn = null;
+
+      dialoguesEl.addEventListener('click', function (e) {
+        var btn = e.target.closest('.dialogue-btn');
+        if (!btn) return;
+
+        // Collapse previously expanded dialogue if different button
+        if (activeBtn && activeBtn !== btn) {
+          var prevStage = activeBtn.closest('.dialogue-stage');
+          if (prevStage) {
+            var prevContent = prevStage.querySelector('.dialogue-content');
+            if (prevContent) { prevContent.style.display = 'none'; prevContent.innerHTML = ''; }
+          }
+          activeBtn.classList.remove('dialogue-btn-active');
+        }
+
+        // If same button is clicked again, collapse it
+        if (activeBtn === btn) {
+          var curStage = btn.closest('.dialogue-stage');
+          if (curStage) {
+            var curContent = curStage.querySelector('.dialogue-content');
+            if (curContent) { curContent.style.display = 'none'; curContent.innerHTML = ''; }
+          }
+          btn.classList.remove('dialogue-btn-active');
+          activeBtn = null;
+          return;
+        }
+
+        activeBtn = btn;
+        btn.classList.add('dialogue-btn-active');
+
+        var dlgSlug = btn.getAttribute('data-slug');
+        var dlgFilename = btn.getAttribute('data-filename');
+        var stageEl = btn.closest('.dialogue-stage');
+        var contentEl = stageEl ? stageEl.querySelector('.dialogue-content') : null;
+        if (!contentEl) return;
+
+        contentEl.innerHTML = '<em class="text-muted">Loading…</em>';
+        contentEl.style.display = 'block';
+
+        API.getDialogueContent(dlgSlug, dlgFilename).then(function (md) {
+          var rendered = (typeof marked !== 'undefined' && marked.parse)
+            ? marked.parse(md)
+            : '<pre>' + escapeHtml(md) + '</pre>';
+          contentEl.innerHTML = '<div class="dialogue-markdown">' + rendered + '</div>';
+        }).catch(function (err) {
+          contentEl.innerHTML = '<p class="text-danger">Error loading dialogue: ' + escapeHtml(err.message || String(err)) + '</p>';
+        });
+      });
+    }).catch(function (err) {
+      if (!dialoguesEl) return;
+      dialoguesEl.innerHTML =
+        '<div class="card">' +
+          '<div class="card-title">Dialogues</div>' +
+          '<p class="text-danger">Failed to load dialogues: ' + escapeHtml(err.message || String(err)) + '</p>' +
+        '</div>';
+    });
   }).catch(function (err) {
     showError(app, 'Failed to load work package: ' + (err.message || String(err)));
   });

@@ -6,17 +6,30 @@ Capture the full LLM conversation (system prompt, user prompt, all assistant res
 
 ## Architectural Context
 
-The orchestrator's stage nodes are produced by a single generic factory `create_stage_node()` in `orchestrator/src/nodes/__init__.py`. This factory calls `agent.ainvoke()` (Deep Agents), which returns a `{"messages": [...]}` dict containing the **complete conversation history** — every `HumanMessage`, `AIMessage`, and `ToolMessage` in order. Currently, only the last message's `.content` is extracted and everything else is discarded (line ~98).
+The orchestrator's stage nodes are produced by a single generic factory `create_stage_node()` in `orchestrator/src/nodes/__init__.py`. Each stage invocation follows this lifecycle:
+
+1. **`stage_start`** event emitted (with `iteration` count) via `run_logger.stream_entry()`
+2. Persona loaded, Deep Agent created, `agent.ainvoke()` called — returns a `{"messages": [...]}` dict containing the **complete conversation history** (every `HumanMessage`, `AIMessage`, and `ToolMessage` in order)
+3. Only the last message's `.content` is extracted as `final_content`; usage metadata (`usage_metadata`) is read from the last `AIMessage` only (not per-message). Everything else is discarded (line ~100–106).
+4. **`stage_complete`** event emitted (with `duration_s`, `tokens_used`)
+5. **`pipeline_result`** read-back — best-effort fetch of the WP's latest pipeline via `ledger_get_work_package`, emitting pipeline type/status/metrics/files_modified (lines ~128–164)
+
+All events use the established `run_logger.stream_entry(entry)` pattern (where `run_logger` is obtained via `get_run_logger(config)` from `orchestrator/src/utils/logging.py`). Console output for each event type is formatted by `_build_stream_console_line()` in the same module — each known `action` value has a dedicated formatting branch. The `run_log` field in `WorkflowState` uses an `operator.add` reducer, so each node only returns *new* entries and LangGraph merges them.
+
+The `Config` dataclass already has a `workspace_root` field that resolves to the ai-insights workspace root. The ledger root can be derived as `Path(config.workspace_root) / "mcp-server" / "storage" / "ledger"` without a new env var.
 
 The MCP server's ledger stores per-project data in flat directories under `mcp-server/storage/ledger/{slug}/`. Two Markdown documents are already archived into this directory: `plan.md` (at project init) and `synthesis.md` (at project completion). The GUI serves these via `GET /api/projects/:slug/plan` and `GET /api/projects/:slug/synthesis`, rendering them with `marked.js`.
 
 The GUI settings view (`mcp-server/gui/public/views/config.js`) currently exposes three toggles: auto-handoff enabled, max handoff depth, and auto-archive days. The config schema lives in `mcp-server/src/gui/config.ts` (`GuiConfigSchema`) and is persisted to `{ledgerRoot}/gui-config.json`.
 
 Key files:
-- `orchestrator/src/nodes/__init__.py` — stage node factory, interception point
-- `orchestrator/src/utils/logging.py` — `WorkflowLogger` class
-- `orchestrator/src/config.py` — `Config` dataclass + `load_config()`
-- `orchestrator/src/state.py` — `WorkflowState` TypedDict
+- `orchestrator/src/nodes/__init__.py` — stage node factory (stage lifecycle, pipeline read-back)
+- `orchestrator/src/utils/logging.py` — `WorkflowLogger` class + `_build_stream_console_line()` event formatter
+- `orchestrator/src/utils/mcp_parse.py` — `parse_tool_response()` shared MCP response parser
+- `orchestrator/src/utils/tool_wrappers.py` — `inject_project_path()` tool wrapping utility
+- `orchestrator/src/config.py` — `Config` dataclass + `load_config()` (has `workspace_root`)
+- `orchestrator/src/state.py` — `WorkflowState` TypedDict (`run_log` uses `operator.add` reducer)
+- `orchestrator/docs/jsonl-log-schema.md` — full field reference for all 16 JSONL event types
 - `mcp-server/src/gui/config.ts` — `GuiConfigSchema`, `getConfig()`, `writeConfig()`
 - `mcp-server/gui/api.ts` — API handlers (plan/synthesis document pattern)
 - `mcp-server/gui/server.ts` — HTTP route matching
@@ -83,10 +96,11 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 - Create `orchestrator/src/utils/dialogue_writer.py`
 - Implement `serialize_messages_to_markdown(messages, stage, wp_id, timestamp) -> str`
   - Iterate the `messages` list from `agent.ainvoke()` result
-  - For each message, emit a Markdown section with role, content, and token metadata
+  - For each message, emit a Markdown section with role and content
   - Handle `HumanMessage`, `AIMessage`, `ToolMessage` types
   - For `AIMessage` with tool calls, render the tool call name and arguments
   - For `ToolMessage`, render the tool response content
+  - **Note:** Per-message token counts are not available. Only the final `AIMessage` carries aggregate `usage_metadata` (via `getattr(msg, "usage_metadata", None)`). Include this aggregate in the file header or footer, not per-message.
 - Implement `write_dialogue(content, ledger_slug_dir, wp_id, stage) -> Path`
   - Create `dialogues/` subdirectory if needed
   - Scan existing files matching `{wpId}-{stage}-r*.md` to determine the next revision number
@@ -95,10 +109,22 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 
 ### 3. Integrate into `create_stage_node()`
 
-- In `orchestrator/src/nodes/__init__.py`, after the `agent.ainvoke()` call:
-  - If `config.capture_dialogues` is true, call the dialogue writer with the full `_msgs` list
-  - Derive the ledger slug directory from `state["project_path"]` (reuse the existing slug derivation logic that the MCP server uses, or pass the ledger root through config)
-  - Log a `dialogue_captured` action to the JSONL log for traceability
+- In `orchestrator/src/nodes/__init__.py`, insert the capture block **after** the `_msgs` / `final_content` / `tokens_used` extraction (line ~106) but **before** the `pipeline_result` read-back block (line ~128):
+  - Check `_app_config.capture_dialogues` (not `config`, which is LangGraph's `RunnableConfig`)
+  - If true, call the dialogue writer with the full `_msgs` list
+  - Derive the ledger slug directory from `_app_config.workspace_root`: `Path(_app_config.workspace_root) / "mcp-server" / "storage" / "ledger"` + slug derived from `state["project_path"]`
+  - Emit a `dialogue_captured` event via the existing `run_logger.stream_entry()` pattern (include fields: `stage`, `wp_id`, `filename`, `revision`, `level="INFO"`)
+  - Append the event entry to `extra_log_entries` so it is included in the returned `run_log` list (following the `operator.add` reducer convention)
+- Add a `dialogue_captured` formatting branch to `_build_stream_console_line()` in `orchestrator/src/utils/logging.py`, e.g.:
+  ```python
+  if action == "dialogue_captured":
+      parts = [prefix]
+      if wp_id:
+          parts.append(wp_id)
+      parts.append(f"dialogue saved → {entry.get('filename', '')}")
+      return " ".join(parts)
+  ```
+- Add the `dialogue_captured` event type to `orchestrator/docs/jsonl-log-schema.md` — add a row to the Action Values table and document the `filename`, `revision`, and `path` fields in the Full Field Reference table
 
 ### 4. Add `capture_dialogues` to GUI config schema
 
@@ -142,11 +168,11 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 - When multiple revisions exist, visually indicate the latest (e.g. bold or highlight) so the user can quickly find the most recent
 - If no dialogues exist for this WP, hide the card entirely
 
-### 10. Pass ledger root to orchestrator Config
+### 10. Derive ledger root from existing `workspace_root`
 
-- The orchestrator needs to know where to write dialogue files. The ledger root is currently implicit in the MCP server, not in the orchestrator.
-- Add `LEDGER_ROOT` env var to orchestrator config (with a sensible default: `{workspace_root}/mcp-server/storage/ledger/`)
-- The dialogue writer uses this to resolve the slug directory
+- The orchestrator needs to know where to write dialogue files. The `Config` dataclass already has a `workspace_root` field (the ai-insights workspace root).
+- Derive the ledger root as `Path(config.workspace_root) / "mcp-server" / "storage" / "ledger"` — no new env var or config field is needed.
+- The dialogue writer accepts the derived ledger root as a parameter and uses it to resolve the slug directory.
 
 ### 11. Tests
 
@@ -171,8 +197,10 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 - `orchestrator/tests/test_dialogue_writer.py` — unit tests for the writer
 
 ### Modified files
-- `orchestrator/src/config.py` — add `capture_dialogues` and `ledger_root` fields
-- `orchestrator/src/nodes/__init__.py` — call dialogue writer after `ainvoke()`
+- `orchestrator/src/config.py` — add `capture_dialogues` field
+- `orchestrator/src/nodes/__init__.py` — call dialogue writer after `ainvoke()`, emit `dialogue_captured` event
+- `orchestrator/src/utils/logging.py` — add `dialogue_captured` console formatter branch
+- `orchestrator/docs/jsonl-log-schema.md` — add `dialogue_captured` event type to schema
 - `mcp-server/src/gui/config.ts` — add `capture_dialogues` to schema
 - `mcp-server/gui/api.ts` — add dialogue list/read handlers
 - `mcp-server/gui/server.ts` — add dialogue routes
@@ -183,7 +211,7 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 
 ## Assumptions
 
-- LangChain message objects returned by `agent.ainvoke()` expose `.content`, `.role` (or message type discrimination), `.usage_metadata`, and tool call data through standard LangChain APIs (`AIMessage`, `HumanMessage`, `ToolMessage`).
+- LangChain message objects returned by `agent.ainvoke()` expose `.content`, `.role` (or message type discrimination), and tool call data through standard LangChain APIs (`AIMessage`, `HumanMessage`, `ToolMessage`). Aggregate `.usage_metadata` is only available on the final `AIMessage`, not per-message.
 - The orchestrator process has filesystem write access to the MCP server's ledger storage directory (both are on the same local machine).
 - Dialogue files in the 10–100KB range per stage execution are acceptable storage costs.
 
@@ -207,7 +235,7 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 - When `CAPTURE_DIALOGUES=true`, every stage execution writes a Markdown file to `{ledgerRoot}/{slug}/dialogues/{wpId}-{stage}-r{N}.md`
 - Revision numbers auto-increment: first execution produces `r0`, first rework produces `r1`, etc.
 - When `CAPTURE_DIALOGUES` is unset or `false`, no dialogue files are written
-- Dialogue Markdown files contain: header with stage/WP/timestamp, the full user prompt, all assistant responses with token counts, all tool calls with arguments, all tool results
+- Dialogue Markdown files contain: header with stage/WP/timestamp/aggregate token counts, the full user prompt, all assistant responses, all tool calls with arguments, all tool results
 - The GUI settings view shows a "Capture dialogues" toggle that persists to `gui-config.json`
 - The WP detail view shows a "Dialogues" card listing all available dialogue files for that WP
 - Clicking a dialogue entry renders the Markdown content in the GUI
@@ -227,6 +255,6 @@ The orchestrator reads its own `.env` at startup. The GUI toggle controls the sa
 |------|------------|
 | **Large dialogue files slow down the GUI** | Render Markdown client-side with `marked.js` (already proven with plan/synthesis). Consider adding a file size indicator in the list view so users know what to expect. |
 | **Message type discrimination breaks with LangChain updates** | Use defensive `getattr()` / `hasattr()` checks and fall back to string representation for unknown message types. |
-| **Orchestrator cannot write to ledger directory (permissions or path mismatch)** | Validate `LEDGER_ROOT` at orchestrator startup in `load_config()`. Log a warning and disable capture if the directory is not writable. |
+| **Orchestrator cannot write to ledger directory (permissions or path mismatch)** | Validate the derived ledger root (`workspace_root / mcp-server/storage/ledger/`) at first write attempt. Log a warning and disable capture for the remainder of the run if the directory is not writable. |
 | **Dialogue files accumulate unbounded storage** | Files live inside the project ledger directory and are subject to the same lifecycle (archiving, deletion) as the rest of the project data. |
 - **Dialogue versions accumulate per rework** | Bounded by the number of rework iterations per WP (typically 1–3). If storage becomes a concern, old revisions can be pruned manually or via a future cleanup command. |

@@ -527,10 +527,17 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         outside_errors.append(f"MCP server error: {exc}")
 
     # ── Write final entries to JSONL ────────────────────────────────────────
-    # Run-log entries from graph nodes are already streamed to the JSONL file
-    # in real time (via run_logger passed through LangGraph config).  Only
-    # outside errors and the run_end sentinel still need to be written here.
+    # Run-log entries from graph nodes are supposed to be streamed to the
+    # JSONL file in real time (via run_logger passed through LangGraph
+    # config).  However, if the run_logger was not accessible inside graph
+    # nodes (e.g. the configurable key was stripped), the entries only exist
+    # in the final LangGraph state's ``run_log`` list.  Flush any un-streamed
+    # entries here as a safety net so the log file is always complete.
     try:
+        if final_state is not None:
+            run_log_entries: list = final_state.get("run_log", [])
+            run_logger.flush_unstreamed(run_log_entries)
+
         for err_msg in outside_errors:
             run_logger.log(
                 stage="cli",

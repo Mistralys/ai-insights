@@ -1,5 +1,24 @@
 # Orchestrator Changelog
 
+## v0.9.3 - Dialogue Capture Integration
+- Nodes: `create_stage_node()` now captures full agent dialogue exchanges when `CAPTURE_DIALOGUES=true`. After each `ainvoke()`, the message sequence is serialised to Markdown and written to `{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md` via `write_dialogue()`. Failures are non-fatal — stage execution continues normally.
+- Nodes: Emits a `dialogue_captured` JSONL event (`stage`, `wp_id`, `file_path`, `level="INFO"`) immediately after the `pipeline_result` entry. Only emitted when capture succeeds and `wp_id` is non-empty.
+- Logging: Added `dialogue_captured` console-line branch to `_build_stream_console_line()` — formats as `[{stage}] {wp_id} dialogue saved → {filename}`.
+- Docs: `orchestrator/docs/jsonl-log-schema.md` updated: `file_path` field added to Full Field Reference table; `dialogue_captured` row added to Action Values table; stage-start/complete ordering section updated to document step 4 (`dialogue_captured`); event count updated to 18.
+- Tests: `TestDialogueCaptured` added to `test_nodes.py` (5 tests) and `test_logging.py` (4 tests). Total test suite: 455 tests.
+
+## v0.9.2 - Dialogue Writer Utility
+- Utils: Added `src/utils/dialogue_writer.py` with `serialize_messages_to_markdown()` and `write_dialogue()`.
+- `serialize_messages_to_markdown()`: renders a Markdown document from a LangChain message sequence — header table, per-message sections (Human/Assistant/Tool Result/System), tool call JSON fences, and token-usage footer.
+- `write_dialogue()`: persists Markdown to `{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md` with auto-incrementing revision numbers.
+- Tests: 39 tests in `tests/test_dialogue_writer.py` covering all message types, revision numbering, and filesystem isolation via `tmp_path`.
+- Docs: Documented `CAPTURE_DIALOGUES` env var, `dialogue_writer` public API, and supported message roles.
+
+## v0.9.1 - Dialogue Capture Flag
+- Config: Added `capture_dialogues: bool` field to `Config` dataclass (default `False`).
+- Config: `CAPTURE_DIALOGUES` env var enables dialogue capture when set to `true`, `1`, or `yes` (case-insensitive).
+- Docs: Added `CAPTURE_DIALOGUES` to the environment variable reference and `.env.example`.
+
 ## v0.9.0 - Tool Wrapper Fix
 - Fix: Fixed tool wrapper input argument handling.
 - Tests: Added tool wrapper test suite.

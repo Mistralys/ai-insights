@@ -15,14 +15,14 @@
  * STDIO discipline: this file never writes to process.stdout.
  */
 
-import { rm, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { rm, readFile, readdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
 import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath } from '../src/utils/ledger-root.js';
 import { readProjectName } from '../src/utils/read-project-name.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX } from '../src/utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX, DIALOGUES_DIR } from '../src/utils/constants.js';
 import {
   PIPELINE_AGENT_MAP,
   DEFAULT_PIPELINE_STAGES,
@@ -1215,4 +1215,109 @@ export async function handleGetWorkPackageOverview(
   ).filter((entry): entry is WpOverviewEntry => entry !== null);
 
   return entries;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/dialogues
+// ---------------------------------------------------------------------------
+
+/** Filename allowlist pattern: only alphanumeric, hyphens, underscores + .md */
+const DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/;
+
+/**
+ * Returns an array of dialogue filenames from the project's dialogues/ directory.
+ *
+ * @param ledgerRoot  Root directory containing all project ledger folders.
+ * @param slug        Project slug — validated via assertSafeSlug().
+ * @param wpId        Optional WP ID prefix filter (e.g. 'WP-001').
+ *                    When provided, only filenames starting with '{wpId}-' are returned.
+ * @returns           Sorted array of matching .md filenames, or [] when the directory
+ *                    is absent (no error thrown).
+ */
+export async function handleListDialogues(
+  ledgerRoot: string,
+  slug: string,
+  wpId?: string
+): Promise<string[]> {
+  assertSafeSlug(slug);
+
+  const dialoguesDir = join(ledgerRoot, slug, DIALOGUES_DIR);
+
+  let entries: string[];
+  try {
+    entries = await readdir(dialoguesDir);
+  } catch (err: unknown) {
+    // Directory absent — return empty array rather than throwing.
+    if (isNodeError(err) && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      return [];
+    }
+    throw err;
+  }
+
+  // Filter to .md files only.
+  let filenames = entries.filter((f) => f.endsWith('.md'));
+
+  // Optional WP ID prefix filter.
+  if (wpId) {
+    const prefix = `${wpId}-`;
+    filenames = filenames.filter((f) => f.startsWith(prefix));
+  }
+
+  return filenames.sort();
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/dialogues/:filename
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the raw Markdown content of a single dialogue file.
+ *
+ * Security:
+ * - `slug` is validated via assertSafeSlug().
+ * - `filename` must match DIALOGUE_FILENAME_RE (alphanumeric + hyphens/underscores + .md).
+ * - Resolved path must be inside the project's dialogues/ directory (defence-in-depth).
+ *
+ * @param ledgerRoot  Root directory containing all project ledger folders.
+ * @param slug        Project slug.
+ * @param filename    Dialogue file name (e.g. 'WP-001-developer-r0.md').
+ * @returns           File content as a UTF-8 string.
+ * @throws            ApiError NOT_FOUND when filename is invalid or the file does not exist.
+ */
+export async function handleGetDialogueFile(
+  ledgerRoot: string,
+  slug: string,
+  filename: string
+): Promise<string> {
+  assertSafeSlug(slug);
+
+  // Allowlist check — rejects path traversal attempts like '../secret.md'.
+  if (!DIALOGUE_FILENAME_RE.test(filename)) {
+    notFound(`Dialogue file not found: '${filename}'.`);
+  }
+
+  const dialoguesDir = resolve(join(ledgerRoot, slug, DIALOGUES_DIR));
+  const filePath = resolve(join(dialoguesDir, filename));
+
+  // Defence-in-depth: ensure resolved path stays inside dialoguesDir.
+  if (!filePath.startsWith(dialoguesDir + '/') && filePath !== dialoguesDir) {
+    notFound(`Dialogue file not found: '${filename}'.`);
+  }
+
+  try {
+    return await readFile(filePath, 'utf-8');
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code === 'ENOENT') {
+      notFound(`Dialogue file not found: '${filename}'.`);
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal Node.js error type guard (shared by file handlers above)
+// ---------------------------------------------------------------------------
+
+function isNodeError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
 }

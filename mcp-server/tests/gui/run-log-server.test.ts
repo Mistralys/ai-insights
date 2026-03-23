@@ -142,10 +142,12 @@ describe('run-log HTTP routes — error mapping (instanceof ApiError regression)
 
     const { status, body } = await get(`${baseUrl}/api/projects/my-project/runs`);
     expect(status).toBe(200);
-    const files = body as string[];
+    const files = body as { filename: string; is_active: boolean }[];
     expect(files).toHaveLength(2);
-    expect(files).toContain('20260225T113355-my-project.jsonl');
-    expect(files).toContain('20260226T120000-my-project.jsonl');
+    const filenames = files.map((f) => f.filename);
+    expect(filenames).toContain('20260225T113355-my-project.jsonl');
+    expect(filenames).toContain('20260226T120000-my-project.jsonl');
+    files.forEach((f) => expect(typeof f.is_active).toBe('boolean'));
   });
 
   // ── GET /api/projects/:slug/runs/:filename ────────────────────────────────

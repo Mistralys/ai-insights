@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, access, writeFile } from 'fs/promises';
+import { mkdtemp, rm, access, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -25,10 +25,12 @@ import {
   handleRenameProject,
   handleArchiveProject,
   handleUnarchiveProject,
+  handleListDialogues,
+  handleGetDialogueFile,
   ApiError,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../../src/utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR } from '../../src/utils/constants.js';
 import {
   readConfigFromDisk,
   writeConfig,
@@ -1232,6 +1234,126 @@ describe('gui/api.ts', () => {
       const slugs = result.projects.map((p) => p.slug);
       expect(slugs).toContain('2026-01-01-combo-orch-active');
       expect(slugs).not.toContain('2026-01-02-combo-orch-archived');
+    });
+  });
+
+  // ─── handleListDialogues ─────────────────────────────────────────────────
+
+  describe('handleListDialogues', () => {
+    const slug = '2026-03-20-dialogue-capture';
+
+    async function createDialoguesDir(root: string, s: string): Promise<string> {
+      const dir = join(root, s, DIALOGUES_DIR);
+      await mkdir(dir, { recursive: true });
+      return dir;
+    }
+
+    it('returns [] when the dialogues/ directory is absent (no error thrown)', async () => {
+      // No project directory at all — should return empty array
+      const result = await handleListDialogues(ledgerRoot, slug);
+      expect(result).toEqual([]);
+    });
+
+    it('returns all .md filenames sorted alphabetically when no wp filter given', async () => {
+      const dir = await createDialoguesDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-002-qa-r0.md'), 'content b');
+      await writeFile(join(dir, 'WP-001-developer-r0.md'), 'content a');
+      await writeFile(join(dir, 'WP-003-reviewer-r0.md'), 'content c');
+
+      const result = await handleListDialogues(ledgerRoot, slug);
+      expect(result).toEqual([
+        'WP-001-developer-r0.md',
+        'WP-002-qa-r0.md',
+        'WP-003-reviewer-r0.md',
+      ]);
+    });
+
+    it("returns only filenames starting with 'WP-001-' when wpId='WP-001'", async () => {
+      const dir = await createDialoguesDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.md'), 'content a');
+      await writeFile(join(dir, 'WP-001-qa-r0.md'), 'content b');
+      await writeFile(join(dir, 'WP-002-developer-r0.md'), 'content c');
+
+      const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
+      expect(result).toEqual(['WP-001-developer-r0.md', 'WP-001-qa-r0.md']);
+      expect(result).not.toContain('WP-002-developer-r0.md');
+    });
+
+    it("throws ApiError NOT_FOUND for slug='..'", async () => {
+      await expect(handleListDialogues(ledgerRoot, '..')).rejects.toThrow(ApiError);
+      await expect(handleListDialogues(ledgerRoot, '..')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
+
+    it('excludes non-.md files from results', async () => {
+      const dir = await createDialoguesDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.md'), 'md file');
+      await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
+
+      const result = await handleListDialogues(ledgerRoot, slug);
+      expect(result).toEqual(['WP-001-developer-r0.md']);
+    });
+  });
+
+  // ─── handleGetDialogueFile ───────────────────────────────────────────────
+
+  describe('handleGetDialogueFile', () => {
+    const slug = '2026-03-20-dialogue-capture';
+
+    async function createDialogueFile(
+      root: string,
+      s: string,
+      filename: string,
+      content: string
+    ): Promise<void> {
+      const dir = join(root, s, DIALOGUES_DIR);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, filename), content);
+    }
+
+    it('returns file content when the file exists', async () => {
+      const content = '# Dialogue\n\nSome content here.';
+      await createDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md', content);
+
+      const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md');
+      expect(result).toBe(content);
+    });
+
+    it("throws ApiError NOT_FOUND for '../secret.md' (traversal rejected by allowlist)", async () => {
+      await expect(
+        handleGetDialogueFile(ledgerRoot, slug, '../secret.md')
+      ).rejects.toThrow(ApiError);
+      await expect(
+        handleGetDialogueFile(ledgerRoot, slug, '../secret.md')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it("throws ApiError NOT_FOUND for 'foo/bar.md' (slash in filename)", async () => {
+      await expect(
+        handleGetDialogueFile(ledgerRoot, slug, 'foo/bar.md')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('throws ApiError NOT_FOUND when file does not exist', async () => {
+      await expect(
+        handleGetDialogueFile(ledgerRoot, slug, 'WP-999-developer-r0.md')
+      ).rejects.toThrow(ApiError);
+      await expect(
+        handleGetDialogueFile(ledgerRoot, slug, 'WP-999-developer-r0.md')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it("throws ApiError NOT_FOUND for slug='..'", async () => {
+      await expect(
+        handleGetDialogueFile(ledgerRoot, '..', 'WP-001-developer-r0.md')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('returns content for a valid alphanumeric filename with underscores', async () => {
+      await createDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md', 'underscore content');
+      const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md');
+      expect(result).toBe('underscore content');
     });
   });
 });

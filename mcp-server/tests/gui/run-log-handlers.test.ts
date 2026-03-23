@@ -84,8 +84,14 @@ describe('handleListRunLogs', () => {
 
     const result = await handleListRunLogs('my-project', tempDir);
     expect(result).toHaveLength(2);
-    expect(result).toContain('2024-01-01T10-00-00-my-project.jsonl');
-    expect(result).toContain('2024-01-02T10-00-00-my-project.jsonl');
+    const filenames = result.map((r) => r.filename);
+    expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(filenames).toContain('2024-01-02T10-00-00-my-project.jsonl');
+    // Each entry has the expected shape
+    result.forEach((r) => {
+      expect(typeof r.filename).toBe('string');
+      expect(typeof r.is_active).toBe('boolean');
+    });
   });
 
   it('does not return files for a different slug', async () => {
@@ -94,8 +100,29 @@ describe('handleListRunLogs', () => {
 
     const result = await handleListRunLogs('my-project', tempDir);
     expect(result).toHaveLength(1);
-    expect(result).toContain('2024-01-01T10-00-00-my-project.jsonl');
-    expect(result).not.toContain('2024-01-01T10-00-00-other-project.jsonl');
+    const filenames = result.map((r) => r.filename);
+    expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(filenames).not.toContain('2024-01-01T10-00-00-other-project.jsonl');
+  });
+
+  it('sets is_active: false for a completed run', async () => {
+    const content = JSON.stringify({ action: 'run_start' }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(tempDir, '20260323T120000-my-project.jsonl'), content, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', tempDir);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.is_active).toBe(false);
+  });
+
+  it('sets is_active: true for an in-progress run', async () => {
+    const content = JSON.stringify({ action: 'run_start' }) + '\n' +
+                    JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
+    await writeFile(join(tempDir, '20260323T130000-my-project.jsonl'), content, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', tempDir);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.is_active).toBe(true);
   });
 });
 

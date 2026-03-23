@@ -28,6 +28,7 @@ class _FakeConfig:
     """Minimal Config-like object for test injection."""
     model_name = "claude-test"
     workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
+    capture_dialogues = False  # Default off; override in specific test classes
 
 
 FAKE_CONFIG = _FakeConfig()
@@ -835,4 +836,101 @@ class TestPipelineResult:
         ]
         assert not pr_entries, (
             "pipeline_result must not be emitted when WP has no pipelines"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: dialogue_captured event
+# ---------------------------------------------------------------------------
+
+
+class _CaptureConfig:
+    """Config stub with capture_dialogues=True."""
+    model_name = "claude-test"
+    workspace_root = Path(__file__).resolve().parent.parent.parent
+    capture_dialogues = True
+
+
+class _NoCaptureConfig:
+    """Config stub with capture_dialogues=False."""
+    model_name = "claude-test"
+    workspace_root = Path(__file__).resolve().parent.parent.parent
+    capture_dialogues = False
+
+
+class TestDialogueCaptured:
+    """dialogue_captured must appear in run_log when capture_dialogues=True."""
+
+    async def _invoke_with_capture(self, capture: bool, wp_id: str = "WP-001") -> dict:
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig() if capture else _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch(
+                 "src.nodes.write_dialogue",
+                 return_value=Path("/tmp/WP-001-developer-r0.md"),
+             ), \
+             patch(
+                 "src.nodes.serialize_messages_to_markdown",
+                 return_value="# Dialogue",
+             ):
+            return await node_fn(base_state(current_wp_id=wp_id))
+
+    async def test_dialogue_captured_emitted_when_flag_true(self):
+        """dialogue_captured must appear in run_log when capture_dialogues=True."""
+        result = await self._invoke_with_capture(capture=True)
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, "dialogue_captured entry expected in run_log when capture_dialogues=True"
+
+    async def test_dialogue_captured_has_required_fields(self):
+        """dialogue_captured entry must have action, stage, wp_id, file_path, level."""
+        result = await self._invoke_with_capture(capture=True)
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, "dialogue_captured entry missing"
+        entry = dc_entries[0]
+        assert entry["action"] == "dialogue_captured"
+        assert "stage" in entry
+        assert "wp_id" in entry
+        assert entry.get("file_path"), "file_path must be a non-empty string"
+        assert entry.get("level") == "INFO"
+
+    async def test_dialogue_captured_not_emitted_when_flag_false(self):
+        """No dialogue_captured entry when capture_dialogues=False."""
+        result = await self._invoke_with_capture(capture=False)
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, "dialogue_captured must not appear when capture_dialogues=False"
+
+    async def test_dialogue_captured_not_emitted_when_wp_id_empty(self):
+        """No dialogue_captured entry when wp_id is empty (even if flag is True)."""
+        result = await self._invoke_with_capture(capture=True, wp_id="")
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
+
+    async def test_write_dialogue_failure_does_not_affect_stage_success(self):
+        """A PermissionError (or any exception) from write_dialogue must not
+        cause stage_success=False or propagate as an exception."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch(
+                 "src.nodes.serialize_messages_to_markdown",
+                 return_value="# Dialogue",
+             ), \
+             patch(
+                 "src.nodes.write_dialogue",
+                 side_effect=PermissionError("disk full"),
+             ):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is True, (
+            "write_dialogue failure must not set stage_success=False"
+        )
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear in run_log when write_dialogue raises"
         )

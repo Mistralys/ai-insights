@@ -162,10 +162,10 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
 
   // ── Populated state ───────────────────────────────────────────────────────
 
-  it('renders each log entry with filename, run-event class, and working href', async () => {
+  it('renders each log entry with run number, date, and working href', async () => {
     const logs = [
-      '20260225T113355-my-project.jsonl',
-      '20260226T080000-my-project.jsonl',
+      { filename: '20260225T113355-my-project.jsonl', is_active: false },
+      { filename: '20260226T080000-my-project.jsonl', is_active: false },
     ];
 
     await renderWithAPI(app, 'my-project', {
@@ -178,26 +178,30 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     expect(wrapper).not.toBeNull();
     expect(wrapper!.style.display).toBe('');
 
-    // Both filenames appear
-    expect(app.innerHTML).toContain('20260225T113355-my-project.jsonl');
-    expect(app.innerHTML).toContain('20260226T080000-my-project.jsonl');
+    // Run numbers appear
+    expect(app.innerHTML).toContain('Run #1');
+    expect(app.innerHTML).toContain('Run #2');
+
+    // Raw slug/filename not shown as visible label text
+    const runItems = app.querySelectorAll('#orchestrator-runs-section .run-event span[style*="font-size:13px"]');
+    runItems.forEach((el) => expect(el.textContent).not.toContain('.jsonl'));
 
     // Run event styling applied
     expect(app.innerHTML).toContain('run-event');
 
-    // Links to the correct route
+    // Links to the correct route (href still uses the full filename)
     expect(app.innerHTML).toContain(
-      '#/projects/my-project/runs/' + encodeURIComponent(logs[0]!)
+      '#/projects/my-project/runs/' + encodeURIComponent(logs[0]!.filename)
     );
     expect(app.innerHTML).toContain(
-      '#/projects/my-project/runs/' + encodeURIComponent(logs[1]!)
+      '#/projects/my-project/runs/' + encodeURIComponent(logs[1]!.filename)
     );
   });
 
   it('encodes the slug in the run href', async () => {
     await renderWithAPI(app, 'slug/with/slashes', {
       getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
-      getRunLogs: () => Promise.resolve(['20260225T113355-some-project.jsonl']),
+      getRunLogs: () => Promise.resolve([{ filename: '20260225T113355-some-project.jsonl', is_active: false }]),
     });
 
     expect(app.innerHTML).toContain(encodeURIComponent('slug/with/slashes'));
@@ -206,13 +210,87 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
   it('shows logs for non-orchestrator runner when log files exist', async () => {
     await renderWithAPI(app, 'my-project', {
       getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
-      getRunLogs: () => Promise.resolve(['20260225T113355-my-project.jsonl']),
+      getRunLogs: () => Promise.resolve([{ filename: '20260225T113355-my-project.jsonl', is_active: false }]),
     });
 
     const wrapper = app.querySelector('#orchestrator-runs-wrapper') as HTMLElement | null;
     expect(wrapper).not.toBeNull();
     expect(wrapper!.style.display).toBe('');
-    expect(app.innerHTML).toContain('20260225T113355-my-project.jsonl');
+    expect(app.innerHTML).toContain('Run #1');
+  });
+
+  it('numbers runs chronologically — newest run gets the highest number', async () => {
+    const logs = [
+      { filename: '20260323T100000-my-project.jsonl', is_active: false }, // oldest → #1
+      { filename: '20260325T090000-my-project.jsonl', is_active: false }, // newest → #3
+      { filename: '20260324T120000-my-project.jsonl', is_active: false }, // middle → #2
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section')!;
+    const html = section.innerHTML;
+    // Sorted descending: #3 first, then #2, then #1
+    expect(html.indexOf('Run #3')).toBeLessThan(html.indexOf('Run #2'));
+    expect(html.indexOf('Run #2')).toBeLessThan(html.indexOf('Run #1'));
+    // Timestamps also appear newest-first
+    expect(html.indexOf('20260325')).toBeLessThan(html.indexOf('20260324'));
+    expect(html.indexOf('20260324')).toBeLessThan(html.indexOf('20260323'));
+  });
+
+  it('shows a Running badge for an active run', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: true },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(app.innerHTML).toContain('Running');
+    expect(app.innerHTML).toContain('badge-in-progress');
+  });
+
+  it('does not show a Running badge for a completed run', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    // Scope check to the runs section — the project status badge also uses badge-in-progress
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).not.toContain('badge-in-progress');
+  });
+
+  it('only shows Running badge on the most-recent run even if older runs have is_active: true', async () => {
+    // Simulates runs that were killed without writing run_end — they appear active
+    // in the file, but only the newest one can truly be running.
+    const logs = [
+      { filename: '20260323T100000-my-project.jsonl', is_active: true }, // old, interrupted
+      { filename: '20260325T090000-my-project.jsonl', is_active: true }, // newest, genuinely active
+      { filename: '20260324T120000-my-project.jsonl', is_active: true }, // middle, interrupted
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section')!;
+    const badges = section.querySelectorAll('.badge-in-progress');
+    expect(badges).toHaveLength(1);
+    // The badge should be in the first rendered item (newest run = Run #3)
+    const firstItem = section.querySelector('.run-event');
+    expect(firstItem!.innerHTML).toContain('badge-in-progress');
   });
 
   // ── Error handling ────────────────────────────────────────────────────────

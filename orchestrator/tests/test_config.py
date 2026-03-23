@@ -8,7 +8,9 @@ remain valid if the manifest gains new roles or pipeline types in the future.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -21,6 +23,7 @@ from src.config import (
     ROLE_IDS,
     VALID_STAGES,
     WP_TERMINAL_STATUSES,
+    load_config,
 )
 
 
@@ -207,3 +210,88 @@ class TestPersonaFilesExist:
             f"  Manifest says: {relative_path}\n"
             f"  Check shared/workflow-manifest.json persona_file entries."
         )
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by TestCaptureDialogues
+# ---------------------------------------------------------------------------
+
+# Minimum valid env required by load_config() so we can isolate the flag.
+_BASE_ENV = {
+    "MODEL_NAME": "claude-test",
+    "ANTHROPIC_API_KEY": "sk-test",
+}
+
+
+def _load(extra_env: dict | None = None) -> "Config":  # noqa: F821 – forward ref ok
+    """Call load_config() with a clean environment plus *extra_env* overrides."""
+    env = {**_BASE_ENV, **(extra_env or {})}
+    # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.
+    env.setdefault("CAPTURE_DIALOGUES", "")
+    with patch.dict(os.environ, env, clear=True):
+        return load_config()
+
+
+class TestCaptureDialogues:
+    """Tests for Config.capture_dialogues and CAPTURE_DIALOGUES env var parsing."""
+
+    # ------------------------------------------------------------------
+    # Default / falsy values
+    # ------------------------------------------------------------------
+
+    def test_default_is_false_when_env_var_unset(self):
+        """capture_dialogues defaults to False when CAPTURE_DIALOGUES is absent."""
+        env = {**_BASE_ENV}
+        with patch.dict(os.environ, env, clear=True):
+            cfg = load_config()
+        assert cfg.capture_dialogues is False
+
+    def test_false_when_env_var_is_empty_string(self):
+        assert _load({"CAPTURE_DIALOGUES": ""}).capture_dialogues is False
+
+    def test_false_when_env_var_is_false(self):
+        assert _load({"CAPTURE_DIALOGUES": "false"}).capture_dialogues is False
+
+    def test_false_when_env_var_is_zero(self):
+        assert _load({"CAPTURE_DIALOGUES": "0"}).capture_dialogues is False
+
+    def test_false_when_env_var_is_no(self):
+        assert _load({"CAPTURE_DIALOGUES": "no"}).capture_dialogues is False
+
+    def test_false_when_env_var_is_arbitrary_value(self):
+        assert _load({"CAPTURE_DIALOGUES": "maybe"}).capture_dialogues is False
+
+    # ------------------------------------------------------------------
+    # Truthy values
+    # ------------------------------------------------------------------
+
+    def test_true_when_env_var_is_lowercase_true(self):
+        assert _load({"CAPTURE_DIALOGUES": "true"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_titlecase_True(self):
+        assert _load({"CAPTURE_DIALOGUES": "True"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_uppercase_TRUE(self):
+        assert _load({"CAPTURE_DIALOGUES": "TRUE"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_one(self):
+        assert _load({"CAPTURE_DIALOGUES": "1"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_yes(self):
+        assert _load({"CAPTURE_DIALOGUES": "yes"}).capture_dialogues is True
+
+    def test_true_when_env_var_is_YES(self):
+        assert _load({"CAPTURE_DIALOGUES": "YES"}).capture_dialogues is True
+
+    # ------------------------------------------------------------------
+    # Type check
+    # ------------------------------------------------------------------
+
+    def test_field_is_bool_type(self):
+        """capture_dialogues must be a plain Python bool, not a truthy string."""
+        cfg = _load({"CAPTURE_DIALOGUES": "true"})
+        assert isinstance(cfg.capture_dialogues, bool)
+
+    def test_field_is_bool_type_when_false(self):
+        cfg = _load()
+        assert isinstance(cfg.capture_dialogues, bool)

@@ -471,12 +471,40 @@ function renderProjectDetail(app, slug) {
       if (!wrapperEl || !runsEl) return;
       if (!Array.isArray(logs) || logs.length === 0) return;
       wrapperEl.style.display = '';
-      runsEl.innerHTML = logs.map(function (filename) {
+
+      // Sort most recent first — filename prefix (YYYYMMDDTHHmmss) is lexicographically
+      // sortable, so a descending filename sort is equivalent to a descending date sort.
+      var sorted = logs.slice().sort(function (a, b) {
+        var aName = (a && a.filename) ? a.filename : String(a);
+        var bName = (b && b.filename) ? b.filename : String(b);
+        return bName.localeCompare(aName);
+      });
+
+      runsEl.innerHTML = sorted.map(function (item, index) {
+        var filename = (item && item.filename) ? item.filename : String(item);
+        // Only the most recent run (index 0) can possibly be active; older runs
+        // that were killed without writing run_end would otherwise show as Running.
+        var isActive = index === 0 && !!(item && item.is_active);
         var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
-        // Extract a human-readable timestamp from the filename prefix (e.g. 20260225T113355)
-        var label = escapeHtml(filename);
+
+        // Chronological run number: oldest = #1, newest = #N (sorted is descending).
+        var runNumber = sorted.length - index;
+
+        // Parse the timestamp from the filename prefix (YYYYMMDDTHHmmss).
+        var dateStr = (function () {
+          var m = filename.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})-/);
+          if (!m) return '';
+          var iso = m[1] + '-' + m[2] + '-' + m[3] + 'T' + m[4] + ':' + m[5] + ':' + m[6];
+          var formatted = formatDate(iso);
+          return formatted ? ' <span class="text-muted" style="font-size:11px">' + escapeHtml(formatted) + '</span>' : '';
+        }());
+
+        var badge = isActive
+          ? '<span class="badge badge-in-progress" style="margin-right:6px">Running</span>'
+          : '';
+
         return '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
-          '<span class="monospace" style="font-size:12px">' + label + '</span>' +
+          '<span>' + badge + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
           '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
         '</div>';
       }).join('');

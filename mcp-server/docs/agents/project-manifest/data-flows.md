@@ -1156,6 +1156,54 @@ auto_archive_days === 0?
 
 ---
 
+## Flow 14: GUI — Orchestrator Run Log Listing (with Self-Healing)
+
+**Entry Point:** Browser sends `GET /api/projects/:slug/runs` when the project detail page loads.
+
+```
+GET /api/projects/:slug/runs
+  ↓
+gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir)
+  ↓
+src/gui/handlers/run-log-handlers.ts — handleListRunLogs
+  assertSafeSlug(slug)   ← throws ApiError NOT_FOUND for empty / '/' / '..'
+  findRunLogs(logsDir, slug)
+  ↓
+src/gui/log-resolver.ts — findRunLogs
+  readdir(logsDir)       ← returns [] if directory absent/unreadable
+  filter by suffix "-{slug}.jsonl" (prefix required — exact suffix rejected)
+  for each matching filename:
+    isRunActive(filePath) ← reads last non-empty JSONL line;
+                            active = no terminal action (run_end / run_error);
+                            empty file = active; parse error = inactive
+  sort descending by filename (lexicographic; timestamp prefix makes this chronological)
+  ↓
+Self-healing pass (entries at index 1+):
+  for each non-newest entry where is_active === true:
+    appendFile(filePath, '\n' + JSON.stringify({ action: 'run_error', error: '...healed...', ts: '...' }) + '\n')
+    entry.is_active = false
+  (failures swallowed — best-effort only; newest run at index 0 is never touched)
+  ↓
+Return RunLogEntry[]
+  [{ filename: '20260325T090000-slug.jsonl', is_active: true  },   ← newest, potentially running
+   { filename: '20260324T120000-slug.jsonl', is_active: false },   ← healed if was stale
+   { filename: '20260323T100000-slug.jsonl', is_active: false }]   ← completed or healed
+```
+
+**Frontend rendering (`views/project-detail.js`):**
+- Array is already sorted newest-first by the server
+- Assigns chronological run numbers: oldest = #1, newest = #N (index 0 = #N)
+- Only index 0 can show a "Running" badge (`is_active` on older entries is ignored client-side as a second defence)
+- Timestamp parsed from filename prefix (YYYYMMDDTHHmmss) and formatted via `formatDate()`
+
+**Key properties:**
+- Self-healing is idempotent: once a stale file gains a `run_error` closing entry, it will never be re-healed
+- Healing runs as a side-effect of the GET — no dedicated endpoint or background job needed
+- `logsDir` is resolved from GUI config (`orchestrator_logs_dir`), falling back to `~/.ai-insights/orchestrator-logs`
+- Security: slug validated in both `server.ts` dispatch and handler; filename validated in `readLogEntries` (allowlist + path escape check)
+
+---
+
 ## Flow 13: GUI — Paginated Project Listing
 
 **Entry Point:** Browser or client sends `GET /api/projects` (with optional query params)

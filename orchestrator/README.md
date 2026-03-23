@@ -99,6 +99,7 @@ HEARTBEAT_INTERVAL_S=120  # Heartbeat interval in seconds (0 = disabled)
 | `CHECKPOINT_DIR` | no | `./checkpoints` | Directory for LangGraph SQLite checkpoint files |
 | `LOG_LEVEL` | no | `INFO` | Python logging verbosity |
 | `HEARTBEAT_INTERVAL_S` | no | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled) |
+| `CAPTURE_DIALOGUES` | no | `false` | Capture full agent dialogue exchanges when `true`, `1`, or `yes` (case-insensitive); all other values (including unset) disable capture |
 
 The provider is **auto-detected** from which API key is set. If both are set, the `MODEL_NAME` prefix is used as a tiebreaker (`claude-*` → Anthropic, `gemini-*` → Google).
 
@@ -223,7 +224,7 @@ For the full routing algorithm, action sets, and circuit-breaker mechanics, see 
 
 ### Stage nodes
 
-Each stage node emits a `stage_start` event, loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, invokes it, and emits `stage_complete` (with `duration_s`) followed by a best-effort `pipeline_result` read-back. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
+Each stage node emits a `stage_start` event, loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, invokes it, and emits `stage_complete` (with `duration_s`) followed by a best-effort `pipeline_result` read-back. When `CAPTURE_DIALOGUES=true`, a `dialogue_captured` event is also emitted (and appended to the run log) recording the path of the Markdown dialogue file written to disk; write failures are caught silently and do not interrupt stage execution. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
 
 ---
 
@@ -235,10 +236,10 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/graph.py` | LangGraph `StateGraph` assembly and compilation |
 | `src/state.py` | `WorkflowState` TypedDict with annotated reducers |
 | `src/cli.py` | CLI entry point (`orchestrate` command) |
-| `src/config.py` | `.env` loading, provider auto-detection, pipeline routing constants derived from `shared/workflow-manifest.json` |
+| `src/config.py` | `.env` loading, provider auto-detection, `capture_dialogues` flag, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
-| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`) |
+| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`) |
 | `tests/` | 374 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 
@@ -370,7 +371,7 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 375 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 455 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -392,14 +393,14 @@ Tests are structured as:
 |------|---------------|
 | `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP); `_derive_next_action` test helper — PASS-branch and FAIL-branch routing both manifest-derived via `PIPELINE_AGENT_MAP`/`FAIL_ROUTING_AGENT_MAP` (no hard-coded role strings); dedicated routing classes for all pipeline stages including `TestRouteToSecurityAuditor`, `TestRouteToReleaseEngineer`, and `TestDocumentationFail`; `TestProgressSnapshot` (4 tests — emitted every iteration with correct fields, elapsed_s guard); `TestWPStatusChangeEvents` (4 tests — change detection, wp_complete sub-event, first-iteration guard); `TestPrevWPSummariesStored` (1 test); `TestEnrichedRouteEvents` (2 tests — prev_stage/wp_id/result on route entries); `TestReworkDetectedEvent` (2 tests) |
 | `test_config.py` | Manifest-derived config constants: `WP_TERMINAL_STATUSES`, `VALID_STAGES`, `PIPELINE_TYPES`, `ROLE_IDS`, `PIPELINE_ROLE_NAMES`, `FAIL_ROUTING_AGENT_MAP`, and `PIPELINE_AGENT_MAP` — structural assertions (type, non-emptiness, key membership, ordering) that tolerate future manifest additions; guards for orchestrating-role exclusion (Planner, Synthesis) and Release Engineer ID normalisation; `TestPipelineAgentMap` pins all pipeline-type-to-agent mappings and cross-validates against `PIPELINE_ROLE_NAMES` |
-| `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration; `TestStageStartEvent` (4 tests — `stage_start` emitted before agent invocation, correct fields); `TestDurationS` (12 parametrized tests — `duration_s` on both `stage_complete` and `stage_error` across all 6 factories); `TestPipelineResult` (7 tests — successful read-back emission, read-back failure isolation, no-pipeline guard) |
+| `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration; `TestStageStartEvent` (4 tests — `stage_start` emitted before agent invocation, correct fields); `TestDurationS` (12 parametrized tests — `duration_s` on both `stage_complete` and `stage_error` across all 6 factories); `TestPipelineResult` (7 tests — successful read-back emission, read-back failure isolation, no-pipeline guard); `TestDialogueCaptured` (5 tests — event emitted when `capture_dialogues=True`, required fields present, event omitted when flag is `False`, event omitted when `wp_id` is empty, `write_dialogue` failure does not affect `stage_success`) |
 | `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool |
 | `test_graph.py` | Graph topology, edges, compilation |
 | `test_cli.py` | Argument parsing, interrupt mapping, exit codes |
 | `test_state.py` | WorkflowState schema and reducer semantics |
 | `test_plan_parser.py` | Plan document parsing (title, summary, edge cases) |
 | `test_filelock.py` | Cross-platform file locking: successful acquire, contention raises `OSError`, double-unlock idempotency |
-| `test_logging.py` | `_format_duration` edge cases (None, 0, sub-minute, multi-minute, multi-hour); all 7 new event-type console format patterns (`stage_start`, `stage_complete`, `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`); existing event-type stability (generic fallback unchanged); robustness against missing/null fields — 48 tests |
+| `test_logging.py` | `_format_duration` edge cases (None, 0, sub-minute, multi-minute, multi-hour); all 8 event-type console format patterns (`stage_start`, `stage_complete`, `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`, `dialogue_captured`); existing event-type stability (generic fallback unchanged); robustness against missing/null fields; `TestDialogueCaptured` (4 tests — format with `file_path`, stage + WP ID included, missing `file_path`, missing `wp_id`) |
 | `test_integration.py` | End-to-end graph execution (7 scenarios, ScriptedLedger) |
 
 ### Integration Tests (`test_integration.py`)

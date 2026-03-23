@@ -45,7 +45,11 @@ mcp-server/
 │   │
 │   ├── gui/                     # Shared GUI/config module
 │   │   ├── auto-archive.ts      # Auto-archive service
-│   │   └── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
+│   │   ├── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
+│   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
+│   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir
+│   │   └── handlers/
+│   │       └── run-log-handlers.ts  # handleListRunLogs, handleGetRunLog — thin wrappers adding slug validation over log-resolver.ts
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json

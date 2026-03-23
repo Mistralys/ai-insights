@@ -27,7 +27,7 @@
  * from importing `gui/api.ts` here (since `gui/api.ts` imports this file).
  */
 
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, appendFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { ApiError } from './errors.js';
@@ -51,6 +51,20 @@ const DEFAULT_LOGS_DIR = join(homedir(), '.ai-insights', 'orchestrator-logs');
 const SAFE_FILENAME_REGEX = /^[A-Za-z0-9._-]+$/;
 
 // ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single entry in the run log list for a project.
+ * `is_active` is `true` when the run has not yet emitted a terminal action
+ * (`run_end` or `run_error`), indicating the orchestrator may still be running.
+ */
+export interface RunLogEntry {
+  filename: string;
+  is_active: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -70,26 +84,105 @@ export function resolveOrchestratorLogsDir(configured: string | undefined): stri
 /**
  * Lists `.jsonl` files in `logsDir` whose names end with `-{slug}.jsonl`.
  *
- * Returns only matching filenames (not full paths). Files that do not match
- * the slug suffix are silently excluded. If `logsDir` does not exist or
- * cannot be read, returns an empty array.
+ * Returns `RunLogEntry` objects — one per matching file. Each entry includes
+ * the bare `filename` and an `is_active` flag that is `true` when the log has
+ * no terminal action (`run_end` / `run_error`) as its last line, meaning the
+ * orchestrator run may still be in progress.
+ *
+ * Self-healing: runs that appear active but are not the newest file (sorted
+ * by filename prefix) are considered stale. A synthetic `run_error` entry is
+ * appended to each stale file so they are permanently closed on disk.
+ *
+ * Files that do not match the slug suffix are silently excluded. If `logsDir`
+ * does not exist or cannot be read, returns an empty array.
  *
  * @param logsDir - Absolute path to the directory containing log files.
  * @param slug    - The project slug to filter by (e.g. `my-project`).
  */
-export async function findRunLogs(logsDir: string, slug: string): Promise<string[]> {
-  let entries: string[];
+export async function findRunLogs(logsDir: string, slug: string): Promise<RunLogEntry[]> {
+  let dirEntries: string[];
   try {
-    entries = await readdir(logsDir);
+    dirEntries = await readdir(logsDir);
   } catch {
     // Directory doesn't exist or is unreadable — treat as empty
     return [];
   }
 
   const suffix = `-${slug}.jsonl`;
-  return entries.filter(
+  const matching = dirEntries.filter(
     (name) => name.endsWith(suffix) && name.length > suffix.length
   );
+
+  // Build entries with active status, then sort newest-first by filename prefix.
+  const unsorted = await Promise.all(
+    matching.map(async (filename) => ({
+      filename,
+      is_active: await isRunActive(join(logsDir, filename)),
+    }))
+  );
+  unsorted.sort((a, b) => b.filename.localeCompare(a.filename));
+
+  // Self-heal: every run except the newest one that still looks active is stale
+  // (it was interrupted / killed without writing run_end). Append a synthetic
+  // closing entry so the file is permanently marked as terminated on disk.
+  await Promise.all(
+    unsorted.slice(1).map(async (entry, i) => {
+      if (!entry.is_active) return;
+      await healStaleRun(join(logsDir, entry.filename));
+      unsorted[i + 1]!.is_active = false;
+    })
+  );
+
+  return unsorted;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns `true` when a log file does not end with a terminal action.
+ *
+ * A run is considered active if the last non-empty JSONL line does **not**
+ * have `action: "run_end"` or `action: "run_error"`. Empty files (where the
+ * run has just started writing) are also considered active.
+ *
+ * Failures to read or parse the file are treated as inactive (`false`) so
+ * that stale / unreadable files are never shown with a "Running" badge.
+ */
+async function isRunActive(filePath: string): Promise<boolean> {
+  try {
+    const raw = await readFile(filePath, 'utf-8');
+    const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return true; // File just created — run has started
+    const lastLine = lines[lines.length - 1]!;
+    const entry = JSON.parse(lastLine);
+    if (entry && typeof entry === 'object' && 'action' in entry) {
+      return entry.action !== 'run_end' && entry.action !== 'run_error';
+    }
+    return true; // No action field — cannot confirm completion
+  } catch {
+    return false; // Unreadable or unparsable — treat as inactive
+  }
+}
+
+/**
+ * Appends a synthetic `run_error` entry to a stale log file, permanently
+ * closing it on disk so it is never shown as "Running" again.
+ *
+ * Failures are swallowed — a best-effort heal must never bubble up to callers.
+ */
+async function healStaleRun(filePath: string): Promise<void> {
+  try {
+    const entry = JSON.stringify({
+      action: 'run_error',
+      error: 'Run terminated without completing (healed by GUI on next page load)',
+      ts: new Date().toISOString(),
+    });
+    await appendFile(filePath, '\n' + entry + '\n', 'utf-8');
+  } catch {
+    // Best-effort — ignore all errors (permissions, missing file, etc.)
+  }
 }
 
 /**

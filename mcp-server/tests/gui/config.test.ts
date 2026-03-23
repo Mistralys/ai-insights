@@ -204,6 +204,72 @@ describe('gui/config.ts', () => {
     expect(() => stopConfigWatcher()).not.toThrow();
   });
 
+  // ─── capture_dialogues field ─────────────────────────────────────────────
+
+  it('DEFAULT_CONFIG.capture_dialogues is false', () => {
+    expect(DEFAULT_CONFIG.capture_dialogues).toBe(false);
+  });
+
+  it('getConfig returns capture_dialogues = false before any disk read', () => {
+    expect(getConfig().capture_dialogues).toBe(false);
+  });
+
+  it('readConfigFromDisk defaults capture_dialogues to false when field absent from JSON', async () => {
+    // Write a config file that does NOT contain capture_dialogues.
+    await writeJson(configPath, { auto_handoff_enabled: true, max_handoff_depth: 10 });
+
+    const result = await readConfigFromDisk(configPath);
+
+    expect(result.capture_dialogues).toBe(false);
+  });
+
+  it('readConfigFromDisk reads capture_dialogues = true from disk', async () => {
+    await writeJson(configPath, {
+      auto_handoff_enabled: true,
+      max_handoff_depth: 10,
+      capture_dialogues: true,
+    });
+
+    const result = await readConfigFromDisk(configPath);
+
+    expect(result.capture_dialogues).toBe(true);
+  });
+
+  it('writeConfig round-trip: writes { capture_dialogues: true } and reads it back', async () => {
+    // Write the flag via writeConfig.
+    const written = await writeConfig(configPath, { capture_dialogues: true });
+    expect(written.capture_dialogues).toBe(true);
+
+    // getConfig() cache must also reflect the update.
+    expect(getConfig().capture_dialogues).toBe(true);
+
+    // Read back from disk to confirm persistence.
+    __resetForTesting();
+    const readBack = await readConfigFromDisk(configPath);
+    expect(readBack.capture_dialogues).toBe(true);
+  });
+
+  it('writeConfig round-trip: writes { capture_dialogues: false } and reads it back', async () => {
+    // Seed with true first so we know the change is persisted, not just the default.
+    await writeConfig(configPath, { capture_dialogues: true });
+
+    const written = await writeConfig(configPath, { capture_dialogues: false });
+    expect(written.capture_dialogues).toBe(false);
+
+    __resetForTesting();
+    const readBack = await readConfigFromDisk(configPath);
+    expect(readBack.capture_dialogues).toBe(false);
+  });
+
+  it('writeConfig partial body with only capture_dialogues preserves other defaults', async () => {
+    const result = await writeConfig(configPath, { capture_dialogues: true });
+
+    // Other fields must retain their defaults.
+    expect(result.auto_handoff_enabled).toBe(true);
+    expect(result.max_handoff_depth).toBe(50);
+    expect(result.auto_archive_days).toBe(6);
+  });
+
   // ─── Double startConfigWatcher ───────────────────────────────────────────
 
   it('calling startConfigWatcher twice replaces existing watcher without leaking', async () => {

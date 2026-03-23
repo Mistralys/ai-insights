@@ -1,5 +1,18 @@
 # AI Insights Changelog
 
+## Unreleased
+> mcp v1.18.4 · orchestrator v0.9.3
+
+- Orchestrator: Added dialogue capture — when `CAPTURE_DIALOGUES=true`, each stage node serialises the full agent message exchange to a Markdown file and emits a `dialogue_captured` JSONL event. Write failures are non-fatal and do not interrupt stage execution.
+- Orchestrator: Added `CAPTURE_DIALOGUES` env var (`false` by default) and `capture_dialogues` field on `Config`.
+- Orchestrator: Added `src/utils/dialogue_writer.py` with `serialize_messages_to_markdown()` and `write_dialogue()` utilities.
+- Orchestrator: `_build_stream_console_line()` now renders rich console output for `dialogue_captured` events.
+- MCP: Added `capture_dialogues` field to `GuiConfigSchema` and `DEFAULT_CONFIG`.
+- MCP GUI: Added "Capture agent dialogues" toggle to the Settings page (`/#/config`); takes effect on the next orchestrator run.
+- MCP API: Added `GET /api/projects/:slug/dialogues` and `GET /api/projects/:slug/dialogues/:filename` endpoints to read captured dialogue files; filename allowlist + `path.resolve()` guard prevent path traversal.
+- MCP GUI: Added Dialogues card to the Work Package detail view — fetches captured dialogue files per WP, groups them by stage, renders revision pill buttons with latest highlighted, and renders selected dialogue Markdown inline with collapse/toggle behaviour.
+- Docs: Updated JSONL log schema with `dialogue_captured` event type and `file_path` field.
+
 ## v1.11.0 - Progress Reporting & Run Log Viewer
 > mcp v1.18.0 · orchestrator v0.9.0 · personas v3.10.3
 

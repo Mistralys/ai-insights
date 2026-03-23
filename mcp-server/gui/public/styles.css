@@ -841,7 +841,8 @@ input[type="number"].form-control {
 .mb-8  { margin-bottom:  8px; }
 .mb-16 { margin-bottom: 16px; }
 .monospace { font-family: 'Courier New', monospace; font-size: 13px; }
-.text-muted { color: var(--color-text-muted); }
+.text-muted  { color: var(--color-text-muted); }
+.text-danger { color: var(--color-blocked); }
 
 /* ----------------------------------------------------------
    Insights — Comment Cards
@@ -1798,4 +1799,119 @@ th[data-sort="total_work_packages"] {
   background: #450a0a;
   color: #fca5a5;
   border-color: #7f1d1d;
+}
+
+/* ----------------------------------------------------------
+   Dialogues card (WP detail view)
+   ---------------------------------------------------------- */
+.dialogue-stage {
+  margin-bottom: 10px;
+}
+
+.dialogue-stage-label {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.dialogue-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  margin: 2px 4px 2px 0;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  vertical-align: middle;
+}
+
+.dialogue-btn:hover {
+  border-color: var(--color-ready);
+  color: var(--color-ready);
+}
+
+/* Latest revision is visually highlighted */
+.dialogue-btn-latest {
+  border-color: var(--color-ready);
+  color: var(--color-ready);
+  font-weight: 700;
+}
+
+/* Active / expanded state */
+.dialogue-btn-active {
+  background: var(--color-btn-bg);
+  border-color: var(--color-btn-bg);
+  color: #fff;
+  font-weight: 700;
+}
+
+.dialogue-content {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  max-height: 480px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.dialogue-markdown h1,
+.dialogue-markdown h2,
+.dialogue-markdown h3 {
+  margin-top: 16px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.dialogue-markdown pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+.dialogue-markdown code {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 12px;
+}
+
+.dialogue-markdown pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+/* Dark mode overrides */
+[data-theme="dark"] .dialogue-btn {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .dialogue-btn-latest {
+  border-color: var(--color-ready);
+  color: var(--color-ready);
+}
+
+[data-theme="dark"] .dialogue-btn-active {
+  background: var(--color-btn-bg);
+  border-color: var(--color-btn-bg);
+  color: #fff;
 }

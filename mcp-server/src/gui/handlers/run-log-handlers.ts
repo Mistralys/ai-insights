@@ -17,6 +17,7 @@ import {
   findRunLogs,
   readLogEntries,
 } from '../log-resolver.js';
+import type { RunLogEntry } from '../log-resolver.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -56,7 +57,7 @@ function assertSafeSlug(slug: string): void {
 export async function handleListRunLogs(
   slug: string,
   logsDir: string
-): Promise<string[]> {
+): Promise<RunLogEntry[]> {
   assertSafeSlug(slug);
   return findRunLogs(logsDir, slug);
 }

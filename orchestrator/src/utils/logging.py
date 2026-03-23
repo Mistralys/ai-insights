@@ -43,6 +43,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+log = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Console logging configuration
 # ---------------------------------------------------------------------------
@@ -206,6 +208,15 @@ def _build_stream_console_line(entry: dict[str, Any]) -> str:
         parts.append(f"pipeline: {detail_str}")
         return " ".join(parts)
 
+    if action == "dialogue_captured":
+        file_path = entry.get("file_path") or ""
+        filename = file_path.split("/")[-1] if file_path else ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"dialogue saved → {filename}" if filename else "dialogue saved")
+        return " ".join(parts)
+
     if action == "heartbeat":
         silence = _format_duration(entry.get("silence_s"))
         line = f"{prefix} ♥ alive"
@@ -263,6 +274,7 @@ class WorkflowLogger:
         self._console = logging.getLogger("workflow")
         self._last_emit: float = time.monotonic()
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._streamed_count: int = 0  # entries written via stream_entry
 
     # ------------------------------------------------------------------
     # Factory
@@ -389,9 +401,42 @@ class WorkflowLogger:
         self._fh.flush()
 
         self._last_emit = time.monotonic()
+        self._streamed_count += 1
 
         # Also emit a console line so stderr stays in sync.
         self._console.info(_build_stream_console_line(entry))
+
+    def flush_unstreamed(self, run_log: list[dict[str, Any]]) -> None:
+        """Write any *run_log* entries that were NOT already streamed.
+
+        Graph nodes accumulate log entries in the LangGraph state
+        ``run_log`` list.  Ideally every entry is also streamed in real
+        time via :meth:`stream_entry`.  When that path is unavailable
+        (e.g. the ``run_logger`` was not reachable inside graph nodes),
+        calling this method after the graph completes ensures the JSONL
+        file still contains every event.
+
+        Entries already written via :meth:`stream_entry` are skipped by
+        comparing the count of streamed entries against the total
+        ``run_log`` length — works because ``run_log`` is append-only
+        (LangGraph ``operator.add`` reducer) and entries are streamed in
+        order.
+
+        Parameters
+        ----------
+        run_log:
+            The ``run_log`` list from the final LangGraph state.
+        """
+        if not run_log:
+            return
+        unstreamed = run_log[self._streamed_count:]
+        if not unstreamed:
+            return
+        log.info(
+            "Flushing %d un-streamed run_log entries to JSONL.", len(unstreamed)
+        )
+        for entry in unstreamed:
+            self.stream_entry(entry)
 
     # ------------------------------------------------------------------
     # Heartbeat — periodic "I'm alive" console + JSONL message
@@ -486,6 +531,14 @@ def get_run_logger(config: Any) -> WorkflowLogger | None:
         The LangGraph ``RunnableConfig`` dict passed to node functions.
     """
     if config is None:
+        log.warning("get_run_logger: config is None")
         return None
     configurable = config.get("configurable") or {}
-    return configurable.get("run_logger")
+    logger = configurable.get("run_logger")
+    if logger is None:
+        log.warning(
+            "get_run_logger: run_logger not found in configurable. "
+            "Keys present: %s",
+            sorted(configurable.keys()),
+        )
+    return logger

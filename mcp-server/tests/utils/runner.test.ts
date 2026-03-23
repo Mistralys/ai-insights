@@ -57,6 +57,10 @@ describe('classifyRunner', () => {
     expect(classifyRunner({ name: 'mcp-adapters-py', version: '0.1' }).runner).toBe('orchestrator');
   });
 
+  it('classifies bare "mcp" client name as orchestrator', () => {
+    expect(classifyRunner({ name: 'mcp', version: '0.1.0' }).runner).toBe('orchestrator');
+  });
+
   it('classifies unknown clients as unknown', () => {
     expect(classifyRunner({ name: 'cursor', version: '0.1' }).runner).toBe('unknown');
     expect(classifyRunner({ name: '', version: '' }).runner).toBe('unknown');

@@ -25,6 +25,13 @@ function renderConfig(app) {
             '<p class="form-note">Maximum number of automatic agent handoffs before stopping.</p>' +
           '</div>' +
           '<div class="form-group">' +
+            '<label class="form-label" for="capture-dialogues">' +
+              '<input type="checkbox" id="capture-dialogues" class="form-check" ' + (config.capture_dialogues ? 'checked' : '') + '>' +
+              ' Capture agent dialogues' +
+            '</label>' +
+            '<p class="form-note">When enabled, the orchestrator saves the full LLM conversation for each pipeline stage to the project\'s ledger as Markdown files. Changes take effect on the next orchestrator run.</p>' +
+          '</div>' +
+          '<div class="form-group">' +
             '<label class="form-label" for="auto-archive-days">Auto-archive after (days)</label>' +
             '<input type="number" id="auto-archive-days" class="form-control" min="0" step="1" value="' + escapeHtml(String(config.auto_archive_days != null ? config.auto_archive_days : 6)) + '">' +
             '<p class="form-note">Number of days after last update before a COMPLETE project is automatically archived. Set to 0 to disable auto-archiving.</p>' +
@@ -49,13 +56,14 @@ function renderConfig(app) {
           document.getElementById('config-msg').innerHTML = '<p class="error-banner">Max handoff depth must be a positive integer.</p>';
           return;
         }
+        var captureDialogues = document.getElementById('capture-dialogues').checked;
         var autoArchiveDays = parseInt(document.getElementById('auto-archive-days').value, 10);
         if (isNaN(autoArchiveDays) || autoArchiveDays < 0) {
           document.getElementById('config-msg').innerHTML = '<p class="error-banner">Auto-archive days must be a non-negative integer.</p>';
           return;
         }
         // ledger_root intentionally omitted (read-only)
-        API.updateConfig({ auto_handoff_enabled: autoHandoff, max_handoff_depth: maxDepth, auto_archive_days: autoArchiveDays })
+        API.updateConfig({ auto_handoff_enabled: autoHandoff, max_handoff_depth: maxDepth, capture_dialogues: captureDialogues, auto_archive_days: autoArchiveDays })
           .then(function () {
             document.getElementById('config-msg').innerHTML = '<p class="success-banner">Configuration saved.</p>';
           })

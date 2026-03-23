@@ -42,6 +42,8 @@ import {
   handleArchiveProject,
   handleUnarchiveProject,
   handleMarkProjectComplete,
+  handleListDialogues,
+  handleGetDialogueFile,
   ApiError,
 } from './api.js';
 
@@ -265,6 +267,20 @@ function matchRoute(
     return () => handleGetWorkPackageOverview(ledgerRoot, slug);
   }
 
+  // GET /api/projects/:slug/dialogues/:filename
+  // rest.length === 4, rest[2] === 'dialogues' — must appear before the generic
+  // work-packages/:wpId handler at the same length.
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'dialogues'
+  ) {
+    const slug = rest[1]!;
+    const filename = decodeURIComponent(rest[3]!);
+    return () => handleGetDialogueFile(ledgerRoot, slug, filename);
+  }
+
   // GET /api/projects/:slug/work-packages/:wpId
   if (
     method === 'GET' &&
@@ -275,6 +291,22 @@ function matchRoute(
     const slug = rest[1]!;
     const wpId = rest[3]!;
     return () => handleGetWorkPackage(ledgerRoot, slug, wpId);
+  }
+
+  // GET /api/projects/:slug/dialogues[?wp=WP-001]
+  // rest.length === 3, rest[2] === 'dialogues' — does not shadow other rest[2] routes
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'dialogues'
+  ) {
+    const slug = rest[1]!;
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const wpId = sp.get('wp') ?? undefined;
+    return () => handleListDialogues(ledgerRoot, slug, wpId);
   }
 
   // GET /api/projects/:slug/runs

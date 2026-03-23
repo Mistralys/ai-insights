@@ -360,6 +360,58 @@ class TestReworkDetected:
 
 
 # ---------------------------------------------------------------------------
+# dialogue_captured event formatting
+# ---------------------------------------------------------------------------
+
+
+class TestDialogueCaptured:
+    """_build_stream_console_line handles the dialogue_captured event."""
+
+    def test_format_with_file_path(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-003",
+            "action": "dialogue_captured",
+            "file_path": "/some/path/dialogues/WP-003-developer-r0.md",
+            "level": "INFO",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "WP-003" in line
+        assert "dialogue saved" in line
+        assert "WP-003-developer-r0.md" in line
+
+    def test_format_includes_stage_and_wp(self):
+        entry = {
+            "stage": "qa",
+            "wp_id": "WP-007",
+            "action": "dialogue_captured",
+            "file_path": "/tmp/dialogues/WP-007-qa-r1.md",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[qa]" in line
+        assert "WP-007" in line
+
+    def test_format_no_file_path(self):
+        """Must not crash when file_path is missing or empty."""
+        entry = {"stage": "developer", "wp_id": "WP-001", "action": "dialogue_captured"}
+        line = _build_stream_console_line(entry)
+        assert line  # non-empty
+        assert "dialogue saved" in line
+
+    def test_no_wp_id(self):
+        entry = {
+            "stage": "developer",
+            "wp_id": "",
+            "action": "dialogue_captured",
+            "file_path": "/tmp/dialogue.md",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+        assert "dialogue saved" in line
+
+
+# ---------------------------------------------------------------------------
 # Existing event type formatting is unchanged
 # ---------------------------------------------------------------------------
 
