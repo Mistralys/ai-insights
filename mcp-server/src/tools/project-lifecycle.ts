@@ -16,7 +16,7 @@ import { getPassedStages } from '../utils/project-reset.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
-import { getClientInfo } from '../index.js';
+import { getClientInfo } from '../utils/client-info.js';
 import { classifyRunner } from '../utils/runner.js';
 
 /**

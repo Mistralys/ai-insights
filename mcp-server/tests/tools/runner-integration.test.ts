@@ -21,7 +21,7 @@ let mockClientInfo: { name: string; version: string } | undefined = {
   version: '0.1.0',
 };
 
-vi.mock('../../src/index.js', () => ({
+vi.mock('../../src/utils/client-info.js', () => ({
   getClientInfo: () => mockClientInfo,
 }));
 
