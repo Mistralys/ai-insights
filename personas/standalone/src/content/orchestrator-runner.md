@@ -125,56 +125,51 @@ The thread ID is printed at run start. Echo it clearly to the user immediately a
 
 ## Monitoring Progress
 
-The orchestrator prints routing decisions and stage outcomes to stdout. Every run also writes a JSONL log file to `orchestrator/logs/` — the path is printed at run start. The schema supports **16 event types** across three emitters: CLI (run lifecycle), supervisor (routing and project progress), and stage nodes (pipeline execution). Full schema reference: `orchestrator/docs/jsonl-log-schema.md`.
+The orchestrator emits human-readable progress lines to **the same terminal** that launched it (`stdio: 'inherit'`). This output is your **primary monitoring channel** — it is already in context from the launch command, so reading it costs zero additional tokens. Do not open a second terminal to tail the log file unless you need to recover output that has scrolled away.
 
-### Tail the log during a long run
+### Live terminal output (primary — zero extra cost)
+
+The console output is a formatted view of every structured event. Key lines to watch:
+
+```
+[developer]  WP-003 ▶ stage_start
+[developer]  WP-003 stage_complete → PASS (3m 24s, 1234 tokens)
+[developer]  WP-003 pipeline: PASS · 12 files modified · 45s
+[supervisor] WP-003 status: READY → IN_PROGRESS
+[supervisor] ✓ WP-003 COMPLETE
+[supervisor] WP-003 route → qa
+[supervisor] ⟳ WP-004 rework #2 (implementation → developer)
+[—]          Progress: 5/10 WPs done · 2 in-progress · iter 3/5 · 2m 14s elapsed
+```
+
+| Line pattern | What it means |
+|------|---------------|
+| `▶ stage_start` | Stage invocation began |
+| `stage_complete → PASS` | Stage succeeded; shows duration and token count |
+| `stage_complete → FAIL` / `stage_error` | Stage failed; supervisor will route to rework |
+| `pipeline: PASS` | Pipeline outcome with file count and duration |
+| `status: X → Y` | WP transitioned status |
+| `✓ WP-NNN COMPLETE` | WP reached COMPLETE |
+| `route → <destination>` | Supervisor routing decision |
+| `⟳ rework #N` | Rework triggered (agent role, pipeline type, count) |
+| `Progress: …` | Iteration summary with WP totals, pending count, elapsed time |
+| Any `WARNING` | Circuit-breaker, safety limit, or repeated-failure halt |
+| Any `ERROR` | MCP connection failure or unhandled exception |
+
+### JSONL log file (secondary — for post-run analysis)
+
+Every run also writes a structured JSONL log to `orchestrator/logs/` (path printed at run start). The JSONL contains the same events as the console in machine-readable JSON, plus `run_start`/`run_end` lifecycle entries with `thread_id` and `total_duration_s`. Use it for:
+
+- **Post-run analysis** when you need to extract specific fields (e.g. `tokens_used`, `duration_s`, `files_modified`)
+- **Recovering context** if terminal output has scrolled beyond the buffer
+- **Resuming** — the `thread_id` in the `run_start` entry is needed for `--resume`
 
 ```bash
+# Only if terminal output is unavailable:
 tail -f orchestrator/logs/<run-id>.jsonl
 ```
 
-### Key log fields to watch
-
-#### Stage lifecycle events
-
-| Field | What it means |
-|-------|---------------|
-| `action: stage_start` | Stage invocation began; carries `iteration` count |
-| `action: stage_complete`, `result: PASS` | A pipeline stage completed successfully; carries `duration_s` |
-| `action: stage_complete`, `result: FAIL` | A stage failed; supervisor will route to rework |
-| `action: stage_error` | Stage threw an exception; carries `error` and `duration_s` |
-| `action: pipeline_result` | Pipeline outcome read-back with `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, and `summary` |
-| `tokens_used` | Per-stage token consumption (dict or `null`) |
-
-#### Supervisor events (emitted each iteration)
-
-| Field | What it means |
-|-------|---------------|
-| `action: wp_status_change` | A WP transitioned status; carries `old_status` and `new_status` |
-| `action: wp_complete` | A WP reached COMPLETE status |
-| `action: rework_detected` | Rework triggered; carries `agent_role`, `pipeline_type`, `rework_count` |
-| `action: route` | Router decided next step; `destination` shows where. Also carries `prev_stage`, `prev_wp_id`, `prev_result` for context |
-| `action: progress_snapshot` | Iteration summary — `total_wps`, `status_breakdown`, `pending`, `elapsed_s`, `iteration`, `max_iterations` |
-| `action: halt` | Circuit-breaker halt for a WP (`level: WARNING`) |
-| `action: safety_limit` | Max-iterations ceiling reached; run will end (`level: WARNING`) |
-| `action: halted_repeated_failure` | 3+ consecutive failures; WP halted (`level: WARNING`) |
-| `action: mcp_error` | MCP connection failure (`level: ERROR`) |
-
-#### Run lifecycle events
-
-| Field | What it means |
-|-------|---------------|
-| `action: run_start` | Run began; carries `thread_id`, `dry_run`, `plan`, `run_start_ts` |
-| `action: run_end` | Run finished; carries `result` (`COMPLETE`/`ERROR`), `thread_id`, `total_duration_s` |
-| `action: run_error` | Unhandled CLI-level error; carries `error` (`level: ERROR`) |
-
-### Duration fields
-
-| Field | Scope | Present on |
-|-------|-------|------------|
-| `duration_s` | Single stage execution (seconds) | `stage_complete`, `stage_error`, `pipeline_result` |
-| `elapsed_s` | Time since run start | `progress_snapshot` |
-| `total_duration_s` | Entire run | `run_end` |
+Full schema reference (16 event types): `orchestrator/docs/jsonl-log-schema.md`.
 
 ---
 
