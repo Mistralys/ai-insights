@@ -12,6 +12,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_graph.py
         └── test_integration.py
         └── test_logging.py
+        └── test_mcp_parse.py
         └── test_nodes.py
         └── test_plan_parser.py
         └── test_state.py
@@ -2181,6 +2182,155 @@ class TestRobustness:
         assert "route" in line  # doesn't crash, ignores unknown fields
 
 ```
+###  Path: `/orchestrator/tests/test_mcp_parse.py`
+
+```py
+"""
+test_mcp_parse.py — Unit tests for src.utils.mcp_parse.parse_tool_response.
+
+Covers every input shape the parser must handle:
+
+1. List with a ``{"type": "text", "text": "<json>"}`` block
+2. List without a ``type=text`` block (raw list returned)
+3. JSON string (parsed to dict)
+4. Non-JSON string (returned as-is)
+5. ToolMessage-like object (has ``.content`` attribute)
+6. None input
+7. Direct dict input (returned as-is)
+
+No external I/O or MCP server required — all tests run in < 1 ms.
+"""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock
+
+import pytest
+
+from src.utils.mcp_parse import parse_tool_response
+
+
+# ---------------------------------------------------------------------------
+# Parametrized cases
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw,expected", [
+    # 1. List with a text block whose payload is valid JSON → parsed dict
+    (
+        [{"type": "text", "text": json.dumps({"action": "IMPLEMENT", "wp_id": "WP-001"})}],
+        {"action": "IMPLEMENT", "wp_id": "WP-001"},
+    ),
+    # 2. List without any ``type=text`` block → raw list returned unchanged
+    (
+        [{"type": "image", "url": "https://example.com/img.png"}],
+        [{"type": "image", "url": "https://example.com/img.png"}],
+    ),
+    # 3. JSON string → parsed dict
+    (
+        json.dumps({"status": "PASS", "pipelines": []}),
+        {"status": "PASS", "pipelines": []},
+    ),
+    # 4. Non-JSON string → returned as-is
+    (
+        "not valid json {{{ }}",
+        "not valid json {{{ }}",
+    ),
+    # 5a. ToolMessage-like: object with `.content` = JSON string → parsed dict
+    # (tested separately below because MagicMock needs special setup)
+    # 6. None → None
+    (None, None),
+    # 7. Direct dict → returned as-is
+    (
+        {"already": "parsed"},
+        {"already": "parsed"},
+    ),
+    # Bonus: list with text block that is NOT valid JSON → text returned as string
+    (
+        [{"type": "text", "text": "plain non-json text"}],
+        "plain non-json text",
+    ),
+    # Bonus: empty list → empty list returned
+    ([], []),
+])
+def test_parse_tool_response_parametrized(raw, expected):
+    """parse_tool_response must handle each raw input shape correctly."""
+    result = parse_tool_response(raw)
+    assert result == expected
+
+
+# ---------------------------------------------------------------------------
+# ToolMessage-like object (separate test — requires MagicMock)
+# ---------------------------------------------------------------------------
+
+def test_parse_tool_response_toolmessage_like_object():
+    """
+    Objects with a ``.content`` attribute (e.g. LangChain ToolMessage) must
+    be unwrapped before parsing.  A JSON-string ``.content`` yields a dict.
+    """
+    msg = MagicMock(spec_set=["content"])  # only exposes .content
+    msg.content = json.dumps({"unwrapped": True, "value": 42})
+
+    result = parse_tool_response(msg)
+
+    assert isinstance(result, dict)
+    assert result == {"unwrapped": True, "value": 42}
+
+
+def test_parse_tool_response_toolmessage_non_json_content():
+    """
+    ToolMessage-like object whose ``.content`` is a non-JSON string must
+    return the raw string (not raise).
+    """
+    msg = MagicMock(spec_set=["content"])
+    msg.content = "plain string content"
+
+    result = parse_tool_response(msg)
+
+    assert result == "plain string content"
+
+
+def test_parse_tool_response_toolmessage_list_content():
+    """
+    ToolMessage-like object whose ``.content`` is a list of text blocks must
+    be unwrapped and then processed as a list.
+    """
+    msg = MagicMock(spec_set=["content"])
+    msg.content = [{"type": "text", "text": json.dumps({"key": "val"})}]
+
+    result = parse_tool_response(msg)
+
+    assert result == {"key": "val"}
+
+
+# ---------------------------------------------------------------------------
+# Edge-cases on the list path
+# ---------------------------------------------------------------------------
+
+def test_parse_tool_response_list_multiple_blocks_first_text_wins():
+    """
+    When a list has multiple blocks, the first ``type=text`` block is used;
+    remaining blocks are ignored.
+    """
+    raw = [
+        {"type": "image", "url": "ignored"},
+        {"type": "text", "text": json.dumps({"found": "first-text"})},
+        {"type": "text", "text": json.dumps({"found": "second-text"})},
+    ]
+    result = parse_tool_response(raw)
+    assert result == {"found": "first-text"}
+
+
+def test_parse_tool_response_direct_list_is_not_json():
+    """
+    A list that is not a content-block list (e.g. a bare Python list of strings)
+    is returned as-is when no ``type=text`` block is found.
+    """
+    raw = ["alpha", "beta", "gamma"]
+    result = parse_tool_response(raw)
+    assert result == ["alpha", "beta", "gamma"]
+
+```
 ###  Path: `/orchestrator/tests/test_nodes.py`
 
 ```py
@@ -3004,6 +3154,24 @@ class TestPipelineResult:
         # Also confirm no pipeline_result was emitted.
         pr_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_result"]
         assert not pr_entries
+
+    async def test_pipeline_result_not_emitted_when_pipelines_list_is_empty(self):
+        """No pipeline_result entry must appear when ledger_get_work_package
+        returns a WP whose pipelines list is empty (no pipeline has run yet)."""
+        from src.nodes.developer import make_developer_node
+
+        wp_tool = self._make_wp_tool([])  # empty pipelines list
+        node_fn = make_developer_node(FAKE_CONFIG, [wp_tool])
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p:
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        pr_entries = [
+            e for e in result["run_log"] if e.get("action") == "pipeline_result"
+        ]
+        assert not pr_entries, (
+            "pipeline_result must not be emitted when WP has no pipelines"
+        )
 
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
@@ -4750,6 +4918,104 @@ class TestReworkDetectedEvent:
             if e.get("action") == "rework_detected"
         ]
         assert not rd_entries, "rework_detected must not appear for IMPLEMENT action"
+
+
+# ---------------------------------------------------------------------------
+# Tests: prev_result=FAIL and malformed run_start_ts — WP-006 AC2 / AC3
+# ---------------------------------------------------------------------------
+
+class TestEnrichedRouteEventsFailResult:
+    """Extra coverage for enriched route-event fields added in WP-006."""
+
+    async def test_route_prev_result_fail_when_stage_failed_with_wp_id(self):
+        """prev_result must be 'FAIL' when stage_success=False and prev_wp_id
+        is non-empty.  This exercises the 'FAIL if prev_wp_id' branch in the
+        supervisor's _log_entry call for route events."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-002", "IN_PROGRESS")],
+            wp_details={"WP-002": wp_with_pipelines("WP-002", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        # Simulate the previous stage having failed for WP-001.
+        state["stage_success"] = False
+        state["current_wp_id"] = "WP-001"  # non-empty prev_wp_id
+
+        cmd = await node(state)
+
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route"
+        ]
+        assert route_entries, "route entry expected in run_log"
+        entry = route_entries[0]
+        assert entry.get("prev_result") == "FAIL", (
+            f"Expected prev_result='FAIL', got {entry.get('prev_result')!r}"
+        )
+
+    async def test_route_prev_result_empty_when_stage_failed_but_no_prev_wp_id(self):
+        """prev_result must be '' (empty string) when stage_success=False but
+        prev_wp_id is also empty (first routing iteration with no prior WP).
+
+        Uses a READY WP so the supervisor emits a role-dispatch route entry
+        (the 'no work packages' path doesn't include prev_result at all).
+        """
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["stage_success"] = False
+        state["current_wp_id"] = ""  # no previous wp_id
+
+        cmd = await node(state)
+
+        # Filter to the role-dispatch route entry (has prev_result).
+        route_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "route" and "prev_result" in e
+        ]
+        assert route_entries, "role-dispatch route entry with prev_result expected"
+        entry = route_entries[0]
+        assert entry.get("prev_result") == "", (
+            f"Expected prev_result='', got {entry.get('prev_result')!r}"
+        )
+
+
+class TestProgressSnapshotMalformedTs:
+    """elapsed_s must be None (not raise) when run_start_ts is a malformed string."""
+
+    async def test_elapsed_s_none_when_run_start_ts_malformed(self):
+        """Malformed run_start_ts must cause elapsed_s=None in progress_snapshot
+        rather than raising ValueError."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["run_start_ts"] = "not-a-valid-iso-timestamp"
+
+        cmd = await node(state)
+
+        snapshots = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "progress_snapshot"
+        ]
+        assert snapshots, "progress_snapshot entry expected in run_log"
+        elapsed = snapshots[0].get("elapsed_s")
+        assert elapsed is None, (
+            f"Expected elapsed_s=None for malformed timestamp, got {elapsed!r}"
+        )
+
+    async def test_supervisor_does_not_raise_on_malformed_run_start_ts(self):
+        """A malformed run_start_ts must not propagate as an exception."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["run_start_ts"] = "2026-99-99T99:99:99"  # invalid date parts
+
+        # Must not raise.
+        cmd = await node(state)
+        assert cmd is not None
 
 ```
 ###  Path: `/orchestrator/tests/test_tool_wrappers.py`

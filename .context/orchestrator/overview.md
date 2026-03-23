@@ -372,9 +372,9 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 
 ## Running Tests
 
-> **Dev dependencies:** The full test suite requires `pytest-asyncio`, `aiosqlite`, and `langgraph-checkpoint-sqlite`. These are listed in `requirements.txt` as runtime dependencies but must be explicitly present in the test environment. If you see `"async functions are not natively supported"` or `ModuleNotFoundError` errors, install them manually:
+> **Dev dependencies:** The full test suite requires `pytest-asyncio` and `aiosqlite` (both in `[dev]` extras; `langgraph-checkpoint-sqlite` is a runtime dependency installed automatically). Install all dependencies with:
 > ```bash
-> pip install pytest-asyncio aiosqlite langgraph-checkpoint-sqlite
+> pip install -e ".[dev]"
 > ```
 
 ```bash

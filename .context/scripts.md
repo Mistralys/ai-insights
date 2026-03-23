@@ -307,8 +307,10 @@ version: {{version}}
 last_updated: {{last_updated}}
 tools: {{cc_tools_json}}
 ${ccFrontmatterFields()}
+{{#if has_mcp}}
 mcpServers:
   - {{mcp_server_name}}
+{{/if}}
 ---`;
 
 // STANDALONE — no role; mcpServers is optional via {{#if mcp_server_name}}; uses slug-based identification

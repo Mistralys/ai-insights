@@ -24,11 +24,26 @@ _SOURCE: Directory tree_
         ├── smoke-testing.md
         ├── supervisor-routing.md
     └── logs/
-        ├── 20260302T154735-2026-03-02-perceval-category-graceful-fa.jsonl
-        ├── 20260302T181937-2026-03-02-orchestrator-project-path-fix.jsonl
-        ├── 20260302T182103-2026-03-02-orchestrator-project-path-fix.jsonl
-        ├── 20260320T102813-2026-03-20-synthesis-followups.jsonl
-        ├── 20260320T115836-2026-03-20-synthesis-followups.jsonl
+        ├── 20260225T113355-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T113428-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T113453-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T113615-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T113646-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T113659-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T114154-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T114221-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T123200-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260225T124109-2026-02-25-orchestrator-smoke-test.jsonl
+        ├── 20260320T120730-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T120840-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T121750-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T121830-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T121831-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T122350-2026-03-20-synthesis-followups.jsonl
+        ├── 20260320T133046-2026-03-20-naming-convention-sweep.jsonl
+        ├── 20260320T135939-2026-03-20-naming-convention-sweep.jsonl
+        ├── 20260323T091956-2026-03-23-progress-reporting-followup.jsonl
+        ├── 20260323T104010-2026-03-23-orchestrator-run-log-viewer.jsonl
     └── module-context.yaml
     └── pyproject.toml
     └── requirements.txt
@@ -66,6 +81,7 @@ _SOURCE: Directory tree_
         └── test_graph.py
         └── test_integration.py
         └── test_logging.py
+        └── test_mcp_parse.py
         └── test_nodes.py
         └── test_plan_parser.py
         └── test_state.py

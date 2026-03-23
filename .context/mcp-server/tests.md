@@ -6,6 +6,7 @@ _SOURCE: Test suite (unit, integration)_
 └── mcp-server/
     └── tests/
         └── gui/
+            ├── api-client.test.ts
             ├── api-reset.test.ts
             ├── api-wp-overview.test.ts
             ├── api.test.ts
@@ -13,6 +14,11 @@ _SOURCE: Test suite (unit, integration)_
             ├── client-rendering.test.ts
             ├── config.test.ts
             ├── handoff-config-integration.test.ts
+            ├── log-resolver.test.ts
+            ├── project-detail-runs.test.ts
+            ├── run-log-handlers.test.ts
+            ├── run-log-server.test.ts
+            ├── run-log.test.ts
         └── integration/
             ├── auto-handoff.test.ts
             ├── full-workflow.test.ts
@@ -61,6 +67,144 @@ _SOURCE: Test suite (unit, integration)_
             └── workflow-helpers.test.ts
             └── workflow-manifest.test.ts
             └── wp-id.test.ts
+
+```
+###  Path: `/mcp-server/tests/gui/api-client.test.ts`
+
+```ts
+// @vitest-environment jsdom
+
+/**
+ * Tests for gui/public/api-client.js — specifically the run log methods.
+ *
+ * Uses jsdom + vm.runInThisContext to load the browser-side script, then mocks
+ * globalThis.fetch to assert the URLs and options that API methods produce.
+ */
+
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import vm from 'node:vm';
+
+// ---------------------------------------------------------------------------
+// Load client script
+// ---------------------------------------------------------------------------
+
+const publicDir = join(__dirname, '../../gui/public');
+const apiClientJs = readFileSync(join(publicDir, 'api-client.js'), 'utf-8');
+
+// Execute once so the API var is available globally (as in a browser)
+beforeAll(() => {
+  vm.runInThisContext(apiClientJs);
+});
+
+// Declare globalThis.API for TypeScript
+declare global {
+  // eslint-disable-next-line no-var
+  var API: {
+    getRunLogs: (slug: string) => Promise<unknown>;
+    getRunLogEntries: (slug: string, filename: string, afterLine?: number) => Promise<unknown>;
+    [key: string]: (...args: unknown[]) => Promise<unknown>;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Installs a mock `fetch` on globalThis that resolves with the provided JSON
+ * body and records the most-recent call arguments.
+ */
+function mockFetch(responseBody: unknown = null, status = 200) {
+  const calls: { url: string; opts: RequestInit }[] = [];
+  const mockFn = vi.fn(async (url: string, opts: RequestInit) => {
+    calls.push({ url, opts });
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => responseBody,
+    };
+  });
+  // jsdom exposes globalThis.fetch — replace it for the duration of the test
+  (globalThis as unknown as Record<string, unknown>)['fetch'] = mockFn;
+  return calls;
+}
+
+// ---------------------------------------------------------------------------
+// getRunLogs
+// ---------------------------------------------------------------------------
+
+describe('API.getRunLogs', () => {
+  it('calls GET /api/projects/{slug}/runs', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.getRunLogs('my-slug');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/projects/my-slug/runs');
+    expect(calls[0]!.opts.method).toBe('GET');
+  });
+
+  it('encodes the slug via encodeURIComponent', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.getRunLogs('slug with spaces');
+
+    expect(calls[0]!.url).toBe('/api/projects/slug%20with%20spaces/runs');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRunLogEntries
+// ---------------------------------------------------------------------------
+
+describe('API.getRunLogEntries', () => {
+  it('calls GET /api/projects/{slug}/runs/{filename} without ?after when afterLine is omitted', async () => {
+    const calls = mockFetch({ entries: [], totalLines: 0 });
+
+    await globalThis.API.getRunLogEntries('my-slug', 'file.jsonl');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/projects/my-slug/runs/file.jsonl');
+    expect(calls[0]!.url).not.toContain('?after=');
+  });
+
+  it('appends ?after={afterLine} when afterLine is provided', async () => {
+    const calls = mockFetch({ entries: [], totalLines: 10 });
+
+    await globalThis.API.getRunLogEntries('my-slug', '20260225T113355-my-slug.jsonl', 5);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/projects/my-slug/runs/20260225T113355-my-slug.jsonl?after=5');
+  });
+
+  it('encodes the filename via encodeURIComponent', async () => {
+    const calls = mockFetch({ entries: [], totalLines: 0 });
+
+    // A filename with a space — unlikely in practice but must be safe
+    await globalThis.API.getRunLogEntries('my-slug', 'file name.jsonl');
+
+    expect(calls[0]!.url).toBe('/api/projects/my-slug/runs/file%20name.jsonl');
+  });
+
+  it('encodes the slug via encodeURIComponent', async () => {
+    const calls = mockFetch({ entries: [], totalLines: 0 });
+
+    await globalThis.API.getRunLogEntries('slug/with/slashes', 'file.jsonl');
+
+    expect(calls[0]!.url).toBe('/api/projects/slug%2Fwith%2Fslashes/runs/file.jsonl');
+  });
+
+  it('appends ?after=0 when afterLine is explicitly 0 (valid offset)', async () => {
+    // afterLine: 0 is a legitimate value meaning "skip 0 lines" — include it in the URL
+    const calls = mockFetch({ entries: [], totalLines: 5 });
+
+    await globalThis.API.getRunLogEntries('my-slug', 'file.jsonl', 0);
+
+    expect(calls[0]!.url).toContain('?after=0');
+  });
+});
 
 ```
 ###  Path: `/mcp-server/tests/gui/api-reset.test.ts`
@@ -3176,6 +3320,1278 @@ describe('handoff-config integration: runtime config monitoring', () => {
 
       expect(afterPayload.auto_handoff).toBeDefined();
     });
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/log-resolver.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/log-resolver.ts
+ *
+ * Uses real temp directories and real filesystem operations — no mocks.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir, homedir } from 'os';
+
+import {
+  resolveOrchestratorLogsDir,
+  findRunLogs,
+  readLogEntries,
+  ApiError,
+} from '../../src/gui/log-resolver.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
+  const content = objects.map((o) => JSON.stringify(o)).join('\n') + '\n';
+  await writeFile(filePath, content, 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// resolveOrchestratorLogsDir
+// ---------------------------------------------------------------------------
+
+describe('resolveOrchestratorLogsDir', () => {
+  it('returns the default path when called with undefined', () => {
+    const result = resolveOrchestratorLogsDir(undefined);
+    expect(result).toBeTruthy();
+    expect(result.length).toBeGreaterThan(0);
+    // Should be under the home directory
+    expect(result.startsWith(homedir())).toBe(true);
+  });
+
+  it('returns an explicit path unchanged', () => {
+    const path = '/custom/logs/dir';
+    expect(resolveOrchestratorLogsDir(path)).toBe(path);
+  });
+
+  it('returns the default for an empty string', () => {
+    const result = resolveOrchestratorLogsDir('');
+    expect(result).toBeTruthy();
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('returns the default for a whitespace-only string', () => {
+    const result = resolveOrchestratorLogsDir('   ');
+    expect(result).toBeTruthy();
+    expect(result.startsWith(homedir())).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findRunLogs
+// ---------------------------------------------------------------------------
+
+describe('findRunLogs', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'log-resolver-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('returns matching files ending with -{slug}.jsonl', async () => {
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(tempDir, '2024-01-02T10-00-00-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(2);
+    expect(results).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(results).toContain('2024-01-02T10-00-00-my-project.jsonl');
+  });
+
+  it('does not return files that do not match the slug', async () => {
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-other-project.jsonl'), '', 'utf-8');
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(results).not.toContain('2024-01-01T10-00-00-other-project.jsonl');
+  });
+
+  it('does not return a file named exactly -{slug}.jsonl (requires a prefix)', async () => {
+    // A file that IS exactly the suffix — no timestamp prefix
+    await writeFile(join(tempDir, '-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(0);
+  });
+
+  it('does not return non-jsonl files', async () => {
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.log'), '', 'utf-8');
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.txt'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(0);
+  });
+
+  it('returns an empty array when the directory does not exist', async () => {
+    const results = await findRunLogs('/nonexistent/path/xyz', 'my-project');
+    expect(results).toEqual([]);
+  });
+
+  it('returns an empty array when the directory is empty', async () => {
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readLogEntries
+// ---------------------------------------------------------------------------
+
+describe('readLogEntries', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'log-resolver-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
+
+  it('reads all entries when afterLine is omitted', async () => {
+    const entries = [{ type: 'a' }, { type: 'b' }, { type: 'c' }];
+    await writeJsonl(join(tempDir, 'run.jsonl'), entries);
+
+    const result = await readLogEntries(tempDir, 'run.jsonl');
+    expect(result.totalLines).toBe(3);
+    expect(result.entries).toHaveLength(3);
+    expect(result.entries[0]).toEqual({ type: 'a' });
+    expect(result.entries[2]).toEqual({ type: 'c' });
+  });
+
+  it('reads all entries when afterLine is 0', async () => {
+    const entries = [{ n: 1 }, { n: 2 }];
+    await writeJsonl(join(tempDir, 'run.jsonl'), entries);
+
+    const result = await readLogEntries(tempDir, 'run.jsonl', 0);
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(2);
+  });
+
+  it('skips the first N lines when afterLine is set and reports correct totalLines', async () => {
+    // 8 entries — afterLine: 5 should return only entries 6, 7, 8 (index 5, 6, 7)
+    const entries = Array.from({ length: 8 }, (_, i) => ({ line: i + 1 }));
+    await writeJsonl(join(tempDir, 'run.jsonl'), entries);
+
+    const result = await readLogEntries(tempDir, 'run.jsonl', 5);
+    expect(result.totalLines).toBe(8);
+    expect(result.entries).toHaveLength(3);
+    expect(result.entries[0]).toEqual({ line: 6 });
+    expect(result.entries[2]).toEqual({ line: 8 });
+  });
+
+  it('returns empty entries when afterLine >= totalLines', async () => {
+    const entries = [{ n: 1 }, { n: 2 }];
+    await writeJsonl(join(tempDir, 'run.jsonl'), entries);
+
+    const result = await readLogEntries(tempDir, 'run.jsonl', 10);
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(0);
+  });
+
+  // ── Malformed JSON ─────────────────────────────────────────────────────────
+
+  it('silently skips malformed JSON lines without throwing', async () => {
+    const content = '{"ok": true}\nnot json at all\n{"also": "ok"}\n';
+    await writeFile(join(tempDir, 'mixed.jsonl'), content, 'utf-8');
+
+    const result = await readLogEntries(tempDir, 'mixed.jsonl');
+    expect(result.totalLines).toBe(3);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toEqual({ ok: true });
+    expect(result.entries[1]).toEqual({ also: 'ok' });
+  });
+
+  it('returns empty entries for a file that is all malformed JSON', async () => {
+    await writeFile(join(tempDir, 'bad.jsonl'), 'not json\nalso bad\n', 'utf-8');
+
+    const result = await readLogEntries(tempDir, 'bad.jsonl');
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(0);
+  });
+
+  // ── Filename security — allowlist ──────────────────────────────────────────
+
+  it('throws ApiError FORBIDDEN for filename containing ..', async () => {
+    await expect(readLogEntries(tempDir, '../etc/passwd')).rejects.toThrow(ApiError);
+    await expect(readLogEntries(tempDir, '../etc/passwd')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
+  it('throws ApiError FORBIDDEN for filename containing /', async () => {
+    await expect(readLogEntries(tempDir, 'sub/file.jsonl')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
+  it('throws ApiError FORBIDDEN for filename with special characters', async () => {
+    // Semicolon, pipe, null-byte — all outside the allowlist
+    for (const bad of ['file;name.jsonl', 'file|name.jsonl', 'file\x00name.jsonl']) {
+      await expect(readLogEntries(tempDir, bad)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+    }
+  });
+
+  it('throws ApiError FORBIDDEN for an empty filename', async () => {
+    await expect(readLogEntries(tempDir, '')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
+  // ── Filename security — path escape check ──────────────────────────────────
+
+  it('throws ApiError FORBIDDEN if resolved path escapes logsDir (symlink attempt)', async () => {
+    // Craft a filename that looks safe but when resolved with a crafted logsDir escapes
+    // e.g. logsDir=/tmp/x, filename=..%2fetc%2fpasswd — but our allowlist catches this
+    // The escape-check is a secondary defence; test it via a direct path that would escape.
+    // We simulate by using a path component that the allowlist would actually catch first,
+    // confirming the FORBIDDEN is thrown.
+    await expect(readLogEntries('/tmp', '../../etc/passwd')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
+  // ── NOT_FOUND ──────────────────────────────────────────────────────────────
+
+  it('throws ApiError NOT_FOUND when the file does not exist', async () => {
+    await expect(readLogEntries(tempDir, 'nonexistent.jsonl')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/project-detail-runs.test.ts`
+
+```ts
+// @vitest-environment jsdom
+
+/**
+ * Tests for the "Orchestrator Runs" section of views/project-detail.js.
+ *
+ * Uses jsdom + vm.runInThisContext to load the browser-side scripts, then
+ * stubs globalThis.API and globalThis.marked to exercise the
+ * renderProjectDetail paths related to orchestrator run logs.
+ */
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import vm from 'node:vm';
+
+// ---------------------------------------------------------------------------
+// Load client scripts
+// ---------------------------------------------------------------------------
+
+const publicDir = join(__dirname, '../../gui/public');
+const utilsJs         = readFileSync(join(publicDir, 'utils.js'),                   'utf-8');
+const projectDetailJs = readFileSync(join(publicDir, 'views/project-detail.js'),    'utf-8');
+
+beforeAll(() => {
+  // Install stub globals needed by project-detail.js before it is evaluated
+  (globalThis as Record<string, unknown>)['marked'] = {
+    parse: (s: string) => '<p>' + s + '</p>',
+  };
+
+  vm.runInThisContext(utilsJs);
+  vm.runInThisContext(projectDetailJs);
+});
+
+// ---------------------------------------------------------------------------
+// Global type declarations
+// ---------------------------------------------------------------------------
+
+declare global {
+  // eslint-disable-next-line no-var
+  var renderProjectDetail: (app: HTMLElement, slug: string) => void;
+  // eslint-disable-next-line no-var
+  var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  // eslint-disable-next-line no-var
+  var marked: { parse: (s: string) => string };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Minimal valid project response from API.getProject */
+function makeProject(overrides: Record<string, unknown> = {}) {
+  return {
+    meta: {
+      status: 'IN_PROGRESS',
+      runner: overrides.runner as string | undefined,
+      title: 'Test Project',
+      plan_path: '/some/path',
+      date_created: '2026-01-01T00:00:00Z',
+      last_updated: '2026-01-01T00:00:00Z',
+      ...overrides,
+    },
+    work_packages: [],
+    project_comments: [],
+    project_name: 'Test Project',
+    timing: null,
+    server_version: null,
+    ledger_version: null,
+    synthesis_generated: false,
+  };
+}
+
+/**
+ * Installs a globalThis.API stub and calls renderProjectDetail.
+ * Returns a promise that resolves once the initial synchronous render
+ * AND any microtasks (promise resolutions) have settled.
+ */
+async function renderWithAPI(
+  app: HTMLElement,
+  slug: string,
+  apiStubs: {
+    getProject?: () => Promise<unknown>;
+    getPlanDocument?: () => Promise<unknown>;
+    getWorkPackageOverview?: () => Promise<unknown>;
+    getProjectHealth?: () => Promise<unknown>;
+    getRunLogs?: () => Promise<unknown>;
+  }
+) {
+  (globalThis as Record<string, unknown>)['API'] = {
+    getProject:           apiStubs.getProject           ?? (() => Promise.resolve(makeProject())),
+    getPlanDocument:      apiStubs.getPlanDocument       ?? (() => Promise.reject({ code: 'NOT_FOUND' })),
+    getWorkPackageOverview: apiStubs.getWorkPackageOverview ?? (() => Promise.resolve(null)),
+    getProjectHealth:     apiStubs.getProjectHealth      ?? (() => Promise.resolve({ work_packages_needing_reset: 0 })),
+    getRunLogs:           apiStubs.getRunLogs            ?? (() => Promise.resolve([])),
+  };
+
+  globalThis.renderProjectDetail(app, slug);
+
+  // Poll until #orchestrator-runs-section stops showing the loading placeholder,
+  // or until we give up (200ms). This handles the multi-level promise chain:
+  //   Promise.all → .then() sets innerHTML → getRunLogs() → .then() updates section.
+  const start = Date.now();
+  while (Date.now() - start < 200) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    const el = app.querySelector('#orchestrator-runs-section');
+    if (!el || !el.innerHTML.includes('Loading runs')) break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('renderProjectDetail — Orchestrator Runs section', () => {
+  let app: HTMLElement;
+
+  beforeEach(() => {
+    app = document.createElement('div');
+    document.body.appendChild(app);
+  });
+
+  afterEach(() => {
+    if (app.parentNode) app.parentNode.removeChild(app);
+  });
+
+  // ── Guard clause ──────────────────────────────────────────────────────────
+
+  it('does not render "Orchestrator Runs" section when runner is not orchestrator', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'vscode' })),
+    });
+
+    expect(app.innerHTML).not.toContain('Orchestrator Runs');
+    expect(app.querySelector('#orchestrator-runs-section')).toBeNull();
+  });
+
+  it('does not render "Orchestrator Runs" section when runner is undefined', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({})), // no runner field
+    });
+
+    expect(app.innerHTML).not.toContain('Orchestrator Runs');
+  });
+
+  // ── Empty state ───────────────────────────────────────────────────────────
+
+  it('shows empty-state message when runner is orchestrator and getRunLogs returns []', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve([]),
+    });
+
+    expect(app.innerHTML).toContain('Orchestrator Runs');
+    expect(app.innerHTML).toContain('No orchestrator run logs found');
+  });
+
+  // ── Populated state ───────────────────────────────────────────────────────
+
+  it('renders each log entry with filename, run-event class, and working href', async () => {
+    const logs = [
+      '20260225T113355-my-project.jsonl',
+      '20260226T080000-my-project.jsonl',
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(app.innerHTML).toContain('Orchestrator Runs');
+
+    // Both filenames appear
+    expect(app.innerHTML).toContain('20260225T113355-my-project.jsonl');
+    expect(app.innerHTML).toContain('20260226T080000-my-project.jsonl');
+
+    // Run event styling applied
+    expect(app.innerHTML).toContain('run-event');
+
+    // Links to the correct route
+    expect(app.innerHTML).toContain(
+      '#/projects/my-project/runs/' + encodeURIComponent(logs[0]!)
+    );
+    expect(app.innerHTML).toContain(
+      '#/projects/my-project/runs/' + encodeURIComponent(logs[1]!)
+    );
+  });
+
+  it('encodes the slug in the run href', async () => {
+    await renderWithAPI(app, 'slug/with/slashes', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(['20260225T113355-some-project.jsonl']),
+    });
+
+    expect(app.innerHTML).toContain(encodeURIComponent('slug/with/slashes'));
+  });
+
+  // ── Error handling ────────────────────────────────────────────────────────
+
+  it('shows an error message on getRunLogs failure without crashing', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.reject({ message: 'Network error', code: 'ERROR' }),
+    });
+
+    // Section container is present (from the synchronous render)
+    expect(app.querySelector('#orchestrator-runs-section')).not.toBeNull();
+
+    // Error message displayed
+    expect(app.innerHTML).toContain('Failed to load orchestrator runs');
+    expect(app.innerHTML).toContain('Network error');
+
+    // Page still rendered (Work Packages section present)
+    expect(app.innerHTML).toContain('Work Packages');
+  });
+
+  it('handles null error objects gracefully', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.reject(null),
+    });
+
+    // Should not throw; error banner present
+    expect(app.innerHTML).toContain('Failed to load orchestrator runs');
+  });
+
+  // ── Existing content unaffected ───────────────────────────────────────────
+
+  it('existing page content (WPs, comments, breadcrumb) is unaffected when runner is orchestrator', async () => {
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve([]),
+    });
+
+    expect(app.innerHTML).toContain('Work Packages');
+    expect(app.innerHTML).toContain('Project Comments');
+    // Breadcrumb
+    expect(app.innerHTML).toContain('Projects');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/run-log-handlers.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/handlers/run-log-handlers.ts
+ *
+ * Uses real temp directories and real filesystem operations — no mocks.
+ * Covers handleListRunLogs and handleGetRunLog, including security guards.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
+import {
+  handleListRunLogs,
+  handleGetRunLog,
+} from '../../src/gui/handlers/run-log-handlers.js';
+import { ApiError } from '../../src/gui/log-resolver.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
+  const content = objects.map((o) => JSON.stringify(o)).join('\n') + '\n';
+  await writeFile(filePath, content, 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// handleListRunLogs
+// ---------------------------------------------------------------------------
+
+describe('handleListRunLogs', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ── Security: slug validation ──────────────────────────────────────────────
+
+  it('throws ApiError NOT_FOUND for a slug containing /', async () => {
+    await expect(handleListRunLogs('bad/slug', tempDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
+    await expect(handleListRunLogs('..', tempDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for a slug containing ../ traversal', async () => {
+    await expect(handleListRunLogs('../etc', tempDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for an empty slug', async () => {
+    await expect(handleListRunLogs('', tempDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
+
+  it('returns an empty array when no matching files exist', async () => {
+    const result = await handleListRunLogs('my-project', tempDir);
+    expect(result).toEqual([]);
+  });
+
+  it('returns an empty array when the directory is empty', async () => {
+    const result = await handleListRunLogs('my-project', tempDir);
+    expect(result).toHaveLength(0);
+  });
+
+  it('returns matching filenames for a valid slug', async () => {
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(tempDir, '2024-01-02T10-00-00-my-project.jsonl'), '', 'utf-8');
+
+    const result = await handleListRunLogs('my-project', tempDir);
+    expect(result).toHaveLength(2);
+    expect(result).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(result).toContain('2024-01-02T10-00-00-my-project.jsonl');
+  });
+
+  it('does not return files for a different slug', async () => {
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-other-project.jsonl'), '', 'utf-8');
+    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+
+    const result = await handleListRunLogs('my-project', tempDir);
+    expect(result).toHaveLength(1);
+    expect(result).toContain('2024-01-01T10-00-00-my-project.jsonl');
+    expect(result).not.toContain('2024-01-01T10-00-00-other-project.jsonl');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGetRunLog
+// ---------------------------------------------------------------------------
+
+describe('handleGetRunLog', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // ── Security: slug validation ──────────────────────────────────────────────
+
+  it('throws ApiError NOT_FOUND for a slug containing /', async () => {
+    await expect(
+      handleGetRunLog('bad/slug', 'run.jsonl', tempDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
+    await expect(
+      handleGetRunLog('..', 'run.jsonl', tempDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  // ── Security: filename validation (FORBIDDEN) ──────────────────────────────
+
+  it('throws ApiError FORBIDDEN for a filename containing ..', async () => {
+    await expect(
+      handleGetRunLog('my-project', '../etc/passwd', tempDir)
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('throws ApiError FORBIDDEN for a filename containing /', async () => {
+    await expect(
+      handleGetRunLog('my-project', 'sub/file.jsonl', tempDir)
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('throws ApiError FORBIDDEN for a malicious filename with special characters', async () => {
+    for (const bad of ['file;name.jsonl', 'file|name.jsonl', 'file\x00name.jsonl']) {
+      await expect(
+        handleGetRunLog('my-project', bad, tempDir)
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }
+  });
+
+  it('throws ApiError FORBIDDEN for an empty filename', async () => {
+    await expect(
+      handleGetRunLog('my-project', '', tempDir)
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  // ── NOT_FOUND: valid filename but file does not exist ─────────────────────
+
+  it('throws ApiError NOT_FOUND when a valid filename does not exist on disk', async () => {
+    await expect(
+      handleGetRunLog('my-project', 'nonexistent.jsonl', tempDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  // ── Happy path ─────────────────────────────────────────────────────────────
+
+  it('returns entries and totalLines for a valid log file', async () => {
+    const logFile = '2024-01-01T10-00-00-my-project.jsonl';
+    const entries = [{ type: 'start' }, { type: 'step' }, { type: 'end' }];
+    await writeJsonl(join(tempDir, logFile), entries);
+
+    const result = await handleGetRunLog('my-project', logFile, tempDir);
+    expect(result).toHaveProperty('entries');
+    expect(result).toHaveProperty('totalLines');
+    expect(result.totalLines).toBe(3);
+    expect(result.entries).toHaveLength(3);
+    expect(result.entries[0]).toEqual({ type: 'start' });
+    expect(result.entries[2]).toEqual({ type: 'end' });
+  });
+
+  it('returns only entries after the specified afterLine offset', async () => {
+    const logFile = '2024-01-01T10-00-00-my-project.jsonl';
+    const entries = Array.from({ length: 5 }, (_, i) => ({ line: i + 1 }));
+    await writeJsonl(join(tempDir, logFile), entries);
+
+    const result = await handleGetRunLog('my-project', logFile, tempDir, 3);
+    expect(result.totalLines).toBe(5);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toEqual({ line: 4 });
+    expect(result.entries[1]).toEqual({ line: 5 });
+  });
+
+  it('returns empty entries array and correct totalLines when afterLine >= totalLines', async () => {
+    const logFile = '2024-01-01T10-00-00-my-project.jsonl';
+    const entries = [{ n: 1 }, { n: 2 }];
+    await writeJsonl(join(tempDir, logFile), entries);
+
+    const result = await handleGetRunLog('my-project', logFile, tempDir, 10);
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(0);
+  });
+
+  it('silently skips malformed JSON lines without throwing', async () => {
+    const logFile = '2024-01-01T10-00-00-my-project.jsonl';
+    const content = '{"ok": true}\nnot-json\n{"also": "ok"}\n';
+    await writeFile(join(tempDir, logFile), content, 'utf-8');
+
+    const result = await handleGetRunLog('my-project', logFile, tempDir);
+    expect(result.totalLines).toBe(3);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toEqual({ ok: true });
+    expect(result.entries[1]).toEqual({ also: 'ok' });
+  });
+
+  it('returns zero entries and zero totalLines for an empty file', async () => {
+    const logFile = '2024-01-01T10-00-00-my-project.jsonl';
+    await writeFile(join(tempDir, logFile), '', 'utf-8');
+
+    const result = await handleGetRunLog('my-project', logFile, tempDir);
+    expect(result.totalLines).toBe(0);
+    expect(result.entries).toHaveLength(0);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/run-log-server.test.ts`
+
+```ts
+/**
+ * HTTP-level integration tests for the run-log routes in gui/server.ts.
+ *
+ * These tests spin up the real HTTP server (via handleRequest) and assert that
+ * ApiErrors thrown by the run-log handlers are mapped to the correct HTTP
+ * status codes (404, 403) rather than falling through to 500.
+ *
+ * This test was added to prevent regression of the `instanceof ApiError`
+ * mismatch bug: the run-log handlers previously imported ApiError from a
+ * different module than server.ts, causing all structured errors to be
+ * returned as HTTP 500.
+ *
+ * Test coverage:
+ *   - Invalid slug in GET /api/projects/:slug/runs → 404
+ *   - Invalid slug in GET /api/projects/:slug/runs/:filename → 404
+ *   - Path-traversal filename in GET /api/projects/:slug/runs/:filename → 403
+ *   - Missing log file in GET /api/projects/:slug/runs/:filename → 404
+ *   - Happy path: GET /api/projects/:slug/runs returns a JSON array → 200
+ *   - Happy path: GET /api/projects/:slug/runs/:filename returns entries → 200
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { handleRequest } from '../../gui/server.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Spins up a temporary HTTP server bound to a random port.
+ * The server delegates every request to handleRequest() with the given
+ * ledgerRoot, configPath, and logsDir.
+ *
+ * Returns { server, baseUrl, port }.
+ */
+function startTestServer(
+  ledgerRoot: string,
+  configPath: string,
+  logsDir: string
+): Promise<{ server: Server; baseUrl: string; port: number }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      handleRequest(req, res, ledgerRoot, configPath, 0, logsDir).catch((err) => {
+        process.stderr.write(`[test-server] Unhandled: ${String(err)}\n`);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'error' } }));
+        }
+      });
+    });
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') {
+        const port = addr.port;
+        resolve({ server, baseUrl: `http://127.0.0.1:${port}`, port });
+      } else {
+        reject(new Error('Could not determine server port'));
+      }
+    });
+
+    server.on('error', reject);
+  });
+}
+
+/** Stops a server and waits for it to close. */
+function stopServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+/** Makes an HTTP GET request and returns { status, body }. */
+async function get(url: string): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(url);
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.status, body };
+}
+
+/** Writes a JSONL file with the given objects. */
+async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
+  const content = objects.map((o) => JSON.stringify(o)).join('\n') + '\n';
+  await writeFile(filePath, content, 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('run-log HTTP routes — error mapping (instanceof ApiError regression)', () => {
+  let ledgerRoot: string;
+  let logsDir: string;
+  let configPath: string;
+  let server: Server;
+  let baseUrl: string;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'run-log-server-test-ledger-'));
+    logsDir    = await mkdtemp(join(tmpdir(), 'run-log-server-test-logs-'));
+    configPath = join(ledgerRoot, 'gui-config.json');
+
+    const result = await startTestServer(ledgerRoot, configPath, logsDir);
+    server  = result.server;
+    baseUrl = result.baseUrl;
+  });
+
+  afterEach(async () => {
+    await stopServer(server);
+    await rm(ledgerRoot, { recursive: true, force: true });
+    await rm(logsDir,    { recursive: true, force: true });
+  });
+
+  // ── GET /api/projects/:slug/runs ──────────────────────────────────────────
+
+  it('returns 404 for an invalid slug (contains ..) on the list route', async () => {
+    const { status, body } = await get(`${baseUrl}/api/projects/bad..slug/runs`);
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 200 and an empty array when no logs match the slug', async () => {
+    const { status, body } = await get(`${baseUrl}/api/projects/my-project/runs`);
+    expect(status).toBe(200);
+    expect(body).toEqual([]);
+  });
+
+  it('returns 200 and the matching filenames when logs exist', async () => {
+    await writeFile(join(logsDir, '20260225T113355-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(logsDir, '20260226T120000-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(logsDir, '20260225T113355-other-project.jsonl'), '', 'utf-8');
+
+    const { status, body } = await get(`${baseUrl}/api/projects/my-project/runs`);
+    expect(status).toBe(200);
+    const files = body as string[];
+    expect(files).toHaveLength(2);
+    expect(files).toContain('20260225T113355-my-project.jsonl');
+    expect(files).toContain('20260226T120000-my-project.jsonl');
+  });
+
+  // ── GET /api/projects/:slug/runs/:filename ────────────────────────────────
+
+  it('returns 404 for an invalid slug (contains ..) on the get-log route', async () => {
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/bad..slug/runs/20260225T113355-bad..slug.jsonl`
+    );
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 403 for a path-traversal filename', async () => {
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-project/runs/..%2F..%2Fetc%2Fpasswd`
+    );
+    expect(status).toBe(403);
+    expect((body as { error: { code: string } }).error.code).toBe('FORBIDDEN');
+  });
+
+  it('returns 403 for a filename with disallowed characters', async () => {
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-project/runs/${encodeURIComponent('bad file!.jsonl')}`
+    );
+    expect(status).toBe(403);
+    expect((body as { error: { code: string } }).error.code).toBe('FORBIDDEN');
+  });
+
+  it('returns 404 for a valid filename that does not exist on disk', async () => {
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-project/runs/20260225T113355-my-project.jsonl`
+    );
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 200 and parsed entries for an existing log file', async () => {
+    const logFile = join(logsDir, '20260225T113355-my-project.jsonl');
+    await writeJsonl(logFile, [
+      { action: 'start', timestamp: '2026-02-25T11:33:55Z' },
+      { action: 'end',   timestamp: '2026-02-25T11:34:00Z' },
+    ]);
+
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-project/runs/20260225T113355-my-project.jsonl`
+    );
+    expect(status).toBe(200);
+    const result = body as { entries: unknown[]; totalLines: number };
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(2);
+    expect((result.entries[0] as { action: string }).action).toBe('start');
+  });
+
+  it('returns 200 and respects the ?after= query parameter', async () => {
+    const logFile = join(logsDir, '20260225T113355-my-project.jsonl');
+    await writeJsonl(logFile, [
+      { action: 'a', timestamp: '2026-02-25T11:33:55Z' },
+      { action: 'b', timestamp: '2026-02-25T11:33:56Z' },
+      { action: 'c', timestamp: '2026-02-25T11:33:57Z' },
+    ]);
+
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-project/runs/20260225T113355-my-project.jsonl?after=1`
+    );
+    expect(status).toBe(200);
+    const result = body as { entries: unknown[]; totalLines: number };
+    expect(result.totalLines).toBe(3);
+    expect(result.entries).toHaveLength(2);
+    expect((result.entries[0] as { action: string }).action).toBe('b');
+    expect((result.entries[1] as { action: string }).action).toBe('c');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/run-log.test.ts`
+
+```ts
+// @vitest-environment jsdom
+
+/**
+ * Tests for gui/public/views/run-log.js — the orchestrator run log viewer.
+ *
+ * Uses jsdom + vm.runInThisContext with mocked globalThis.API and Router.
+ */
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import vm from 'node:vm';
+
+// ---------------------------------------------------------------------------
+// Load client scripts
+// ---------------------------------------------------------------------------
+
+const publicDir = join(__dirname, '../../gui/public');
+const utilsJs   = readFileSync(join(publicDir, 'utils.js'),                'utf-8');
+const runLogJs  = readFileSync(join(publicDir, 'views/run-log.js'),        'utf-8');
+
+beforeAll(() => {
+  vm.runInThisContext(utilsJs);
+  vm.runInThisContext(runLogJs);
+});
+
+// ---------------------------------------------------------------------------
+// Global type declarations
+// ---------------------------------------------------------------------------
+
+declare global {
+  // eslint-disable-next-line no-var
+  var renderRunLog: (app: HTMLElement, slug: string, filename: string) => void;
+  // eslint-disable-next-line no-var
+  var API: {
+    getRunLogEntries: (...args: unknown[]) => Promise<unknown>;
+    [key: string]: (...args: unknown[]) => Promise<unknown>;
+  };
+  // eslint-disable-next-line no-var
+  var Router: {
+    _setPolling: (fn: () => void, ms: number) => void;
+    _clearPolling: () => void;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Makes a log result object as the API would return. */
+function makeResult(entries: unknown[], totalLines?: number) {
+  return { entries, totalLines: totalLines ?? entries.length };
+}
+
+/** Makes a log entry. */
+function entry(action: string, extra: Record<string, unknown> = {}) {
+  return { action, timestamp: '2026-02-25T11:33:55Z', ...extra };
+}
+
+/**
+ * Sets up mocked API and Router globals, calls renderRunLog, then waits
+ * for all promise resolutions to settle.
+ */
+async function render(
+  app: HTMLElement,
+  slug: string,
+  filename: string,
+  apiResult: unknown,
+  pollResults: unknown[] = []
+) {
+  let pollCallCount = 0;
+  let capturedPollFn: (() => void) | null = null;
+
+  // Mock Router
+  (globalThis as Record<string, unknown>)['Router'] = {
+    _setPolling: (fn: () => void, _ms: number) => {
+      capturedPollFn = fn;
+    },
+    _clearPolling: () => {
+      capturedPollFn = null;
+    },
+  };
+
+  // Mock API
+  (globalThis as Record<string, unknown>)['API'] = {
+    getRunLogEntries: vi.fn((_slug: unknown, _file: unknown, afterLine?: unknown) => {
+      if (afterLine === undefined || afterLine === null) {
+        // Initial fetch
+        return Promise.resolve(apiResult);
+      }
+      // Poll fetch
+      const r = pollResults[pollCallCount++];
+      return Promise.resolve(r ?? makeResult([]));
+    }),
+  };
+
+  globalThis.renderRunLog(app, slug, filename);
+
+  // Flush microtasks: initial fetch resolves
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  return {
+    triggerPoll: async () => {
+      if (capturedPollFn) capturedPollFn();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    },
+    isPollActive: () => capturedPollFn !== null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('renderRunLog', () => {
+  let app: HTMLElement;
+
+  beforeEach(() => {
+    app = document.createElement('div');
+    document.body.appendChild(app);
+  });
+
+  afterEach(() => {
+    if (app.parentNode) app.parentNode.removeChild(app);
+  });
+
+  // ── AC1: Breadcrumb ────────────────────────────────────────────────────────
+
+  it('shows breadcrumb: Projects / {slug} / Run Log with correct hrefs', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([]));
+
+    expect(app.innerHTML).toContain('Projects');
+    expect(app.innerHTML).toContain('Run Log');
+    expect(app.innerHTML).toContain('href="#/"');
+    expect(app.innerHTML).toContain('href="#/projects/' + encodeURIComponent('my-project') + '"');
+    expect(app.innerHTML).toContain('my-project');
+  });
+
+  // ── AC2: Chronological order ───────────────────────────────────────────────
+
+  it('renders event cards in order (first entry appears before last in DOM)', async () => {
+    const entries = [
+      entry('step_start', { step_name: 'Alpha' }),
+      entry('step_end',   { step_name: 'Beta' }),
+      entry('run_end'),
+    ];
+    await render(app, 'my-project', 'run.jsonl', makeResult(entries, 3));
+
+    const timeline = app.querySelector('#run-event-timeline')!;
+    const cards = timeline.querySelectorAll('.run-event');
+    expect(cards.length).toBe(3);
+
+    // Alpha card is before Beta card
+    const positions = Array.from(cards).map((c) => c.innerHTML);
+    expect(positions[0]).toContain('Alpha');
+    expect(positions[1]).toContain('Beta');
+  });
+
+  // ── AC3: Event card content ────────────────────────────────────────────────
+
+  it('renders step_start with step_name', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('step_start', { step_name: 'my-step' }),
+    ]));
+    expect(app.innerHTML).toContain('step_start');
+    expect(app.innerHTML).toContain('my-step');
+  });
+
+  it('renders llm_call_start with model name', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('llm_call_start', { model: 'claude-3-opus' }),
+    ]));
+    expect(app.innerHTML).toContain('llm_call_start');
+    expect(app.innerHTML).toContain('claude-3-opus');
+  });
+
+  it('renders tool_call_start with tool_name', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('tool_call_start', { tool_name: 'bash' }),
+    ]));
+    expect(app.innerHTML).toContain('tool_call_start');
+    expect(app.innerHTML).toContain('bash');
+  });
+
+  it('renders run_start', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', { run_id: 'abc-123' }),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).toContain('abc-123');
+  });
+
+  it('renders run_end', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([entry('run_end')]));
+    expect(app.innerHTML).toContain('Run completed');
+  });
+
+  it('renders run_error with error message', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_error', { error: 'something exploded' }),
+    ]));
+    // The rendered content shows "Run error:" (human-readable label)
+    expect(app.innerHTML).toContain('Run error:');
+    expect(app.innerHTML).toContain('something exploded');
+    // Should have error severity class
+    expect(app.innerHTML).toContain('run-event--error');
+  });
+
+  it('renders unknown action types with a generic fallback without throwing', async () => {
+    const unknownEntry = { action: 'some_future_action', message: 'hello future', timestamp: '2026-01-01T00:00:00Z' };
+    await expect(render(app, 'my-project', 'run.jsonl', makeResult([unknownEntry]))).resolves.toBeDefined();
+    expect(app.innerHTML).toContain('some_future_action');
+    expect(app.innerHTML).toContain('hello future');
+  });
+
+  // ── AC4: Polling ───────────────────────────────────────────────────────────
+
+  it('starts polling after initial load when run is not yet complete', async () => {
+    const { isPollActive } = await render(app, 'my-project', 'run.jsonl',
+      makeResult([entry('step_start', { step_name: 'first' })])
+    );
+    expect(isPollActive()).toBe(true);
+  });
+
+  it('does not start polling when initial load contains a terminal run_end entry', async () => {
+    const { isPollActive } = await render(app, 'my-project', 'run.jsonl',
+      makeResult([entry('run_start'), entry('run_end')])
+    );
+    expect(isPollActive()).toBe(false);
+  });
+
+  it('stops polling when a poll tick returns a run_end entry', async () => {
+    const { triggerPoll, isPollActive } = await render(
+      app, 'my-project', 'run.jsonl',
+      makeResult([entry('run_start')], 1),
+      [makeResult([entry('run_end')], 2)]
+    );
+
+    expect(isPollActive()).toBe(true);
+    await triggerPoll();
+    expect(isPollActive()).toBe(false);
+    expect(app.innerHTML).toContain('Run complete');
+  });
+
+  it('stops polling on run_error', async () => {
+    const { triggerPoll, isPollActive } = await render(
+      app, 'my-project', 'run.jsonl',
+      makeResult([entry('run_start')], 1),
+      [makeResult([entry('run_error', { error: 'boom' })], 2)]
+    );
+
+    expect(isPollActive()).toBe(true);
+    await triggerPoll();
+    expect(isPollActive()).toBe(false);
+  });
+
+  // ── AC5: Incremental fetch ─────────────────────────────────────────────────
+
+  it('uses afterLine = totalLines for subsequent poll fetches', async () => {
+    const { triggerPoll } = await render(
+      app, 'my-project', 'run.jsonl',
+      makeResult([entry('step_start')], 5),  // initial: 5 total lines
+      [makeResult([], 5)]
+    );
+
+    await triggerPoll();
+
+    // The API mock captures afterLine; the second call should use afterLine=5
+    const apiMock = (globalThis.API.getRunLogEntries as ReturnType<typeof vi.fn>);
+    const calls = apiMock.mock.calls;
+    // First call: initial (afterLine undefined/null)
+    // Second call: poll tick (afterLine = 5)
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    const pollCall = calls[calls.length - 1]!;
+    expect(pollCall[2]).toBe(5); // afterLine parameter
+  });
+
+  // ── AC6: Progress bar in-place update ─────────────────────────────────────
+
+  it('progress_snapshot updates progress bar without appending a card', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('progress_snapshot', { progress_pct: 42, message: 'halfway' }),
+    ]));
+
+    // Progress bar fill should reflect 42%
+    const fill = app.querySelector('#run-progress-bar-fill') as HTMLElement | null;
+    expect(fill).not.toBeNull();
+    expect(fill!.style.width).toBe('42%');
+
+    // No card should have been appended for the progress_snapshot
+    const timeline = app.querySelector('#run-event-timeline')!;
+    const cards = timeline.querySelectorAll('.run-event');
+    expect(cards.length).toBe(0);
+  });
+
+  it('does not crash on malformed entries in the log', async () => {
+    await expect(render(app, 'my-project', 'run.jsonl', makeResult([
+      null,
+      undefined,
+      42,
+      {},
+      entry('step_start', { step_name: 'valid' }),
+    ]))).resolves.toBeDefined();
+
+    // The valid entry still renders
+    expect(app.innerHTML).toContain('step_start');
+    expect(app.innerHTML).toContain('valid');
   });
 });
 
@@ -8023,6 +9439,27 @@ describe('beginWork — respects active_pipeline_stages (custom stage ordering)'
     expect((result as any).isError).toBe(true);
     expect(resultText(result)).toContain("requires a PASS 'implementation' pipeline first");
   });
+
+  it('rejects a pipeline type not in the WP active_pipeline_stages (§11.1 active-stage guard)', async () => {
+    // WP with active_pipeline_stages: ["qa", "code-review"] — implementation is excluded.
+    // Developer should not be able to start an implementation pipeline.
+    const wp: WorkPackageDetail = {
+      ...makeWpDetail('IN_PROGRESS', 'Developer', []),
+      active_pipeline_stages: ['qa', 'code-review'] as any,
+    };
+    await store.writeRootIndex(makeRootIndex('IN_PROGRESS', 'Developer'));
+    await store.writeWorkPackage('WP-001', wp);
+
+    const result = await _internal.beginWork({
+      project_path: PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      agent_role: 'Developer',
+    });
+
+    expect((result as any).isError).toBe(true);
+    expect(resultText(result)).toContain('not in the WP\'s active stages');
+  });
 });
 
 ```
@@ -11533,6 +12970,39 @@ describe('dynamic pipeline engine — completePipeline dynamic routing', () => {
     expect(text).not.toContain('artifacts.files_modified is empty or absent');
   });
 
+  it('does NOT emit artifacts warning for verification-only pipeline types (qa, security-audit)', async () => {
+    // Verification-only pipeline types should be exempt from the artifacts warning
+    // because those agents verify but do not modify files.
+    await store.writeRootIndex(makeRoot2());
+    await store.writeWorkPackage('WP-001', {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      dependencies: [],
+      acceptance_criteria: [],
+      active_pipeline_stages: ['implementation', 'qa', 'code-review', 'documentation'],
+      revision: 0,
+      pipelines: [
+        { type: 'implementation', status: 'PASS', started_at: now(), completed_at: now(), summary: ['Done'] },
+        { type: 'qa', status: 'IN_PROGRESS', started_at: now(), summary: [] },
+      ],
+    } as any);
+
+    const result = await completePipeline({
+      project_path: DYN_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'qa',
+      status: 'PASS',
+      summary: ['All tests passed'],
+      agent_role: 'QA',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const text = (result as any).content[0].text;
+    expect(text).not.toContain('artifacts.files_modified is empty or absent');
+  });
+
   it('auto-finalizes documentation-only WP when documentation is the terminal stage', async () => {
     // Documentation-only WP: ["documentation"]. Documentation is both first and terminal agent.
     await store.writeRootIndex({
@@ -14577,7 +16047,7 @@ let mockClientInfo: { name: string; version: string } | undefined = {
   version: '0.1.0',
 };
 
-vi.mock('../../src/index.js', () => ({
+vi.mock('../../src/utils/client-info.js', () => ({
   getClientInfo: () => mockClientInfo,
 }));
 
@@ -23290,6 +24760,126 @@ describe('first-active-stage loop prevention — Release Engineer P5 (§21.66 re
   });
 });
 
+// ---------------------------------------------------------------------------
+// First-active-stage self-rework deadlock tests (§21.67)
+// ---------------------------------------------------------------------------
+
+describe('first-active-stage self-rework fallback — QA P4b (§21.67)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RUN_QA (self-rework) when qa is the first active stage and most recent QA is FAIL', async () => {
+    // QA is the first active stage → FAIL routing falls back to QA (self-rework).
+    // P4b should fire instead of P5 WAIT_FOR_REWORK.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['qa', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'qa', status: 'FAIL', started_at: '2026-01-01T09:00:00', completed_at: '2026-01-01T10:00:00' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_QA');
+    expect(result.reason).toContain('self-rework');
+  });
+
+  it('returns WAIT_FOR_REWORK when qa is NOT the first active stage and most recent QA is FAIL', async () => {
+    // Standard WP with implementation active → QA FAIL routes to Developer, not self-rework.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      pipelines: [
+        makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+        makePipeline('qa', 'FAIL', '2026-01-01T09:30:00', '2026-01-01T10:00:00'),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('WAIT_FOR_REWORK');
+  });
+
+  it('returns RUN_QA (first run, P6) when qa is the first active stage with no prior QA pipeline', async () => {
+    // First run — no prior QA pipeline, QA is first active stage → P6 fires.
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'QA',
+      active_pipeline_stages: ['qa', 'code-review'],
+      pipelines: [],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getQaAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_QA');
+  });
+});
+
+describe('first-active-stage self-rework fallback — Reviewer P4b (§21.67)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RUN_REVIEW (self-rework) when code-review is the first active stage and most recent review is FAIL', async () => {
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Reviewer',
+      active_pipeline_stages: ['code-review'],
+      pipelines: [
+        makePipeline({ type: 'code-review', status: 'FAIL', started_at: '2026-01-01T09:00:00', completed_at: '2026-01-01T10:00:00' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getReviewerAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_REVIEW');
+    expect(result.reason).toContain('self-rework');
+  });
+});
+
+describe('first-active-stage self-rework fallback — Security Auditor P4b (§21.67)', () => {
+  let handle: TempStoreHandle;
+
+  beforeEach(async () => {
+    handle = await createTempStore(PLAN_PATH);
+  });
+
+  afterEach(async () => {
+    await cleanupTempStore(handle);
+  });
+
+  it('returns RUN_SECURITY_AUDIT (self-rework) when security-audit is the first active stage and most recent audit is FAIL', async () => {
+    const wp = makeWorkPackageDetail({
+      status: 'IN_PROGRESS',
+      assigned_to: 'Security Auditor',
+      active_pipeline_stages: ['security-audit', 'code-review'],
+      pipelines: [
+        makePipeline({ type: 'security-audit', status: 'FAIL', started_at: '2026-01-01T09:00:00', completed_at: '2026-01-01T10:00:00' }),
+      ],
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(_internal.getSecurityAuditorAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('RUN_SECURITY_AUDIT');
+    expect(result.reason).toContain('self-rework');
+  });
+});
+
 ```
 ###  Path: `/mcp-server/tests/tools/workflow-rework-loop.test.ts`
 
@@ -23585,7 +25175,7 @@ describe('QA/Reviewer next-action returns WAIT_FOR_REWORK on FAIL (no self-rewor
     const result = await parseResult(getQaAction(root, store));
     expect(result.action).toBe('WAIT_FOR_REWORK');
     expect(result.reason).toContain('FAIL QA pipeline');
-    expect(result.reason).toContain('Developer must rework');
+    expect(result.reason).toContain('fail-target agent must rework');
   });
 
   it('Reviewer returns WAIT_FOR_REWORK when most-recent code-review pipeline is FAIL', async () => {
@@ -23599,7 +25189,7 @@ describe('QA/Reviewer next-action returns WAIT_FOR_REWORK on FAIL (no self-rewor
     const result = await parseResult(getReviewerAction(root, store));
     expect(result.action).toBe('WAIT_FOR_REWORK');
     expect(result.reason).toContain('FAIL code-review pipeline');
-    expect(result.reason).toContain('Developer must rework');
+    expect(result.reason).toContain('fail-target agent must rework');
   });
 
   it('Documentation returns REWORK when most-recent documentation pipeline is FAIL', async () => {
@@ -23688,7 +25278,7 @@ describe('Full FAIL → Developer rework → QA re-trigger → PASS flow', () =>
     const root2 = await store.readRootIndex();
     const qaAction = await parseResult(getQaAction(root2, store));
     expect(qaAction.action).toBe('WAIT_FOR_REWORK');
-    expect(qaAction.reason).toContain('Developer must rework');
+    expect(qaAction.reason).toContain('fail-target agent must rework');
 
     // --- PHASE 3: Developer reworks (new PASS implementation) ---
     await store.updateWorkPackageWithSync('WP-001', (wp, root) => {
@@ -24878,6 +26468,7 @@ import {
   DEFAULT_PIPELINE_STAGES,
   PIPELINE_TYPES,
   PIPELINE_AGENT_MAP,
+  ARTIFACT_EXPECTED_PIPELINE_TYPES,
   type PipelineType,
 } from '../../src/utils/pipeline-maps.js';
 
@@ -25230,6 +26821,22 @@ describe('lastActiveStage', () => {
 
   it('returns the same value as firstActiveStage for a single-stage composition', () => {
     expect(lastActiveStage(['qa'])).toBe(firstActiveStage(['qa']));
+  });
+});
+
+// ─── ARTIFACT_EXPECTED_PIPELINE_TYPES ───────────────────────────────────────
+
+describe('ARTIFACT_EXPECTED_PIPELINE_TYPES', () => {
+  it('contains implementation, code-review, release-engineering, documentation', () => {
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('implementation')).toBe(true);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('code-review')).toBe(true);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('release-engineering')).toBe(true);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('documentation')).toBe(true);
+  });
+
+  it('does NOT contain verification-only types (qa, security-audit)', () => {
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('qa')).toBe(false);
+    expect(ARTIFACT_EXPECTED_PIPELINE_TYPES.has('security-audit')).toBe(false);
   });
 });
 

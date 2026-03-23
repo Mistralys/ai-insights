@@ -182,9 +182,18 @@ async function beginWork(args: z.infer<typeof BeginWorkSchema>) {
         );
       }
 
-      // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
+      // Guard 2b: Pipeline type must be in the WP's active stages (§11.1).
       const activeStages: readonly PipelineType[] =
         (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+      if (!activeStages.includes(args.type as PipelineType)) {
+        throw new Error(
+          `Cannot start pipeline '${args.type}' for work package ${args.work_package_id}: ` +
+          `this pipeline type is not in the WP's active stages. ` +
+          `Active stages: ${(activeStages as readonly string[]).join(' \u2192 ')}.`
+        );
+      }
+
+      // Guard 3: Pipeline ordering — prerequisite must be the most-recently PASS'd pipeline.
       const prerequisite = resolvePrerequisite(args.type as PipelineType, activeStages);
       if (prerequisite !== null) {
         const prereqPipelines = wp.pipelines.filter((p) => p.type === prerequisite);
@@ -1386,6 +1395,7 @@ import {
   resolveFailAgent,
   DEFAULT_PIPELINE_STAGES,
   lastActiveStage,
+  ARTIFACT_EXPECTED_PIPELINE_TYPES,
 } from '../utils/pipeline-maps.js';
 import { MAX_REWORK_COUNT, checkRevalidationGuard, hasDownstreamFail } from '../utils/workflow-helpers.js';
 import { propagateDependencyUnblock } from './work-package.js';
@@ -1843,10 +1853,11 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
       }
 
       // 3b. Soft warning: emit when artifacts.files_modified is empty or absent on a PASS pipeline (§12.1).
-      // Persists a project comment for PM audit trail AND appends a text note to the response.
-      // Verification-only and documentation-only WPs may legitimately have no files_modified,
-      // but the warning prompts agents to declare any modifications they made.
-      if (args.status === 'PASS' && !isPmOverride) {
+      // Only fires for pipeline types in ARTIFACT_EXPECTED_PIPELINE_TYPES (implementation,
+      // code-review, release-engineering, documentation). Verification-only stages (qa,
+      // security-audit) are exempt since those agents do not modify files.
+      // code-review is included because the Reviewer may apply Fix-Forward edits.
+      if (args.status === 'PASS' && !isPmOverride && ARTIFACT_EXPECTED_PIPELINE_TYPES.has(args.type)) {
         const filesModified = args.artifacts?.files_modified;
         if (!filesModified || filesModified.length === 0) {
           // §12.1: Persist as a project comment for traceability
@@ -1860,7 +1871,7 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
           artifactsWarning =
             '\n\nNote: artifacts.files_modified is empty or absent. ' +
             'If you modified any files during this pipeline, declare them in artifacts.files_modified ' +
-            'for a complete audit trail. This is expected for verification-only or documentation-only pipelines.';
+            'for a complete audit trail.';
         }
       }
 
@@ -2225,7 +2236,7 @@ import { getPassedStages } from '../utils/project-reset.js';
 import { clearSynthesisState } from '../utils/workflow-helpers.js';
 import { readProjectName } from '../utils/read-project-name.js';
 import { inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
-import { getClientInfo } from '../index.js';
+import { getClientInfo } from '../utils/client-info.js';
 import { classifyRunner } from '../utils/runner.js';
 
 /**
@@ -6281,6 +6292,7 @@ import {
   PIPELINE_TYPES,
   type PipelineType,
   resolvePrerequisite,
+  resolveFailAgent,
   DEFAULT_PIPELINE_STAGES,
   getOrderedActiveStages,
   firstActiveStage,
@@ -7040,7 +7052,34 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
       };
     }
 
-    // P5: WAIT_FOR_REWORK — most recent QA is FAIL and no new upstream pass yet
+    // P4b: Self-rework fallback (§21.67) — QA FAIL routes back to QA when
+    // the standard fail target (Developer) owns a stage not in active_pipeline_stages.
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'qa')) {
+      const qaFailAgent = resolveFailAgent('qa', activeStages);
+      if (qaFailAgent === 'QA') {
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, 'QA');
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'RUN_QA',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} has a FAIL QA pipeline. QA is the fail-routing target (self-rework) because the standard rework agent's stage is not active. Re-run QA.`,
+              next_steps: [
+                `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "qa", agent_role: "QA").`,
+                `2. Call ledger_get_work_package to review the FAIL pipeline summary and comments.`,
+                '3. Address the issues identified in the prior QA FAIL. Re-execute the Verification Stack.',
+                `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "qa", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
+                `5. Call ledger_get_handoff_status (current_agent: "QA").`,
+              ],
+              ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P5: WAIT_FOR_REWORK — most recent QA is FAIL, fail target is another agent, no new upstream pass
     if (isMostRecentPipelineFail(wpDetail.pipelines, 'qa')) {
       return {
         content: [{
@@ -7048,7 +7087,7 @@ export async function getQaAction(rootIndex: RootIndex, store: LedgerStore, prel
           text: JSON.stringify({
             action: 'WAIT_FOR_REWORK',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has a FAIL QA pipeline. Developer must rework the implementation before QA can retry. QA does not self-rework.`,
+            reason: `Work package ${wpDetail.work_package_id} has a FAIL QA pipeline. The fail-target agent must rework before QA can retry.`,
           }, null, 2),
         }],
       };
@@ -7232,7 +7271,34 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
       };
     }
 
-    // P5: WAIT_FOR_REWORK — most recent code-review is FAIL and no new upstream pass yet
+    // P4b: Self-rework fallback (§21.67) — code-review FAIL routes back to Reviewer when
+    // the standard fail target (Developer) owns a stage not in active_pipeline_stages.
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'code-review')) {
+      const reviewFailAgent = resolveFailAgent('code-review', activeStages);
+      if (reviewFailAgent === 'Reviewer') {
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Reviewer');
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'RUN_REVIEW',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} has a FAIL code-review pipeline. Reviewer is the fail-routing target (self-rework) because the standard rework agent's stage is not active. Re-run review.`,
+              next_steps: [
+                `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "code-review", agent_role: "Reviewer").`,
+                `2. Call ledger_get_work_package to review the FAIL pipeline summary and comments.`,
+                '3. Address the issues identified in the prior code-review FAIL. Re-perform code review.',
+                `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "code-review", status: PASS/FAIL, summary, comments, acceptance_criteria_updates).`,
+                `5. Call ledger_get_handoff_status (current_agent: "Reviewer").`,
+              ],
+              ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P5: WAIT_FOR_REWORK — most recent code-review is FAIL, fail target is another agent, no new upstream pass
     if (isMostRecentPipelineFail(wpDetail.pipelines, 'code-review')) {
       return {
         content: [{
@@ -7240,7 +7306,7 @@ export async function getReviewerAction(rootIndex: RootIndex, store: LedgerStore
           text: JSON.stringify({
             action: 'WAIT_FOR_REWORK',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has a FAIL code-review pipeline. Developer must rework the implementation before Reviewer can retry. Reviewer does not self-rework.`,
+            reason: `Work package ${wpDetail.work_package_id} has a FAIL code-review pipeline. The fail-target agent must rework before Reviewer can retry.`,
           }, null, 2),
         }],
       };
@@ -7413,7 +7479,34 @@ export async function getSecurityAuditorAction(rootIndex: RootIndex, store: Ledg
       };
     }
 
-    // P5: WAIT_FOR_REWORK — most recent security-audit is FAIL, no new upstream pass
+    // P4b: Self-rework fallback (§21.67) — security-audit FAIL routes back to Security Auditor when
+    // the standard fail target (Developer) owns a stage not in active_pipeline_stages.
+    if (isMostRecentPipelineFail(wpDetail.pipelines, 'security-audit')) {
+      const auditFailAgent = resolveFailAgent('security-audit', activeStages);
+      if (auditFailAgent === 'Security Auditor') {
+        const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Security Auditor');
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              action: 'RUN_SECURITY_AUDIT',
+              work_package_id: wpDetail.work_package_id,
+              reason: `Work package ${wpDetail.work_package_id} has a FAIL security-audit pipeline. Security Auditor is the fail-routing target (self-rework) because the standard rework agent's stage is not active. Re-run security audit.`,
+              next_steps: [
+                `1. Call ledger_begin_work (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", agent_role: "Security Auditor").`,
+                `2. Call ledger_get_work_package to review the FAIL pipeline summary and comments.`,
+                '3. Address the issues identified in the prior security-audit FAIL. Re-run security audit.',
+                `4. Call ledger_complete_pipeline (work_package_id: "${wpDetail.work_package_id}", type: "security-audit", status: PASS/FAIL, summary, metrics, comments, acceptance_criteria_updates).`,
+                `5. Call ledger_get_handoff_status (current_agent: "Security Auditor").`,
+              ],
+              ...(handoffNotes ? { handoff_notes: handoffNotes } : {}),
+            }, null, 2),
+          }],
+        };
+      }
+    }
+
+    // P5: WAIT_FOR_REWORK — most recent security-audit is FAIL, fail target is another agent, no new upstream pass
     if (isMostRecentPipelineFail(wpDetail.pipelines, 'security-audit')) {
       return {
         content: [{
@@ -7421,7 +7514,7 @@ export async function getSecurityAuditorAction(rootIndex: RootIndex, store: Ledg
           text: JSON.stringify({
             action: 'WAIT_FOR_REWORK',
             work_package_id: wpDetail.work_package_id,
-            reason: `Work package ${wpDetail.work_package_id} has a FAIL security-audit pipeline. Developer must address findings before Security Auditor can retry.`,
+            reason: `Work package ${wpDetail.work_package_id} has a FAIL security-audit pipeline. The fail-target agent must address findings before Security Auditor can retry.`,
           }, null, 2),
         }],
       };

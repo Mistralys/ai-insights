@@ -4448,13 +4448,13 @@ describe('pipeline schemas', () => {
 
 ### 67. Artifact Declaration Expectation — Soft Warning on Empty `files_modified`
 
-**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` and the `artifacts.files_modified` array is either absent or empty, the server appends a soft-warning note to the pipeline response indicating that no files were declared. This is a non-blocking warning — the pipeline completion is still accepted.
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` and the `artifacts.files_modified` array is either absent or empty, the server appends a soft-warning note **only if the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES`** (`implementation`, `code-review`, `release-engineering`, `documentation`). Verification-only pipeline types (`qa`, `security-audit`) are exempt because those agents verify but do not modify files. `code-review` is included because the Reviewer may apply Fix-Forward edits. This is a non-blocking warning — the pipeline completion is still accepted.
 
-**Rationale:** Agents often forget to populate `files_modified`, reducing the value of the pipeline record for auditing and documentation. The soft warning creates a visible signal in the response without blocking legitimate zero-file-change completions (e.g., investigation pipelines that produced no code changes).
+**Rationale:** Agents often forget to populate `files_modified`, reducing the value of the pipeline record for auditing and documentation. The soft warning creates a visible signal in the response without blocking legitimate zero-file-change completions. Verification-only agents are exempt to avoid noisy false-positive warnings.
 
 **Exception:** The warning is only emitted on `PASS` completions — `FAIL` pipelines are not expected to declare modified files.
 
-**Enforcement:** Soft check in `completePipeline()` in `src/tools/pipeline.ts` (step 3b). Does not reject the call; appended as a text note in the response body only.
+**Enforcement:** Soft check in `completePipeline()` in `src/tools/pipeline.ts` (step 3b), gated by `ARTIFACT_EXPECTED_PIPELINE_TYPES` from `src/utils/pipeline-maps.ts`. Does not reject the call; appended as a text note in the response body only.
 
 ---
 

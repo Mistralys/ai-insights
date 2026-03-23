@@ -7,6 +7,7 @@ _SOURCE: Utility modules: constants, agent registry, pipeline maps, formatters_
     └── src/
         └── utils/
             └── agent-registry.ts
+            └── client-info.ts
             └── constants.ts
             └── if-defined.ts
             └── ledger-root.ts
@@ -242,6 +243,40 @@ export function resetRegistry(): void {
   agentHandleMap = {};
   agentIdMap = {};
   registryLoaded = false;
+}
+
+```
+###  Path: `/mcp-server/src/utils/client-info.ts`
+
+```ts
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { Implementation } from '@modelcontextprotocol/sdk/types.js';
+
+/**
+ * Module-level MCP server reference.
+ * Set once via setMcpServer() after the McpServer is created in index.ts.
+ */
+let _mcpServer: McpServer | undefined;
+
+/**
+ * Stores the MCP server instance so getClientInfo() can access client identity.
+ * Must be called once during server startup.
+ */
+export function setMcpServer(server: McpServer): void {
+  _mcpServer = server;
+}
+
+/**
+ * Returns the MCP client identity reported during the initialization handshake.
+ *
+ * Since the server uses STDIO transport (single client per process), the returned
+ * value is stable for the entire session. Returns undefined before the transport
+ * connects or if the client did not identify itself.
+ *
+ * @returns The client's { name, version } implementation object, or undefined.
+ */
+export function getClientInfo(): Implementation | undefined {
+  return _mcpServer?.server.getClientVersion();
 }
 
 ```
@@ -914,6 +949,20 @@ export function describePipelineAgents(prefix: string): string {
   const mappings = PIPELINE_TYPES.map((t) => `"${PIPELINE_AGENT_MAP[t]}" for ${t}`).join(', ');
   return `${prefix} ${mappings}. "Project Manager" is always allowed (PM Override).`;
 }
+
+/**
+ * Pipeline types where agents are expected to declare `artifacts.files_modified`.
+ * Verification-only stages (`qa`, `security-audit`) are excluded because those
+ * agents verify but do not modify files. `code-review` is included because the
+ * Reviewer may apply Fix-Forward edits (Tier 2 feedback).
+ * Used by `completePipeline` to scope the §12.1 soft warning.
+ */
+export const ARTIFACT_EXPECTED_PIPELINE_TYPES: ReadonlySet<PipelineType> = new Set<PipelineType>([
+  'implementation',
+  'code-review',
+  'release-engineering',
+  'documentation',
+]);
 
 /**
  * Returns the first active pipeline stage in canonical order.

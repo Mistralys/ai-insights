@@ -1638,11 +1638,11 @@ The auto-unblock function (`propagateDependencyUnblock` §15.4) uses a different
 
 ### 21.64 Artifact Declaration Soft Warning
 
-- When `completePipeline` records a PASS result and the `artifacts.files_modified` field is absent, null, or an empty array, a `"warning"` project comment is emitted (§12.1)
+- When `completePipeline` records a PASS result for a pipeline type in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (`implementation`, `code-review`, `release-engineering`, `documentation`) and the `artifacts.files_modified` field is absent, null, or an empty array, a `"warning"` project comment is emitted (§12.1)
+- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** — those agents verify but do not modify files
+- `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared
 - This is a **soft warning** only — it does not block the PASS or affect routing
 - The warning serves as an audit trail prompt: agents that modify files should declare what they changed for traceability and downstream awareness
-- **Not all PASS results require artifacts:** Some pipeline types (e.g., QA, code-review, security-audit) may complete with PASS without modifying files — the warning is intentionally lenient
-- Implementations MAY suppress this warning for specific pipeline types where artifact-free PASS is expected (e.g., verification-only pipelines)
 
 ### 21.65 Test-Only WP Production Method Prerequisite
 
@@ -1702,7 +1702,60 @@ Any `active_pipeline_stages` composition where a non-`implementation` stage is *
 - **Documentation P4:** The self-rework guard at P4 uses an OR-exit pattern — `docPrerequisite === null || !hasNewUpstreamPassSince(...)` — gated behind `isMostRecentPipelineFail("documentation")`. When `null`, the OR short-circuits to `true`, making the outer condition reduce to "latest pipeline is FAIL → self-rework." This is safe because the guard only fires on FAIL (triggering REWORK, not RUN), so no loop can occur. The null case appears in an OR-exit guard on the self-rework block, not a ternary that collapses to `true` for re-engagement.
 - **Release Engineer P4:** Same OR-exit guard structure as Documentation P4 — `releasePrerequisite === null || !hasNewUpstreamPassSince(...)` gated behind `isMostRecentPipelineFail("release-engineering")`. Immune for the same reason: when `null`, the OR short-circuits into the self-rework path (REWORK, not RUN), so no loop can form. The null-collapsing issue affects Release Engineer only at P5 (re-engagement after upstream rework), not P4 (self-rework after own FAIL).
 
-**Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions)
+**Related sections:** [§8.1.1](pipeline-routing.md#811-dynamic-prerequisite-resolution) (`resolvePrerequisite` returns `null` for first active stage), [§14.3](recommendations.md#143-qa-action-logic) P4 null-prerequisite guard (QA), [§14.4](recommendations.md#144-reviewer-action-logic) P4 null-prerequisite guard (Reviewer), [§14.5b](recommendations.md#145b-security-auditor-action-logic) P4 null-prerequisite guard (Security Auditor), [§14.5c](recommendations.md#145c-release-engineer-action-logic) P5 null-prerequisite guard (Release Engineer), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback for first-active-stage compositions), [§21.67](#2167-first-active-stage-self-rework-deadlock) (WAIT_FOR_REWORK deadlock when FAIL routes to self)
+
+### 21.67 First-Active-Stage Self-Rework Deadlock
+
+**Affected agents:** QA, Reviewer, Security Auditor  
+**Prerequisite:** §21.66 (null-prerequisite guard correctly returns `false`), §21.63 (FAIL routing falls back to self-rework), §9.3.1 (`resolveFailAgent` fallback)
+
+**The deadlock pattern:**
+
+When an agent's pipeline type is the first active stage (e.g., `qa` in `["qa", "code-review"]`) and its pipeline FAILs:
+
+1. `resolveFailAgent` (§9.3.1) routes to the first-active-stage agent itself (self-rework), because the standard FAIL target (Developer) owns `implementation`, which is not in `active_pipeline_stages`
+2. The recommendation engine's P4 re-engagement check returns `false` (correct per §21.66 — no upstream to re-engage from)
+3. P5 (`WAIT_FOR_REWORK`) fires: "most recent pipeline is FAIL AND no new upstream PASS" → returns `WAIT_FOR_REWORK`
+4. **Deadlock:** The agent is told to wait for an upstream rework that can never happen — the fail routing says the agent should self-rework, but the recommendation engine says to wait
+
+This is a spec gap between the FAIL routing system (§9.3.1, which correctly identifies the self-rework target) and the recommendation engine (§14.3–§14.5b, which unconditionally returns `WAIT_FOR_REWORK` on FAIL without considering whether the fail target is the agent itself).
+
+**The fix — P4b self-rework fallback:**
+
+Between P4 (re-engagement) and P5 (WAIT_FOR_REWORK), each affected agent MUST check whether the FAIL routing for its pipeline type resolves to itself. If so, return the agent's run action (e.g., `RUN_QA`) with self-rework semantics instead of falling through to `WAIT_FOR_REWORK`.
+
+```pseudocode
+// P4b: Self-rework fallback (§21.67)
+// When this agent's FAIL routes back to itself (§9.3.1 fallback),
+// return RUN_* for self-rework instead of WAIT_FOR_REWORK.
+if isMostRecentPipelineFail(pipelines, ownPipelineType):
+  failAgent = resolveFailAgent(ownPipelineType, activeStages)
+  if failAgent == ownAgentName:
+    return RUN_* (self-rework)
+```
+
+This check fires only when all of:
+- The most recent pipeline of the agent's type is FAIL (same gate as P5)
+- The FAIL routing resolves to the agent itself (via §9.3.1 fallback — standard fail target's stage is not active)
+
+When the FAIL routing resolves to a different agent (the normal case), P4b does not fire and P5 proceeds as before.
+
+**Affected priority chains (updated):**
+
+| Agent | P4 | P4b (new) | P5 |
+|-------|----|-----------|----|
+| QA (§14.3) | Re-engagement (upstream PASS since last QA) | Self-rework (`resolveFailAgent('qa', stages) == 'QA'`) | WAIT_FOR_REWORK (fail target is another agent) |
+| Reviewer (§14.4) | Re-engagement (upstream PASS since last review) | Self-rework (`resolveFailAgent('code-review', stages) == 'Reviewer'`) | WAIT_FOR_REWORK (fail target is another agent) |
+| Security Auditor (§14.5b) | Re-engagement (upstream PASS since last audit) | Self-rework (`resolveFailAgent('security-audit', stages) == 'Security Auditor'`) | WAIT_FOR_REWORK (fail target is another agent) |
+
+**Agents NOT affected:**
+- **Developer:** Does not use `resolvePrerequisite`-based re-engagement; uses `isMostRecentPipelineFail("implementation")` directly. No deadlock possible.
+- **Documentation:** Self-reworks at P4 already (REWORK action on FAIL). No WAIT_FOR_REWORK exists in its priority chain.
+- **Release Engineer:** Self-reworks at P4 already (REWORK action on FAIL). No WAIT_FOR_REWORK exists in its priority chain.
+
+**Interaction with §21.66:** This fix is complementary. §21.66 prevents the infinite re-engagement loop (`null → false`). §21.67 prevents the resulting deadlock when the agent should self-rework but the recommendation engine tells it to wait. Both fixes are required for correct behavior of first-active-stage compositions.
+
+**Related sections:** [§9.3.1](pipeline-routing.md#931-fail-routing-fallback) (`resolveFailAgent` fallback), [§14.3](recommendations.md#143-qa-action-logic) (QA action priorities), [§14.4](recommendations.md#144-reviewer-action-logic) (Reviewer action priorities), [§14.5b](recommendations.md#145b-security-auditor-action-logic) (Security Auditor action priorities), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback examples), [§21.66](#2166-first-active-stage-re-engagement-loop) (re-engagement loop fix)
 ```
 ###  Path: `/mcp-server/docs/agents/workflow-specification/handoff.md`
 
@@ -2179,11 +2232,12 @@ Implementation agents **must** declare all files modified during a pipeline in `
 
 **Enforcement:** This is a process rule, not a hard validation gate.
 
-- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent (see implementation in §12.1).
-- Agent personas explicitly instruct agents to declare all modified files before calling `completePipeline`.
+- `completePipeline` emits a **soft warning** (project comment, `type: "warning"`, `priority: "low"`) when a PASS pipeline has `artifacts.files_modified` empty or absent **and** the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES` (see implementation in §12.1).
+- `ARTIFACT_EXPECTED_PIPELINE_TYPES` contains `implementation`, `code-review`, `release-engineering`, and `documentation` — pipeline types where agents may modify files.
+- Verification-only pipeline types (`qa`, `security-audit`) are **exempt** from this warning because those agents verify but do not modify files.
+- `code-review` is included because the Reviewer may apply Fix-Forward edits (Tier 2 feedback) that should be declared for traceability.
+- Agent personas explicitly instruct creative agents to declare all modified files before calling `completePipeline`.
 - The soft warning does **not** block the pipeline from completing — it serves as a traceability nudge.
-
-**Legitimate empty-artifact scenarios:** Verification-only or documentation-audit pipelines that make no file changes may naturally have an empty `files_modified`. These will receive the soft warning but are not defects.
 
 **Rationale:** Complete artifact declarations enable accurate audit trails, support diff review, and allow future tooling to compute cumulative change sets. Partial or missing declarations impede these capabilities without preventing pipeline progress.
 
@@ -2717,8 +2771,8 @@ function completePipeline(wp, root, pipelineType, status, summary, agentRole, op
     }
     wp.handoff_notes = (wp.handoff_notes ?? []).append(handoffNote)
   
-  // Artifact completeness soft warning
-  if status == "PASS" AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
+  // Artifact completeness soft warning (scoped to creative/modifying pipeline types)
+  if status == "PASS" AND pipelineType in ARTIFACT_EXPECTED_PIPELINE_TYPES AND (opts.artifacts is null OR opts.artifacts.files_modified is null OR opts.artifacts.files_modified is empty):
     root.project_comments.append(ProjectComment {
       type: "warning",
       priority: "low",
@@ -3289,7 +3343,8 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 2. **RESUME_OR_CANCEL**: stale QA pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `qa` pipeline
 4. **RUN_QA** (re-engagement after rework): WP has at least one prior `qa` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince("implementation", "qa")` is true — Developer re-passed implementation after previous QA; QA should re-engage regardless of previous QA result
-5. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL AND NOT `hasNewUpstreamPassSince("implementation", "qa")` — QA cannot act; Developer must fix and re-pass implementation first
+4b. **RUN_QA** (self-rework fallback): most recent QA pipeline is FAIL AND `resolveFailAgent('qa', activeStages)` returns `'QA'` (self-rework — QA FAIL normally routes to Developer, but when `implementation` is not in active stages, the §9.3.1 fallback routes back to QA). QA should re-run, addressing the issues identified in the FAIL pipeline's summary and comments. See [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)
+5. **WAIT_FOR_REWORK**: most recent QA pipeline is FAIL AND NOT `hasNewUpstreamPassSince("implementation", "qa")` AND `resolveFailAgent('qa', activeStages)` does not return `'QA'` — QA cannot act; the fail-target agent must fix and re-pass first
 6. **RUN_QA** (first run): WP with PASS implementation and no QA pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "QA" with all dependencies satisfied (post auto-unblock scenario)
 
@@ -3297,7 +3352,7 @@ Same priority pattern as Developer, applied to `qa` pipelines:
 >
 > The "at least one prior `qa` pipeline" guard ensures that first-run scenarios (no QA pipeline exists yet) fall through to Priority 6 (`RUN_QA` first run), which is semantically more accurate. Without the guard, `hasNewUpstreamPassSince` returns `true` when no downstream pipeline exists (§14.6), making Priority 6 unreachable dead code.
 >
-> **Null-prerequisite guard (P4):** The `"implementation"` argument to `hasNewUpstreamPassSince` is hardcoded; conceptually it should be `resolvePrerequisite("qa", activeStages)` for consistency with the dynamic pattern in §14.4. When `resolvePrerequisite("qa", activeStages)` returns `null` (i.e., `qa` is the first active stage, e.g., `active_pipeline_stages: ["qa", "code-review"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 5/6.
+> **Null-prerequisite guard (P4):** The `"implementation"` argument to `hasNewUpstreamPassSince` is hardcoded; conceptually it should be `resolvePrerequisite("qa", activeStages)` for consistency with the dynamic pattern in §14.4. When `resolvePrerequisite("qa", activeStages)` returns `null` (i.e., `qa` is the first active stage, e.g., `active_pipeline_stages: ["qa", "code-review"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 4b, which checks whether QA should self-rework (see [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)), then to priority 5/6.
 
 ### 14.4 Reviewer Action Logic
 
@@ -3308,13 +3363,14 @@ Same pattern, applied to `code-review` pipelines:
 2. **RESUME_OR_CANCEL**: stale code-review pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `code-review` pipeline
 4. **RUN_REVIEW** (re-engagement after rework): WP has at least one prior `code-review` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` is true — where `effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)` (i.e., `"security-audit"` when active, `"qa"` otherwise). Upstream re-passed after previous review; Reviewer should re-engage regardless of previous review result
-5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` — Reviewer cannot act; upstream agents must fix and re-pass first
+4b. **RUN_REVIEW** (self-rework fallback): most recent code-review pipeline is FAIL AND `resolveFailAgent('code-review', activeStages)` returns `'Reviewer'` (self-rework — code-review FAIL normally routes to Developer, but when `implementation` is not in active stages, the §9.3.1 fallback routes back to Reviewer). Reviewer should re-run. See [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)
+5. **WAIT_FOR_REWORK**: most recent code-review is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "code-review")` AND `resolveFailAgent('code-review', activeStages)` does not return `'Reviewer'` — Reviewer cannot act; upstream agents must fix and re-pass first
 6. **RUN_REVIEW** (first run): WP with PASS QA and no review pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Reviewer" with all dependencies satisfied (post auto-unblock scenario)
 
 > **Priority 4 before 5 rationale:** Same as QA (§14.3) — `hasNewUpstreamPassSince` must be checked before WAIT_FOR_REWORK to avoid short-circuiting on a stale FAIL when upstream rework has already completed. The "at least one prior pipeline" guard ensures first-run scenarios fall through to Priority 6 (see §14.3 rationale for details).
 >
-> **Null-prerequisite guard (P4):** When `effectiveUpstream` is `null` (i.e., `code-review` is the first active stage, e.g., `active_pipeline_stages: ["code-review", "documentation"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 5/6.
+> **Null-prerequisite guard (P4):** When `effectiveUpstream` is `null` (i.e., `code-review` is the first active stage, e.g., `active_pipeline_stages: ["code-review", "documentation"]`), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Control falls through to priority 4b, which checks whether Reviewer should self-rework (see [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)), then to priority 5/6.
 
 ### 14.5 Documentation Action Logic
 
@@ -3357,13 +3413,14 @@ Same priority pattern as QA (§14.3), applied to `security-audit` pipelines:
 2. **RESUME_OR_CANCEL**: stale security-audit pipeline
 3. **CONTINUE_PIPELINE**: WP has an active (non-stale) IN_PROGRESS `security-audit` pipeline
 4. **RUN_SECURITY_AUDIT** (re-engagement after rework): WP has at least one prior `security-audit` pipeline (excluding auto-cancelled) AND `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` is true — where `effectiveUpstream = resolvePrerequisite("security-audit", wp.active_pipeline_stages)` (i.e., `"qa"` in the standard chain). Upstream re-passed after previous security audit; Security Auditor should re-engage
-5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` — where `effectiveUpstream = resolvePrerequisite("security-audit", wp.active_pipeline_stages)` (same as P4). Security Auditor cannot act; Developer must fix and re-pass the prerequisite stage first
+4b. **RUN_SECURITY_AUDIT** (self-rework fallback): most recent security-audit pipeline is FAIL AND `resolveFailAgent('security-audit', activeStages)` returns `'Security Auditor'` (self-rework — security-audit FAIL normally routes to Developer, but when `implementation` is not in active stages, the §9.3.1 fallback routes back to Security Auditor). Security Auditor should re-run. See [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)
+5. **WAIT_FOR_REWORK**: most recent security-audit is FAIL AND NOT `hasNewUpstreamPassSince(effectiveUpstream, "security-audit")` AND `resolveFailAgent('security-audit', activeStages)` does not return `'Security Auditor'` — Security Auditor cannot act; Developer must fix and re-pass the prerequisite stage first
 6. **RUN_SECURITY_AUDIT** (first run): WP with PASS qa and no security-audit pipeline yet
 7. **CLAIM_WP**: READY WP assigned to "Security Auditor" with all dependencies satisfied
 
 > **Scope filter:** The Security Auditor's `getNextAction` only considers WPs where `"security-audit"` is in `active_pipeline_stages`. WPs with only the default stages are excluded from all priority checks, as the Security Auditor has no work to do on those WPs.
 >
-> **Null-prerequisite guard (P4/P5):** When `effectiveUpstream` is `null` (i.e., `security-audit` is the first active stage), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Priority 5 uses the same `effectiveUpstream`; when null, there is no upstream stage to wait for, so control falls through to priority 6.
+> **Null-prerequisite guard (P4/P5):** When `effectiveUpstream` is `null` (i.e., `security-audit` is the first active stage), priority 4 does not fire — re-engagement requires an upstream stage to have re-passed. Priority 5 uses the same `effectiveUpstream`; when null, there is no upstream stage to wait for, so control falls through to priority 4b, which checks whether Security Auditor should self-rework (see [§21.67](edge-cases.md#2167-first-active-stage-self-rework-deadlock)), then to priority 6.
 
 ### 14.5c Release Engineer Action Logic
 

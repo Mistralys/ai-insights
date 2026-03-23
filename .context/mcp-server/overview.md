@@ -323,6 +323,32 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 
 > The GUI server is a **separate process** from the MCP server. Both can run simultaneously and share the same ledger directory. The MCP server monitors `gui-config.json` for configuration changes via `fs.watch()` — changes take effect immediately without restarting.
 
+### GUI Backend Modules
+
+The GUI backend is composed of focused utility modules in `src/gui/`:
+
+| Module | Purpose |
+|--------|---------|
+| `config.ts` | Reads and watches `gui-config.json`; exposes typed configuration to the API layer |
+| `auto-archive.ts` | Background job that auto-archives completed projects after a configurable delay |
+| `log-resolver.ts` | Locates and reads orchestrator run log files (JSONL); provides `resolveOrchestratorLogsDir`, `findRunLogs`, and `readLogEntries` — see below |
+
+#### `log-resolver.ts` — Orchestrator Run Log Resolver
+
+Provides three exported functions for reading orchestrator run logs:
+
+- **`resolveOrchestratorLogsDir(configured: string | undefined): string`** — Returns `configured` if it is a non-empty string; otherwise falls back to `~/.ai-insights/orchestrator-logs`.
+- **`findRunLogs(logsDir: string, slug: string): Promise<string[]>`** — Lists files in `logsDir` whose names match `<prefix>-{slug}.jsonl`. Files without a non-empty prefix are excluded. Returns an empty array when the directory does not exist.
+- **`readLogEntries(logsDir: string, filename: string, afterLine?: number): Promise<{ entries: unknown[]; totalLines: number }>`** — Reads and parses a JSONL log file. Malformed lines are silently skipped. `totalLines` always reflects the full line count; `entries` contains parsed objects from line `afterLine + 1` onward.
+
+**Security:** `readLogEntries` enforces a dual-layer path-traversal defence:
+1. **Filename allowlist** — rejects any filename that contains `..`, `/`, or characters outside `[A-Za-z0-9._-]`.
+2. **Resolved-path escape check** — `path.resolve()` verifies the resolved path stays within `logsDir`, preventing CWD-relative or symlink escapes.
+
+Both layers throw `ApiError FORBIDDEN` on violation. Errors are written to **stderr only** (STDIO discipline preserved).
+
+> **Known limitation:** `resolveOrchestratorLogsDir` and `findRunLogs` do not currently validate that the supplied path is absolute. If a relative path is stored in `gui-config.json`, `findRunLogs` may resolve it against the process CWD. `readLogEntries` is immune to this (its escape-check uses `path.resolve()`). A `path.isAbsolute()` guard is planned before these functions are wired into any HTTP-facing endpoint.
+
 ---
 
 ## Available Tools
