@@ -428,7 +428,7 @@ def configure_console_logging(log_level: str = "INFO") -> None:
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
-def _slugify(text: str, max_len: int = 40) -> str:
+def _slugify(text: str, max_len: int = 80) -> str:
     """Convert *text* to a filesystem-safe lowercase slug, capped at *max_len*."""
     # Strip hyphens AFTER truncation so a hyphen landing exactly at max_len
     # does not produce a filename ending with '-'.
@@ -870,7 +870,7 @@ def get_run_logger(config: Any) -> WorkflowLogger | None:
         The LangGraph ``RunnableConfig`` dict passed to node functions.
     """
     if config is None:
-        log.warning("get_run_logger: config is None")
+        log.debug("get_run_logger: config is None")
         return None
     configurable = config.get("configurable") or {}
     logger = configurable.get("run_logger")

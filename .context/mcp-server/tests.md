@@ -2309,9 +2309,9 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug);
       expect(result).toEqual([
-        'WP-001-developer-r0.md',
-        'WP-002-qa-r0.md',
-        'WP-003-reviewer-r0.md',
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-002-qa-r0.md',        wp_id: 'WP-002', stage: 'qa' },
+        { filename: 'WP-003-reviewer-r0.md',  wp_id: 'WP-003', stage: 'reviewer' },
       ]);
     });
 
@@ -2322,8 +2322,11 @@ describe('gui/api.ts', () => {
       await writeFile(join(dir, 'WP-002-developer-r0.md'), 'content c');
 
       const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
-      expect(result).toEqual(['WP-001-developer-r0.md', 'WP-001-qa-r0.md']);
-      expect(result).not.toContain('WP-002-developer-r0.md');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-qa-r0.md',        wp_id: 'WP-001', stage: 'qa' },
+      ]);
+      expect(result.map((r) => r.filename)).not.toContain('WP-002-developer-r0.md');
     });
 
     it("throws ApiError NOT_FOUND for slug='..'", async () => {
@@ -2339,7 +2342,9 @@ describe('gui/api.ts', () => {
       await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
 
       const result = await handleListDialogues(ledgerRoot, slug);
-      expect(result).toEqual(['WP-001-developer-r0.md']);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+      ]);
     });
 
     // ── WP-003: invalid ?wp= validation ─────────────────────────────────────
@@ -2361,7 +2366,9 @@ describe('gui/api.ts', () => {
       await writeFile(join(dir, 'WP-002-qa-r0.md'), 'no-match');
 
       const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
-      expect(result).toEqual(['WP-001-developer-r0.md']);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+      ]);
     });
   });
 
@@ -4243,7 +4250,7 @@ describe('handoff-config integration: runtime config monitoring', () => {
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile, mkdir } from 'fs/promises';
+import { mkdtemp, rm, writeFile, readFile, mkdir, stat, utimes } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
@@ -4251,8 +4258,22 @@ import {
   resolveOrchestratorLogsDir,
   findRunLogs,
   readLogEntries,
+  migrateOrphanedLogs,
+  archiveCompletedLogs,
+  resolveLogSource,
   ApiError,
 } from '../../src/gui/log-resolver.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Offset (ms) used with utimes() when arranging mtime relationships in tests.
+ * Must be large enough to exceed the 1-second mtime resolution on some
+ * filesystems (e.g. HFS+ on macOS), while remaining well below any timeout.
+ */
+const MTIME_OFFSET_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -4341,6 +4362,31 @@ describe('findRunLogs', () => {
     await writeFile(join(tempDir, '-my-project.jsonl'), '', 'utf-8');
 
     const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(0);
+  });
+
+  it('matches files written with a 40-char truncated slug (backward compat)', async () => {
+    // Slugs longer than 40 chars were previously truncated by the orchestrator's
+    // _slugify(label, max_len=40). Files written by old builds use the truncated
+    // form in their filename but the project ledger stores the full slug.
+    const fullSlug = '2026-03-24-orchestrator-log-source-routing'; // 42 chars
+    const truncSlug = fullSlug.slice(0, 40); // 'routi' not 'routing'
+    const filename = `20260324T124936-${truncSlug}.jsonl`;
+    await writeFile(join(tempDir, filename), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, fullSlug);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.filename).toBe(filename);
+  });
+
+  it('does not match unrelated short slugs when truncated-slug backward compat is active', async () => {
+    // A different project whose slug happens to be 40 chars should not be matched
+    // when looking up the 42-char slug.
+    const fullSlug = '2026-03-24-orchestrator-log-source-routing'; // 42 chars
+    const unrelatedSlug = 'completely-different-short-project';
+    await writeFile(join(tempDir, `20260324T124936-${unrelatedSlug}.jsonl`), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, fullSlug);
     expect(results).toHaveLength(0);
   });
 
@@ -4600,6 +4646,263 @@ describe('readLogEntries', () => {
     await expect(readLogEntries(tempDir, 'nonexistent.jsonl')).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateOrphanedLogs
+// ---------------------------------------------------------------------------
+
+describe('migrateOrphanedLogs', () => {
+  let destDir: string;
+  let srcDir: string;
+
+  beforeEach(async () => {
+    destDir = await mkdtemp(join(tmpdir(), 'migrate-dest-'));
+    srcDir = await mkdtemp(join(tmpdir(), 'migrate-src-'));
+  });
+
+  afterEach(async () => {
+    await rm(destDir, { recursive: true, force: true });
+    await rm(srcDir, { recursive: true, force: true });
+  });
+
+  it('copies matching files from srcDir into destDir', async () => {
+    await writeFile(join(srcDir, '20260323T100000-my-project.jsonl'), 'data', 'utf-8');
+
+    const count = await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+
+    expect(count).toBe(1);
+    const destContent = await readFile(join(destDir, '20260323T100000-my-project.jsonl'), 'utf-8');
+    expect(destContent).toBe('data');
+  });
+
+  it('source file still exists after migration (not moved — copyFile not rename)', async () => {
+    const srcFile = join(srcDir, '20260323T100000-my-project.jsonl');
+    await writeFile(srcFile, 'original', 'utf-8');
+
+    await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+
+    // Source must still be readable — the file was copied, not moved.
+    const srcContent = await readFile(srcFile, 'utf-8');
+    expect(srcContent).toBe('original');
+  });
+
+  it('returns 0 and skips migration when destDir already has matching files', async () => {
+    // destDir already has one matching file → migration is a no-op.
+    await writeFile(join(destDir, '20260322T080000-my-project.jsonl'), 'old', 'utf-8');
+    await writeFile(join(srcDir, '20260323T100000-my-project.jsonl'), 'new', 'utf-8');
+
+    const count = await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+
+    expect(count).toBe(0);
+    // The new source file must NOT have been copied — destDir already had logs.
+    await expect(stat(join(destDir, '20260323T100000-my-project.jsonl'))).rejects.toThrow();
+  });
+
+  it('returns 0 when srcDir does not exist', async () => {
+    const count = await migrateOrphanedLogs(destDir, '/nonexistent/path/xyz', 'my-project');
+    expect(count).toBe(0);
+  });
+
+  it('returns 0 when srcDir has no matching files for the slug', async () => {
+    await writeFile(join(srcDir, '20260323T100000-other-project.jsonl'), 'data', 'utf-8');
+    const count = await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+    expect(count).toBe(0);
+  });
+
+  it('creates destDir when it does not yet exist', async () => {
+    const newDest = join(destDir, 'subdir', 'logs');
+    await writeFile(join(srcDir, '20260323T100000-my-project.jsonl'), 'data', 'utf-8');
+
+    await migrateOrphanedLogs(newDest, srcDir, 'my-project');
+
+    const destContent = await readFile(join(newDest, '20260323T100000-my-project.jsonl'), 'utf-8');
+    expect(destContent).toBe('data');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archiveCompletedLogs
+// ---------------------------------------------------------------------------
+
+describe('archiveCompletedLogs', () => {
+  let archiveDir: string;
+  let sourceDir: string;
+
+  beforeEach(async () => {
+    archiveDir = await mkdtemp(join(tmpdir(), 'archive-dest-'));
+    sourceDir = await mkdtemp(join(tmpdir(), 'archive-src-'));
+  });
+
+  afterEach(async () => {
+    await rm(archiveDir, { recursive: true, force: true });
+    await rm(sourceDir, { recursive: true, force: true });
+  });
+
+  it('active run in sourceDir → not copied to archiveDir', async () => {
+    // File ends with run_start (no terminal action) — the run is active.
+    const filename = '20260323T100000-my-project.jsonl';
+    const activeContent = JSON.stringify({ action: 'run_start' }) + '\n';
+    await writeFile(join(sourceDir, filename), activeContent, 'utf-8');
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    expect(archived).toHaveLength(0);
+    // archiveDir should not have the file.
+    await expect(stat(join(archiveDir, filename))).rejects.toThrow();
+  });
+
+  it('completed run not in archive → copied to archiveDir', async () => {
+    const filename = '20260323T110000-my-project.jsonl';
+    const completedContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                             JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(sourceDir, filename), completedContent, 'utf-8');
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    expect(archived).toContain(filename);
+    const archiveContent = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(archiveContent).toBe(completedContent);
+  });
+
+  it('completed run with newer source → archive refreshed', async () => {
+    const filename = '20260323T120000-my-project.jsonl';
+    const oldContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                       JSON.stringify({ action: 'run_end' }) + '\n';
+    const newContent = oldContent + JSON.stringify({ action: 'run_end', note: 'updated' }) + '\n';
+
+    // Write the archive copy first, then write a newer source file.
+    await writeFile(join(archiveDir, filename), oldContent, 'utf-8');
+
+    // Wait a tick to ensure mtime differs, then write a "newer" source.
+    // We use utimes to manually set the source mtime ahead of the archive.
+    await writeFile(join(sourceDir, filename), newContent, 'utf-8');
+    const archiveStat = await stat(join(archiveDir, filename));
+    const futureTime = new Date(archiveStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(sourceDir, filename), futureTime, futureTime);
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    expect(archived).toContain(filename);
+    const refreshedContent = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(refreshedContent).toBe(newContent);
+  });
+
+  it('completed run with current archive → no-op (not re-copied)', async () => {
+    const filename = '20260323T130000-my-project.jsonl';
+    const content = JSON.stringify({ action: 'run_start' }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+
+    // Write both files with identical content.
+    await writeFile(join(sourceDir, filename), content, 'utf-8');
+    await writeFile(join(archiveDir, filename), content, 'utf-8');
+
+    // Set archive mtime >= source mtime so no copy is needed.
+    const sourceStat = await stat(join(sourceDir, filename));
+    const laterTime = new Date(sourceStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(archiveDir, filename), laterTime, laterTime);
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    // No file should have been copied (archive is already current).
+    expect(archived).toHaveLength(0);
+  });
+
+  it('returns empty array when sourceDir does not exist', async () => {
+    const archived = await archiveCompletedLogs(archiveDir, '/nonexistent/path/xyz', 'my-project');
+    expect(archived).toHaveLength(0);
+  });
+
+  it('returns empty array when sourceDir has no matching files', async () => {
+    await writeFile(join(sourceDir, '20260323T100000-other-slug.jsonl'), 'data', 'utf-8');
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+    expect(archived).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveLogSource
+// ---------------------------------------------------------------------------
+
+describe('resolveLogSource', () => {
+  let archiveDir: string;
+  let sourceDir: string;
+
+  beforeEach(async () => {
+    archiveDir = await mkdtemp(join(tmpdir(), 'resolve-archive-'));
+    sourceDir = await mkdtemp(join(tmpdir(), 'resolve-source-'));
+  });
+
+  afterEach(async () => {
+    await rm(archiveDir, { recursive: true, force: true });
+    await rm(sourceDir, { recursive: true, force: true });
+  });
+
+  it('file only in archiveDir → returns archiveDir', async () => {
+    const filename = '20260322T100000-my-project.jsonl';
+    await writeFile(join(archiveDir, filename), 'data', 'utf-8');
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(archiveDir);
+  });
+
+  it('file only in sourceDir → returns sourceDir', async () => {
+    const filename = '20260323T140000-my-project.jsonl';
+    await writeFile(join(sourceDir, filename), 'live data', 'utf-8');
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(sourceDir);
+  });
+
+  it('file in both with newer source → copies source to archive and returns archiveDir', async () => {
+    const filename = '20260323T120000-my-project.jsonl';
+    const oldContent = 'old archive';
+    const newContent = 'newer source content';
+
+    await writeFile(join(archiveDir, filename), oldContent, 'utf-8');
+    await writeFile(join(sourceDir, filename), newContent, 'utf-8');
+
+    // Make source mtime newer than archive.
+    const archiveStat = await stat(join(archiveDir, filename));
+    const futureTime = new Date(archiveStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(sourceDir, filename), futureTime, futureTime);
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(archiveDir);
+    // Archive should now contain the refreshed content from source.
+    const archiveContent = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(archiveContent).toBe(newContent);
+  });
+
+  it('file in both with current archive (archive mtime >= source) → returns archiveDir without re-copying', async () => {
+    const filename = '20260321T090000-my-project.jsonl';
+    const sourceContent = 'source data';
+    const archiveContent = 'archive data (already current)';
+
+    await writeFile(join(sourceDir, filename), sourceContent, 'utf-8');
+    await writeFile(join(archiveDir, filename), archiveContent, 'utf-8');
+
+    // Make archive mtime >= source mtime.
+    const sourceStat = await stat(join(sourceDir, filename));
+    const laterTime = new Date(sourceStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(archiveDir, filename), laterTime, laterTime);
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(archiveDir);
+    // Archive content must not have been overwritten.
+    const content = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(content).toBe(archiveContent);
+  });
+
+  it('file in neither directory → returns archiveDir (so caller gets NOT_FOUND from archiveDir)', async () => {
+    const result = await resolveLogSource(archiveDir, sourceDir, 'nonexistent.jsonl');
+    // When neither exists, the function returns archiveDir (fall-through path).
+    expect(result).toBe(archiveDir);
   });
 });
 
@@ -4954,11 +5257,13 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
  * Tests for src/gui/handlers/run-log-handlers.ts
  *
  * Uses real temp directories and real filesystem operations — no mocks.
- * Covers handleListRunLogs and handleGetRunLog, including security guards.
+ * Covers handleListRunLogs and handleGetRunLog, including security guards,
+ * dual-source merge/deduplication, and source routing between the orchestrator
+ * live logs directory and the ledger archive directory.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -4982,38 +5287,41 @@ async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe('handleListRunLogs', () => {
-  let tempDir: string;
+  let logsDir: string;
+  let orchestratorLogsDir: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-test-'));
+    logsDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-logs-'));
+    orchestratorLogsDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-orch-'));
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(logsDir, { recursive: true, force: true });
+    await rm(orchestratorLogsDir, { recursive: true, force: true });
   });
 
   // ── Security: slug validation ──────────────────────────────────────────────
 
   it('throws ApiError NOT_FOUND for a slug containing /', async () => {
-    await expect(handleListRunLogs('bad/slug', tempDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('bad/slug', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
-    await expect(handleListRunLogs('..', tempDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('..', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ../ traversal', async () => {
-    await expect(handleListRunLogs('../etc', tempDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('../etc', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for an empty slug', async () => {
-    await expect(handleListRunLogs('', tempDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
@@ -5021,20 +5329,20 @@ describe('handleListRunLogs', () => {
   // ── Happy path ─────────────────────────────────────────────────────────────
 
   it('returns an empty array when no matching files exist', async () => {
-    const result = await handleListRunLogs('my-project', tempDir);
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toEqual([]);
   });
 
   it('returns an empty array when the directory is empty', async () => {
-    const result = await handleListRunLogs('my-project', tempDir);
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(0);
   });
 
   it('returns matching filenames for a valid slug', async () => {
-    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
-    await writeFile(join(tempDir, '2024-01-02T10-00-00-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(logsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(logsDir, '2024-01-02T10-00-00-my-project.jsonl'), '', 'utf-8');
 
-    const result = await handleListRunLogs('my-project', tempDir);
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(2);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
@@ -5047,10 +5355,10 @@ describe('handleListRunLogs', () => {
   });
 
   it('does not return files for a different slug', async () => {
-    await writeFile(join(tempDir, '2024-01-01T10-00-00-other-project.jsonl'), '', 'utf-8');
-    await writeFile(join(tempDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(logsDir, '2024-01-01T10-00-00-other-project.jsonl'), '', 'utf-8');
+    await writeFile(join(logsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
 
-    const result = await handleListRunLogs('my-project', tempDir);
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
@@ -5060,9 +5368,9 @@ describe('handleListRunLogs', () => {
   it('sets is_active: false for a completed run', async () => {
     const content = JSON.stringify({ action: 'run_start' }) + '\n' +
                     JSON.stringify({ action: 'run_end' }) + '\n';
-    await writeFile(join(tempDir, '20260323T120000-my-project.jsonl'), content, 'utf-8');
+    await writeFile(join(logsDir, '20260323T120000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', tempDir);
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(false);
   });
@@ -5070,11 +5378,70 @@ describe('handleListRunLogs', () => {
   it('sets is_active: true for an in-progress run', async () => {
     const content = JSON.stringify({ action: 'run_start' }) + '\n' +
                     JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
-    await writeFile(join(tempDir, '20260323T130000-my-project.jsonl'), content, 'utf-8');
+    await writeFile(join(logsDir, '20260323T130000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', tempDir);
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(true);
+  });
+
+  // ── Integration: dual-source merge and deduplication ───────────────────────
+
+  it('active run visible from orchestratorLogsDir (not yet archived)', async () => {
+    // Active run only exists in the live orchestrator directory (not archived yet).
+    const activeContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                          JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
+    await writeFile(join(orchestratorLogsDir, '20260323T140000-my-project.jsonl'), activeContent, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const filenames = result.map((r) => r.filename);
+    expect(filenames).toContain('20260323T140000-my-project.jsonl');
+    const entry = result.find((r) => r.filename === '20260323T140000-my-project.jsonl');
+    expect(entry!.is_active).toBe(true);
+  });
+
+  it('completed run visible from logsDir (archive)', async () => {
+    // Completed run has been archived into logsDir.
+    const completedContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                             JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(logsDir, '20260322T100000-my-project.jsonl'), completedContent, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const filenames = result.map((r) => r.filename);
+    expect(filenames).toContain('20260322T100000-my-project.jsonl');
+    const entry = result.find((r) => r.filename === '20260322T100000-my-project.jsonl');
+    expect(entry!.is_active).toBe(false);
+  });
+
+  it('same filename in both dirs → deduplicated in response', async () => {
+    // The same completed file exists in both orchestratorLogsDir and logsDir.
+    const completedContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                             JSON.stringify({ action: 'run_end' }) + '\n';
+    const filename = '20260322T100000-my-project.jsonl';
+    await writeFile(join(logsDir, filename), completedContent, 'utf-8');
+    await writeFile(join(orchestratorLogsDir, filename), completedContent, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const matching = result.filter((r) => r.filename === filename);
+    // Must appear exactly once in the merged result.
+    expect(matching).toHaveLength(1);
+  });
+
+  it('logsDir entry takes precedence over orchestratorLogsDir for same filename', async () => {
+    // orchestratorLogsDir has the file as active; logsDir has it as completed
+    // (self-healed by a previous request). logsDir should win.
+    const filename = '20260322T100000-my-project.jsonl';
+    const activeContent = JSON.stringify({ action: 'run_start' }) + '\n';
+    const completedContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                             JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(orchestratorLogsDir, filename), activeContent, 'utf-8');
+    await writeFile(join(logsDir, filename), completedContent, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const entry = result.find((r) => r.filename === filename);
+    expect(entry).toBeDefined();
+    // logsDir (archive) wins: run is marked completed
+    expect(entry!.is_active).toBe(false);
   });
 });
 
@@ -5083,27 +5450,30 @@ describe('handleListRunLogs', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleGetRunLog', () => {
-  let tempDir: string;
+  let logsDir: string;
+  let orchestratorLogsDir: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-test-'));
+    logsDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-logs-'));
+    orchestratorLogsDir = await mkdtemp(join(tmpdir(), 'run-log-handlers-orch-'));
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(logsDir, { recursive: true, force: true });
+    await rm(orchestratorLogsDir, { recursive: true, force: true });
   });
 
   // ── Security: slug validation ──────────────────────────────────────────────
 
   it('throws ApiError NOT_FOUND for a slug containing /', async () => {
     await expect(
-      handleGetRunLog('bad/slug', 'run.jsonl', tempDir)
+      handleGetRunLog('bad/slug', 'run.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
     await expect(
-      handleGetRunLog('..', 'run.jsonl', tempDir)
+      handleGetRunLog('..', 'run.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -5111,27 +5481,27 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError FORBIDDEN for a filename containing ..', async () => {
     await expect(
-      handleGetRunLog('my-project', '../etc/passwd', tempDir)
+      handleGetRunLog('my-project', '../etc/passwd', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('throws ApiError FORBIDDEN for a filename containing /', async () => {
     await expect(
-      handleGetRunLog('my-project', 'sub/file.jsonl', tempDir)
+      handleGetRunLog('my-project', 'sub/file.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('throws ApiError FORBIDDEN for a malicious filename with special characters', async () => {
     for (const bad of ['file;name.jsonl', 'file|name.jsonl', 'file\x00name.jsonl']) {
       await expect(
-        handleGetRunLog('my-project', bad, tempDir)
+        handleGetRunLog('my-project', bad, logsDir, orchestratorLogsDir)
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }
   });
 
   it('throws ApiError FORBIDDEN for an empty filename', async () => {
     await expect(
-      handleGetRunLog('my-project', '', tempDir)
+      handleGetRunLog('my-project', '', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
@@ -5139,7 +5509,7 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError NOT_FOUND when a valid filename does not exist on disk', async () => {
     await expect(
-      handleGetRunLog('my-project', 'nonexistent.jsonl', tempDir)
+      handleGetRunLog('my-project', 'nonexistent.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -5148,9 +5518,9 @@ describe('handleGetRunLog', () => {
   it('returns entries and totalLines for a valid log file', async () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
     const entries = [{ type: 'start' }, { type: 'step' }, { type: 'end' }];
-    await writeJsonl(join(tempDir, logFile), entries);
+    await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, tempDir);
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
     expect(result).toHaveProperty('entries');
     expect(result).toHaveProperty('totalLines');
     expect(result.totalLines).toBe(3);
@@ -5162,9 +5532,9 @@ describe('handleGetRunLog', () => {
   it('returns only entries after the specified afterLine offset', async () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
     const entries = Array.from({ length: 5 }, (_, i) => ({ line: i + 1 }));
-    await writeJsonl(join(tempDir, logFile), entries);
+    await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, tempDir, 3);
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir, 3);
     expect(result.totalLines).toBe(5);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ line: 4 });
@@ -5174,9 +5544,9 @@ describe('handleGetRunLog', () => {
   it('returns empty entries array and correct totalLines when afterLine >= totalLines', async () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
     const entries = [{ n: 1 }, { n: 2 }];
-    await writeJsonl(join(tempDir, logFile), entries);
+    await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, tempDir, 10);
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir, 10);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(0);
   });
@@ -5184,9 +5554,9 @@ describe('handleGetRunLog', () => {
   it('silently skips malformed JSON lines without throwing', async () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
     const content = '{"ok": true}\nnot-json\n{"also": "ok"}\n';
-    await writeFile(join(tempDir, logFile), content, 'utf-8');
+    await writeFile(join(logsDir, logFile), content, 'utf-8');
 
-    const result = await handleGetRunLog('my-project', logFile, tempDir);
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(3);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ ok: true });
@@ -5195,11 +5565,51 @@ describe('handleGetRunLog', () => {
 
   it('returns zero entries and zero totalLines for an empty file', async () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
-    await writeFile(join(tempDir, logFile), '', 'utf-8');
+    await writeFile(join(logsDir, logFile), '', 'utf-8');
 
-    const result = await handleGetRunLog('my-project', logFile, tempDir);
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(0);
     expect(result.entries).toHaveLength(0);
+  });
+
+  // ── Integration: source routing ────────────────────────────────────────────
+
+  it('active run reads from orchestratorLogsDir (not yet in logsDir)', async () => {
+    // The active run log only exists in the live orchestrator directory.
+    const logFile = '20260323T140000-my-project.jsonl';
+    const entries = [{ action: 'run_start' }, { action: 'step_start', step_name: 'qa' }];
+    await writeJsonl(join(orchestratorLogsDir, logFile), entries);
+
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toEqual({ action: 'run_start' });
+    expect(result.entries[1]).toEqual({ action: 'step_start', step_name: 'qa' });
+  });
+
+  it('completed run reads from logsDir (archive) when only in archive', async () => {
+    // Completed run has been archived into logsDir and is no longer in orchestratorLogsDir.
+    const logFile = '20260322T100000-my-project.jsonl';
+    const entries = [{ action: 'run_start' }, { action: 'run_end' }];
+    await writeJsonl(join(logsDir, logFile), entries);
+
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[1]).toEqual({ action: 'run_end' });
+  });
+
+  it('reads from logsDir (archive) when file exists in both dirs and archive is current', async () => {
+    // File exists in both directories with the same content and the archive copy is current.
+    // resolveLogSource should return logsDir (archiveDir) without re-copying.
+    const logFile = '20260321T090000-my-project.jsonl';
+    const entries = [{ action: 'run_start' }, { action: 'run_end' }];
+    await writeJsonl(join(logsDir, logFile), entries);
+    await writeJsonl(join(orchestratorLogsDir, logFile), entries);
+
+    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    expect(result.totalLines).toBe(2);
+    expect(result.entries[1]).toEqual({ action: 'run_end' });
   });
 });
 
@@ -5394,7 +5804,9 @@ describe('run-log HTTP routes — error mapping (instanceof ApiError regression)
   });
 
   it('returns 200 and parsed entries for an existing log file', async () => {
-    const logFile = join(logsDir, '20260225T113355-my-project.jsonl');
+    const projectLogsDir = join(ledgerRoot, 'my-project', 'orchestrator', 'logs');
+    await mkdir(projectLogsDir, { recursive: true });
+    const logFile = join(projectLogsDir, '20260225T113355-my-project.jsonl');
     await writeJsonl(logFile, [
       { action: 'start', timestamp: '2026-02-25T11:33:55Z' },
       { action: 'end',   timestamp: '2026-02-25T11:34:00Z' },
@@ -5411,7 +5823,9 @@ describe('run-log HTTP routes — error mapping (instanceof ApiError regression)
   });
 
   it('returns 200 and respects the ?after= query parameter', async () => {
-    const logFile = join(logsDir, '20260225T113355-my-project.jsonl');
+    const projectLogsDir = join(ledgerRoot, 'my-project', 'orchestrator', 'logs');
+    await mkdir(projectLogsDir, { recursive: true });
+    const logFile = join(projectLogsDir, '20260225T113355-my-project.jsonl');
     await writeJsonl(logFile, [
       { action: 'a', timestamp: '2026-02-25T11:33:55Z' },
       { action: 'b', timestamp: '2026-02-25T11:33:56Z' },

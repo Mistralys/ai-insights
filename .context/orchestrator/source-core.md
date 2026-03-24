@@ -63,11 +63,15 @@ import shutil
 import sys
 import time
 import uuid
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.utils.filelock import lock_exclusive, unlock
+# Suppress Pydantic V1 deprecation warning emitted by langchain_core on Python 3.14+.
+warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
+
+from src.utils.filelock import lock_exclusive, unlock  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -617,7 +621,9 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     # disappearing from there for seemingly no reason.
     log_final_path = run_logger._path
     slug = plan_dir.name
-    ledger_log_dir = config.workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
+    ledger_log_dir = (
+        config.workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
+    )
     try:
         ledger_log_dir.mkdir(parents=True, exist_ok=True)
         dest = ledger_log_dir / run_logger._path.name
@@ -1666,7 +1672,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
@@ -1807,7 +1813,7 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
     # ------------------------------------------------------------------
 
     async def supervisor_node(
-        state: WorkflowState, config: RunnableConfig | None = None,
+        state: WorkflowState, config: Optional[RunnableConfig] = None,  # noqa: UP045
     ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)
@@ -1897,6 +1903,29 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                         "run_log": [log_entry],
                     },
                 )
+
+            # On the very first iteration a missing ledger is expected —
+            # route to PM so it can initialise the project.
+            if new_iteration <= 1:
+                log.info("No project ledger yet — routing to PM to initialise.")
+                log_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="route",
+                    destination=_DEST_PM,
+                    reason="no project ledger found (new run)",
+                )
+                if run_logger:
+                    run_logger.stream_entry(log_entry)
+                return Command(
+                    goto=_DEST_PM,
+                    update={
+                        "iteration": new_iteration,
+                        "current_stage": _DEST_PM,
+                        "run_log": [log_entry],
+                    },
+                )
+
             log.error("Failed to read project status: %s", exc)
             ts = datetime.now(UTC).isoformat()
             log_entry = _log_entry(
@@ -1923,7 +1952,10 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
         try:
             wp_list_data = await _call_tool("ledger_list_work_packages", project_path=project_path)
         except Exception as exc:
-            log.error("Failed to list work packages: %s", exc)
+            if new_iteration <= 1:
+                log.info("No work packages yet (new project): %s", exc)
+            else:
+                log.error("Failed to list work packages: %s", exc)
             wp_list_error = str(exc)
             wp_list_data = []
 

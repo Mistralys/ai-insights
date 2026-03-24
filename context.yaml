@@ -47,6 +47,7 @@ documents:
           - '__pycache__/'
           - 'build/'
           - '.git/'
+          - 'orchestrator/logs/'
 
   - description: 'AI Insights - Scripts'
     outputPath: scripts.md

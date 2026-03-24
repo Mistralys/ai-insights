@@ -39,7 +39,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 
@@ -88,7 +88,7 @@ def create_stage_node(
     # with the LangGraph ``config`` parameter passed to the node at runtime.
     _app_config = config
 
-    async def node_fn(state: WorkflowState, config: RunnableConfig | None = None) -> dict:
+    async def node_fn(state: WorkflowState, config: Optional[RunnableConfig] = None) -> dict:  # noqa: UP045
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
@@ -291,12 +291,21 @@ def create_stage_node(
 nodes/developer.py — Developer node.
 
 Creates a Deep Agent with the Developer persona prompt and MCP tools, invokes
-it to implement the current work package:
+it to implement the current work package.
 
-1. Claim the WP via ``ledger_claim_work_package``.
-2. Start the implementation pipeline via ``ledger_start_pipeline``.
-3. Implement the required code changes.
-4. Complete the pipeline via ``ledger_complete_pipeline``.
+Slim prompt strategy
+--------------------
+``_build_developer_prompt()`` produces a minimal user-turn prompt containing
+only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Developer persona
+system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -320,26 +329,10 @@ def _build_developer_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Developer agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package details by calling "
-        f"`ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Claim the work package and start the implementation pipeline atomically "
-        f"by calling `ledger_begin_work` with `project_path={project_path!r}`, "
-        f"`work_package_id={wp_id!r}`, `type='implementation'`, and `agent_role='Developer'`.\n"
-        f"3. Implement all required code changes to satisfy the acceptance "
-        f"criteria listed in the work package.\n"
-        f"4. Run any relevant tests to verify correctness.\n"
-        f"5. Complete the pipeline by calling `ledger_complete_pipeline` with "
-        f"`project_path={project_path!r}`, "
-        f"`status='PASS'` (or `'FAIL'` if tests do not pass), including a "
-        f"summary of changes, artifacts, and any observations.\n"
-        f"   Mark acceptance criteria as met in `acceptance_criteria_updates`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 
@@ -370,15 +363,19 @@ nodes/docs.py — Documentation node.
 Creates a Deep Agent with the Documentation persona prompt and MCP tools,
 invokes it to update project documentation for the current work package.
 
-The documentation agent is responsible for the *final* pipeline stage before a
-work package is marked COMPLETE:
+Slim prompt strategy
+--------------------
+``_build_docs_prompt()`` produces a minimal user-turn prompt containing only
+immediate runtime context:
 
-1. Start the documentation pipeline.
-2. Update README, API docs, changelogs, or other relevant documentation.
-3. Complete the documentation pipeline via ``ledger_complete_pipeline`` (PASS).
-4. The WP is automatically marked COMPLETE when ``ledger_complete_pipeline``
-   is called with ``status=PASS`` and all acceptance criteria are met
-   (``auto_finalized=true`` in the response).
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Documentation persona
+system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -402,31 +399,10 @@ def _build_docs_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Documentation agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the documentation pipeline by calling "
-        f"`ledger_begin_work` with `project_path={project_path!r}`, "
-        f"`work_package_id={wp_id!r}`, `type='documentation'`, and `agent_role='Documentation'`.\n"
-        f"3. Update all relevant documentation for this work package:\n"
-        f"   - README.md (if user-facing behaviour changed).\n"
-        f"   - API/interface docs (docstrings, API reference pages).\n"
-        f"   - Changelog (add an entry for the WP).\n"
-        f"   - Any other docs referenced in the acceptance criteria.\n"
-        f"4. Complete the documentation pipeline by calling "
-        f"`ledger_complete_pipeline` with `project_path={project_path!r}`, "
-        f"`status='PASS'` and include a list "
-        f"of all files modified in `artifacts`. Mark acceptance criteria as "
-        f"met in `acceptance_criteria_updates`.\n"
-        f"   Note: When `ledger_complete_pipeline` records a PASS and all "
-        f"acceptance criteria are met, the work package is automatically "
-        f"transitioned to COMPLETE \u2014 you do not need to call "
-        f"`ledger_update_work_package_status` separately.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 
@@ -457,9 +433,23 @@ nodes/pm.py — Project Manager node.
 Creates a Deep Agent with the PM persona prompt and MCP tools, invokes it
 to analyse the plan document and create work packages in the ledger.
 
-The PM node is responsible for the *first pass* of a project: reading the
-plan, calling ``ledger_initialize_project`` if required, and then calling
-``ledger_create_work_package`` for each WP defined in the plan.
+Slim prompt strategy
+--------------------
+``_build_pm_prompt()`` produces a minimal user-turn prompt containing only
+immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``plan_file`` — relative path of the plan document within the project.
+- **Plan document content** — the full text of the plan file is embedded
+  directly in the prompt. This is legitimate runtime data that the persona
+  system prompt cannot know at build time and is therefore the only
+  substantive content beyond the three slim fields above.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the PM persona system
+prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -491,22 +481,11 @@ def _build_pm_prompt(state: WorkflowState) -> str:
         plan_content = f"[Could not read plan file at {plan_path}: {exc}]"
 
     return (
-        f"You are the Project Manager agent.\n\n"
-        f"**Project path:** {project_path}\n\n"
+        f"Please start your work on the project.\n\n"
+        f"**Project path:** {project_path}\n"
+        f"**Plan file:** {plan_file}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
         f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the plan document below carefully.\n"
-        f"2. If the project ledger has not been initialised yet, call "
-        f"`ledger_initialize_project` with `project_path={project_path!r}` "
-        f"and `plan_file={plan_file!r}`.\n"
-        f"3. For each work package defined in the plan, call "
-        f"`ledger_create_work_package` with `project_path={project_path!r}` "
-        f"to register it in the ledger, "
-        f"including correct dependencies and acceptance criteria.\n"
-        f"4. Once all work packages are created, confirm by calling "
-        f"`ledger_get_project_status` with `project_path={project_path!r}` "
-        f"and report the final count.\n\n"
         f"---\n\n"
         f"# Plan Document\n\n"
         f"{plan_content}"
@@ -540,9 +519,19 @@ nodes/qa.py — QA node.
 Creates a Deep Agent with the QA persona prompt and MCP tools, invokes it to
 run the test suite and complete the QA pipeline for the current work package.
 
-The QA agent starts a QA pipeline, validates acceptance criteria, runs tests,
-and completes the pipeline with PASS or FAIL. A FAIL result causes the
-supervisor to route back to the developer for rework.
+Slim prompt strategy
+--------------------
+``_build_qa_prompt()`` produces a minimal user-turn prompt containing only
+immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the QA persona system
+prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -566,24 +555,10 @@ def _build_qa_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the QA agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the QA pipeline by calling `ledger_begin_work` with "
-        f"`project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='qa'`, and `agent_role='QA'`.\n"
-        f"3. Run the project test suite (e.g. `pytest`, `npm test`).\n"
-        f"4. Validate each acceptance criterion from the work package.\n"
-        f"5. Complete the QA pipeline by calling `ledger_complete_pipeline` "
-        f"with `project_path={project_path!r}`, "
-        f"`status='PASS'` if all criteria pass, or `'FAIL'` if any "
-        f"criterion is not met. Include test results in `metrics` and "
-        f"observations in `comments`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 
@@ -615,6 +590,20 @@ Creates a Deep Agent with the Release Engineer persona prompt and MCP tools,
 invokes it to curate the release and complete the release-engineering pipeline
 for the current work package.
 
+Slim prompt strategy
+--------------------
+``_build_release_engineer_prompt()`` produces a minimal user-turn prompt
+containing only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Release Engineer
+persona system prompt loaded from ``personas/ledger/claude-code/``.
+
 Public factory
 --------------
 :func:`make_release_engineer_node`
@@ -637,23 +626,10 @@ def _build_release_engineer_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Release Engineer agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the release-engineering pipeline by calling `ledger_begin_work` with "
-        f"`project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='release-engineering'`, and `agent_role='Release Engineer'`.\n"
-        f"3. Curate the release: version bump, changelog update, release notes, "
-        f"package manifest validation.\n"
-        f"4. Complete the release-engineering pipeline by calling `ledger_complete_pipeline` "
-        f"with `project_path={project_path!r}`, "
-        f"`status='PASS'` if release is ready, or `'FAIL'` if issues block release. "
-        f"Include artifacts in `artifacts` and notes in `comments`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 
@@ -684,9 +660,19 @@ nodes/reviewer.py — Reviewer node.
 Creates a Deep Agent with the Reviewer persona prompt and MCP tools, invokes
 it to perform a structured code review for the current work package.
 
-The reviewer agent starts a code-review pipeline, evaluates code quality,
-architecture, and adherence to acceptance criteria, then completes the pipeline
-with PASS or FAIL. A FAIL causes the supervisor to route back to the developer.
+Slim prompt strategy
+--------------------
+``_build_reviewer_prompt()`` produces a minimal user-turn prompt containing
+only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Reviewer persona
+system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -710,27 +696,10 @@ def _build_reviewer_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Reviewer agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the code-review pipeline by calling `ledger_begin_work` "
-        f"with `project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='code-review'`, and `agent_role='Reviewer'`.\n"
-        f"3. Review the implementation for:\n"
-        f"   - Correctness and alignment with acceptance criteria.\n"
-        f"   - Code quality, readability, and idiomatic style.\n"
-        f"   - Architectural consistency with the existing codebase.\n"
-        f"   - Missing edge cases, error handling, or security concerns.\n"
-        f"4. Complete the code-review pipeline by calling "
-        f"`ledger_complete_pipeline` with `project_path={project_path!r}`, "
-        f"`status='PASS'` if the code meets "
-        f"standards, or `'FAIL'` if significant issues require rework. "
-        f"Include detailed `comments` for the developer.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 
@@ -762,6 +731,20 @@ Creates a Deep Agent with the Security Auditor persona prompt and MCP tools,
 invokes it to run OWASP/dependency checks and complete the security-audit
 pipeline for the current work package.
 
+Slim prompt strategy
+--------------------
+``_build_security_auditor_prompt()`` produces a minimal user-turn prompt
+containing only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Security Auditor
+persona system prompt loaded from ``personas/ledger/claude-code/``.
+
 Public factory
 --------------
 :func:`make_security_auditor_node`
@@ -784,23 +767,10 @@ def _build_security_auditor_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Security Auditor agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the security-audit pipeline by calling `ledger_begin_work` with "
-        f"`project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='security-audit'`, and `agent_role='Security Auditor'`.\n"
-        f"3. Run security checks: OWASP Top 10 review, dependency vulnerability scan, "
-        f"threat model review.\n"
-        f"4. Complete the security-audit pipeline by calling `ledger_complete_pipeline` "
-        f"with `project_path={project_path!r}`, "
-        f"`status='PASS'` if no critical issues found, or `'FAIL'` if issues require "
-        f"remediation. Include findings in `metrics` and observations in `comments`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 
@@ -832,9 +802,21 @@ Creates a Deep Agent with the Synthesis persona prompt and MCP tools, invokes
 it to produce the final project synthesis report once all work packages are
 complete.
 
-Synthesis is the **terminal stage** — no work package ID is required.  The
-agent compiles outcomes from all completed WPs, summarises results and
-lessons learned, and writes the final synthesis document.
+Slim prompt strategy
+--------------------
+``_build_synthesis_prompt()`` produces a minimal user-turn prompt containing
+only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+``wp_id`` is intentionally omitted — synthesis is a **project-scoped** stage
+that operates across all completed work packages rather than a single WP.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Synthesis persona
+system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -861,29 +843,9 @@ def _build_synthesis_prompt(state: WorkflowState) -> str:
     project_path: str = state["project_path"]
 
     return (
-        f"You are the Synthesis agent.\n\n"
         f"**Project path:** {project_path}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"All work packages for this project are now COMPLETE. "
-        f"Your job is to produce a comprehensive synthesis report.\n\n"
-        f"1. Call `ledger_get_project_status` with "
-        f"`project_path={project_path!r}` to get the final project overview.\n"
-        f"2. For each completed work package, call "
-        f"`ledger_get_work_package` with `project_path={project_path!r}` "
-        f"to retrieve pipeline outcomes, "
-        f"observations, and acceptance criteria results.\n"
-        f"3. Write a synthesis document that includes:\n"
-        f"   - Project summary and outcomes achieved.\n"
-        f"   - Key technical decisions and their rationale.\n"
-        f"   - Lessons learned and recurring patterns (from pipeline comments).\n"
-        f"   - Any outstanding technical debt or follow-up items.\n"
-        f"   - Metrics summary (tests passed, files modified, etc.).\n"
-        f"4. Save the synthesis document as "
-        f"`synthesis.md` inside `{project_path}`.\n"
-        f"5. Call `ledger_complete_synthesis` with `project_path={project_path!r}` "
-        f"and `agent_role='Synthesis'` to mark the project COMPLETE.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 

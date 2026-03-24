@@ -3824,6 +3824,236 @@ class TestSlugDerivation:
             f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
         )
 
+
+# ---------------------------------------------------------------------------
+# Tests: slim prompt content (WP-005)
+# ---------------------------------------------------------------------------
+# AC3: slim fields (project_path, wp_id where applicable, injection-safety
+#      warning) are present in each _build_*_prompt() return value.
+# AC4: identity/role declaration text is absent from each prompt.
+# ---------------------------------------------------------------------------
+
+_IDENTITY_PHRASES = [
+    "You are the",
+    "You are a",
+    "As the ",
+    "As a ",
+    "Your role is",
+    "Your task is to",
+    "Your job is",
+]
+
+_SLIM_PROJECT_PATH = "/test/project/path"
+_SLIM_WP_ID = "WP-099"
+
+
+def _build_slim_state(**overrides) -> dict:
+    """Minimal state dict for slim-prompt unit tests."""
+    s = base_state(
+        project_path=_SLIM_PROJECT_PATH,
+        current_wp_id=_SLIM_WP_ID,
+    )
+    s.update(overrides)
+    return s
+
+
+class TestSlimPromptContent:
+    """Direct unit tests on each _build_*_prompt() function.
+
+    Verifies that the slimmed prompts (introduced in WP-001/002/003):
+    - Include the mandatory runtime context fields (AC3).
+    - Do not contain identity/role declaration phrases (AC4).
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _assert_slim_fields_present(self, prompt: str, *, expect_wp: bool = True) -> None:
+        """Assert all mandatory slim fields appear in *prompt*."""
+        assert _SLIM_PROJECT_PATH in prompt, (
+            f"project_path {_SLIM_PROJECT_PATH!r} must be present in prompt"
+        )
+        assert "CRITICAL" in prompt, (
+            "Injection-safety warning (CRITICAL) must be present in prompt"
+        )
+        assert "project_path" in prompt, (
+            "'project_path' keyword must appear in the injection-safety warning"
+        )
+        if expect_wp:
+            assert _SLIM_WP_ID in prompt, (
+                f"wp_id {_SLIM_WP_ID!r} must be present in prompt"
+            )
+
+    def _assert_no_identity_phrases(self, prompt: str, node: str) -> None:
+        """Assert none of the known identity/role declaration phrases appear."""
+        for phrase in _IDENTITY_PHRASES:
+            assert phrase not in prompt, (
+                f"{node}: identity/role phrase {phrase!r} must not appear in slim prompt"
+            )
+
+    # ------------------------------------------------------------------
+    # Developer node
+    # ------------------------------------------------------------------
+
+    def test_developer_prompt_has_slim_fields(self):
+        """_build_developer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        from src.nodes.developer import _build_developer_prompt
+
+        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_slim_fields_present(prompt, expect_wp=True)
+
+    def test_developer_prompt_has_no_identity_declarations(self):
+        """_build_developer_prompt must not contain identity/role declaration text."""
+        from src.nodes.developer import _build_developer_prompt
+
+        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_no_identity_phrases(prompt, "developer")
+
+    # ------------------------------------------------------------------
+    # QA node
+    # ------------------------------------------------------------------
+
+    def test_qa_prompt_has_slim_fields(self):
+        """_build_qa_prompt must include project_path, wp_id, and CRITICAL warning."""
+        from src.nodes.qa import _build_qa_prompt
+
+        prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_slim_fields_present(prompt, expect_wp=True)
+
+    def test_qa_prompt_has_no_identity_declarations(self):
+        """_build_qa_prompt must not contain identity/role declaration text."""
+        from src.nodes.qa import _build_qa_prompt
+
+        prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_no_identity_phrases(prompt, "qa")
+
+    # ------------------------------------------------------------------
+    # Reviewer node
+    # ------------------------------------------------------------------
+
+    def test_reviewer_prompt_has_slim_fields(self):
+        """_build_reviewer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        from src.nodes.reviewer import _build_reviewer_prompt
+
+        prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_slim_fields_present(prompt, expect_wp=True)
+
+    def test_reviewer_prompt_has_no_identity_declarations(self):
+        """_build_reviewer_prompt must not contain identity/role declaration text."""
+        from src.nodes.reviewer import _build_reviewer_prompt
+
+        prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_no_identity_phrases(prompt, "reviewer")
+
+    # ------------------------------------------------------------------
+    # Security Auditor node
+    # ------------------------------------------------------------------
+
+    def test_security_auditor_prompt_has_slim_fields(self):
+        """_build_security_auditor_prompt must include project_path, wp_id, and CRITICAL warning."""
+        from src.nodes.security_auditor import _build_security_auditor_prompt
+
+        prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_slim_fields_present(prompt, expect_wp=True)
+
+    def test_security_auditor_prompt_has_no_identity_declarations(self):
+        """_build_security_auditor_prompt must not contain identity/role declaration text."""
+        from src.nodes.security_auditor import _build_security_auditor_prompt
+
+        prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_no_identity_phrases(prompt, "security_auditor")
+
+    # ------------------------------------------------------------------
+    # Release Engineer node
+    # ------------------------------------------------------------------
+
+    def test_release_engineer_prompt_has_slim_fields(self):
+        """_build_release_engineer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        from src.nodes.release_engineer import _build_release_engineer_prompt
+
+        prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_slim_fields_present(prompt, expect_wp=True)
+
+    def test_release_engineer_prompt_has_no_identity_declarations(self):
+        """_build_release_engineer_prompt must not contain identity/role declaration text."""
+        from src.nodes.release_engineer import _build_release_engineer_prompt
+
+        prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_no_identity_phrases(prompt, "release_engineer")
+
+    # ------------------------------------------------------------------
+    # Docs node
+    # ------------------------------------------------------------------
+
+    def test_docs_prompt_has_slim_fields(self):
+        """_build_docs_prompt must include project_path, wp_id, and CRITICAL warning."""
+        from src.nodes.docs import _build_docs_prompt
+
+        prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_slim_fields_present(prompt, expect_wp=True)
+
+    def test_docs_prompt_has_no_identity_declarations(self):
+        """_build_docs_prompt must not contain identity/role declaration text."""
+        from src.nodes.docs import _build_docs_prompt
+
+        prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
+        self._assert_no_identity_phrases(prompt, "docs")
+
+    # ------------------------------------------------------------------
+    # PM node (special: embeds plan content; no wp_id)
+    # ------------------------------------------------------------------
+
+    def test_pm_prompt_has_slim_fields(self, tmp_path):
+        """_build_pm_prompt must include project_path and CRITICAL warning (no wp_id)."""
+        from src.nodes.pm import _build_pm_prompt
+
+        plan_file = tmp_path / "plan.md"
+        plan_file.write_text("# Plan\nContent.", encoding="utf-8")
+
+        state = _build_slim_state(project_path=str(tmp_path), plan_file="plan.md")
+        prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
+
+        assert str(tmp_path) in prompt, "project_path must be present in PM prompt"
+        assert "CRITICAL" in prompt, (
+            "Injection-safety warning (CRITICAL) must be present in PM prompt"
+        )
+        assert "project_path" in prompt, "'project_path' keyword must appear in PM prompt warning"
+
+    def test_pm_prompt_has_no_identity_declarations(self, tmp_path):
+        """_build_pm_prompt must not contain identity/role declaration text."""
+        from src.nodes.pm import _build_pm_prompt
+
+        plan_file = tmp_path / "plan.md"
+        plan_file.write_text("# Plan\nContent.", encoding="utf-8")
+
+        state = _build_slim_state(project_path=str(tmp_path), plan_file="plan.md")
+        prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
+
+        self._assert_no_identity_phrases(prompt, "pm")
+
+    # ------------------------------------------------------------------
+    # Synthesis node (no wp_id)
+    # ------------------------------------------------------------------
+
+    def test_synthesis_prompt_has_slim_fields(self):
+        """_build_synthesis_prompt must include project_path and CRITICAL warning (no wp_id)."""
+        from src.nodes.synthesis import _build_synthesis_prompt
+
+        state = _build_slim_state(current_wp_id="")
+        prompt = _build_synthesis_prompt(state)  # type: ignore[arg-type]
+
+        self._assert_slim_fields_present(prompt, expect_wp=False)
+
+    def test_synthesis_prompt_has_no_identity_declarations(self):
+        """_build_synthesis_prompt must not contain identity/role declaration text."""
+        from src.nodes.synthesis import _build_synthesis_prompt
+
+        state = _build_slim_state(current_wp_id="")
+        prompt = _build_synthesis_prompt(state)  # type: ignore[arg-type]
+
+        self._assert_no_identity_phrases(prompt, "synthesis")
+
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
 

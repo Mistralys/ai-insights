@@ -57,6 +57,7 @@ documents:
           - '.pytest_cache/'
           - 'checkpoints/'
           - '*.pyc'
+          - 'logs/'
 
   - description: 'Orchestrator - Core Source'
     outputPath: 'orchestrator/source-core.md'
