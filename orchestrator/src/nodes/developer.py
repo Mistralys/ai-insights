@@ -11,6 +11,10 @@ only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
+- ``pipeline_type`` — explicit instruction to start an ``implementation``
+  pipeline, reinforcing the persona system prompt on every invocation.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
 
 The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
 single source of truth for user-turn prompt structure. Identity declarations,
@@ -38,6 +42,7 @@ def _build_developer_prompt(state: WorkflowState) -> str:
     return build_stage_prompt(
         state["project_path"],
         wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
+        extra="**Pipeline to start:** `implementation`",
     )
 
 

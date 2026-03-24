@@ -1061,11 +1061,14 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_developer_prompt must include project_path, wp_id, pipeline_type, and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_slim_fields_present(prompt, expect_wp=True)
+        assert "implementation" in prompt, (
+            "Pipeline-type line must contain 'implementation'"
+        )
 
     def test_developer_prompt_has_no_identity_declarations(self):
         """_build_developer_prompt must not contain identity/role declaration text."""

@@ -2,10 +2,10 @@
 tool_wrappers — MCP tool call safety-net utilities.
 
 This module provides :func:`inject_project_path`, a defensive wrapper that
-auto-injects ``project_path`` into every MCP tool call when the argument is
-absent.  It acts as a **Layer 2 safety net**: even if an LLM-driven agent
-ignores the explicit prompt instructions that ask it to supply ``project_path``,
-this wrapper guarantees the argument reaches the MCP server.
+auto-injects both ``project_path`` and ``cwd_path`` into every MCP tool call.
+It acts as a **Layer 2 safety net**: even if an LLM-driven agent ignores the
+explicit prompt instructions that ask it to supply these arguments, this wrapper
+guarantees they reach the MCP server.
 
 Design notes
 ------------
@@ -18,17 +18,20 @@ Design notes
 - Only ``ainvoke`` is monkeypatched; all other attributes (``name``,
   ``description``, ``args_schema``, etc.) remain untouched so that tool
   discovery and schema introspection work as normal.
-- Injection uses ``setdefault`` semantics: an explicitly-provided
-  ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
-  (following persona instructions meant for IDE agents), the wrapper
-  strips it and falls through to ``project_path`` injection.
+- ``project_path`` uses ``setdefault`` semantics: an explicitly-provided value
+  is never overwritten.
+- ``cwd_path`` is always set to the authoritative project path, overwriting any
+  caller-supplied value.  This ensures tools that only accept ``cwd_path`` (such
+  as ``ledger_detect_project``) always receive a valid path, while tools that
+  only accept ``project_path`` silently ignore the extra key via schema
+  unknown-key stripping.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 
 Context
 -------
 Tests for this module live in ``orchestrator/tests/test_tool_wrappers.py``
-(WP-005).
+(WP-001, WP-003).
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ from typing import Any
 
 
 def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
-    """Wrap each tool's ``ainvoke`` to auto-inject ``project_path``.
+    """Wrap each tool's ``ainvoke`` to auto-inject ``project_path`` and ``cwd_path``.
 
     The function is **idempotent**: calling it multiple times on the same tool
     objects (e.g. because ``list(mcp_tools)`` produces a shallow copy) will
@@ -52,8 +55,10 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
         ``StructuredTool`` objects obtained from
         :class:`~src.mcp_client.MCPToolkit`).
     project_path:
-        The ledger project-directory path to inject when the tool call
-        arguments do not already contain ``project_path`` or ``cwd_path``.
+        The authoritative ledger project-directory path.  Injected as
+        ``project_path`` (``setdefault`` — preserves explicit caller values)
+        and as ``cwd_path`` (always overwritten) so that every ledger tool
+        receives a valid routing key regardless of which parameter it accepts.
 
     Returns
     -------
@@ -88,14 +93,17 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
                     # Flat dict of tool arguments
                     target = input
 
-                # In the orchestrator context we always know the exact
-                # project_path, so cwd_path-based auto-detection is never
-                # needed.  If the LLM agent followed persona instructions
-                # meant for interactive IDE agents and passed cwd_path,
-                # replace it with the authoritative project_path.
-                if "cwd_path" in target:
-                    del target["cwd_path"]
+                # Inject both routing keys so every ledger tool receives a
+                # valid path regardless of which parameter it accepts:
+                #   - project_path: setdefault — preserves an explicit caller
+                #     value (some tools receive a non-default project path).
+                #   - cwd_path: always overwrite — the orchestrator knows the
+                #     authoritative path; any caller-supplied value (e.g. from
+                #     a persona instruction meant for interactive IDE agents)
+                #     is replaced.  Tools that do not accept cwd_path ignore
+                #     the extra key via Zod unknown-key stripping.
                 target.setdefault("project_path", _proj)
+                target["cwd_path"] = _proj
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)
