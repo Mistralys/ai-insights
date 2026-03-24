@@ -1878,6 +1878,15 @@ export async function readLogEntries(
   filename: string,
   afterLine?: number
 ): Promise<{ entries: unknown[]; totalLines: number }>;
+
+// Moves orphaned JSONL log files from srcDir into destDir for the given slug.
+// No-op if destDir already contains logs for the slug, or srcDir has none.
+// Best-effort: individual rename failures are swallowed. Returns migrated count.
+export async function migrateOrphanedLogs(
+  destDir: string,
+  srcDir: string,
+  slug: string,
+): Promise<number>;
 ```
 
 **Self-healing stale runs (`findRunLogs`):**
@@ -1905,7 +1914,8 @@ Thin wrappers that add slug validation before delegating to `log-resolver.ts`.
 
 ```typescript
 // GET /api/projects/:slug/runs → sorted RunLogEntry[] (heals stale runs as a side-effect)
-export async function handleListRunLogs(slug: string, logsDir: string): Promise<RunLogEntry[]>;
+// legacyLogsDir: if supplied and logsDir has no logs for slug, orphaned files are moved in before listing.
+export async function handleListRunLogs(slug: string, logsDir: string, legacyLogsDir?: string): Promise<RunLogEntry[]>;
 
 // GET /api/projects/:slug/runs/:filename → { entries, totalLines }
 export async function handleGetRunLog(

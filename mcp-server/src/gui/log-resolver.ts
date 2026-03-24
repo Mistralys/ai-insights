@@ -27,7 +27,7 @@
  * from importing `gui/api.ts` here (since `gui/api.ts` imports this file).
  */
 
-import { readdir, readFile, appendFile } from 'node:fs/promises';
+import { readdir, readFile, appendFile, rename, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { ApiError } from './errors.js';
@@ -134,6 +134,71 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
   );
 
   return unsorted;
+}
+
+/**
+ * Moves orphaned run log files from a legacy directory into the project's
+ * ledger storage directory.
+ *
+ * This is a self-healing migration for projects whose JSONL logs were written
+ * to the old `orchestrator/logs/` flat directory before the post-run archival
+ * step was introduced. After this function runs, all logs for the slug will
+ * reside in `destDir` alongside the rest of the project's ledger artefacts.
+ *
+ * No-op conditions (returns 0 without touching the filesystem):
+ *   - `destDir` already contains at least one `*-{slug}.jsonl` file.
+ *   - `srcDir` does not exist or contains no matching files.
+ *
+ * Migration is best-effort: individual rename failures are swallowed so a
+ * single unreadable file never blocks the others.
+ *
+ * @param destDir - Target directory (project ledger folder).
+ * @param srcDir  - Source directory to scan for orphaned files (e.g. `orchestrator/logs/`).
+ * @param slug    - Project slug used to match filenames (`*-{slug}.jsonl`).
+ * @returns Number of files successfully moved.
+ */
+export async function migrateOrphanedLogs(
+  destDir: string,
+  srcDir: string,
+  slug: string,
+): Promise<number> {
+  const suffix = `-${slug}.jsonl`;
+
+  // Skip migration if destDir already has logs for this slug.
+  try {
+    const existing = await readdir(destDir);
+    if (existing.some((name) => name.endsWith(suffix))) {
+      return 0;
+    }
+  } catch {
+    // destDir doesn't exist yet — migration may still populate it below.
+  }
+
+  // Scan srcDir for matching files.
+  let srcEntries: string[];
+  try {
+    srcEntries = await readdir(srcDir);
+  } catch {
+    return 0; // srcDir absent or unreadable — nothing to migrate.
+  }
+
+  const matching = srcEntries.filter(
+    (name) => name.endsWith(suffix) && name.length > suffix.length,
+  );
+  if (matching.length === 0) return 0;
+
+  await mkdir(destDir, { recursive: true });
+
+  let migrated = 0;
+  for (const filename of matching) {
+    try {
+      await rename(join(srcDir, filename), join(destDir, filename));
+      migrated++;
+    } catch {
+      // Best-effort — skip files that cannot be moved (permissions, EXDEV, etc.)
+    }
+  }
+  return migrated;
 }
 
 // ---------------------------------------------------------------------------

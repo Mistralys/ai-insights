@@ -1163,10 +1163,13 @@ auto_archive_days === 0?
 ```
 GET /api/projects/:slug/runs
   ↓
-gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir)
+gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir, legacyLogsDir?)
   ↓
 src/gui/handlers/run-log-handlers.ts — handleListRunLogs
   assertSafeSlug(slug)   ← throws ApiError NOT_FOUND for empty / '/' / '..'
+  migrateOrphanedLogs(logsDir, legacyLogsDir, slug)  ← if legacyLogsDir supplied;
+                                                         moves *-{slug}.jsonl files from legacy dir
+                                                         into logsDir when logsDir has none; no-op otherwise
   findRunLogs(logsDir, slug)
   ↓
 src/gui/log-resolver.ts — findRunLogs
@@ -1199,7 +1202,8 @@ Return RunLogEntry[]
 **Key properties:**
 - Self-healing is idempotent: once a stale file gains a `run_error` closing entry, it will never be re-healed
 - Healing runs as a side-effect of the GET — no dedicated endpoint or background job needed
-- `logsDir` is resolved from GUI config (`orchestrator_logs_dir`), falling back to `~/.ai-insights/orchestrator-logs`
+- `logsDir` is the project's ledger storage directory (`{ledger_root}/{slug}/`); logs written there by the orchestrator post-run
+- `legacyLogsDir` (optional) is the old flat `orchestrator/logs/` directory — passed by `server.ts` to enable lazy migration of pre-archival runs
 - Security: slug validated in both `server.ts` dispatch and handler; filename validated in `readLogEntries` (allowlist + path escape check)
 
 ---

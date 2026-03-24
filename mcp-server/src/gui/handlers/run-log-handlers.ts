@@ -15,6 +15,7 @@
 import {
   ApiError,
   findRunLogs,
+  migrateOrphanedLogs,
   readLogEntries,
 } from '../log-resolver.js';
 import type { RunLogEntry } from '../log-resolver.js';
@@ -50,15 +51,24 @@ function assertSafeSlug(slug: string): void {
  * Security: `slug` is validated via `assertSafeSlug()` — slugs containing `/`
  * or `..` throw `ApiError NOT_FOUND` before any filesystem access occurs.
  *
- * @param slug    - Project slug (URL segment, already URL-decoded).
- * @param logsDir - Absolute path to the directory containing log files.
+ * @param slug          - Project slug (URL segment, already URL-decoded).
+ * @param logsDir       - Absolute path to the directory containing log files
+ *                        (the project's ledger storage folder).
+ * @param legacyLogsDir - Optional fallback directory (e.g. `orchestrator/logs/`).
+ *                        When supplied and `logsDir` contains no logs for the
+ *                        slug, any matching files are moved from `legacyLogsDir`
+ *                        into `logsDir` before the listing is returned.
  * @returns Array of matching JSONL filenames (may be empty).
  */
 export async function handleListRunLogs(
   slug: string,
-  logsDir: string
+  logsDir: string,
+  legacyLogsDir?: string,
 ): Promise<RunLogEntry[]> {
   assertSafeSlug(slug);
+  if (legacyLogsDir) {
+    await migrateOrphanedLogs(logsDir, legacyLogsDir, slug);
+  }
   return findRunLogs(logsDir, slug);
 }
 

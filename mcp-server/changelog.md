@@ -1,5 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.18.5 - Orphaned Run Log Migration
+- GUI Backend: Added `migrateOrphanedLogs(destDir, srcDir, slug)` to `src/gui/log-resolver.ts`. Moves `*-{slug}.jsonl` files from a legacy source directory into the project's ledger storage directory when the destination has none. No-op if destination already has logs or source has none; individual rename failures are swallowed (best-effort).
+- GUI Backend: `handleListRunLogs` in `run-log-handlers.ts` accepts an optional `legacyLogsDir` parameter. When supplied, calls `migrateOrphanedLogs` before listing — enabling lazy, access-time migration of projects whose logs predate the post-run archival step.
+- Docs: Updated `api-surface.md`, `file-tree.md`, and `data-flows.md` to document the new function and updated handler signature.
+
 ## v1.18.4 - Dialogues Card in WP Detail View
 - GUI Frontend: Added Dialogues card to the Work Package detail view (`views/work-package.js`). The card is rendered asynchronously after the Handoff Notes section via a `#wp-dialogues-section` placeholder injected synchronously into `app.innerHTML`.
 - GUI Frontend: Dialogues are fetched via `API.getDialogues(slug, wpId)` and grouped by stage name. Each stage shows pill buttons for every revision (`stage-r0`, `stage-r1`, …) with the latest revision highlighted (`.dialogue-btn-latest`).
