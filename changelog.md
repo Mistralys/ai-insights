@@ -1,6 +1,6 @@
 # AI Insights Changelog
 
-## v1.12.0 - Dialogue Capture & Heartbeat
+## v1.11.0 - Dialogue Capture & Heartbeat
 > mcp v1.18.6 · orchestrator v0.9.5 · personas v3.10.3
 
 - Orchestrator: Added dialogue capture with per-stage Markdown serialisation.
@@ -14,10 +14,6 @@
 - MCP: Orphaned run log migration with two-tier legacy fallback.
 - Hooks: Added Ruff as pre-commit hook.
 - CLI: Added AGENTS.md → CLAUDE.md content sync command.
-
-## v1.11.0 - Progress Reporting & Run Log Viewer
-> mcp v1.18.0 · orchestrator v0.9.0 · personas v3.10.3
-
 - MCP: Added orchestrator run log viewer with auto-refresh to the GUI.
 - MCP: GUI now shows project and pipeline duration metrics.
 - MCP: Projects capture runner identity; GUI adds runner filtering.
