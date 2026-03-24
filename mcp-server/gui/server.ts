@@ -176,7 +176,7 @@ function matchRoute(
   method: string,
   url: string,
   ledgerRoot: string,
-  legacyLogsDir: string
+  orchestratorLogsDir: string
 ): RouteHandler | null {
   const [path] = url.split('?') as [string];
   const segments = path.split('/').filter(Boolean);
@@ -333,7 +333,7 @@ function matchRoute(
     rest[2] === 'runs'
   ) {
     const slug = decodeURIComponent(rest[1]!);
-    return () => handleListRunLogs(slug, join(ledgerRoot, slug, 'orchestrator', 'logs'), join(ledgerRoot, slug), legacyLogsDir);
+    return () => handleListRunLogs(slug, join(ledgerRoot, slug, 'orchestrator', 'logs'), orchestratorLogsDir, join(ledgerRoot, slug));
   }
 
   // GET /api/projects/:slug/runs/:filename
@@ -351,7 +351,7 @@ function matchRoute(
     const sp = new URLSearchParams(qStr);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null ? parseInt(afterParam, 10) : undefined;
-    return () => handleGetRunLog(slug, filename, join(ledgerRoot, slug, 'orchestrator', 'logs'), afterLine);
+    return () => handleGetRunLog(slug, filename, join(ledgerRoot, slug, 'orchestrator', 'logs'), orchestratorLogsDir, afterLine);
   }
 
   // DELETE /api/projects/:slug
@@ -450,7 +450,7 @@ export async function handleRequest(
   ledgerRoot: string,
   configPath: string,
   port: number,
-  legacyLogsDir: string
+  orchestratorLogsDir: string
 ): Promise<void> {
   const method = req.method?.toUpperCase() ?? 'GET';
   const url = req.url ?? '/';
@@ -570,7 +570,7 @@ export async function handleRequest(
   }
 
   // General API route matching
-  const handler = matchRoute(method, url, ledgerRoot, legacyLogsDir);
+  const handler = matchRoute(method, url, ledgerRoot, orchestratorLogsDir);
   if (!handler) {
     sendError(res, 404, 'NOT_FOUND', 'Route not found.', port);
     return;
@@ -602,18 +602,19 @@ async function main(): Promise<void> {
   await readConfigFromDisk(configPath);
   startConfigWatcher(configPath);
 
-  // Resolve the legacy orchestrator logs directory for migration purposes.
-  // Logs are now written to the per-project ledger folder at run completion.
-  // This directory is only consulted when a project's ledger folder has no logs yet,
-  // allowing one-time lazy migration of pre-archival runs on first access.
-  const legacyLogsDir = resolveOrchestratorLogsDir(getConfig().orchestrator_logs_dir);
+  // Resolve the orchestrator's live logs directory from config.
+  // This is passed to handleListRunLogs() and handleGetRunLog() so they can:
+  //   - Archive completed runs into per-project ledger storage on each list request.
+  //   - Surface active runs that haven't been archived yet.
+  //   - Serve log reads from the most up-to-date source (archive or live).
+  const orchestratorLogsDir = resolveOrchestratorLogsDir(getConfig().orchestrator_logs_dir);
 
   // Start the auto-archive background service. Reads auto_archive_days from
   // config; no-op if the setting is 0.
   startAutoArchiveTimer(ledgerRoot);
 
   const server = createServer((req, res) => {
-    handleRequest(req, res, ledgerRoot, configPath, port, legacyLogsDir).catch((err) => {
+    handleRequest(req, res, ledgerRoot, configPath, port, orchestratorLogsDir).catch((err) => {
       process.stderr.write(`[server] Unhandled error: ${String(err)}\n`);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json', ...securityHeaders() });
