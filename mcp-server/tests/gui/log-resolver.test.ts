@@ -271,6 +271,79 @@ describe('findRunLogs', () => {
     const results = await findRunLogs(tempDir, 'my-project');
     expect(results).toEqual([]);
   });
+
+  // ── is_dry_run population ─────────────────────────────────────────────────
+
+  it('sets is_dry_run: true when first line is run_start with dry_run: true', async () => {
+    const file = join(tempDir, '20260324T100000-my-project.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', dry_run: true, ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end' },
+    ]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(true);
+  });
+
+  it('sets is_dry_run: false when first line is run_start without dry_run', async () => {
+    const file = join(tempDir, '20260324T100000-my-project.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end' },
+    ]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false when first line is run_start with dry_run: false', async () => {
+    const file = join(tempDir, '20260324T110000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'run_start', dry_run: false }, { action: 'run_end' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false for an empty log file', async () => {
+    await writeFile(join(tempDir, '20260324T120000-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false when first line is malformed JSON', async () => {
+    await writeFile(
+      join(tempDir, '20260324T130000-my-project.jsonl'),
+      'not-valid-json\n{"action":"run_end"}\n',
+      'utf-8',
+    );
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false when first line is not a run_start event', async () => {
+    const file = join(tempDir, '20260324T140000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'step_start', dry_run: true }, { action: 'run_end' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('every returned entry has an is_dry_run boolean field', async () => {
+    await writeFile(join(tempDir, '20260324T090000-my-project.jsonl'), '', 'utf-8');
+    await writeJsonl(join(tempDir, '20260324T095900-my-project.jsonl'), [
+      { action: 'run_start', dry_run: true },
+    ]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(2);
+    results.forEach((r) => expect(typeof r.is_dry_run).toBe('boolean'));
+  });
 });
 
 // ---------------------------------------------------------------------------

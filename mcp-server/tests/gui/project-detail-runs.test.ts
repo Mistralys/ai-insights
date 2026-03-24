@@ -271,6 +271,55 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     expect(section!.innerHTML).not.toContain('badge-in-progress');
   });
 
+  it('shows a Dry Run badge for a run with is_dry_run: true', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: false, is_dry_run: true },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).toContain('Dry Run');
+    expect(section!.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('does not show a Dry Run badge when is_dry_run is false', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: false, is_dry_run: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).not.toContain('badge-dry-run');
+  });
+
+  it('shows both Running and Dry Run badges for an active dry run', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: true, is_dry_run: true },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).toContain('badge-in-progress');
+    expect(section!.innerHTML).toContain('badge-dry-run');
+    expect(section!.innerHTML).toContain('Running');
+    expect(section!.innerHTML).toContain('Dry Run');
+  });
+
   it('only shows Running badge on the most-recent run even if older runs have is_active: true', async () => {
     // Simulates runs that were killed without writing run_end — they appear active
     // in the file, but only the newest one can truly be running.

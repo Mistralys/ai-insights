@@ -19,8 +19,8 @@
  */
 function runEventSeverity(action) {
   if (action === 'run_error' || action === 'stage_error' || action === 'halted_repeated_failure') return 'run-event--error';
-  if (action === 'safety_limit' || action === 'rework_detected' || action === 'mcp_error') return 'run-event--warning';
-  if (action === 'wp_complete' || action === 'run_end') return 'run-event--success';
+  if (action === 'safety_limit' || action === 'rework_detected' || action === 'mcp_error' || action === 'dry_run_no_ledger') return 'run-event--warning';
+  if (action === 'wp_complete' || action === 'run_end' || action === 'dry_run_complete') return 'run-event--success';
   return 'run-event--info';
 }
 
@@ -65,7 +65,8 @@ function buildRunEventContent(entry) {
       var plan = entry.plan ? String(entry.plan) : '';
       // Show just the plan filename, not the full path
       var planName = plan ? escapeHtml(plan.split('/').pop() || plan) : '';
-      var html = '<strong>Run started</strong>';
+      var dryRunBadge = entry.dry_run ? ' <span class="badge badge-dry-run">Dry Run</span>' : '';
+      var html = '<strong>Run started</strong>' + dryRunBadge;
       if (planName) html += ' &mdash; ' + planName;
       if (threadId) html += '<br><span class="text-muted monospace" style="font-size:11px">Thread: ' + threadId + '</span>';
       return html;
@@ -229,6 +230,25 @@ function buildRunEventContent(entry) {
       var completed = breakdown.COMPLETE || 0;
       var pending = entry.pending || 0;
       return '<strong>Progress:</strong> ' + completed + '/' + total + ' WPs done, ' + pending + ' pending';
+    }
+
+    // ── Dry-run actions ──────────────────────────────────────────────
+    case 'dry_run': {
+      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      var stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
+      return '<span class="badge badge-dry-run">Dry Run</span> <strong>Stage skipped</strong>' +
+        (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
+        (stg ? ' &mdash; <em>' + stg + '</em>' : '');
+    }
+    case 'dry_run_no_ledger': {
+      var detail = entry.detail ? escapeHtml(String(entry.detail)) : '';
+      return '<span class="badge badge-dry-run">Dry Run</span> <strong>No ledger</strong>' +
+        (detail ? ' &mdash; <span class="text-muted">' + detail + '</span>' : '');
+    }
+    case 'dry_run_complete': {
+      var reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
+      return '<span class="badge badge-dry-run">Dry Run</span> <strong>Dry run complete</strong>' +
+        (reason ? ' &mdash; <span class="text-muted">' + reason + '</span>' : '');
     }
 
     // ── Legacy / generic events ──────────────────────────────────────

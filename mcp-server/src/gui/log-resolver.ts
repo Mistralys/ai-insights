@@ -58,10 +58,13 @@ const SAFE_FILENAME_REGEX = /^[A-Za-z0-9._-]+$/;
  * A single entry in the run log list for a project.
  * `is_active` is `true` when the run has not yet emitted a terminal action
  * (`run_end` or `run_error`), indicating the orchestrator may still be running.
+ * `is_dry_run` is `true` when the first JSONL line is a `run_start` event
+ * with `dry_run: true`, indicating this was a dry run.
  */
 export interface RunLogEntry {
   filename: string;
   is_active: boolean;
+  is_dry_run: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,12 +124,16 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
     return false;
   });
 
-  // Build entries with active status, then sort newest-first by filename prefix.
+  // Build entries with active + dry-run status, then sort newest-first by filename prefix.
   const unsorted = await Promise.all(
-    matching.map(async (filename) => ({
-      filename,
-      is_active: await isRunActive(join(logsDir, filename)),
-    }))
+    matching.map(async (filename) => {
+      const filePath = join(logsDir, filename);
+      const [is_active, is_dry_run] = await Promise.all([
+        isRunActive(filePath),
+        isDryRun(filePath),
+      ]);
+      return { filename, is_active, is_dry_run };
+    })
   );
   unsorted.sort((a, b) => b.filename.localeCompare(a.filename));
 
@@ -381,6 +388,29 @@ async function isRunActive(filePath: string): Promise<boolean> {
     return true; // No action field — cannot confirm completion
   } catch {
     return false; // Unreadable or unparsable — treat as inactive
+  }
+}
+
+/**
+ * Returns `true` when the first non-empty JSONL line of a log file is a
+ * `run_start` event with `dry_run: true`.
+ *
+ * Failures to read or parse the file are treated as non-dry-run (`false`) so
+ * that unreadable / empty / malformed files never surface with a dry-run badge.
+ */
+async function isDryRun(filePath: string): Promise<boolean> {
+  try {
+    const raw = await readFile(filePath, 'utf-8');
+    const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return false;
+    const firstLine = lines[0]!;
+    const entry = JSON.parse(firstLine);
+    if (entry && typeof entry === 'object' && 'action' in entry) {
+      return entry.action === 'run_start' && entry.dry_run === true;
+    }
+    return false;
+  } catch {
+    return false; // Unreadable or unparsable — treat as not a dry run
   }
 }
 

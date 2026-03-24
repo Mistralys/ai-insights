@@ -1,5 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.19.0 - GUI Dry-Run Badge
+- GUI Backend: Extended `RunLogEntry` with `is_dry_run: boolean`; `isDryRun()` helper reads the first JSONL line and returns `true` only when `action === 'run_start' && dry_run === true`.
+- GUI Backend: `findRunLogs()` calls `isDryRun()` concurrently with `isRunActive()` via `Promise.all` per file, populating `is_dry_run` on every returned entry.
+- GUI Frontend: "Dry Run" badge (`badge-dry-run`) rendered in the project detail run list (`project-detail.js`) when `item.is_dry_run` is truthy; coexists with the "Running" badge for active dry runs.
+- GUI Frontend: `run_start` timeline card in `run-log.js` shows a "Dry Run" badge when `entry.dry_run` is true.
+- GUI Frontend: Explicit event renderers added for `dry_run` ("Stage skipped"), `dry_run_no_ledger` ("No ledger"), and `dry_run_complete` ("Dry run complete") in `run-log.js`; all three include the `badge-dry-run` badge.
+- GUI Frontend: `runEventSeverity()` maps `dry_run_no_ledger` → `run-event--warning`, `dry_run_complete` → `run-event--success`; `dry_run` falls through to `run-event--info`.
+- Styles: Added `.badge-dry-run` (muted purple, dashed border) with light-mode and dark-mode variants to `styles.css`.
+- Tests: 144 tests pass across all 5 affected files; 9 new `isDryRun()` / `findRunLogs()` unit tests, 6 dry-run event rendering and severity tests, 3 run-list badge tests, 2 handler pass-through tests.
+
 ## v1.18.6 - Ledger Storage Relocation
 - Config: `capture_dialogues` default changed from `false` to `true`.
 - Constants: `DIALOGUES_DIR` changed to `orchestrator/dialogues`.

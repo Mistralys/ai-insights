@@ -190,6 +190,31 @@ describe('renderRunLog', () => {
     expect(app.innerHTML).toContain('abc-123');
   });
 
+  it('renders run_start with Dry Run badge when dry_run is true', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', { dry_run: true, thread_id: 'dry-abc' }),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).toContain('Dry Run');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('does not render Dry Run badge on run_start when dry_run is false', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', { dry_run: false }),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).not.toContain('badge-dry-run');
+  });
+
+  it('does not render Dry Run badge on run_start when dry_run is absent', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', {}),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).not.toContain('badge-dry-run');
+  });
+
   it('renders run_end', async () => {
     await render(app, 'my-project', 'run.jsonl', makeResult([entry('run_end')]));
     expect(app.innerHTML).toContain('Run completed');
@@ -204,6 +229,55 @@ describe('renderRunLog', () => {
     expect(app.innerHTML).toContain('something exploded');
     // Should have error severity class
     expect(app.innerHTML).toContain('run-event--error');
+  });
+
+  it('renders dry_run with "Stage skipped", wp_id, and stage', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run', { wp_id: 'WP-003', stage: 'implementation' }),
+    ]));
+    expect(app.innerHTML).toContain('Stage skipped');
+    expect(app.innerHTML).toContain('WP-003');
+    expect(app.innerHTML).toContain('implementation');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('renders dry_run with severity run-event--info', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run', { wp_id: 'WP-001', stage: 'qa' }),
+    ]));
+    expect(app.innerHTML).toContain('run-event--info');
+  });
+
+  it('renders dry_run_no_ledger with "No ledger" and detail', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_no_ledger', { detail: 'Project not initialised' }),
+    ]));
+    expect(app.innerHTML).toContain('No ledger');
+    expect(app.innerHTML).toContain('Project not initialised');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('renders dry_run_no_ledger with severity run-event--warning', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_no_ledger', {}),
+    ]));
+    expect(app.innerHTML).toContain('run-event--warning');
+  });
+
+  it('renders dry_run_complete with "Dry run complete" and reason', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_complete', { reason: 'dry-run: PM stub executed; no ledger expected' }),
+    ]));
+    expect(app.innerHTML).toContain('Dry run complete');
+    expect(app.innerHTML).toContain('dry-run: PM stub executed');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('renders dry_run_complete with severity run-event--success', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_complete', {}),
+    ]));
+    expect(app.innerHTML).toContain('run-event--success');
   });
 
   it('renders unknown action types with a generic fallback without throwing', async () => {
