@@ -343,7 +343,7 @@ Both layers throw `ApiError FORBIDDEN` on violation. Errors are written to **std
 
 Two API handlers in `gui/api.ts` expose the agent dialogue files written by the orchestrator's dialogue capture feature:
 
-- **`handleListDialogues(ledgerRoot, slug, wpId?): Promise<string[]>`** — Returns a sorted array of `.md` filenames from `storage/ledger/{slug}/orchestrator/dialogues/`. Returns `[]` when the directory is absent (no error thrown). Optional `wpId` argument filters to filenames that start with `{wpId}-` (e.g. `'WP-001'` returns only `WP-001-*.md` files).
+- **`handleListDialogues(ledgerRoot, slug, wpId?): Promise<DialogueEntry[]>`** — Returns a sorted array of `DialogueEntry` objects (`{ filename, wp_id, stage }`) from `storage/ledger/{slug}/orchestrator/dialogues/`. Returns `[]` when the directory is absent (no error thrown). The `wp_id` and `stage` fields are parsed from the filename convention `{WP_ID}-{stage}-r{N}.md`; filenames that do not match the convention produce empty strings for those fields. Optional `wpId` argument filters to filenames that start with `{wpId}-` (e.g. `'WP-001'` returns only `WP-001-*.md` files).
 - **`handleGetDialogueFile(ledgerRoot, slug, filename): Promise<string>`** — Returns the raw Markdown content of a single dialogue file. Throws `ApiError NOT_FOUND` when the filename is rejected by the allowlist or the file does not exist.
 
 **Security:** `handleGetDialogueFile` enforces a dual-layer path-traversal defence identical in structure to `readLogEntries`:

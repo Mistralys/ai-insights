@@ -1228,20 +1228,43 @@ const DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/;
 const WP_ID_RE = /^WP-\d+$/;
 
 /**
- * Returns an array of dialogue filenames from the project's orchestrator/dialogues/ directory.
+ * Parsed representation of a single dialogue file.
+ * Derived from the filename convention `{WP_ID}-{stage}-r{N}.md`.
+ */
+export interface DialogueEntry {
+  filename: string;
+  wp_id: string;
+  stage: string;
+}
+
+/** Parses a dialogue filename into a structured entry. */
+const DIALOGUE_PARSE_RE = /^(WP-\d+)-(.+)-r\d+\.md$/;
+function parseDialogueFilename(filename: string): DialogueEntry {
+  const m = DIALOGUE_PARSE_RE.exec(filename);
+  if (m) {
+    return { filename, wp_id: m[1]!, stage: m[2]! };
+  }
+  return { filename, wp_id: '', stage: '' };
+}
+
+/**
+ * Returns an array of structured dialogue entries from the project's
+ * orchestrator/dialogues/ directory. Each entry includes the filename plus
+ * the wp_id and stage parsed from the filename convention
+ * `{WP_ID}-{stage}-r{N}.md`.
  *
  * @param ledgerRoot  Root directory containing all project ledger folders.
  * @param slug        Project slug — validated via assertSafeSlug().
  * @param wpId        Optional WP ID prefix filter (e.g. 'WP-001').
  *                    When provided, only filenames starting with '{wpId}-' are returned.
- * @returns           Sorted array of matching .md filenames, or [] when the directory
+ * @returns           Sorted array of DialogueEntry objects, or [] when the directory
  *                    is absent (no error thrown).
  */
 export async function handleListDialogues(
   ledgerRoot: string,
   slug: string,
   wpId?: string
-): Promise<string[]> {
+): Promise<DialogueEntry[]> {
   assertSafeSlug(slug);
 
   const dialoguesDir = join(ledgerRoot, slug, DIALOGUES_DIR);
@@ -1270,7 +1293,7 @@ export async function handleListDialogues(
     filenames = filenames.filter((f) => f.startsWith(prefix));
   }
 
-  return filenames.sort();
+  return filenames.sort().map(parseDialogueFilename);
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,7 +1318,7 @@ export async function handleGetDialogueFile(
   ledgerRoot: string,
   slug: string,
   filename: string
-): Promise<string> {
+): Promise<{ content: string }> {
   assertSafeSlug(slug);
 
   // Allowlist check — rejects path traversal attempts like '../secret.md'.
@@ -1314,7 +1337,8 @@ export async function handleGetDialogueFile(
   }
 
   try {
-    return await readFile(filePath, 'utf-8');
+    const content = await readFile(filePath, 'utf-8');
+    return { content };
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
       notFound(`Dialogue file not found: '${filename}'.`);

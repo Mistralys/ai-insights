@@ -5,6 +5,20 @@ Creates a Deep Agent with the Security Auditor persona prompt and MCP tools,
 invokes it to run OWASP/dependency checks and complete the security-audit
 pipeline for the current work package.
 
+Slim prompt strategy
+--------------------
+``_build_security_auditor_prompt()`` produces a minimal user-turn prompt
+containing only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Security Auditor
+persona system prompt loaded from ``personas/ledger/claude-code/``.
+
 Public factory
 --------------
 :func:`make_security_auditor_node`
@@ -27,23 +41,10 @@ def _build_security_auditor_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Security Auditor agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the security-audit pipeline by calling `ledger_begin_work` with "
-        f"`project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='security-audit'`, and `agent_role='Security Auditor'`.\n"
-        f"3. Run security checks: OWASP Top 10 review, dependency vulnerability scan, "
-        f"threat model review.\n"
-        f"4. Complete the security-audit pipeline by calling `ledger_complete_pipeline` "
-        f"with `project_path={project_path!r}`, "
-        f"`status='PASS'` if no critical issues found, or `'FAIL'` if issues require "
-        f"remediation. Include findings in `metrics` and observations in `comments`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 

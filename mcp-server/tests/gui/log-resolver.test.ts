@@ -120,6 +120,31 @@ describe('findRunLogs', () => {
     expect(results).toHaveLength(0);
   });
 
+  it('matches files written with a 40-char truncated slug (backward compat)', async () => {
+    // Slugs longer than 40 chars were previously truncated by the orchestrator's
+    // _slugify(label, max_len=40). Files written by old builds use the truncated
+    // form in their filename but the project ledger stores the full slug.
+    const fullSlug = '2026-03-24-orchestrator-log-source-routing'; // 42 chars
+    const truncSlug = fullSlug.slice(0, 40); // 'routi' not 'routing'
+    const filename = `20260324T124936-${truncSlug}.jsonl`;
+    await writeFile(join(tempDir, filename), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, fullSlug);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.filename).toBe(filename);
+  });
+
+  it('does not match unrelated short slugs when truncated-slug backward compat is active', async () => {
+    // A different project whose slug happens to be 40 chars should not be matched
+    // when looking up the 42-char slug.
+    const fullSlug = '2026-03-24-orchestrator-log-source-routing'; // 42 chars
+    const unrelatedSlug = 'completely-different-short-project';
+    await writeFile(join(tempDir, `20260324T124936-${unrelatedSlug}.jsonl`), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, fullSlug);
+    expect(results).toHaveLength(0);
+  });
+
   it('marks a completed run (run_end last line) as is_active: false', async () => {
     const file = join(tempDir, '20260323T120000-my-project.jsonl');
     await writeJsonl(file, [{ action: 'run_start' }, { action: 'run_end' }]);

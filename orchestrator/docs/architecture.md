@@ -29,9 +29,9 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 | `src/nodes/pm.py` | `make_pm_node` | Reads plan file, initializes project, creates WPs |
 | `src/nodes/developer.py` | `make_developer_node` | Calls `ledger_begin_work`, implements code, completes pipeline |
 | `src/nodes/qa.py` | `make_qa_node` | Calls `ledger_begin_work`, runs tests, validates acceptance criteria |
-| `src/nodes/security_auditor.py` | `make_security_auditor_node` | Stub — calls `ledger_begin_work`, runs security audit pipeline (full prompt content TBD) |
+| `src/nodes/security_auditor.py` | `make_security_auditor_node` | Calls `ledger_begin_work`, runs OWASP/dependency checks, completes security-audit pipeline |
 | `src/nodes/reviewer.py` | `make_reviewer_node` | Calls `ledger_begin_work`, reviews code quality and architecture |
-| `src/nodes/release_engineer.py` | `make_release_engineer_node` | Stub — calls `ledger_begin_work`, runs release-engineering pipeline (full prompt content TBD) |
+| `src/nodes/release_engineer.py` | `make_release_engineer_node` | Calls `ledger_begin_work`, curates the release, completes release-engineering pipeline |
 | `src/nodes/docs.py` | `make_docs_node` | Calls `ledger_begin_work`, updates docs, handles auto-finalize |
 | `src/nodes/synthesis.py` | `make_synthesis_node` | Calls `ledger_complete_synthesis`, writes `synthesis.md` |
 

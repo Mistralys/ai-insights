@@ -4,9 +4,19 @@ nodes/qa.py — QA node.
 Creates a Deep Agent with the QA persona prompt and MCP tools, invokes it to
 run the test suite and complete the QA pipeline for the current work package.
 
-The QA agent starts a QA pipeline, validates acceptance criteria, runs tests,
-and completes the pipeline with PASS or FAIL. A FAIL result causes the
-supervisor to route back to the developer for rework.
+Slim prompt strategy
+--------------------
+``_build_qa_prompt()`` produces a minimal user-turn prompt containing only
+immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the QA persona system
+prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -30,24 +40,10 @@ def _build_qa_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the QA agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the QA pipeline by calling `ledger_begin_work` with "
-        f"`project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='qa'`, and `agent_role='QA'`.\n"
-        f"3. Run the project test suite (e.g. `pytest`, `npm test`).\n"
-        f"4. Validate each acceptance criterion from the work package.\n"
-        f"5. Complete the QA pipeline by calling `ledger_complete_pipeline` "
-        f"with `project_path={project_path!r}`, "
-        f"`status='PASS'` if all criteria pass, or `'FAIL'` if any "
-        f"criterion is not met. Include test results in `metrics` and "
-        f"observations in `comments`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 

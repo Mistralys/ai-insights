@@ -5,9 +5,21 @@ Creates a Deep Agent with the Synthesis persona prompt and MCP tools, invokes
 it to produce the final project synthesis report once all work packages are
 complete.
 
-Synthesis is the **terminal stage** — no work package ID is required.  The
-agent compiles outcomes from all completed WPs, summarises results and
-lessons learned, and writes the final synthesis document.
+Slim prompt strategy
+--------------------
+``_build_synthesis_prompt()`` produces a minimal user-turn prompt containing
+only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+``wp_id`` is intentionally omitted — synthesis is a **project-scoped** stage
+that operates across all completed work packages rather than a single WP.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Synthesis persona
+system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -34,29 +46,9 @@ def _build_synthesis_prompt(state: WorkflowState) -> str:
     project_path: str = state["project_path"]
 
     return (
-        f"You are the Synthesis agent.\n\n"
         f"**Project path:** {project_path}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"All work packages for this project are now COMPLETE. "
-        f"Your job is to produce a comprehensive synthesis report.\n\n"
-        f"1. Call `ledger_get_project_status` with "
-        f"`project_path={project_path!r}` to get the final project overview.\n"
-        f"2. For each completed work package, call "
-        f"`ledger_get_work_package` with `project_path={project_path!r}` "
-        f"to retrieve pipeline outcomes, "
-        f"observations, and acceptance criteria results.\n"
-        f"3. Write a synthesis document that includes:\n"
-        f"   - Project summary and outcomes achieved.\n"
-        f"   - Key technical decisions and their rationale.\n"
-        f"   - Lessons learned and recurring patterns (from pipeline comments).\n"
-        f"   - Any outstanding technical debt or follow-up items.\n"
-        f"   - Metrics summary (tests passed, files modified, etc.).\n"
-        f"4. Save the synthesis document as "
-        f"`synthesis.md` inside `{project_path}`.\n"
-        f"5. Call `ledger_complete_synthesis` with `project_path={project_path!r}` "
-        f"and `agent_role='Synthesis'` to mark the project COMPLETE.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 

@@ -1,5 +1,49 @@
 # Orchestrator Changelog
 
+## v0.9.6 - Slim Orchestrator Node Prompts
+
+Removed redundant identity declarations, workflow step enumerations, and MCP
+tool call guidance from all eight node prompt builder functions. Each
+``_build_*_prompt()`` now provides only the runtime context the persona system
+prompt cannot know.
+
+**Functions changed:**
+
+- `orchestrator/src/nodes/developer.py` — `_build_developer_prompt()`
+- `orchestrator/src/nodes/qa.py` — `_build_qa_prompt()`
+- `orchestrator/src/nodes/reviewer.py` — `_build_reviewer_prompt()`
+- `orchestrator/src/nodes/security_auditor.py` — `_build_security_auditor_prompt()`
+- `orchestrator/src/nodes/release_engineer.py` — `_build_release_engineer_prompt()`
+- `orchestrator/src/nodes/docs.py` — `_build_docs_prompt()`
+- `orchestrator/src/nodes/pm.py` — `_build_pm_prompt()`
+- `orchestrator/src/nodes/synthesis.py` — `_build_synthesis_prompt()`
+
+**What each slim prompt now contains:**
+
+- Standard WP-scoped nodes (developer, qa, reviewer, security_auditor,
+  release_engineer, docs): `project_path`, `wp_id`, and the
+  `project_path` injection-safety warning.
+- PM node: `project_path`, `plan_file`, the `project_path`
+  injection-safety warning, and the embedded plan document content (unique
+  runtime data the persona cannot know).
+- Synthesis node: `project_path` and the `project_path` injection-safety
+  warning only — `wp_id` is omitted because synthesis is project-scoped.
+
+**Rationale:**
+
+The persona system prompts (loaded from `personas/ledger/claude-code/`) are
+the canonical source of truth for agent behaviour. Duplicating identity,
+workflow steps, and tool guidance in the user turn created conflicts with the
+persona, wasted input tokens on every agent invocation, and risked the
+simplified user-turn instructions overriding the richer persona guidance due
+to LLM attention weighting of user-turn content.
+
+- Docs: Updated module-level docstrings in all eight node files to document
+  the slim prompt strategy, what fields are included, and what is
+  intentionally omitted.
+- Tests: Updated orchestrator test suite assertions to reflect slim prompt
+  format (slim fields present; identity/role declarations absent).
+
 ## v0.9.5 - Defaults & Heartbeat
 - Config: `capture_dialogues` default changed from `False` to `True`.
 - Config: Added `heartbeat_interval_s` setting (default 120 s).

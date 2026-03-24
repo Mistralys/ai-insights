@@ -1262,9 +1262,9 @@ describe('gui/api.ts', () => {
 
       const result = await handleListDialogues(ledgerRoot, slug);
       expect(result).toEqual([
-        'WP-001-developer-r0.md',
-        'WP-002-qa-r0.md',
-        'WP-003-reviewer-r0.md',
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-002-qa-r0.md',        wp_id: 'WP-002', stage: 'qa' },
+        { filename: 'WP-003-reviewer-r0.md',  wp_id: 'WP-003', stage: 'reviewer' },
       ]);
     });
 
@@ -1275,8 +1275,11 @@ describe('gui/api.ts', () => {
       await writeFile(join(dir, 'WP-002-developer-r0.md'), 'content c');
 
       const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
-      expect(result).toEqual(['WP-001-developer-r0.md', 'WP-001-qa-r0.md']);
-      expect(result).not.toContain('WP-002-developer-r0.md');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-qa-r0.md',        wp_id: 'WP-001', stage: 'qa' },
+      ]);
+      expect(result.map((r) => r.filename)).not.toContain('WP-002-developer-r0.md');
     });
 
     it("throws ApiError NOT_FOUND for slug='..'", async () => {
@@ -1292,7 +1295,9 @@ describe('gui/api.ts', () => {
       await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
 
       const result = await handleListDialogues(ledgerRoot, slug);
-      expect(result).toEqual(['WP-001-developer-r0.md']);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+      ]);
     });
 
     // ── WP-003: invalid ?wp= validation ─────────────────────────────────────
@@ -1314,7 +1319,9 @@ describe('gui/api.ts', () => {
       await writeFile(join(dir, 'WP-002-qa-r0.md'), 'no-match');
 
       const result = await handleListDialogues(ledgerRoot, slug, 'WP-001');
-      expect(result).toEqual(['WP-001-developer-r0.md']);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+      ]);
     });
   });
 

@@ -4,9 +4,19 @@ nodes/reviewer.py — Reviewer node.
 Creates a Deep Agent with the Reviewer persona prompt and MCP tools, invokes
 it to perform a structured code review for the current work package.
 
-The reviewer agent starts a code-review pipeline, evaluates code quality,
-architecture, and adherence to acceptance criteria, then completes the pipeline
-with PASS or FAIL. A FAIL causes the supervisor to route back to the developer.
+Slim prompt strategy
+--------------------
+``_build_reviewer_prompt()`` produces a minimal user-turn prompt containing
+only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Reviewer persona
+system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -30,27 +40,10 @@ def _build_reviewer_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Reviewer agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the code-review pipeline by calling `ledger_begin_work` "
-        f"with `project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='code-review'`, and `agent_role='Reviewer'`.\n"
-        f"3. Review the implementation for:\n"
-        f"   - Correctness and alignment with acceptance criteria.\n"
-        f"   - Code quality, readability, and idiomatic style.\n"
-        f"   - Architectural consistency with the existing codebase.\n"
-        f"   - Missing edge cases, error handling, or security concerns.\n"
-        f"4. Complete the code-review pipeline by calling "
-        f"`ledger_complete_pipeline` with `project_path={project_path!r}`, "
-        f"`status='PASS'` if the code meets "
-        f"standards, or `'FAIL'` if significant issues require rework. "
-        f"Include detailed `comments` for the developer.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 

@@ -5,6 +5,20 @@ Creates a Deep Agent with the Release Engineer persona prompt and MCP tools,
 invokes it to curate the release and complete the release-engineering pipeline
 for the current work package.
 
+Slim prompt strategy
+--------------------
+``_build_release_engineer_prompt()`` produces a minimal user-turn prompt
+containing only immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``wp_id`` — active work package identifier.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the Release Engineer
+persona system prompt loaded from ``personas/ledger/claude-code/``.
+
 Public factory
 --------------
 :func:`make_release_engineer_node`
@@ -27,23 +41,10 @@ def _build_release_engineer_prompt(state: WorkflowState) -> str:
     wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
     return (
-        f"You are the Release Engineer agent.\n\n"
         f"**Project path:** {project_path}\n"
         f"**Work package:** {wp_id}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the work package by calling `ledger_get_work_package` with "
-        f"`project_path={project_path!r}` and `work_package_id={wp_id!r}`.\n"
-        f"2. Start the release-engineering pipeline by calling `ledger_begin_work` with "
-        f"`project_path={project_path!r}`, `work_package_id={wp_id!r}`, "
-        f"`type='release-engineering'`, and `agent_role='Release Engineer'`.\n"
-        f"3. Curate the release: version bump, changelog update, release notes, "
-        f"package manifest validation.\n"
-        f"4. Complete the release-engineering pipeline by calling `ledger_complete_pipeline` "
-        f"with `project_path={project_path!r}`, "
-        f"`status='PASS'` if release is ready, or `'FAIL'` if issues block release. "
-        f"Include artifacts in `artifacts` and notes in `comments`.\n"
+        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
     )
 
 

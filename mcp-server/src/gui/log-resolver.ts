@@ -109,9 +109,17 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
   }
 
   const suffix = `-${slug}.jsonl`;
-  const matching = dirEntries.filter(
-    (name) => name.endsWith(suffix) && name.length > suffix.length
-  );
+  // Backward-compat: the orchestrator used to truncate slugs to 40 chars in log
+  // filenames (via _slugify(label, max_len=40)). Match the truncated form too so
+  // that logs written by older builds (or slugs longer than 40 chars) are found.
+  const truncSlug = slug.length > 40 ? slug.slice(0, 40).replace(/-+$/, '') : null;
+  const truncSuffix = truncSlug ? `-${truncSlug}.jsonl` : null;
+
+  const matching = dirEntries.filter((name) => {
+    if (name.endsWith(suffix) && name.length > suffix.length) return true;
+    if (truncSuffix && name.endsWith(truncSuffix) && name.length > truncSuffix.length) return true;
+    return false;
+  });
 
   // Build entries with active status, then sort newest-first by filename prefix.
   const unsorted = await Promise.all(

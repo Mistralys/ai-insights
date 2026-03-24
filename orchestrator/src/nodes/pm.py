@@ -4,9 +4,23 @@ nodes/pm.py — Project Manager node.
 Creates a Deep Agent with the PM persona prompt and MCP tools, invokes it
 to analyse the plan document and create work packages in the ledger.
 
-The PM node is responsible for the *first pass* of a project: reading the
-plan, calling ``ledger_initialize_project`` if required, and then calling
-``ledger_create_work_package`` for each WP defined in the plan.
+Slim prompt strategy
+--------------------
+``_build_pm_prompt()`` produces a minimal user-turn prompt containing only
+immediate runtime context:
+
+- ``project_path`` — concrete path for every MCP tool call.
+- ``plan_file`` — relative path of the plan document within the project.
+- **Plan document content** — the full text of the plan file is embedded
+  directly in the prompt. This is legitimate runtime data that the persona
+  system prompt cannot know at build time and is therefore the only
+  substantive content beyond the three slim fields above.
+- ``project_path`` injection-safety warning — critical reminder that every MCP
+  tool call must include the ``project_path`` parameter.
+
+Identity declarations, workflow step enumerations, and MCP tool call guidance
+are intentionally omitted; those live exclusively in the PM persona system
+prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -38,22 +52,11 @@ def _build_pm_prompt(state: WorkflowState) -> str:
         plan_content = f"[Could not read plan file at {plan_path}: {exc}]"
 
     return (
-        f"You are the Project Manager agent.\n\n"
-        f"**Project path:** {project_path}\n\n"
+        f"Please start your work on the project.\n\n"
+        f"**Project path:** {project_path}\n"
+        f"**Plan file:** {plan_file}\n\n"
         f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
         f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"**Your task:**\n"
-        f"1. Read the plan document below carefully.\n"
-        f"2. If the project ledger has not been initialised yet, call "
-        f"`ledger_initialize_project` with `project_path={project_path!r}` "
-        f"and `plan_file={plan_file!r}`.\n"
-        f"3. For each work package defined in the plan, call "
-        f"`ledger_create_work_package` with `project_path={project_path!r}` "
-        f"to register it in the ledger, "
-        f"including correct dependencies and acceptance criteria.\n"
-        f"4. Once all work packages are created, confirm by calling "
-        f"`ledger_get_project_status` with `project_path={project_path!r}` "
-        f"and report the final count.\n\n"
         f"---\n\n"
         f"# Plan Document\n\n"
         f"{plan_content}"

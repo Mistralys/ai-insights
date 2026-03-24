@@ -64,11 +64,8 @@ var API = (function () {
       return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues?wp=' + encodeURIComponent(wpId));
     },
     getDialogueContent: function (slug, filename) {
-      return fetch('/api/projects/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
-        .then(function (res) {
-          if (!res.ok) throw { code: 'ERROR', message: 'HTTP ' + res.status };
-          return res.text();
-        });
+      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
+        .then(function (data) { return data.content; });
     },
   };
 })();
