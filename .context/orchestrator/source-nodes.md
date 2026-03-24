@@ -31,6 +31,10 @@ builders.
 Public factories
 ----------------
 - :func:`create_stage_node` — Generic factory used internally by each module.
+
+Shared helpers
+--------------
+- :func:`build_stage_prompt` — Assemble the user-turn prompt for any stage.
 """
 
 from __future__ import annotations
@@ -53,6 +57,40 @@ if TYPE_CHECKING:
     from src.state import WorkflowState
 
 log = logging.getLogger(__name__)
+
+_PROJECT_PATH_REMINDER = "Always use the project path above for all ledger tool calls."
+
+
+def build_stage_prompt(
+    project_path: str,
+    *,
+    wp_id: str = "",
+    preamble: str = "",
+    extra: str = "",
+) -> str:
+    """Assemble a slim user-turn prompt for any pipeline stage.
+
+    Parameters
+    ----------
+    project_path:
+        Absolute path passed to every MCP tool call.
+    wp_id:
+        Work-package identifier (omit for project-scoped stages like synthesis).
+    preamble:
+        Optional text placed *before* the project/WP fields (e.g. "Please start…").
+    extra:
+        Optional content appended *after* the reminder (e.g. the plan document).
+    """
+    lines: list[str] = []
+    if preamble:
+        lines.append(f"{preamble}\n")
+    lines.append(f"**Project:** `{project_path}`")
+    if wp_id:
+        lines.append(f"**Work package:** {wp_id}")
+    lines.append(f"\n{_PROJECT_PATH_REMINDER}")
+    if extra:
+        lines.append(f"\n{extra}")
+    return "\n".join(lines) + "\n"
 
 
 def create_stage_node(
@@ -300,11 +338,14 @@ only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
+- ``pipeline_type`` — explicit instruction to start an ``implementation``
+  pipeline, reinforcing the persona system prompt on every invocation.
 - ``project_path`` injection-safety warning — critical reminder that every MCP
   tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Developer persona
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Developer persona
 system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -320,19 +361,15 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_developer_prompt(state: WorkflowState) -> str:
     """Construct the developer agent's user-turn prompt."""
-    project_path: str = state["project_path"]
-    wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-
-    return (
-        f"**Project path:** {project_path}\n"
-        f"**Work package:** {wp_id}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
+        extra="**Pipeline to start:** `implementation`",
     )
 
 
@@ -370,11 +407,10 @@ immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Documentation persona
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Documentation persona
 system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -390,19 +426,14 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_docs_prompt(state: WorkflowState) -> str:
     """Construct the documentation agent's user-turn prompt."""
-    project_path: str = state["project_path"]
-    wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-
-    return (
-        f"**Project path:** {project_path}\n"
-        f"**Work package:** {wp_id}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
     )
 
 
@@ -444,11 +475,10 @@ immediate runtime context:
   directly in the prompt. This is legitimate runtime data that the persona
   system prompt cannot know at build time and is therefore the only
   substantive content beyond the three slim fields above.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the PM persona system
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the PM persona system
 prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -465,7 +495,7 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_pm_prompt(state: WorkflowState) -> str:
@@ -480,15 +510,10 @@ def _build_pm_prompt(state: WorkflowState) -> str:
     except OSError as exc:
         plan_content = f"[Could not read plan file at {plan_path}: {exc}]"
 
-    return (
-        f"Please start your work on the project.\n\n"
-        f"**Project path:** {project_path}\n"
-        f"**Plan file:** {plan_file}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"---\n\n"
-        f"# Plan Document\n\n"
-        f"{plan_content}"
+    return build_stage_prompt(
+        project_path,
+        preamble=f"Please start your work on the project.\n\n**Plan file:** {plan_file}",
+        extra=f"---\n\n# Plan Document\n\n{plan_content}",
     )
 
 
@@ -526,11 +551,10 @@ immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the QA persona system
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the QA persona system
 prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -546,19 +570,14 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_qa_prompt(state: WorkflowState) -> str:
     """Construct the QA agent's user-turn prompt."""
-    project_path: str = state["project_path"]
-    wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-
-    return (
-        f"**Project path:** {project_path}\n"
-        f"**Work package:** {wp_id}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
     )
 
 
@@ -597,11 +616,10 @@ containing only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Release Engineer
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Release Engineer
 persona system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -617,19 +635,14 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_release_engineer_prompt(state: WorkflowState) -> str:
     """Construct the Release Engineer agent's user-turn prompt."""
-    project_path: str = state["project_path"]
-    wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-
-    return (
-        f"**Project path:** {project_path}\n"
-        f"**Work package:** {wp_id}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
     )
 
 
@@ -667,11 +680,10 @@ only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Reviewer persona
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Reviewer persona
 system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -687,19 +699,14 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_reviewer_prompt(state: WorkflowState) -> str:
     """Construct the reviewer agent's user-turn prompt."""
-    project_path: str = state["project_path"]
-    wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-
-    return (
-        f"**Project path:** {project_path}\n"
-        f"**Work package:** {wp_id}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
     )
 
 
@@ -738,11 +745,10 @@ containing only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
 - ``wp_id`` — active work package identifier.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Security Auditor
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Security Auditor
 persona system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -758,19 +764,14 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_security_auditor_prompt(state: WorkflowState) -> str:
     """Construct the Security Auditor agent's user-turn prompt."""
-    project_path: str = state["project_path"]
-    wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
-
-    return (
-        f"**Project path:** {project_path}\n"
-        f"**Work package:** {wp_id}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
     )
 
 
@@ -808,14 +809,13 @@ Slim prompt strategy
 only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
 ``wp_id`` is intentionally omitted — synthesis is a **project-scoped** stage
 that operates across all completed work packages rather than a single WP.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Synthesis persona
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Synthesis persona
 system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -831,7 +831,7 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_synthesis_prompt(state: WorkflowState) -> str:
@@ -840,13 +840,7 @@ def _build_synthesis_prompt(state: WorkflowState) -> str:
 
     No ``current_wp_id`` is required — synthesis operates on the full project.
     """
-    project_path: str = state["project_path"]
-
-    return (
-        f"**Project path:** {project_path}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
-    )
+    return build_stage_prompt(state["project_path"])
 
 
 def make_synthesis_node(config: Config, mcp_tools: list[Any]):

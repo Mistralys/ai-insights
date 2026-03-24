@@ -2832,7 +2832,7 @@ def test_parse_tool_response_direct_list_is_not_json():
 
 ```py
 """
-test_nodes.py — Unit tests for the six Deep Agent stage nodes.
+test_nodes.py — Unit tests for the eight Deep Agent stage nodes.
 
 These tests verify module structure, factory return types, state-update
 conformance, error handling, and stage-specific requirements (PM plan content,
@@ -3874,11 +3874,8 @@ class TestSlimPromptContent:
         assert _SLIM_PROJECT_PATH in prompt, (
             f"project_path {_SLIM_PROJECT_PATH!r} must be present in prompt"
         )
-        assert "CRITICAL" in prompt, (
-            "Injection-safety warning (CRITICAL) must be present in prompt"
-        )
-        assert "project_path" in prompt, (
-            "'project_path' keyword must appear in the injection-safety warning"
+        assert "ledger tool calls" in prompt, (
+            "project_path reminder must be present in prompt"
         )
         if expect_wp:
             assert _SLIM_WP_ID in prompt, (
@@ -3897,11 +3894,14 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_developer_prompt must include project_path, wp_id, pipeline_type, and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_slim_fields_present(prompt, expect_wp=True)
+        assert "implementation" in prompt, (
+            "Pipeline-type line must contain 'implementation'"
+        )
 
     def test_developer_prompt_has_no_identity_declarations(self):
         """_build_developer_prompt must not contain identity/role declaration text."""
@@ -3915,7 +3915,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_qa_prompt_has_slim_fields(self):
-        """_build_qa_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_qa_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.qa import _build_qa_prompt
 
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -3933,7 +3933,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_reviewer_prompt_has_slim_fields(self):
-        """_build_reviewer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_reviewer_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.reviewer import _build_reviewer_prompt
 
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -3951,7 +3951,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_security_auditor_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -3969,7 +3969,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_release_engineer_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -3987,7 +3987,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_docs_prompt_has_slim_fields(self):
-        """_build_docs_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_docs_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.docs import _build_docs_prompt
 
         prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -4005,7 +4005,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_pm_prompt_has_slim_fields(self, tmp_path):
-        """_build_pm_prompt must include project_path and CRITICAL warning (no wp_id)."""
+        """_build_pm_prompt must include project_path and project_path reminder (no wp_id)."""
         from src.nodes.pm import _build_pm_prompt
 
         plan_file = tmp_path / "plan.md"
@@ -4015,10 +4015,9 @@ class TestSlimPromptContent:
         prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
 
         assert str(tmp_path) in prompt, "project_path must be present in PM prompt"
-        assert "CRITICAL" in prompt, (
-            "Injection-safety warning (CRITICAL) must be present in PM prompt"
+        assert "ledger tool calls" in prompt, (
+            "project_path reminder must be present in PM prompt"
         )
-        assert "project_path" in prompt, "'project_path' keyword must appear in PM prompt warning"
 
     def test_pm_prompt_has_no_identity_declarations(self, tmp_path):
         """_build_pm_prompt must not contain identity/role declaration text."""
@@ -4037,7 +4036,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_synthesis_prompt_has_slim_fields(self):
-        """_build_synthesis_prompt must include project_path and CRITICAL warning (no wp_id)."""
+        """_build_synthesis_prompt must include project_path and project_path reminder (no wp_id)."""
         from src.nodes.synthesis import _build_synthesis_prompt
 
         state = _build_slim_state(current_wp_id="")
@@ -6084,12 +6083,14 @@ test_tool_wrappers.py — Unit tests for src.utils.tool_wrappers.
 
 Tests cover every behavioural contract promised by ``inject_project_path``:
 
-1. **Injection when absent** — ``project_path`` is added when the tool call
-   dict contains neither ``project_path`` nor ``cwd_path``.
+1. **Injection when absent** — both ``project_path`` and ``cwd_path`` are added
+   when the tool call dict contains neither.
 2. **No override when present** — an explicitly-supplied ``project_path`` is
-   never overwritten.
-3. **No injection when cwd_path present** — ``cwd_path`` signals that
-   ``ledger_detect_project`` handles path resolution; no injection.
+   never overwritten (setdefault semantics), but ``cwd_path`` is always
+   overwritten with the authoritative project path.
+3. **cwd_path re-injection** — any caller-supplied ``cwd_path`` value is
+   discarded and replaced with the authoritative project path; both
+   ``project_path`` and ``cwd_path`` are always present after wrapping.
 4. **Argument preservation** — other kwargs (e.g. ``work_package_id``) survive
    the wrapper untouched.
 5. **Idempotency** — calling ``inject_project_path`` twice on the same list of
@@ -6219,33 +6220,47 @@ class TestDoesNotOverrideExplicitProjectPath:
 
 
 # ---------------------------------------------------------------------------
-# 3. No injection when cwd_path present
+# 3. cwd_path re-injection — caller value replaced with authoritative path
 # ---------------------------------------------------------------------------
 
 class TestCwdPathReplacedWithProjectPath:
-    async def test_cwd_path_stripped_and_project_path_injected(self):
-        """cwd_path must be removed and project_path injected instead."""
+    async def test_cwd_path_overwritten_and_project_path_injected(self):
+        """A caller-supplied cwd_path must be replaced with the authoritative
+        project path, and project_path must also be injected.
+
+        Both parameters are always present after wrapping so that
+        ``ledger_detect_project`` (which only accepts ``cwd_path``) and all
+        other ledger tools (which accept ``project_path``) receive a valid
+        routing key.
+        """
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
         await tool.ainvoke({"cwd_path": "/some/workspace"})
 
-        assert "cwd_path" not in seen[0], (
-            "cwd_path must be stripped in the orchestrator context"
+        assert seen[0]["cwd_path"] == PROJECT, (
+            "caller-supplied cwd_path must be replaced with the authoritative project path"
         )
         assert seen[0]["project_path"] == PROJECT
 
-    async def test_explicit_project_path_wins_over_cwd_path(self):
-        """When both cwd_path and project_path are present, project_path is kept."""
+    async def test_explicit_project_path_preserved_cwd_path_overwritten(self):
+        """When both cwd_path and project_path are supplied by the caller:
+        - project_path is kept (setdefault semantics)
+        - cwd_path is overwritten with the authoritative project path
+        """
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
         await tool.ainvoke({"cwd_path": "/cwd/value", "project_path": "/explicit"})
 
-        assert "cwd_path" not in seen[0]
-        assert seen[0]["project_path"] == "/explicit"
+        assert seen[0]["cwd_path"] == PROJECT, (
+            "cwd_path must be overwritten with the authoritative project path"
+        )
+        assert seen[0]["project_path"] == "/explicit", (
+            "explicit project_path must be preserved (setdefault semantics)"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -6546,8 +6561,10 @@ class TestToolCallDictStructure:
         assert result["args"]["project_path"] == PROJECT
         assert "project_path" not in {k for k in result if k != "args"}
 
-    async def test_toolcall_strips_cwd_path_from_args(self):
-        """cwd_path inside input['args'] must be stripped and replaced."""
+    async def test_toolcall_overwrites_cwd_path_in_args(self):
+        """A caller-supplied cwd_path inside input['args'] must be overwritten
+        with the authoritative project path; project_path must also be injected.
+        """
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
@@ -6560,7 +6577,9 @@ class TestToolCallDictStructure:
         })
 
         result = seen[0]
-        assert "cwd_path" not in result["args"]
+        assert result["args"]["cwd_path"] == PROJECT, (
+            "caller-supplied cwd_path in args must be replaced with authoritative project path"
+        )
         assert result["args"]["project_path"] == PROJECT
 
     async def test_toolcall_preserves_explicit_project_path(self):
@@ -6596,6 +6615,153 @@ class TestToolCallDictStructure:
         assert result["work_package_id"] == "WP-007"
         assert result["agent_role"] == "Developer"
         assert result["project_path"] == PROJECT
+
+
+# ---------------------------------------------------------------------------
+# 11. Dual injection (WP-001 acceptance criteria)
+# ---------------------------------------------------------------------------
+
+class TestDualInjection:
+    """Verify that both project_path and cwd_path are always injected.
+
+    These tests directly map to the WP-001 acceptance criteria:
+
+    AC1 — No-argument call → both parameters set to the injected project path.
+    AC2 — Explicit cwd_path supplied → value stripped, authoritative path
+          re-injected as cwd_path; project_path also injected.
+    AC3 — Explicit project_path supplied → preserved (setdefault); cwd_path
+          still injected with authoritative path.
+    AC4 — Same behaviour for both flat-dict and ToolCall nested-dict structures.
+    """
+
+    # AC1 — empty call dict receives both parameters
+
+    async def test_ac1_empty_dict_receives_both_parameters(self):
+        """AC1: no-argument call → project_path AND cwd_path both set."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert seen[0]["project_path"] == PROJECT
+        assert seen[0]["cwd_path"] == PROJECT
+
+    async def test_ac1_toolcall_empty_args_receives_both_parameters(self):
+        """AC1 (ToolCall): empty args dict → project_path AND cwd_path both set."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_get_next_action",
+            "args": {},
+            "id": "call-ac1",
+            "type": "tool_call",
+        })
+
+        assert seen[0]["args"]["project_path"] == PROJECT
+        assert seen[0]["args"]["cwd_path"] == PROJECT
+
+    # AC2 — explicit cwd_path value replaced with authoritative path
+
+    async def test_ac2_explicit_cwd_path_replaced_flat_dict(self):
+        """AC2 (flat dict): caller-supplied cwd_path is overwritten; project_path injected."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"cwd_path": "/caller/workspace"})
+
+        assert seen[0]["cwd_path"] == PROJECT, (
+            "cwd_path must be overwritten with authoritative path, not the caller value"
+        )
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_ac2_explicit_cwd_path_replaced_toolcall(self):
+        """AC2 (ToolCall): caller-supplied cwd_path in args is overwritten."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/caller/workspace"},
+            "id": "call-ac2",
+            "type": "tool_call",
+        })
+
+        assert seen[0]["args"]["cwd_path"] == PROJECT
+        assert seen[0]["args"]["project_path"] == PROJECT
+
+    # AC3 — explicit project_path preserved; cwd_path still injected
+
+    async def test_ac3_explicit_project_path_preserved_flat_dict(self):
+        """AC3 (flat dict): explicit project_path kept; cwd_path still injected."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        explicit = "/custom/project"
+        await tool.ainvoke({"project_path": explicit})
+
+        assert seen[0]["project_path"] == explicit, (
+            "explicit project_path must not be overwritten (setdefault semantics)"
+        )
+        assert seen[0]["cwd_path"] == PROJECT, (
+            "cwd_path must still be injected even when project_path is explicit"
+        )
+
+    async def test_ac3_explicit_project_path_preserved_toolcall(self):
+        """AC3 (ToolCall): explicit project_path in args kept; cwd_path injected."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)
+        inject_project_path([tool], PROJECT)
+
+        explicit = "/custom/project"
+        await tool.ainvoke({
+            "name": "some_ledger_tool",
+            "args": {"project_path": explicit},
+            "id": "call-ac3",
+            "type": "tool_call",
+        })
+
+        assert seen[0]["args"]["project_path"] == explicit
+        assert seen[0]["args"]["cwd_path"] == PROJECT
+
+    # AC4 — both invocation structures behave identically (covered by AC1–3
+    # above, but one explicit symmetry test for clarity)
+
+    async def test_ac4_flat_dict_and_toolcall_behave_identically(self):
+        """AC4: flat-dict and ToolCall nested-dict produce the same injected values."""
+        seen_flat: list[Any] = []
+        seen_toolcall: list[Any] = []
+
+        tool_flat = _make_tool(seen_flat)
+        tool_toolcall = _make_tool(seen_toolcall)
+        inject_project_path([tool_flat, tool_toolcall], PROJECT)
+
+        payload_keys = {"work_package_id": "WP-001", "agent": "Developer"}
+
+        # Flat dict
+        await tool_flat.ainvoke(dict(payload_keys))
+
+        # ToolCall nested dict (same logical payload)
+        await tool_toolcall.ainvoke({
+            "name": "ledger_claim_work_package",
+            "args": dict(payload_keys),
+            "id": "call-ac4",
+            "type": "tool_call",
+        })
+
+        flat_result = seen_flat[0]
+        toolcall_result = seen_toolcall[0]["args"]
+
+        for result in (flat_result, toolcall_result):
+            assert result["project_path"] == PROJECT
+            assert result["cwd_path"] == PROJECT
+            assert result["work_package_id"] == "WP-001"
+            assert result["agent"] == "Developer"
 
 
 ```

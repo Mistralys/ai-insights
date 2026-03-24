@@ -460,159 +460,165 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             lock_file.close()
         return EXIT_ERROR
 
-    # ── Set up JSONL run logger ──────────────────────────────────────────────
-    from src.utils.logging import WorkflowLogger
-    run_logger = WorkflowLogger.create(label=plan_dir.name)
-    log.info("JSONL log: %s", run_logger._path)
-    await run_logger.start_heartbeat(config.heartbeat_interval_s)
+    try:  # ── try/finally guarantees lock cleanup on any exit path ────────────
 
-    # ── Generate or reuse thread ID ─────────────────────────────────────────
-    thread_id: str = args.resume if args.resume else str(uuid.uuid4())
-    if args.resume:
-        log.info("Resuming run: thread_id=%s", thread_id)
-    else:
-        log.info("Starting new run: thread_id=%s", thread_id)
-    # Capture run start timestamp for duration tracking and progress snapshots.
-    run_start_ts: str = datetime.now(UTC).isoformat()
-    # Write a run_start sentinel immediately so the JSONL file is never empty
-    # even if the graph crashes before producing any state output.
-    run_logger.log(
-        stage="cli",
-        action="run_start",
-        result="",
-        thread_id=thread_id,
-        level="INFO",
-        dry_run=args.dry_run,
-        plan=str(plan_path),
-        run_start_ts=run_start_ts,
-    )
-    # ── Parse --interrupt-on ────────────────────────────────────────────────
-    interrupt_before: list[str] = []
-    if args.interrupt_on:
-        interrupt_before = _parse_interrupt_stages(args.interrupt_on)
-        log.info("Interrupt-before nodes: %s", interrupt_before)
+        # ── Set up JSONL run logger ──────────────────────────────────────
+        from src.utils.logging import WorkflowLogger
+        run_logger = WorkflowLogger.create(label=plan_dir.name)
+        log.info("JSONL log: %s", run_logger._path)
+        await run_logger.start_heartbeat(config.heartbeat_interval_s)
 
-    # ── Build initial state ─────────────────────────────────────────────────
-    initial_state: dict = {
-        "project_path": str(plan_dir),
-        "plan_file": plan_file,
-        "target_project_path": str(project_path),
-        "current_stage": "",
-        "current_wp_id": "",
-        "iteration": 0,
-        "max_iterations": args.max_iterations or config.max_iterations,
-        "stage_result": "",
-        "stage_success": True,
-        "project_status": "",
-        "wp_summaries": [],
-        "pending_wp_count": 0,
-        "consecutive_failures": {},
-        "wps_completed_this_run": 0,
-        "prev_wp_summaries": [],
-        "run_start_ts": run_start_ts,
-        "run_log": [],
-        "errors": [],
-    }
+        # ── Generate or reuse thread ID ─────────────────────────────────
+        thread_id: str = args.resume if args.resume else str(uuid.uuid4())
+        if args.resume:
+            log.info("Resuming run: thread_id=%s", thread_id)
+        else:
+            log.info("Starting new run: thread_id=%s", thread_id)
+        # Capture run start timestamp for duration tracking and progress
+        # snapshots.
+        run_start_ts: str = datetime.now(UTC).isoformat()
+        # Write a run_start sentinel immediately so the JSONL file is
+        # never empty even if the graph crashes before producing any
+        # state output.
+        run_logger.log(
+            stage="cli",
+            action="run_start",
+            result="",
+            thread_id=thread_id,
+            level="INFO",
+            dry_run=args.dry_run,
+            plan=str(plan_path),
+            run_start_ts=run_start_ts,
+        )
+        # ── Parse --interrupt-on ────────────────────────────────────────
+        interrupt_before: list[str] = []
+        if args.interrupt_on:
+            interrupt_before = _parse_interrupt_stages(args.interrupt_on)
+            log.info("Interrupt-before nodes: %s", interrupt_before)
 
-    # ── Run via MCPToolkit ──────────────────────────────────────────────────
-    start_time = time.monotonic()
-    final_state: dict | None = None
-    outside_errors: list[str] = []
-
-    if args.dry_run:
-        print("[dry-run] Starting orchestrator in dry-run mode.")
-        print(f"[dry-run] Plan   : {plan_path}")
-        print(f"[dry-run] Project: {project_path}")
-        print(f"[dry-run] Thread : {thread_id}")
-        print()
-
-    try:
-        async with MCPToolkit.from_config(config) as toolkit:
-            mcp_tools = toolkit.get_tools()
-            log.info("MCP server started with %d tools.", len(mcp_tools))
-
-            graph = await _build_graph_for_run(
-                config,
-                mcp_tools,
-                dry_run=args.dry_run,
-                interrupt_before=interrupt_before,
-            )
-
-            run_config = {"configurable": {"thread_id": thread_id, "run_logger": run_logger}}
-
-            try:
-                if args.resume:
-                    # For resume: invoke without an initial state so the
-                    # graph continues from the last checkpoint.
-                    result = await graph.ainvoke(None, run_config)
-                else:
-                    result = await graph.ainvoke(initial_state, run_config)
-                final_state = result
-            except KeyboardInterrupt:
-                log.info("Interrupted by user. Run can be resumed with --resume %s.", thread_id)
-                print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
-                outside_errors.append("Interrupted by user.")
-            except Exception as exc:
-                log.error("Graph execution failed: %s", exc, exc_info=True)
-                outside_errors.append(f"Graph error: {exc}")
-
-    except KeyboardInterrupt:
-        outside_errors.append("Interrupted during MCP server startup.")
-    except Exception as exc:
-        log.error("MCP server startup failed: %s", exc, exc_info=True)
-        outside_errors.append(f"MCP server error: {exc}")
-
-    # ── Write final entries to JSONL ────────────────────────────────────────
-    # Run-log entries from graph nodes are supposed to be streamed to the
-    # JSONL file in real time (via run_logger passed through LangGraph
-    # config).  However, if the run_logger was not accessible inside graph
-    # nodes (e.g. the configurable key was stripped), the entries only exist
-    # in the final LangGraph state's ``run_log`` list.  Flush any un-streamed
-    # entries here as a safety net so the log file is always complete.
-    try:
-        if final_state is not None:
-            run_log_entries: list = final_state.get("run_log", [])
-            run_logger.flush_unstreamed(run_log_entries)
-
-        for err_msg in outside_errors:
-            run_logger.log(
-                stage="cli",
-                action="run_error",
-                result="ERROR",
-                error=err_msg,
-                level="ERROR",
-                thread_id=thread_id,
-            )
-        # Always write a run-end sentinel entry.
-        total_duration_s: float | None = None
-        try:
-            total_duration_s = round(
-                (datetime.now(UTC) - datetime.fromisoformat(run_start_ts)).total_seconds(), 1
-            )
-        except (ValueError, TypeError):
-            pass
-        run_end_kwargs: dict = {
-            "stage": "cli",
-            "action": "run_end",
-            "result": "COMPLETE" if not outside_errors else "ERROR",
-            "level": "ERROR" if outside_errors else "INFO",
-            "thread_id": thread_id,
+        # ── Build initial state ─────────────────────────────────────────
+        initial_state: dict = {
+            "project_path": str(plan_dir),
+            "plan_file": plan_file,
+            "target_project_path": str(project_path),
+            "current_stage": "",
+            "current_wp_id": "",
+            "iteration": 0,
+            "max_iterations": args.max_iterations or config.max_iterations,
+            "stage_result": "",
+            "stage_success": True,
+            "project_status": "",
+            "wp_summaries": [],
+            "pending_wp_count": 0,
+            "consecutive_failures": {},
+            "wps_completed_this_run": 0,
+            "prev_wp_summaries": [],
+            "run_start_ts": run_start_ts,
+            "run_log": [],
+            "errors": [],
         }
-        if total_duration_s is not None:
-            run_end_kwargs["total_duration_s"] = total_duration_s
-        run_logger.log(**run_end_kwargs)
-    finally:
-        await run_logger.stop_heartbeat()
-        run_logger.close()
+
+        # ── Run via MCPToolkit ──────────────────────────────────────────
+        start_time = time.monotonic()
+        final_state: dict | None = None
+        outside_errors: list[str] = []
+
+        if args.dry_run:
+            print("[dry-run] Starting orchestrator in dry-run mode.")
+            print(f"[dry-run] Plan   : {plan_path}")
+            print(f"[dry-run] Project: {project_path}")
+            print(f"[dry-run] Thread : {thread_id}")
+            print()
+
+        try:
+            async with MCPToolkit.from_config(config) as toolkit:
+                mcp_tools = toolkit.get_tools()
+                log.info("MCP server started with %d tools.", len(mcp_tools))
+
+                graph = await _build_graph_for_run(
+                    config,
+                    mcp_tools,
+                    dry_run=args.dry_run,
+                    interrupt_before=interrupt_before,
+                )
+
+                run_config = {"configurable": {"thread_id": thread_id, "run_logger": run_logger}}
+
+                try:
+                    if args.resume:
+                        # For resume: invoke without an initial state so
+                        # the graph continues from the last checkpoint.
+                        result = await graph.ainvoke(None, run_config)
+                    else:
+                        result = await graph.ainvoke(initial_state, run_config)
+                    final_state = result
+                except KeyboardInterrupt:
+                    log.info("Interrupted by user. Run can be resumed with --resume %s.", thread_id)
+                    print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
+                    outside_errors.append("Interrupted by user.")
+                except Exception as exc:
+                    log.error("Graph execution failed: %s", exc, exc_info=True)
+                    outside_errors.append(f"Graph error: {exc}")
+
+        except KeyboardInterrupt:
+            outside_errors.append("Interrupted during MCP server startup.")
+        except Exception as exc:
+            log.error("MCP server startup failed: %s", exc, exc_info=True)
+            outside_errors.append(f"MCP server error: {exc}")
+
+        # ── Write final entries to JSONL ────────────────────────────────
+        # Run-log entries from graph nodes are supposed to be streamed to
+        # the JSONL file in real time (via run_logger passed through
+        # LangGraph config).  However, if the run_logger was not
+        # accessible inside graph nodes (e.g. the configurable key was
+        # stripped), the entries only exist in the final LangGraph
+        # state's ``run_log`` list.  Flush any un-streamed entries here
+        # as a safety net so the log file is always complete.
+        try:
+            if final_state is not None:
+                run_log_entries: list = final_state.get("run_log", [])
+                run_logger.flush_unstreamed(run_log_entries)
+
+            for err_msg in outside_errors:
+                run_logger.log(
+                    stage="cli",
+                    action="run_error",
+                    result="ERROR",
+                    error=err_msg,
+                    level="ERROR",
+                    thread_id=thread_id,
+                )
+            # Always write a run-end sentinel entry.
+            total_duration_s: float | None = None
+            try:
+                total_duration_s = round(
+                    (datetime.now(UTC) - datetime.fromisoformat(run_start_ts)).total_seconds(), 1
+                )
+            except (ValueError, TypeError):
+                pass
+            run_end_kwargs: dict = {
+                "stage": "cli",
+                "action": "run_end",
+                "result": "COMPLETE" if not outside_errors else "ERROR",
+                "level": "ERROR" if outside_errors else "INFO",
+                "thread_id": thread_id,
+            }
+            if total_duration_s is not None:
+                run_end_kwargs["total_duration_s"] = total_duration_s
+            run_logger.log(**run_end_kwargs)
+        finally:
+            await run_logger.stop_heartbeat()
+            run_logger.close()
 
     # ── Release process lock ────────────────────────────────────────────────
-    if lock_file:
-        try:
-            unlock(lock_file.fileno())
-            lock_file.close()
-            lock_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+    finally:
+        if lock_file:
+            try:
+                unlock(lock_file.fileno())
+                lock_file.close()
+                lock_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     # ── Copy run log to ledger storage ──────────────────────────────────────
     # Copy the JSONL file from orchestrator/logs/ into the project's ledger

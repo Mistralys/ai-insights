@@ -28,7 +28,7 @@ This document covers the internal mechanics of stage nodes, MCP tool wrapping, a
 Each stage node follows a uniform lifecycle managed by `create_stage_node()` in `src/nodes/__init__.py`:
 
 1. **Emit `stage_start`** — records `timestamp`, `stage`, `wp_id`, and `iteration` before any LLM work begins.
-2. **Load persona** — reads the persona Markdown from `personas/ledger/vs-code/<N>-<role>.md` (cached in memory after first load).
+2. **Load persona** — reads the persona Markdown from `personas/ledger/claude-code/<N>-<role>.md` (cached in memory after first load).
 3. **Build prompt** — a stage-specific prompt builder assembles the user message from `WorkflowState` fields (e.g. `current_wp_id`, plan content).
 4. **Wrap tools** — `inject_project_path(list(mcp_tools), project_path)` patches all MCP tools with the Layer 2 safety net (see below).
 5. **Create Deep Agent** — `create_deep_agent(model, backend, system_prompt, tools)` with a `LocalShellBackend(root_dir=target_project_path)`.
@@ -51,6 +51,77 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 | `src/nodes/release_engineer.py` | `make_release_engineer_node` | Calls `ledger_begin_work`, curates the release, completes release-engineering pipeline |
 | `src/nodes/docs.py` | `make_docs_node` | Calls `ledger_begin_work`, updates docs, handles auto-finalize |
 | `src/nodes/synthesis.py` | `make_synthesis_node` | Calls `ledger_complete_synthesis`, writes `synthesis.md` |
+
+---
+
+## Prompt Architecture
+
+The orchestrator's prompt system is built on a single design principle: **persona files own agent identity; user-turn prompts carry only runtime context.** This clean separation was established by the slim-prompts project and is now a permanent architectural constraint (see `orchestrator/docs/agents/project-manifest/constraints.md`, Constraints 1–3).
+
+### Design Principle: Persona Owns Identity, User-Turn Owns Runtime Context
+
+Each stage node loads a persona Markdown file from `personas/ledger/claude-code/` as the system prompt. These files are **static**: they contain the agent's identity declarations, step-by-step workflow instructions, and MCP tool call guidance — everything that does not change between runs. Persona files are never modified at runtime.
+
+The user-turn prompt produced by `_build_*_prompt()` is **dynamic**: it contains only the concrete values the persona file cannot know — the `project_path` for this specific run, the `wp_id` for the current work package, and the injection-safety warning. Nothing else.
+
+This boundary keeps persona files independently reviewable, versionable, and reusable across different orchestration surfaces (headless orchestrator, VS Code, etc.) without coupling them to Python implementation details.
+
+### Three Prompt Templates
+
+There are three structurally distinct user-turn prompt templates, one for each category of stage node:
+
+**WP-scoped template** (6 nodes: `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`)
+
+All six nodes share the minimal WP-scoped template. Each `_build_*_prompt()` function delegates to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`:
+
+```python
+from . import build_stage_prompt
+
+def _build_developer_prompt(state: WorkflowState) -> str:
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),
+    )
+```
+
+Which produces:
+
+```
+**Project:** `/path/to/project`
+**Work package:** WP-001
+
+Always use the project path above for all ledger tool calls.
+```
+
+**PM template** (`pm` node)
+
+The PM template is a documented exception: it embeds the full plan document content so the PM agent has the complete spec before creating work packages. It includes all WP-scoped fields plus a `# Plan Document` section with the full plan file text read from disk at invocation time.
+
+**Synthesis template** (`synthesis` node)
+
+The synthesis template is the other documented exception: it omits `wp_id` entirely because synthesis is project-scoped and operates across all completed work packages rather than a single WP.
+
+### Field Reference
+
+| Template | `project_path` | `wp_id` | `project_path` reminder | Plan document content |
+|----------|:--------------:|:-------:|:------------------------:|:---------------------:|
+| WP-scoped (×6) | ✅ | ✅ | ✅ | ❌ |
+| PM | ✅ | ❌ | ✅ | ✅ |
+| Synthesis | ✅ | ❌ | ✅ | ❌ |
+
+### `project_path` Reminder
+
+Every user-turn prompt includes a reminder to use the specified project path for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`), so changes only need to happen in one place.
+
+**Why it exists:** Persona Markdown files are static and cannot embed runtime values like the concrete `project_path` for a given run. The user-turn prompt is the only place this runtime value can appear.
+
+**Why it's permanent:** Removing the reminder risks the agent omitting `project_path` from MCP tool calls, causing every ledger operation to fail. The Layer 2 `inject_project_path()` tool wrapper (see **MCP Tool Wrapping** below) provides a fallback injection mechanism, but the user-turn reminder is the primary guide.
+
+### Relationship to Persona Files
+
+Persona source files live in `personas/ledger/claude-code/` (one `.md` file per agent role). They are compiled into the format expected by each orchestration surface using `node scripts/build-personas.js` (script lives at the workspace root — run it from there whenever you edit source files under `personas/ledger/src/`). **Never edit generated persona output files** — always edit the source files in `personas/ledger/src/` and rebuild.
+
+The persona file is the single source of truth for what an agent does — its role identity, multi-step workflow, MCP tool usage instructions, rework handling, and handoff protocol. Any change to agent behaviour must be made in the persona source file, not in the Python `_build_*_prompt()` function.
 
 ---
 

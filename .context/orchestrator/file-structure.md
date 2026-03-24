@@ -19,6 +19,7 @@ _SOURCE: Directory tree_
         │   ├── project-manifest/
         │   │   └── README.md
         │   │   └── api-surface.md
+        │   │   └── constraints.md
         ├── architecture.md
         ├── jsonl-log-schema.md
         ├── public-api.md
