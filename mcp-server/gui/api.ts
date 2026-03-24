@@ -1228,7 +1228,7 @@ const DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/;
 const WP_ID_RE = /^WP-\d+$/;
 
 /**
- * Returns an array of dialogue filenames from the project's dialogues/ directory.
+ * Returns an array of dialogue filenames from the project's orchestrator/dialogues/ directory.
  *
  * @param ledgerRoot  Root directory containing all project ledger folders.
  * @param slug        Project slug — validated via assertSafeSlug().
@@ -1283,7 +1283,7 @@ export async function handleListDialogues(
  * Security:
  * - `slug` is validated via assertSafeSlug().
  * - `filename` must match DIALOGUE_FILENAME_RE (alphanumeric + hyphens/underscores + .md).
- * - Resolved path must be inside the project's dialogues/ directory (defence-in-depth).
+ * - Resolved path must be inside the project's orchestrator/dialogues/ directory (defence-in-depth).
  *
  * @param ledgerRoot  Root directory containing all project ledger folders.
  * @param slug        Project slug.

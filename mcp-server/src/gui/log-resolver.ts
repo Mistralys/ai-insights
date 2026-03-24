@@ -137,13 +137,17 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
 }
 
 /**
- * Moves orphaned run log files from a legacy directory into the project's
- * ledger storage directory.
+ * Moves orphaned run log files from a legacy directory into the canonical
+ * orchestrator logs subfolder inside the project's ledger storage directory.
  *
- * This is a self-healing migration for projects whose JSONL logs were written
- * to the old `orchestrator/logs/` flat directory before the post-run archival
- * step was introduced. After this function runs, all logs for the slug will
- * reside in `destDir` alongside the rest of the project's ledger artefacts.
+ * This is a self-healing migration covering two scenarios:
+ *   1. Logs written to the old flat `{ledgerRoot}/{slug}/` location (before the
+ *      `orchestrator/logs/` subdirectory was introduced in the GUI).
+ *   2. Logs still in `orchestrator/logs/` that were never copied by the
+ *      post-run archival step (e.g. interrupted runs on an older build).
+ *
+ * After this function runs, all logs for the slug will reside in `destDir`
+ * (`{ledgerRoot}/{slug}/orchestrator/logs/`).
  *
  * No-op conditions (returns 0 without touching the filesystem):
  *   - `destDir` already contains at least one `*-{slug}.jsonl` file.
@@ -152,8 +156,11 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
  * Migration is best-effort: individual rename failures are swallowed so a
  * single unreadable file never blocks the others.
  *
- * @param destDir - Target directory (project ledger folder).
- * @param srcDir  - Source directory to scan for orphaned files (e.g. `orchestrator/logs/`).
+ * @param destDir - Target directory (`{ledgerRoot}/{slug}/orchestrator/logs/`).
+ * @param srcDir  - Source directory to scan for orphaned files. Callers invoke
+ *                  this function twice in sequence: first with the old flat slug
+ *                  directory (`{ledgerRoot}/{slug}/`), then with the raw
+ *                  orchestrator logs directory (`orchestrator/logs/`).
  * @param slug    - Project slug used to match filenames (`*-{slug}.jsonl`).
  * @returns Number of files successfully moved.
  */

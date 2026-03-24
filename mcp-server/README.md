@@ -343,12 +343,12 @@ Both layers throw `ApiError FORBIDDEN` on violation. Errors are written to **std
 
 Two API handlers in `gui/api.ts` expose the agent dialogue files written by the orchestrator's dialogue capture feature:
 
-- **`handleListDialogues(ledgerRoot, slug, wpId?): Promise<string[]>`** — Returns a sorted array of `.md` filenames from `storage/ledger/{slug}/dialogues/`. Returns `[]` when the directory is absent (no error thrown). Optional `wpId` argument filters to filenames that start with `{wpId}-` (e.g. `'WP-001'` returns only `WP-001-*.md` files).
+- **`handleListDialogues(ledgerRoot, slug, wpId?): Promise<string[]>`** — Returns a sorted array of `.md` filenames from `storage/ledger/{slug}/orchestrator/dialogues/`. Returns `[]` when the directory is absent (no error thrown). Optional `wpId` argument filters to filenames that start with `{wpId}-` (e.g. `'WP-001'` returns only `WP-001-*.md` files).
 - **`handleGetDialogueFile(ledgerRoot, slug, filename): Promise<string>`** — Returns the raw Markdown content of a single dialogue file. Throws `ApiError NOT_FOUND` when the filename is rejected by the allowlist or the file does not exist.
 
 **Security:** `handleGetDialogueFile` enforces a dual-layer path-traversal defence identical in structure to `readLogEntries`:
 1. **Filename allowlist** — `DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/` rejects any filename containing `.`, `/`, or other special characters. The `filename` path segment is decoded with `decodeURIComponent()` in `server.ts` before the check, so percent-encoded traversals (e.g. `%2E%2E%2Fsecret.md`) are also rejected.
-2. **Resolved-path escape check** — `path.resolve()` verifies the resolved file path stays within the project's `dialogues/` directory.
+2. **Resolved-path escape check** — `path.resolve()` verifies the resolved file path stays within the project's `orchestrator/dialogues/` directory.
 
 Both layers throw `ApiError NOT_FOUND` on violation (no leaking of filesystem layout).
 

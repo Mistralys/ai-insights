@@ -333,7 +333,7 @@ function matchRoute(
     rest[2] === 'runs'
   ) {
     const slug = decodeURIComponent(rest[1]!);
-    return () => handleListRunLogs(slug, join(ledgerRoot, slug), legacyLogsDir);
+    return () => handleListRunLogs(slug, join(ledgerRoot, slug, 'orchestrator', 'logs'), join(ledgerRoot, slug), legacyLogsDir);
   }
 
   // GET /api/projects/:slug/runs/:filename
@@ -351,7 +351,7 @@ function matchRoute(
     const sp = new URLSearchParams(qStr);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null ? parseInt(afterParam, 10) : undefined;
-    return () => handleGetRunLog(slug, filename, join(ledgerRoot, slug), afterLine);
+    return () => handleGetRunLog(slug, filename, join(ledgerRoot, slug, 'orchestrator', 'logs'), afterLine);
   }
 
   // DELETE /api/projects/:slug

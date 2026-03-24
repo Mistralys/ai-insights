@@ -90,13 +90,17 @@ export const PLAN_ARCHIVE_FILENAME      = 'plan.md'       as const;
 export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
 
 /**
- * Subdirectory name used to store agent dialogue capture files.
+ * Subdirectory path used to store agent dialogue capture files, relative to
+ * the project's ledger storage root (`{ledgerRoot}/{slug}/`).
  *
- * The orchestrator's `write_dialogue()` utility writes Markdown files to a
- * `dialogues/` subdirectory inside the project plan folder.  This constant
- * keeps the directory name in sync between the MCP server and the orchestrator.
+ * The orchestrator's `write_dialogue()` utility writes Markdown files to
+ * `orchestrator/dialogues/` inside the ledger folder.  This constant keeps
+ * the path in sync between the MCP server and the orchestrator.
+ *
+ * Usage: `path.join(ledgerRoot, slug, DIALOGUES_DIR)`
+ * → `{ledgerRoot}/{slug}/orchestrator/dialogues/`
  */
-export const DIALOGUES_DIR = 'dialogues' as const;
+export const DIALOGUES_DIR = 'orchestrator/dialogues' as const;
 
 /**
  * Workflow specification version this MCP server implements.

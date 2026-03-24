@@ -2181,7 +2181,7 @@ export async function handleGetProjectHealth(
 ): Promise<ProjectHealthSummary>;
 
 // GET /api/projects/:slug/dialogues[?wp=WP-001]
-// Returns an array of dialogue filenames from the project's dialogues/ directory.
+// Returns an array of dialogue filenames from the project's orchestrator/dialogues/ directory.
 // slug is validated via assertSafeSlug(). Returns [] when the directory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
 // All returned filenames are sorted alphabetically.
@@ -2197,7 +2197,7 @@ export async function handleListDialogues(
 //   1. Primary allowlist: DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/ — rejects any filename
 //      containing '.', '/', or other special characters (including percent-decoded traversals).
 //   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
-//      the project's dialogues/ directory.
+//      the project's orchestrator/dialogues/ directory.
 // Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
 export async function handleGetDialogueFile(
   ledgerRoot: string,

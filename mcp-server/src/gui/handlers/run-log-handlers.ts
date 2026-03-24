@@ -52,22 +52,34 @@ function assertSafeSlug(slug: string): void {
  * or `..` throw `ApiError NOT_FOUND` before any filesystem access occurs.
  *
  * @param slug          - Project slug (URL segment, already URL-decoded).
- * @param logsDir       - Absolute path to the directory containing log files
- *                        (the project's ledger storage folder).
- * @param legacyLogsDir - Optional fallback directory (e.g. `orchestrator/logs/`).
- *                        When supplied and `logsDir` contains no logs for the
- *                        slug, any matching files are moved from `legacyLogsDir`
- *                        into `logsDir` before the listing is returned.
+ * @param logsDir            - Absolute path to the directory containing log files
+ *                             (the project's `orchestrator/logs/` subfolder inside
+ *                             ledger storage: `{ledgerRoot}/{slug}/orchestrator/logs/`).
+ * @param legacyLogsDir      - Optional first fallback directory (the old flat
+ *                             `{ledgerRoot}/{slug}/` location used before the
+ *                             `orchestrator/logs/` subfolder was introduced).
+ *                             When supplied and `logsDir` contains no logs for the
+ *                             slug, any matching files are moved from here into
+ *                             `logsDir` before the listing is returned.
+ * @param legacyLogsDir2     - Optional second fallback directory (e.g. the raw
+ *                             `orchestrator/logs/` source directory, for runs that
+ *                             completed but whose post-run copy step was skipped).
+ *                             Applied only when `logsDir` still has no logs after
+ *                             the first migration attempt.
  * @returns Array of matching JSONL filenames (may be empty).
  */
 export async function handleListRunLogs(
   slug: string,
   logsDir: string,
   legacyLogsDir?: string,
+  legacyLogsDir2?: string,
 ): Promise<RunLogEntry[]> {
   assertSafeSlug(slug);
   if (legacyLogsDir) {
     await migrateOrphanedLogs(logsDir, legacyLogsDir, slug);
+  }
+  if (legacyLogsDir2) {
+    await migrateOrphanedLogs(logsDir, legacyLogsDir2, slug);
   }
   return findRunLogs(logsDir, slug);
 }
