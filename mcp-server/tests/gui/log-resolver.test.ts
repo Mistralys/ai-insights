@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile, mkdir } from 'fs/promises';
+import { mkdtemp, rm, writeFile, readFile, mkdir, stat, utimes } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir, homedir } from 'os';
 
@@ -13,8 +13,22 @@ import {
   resolveOrchestratorLogsDir,
   findRunLogs,
   readLogEntries,
+  migrateOrphanedLogs,
+  archiveCompletedLogs,
+  resolveLogSource,
   ApiError,
 } from '../../src/gui/log-resolver.js';
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Offset (ms) used with utimes() when arranging mtime relationships in tests.
+ * Must be large enough to exceed the 1-second mtime resolution on some
+ * filesystems (e.g. HFS+ on macOS), while remaining well below any timeout.
+ */
+const MTIME_OFFSET_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -362,5 +376,262 @@ describe('readLogEntries', () => {
     await expect(readLogEntries(tempDir, 'nonexistent.jsonl')).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateOrphanedLogs
+// ---------------------------------------------------------------------------
+
+describe('migrateOrphanedLogs', () => {
+  let destDir: string;
+  let srcDir: string;
+
+  beforeEach(async () => {
+    destDir = await mkdtemp(join(tmpdir(), 'migrate-dest-'));
+    srcDir = await mkdtemp(join(tmpdir(), 'migrate-src-'));
+  });
+
+  afterEach(async () => {
+    await rm(destDir, { recursive: true, force: true });
+    await rm(srcDir, { recursive: true, force: true });
+  });
+
+  it('copies matching files from srcDir into destDir', async () => {
+    await writeFile(join(srcDir, '20260323T100000-my-project.jsonl'), 'data', 'utf-8');
+
+    const count = await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+
+    expect(count).toBe(1);
+    const destContent = await readFile(join(destDir, '20260323T100000-my-project.jsonl'), 'utf-8');
+    expect(destContent).toBe('data');
+  });
+
+  it('source file still exists after migration (not moved — copyFile not rename)', async () => {
+    const srcFile = join(srcDir, '20260323T100000-my-project.jsonl');
+    await writeFile(srcFile, 'original', 'utf-8');
+
+    await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+
+    // Source must still be readable — the file was copied, not moved.
+    const srcContent = await readFile(srcFile, 'utf-8');
+    expect(srcContent).toBe('original');
+  });
+
+  it('returns 0 and skips migration when destDir already has matching files', async () => {
+    // destDir already has one matching file → migration is a no-op.
+    await writeFile(join(destDir, '20260322T080000-my-project.jsonl'), 'old', 'utf-8');
+    await writeFile(join(srcDir, '20260323T100000-my-project.jsonl'), 'new', 'utf-8');
+
+    const count = await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+
+    expect(count).toBe(0);
+    // The new source file must NOT have been copied — destDir already had logs.
+    await expect(stat(join(destDir, '20260323T100000-my-project.jsonl'))).rejects.toThrow();
+  });
+
+  it('returns 0 when srcDir does not exist', async () => {
+    const count = await migrateOrphanedLogs(destDir, '/nonexistent/path/xyz', 'my-project');
+    expect(count).toBe(0);
+  });
+
+  it('returns 0 when srcDir has no matching files for the slug', async () => {
+    await writeFile(join(srcDir, '20260323T100000-other-project.jsonl'), 'data', 'utf-8');
+    const count = await migrateOrphanedLogs(destDir, srcDir, 'my-project');
+    expect(count).toBe(0);
+  });
+
+  it('creates destDir when it does not yet exist', async () => {
+    const newDest = join(destDir, 'subdir', 'logs');
+    await writeFile(join(srcDir, '20260323T100000-my-project.jsonl'), 'data', 'utf-8');
+
+    await migrateOrphanedLogs(newDest, srcDir, 'my-project');
+
+    const destContent = await readFile(join(newDest, '20260323T100000-my-project.jsonl'), 'utf-8');
+    expect(destContent).toBe('data');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archiveCompletedLogs
+// ---------------------------------------------------------------------------
+
+describe('archiveCompletedLogs', () => {
+  let archiveDir: string;
+  let sourceDir: string;
+
+  beforeEach(async () => {
+    archiveDir = await mkdtemp(join(tmpdir(), 'archive-dest-'));
+    sourceDir = await mkdtemp(join(tmpdir(), 'archive-src-'));
+  });
+
+  afterEach(async () => {
+    await rm(archiveDir, { recursive: true, force: true });
+    await rm(sourceDir, { recursive: true, force: true });
+  });
+
+  it('active run in sourceDir → not copied to archiveDir', async () => {
+    // File ends with run_start (no terminal action) — the run is active.
+    const filename = '20260323T100000-my-project.jsonl';
+    const activeContent = JSON.stringify({ action: 'run_start' }) + '\n';
+    await writeFile(join(sourceDir, filename), activeContent, 'utf-8');
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    expect(archived).toHaveLength(0);
+    // archiveDir should not have the file.
+    await expect(stat(join(archiveDir, filename))).rejects.toThrow();
+  });
+
+  it('completed run not in archive → copied to archiveDir', async () => {
+    const filename = '20260323T110000-my-project.jsonl';
+    const completedContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                             JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(sourceDir, filename), completedContent, 'utf-8');
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    expect(archived).toContain(filename);
+    const archiveContent = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(archiveContent).toBe(completedContent);
+  });
+
+  it('completed run with newer source → archive refreshed', async () => {
+    const filename = '20260323T120000-my-project.jsonl';
+    const oldContent = JSON.stringify({ action: 'run_start' }) + '\n' +
+                       JSON.stringify({ action: 'run_end' }) + '\n';
+    const newContent = oldContent + JSON.stringify({ action: 'run_end', note: 'updated' }) + '\n';
+
+    // Write the archive copy first, then write a newer source file.
+    await writeFile(join(archiveDir, filename), oldContent, 'utf-8');
+
+    // Wait a tick to ensure mtime differs, then write a "newer" source.
+    // We use utimes to manually set the source mtime ahead of the archive.
+    await writeFile(join(sourceDir, filename), newContent, 'utf-8');
+    const archiveStat = await stat(join(archiveDir, filename));
+    const futureTime = new Date(archiveStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(sourceDir, filename), futureTime, futureTime);
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    expect(archived).toContain(filename);
+    const refreshedContent = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(refreshedContent).toBe(newContent);
+  });
+
+  it('completed run with current archive → no-op (not re-copied)', async () => {
+    const filename = '20260323T130000-my-project.jsonl';
+    const content = JSON.stringify({ action: 'run_start' }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+
+    // Write both files with identical content.
+    await writeFile(join(sourceDir, filename), content, 'utf-8');
+    await writeFile(join(archiveDir, filename), content, 'utf-8');
+
+    // Set archive mtime >= source mtime so no copy is needed.
+    const sourceStat = await stat(join(sourceDir, filename));
+    const laterTime = new Date(sourceStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(archiveDir, filename), laterTime, laterTime);
+
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+
+    // No file should have been copied (archive is already current).
+    expect(archived).toHaveLength(0);
+  });
+
+  it('returns empty array when sourceDir does not exist', async () => {
+    const archived = await archiveCompletedLogs(archiveDir, '/nonexistent/path/xyz', 'my-project');
+    expect(archived).toHaveLength(0);
+  });
+
+  it('returns empty array when sourceDir has no matching files', async () => {
+    await writeFile(join(sourceDir, '20260323T100000-other-slug.jsonl'), 'data', 'utf-8');
+    const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
+    expect(archived).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveLogSource
+// ---------------------------------------------------------------------------
+
+describe('resolveLogSource', () => {
+  let archiveDir: string;
+  let sourceDir: string;
+
+  beforeEach(async () => {
+    archiveDir = await mkdtemp(join(tmpdir(), 'resolve-archive-'));
+    sourceDir = await mkdtemp(join(tmpdir(), 'resolve-source-'));
+  });
+
+  afterEach(async () => {
+    await rm(archiveDir, { recursive: true, force: true });
+    await rm(sourceDir, { recursive: true, force: true });
+  });
+
+  it('file only in archiveDir → returns archiveDir', async () => {
+    const filename = '20260322T100000-my-project.jsonl';
+    await writeFile(join(archiveDir, filename), 'data', 'utf-8');
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(archiveDir);
+  });
+
+  it('file only in sourceDir → returns sourceDir', async () => {
+    const filename = '20260323T140000-my-project.jsonl';
+    await writeFile(join(sourceDir, filename), 'live data', 'utf-8');
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(sourceDir);
+  });
+
+  it('file in both with newer source → copies source to archive and returns archiveDir', async () => {
+    const filename = '20260323T120000-my-project.jsonl';
+    const oldContent = 'old archive';
+    const newContent = 'newer source content';
+
+    await writeFile(join(archiveDir, filename), oldContent, 'utf-8');
+    await writeFile(join(sourceDir, filename), newContent, 'utf-8');
+
+    // Make source mtime newer than archive.
+    const archiveStat = await stat(join(archiveDir, filename));
+    const futureTime = new Date(archiveStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(sourceDir, filename), futureTime, futureTime);
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(archiveDir);
+    // Archive should now contain the refreshed content from source.
+    const archiveContent = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(archiveContent).toBe(newContent);
+  });
+
+  it('file in both with current archive (archive mtime >= source) → returns archiveDir without re-copying', async () => {
+    const filename = '20260321T090000-my-project.jsonl';
+    const sourceContent = 'source data';
+    const archiveContent = 'archive data (already current)';
+
+    await writeFile(join(sourceDir, filename), sourceContent, 'utf-8');
+    await writeFile(join(archiveDir, filename), archiveContent, 'utf-8');
+
+    // Make archive mtime >= source mtime.
+    const sourceStat = await stat(join(sourceDir, filename));
+    const laterTime = new Date(sourceStat.mtimeMs + MTIME_OFFSET_MS);
+    await utimes(join(archiveDir, filename), laterTime, laterTime);
+
+    const result = await resolveLogSource(archiveDir, sourceDir, filename);
+
+    expect(result).toBe(archiveDir);
+    // Archive content must not have been overwritten.
+    const content = await readFile(join(archiveDir, filename), 'utf-8');
+    expect(content).toBe(archiveContent);
+  });
+
+  it('file in neither directory → returns archiveDir (so caller gets NOT_FOUND from archiveDir)', async () => {
+    const result = await resolveLogSource(archiveDir, sourceDir, 'nonexistent.jsonl');
+    // When neither exists, the function returns archiveDir (fall-through path).
+    expect(result).toBe(archiveDir);
   });
 });

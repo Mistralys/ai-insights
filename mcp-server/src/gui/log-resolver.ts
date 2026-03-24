@@ -27,7 +27,7 @@
  * from importing `gui/api.ts` here (since `gui/api.ts` imports this file).
  */
 
-import { readdir, readFile, appendFile, rename, mkdir } from 'node:fs/promises';
+import { readdir, readFile, appendFile, copyFile, mkdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { ApiError } from './errors.js';
@@ -137,7 +137,7 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
 }
 
 /**
- * Moves orphaned run log files from a legacy directory into the canonical
+ * Copies orphaned run log files from a legacy directory into the canonical
  * orchestrator logs subfolder inside the project's ledger storage directory.
  *
  * This is a self-healing migration covering two scenarios:
@@ -147,13 +147,15 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
  *      post-run archival step (e.g. interrupted runs on an older build).
  *
  * After this function runs, all logs for the slug will reside in `destDir`
- * (`{ledgerRoot}/{slug}/orchestrator/logs/`).
+ * (`{ledgerRoot}/{slug}/orchestrator/logs/`). Source files are preserved —
+ * `copyFile()` is used instead of `rename()` to avoid destroying files that
+ * may still be open by the orchestrator.
  *
  * No-op conditions (returns 0 without touching the filesystem):
  *   - `destDir` already contains at least one `*-{slug}.jsonl` file.
  *   - `srcDir` does not exist or contains no matching files.
  *
- * Migration is best-effort: individual rename failures are swallowed so a
+ * Migration is best-effort: individual copy failures are swallowed so a
  * single unreadable file never blocks the others.
  *
  * @param destDir - Target directory (`{ledgerRoot}/{slug}/orchestrator/logs/`).
@@ -162,7 +164,7 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
  *                  directory (`{ledgerRoot}/{slug}/`), then with the raw
  *                  orchestrator logs directory (`orchestrator/logs/`).
  * @param slug    - Project slug used to match filenames (`*-{slug}.jsonl`).
- * @returns Number of files successfully moved.
+ * @returns Number of files successfully copied.
  */
 export async function migrateOrphanedLogs(
   destDir: string,
@@ -199,13 +201,149 @@ export async function migrateOrphanedLogs(
   let migrated = 0;
   for (const filename of matching) {
     try {
-      await rename(join(srcDir, filename), join(destDir, filename));
+      await copyFile(join(srcDir, filename), join(destDir, filename));
       migrated++;
     } catch {
       // Best-effort — skip files that cannot be moved (permissions, EXDEV, etc.)
     }
   }
   return migrated;
+}
+
+/**
+ * Archives completed run log files from `sourceDir` into `archiveDir`.
+ *
+ * For each `*-{slug}.jsonl` file in `sourceDir`:
+ *   - **Skips** files where `isRunActive()` returns `true` (run still in progress).
+ *   - **Copies** the file to `archiveDir` when it is not yet present there.
+ *   - **Refreshes** the archived copy when the source file's `mtime` is newer
+ *     than the archived copy's `mtime` (source has been updated since last archive).
+ *
+ * `archiveDir` is created (recursively) if it does not already exist.
+ * Individual copy failures are swallowed — archival is best-effort.
+ *
+ * @param archiveDir - Destination directory for archived log files.
+ * @param sourceDir  - Source directory to scan (e.g. the orchestrator's live
+ *                     `logs/` directory).
+ * @param slug       - Project slug used to match filenames (`*-{slug}.jsonl`).
+ * @returns Array of filenames that were archived or refreshed during this call.
+ */
+export async function archiveCompletedLogs(
+  archiveDir: string,
+  sourceDir: string,
+  slug: string,
+): Promise<string[]> {
+  const suffix = `-${slug}.jsonl`;
+
+  // Scan sourceDir for matching files.
+  let srcEntries: string[];
+  try {
+    srcEntries = await readdir(sourceDir);
+  } catch {
+    return []; // sourceDir absent or unreadable — nothing to archive.
+  }
+
+  const matching = srcEntries.filter(
+    (name) => name.endsWith(suffix) && name.length > suffix.length,
+  );
+  if (matching.length === 0) return [];
+
+  await mkdir(archiveDir, { recursive: true });
+
+  const archived: string[] = [];
+  for (const filename of matching) {
+    const srcPath = join(sourceDir, filename);
+    const destPath = join(archiveDir, filename);
+
+    // Skip files that belong to an active (still-running) orchestrator run.
+    const active = await isRunActive(srcPath);
+    if (active) continue;
+
+    // Determine whether a copy is needed.
+    let needsCopy = true;
+    try {
+      const [srcStat, destStat] = await Promise.all([stat(srcPath), stat(destPath)]);
+      // Archive is current when its mtime is >= source mtime.
+      needsCopy = srcStat.mtimeMs > destStat.mtimeMs;
+    } catch {
+      // destPath doesn't exist yet — needsCopy stays true.
+    }
+
+    if (!needsCopy) continue;
+
+    try {
+      await copyFile(srcPath, destPath);
+      archived.push(filename);
+    } catch {
+      // Best-effort — skip files that cannot be copied (permissions, etc.)
+    }
+  }
+
+  return archived;
+}
+
+/**
+ * Resolves which directory should be used to read a specific log file.
+ *
+ * Decision matrix (both `archiveDir` and `sourceDir` are considered):
+ *
+ * | sourceDir | archiveDir | source newer? | Result                              |
+ * |-----------|------------|---------------|-------------------------------------|
+ * | ✅ exists  | ❌ missing  | n/a           | returns `sourceDir`                 |
+ * | ❌ missing | ✅ exists   | n/a           | returns `archiveDir`                |
+ * | ✅ exists  | ✅ exists   | yes           | copies source → archive, returns `archiveDir` |
+ * | ✅ exists  | ✅ exists   | no (archive current) | returns `archiveDir`         |
+ *
+ * When the file does not exist in either directory, returns `sourceDir` so the
+ * caller's subsequent read will produce a sensible `NOT_FOUND` error.
+ *
+ * @param archiveDir - Ledger archive directory for this project's logs.
+ * @param sourceDir  - Orchestrator live logs directory.
+ * @param filename   - Bare filename (no directory component) to locate.
+ * @returns The directory path from which `filename` should be read.
+ */
+export async function resolveLogSource(
+  archiveDir: string,
+  sourceDir: string,
+  filename: string,
+): Promise<string> {
+  const srcPath = join(sourceDir, filename);
+  const destPath = join(archiveDir, filename);
+
+  let srcStat: { mtimeMs: number } | null = null;
+  let destStat: { mtimeMs: number } | null = null;
+
+  try {
+    srcStat = await stat(srcPath);
+  } catch {
+    // File absent in sourceDir.
+  }
+
+  try {
+    destStat = await stat(destPath);
+  } catch {
+    // File absent in archiveDir.
+  }
+
+  // Only in sourceDir.
+  if (srcStat && !destStat) return sourceDir;
+
+  // Only in archiveDir (or neither).
+  if (!srcStat) return archiveDir;
+
+  // Present in both — compare mtimes.
+  if (srcStat.mtimeMs > destStat!.mtimeMs) {
+    // Source is newer: refresh the archive copy before returning archiveDir.
+    try {
+      await mkdir(archiveDir, { recursive: true });
+      await copyFile(srcPath, destPath);
+    } catch {
+      // Best-effort — return archiveDir even if copy fails (stale is better
+      // than nothing, and sourceDir may have been removed).
+    }
+  }
+
+  return archiveDir;
 }
 
 // ---------------------------------------------------------------------------
