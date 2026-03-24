@@ -531,7 +531,7 @@ def get_run_logger(config: Any) -> WorkflowLogger | None:
         The LangGraph ``RunnableConfig`` dict passed to node functions.
     """
     if config is None:
-        log.warning("get_run_logger: config is None")
+        log.debug("get_run_logger: config is None")
         return None
     configurable = config.get("configurable") or {}
     logger = configurable.get("run_logger")

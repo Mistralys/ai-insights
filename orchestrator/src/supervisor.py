@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
@@ -159,7 +159,7 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
     # ------------------------------------------------------------------
 
     async def supervisor_node(
-        state: WorkflowState, config: RunnableConfig | None = None,
+        state: WorkflowState, config: Optional[RunnableConfig] = None,  # noqa: UP045
     ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)
@@ -249,6 +249,29 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                         "run_log": [log_entry],
                     },
                 )
+
+            # On the very first iteration a missing ledger is expected —
+            # route to PM so it can initialise the project.
+            if new_iteration <= 1:
+                log.info("No project ledger yet — routing to PM to initialise.")
+                log_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="route",
+                    destination=_DEST_PM,
+                    reason="no project ledger found (new run)",
+                )
+                if run_logger:
+                    run_logger.stream_entry(log_entry)
+                return Command(
+                    goto=_DEST_PM,
+                    update={
+                        "iteration": new_iteration,
+                        "current_stage": _DEST_PM,
+                        "run_log": [log_entry],
+                    },
+                )
+
             log.error("Failed to read project status: %s", exc)
             ts = datetime.now(UTC).isoformat()
             log_entry = _log_entry(
@@ -275,7 +298,10 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
         try:
             wp_list_data = await _call_tool("ledger_list_work_packages", project_path=project_path)
         except Exception as exc:
-            log.error("Failed to list work packages: %s", exc)
+            if new_iteration <= 1:
+                log.info("No work packages yet (new project): %s", exc)
+            else:
+                log.error("Failed to list work packages: %s", exc)
             wp_list_error = str(exc)
             wp_list_data = []
 
