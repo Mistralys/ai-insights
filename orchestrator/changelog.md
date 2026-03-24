@@ -1,5 +1,13 @@
 # Orchestrator Changelog
 
+## v0.9.5 - Defaults & Heartbeat
+- Config: `capture_dialogues` default changed from `False` to `True`.
+- Config: Added `heartbeat_interval_s` setting (default 120 s).
+- Logging: Added heartbeat emitter — sends periodic alive signals during quiet periods.
+- Supervisor: Added `dry_run` mode for stub-based runs without a ledger.
+- Dialogues: Folder relocated to `{slug}/orchestrator/dialogues/`.
+- CLI: Run log archival now targets `{slug}/orchestrator/logs/`.
+
 ## v0.9.4 - Run Log Archival to Ledger Storage
 - CLI: After run completion, the JSONL log is moved from `orchestrator/logs/` into `mcp-server/storage/ledger/{slug}/` so all project artefacts are co-located in the ledger folder. The final path is printed at run end. Falls back to the original location on `OSError`.
 - Utils: Fixed stale docstring in `write_dialogue()` — `slug_dir` parameter now correctly documents the ledger storage path rather than the plan directory.

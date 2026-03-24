@@ -1,5 +1,11 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.18.6 - Ledger Storage Relocation
+- Config: `capture_dialogues` default changed from `false` to `true`.
+- Constants: `DIALOGUES_DIR` changed to `orchestrator/dialogues`.
+- Backend: Run logs now served from `{slug}/orchestrator/logs/`.
+- Backend: `handleListRunLogs` accepts two legacy fallback dirs for tiered migration.
+
 ## v1.18.5 - Orphaned Run Log Migration
 - GUI Backend: Added `migrateOrphanedLogs(destDir, srcDir, slug)` to `src/gui/log-resolver.ts`. Moves `*-{slug}.jsonl` files from a legacy source directory into the project's ledger storage directory when the destination has none. No-op if destination already has logs or source has none; individual rename failures are swallowed (best-effort).
 - GUI Backend: `handleListRunLogs` in `run-log-handlers.ts` accepts an optional `legacyLogsDir` parameter. When supplied, calls `migrateOrphanedLogs` before listing — enabling lazy, access-time migration of projects whose logs predate the post-run archival step.
