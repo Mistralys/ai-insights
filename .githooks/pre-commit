@@ -1,6 +1,13 @@
 #!/bin/sh
 /usr/local/bin/node scripts/build-personas.js --check
 
+# Run ruff on staged orchestrator Python files
+STAGED_PY=$(git diff --cached --name-only | grep '^orchestrator/src/.*\.py$')
+if [ -n "$STAGED_PY" ]; then
+  echo "Running ruff on staged orchestrator files..."
+  orchestrator/.venv/bin/ruff check orchestrator/src/ || exit 1
+fi
+
 # Warn if a sub-project changelog changed without the root changelog
 STAGED=$(git diff --cached --name-only)
 SUB_CHANGED=0
