@@ -92,5 +92,5 @@ documents:
         notPath:
           - 'node_modules/'
           - 'dist/'
-          - 'storage/ledger/*/'
+          - 'storage/ledger/'
 
