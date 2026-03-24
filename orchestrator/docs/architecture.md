@@ -84,7 +84,7 @@ See root `AGENTS.md` → Cross-Platform Policy for the full workspace-wide polic
 
 ## JSONL Log Entry Types
 
-Each run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is moved to `mcp-server/storage/ledger/{slug}/` (path printed at run end). Key entry types:
+Each run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/` so that directory is never silently emptied. Key entry types:
 
 | `action` value | Emitted by | Key fields |
 |---|---|---|

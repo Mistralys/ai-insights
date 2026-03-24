@@ -7,7 +7,7 @@ serialize_messages_to_markdown(messages, stage, wp_id, timestamp) -> str
     Convert a LangChain message list to a human-readable Markdown document.
 
 write_dialogue(content, slug_dir, wp_id, stage) -> Path
-    Persist *content* to ``{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md``,
+    Persist *content* to ``{slug_dir}/orchestrator/dialogues/{wp_id}-{stage}-r{N}.md``,
     auto-incrementing the revision number *N* when prior revisions exist.
 
 Supported message roles
@@ -203,16 +203,16 @@ def write_dialogue(
     stage: str,
 ) -> Path:
     """
-    Write *content* to ``{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md``.
+    Write *content* to ``{slug_dir}/orchestrator/dialogues/{wp_id}-{stage}-r{N}.md``.
 
     The revision number *N* is determined by globbing existing
-    ``{wp_id}-{stage}-r*.md`` files inside ``{slug_dir}/dialogues/``.
+    ``{wp_id}-{stage}-r*.md`` files inside ``{slug_dir}/orchestrator/dialogues/``.
     The first call writes ``r0``; subsequent calls for the same
     ``wp_id``/``stage`` pair increment the revision.
 
     .. note:: Cross-language coupling
-        The subdirectory name ``"dialogues"`` is intentionally kept in sync
-        with the MCP server's ``DIALOGUES_DIR`` constant defined in
+        The subdirectory path ``orchestrator/dialogues`` is intentionally kept
+        in sync with the MCP server's ``DIALOGUES_DIR`` constant defined in
         ``mcp-server/src/utils/constants.ts``.  If this value ever needs to
         change, both files must be updated together.
 
@@ -233,7 +233,7 @@ def write_dialogue(
     Path
         Absolute path to the file that was written.
     """
-    dialogues_dir = slug_dir / "dialogues"
+    dialogues_dir = slug_dir / "orchestrator" / "dialogues"
     dialogues_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine next revision number.

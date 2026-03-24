@@ -30,6 +30,7 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
 import sys
 import time
 import uuid
@@ -580,19 +581,23 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         except OSError:
             pass
 
-    # ── Archive run log to ledger storage ───────────────────────────────────
-    # Move the JSONL file from orchestrator/logs/ into the project's ledger
+    # ── Copy run log to ledger storage ──────────────────────────────────────
+    # Copy the JSONL file from orchestrator/logs/ into the project's ledger
     # storage folder so all project artefacts are co-located there.
+    # The original file is kept in orchestrator/logs/ to avoid files
+    # disappearing from there for seemingly no reason.
     log_final_path = run_logger._path
     slug = plan_dir.name
-    ledger_log_dir = config.workspace_root / "mcp-server" / "storage" / "ledger" / slug
+    ledger_log_dir = (
+        config.workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
+    )
     try:
         ledger_log_dir.mkdir(parents=True, exist_ok=True)
         dest = ledger_log_dir / run_logger._path.name
-        run_logger._path.rename(dest)
+        shutil.copy2(run_logger._path, dest)
         log_final_path = dest
     except OSError as exc:
-        log.warning("Could not archive run log to ledger storage: %s", exc)
+        log.warning("Could not copy run log to ledger storage: %s", exc)
 
     duration = time.monotonic() - start_time
     print(f"\n  Log file   : {log_final_path}")

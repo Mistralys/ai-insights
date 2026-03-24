@@ -225,14 +225,14 @@ class TestSerializeUsageMetadata:
 # ---------------------------------------------------------------------------
 
 class TestWriteDialogueCreatesDirectory:
-    """The dialogues/ subdirectory is created when absent."""
+    """The orchestrator/dialogues/ subdirectory is created when absent."""
 
     def test_creates_dialogues_dir(self, tmp_path: Path):
         write_dialogue("# Hello", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
-        assert (tmp_path / "dialogues").is_dir()
+        assert (tmp_path / "orchestrator" / "dialogues").is_dir()
 
     def test_no_error_when_dir_already_exists(self, tmp_path: Path):
-        (tmp_path / "dialogues").mkdir()
+        (tmp_path / "orchestrator" / "dialogues").mkdir(parents=True)
         write_dialogue("# Hello", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
 
 
@@ -291,7 +291,7 @@ class TestWriteDialogueReturnValue:
 
     def test_returned_path_is_inside_dialogues_dir(self, tmp_path: Path):
         result = write_dialogue("x", slug_dir=tmp_path, wp_id="WP-001", stage="developer")
-        assert result.parent == tmp_path / "dialogues"
+        assert result.parent == tmp_path / "orchestrator" / "dialogues"
 
 
 class TestWriteDialogueNoSideEffects:
@@ -302,10 +302,10 @@ class TestWriteDialogueNoSideEffects:
         separate_dir = tmp_path / "project"
         separate_dir.mkdir()
         write_dialogue("x", slug_dir=separate_dir, wp_id="WP-001", stage="developer")
-        # The CWD (tmp_path) should not have a dialogues/ dir.
-        assert not (tmp_path / "dialogues").exists()
-        # Only the project dir's dialogues subdir should exist.
-        assert (separate_dir / "dialogues").exists()
+        # The CWD (tmp_path) should not have an orchestrator/dialogues/ dir.
+        assert not (tmp_path / "orchestrator" / "dialogues").exists()
+        # Only the project dir's orchestrator/dialogues subdir should exist.
+        assert (separate_dir / "orchestrator" / "dialogues").exists()
 
 
 # ---------------------------------------------------------------------------
