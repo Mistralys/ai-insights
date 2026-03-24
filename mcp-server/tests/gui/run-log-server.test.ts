@@ -185,7 +185,9 @@ describe('run-log HTTP routes — error mapping (instanceof ApiError regression)
   });
 
   it('returns 200 and parsed entries for an existing log file', async () => {
-    const logFile = join(logsDir, '20260225T113355-my-project.jsonl');
+    const projectLogsDir = join(ledgerRoot, 'my-project', 'orchestrator', 'logs');
+    await mkdir(projectLogsDir, { recursive: true });
+    const logFile = join(projectLogsDir, '20260225T113355-my-project.jsonl');
     await writeJsonl(logFile, [
       { action: 'start', timestamp: '2026-02-25T11:33:55Z' },
       { action: 'end',   timestamp: '2026-02-25T11:34:00Z' },
@@ -202,7 +204,9 @@ describe('run-log HTTP routes — error mapping (instanceof ApiError regression)
   });
 
   it('returns 200 and respects the ?after= query parameter', async () => {
-    const logFile = join(logsDir, '20260225T113355-my-project.jsonl');
+    const projectLogsDir = join(ledgerRoot, 'my-project', 'orchestrator', 'logs');
+    await mkdir(projectLogsDir, { recursive: true });
+    const logFile = join(projectLogsDir, '20260225T113355-my-project.jsonl');
     await writeJsonl(logFile, [
       { action: 'a', timestamp: '2026-02-25T11:33:55Z' },
       { action: 'b', timestamp: '2026-02-25T11:33:56Z' },
