@@ -342,7 +342,7 @@ const CompletePipelineSchema = z.object({
     .optional()
     .describe('Updates to acceptance criteria met status. This is the PRIMARY way to mark acceptance criteria as met—you must update criteria here before marking a work package as COMPLETE.'),
   handoff_notes: z
-    .array(z.string())
+    .union([z.string(), z.array(z.string())])
     .optional()
     .describe('Notes for the next agent in the pipeline. Will be attached to the WP as a structured handoff note entry.'),
   agent_role: z
@@ -357,6 +357,13 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
     ? [rawArgs.summary]
     : rawArgs.summary;
 
+  // handoff_notes: coerce a bare string to a single-element array
+  const normalizedHandoffNotes: string[] | undefined = rawArgs.handoff_notes === undefined
+    ? undefined
+    : typeof rawArgs.handoff_notes === 'string'
+      ? [rawArgs.handoff_notes]
+      : rawArgs.handoff_notes;
+
   // comments[].timestamp: auto-fill missing timestamps with server time
   const normalizedComments = rawArgs.comments?.map((c) => ({
     ...c,
@@ -366,6 +373,7 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
   const args = {
     ...rawArgs,
     summary: normalizedSummary,
+    handoff_notes: normalizedHandoffNotes,
     comments: normalizedComments,
   };
   // ────────────────────────────────────────────────────────────────────────────

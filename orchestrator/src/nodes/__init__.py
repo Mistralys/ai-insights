@@ -28,7 +28,7 @@ from langchain_core.runnables import RunnableConfig
 from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
-from src.utils.tool_wrappers import inject_project_path
+from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -135,6 +135,8 @@ def create_stage_node(
             backend = LocalShellBackend(root_dir=target_path or None)
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
+            if _wp_id:
+                restrict_to_wp(wrapped_tools, _wp_id)
 
             agent = create_deep_agent(
                 model=_app_config.model_name,

@@ -1,14 +1,23 @@
 """
 tool_wrappers — MCP tool call safety-net utilities.
 
-This module provides :func:`inject_project_path`, a defensive wrapper that
-auto-injects both ``project_path`` and ``cwd_path`` into every MCP tool call.
-It acts as a **Layer 2 safety net**: even if an LLM-driven agent ignores the
-explicit prompt instructions that ask it to supply these arguments, this wrapper
-guarantees they reach the MCP server.
+This module provides two defensive wrapper functions:
 
-Design notes
-------------
+:func:`inject_project_path`
+    Auto-injects ``project_path`` into every MCP tool call when the argument is
+    absent.  It acts as a **Layer 2 safety net**: even if an LLM-driven agent
+    ignores the explicit prompt instructions that ask it to supply
+    ``project_path``, this wrapper guarantees the argument reaches the MCP
+    server.
+
+:func:`restrict_to_wp`
+    Guards against hallucinated cross-WP tool calls by raising ``ValueError``
+    when a tool argument contains a ``work_package_id`` that does not match the
+    active work package.  This is a **Layer 3 safety net** that prevents a
+    confused LLM from accidentally operating on a different work package.
+
+Design notes — :func:`inject_project_path`
+-------------------------------------------
 - A sentinel attribute ``_orig_ainvoke`` is stored on the tool object the first
   time it is wrapped.  Subsequent calls to :func:`inject_project_path` on the
   same tool objects (e.g. because ``list(mcp_tools)`` is a shallow copy and the
@@ -18,20 +27,29 @@ Design notes
 - Only ``ainvoke`` is monkeypatched; all other attributes (``name``,
   ``description``, ``args_schema``, etc.) remain untouched so that tool
   discovery and schema introspection work as normal.
-- ``project_path`` uses ``setdefault`` semantics: an explicitly-provided value
-  is never overwritten.
-- ``cwd_path`` is always set to the authoritative project path, overwriting any
-  caller-supplied value.  This ensures tools that only accept ``cwd_path`` (such
-  as ``ledger_detect_project``) always receive a valid path, while tools that
-  only accept ``project_path`` silently ignore the extra key via schema
-  unknown-key stripping.
+- Injection uses ``setdefault`` semantics: an explicitly-provided
+  ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
+  (following persona instructions meant for IDE agents), the wrapper
+  strips it — most MCP tools enforce mutual exclusivity between
+  ``project_path`` and ``cwd_path``.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 
+Design notes — :func:`restrict_to_wp`
+--------------------------------------
+- A sentinel attribute ``_orig_ainvoke_wp`` is stored on each tool on the first
+  wrap; subsequent calls are idempotent and never stack closures.
+- If ``wp_id`` is the empty string the function returns the tools list unchanged
+  (no wrapping).
+- The guard only fires when the call explicitly passes ``work_package_id``.
+  Tool calls that omit ``work_package_id`` are allowed through; this avoids
+  false positives for tools that do not accept a WP ID at all.
+- Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected,
+  mirroring the pattern used by :func:`inject_project_path`.
+
 Context
 -------
-Tests for this module live in ``orchestrator/tests/test_tool_wrappers.py``
-(WP-001, WP-003).
+Tests for this module live in ``orchestrator/tests/test_tool_wrappers.py``.
 """
 
 from __future__ import annotations
@@ -40,7 +58,7 @@ from typing import Any
 
 
 def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
-    """Wrap each tool's ``ainvoke`` to auto-inject ``project_path`` and ``cwd_path``.
+    """Wrap each tool's ``ainvoke`` to auto-inject ``project_path``.
 
     The function is **idempotent**: calling it multiple times on the same tool
     objects (e.g. because ``list(mcp_tools)`` produces a shallow copy) will
@@ -55,10 +73,8 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
         ``StructuredTool`` objects obtained from
         :class:`~src.mcp_client.MCPToolkit`).
     project_path:
-        The authoritative ledger project-directory path.  Injected as
-        ``project_path`` (``setdefault`` — preserves explicit caller values)
-        and as ``cwd_path`` (always overwritten) so that every ledger tool
-        receives a valid routing key regardless of which parameter it accepts.
+        The ledger project-directory path to inject when the tool call
+        arguments do not already contain ``project_path``.
 
     Returns
     -------
@@ -93,20 +109,84 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
                     # Flat dict of tool arguments
                     target = input
 
-                # Inject both routing keys so every ledger tool receives a
-                # valid path regardless of which parameter it accepts:
-                #   - project_path: setdefault — preserves an explicit caller
-                #     value (some tools receive a non-default project path).
-                #   - cwd_path: always overwrite — the orchestrator knows the
-                #     authoritative path; any caller-supplied value (e.g. from
-                #     a persona instruction meant for interactive IDE agents)
-                #     is replaced.  Tools that do not accept cwd_path ignore
-                #     the extra key via Zod unknown-key stripping.
+                # In the orchestrator context we always know the exact
+                # project_path, so cwd_path-based auto-detection is never
+                # needed.  If the LLM agent followed persona instructions
+                # meant for interactive IDE agents and passed cwd_path,
+                # remove it — most MCP tools enforce mutual exclusivity
+                # between project_path and cwd_path.
+                if "cwd_path" in target:
+                    del target["cwd_path"]
                 target.setdefault("project_path", _proj)
-                target["cwd_path"] = _proj
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)
+
+    return tools
+
+
+def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
+    """Wrap each tool's ``ainvoke`` to reject calls targeting a different WP.
+
+    If a tool call includes a ``work_package_id`` argument whose value does not
+    match *wp_id*, a :class:`ValueError` is raised before the call is forwarded
+    to the underlying MCP server.  Tool calls that do not include
+    ``work_package_id`` are passed through unmodified.
+
+    The function is **idempotent**: a sentinel attribute ``_orig_ainvoke_wp``
+    prevents closure stacking when the same tool objects are wrapped more than
+    once.
+
+    Parameters
+    ----------
+    tools:
+        A list of tool objects (typically already wrapped by
+        :func:`inject_project_path`).
+    wp_id:
+        The active work-package identifier (e.g. ``"WP-001"``).
+        When this is an **empty string**, the function returns *tools* unchanged
+        so that stages without an active WP (e.g. synthesis) are not affected.
+
+    Returns
+    -------
+    list[Any]
+        The same list with each tool's ``ainvoke`` replaced by the guard
+        wrapper.  Mutation is in-place; the original list reference is also
+        returned for convenience.
+    """
+    if not wp_id:
+        return tools
+
+    for tool in tools:
+        # Idempotency: use the sentinel to find the true original ainvoke.
+        if not hasattr(tool, "_orig_ainvoke_wp"):
+            object.__setattr__(tool, "_orig_ainvoke_wp", tool.ainvoke)
+        _original_ainvoke_wp = tool._orig_ainvoke_wp  # type: ignore[attr-defined]
+
+        async def _guarded_ainvoke(
+            input: Any,
+            *args: Any,
+            _orig: Any = _original_ainvoke_wp,
+            _active_wp: str = wp_id,
+            **kwargs: Any,
+        ) -> Any:
+            if isinstance(input, dict):
+                # Handle both flat-dict and ToolCall {"args": {...}} structures.
+                if "args" in input and isinstance(input["args"], dict):
+                    target = input["args"]
+                else:
+                    target = input
+
+                call_wp_id = target.get("work_package_id")
+                if call_wp_id is not None and call_wp_id != _active_wp:
+                    raise ValueError(
+                        f"Tool call targets work_package_id={call_wp_id!r} but "
+                        f"the active work package is {_active_wp!r}. "
+                        "Refusing to forward this call to prevent cross-WP contamination."
+                    )
+            return await _orig(input, *args, **kwargs)
+
+        object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
 
     return tools
 

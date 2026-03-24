@@ -35,9 +35,15 @@ from . import build_stage_prompt, create_stage_node
 
 def _build_reviewer_prompt(state: WorkflowState) -> str:
     """Construct the reviewer agent's user-turn prompt."""
+    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
+    extra = (
+        f"**SCOPE RESTRICTION — You must ONLY operate on work package {wp_id}. "
+        "Do NOT call any MCP tool with a different work_package_id.**"
+    )
     return build_stage_prompt(
         state["project_path"],
-        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
+        wp_id=wp_id,
+        extra=extra,
     )
 
 

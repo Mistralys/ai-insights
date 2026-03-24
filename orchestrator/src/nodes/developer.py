@@ -39,10 +39,18 @@ from . import build_stage_prompt, create_stage_node
 
 def _build_developer_prompt(state: WorkflowState) -> str:
     """Construct the developer agent's user-turn prompt."""
+    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
+    extra = (
+        f'**Step 1 — BEFORE writing any code:** Call `ledger_begin_work` with '
+        f'work_package_id={wp_id}, type="implementation", agent_role="Developer".\n\n'
+        "**Pipeline to start:** `implementation`\n\n"
+        f"**SCOPE RESTRICTION — You must ONLY operate on work package {wp_id}. "
+        "Do NOT call any MCP tool with a different work_package_id.**"
+    )
     return build_stage_prompt(
         state["project_path"],
-        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
-        extra="**Pipeline to start:** `implementation`",
+        wp_id=wp_id,
+        extra=extra,
     )
 
 
