@@ -32,10 +32,31 @@ After applying each fix, record it as a pipeline comment with type `reviewer-app
 
 #### Tier 3 — Documentation-Forward Rules
 
-When you spot a documentation gap during review, record it as a pipeline comment with type `documentation-forward` so the Documentation agent can act on it. Examples:
+When you spot a documentation gap during review, record it as a pipeline comment with type `documentation-forward` so the Documentation agent can act on it.
 
-* "Function `parseConfig()` needs a docstring explaining the return shape"
-* "README doesn't mention the new `--verbose` flag added in this WP"
-* "API surface doc is missing the new `validateInput()` method"
+##### Named Convention: `[documentation-forward]`
+
+**What it is:** A structured pipeline comment left by the Reviewer when a documentation gap is identified during code review. It does **not** block the PASS verdict — it is a handoff signal, not a failure marker.
+
+**How to record it:** Add a comment object to the `comments` array in your `ledger_complete_pipeline` call:
+
+```json
+{
+  "type": "documentation-forward",
+  "priority": "medium",
+  "note": "[documentation-forward] <actionable description of the documentation gap>"
+}
+```
+
+The `note` field **must** begin with `[documentation-forward]` so the Documentation agent can locate and resolve all open items. Use `priority` to indicate urgency: `high` for gaps that leave the API undiscoverable, `medium` for missing explanations that will confuse future contributors, `low` for cosmetic or supplementary additions.
+
+**Who resolves it:** The Documentation agent in its dedicated pipeline stage. It reads open `documentation-forward` comments from the most recent code-review pipeline and addresses each one before marking the WP complete.
+
+**Concrete examples:**
+
+* `"[documentation-forward] Function parseConfig() needs a docstring explaining the return shape and the meaning of each key"`
+* `"[documentation-forward] README doesn't mention the new --verbose flag added in this WP — add a CLI reference entry"`
+* `"[documentation-forward] API surface doc is missing the new validateInput() method — add signature, parameters, and return type"`
+* `"[documentation-forward] Module-level docstring in src/nodes/reviewer.py still references the old review tiers; update to reflect current three-tier model"`
 
 Do not apply documentation changes yourself — the Documentation agent owns that scope.

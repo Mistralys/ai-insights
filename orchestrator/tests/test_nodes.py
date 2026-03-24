@@ -1,5 +1,5 @@
 """
-test_nodes.py — Unit tests for the six Deep Agent stage nodes.
+test_nodes.py — Unit tests for the eight Deep Agent stage nodes.
 
 These tests verify module structure, factory return types, state-update
 conformance, error handling, and stage-specific requirements (PM plan content,
