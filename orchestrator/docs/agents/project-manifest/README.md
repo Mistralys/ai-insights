@@ -37,6 +37,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Architecture & Data Flows** | [architecture.md](../../architecture.md) | Stage node lifecycle, MCP tool wrapping, `WorkflowState` fields, JSONL log entry types |
 | **Routing Logic** | [supervisor-routing.md](../../supervisor-routing.md) | Deterministic supervisor algorithm, special exits, action sets, circuit-breaker mechanics |
 | **Public API Surface** | [public-api.md](../../public-api.md) | CLI entry point, graph construction, supervisor factory, utility functions |
+| **Constraints & Conventions** | [project-manifest/constraints.md](constraints.md) | Numbered constraints and conventions governing orchestrator development: prompt architecture rules, LLM boundaries, circuit-breaker, cross-platform policy |
 | **API Surface (manifest)** | [project-manifest/api-surface.md](api-surface.md) | Quick-reference: 16 JSONL event types, enriched fields, `_format_duration`, `parse_tool_response`, progress-tracking state fields |
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
@@ -67,13 +68,9 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 
 ## Constraints & Conventions
 
-1. **No LLM calls in the supervisor.** All routing decisions come from the MCP server's ledger tools.
-2. **Manifest-derived constants.** `PIPELINE_ROLES`, `PIPELINE_SEQUENCE`, and action→role maps in `src/config.py` are derived from `shared/workflow-manifest.json`.
-3. **MCP server must be pre-built.** The orchestrator spawns the MCP server as a subprocess — `mcp-server/dist/index.js` must exist. Use `node scripts/run-orchestrator.js` for automatic build-freshness checks.
-4. **Circuit-breaker.** A work package accumulating ≥3 consecutive stage failures is skipped for the remainder of the run.
-5. **Stage node isolation.** Each stage node creates its own Deep Agent instance per invocation — no shared state between stages.
-6. **Cross-platform.** File locking uses `msvcrt` on Windows and `fcntl` on Unix. All path handling uses `pathlib`.
-7. **LangGraph config annotations.** With `from __future__ import annotations`, Python stringifies all type hints. LangGraph's config injection depends on exact annotation string matching — `RunnableConfig | None` becomes the string `"RunnableConfig | None"` which LangGraph does not recognise. Use `Optional[RunnableConfig]` instead (produces `"Optional[RunnableConfig]"` which is in the allowlist). Symptom: `get_run_logger: config is None` warnings, events only flushed at run end.
+The authoritative constraint list has been promoted to a dedicated file:
+
+> **[project-manifest/constraints.md](constraints.md)** — 11 numbered constraints covering persona authority, injection-safety, prompt uniformity, LLM routing, manifest-derived constants, MCP pre-build, circuit-breaker, stage isolation, cross-platform locking, documentation-forward convention, and LangGraph config annotations.
 
 ---
 
@@ -89,7 +86,9 @@ orchestrator/
 ├── docs/
 │   ├── agents/
 │   │   └── project-manifest/
-│   │       └── README.md       # ← You are here
+│   │       ├── README.md       # ← You are here
+│   │       ├── constraints.md  # Numbered constraint catalogue (11 rules)
+│   │       └── api-surface.md  # JSONL event types, enriched fields, utility refs
 │   ├── architecture.md         # Stage nodes, state management, log types
 │   ├── supervisor-routing.md   # Routing algorithm, exits, circuit-breaker
 │   ├── public-api.md           # Public functions and entry points
