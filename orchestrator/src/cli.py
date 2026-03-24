@@ -580,8 +580,22 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         except OSError:
             pass
 
+    # ── Archive run log to ledger storage ───────────────────────────────────
+    # Move the JSONL file from orchestrator/logs/ into the project's ledger
+    # storage folder so all project artefacts are co-located there.
+    log_final_path = run_logger._path
+    slug = plan_dir.name
+    ledger_log_dir = config.workspace_root / "mcp-server" / "storage" / "ledger" / slug
+    try:
+        ledger_log_dir.mkdir(parents=True, exist_ok=True)
+        dest = ledger_log_dir / run_logger._path.name
+        run_logger._path.rename(dest)
+        log_final_path = dest
+    except OSError as exc:
+        log.warning("Could not archive run log to ledger storage: %s", exc)
+
     duration = time.monotonic() - start_time
-    print(f"\n  Log file   : {run_logger._path}")
+    print(f"\n  Log file   : {log_final_path}")
     return _print_run_summary(
         final_state,
         duration,

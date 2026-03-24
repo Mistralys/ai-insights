@@ -1,5 +1,10 @@
 # Orchestrator Changelog
 
+## v0.9.4 - Run Log Archival to Ledger Storage
+- CLI: After run completion, the JSONL log is moved from `orchestrator/logs/` into `mcp-server/storage/ledger/{slug}/` so all project artefacts are co-located in the ledger folder. The final path is printed at run end. Falls back to the original location on `OSError`.
+- Utils: Fixed stale docstring in `write_dialogue()` — `slug_dir` parameter now correctly documents the ledger storage path rather than the plan directory.
+- Docs: Updated `architecture.md`, `jsonl-log-schema.md`, and `smoke-testing.md` to reflect the new log file location.
+
 ## v0.9.3 - Dialogue Capture Integration
 - Nodes: `create_stage_node()` now captures full agent dialogue exchanges when `CAPTURE_DIALOGUES=true`. After each `ainvoke()`, the message sequence is serialised to Markdown and written to `{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md` via `write_dialogue()`. Failures are non-fatal — stage execution continues normally.
 - Nodes: Emits a `dialogue_captured` JSONL event (`stage`, `wp_id`, `file_path`, `level="INFO"`) immediately after the `pipeline_result` entry. Only emitted when capture succeeds and `wp_id` is non-empty.

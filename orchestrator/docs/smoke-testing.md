@@ -59,17 +59,17 @@ In `--dry-run` mode no agents are called — only the routing decisions are exec
 
 ## 3. Inspect the JSONL Log
 
-The JSONL log is written to `orchestrator/logs/<timestamp>-<plan-title>.jsonl`. To verify routing decisions:
+The JSONL log is written to `orchestrator/logs/` during the run and moved to `mcp-server/storage/ledger/<slug>/<timestamp>-<plan-title>.jsonl` at run completion (path printed at run end). To verify routing decisions:
 
 ```bash
 # Print all routing events
-grep '"action": "route"' orchestrator/logs/<your-log-file>.jsonl | python3 -m json.tool
+grep '"action": "route"' mcp-server/storage/ledger/<slug>/<your-log-file>.jsonl | python3 -m json.tool
 
 # Check for any WARNING or ERROR level entries
-grep -E '"level": "(WARNING|ERROR)"' orchestrator/logs/<your-log-file>.jsonl
+grep -E '"level": "(WARNING|ERROR)"' mcp-server/storage/ledger/<slug>/<your-log-file>.jsonl
 
 # Count stage dispatches
-grep '"action": "route"' orchestrator/logs/<your-log-file>.jsonl | wc -l
+grep '"action": "route"' mcp-server/storage/ledger/<slug>/<your-log-file>.jsonl | wc -l
 ```
 
 ---

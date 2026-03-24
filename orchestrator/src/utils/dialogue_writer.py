@@ -221,7 +221,8 @@ def write_dialogue(
     content:
         Markdown string to write.
     slug_dir:
-        Parent directory (e.g. the plan/project directory).
+        Root directory for the project's ledger storage
+        (e.g. ``{workspace_root}/mcp-server/storage/ledger/{slug}``).
     wp_id:
         Work-package identifier (e.g. ``"WP-001"``).
     stage:
