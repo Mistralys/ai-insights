@@ -50,7 +50,7 @@ from langchain_core.runnables import RunnableConfig
 from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
-from src.utils.tool_wrappers import inject_project_path
+from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -157,6 +157,8 @@ def create_stage_node(
             backend = LocalShellBackend(root_dir=target_path or None)
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
+            if _wp_id:
+                restrict_to_wp(wrapped_tools, _wp_id)
 
             agent = create_deep_agent(
                 model=_app_config.model_name,
@@ -366,10 +368,18 @@ from . import build_stage_prompt, create_stage_node
 
 def _build_developer_prompt(state: WorkflowState) -> str:
     """Construct the developer agent's user-turn prompt."""
+    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
+    extra = (
+        f'**Step 1 — BEFORE writing any code:** Call `ledger_begin_work` with '
+        f'work_package_id={wp_id}, type="implementation", agent_role="Developer".\n\n'
+        "**Pipeline to start:** `implementation`\n\n"
+        f"**SCOPE RESTRICTION — You must ONLY operate on work package {wp_id}. "
+        "Do NOT call any MCP tool with a different work_package_id.**"
+    )
     return build_stage_prompt(
         state["project_path"],
-        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
-        extra="**Pipeline to start:** `implementation`",
+        wp_id=wp_id,
+        extra=extra,
     )
 
 
@@ -575,9 +585,15 @@ from . import build_stage_prompt, create_stage_node
 
 def _build_qa_prompt(state: WorkflowState) -> str:
     """Construct the QA agent's user-turn prompt."""
+    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
+    extra = (
+        f"**SCOPE RESTRICTION — You must ONLY operate on work package {wp_id}. "
+        "Do NOT call any MCP tool with a different work_package_id.**"
+    )
     return build_stage_prompt(
         state["project_path"],
-        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
+        wp_id=wp_id,
+        extra=extra,
     )
 
 
@@ -704,9 +720,15 @@ from . import build_stage_prompt, create_stage_node
 
 def _build_reviewer_prompt(state: WorkflowState) -> str:
     """Construct the reviewer agent's user-turn prompt."""
+    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
+    extra = (
+        f"**SCOPE RESTRICTION — You must ONLY operate on work package {wp_id}. "
+        "Do NOT call any MCP tool with a different work_package_id.**"
+    )
     return build_stage_prompt(
         state["project_path"],
-        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
+        wp_id=wp_id,
+        extra=extra,
     )
 
 

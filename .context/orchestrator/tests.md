@@ -3910,6 +3910,55 @@ class TestSlimPromptContent:
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "developer")
 
+    def test_developer_prompt_contains_ledger_begin_work_instruction(self):
+        """_build_developer_prompt extra must contain 'ledger_begin_work' and 'type=\"implementation\"'."""
+        from src.nodes.developer import _build_developer_prompt
+
+        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        assert "ledger_begin_work" in prompt, (
+            "Developer prompt must contain 'ledger_begin_work' in the extra instruction"
+        )
+        assert 'type="implementation"' in prompt, (
+            "Developer prompt must contain 'type=\"implementation\"' in the extra instruction"
+        )
+
+    def test_developer_prompt_wp_id_is_dynamic(self):
+        """The wp_id in the ledger_begin_work instruction must be substituted from state."""
+        from src.nodes.developer import _build_developer_prompt
+
+        prompt_a = _build_developer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
+        prompt_b = _build_developer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
+
+        assert "WP-001" in prompt_a, "wp_id WP-001 must appear in prompt"
+        assert "WP-042" in prompt_b, "wp_id WP-042 must appear in prompt"
+        # Cross-check: the wrong WP ID must not appear in each prompt.
+        assert "WP-042" not in prompt_a, "WP-042 must not appear in prompt built for WP-001"
+        assert "WP-001" not in prompt_b, "WP-001 must not appear in prompt built for WP-042"
+
+    def test_developer_prompt_step1_is_bold_markdown(self):
+        """The Step 1 instruction must use bold markdown for visual prominence."""
+        from src.nodes.developer import _build_developer_prompt
+
+        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        assert "**Step 1" in prompt, (
+            "Developer prompt must contain a bold '**Step 1' instruction"
+        )
+
+    def test_developer_prompt_contains_scope_restriction(self):
+        """Developer prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
+        from src.nodes.developer import _build_developer_prompt
+
+        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        assert "SCOPE RESTRICTION" in prompt, (
+            "Developer prompt must contain 'SCOPE RESTRICTION'"
+        )
+        assert "work_package_id" in prompt, (
+            "Developer prompt scope restriction must mention 'work_package_id'"
+        )
+        assert _SLIM_WP_ID in prompt, (
+            f"Developer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
+        )
+
     # ------------------------------------------------------------------
     # QA node
     # ------------------------------------------------------------------
@@ -3928,6 +3977,33 @@ class TestSlimPromptContent:
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "qa")
 
+    def test_qa_prompt_contains_scope_restriction(self):
+        """_build_qa_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
+        from src.nodes.qa import _build_qa_prompt
+
+        prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
+        assert "SCOPE RESTRICTION" in prompt, (
+            "QA prompt must contain 'SCOPE RESTRICTION'"
+        )
+        assert "work_package_id" in prompt, (
+            "QA prompt scope restriction must mention 'work_package_id'"
+        )
+        assert _SLIM_WP_ID in prompt, (
+            f"QA prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
+        )
+
+    def test_qa_prompt_scope_restriction_is_dynamic(self):
+        """QA scope restriction must substitute wp_id dynamically from state."""
+        from src.nodes.qa import _build_qa_prompt
+
+        prompt_a = _build_qa_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
+        prompt_b = _build_qa_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
+
+        assert "WP-001" in prompt_a
+        assert "WP-042" in prompt_b
+        assert "WP-042" not in prompt_a
+        assert "WP-001" not in prompt_b
+
     # ------------------------------------------------------------------
     # Reviewer node
     # ------------------------------------------------------------------
@@ -3945,6 +4021,33 @@ class TestSlimPromptContent:
 
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "reviewer")
+
+    def test_reviewer_prompt_contains_scope_restriction(self):
+        """_build_reviewer_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
+        from src.nodes.reviewer import _build_reviewer_prompt
+
+        prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
+        assert "SCOPE RESTRICTION" in prompt, (
+            "Reviewer prompt must contain 'SCOPE RESTRICTION'"
+        )
+        assert "work_package_id" in prompt, (
+            "Reviewer prompt scope restriction must mention 'work_package_id'"
+        )
+        assert _SLIM_WP_ID in prompt, (
+            f"Reviewer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
+        )
+
+    def test_reviewer_prompt_scope_restriction_is_dynamic(self):
+        """Reviewer scope restriction must substitute wp_id dynamically from state."""
+        from src.nodes.reviewer import _build_reviewer_prompt
+
+        prompt_a = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
+        prompt_b = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
+
+        assert "WP-001" in prompt_a
+        assert "WP-042" in prompt_b
+        assert "WP-042" not in prompt_a
+        assert "WP-001" not in prompt_b
 
     # ------------------------------------------------------------------
     # Security Auditor node
@@ -6083,14 +6186,12 @@ test_tool_wrappers.py — Unit tests for src.utils.tool_wrappers.
 
 Tests cover every behavioural contract promised by ``inject_project_path``:
 
-1. **Injection when absent** — both ``project_path`` and ``cwd_path`` are added
-   when the tool call dict contains neither.
+1. **Injection when absent** — ``project_path`` is added when the tool call
+   dict does not already contain it.
 2. **No override when present** — an explicitly-supplied ``project_path`` is
-   never overwritten (setdefault semantics), but ``cwd_path`` is always
-   overwritten with the authoritative project path.
-3. **cwd_path re-injection** — any caller-supplied ``cwd_path`` value is
-   discarded and replaced with the authoritative project path; both
-   ``project_path`` and ``cwd_path`` are always present after wrapping.
+   never overwritten (setdefault semantics).
+3. **cwd_path removal** — any caller-supplied ``cwd_path`` value is removed
+   to prevent mutual-exclusivity violations in MCP tools.
 4. **Argument preservation** — other kwargs (e.g. ``work_package_id``) survive
    the wrapper untouched.
 5. **Idempotency** — calling ``inject_project_path`` twice on the same list of
@@ -6119,7 +6220,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.utils.tool_wrappers import inject_project_path
+from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
 
 
 # ---------------------------------------------------------------------------
@@ -6224,14 +6325,9 @@ class TestDoesNotOverrideExplicitProjectPath:
 # ---------------------------------------------------------------------------
 
 class TestCwdPathReplacedWithProjectPath:
-    async def test_cwd_path_overwritten_and_project_path_injected(self):
-        """A caller-supplied cwd_path must be replaced with the authoritative
-        project path, and project_path must also be injected.
-
-        Both parameters are always present after wrapping so that
-        ``ledger_detect_project`` (which only accepts ``cwd_path``) and all
-        other ledger tools (which accept ``project_path``) receive a valid
-        routing key.
+    async def test_cwd_path_removed_and_project_path_injected(self):
+        """A caller-supplied cwd_path must be removed to prevent
+        mutual-exclusivity violations, and project_path must be injected.
         """
         seen: list[Any] = []
         tool = _make_tool(seen)
@@ -6239,15 +6335,15 @@ class TestCwdPathReplacedWithProjectPath:
 
         await tool.ainvoke({"cwd_path": "/some/workspace"})
 
-        assert seen[0]["cwd_path"] == PROJECT, (
-            "caller-supplied cwd_path must be replaced with the authoritative project path"
+        assert "cwd_path" not in seen[0], (
+            "caller-supplied cwd_path must be removed"
         )
         assert seen[0]["project_path"] == PROJECT
 
-    async def test_explicit_project_path_preserved_cwd_path_overwritten(self):
+    async def test_explicit_project_path_preserved_cwd_path_removed(self):
         """When both cwd_path and project_path are supplied by the caller:
         - project_path is kept (setdefault semantics)
-        - cwd_path is overwritten with the authoritative project path
+        - cwd_path is removed
         """
         seen: list[Any] = []
         tool = _make_tool(seen)
@@ -6255,8 +6351,8 @@ class TestCwdPathReplacedWithProjectPath:
 
         await tool.ainvoke({"cwd_path": "/cwd/value", "project_path": "/explicit"})
 
-        assert seen[0]["cwd_path"] == PROJECT, (
-            "cwd_path must be overwritten with the authoritative project path"
+        assert "cwd_path" not in seen[0], (
+            "cwd_path must be removed"
         )
         assert seen[0]["project_path"] == "/explicit", (
             "explicit project_path must be preserved (setdefault semantics)"
@@ -6561,9 +6657,9 @@ class TestToolCallDictStructure:
         assert result["args"]["project_path"] == PROJECT
         assert "project_path" not in {k for k in result if k != "args"}
 
-    async def test_toolcall_overwrites_cwd_path_in_args(self):
-        """A caller-supplied cwd_path inside input['args'] must be overwritten
-        with the authoritative project path; project_path must also be injected.
+    async def test_toolcall_removes_cwd_path_in_args(self):
+        """A caller-supplied cwd_path inside input['args'] must be removed;
+        project_path must be injected.
         """
         seen: list[Any] = []
         tool = _make_tool(seen)
@@ -6577,8 +6673,8 @@ class TestToolCallDictStructure:
         })
 
         result = seen[0]
-        assert result["args"]["cwd_path"] == PROJECT, (
-            "caller-supplied cwd_path in args must be replaced with authoritative project path"
+        assert "cwd_path" not in result["args"], (
+            "caller-supplied cwd_path in args must be removed"
         )
         assert result["args"]["project_path"] == PROJECT
 
@@ -6621,23 +6717,24 @@ class TestToolCallDictStructure:
 # 11. Dual injection (WP-001 acceptance criteria)
 # ---------------------------------------------------------------------------
 
-class TestDualInjection:
-    """Verify that both project_path and cwd_path are always injected.
+class TestCwdPathRemoval:
+    """Verify that cwd_path is removed and only project_path is injected.
 
-    These tests directly map to the WP-001 acceptance criteria:
+    MCP tools enforce mutual exclusivity between project_path and cwd_path.
+    The orchestrator always knows the exact project_path, so cwd_path is
+    unnecessary and must be stripped to prevent validation errors.
 
-    AC1 — No-argument call → both parameters set to the injected project path.
-    AC2 — Explicit cwd_path supplied → value stripped, authoritative path
-          re-injected as cwd_path; project_path also injected.
+    AC1 — No-argument call → only project_path set.
+    AC2 — Explicit cwd_path supplied → removed; project_path injected.
     AC3 — Explicit project_path supplied → preserved (setdefault); cwd_path
-          still injected with authoritative path.
+          removed if present.
     AC4 — Same behaviour for both flat-dict and ToolCall nested-dict structures.
     """
 
-    # AC1 — empty call dict receives both parameters
+    # AC1 — empty call dict receives project_path only
 
-    async def test_ac1_empty_dict_receives_both_parameters(self):
-        """AC1: no-argument call → project_path AND cwd_path both set."""
+    async def test_ac1_empty_dict_receives_project_path(self):
+        """AC1: no-argument call → project_path set, cwd_path absent."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
@@ -6645,10 +6742,10 @@ class TestDualInjection:
         await tool.ainvoke({})
 
         assert seen[0]["project_path"] == PROJECT
-        assert seen[0]["cwd_path"] == PROJECT
+        assert "cwd_path" not in seen[0]
 
-    async def test_ac1_toolcall_empty_args_receives_both_parameters(self):
-        """AC1 (ToolCall): empty args dict → project_path AND cwd_path both set."""
+    async def test_ac1_toolcall_empty_args_receives_project_path(self):
+        """AC1 (ToolCall): empty args dict → project_path set, cwd_path absent."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
@@ -6661,25 +6758,25 @@ class TestDualInjection:
         })
 
         assert seen[0]["args"]["project_path"] == PROJECT
-        assert seen[0]["args"]["cwd_path"] == PROJECT
+        assert "cwd_path" not in seen[0]["args"]
 
-    # AC2 — explicit cwd_path value replaced with authoritative path
+    # AC2 — explicit cwd_path removed, project_path injected
 
-    async def test_ac2_explicit_cwd_path_replaced_flat_dict(self):
-        """AC2 (flat dict): caller-supplied cwd_path is overwritten; project_path injected."""
+    async def test_ac2_explicit_cwd_path_removed_flat_dict(self):
+        """AC2 (flat dict): caller-supplied cwd_path is removed; project_path injected."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
 
         await tool.ainvoke({"cwd_path": "/caller/workspace"})
 
-        assert seen[0]["cwd_path"] == PROJECT, (
-            "cwd_path must be overwritten with authoritative path, not the caller value"
+        assert "cwd_path" not in seen[0], (
+            "cwd_path must be removed, not kept or overwritten"
         )
         assert seen[0]["project_path"] == PROJECT
 
-    async def test_ac2_explicit_cwd_path_replaced_toolcall(self):
-        """AC2 (ToolCall): caller-supplied cwd_path in args is overwritten."""
+    async def test_ac2_explicit_cwd_path_removed_toolcall(self):
+        """AC2 (ToolCall): caller-supplied cwd_path in args is removed."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
@@ -6691,13 +6788,13 @@ class TestDualInjection:
             "type": "tool_call",
         })
 
-        assert seen[0]["args"]["cwd_path"] == PROJECT
+        assert "cwd_path" not in seen[0]["args"]
         assert seen[0]["args"]["project_path"] == PROJECT
 
-    # AC3 — explicit project_path preserved; cwd_path still injected
+    # AC3 — explicit project_path preserved; cwd_path removed
 
     async def test_ac3_explicit_project_path_preserved_flat_dict(self):
-        """AC3 (flat dict): explicit project_path kept; cwd_path still injected."""
+        """AC3 (flat dict): explicit project_path kept; cwd_path absent."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
@@ -6708,12 +6805,10 @@ class TestDualInjection:
         assert seen[0]["project_path"] == explicit, (
             "explicit project_path must not be overwritten (setdefault semantics)"
         )
-        assert seen[0]["cwd_path"] == PROJECT, (
-            "cwd_path must still be injected even when project_path is explicit"
-        )
+        assert "cwd_path" not in seen[0]
 
     async def test_ac3_explicit_project_path_preserved_toolcall(self):
-        """AC3 (ToolCall): explicit project_path in args kept; cwd_path injected."""
+        """AC3 (ToolCall): explicit project_path in args kept; no cwd_path."""
         seen: list[Any] = []
         tool = _make_tool(seen)
         inject_project_path([tool], PROJECT)
@@ -6727,10 +6822,9 @@ class TestDualInjection:
         })
 
         assert seen[0]["args"]["project_path"] == explicit
-        assert seen[0]["args"]["cwd_path"] == PROJECT
+        assert "cwd_path" not in seen[0]["args"]
 
-    # AC4 — both invocation structures behave identically (covered by AC1–3
-    # above, but one explicit symmetry test for clarity)
+    # AC4 — both invocation structures behave identically
 
     async def test_ac4_flat_dict_and_toolcall_behave_identically(self):
         """AC4: flat-dict and ToolCall nested-dict produce the same injected values."""
@@ -6759,9 +6853,320 @@ class TestDualInjection:
 
         for result in (flat_result, toolcall_result):
             assert result["project_path"] == PROJECT
-            assert result["cwd_path"] == PROJECT
+            assert "cwd_path" not in result
             assert result["work_package_id"] == "WP-001"
             assert result["agent"] == "Developer"
+
+
+# ---------------------------------------------------------------------------
+# 12. restrict_to_wp — WP scope guard
+# ---------------------------------------------------------------------------
+
+ACTIVE_WP = "WP-001"
+
+
+class _GuardTool:
+    """Plain-class tool stub for restrict_to_wp tests.
+
+    Avoids MagicMock so ``hasattr(tool, '_orig_ainvoke_wp')`` correctly returns
+    False before the first wrap (MagicMock auto-creates every attribute).
+    """
+
+    def __init__(self, seen: list[Any] | None = None) -> None:
+        _seen: list[Any] = seen if seen is not None else []
+        self.name = "guard_tool"
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> str:
+            _seen.append(input)
+            return "ok"
+
+        self.ainvoke = _ainvoke
+
+
+def _make_guard_tool(captured: list[Any] | None = None) -> _GuardTool:
+    return _GuardTool(seen=captured if captured is not None else [])
+
+
+class TestRestrictToWpImportable:
+    def test_importable(self):
+        """restrict_to_wp must be importable from src.utils.tool_wrappers."""
+        assert callable(restrict_to_wp)
+
+
+class TestRestrictToWpEmptyWpId:
+    def test_empty_wp_id_returns_tools_unchanged(self):
+        """When wp_id is empty, the function must return the tools list unchanged."""
+        tool = _make_guard_tool()
+        original_ainvoke = tool.ainvoke
+        result = restrict_to_wp([tool], "")
+        assert result is not None
+        assert tool.ainvoke is original_ainvoke, (
+            "ainvoke must not be replaced when wp_id is empty"
+        )
+
+    def test_empty_wp_id_no_sentinel_set(self):
+        """When wp_id is empty, the _orig_ainvoke_wp sentinel must not be set."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], "")
+        assert not hasattr(tool, "_orig_ainvoke_wp"), (
+            "_orig_ainvoke_wp must not be set when wp_id is empty"
+        )
+
+    def test_empty_wp_id_returns_same_list(self):
+        """restrict_to_wp with empty wp_id must return the same list object."""
+        tools = [_make_guard_tool()]
+        result = restrict_to_wp(tools, "")
+        assert result is tools
+
+
+class TestRestrictToWpMatchingWpId:
+    async def test_matching_wp_id_passes_through(self):
+        """A call with work_package_id matching the active WP must succeed."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": ACTIVE_WP, "agent": "Developer"})
+
+        assert len(seen) == 1
+        assert seen[0]["work_package_id"] == ACTIVE_WP
+
+    async def test_call_without_wp_id_passes_through(self):
+        """A call that omits work_package_id entirely must pass through."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert len(seen) == 1
+
+    async def test_non_dict_input_passes_through(self):
+        """Non-dict input (e.g. a string) must be forwarded without a guard check."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke("raw string")
+
+        assert seen[0] == "raw string"
+
+    async def test_toolcall_structure_matching_wp_id_passes(self):
+        """ToolCall nested-dict with matching work_package_id must pass through."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_complete_pipeline",
+            "args": {"work_package_id": ACTIVE_WP},
+            "id": "call-1",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+
+
+class TestRestrictToWpMismatchRaises:
+    async def test_mismatching_wp_id_raises_value_error(self):
+        """A call with a work_package_id that differs from the active WP must raise ValueError."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        with pytest.raises(ValueError, match="WP-002"):
+            await tool.ainvoke({"work_package_id": "WP-002"})
+
+    async def test_value_error_message_contains_active_wp(self):
+        """The ValueError message must mention the active WP ID for diagnostics."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        with pytest.raises(ValueError, match=ACTIVE_WP):
+            await tool.ainvoke({"work_package_id": "WP-999"})
+
+    async def test_toolcall_mismatch_raises_value_error(self):
+        """ToolCall structure with mismatching work_package_id must raise ValueError."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        with pytest.raises(ValueError):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-bad",
+                "type": "tool_call",
+            })
+
+
+class TestRestrictToWpIdempotency:
+    async def test_double_wrap_does_not_stack_closures(self):
+        """Calling restrict_to_wp twice on the same tool must not double the guard check."""
+        call_count = 0
+
+        class _CountingTool:
+            name = "counting_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                nonlocal call_count
+                call_count += 1
+                return "ok"
+
+        tool = _CountingTool()
+        restrict_to_wp([tool], ACTIVE_WP)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": ACTIVE_WP})
+
+        assert call_count == 1, (
+            f"Original ainvoke called {call_count} times — wrapper stacking occurred"
+        )
+
+    async def test_double_wrap_still_guards(self):
+        """After double-wrap, the guard must still fire on mismatch."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        with pytest.raises(ValueError):
+            await tool.ainvoke({"work_package_id": "WP-bad"})
+
+    def test_double_wrap_returns_same_list(self):
+        """restrict_to_wp must return the same list object (in-place mutation)."""
+        tools = [_make_guard_tool()]
+        result = restrict_to_wp(tools, ACTIVE_WP)
+        assert result is tools
+
+
+class TestRestrictToWpIntegrationWithInjectProjectPath:
+    """Verify that restrict_to_wp composes correctly with inject_project_path."""
+
+    async def test_chained_wrappers_matching_wp_passes(self):
+        """inject_project_path followed by restrict_to_wp — matching WP passes through."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": ACTIVE_WP})
+
+        assert len(seen) == 1
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_chained_wrappers_mismatch_raises(self):
+        """inject_project_path followed by restrict_to_wp — mismatch raises ValueError."""
+        tool = _make_guard_tool()
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        with pytest.raises(ValueError):
+            await tool.ainvoke({"work_package_id": "WP-999"})
+
+
+def _make_stage_node_state(*, current_wp_id: str = "WP-001") -> dict:
+    """Minimal WorkflowState dict for create_stage_node integration tests."""
+    return {
+        "project_path": "/test/project",
+        "plan_file": "plan.md",
+        "target_project_path": "",
+        "current_stage": "",
+        "current_wp_id": current_wp_id,
+        "iteration": 1,
+        "max_iterations": 10,
+        "stage_result": "",
+        "stage_success": True,
+        "project_status": "",
+        "wp_summaries": [],
+        "pending_wp_count": 0,
+        "run_log": [],
+        "errors": [],
+    }
+
+
+class TestRestrictToWpInCreateStageNode:
+    """Verify that create_stage_node applies restrict_to_wp after inject_project_path."""
+
+    async def test_restrict_to_wp_applied_in_node(self):
+        """create_stage_node must call restrict_to_wp with the active WP ID."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.nodes import create_stage_node
+
+        class _FakeConfig:
+            model_name = "claude-test"
+            workspace_root = __import__("pathlib").Path(__file__).resolve().parent.parent.parent
+            capture_dialogues = False
+
+        restrict_calls: list[dict] = []
+
+        def _fake_restrict(tools: list, wp_id: str) -> list:
+            restrict_calls.append({"tools": tools, "wp_id": wp_id})
+            return tools
+
+        def _fake_create_agent(**kwargs: Any) -> MagicMock:
+            agent = MagicMock()
+            agent.ainvoke = AsyncMock(
+                return_value={"messages": [MagicMock(content="done")]}
+            )
+            return agent
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=_FakeConfig(),
+            mcp_tools=[_make_guard_tool()],
+        )
+
+        with patch("src.utils.persona.load_persona", return_value="persona"), \
+             patch("src.nodes.restrict_to_wp", side_effect=_fake_restrict), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            await node_fn(_make_stage_node_state(current_wp_id="WP-042"))
+
+        assert restrict_calls, "restrict_to_wp must be called by create_stage_node"
+        assert restrict_calls[0]["wp_id"] == "WP-042", (
+            f"restrict_to_wp called with wrong wp_id: {restrict_calls[0]['wp_id']!r}"
+        )
+
+    async def test_restrict_to_wp_not_applied_when_wp_id_empty(self):
+        """create_stage_node must not apply restrict_to_wp when wp_id is empty."""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from src.nodes import create_stage_node
+
+        class _FakeConfig:
+            model_name = "claude-test"
+            workspace_root = __import__("pathlib").Path(__file__).resolve().parent.parent.parent
+            capture_dialogues = False
+
+        restrict_calls: list[dict] = []
+
+        def _fake_restrict(tools: list, wp_id: str) -> list:
+            restrict_calls.append({"tools": tools, "wp_id": wp_id})
+            return tools
+
+        def _fake_create_agent(**kwargs: Any) -> MagicMock:
+            agent = MagicMock()
+            agent.ainvoke = AsyncMock(
+                return_value={"messages": [MagicMock(content="done")]}
+            )
+            return agent
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=_FakeConfig(),
+            mcp_tools=[_make_guard_tool()],
+        )
+
+        with patch("src.utils.persona.load_persona", return_value="persona"), \
+             patch("src.nodes.restrict_to_wp", side_effect=_fake_restrict), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            await node_fn(_make_stage_node_state(current_wp_id=""))
+
+        assert not restrict_calls, (
+            "restrict_to_wp must NOT be called when wp_id is empty"
+        )
 
 
 ```

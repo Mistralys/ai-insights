@@ -14008,6 +14008,33 @@ describe('CompletePipelineSchema lenient input acceptance', () => {
       summary: ['done'],
     })).toThrow();
   });
+
+  // handoff_notes normalization (WP-003 — Fix B)
+  it('accepts handoff_notes as a bare string', () => {
+    expect(() => CompletePipelineSchema.parse({
+      ...base,
+      summary: ['done'],
+      agent_role: 'Developer',
+      handoff_notes: 'Please check the auth module',
+    })).not.toThrow();
+  });
+
+  it('still accepts handoff_notes as an array of strings', () => {
+    expect(() => CompletePipelineSchema.parse({
+      ...base,
+      summary: ['done'],
+      agent_role: 'Developer',
+      handoff_notes: ['check auth', 'verify edge case'],
+    })).not.toThrow();
+  });
+
+  it('accepts undefined/omitted handoff_notes', () => {
+    expect(() => CompletePipelineSchema.parse({
+      ...base,
+      summary: ['done'],
+      agent_role: 'Developer',
+    })).not.toThrow();
+  });
 });
 
 describe('StartPipelineSchema agent_role is required (§52)', () => {
@@ -14111,6 +14138,63 @@ describe('completePipeline handler normalizes lenient inputs', () => {
     expect(pipeline.comments).toHaveLength(1);
     expect(pipeline.comments![0].timestamp).toBeDefined();
     expect(pipeline.comments![0].timestamp.length).toBeGreaterThan(0);
+  });
+
+  // handoff_notes normalization (WP-003 — Fix B)
+  it('coerces a bare-string handoff_notes to a one-element array in the persisted HandoffNote', async () => {
+    const result = await completePipeline({
+      project_path: LENIENT_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+      handoff_notes: 'Please check the auth module' as any,
+    });
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.handoff_notes).toBeDefined();
+    expect(wp.handoff_notes!.length).toBe(1);
+    // The persisted HandoffNote.notes must be string[], not a bare string
+    expect(wp.handoff_notes![0].notes).toEqual(['Please check the auth module']);
+  });
+
+  it('preserves a string[] handoff_notes as-is', async () => {
+    // Reset pipeline to IN_PROGRESS so completePipeline can be called again
+    await store.writeWorkPackage('WP-001', makeWpWithImplPipeline());
+
+    const result = await completePipeline({
+      project_path: LENIENT_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+      handoff_notes: ['check auth', 'verify edge case'],
+    });
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.handoff_notes![0].notes).toEqual(['check auth', 'verify edge case']);
+  });
+
+  it('omitting handoff_notes does not create a HandoffNote entry', async () => {
+    // Reset pipeline to IN_PROGRESS
+    await store.writeWorkPackage('WP-001', makeWpWithImplPipeline());
+
+    const result = await completePipeline({
+      project_path: LENIENT_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      status: 'PASS',
+      summary: ['done'],
+      agent_role: 'Developer',
+      // handoff_notes intentionally omitted
+    });
+    expect((result as any).isError).toBeFalsy();
+    const wp = await store.readWorkPackage('WP-001');
+    // No handoff note should have been created
+    const notes = wp.handoff_notes ?? [];
+    expect(notes.length).toBe(0);
   });
 });
 
