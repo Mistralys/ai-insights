@@ -206,21 +206,21 @@ describe('gui/config.ts', () => {
 
   // ─── capture_dialogues field ─────────────────────────────────────────────
 
-  it('DEFAULT_CONFIG.capture_dialogues is false', () => {
-    expect(DEFAULT_CONFIG.capture_dialogues).toBe(false);
+  it('DEFAULT_CONFIG.capture_dialogues is true', () => {
+    expect(DEFAULT_CONFIG.capture_dialogues).toBe(true);
   });
 
-  it('getConfig returns capture_dialogues = false before any disk read', () => {
-    expect(getConfig().capture_dialogues).toBe(false);
+  it('getConfig returns capture_dialogues = true before any disk read', () => {
+    expect(getConfig().capture_dialogues).toBe(true);
   });
 
-  it('readConfigFromDisk defaults capture_dialogues to false when field absent from JSON', async () => {
+  it('readConfigFromDisk defaults capture_dialogues to true when field absent from JSON', async () => {
     // Write a config file that does NOT contain capture_dialogues.
     await writeJson(configPath, { auto_handoff_enabled: true, max_handoff_depth: 10 });
 
     const result = await readConfigFromDisk(configPath);
 
-    expect(result.capture_dialogues).toBe(false);
+    expect(result.capture_dialogues).toBe(true);
   });
 
   it('readConfigFromDisk reads capture_dialogues = true from disk', async () => {
@@ -250,9 +250,7 @@ describe('gui/config.ts', () => {
   });
 
   it('writeConfig round-trip: writes { capture_dialogues: false } and reads it back', async () => {
-    // Seed with true first so we know the change is persisted, not just the default.
-    await writeConfig(configPath, { capture_dialogues: true });
-
+    // Seed with the default (true) so we know the change is persisted.
     const written = await writeConfig(configPath, { capture_dialogues: false });
     expect(written.capture_dialogues).toBe(false);
 

@@ -22,7 +22,7 @@ export const GuiConfigSchema = z.object({
   auto_handoff_enabled: z.boolean().default(true),
   max_handoff_depth: z.number().int().min(1).default(50),
   auto_archive_days: z.number().int().min(0).default(6),
-  capture_dialogues: z.boolean().default(false),
+  capture_dialogues: z.boolean().default(true),
   ledger_root: z.string().default(''),
   orchestrator_logs_dir: z.string().optional(),
 });
@@ -46,7 +46,7 @@ export const DEFAULT_CONFIG: GuiConfig = {
   auto_handoff_enabled: true,
   max_handoff_depth: 50,
   auto_archive_days: 6,
-  capture_dialogues: false,
+  capture_dialogues: true,
   ledger_root: '',
 };
 
