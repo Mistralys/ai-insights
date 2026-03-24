@@ -34,11 +34,15 @@ import shutil
 import sys
 import time
 import uuid
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from src.utils.filelock import lock_exclusive, unlock
+# Suppress Pydantic V1 deprecation warning emitted by langchain_core on Python 3.14+.
+warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
+
+from src.utils.filelock import lock_exclusive, unlock  # noqa: E402
 
 log = logging.getLogger(__name__)
 

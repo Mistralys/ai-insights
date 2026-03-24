@@ -17,7 +17,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from langchain_core.runnables import RunnableConfig
 
@@ -66,7 +66,7 @@ def create_stage_node(
     # with the LangGraph ``config`` parameter passed to the node at runtime.
     _app_config = config
 
-    async def node_fn(state: WorkflowState, config: RunnableConfig | None = None) -> dict:
+    async def node_fn(state: WorkflowState, config: Optional[RunnableConfig] = None) -> dict:  # noqa: UP045
         from deepagents import create_deep_agent  # type: ignore[import]
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
