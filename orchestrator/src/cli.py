@@ -241,7 +241,9 @@ async def _build_graph_for_run(
 
     When *dry_run* is ``True``, all six pipeline-stage nodes are replaced with
     lightweight stubs that log routing decisions without invoking Deep Agents.
-    The supervisor node is always real (it performs only ledger reads, not agent calls).
+    The supervisor node is always real (it performs only ledger reads, not agent
+    calls) but receives ``dry_run=True`` so it tolerates missing ledger state
+    and terminates cleanly instead of looping on MCP errors.
 
     Parameters
     ----------
@@ -267,7 +269,7 @@ async def _build_graph_for_run(
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
-        supervisor_node = make_supervisor_node(mcp_tools)
+        supervisor_node = make_supervisor_node(mcp_tools, dry_run=True)
         builder = StateGraph(WorkflowState)
         builder.add_node("supervisor", supervisor_node)
         for stage in ("pm", "developer", "qa", "reviewer", "docs", "synthesis"):

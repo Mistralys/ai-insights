@@ -1583,3 +1583,180 @@ class TestProgressSnapshotMalformedTs:
         # Must not raise.
         cmd = await node(state)
         assert cmd is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: dry-run mode — no MCP error spam, clean termination
+# ---------------------------------------------------------------------------
+
+class TestDryRunMode:
+    """In dry-run mode the supervisor should tolerate a missing ledger
+    gracefully: no MCP error log entries, and clean termination after
+    routing to PM once."""
+
+    async def test_dry_run_no_wps_first_iteration_routes_to_pm(self):
+        """First iteration with no WPs in dry-run still routes to PM."""
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools, dry_run=True)
+        cmd = await node(base_state(iteration=0))
+
+        assert cmd.goto == "pm"
+
+    async def test_dry_run_no_wps_second_iteration_routes_to_end(self):
+        """Second iteration with no WPs in dry-run terminates cleanly."""
+        from langgraph.constants import END  # type: ignore[import]
+
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools, dry_run=True)
+        cmd = await node(base_state(iteration=1))
+
+        assert cmd.goto == END
+
+    async def test_dry_run_no_mcp_error_entries(self):
+        """Dry-run must not produce mcp_error log entries for missing ledger."""
+        # Simulate ledger_list_work_packages throwing (no ledger).
+        status_tool = make_tool("ledger_get_project_status", {"status": "IN_PROGRESS"})
+        list_tool = MagicMock()
+        list_tool.name = "ledger_list_work_packages"
+        list_tool.ainvoke = AsyncMock(
+            side_effect=RuntimeError("Root index not found")
+        )
+        detail_tool = make_tool("ledger_get_work_package", {})
+        next_action_tool = make_tool("ledger_get_next_action", {"action": "WAIT"})
+
+        node = make_supervisor_node(
+            [status_tool, list_tool, detail_tool, next_action_tool],
+            dry_run=True,
+        )
+        cmd = await node(base_state(iteration=0))
+
+        # Should route to PM (first iteration), but with no mcp_error entries.
+        assert cmd.goto == "pm"
+        mcp_errors = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "mcp_error"
+        ]
+        assert not mcp_errors, f"Unexpected mcp_error entries in dry-run: {mcp_errors}"
+
+    async def test_dry_run_no_error_list_entries(self):
+        """Dry-run with missing ledger must not populate the errors list."""
+        status_tool = make_tool("ledger_get_project_status", {"status": "IN_PROGRESS"})
+        list_tool = MagicMock()
+        list_tool.name = "ledger_list_work_packages"
+        list_tool.ainvoke = AsyncMock(
+            side_effect=RuntimeError("Root index not found")
+        )
+        detail_tool = make_tool("ledger_get_work_package", {})
+        next_action_tool = make_tool("ledger_get_next_action", {"action": "WAIT"})
+
+        node = make_supervisor_node(
+            [status_tool, list_tool, detail_tool, next_action_tool],
+            dry_run=True,
+        )
+        cmd = await node(base_state(iteration=0))
+
+        errors = cmd.update.get("errors", [])
+        assert not errors, f"Unexpected errors in dry-run: {errors}"
+
+    async def test_dry_run_uses_info_level_for_missing_ledger(self):
+        """The dry_run_no_ledger log entry must use INFO level."""
+        status_tool = make_tool("ledger_get_project_status", {"status": "IN_PROGRESS"})
+        list_tool = MagicMock()
+        list_tool.name = "ledger_list_work_packages"
+        list_tool.ainvoke = AsyncMock(
+            side_effect=RuntimeError("Root index not found")
+        )
+        detail_tool = make_tool("ledger_get_work_package", {})
+        next_action_tool = make_tool("ledger_get_next_action", {"action": "WAIT"})
+
+        node = make_supervisor_node(
+            [status_tool, list_tool, detail_tool, next_action_tool],
+            dry_run=True,
+        )
+        cmd = await node(base_state(iteration=0))
+
+        no_ledger_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "dry_run_no_ledger"
+        ]
+        assert no_ledger_entries, "Expected dry_run_no_ledger entry"
+        assert no_ledger_entries[0]["level"] == "INFO"
+
+    async def test_dry_run_complete_log_entry_on_termination(self):
+        """When dry-run terminates on second iteration, it logs dry_run_complete."""
+        from langgraph.constants import END  # type: ignore[import]
+
+        tools = make_mcp_tools(wp_list=[])
+        node = make_supervisor_node(tools, dry_run=True)
+        cmd = await node(base_state(iteration=1))
+
+        assert cmd.goto == END
+        complete_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "dry_run_complete"
+        ]
+        assert complete_entries, "Expected dry_run_complete entry"
+        assert complete_entries[0]["level"] == "INFO"
+
+    async def test_dry_run_get_project_status_error_routes_to_end_cleanly(self):
+        """If ledger_get_project_status throws in dry-run, route to END
+        at INFO level without errors list."""
+        from langgraph.constants import END  # type: ignore[import]
+
+        status_tool = MagicMock()
+        status_tool.name = "ledger_get_project_status"
+        status_tool.ainvoke = AsyncMock(
+            side_effect=RuntimeError("Root index not found")
+        )
+        list_tool = make_tool("ledger_list_work_packages", [])
+        detail_tool = make_tool("ledger_get_work_package", {})
+        next_action_tool = make_tool("ledger_get_next_action", {"action": "WAIT"})
+
+        node = make_supervisor_node(
+            [status_tool, list_tool, detail_tool, next_action_tool],
+            dry_run=True,
+        )
+        cmd = await node(base_state(iteration=0))
+
+        assert cmd.goto == END
+        # Must use dry_run_no_ledger action, not mcp_error.
+        actions = [e.get("action") for e in cmd.update.get("run_log", [])]
+        assert "dry_run_no_ledger" in actions
+        assert "mcp_error" not in actions
+        assert not cmd.update.get("errors", [])
+
+    async def test_non_dry_run_still_produces_mcp_error(self):
+        """Without dry_run=True, missing ledger must still produce mcp_error."""
+        status_tool = make_tool("ledger_get_project_status", {"status": "IN_PROGRESS"})
+        list_tool = MagicMock()
+        list_tool.name = "ledger_list_work_packages"
+        list_tool.ainvoke = AsyncMock(
+            side_effect=RuntimeError("Root index not found")
+        )
+        detail_tool = make_tool("ledger_get_work_package", {})
+        next_action_tool = make_tool("ledger_get_next_action", {"action": "WAIT"})
+
+        node = make_supervisor_node(
+            [status_tool, list_tool, detail_tool, next_action_tool],
+            dry_run=False,
+        )
+        cmd = await node(base_state(iteration=0))
+
+        assert cmd.goto == "pm"
+        mcp_errors = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "mcp_error"
+        ]
+        assert mcp_errors, "Non-dry-run should produce mcp_error entries"
+
+    async def test_dry_run_with_existing_wps_routes_normally(self):
+        """Dry-run with an existing ledger (WPs present) routes normally."""
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "READY")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools, dry_run=True)
+        cmd = await node(base_state())
+
+        # Normal routing — WP-001 needs implementation → developer.
+        assert cmd.goto == "developer"

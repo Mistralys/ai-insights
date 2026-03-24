@@ -13,9 +13,20 @@ The supervisor is a pure-Python deterministic router — no LLM calls are made h
 ```
 supervisor_node
   ├─ iteration > max_iterations                      → __end__    (safety limit; level=WARNING)
+  ├─ dry_run + get_project_status error               → __end__    (dry_run_no_ledger; level=INFO)
+  ├─ dry_run + no WPs + iteration > 1                 → __end__    (dry_run_complete; level=INFO)
   ├─ No WPs in ledger                                 → pm         (create work packages)
   └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
 ```
+
+### Dry-Run Mode
+
+When `make_supervisor_node(mcp_tools, dry_run=True)` is used (set automatically by `--dry-run`), the supervisor tolerates missing ledger state:
+
+- **Missing ledger errors** are logged at INFO level (`dry_run_no_ledger`) instead of WARNING/ERROR (`mcp_error`). No entries are added to the `errors` list.
+- **First iteration with no WPs**: routes to PM (validates the routing path).
+- **Second iteration with no WPs**: terminates cleanly to `__end__` (`dry_run_complete`) since PM stubs cannot create a ledger.
+- **Existing ledger**: routing proceeds normally regardless of `dry_run`.
 
 ---
 

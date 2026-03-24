@@ -227,7 +227,8 @@ def _load(extra_env: dict | None = None) -> "Config":  # noqa: F821 – forward 
     """Call load_config() with a clean environment plus *extra_env* overrides."""
     env = {**_BASE_ENV, **(extra_env or {})}
     # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.
-    env.setdefault("CAPTURE_DIALOGUES", "")
+    # Setting to empty string means "use default" (True).
+    env.setdefault("CAPTURE_DIALOGUES", "false")
     with patch.dict(os.environ, env, clear=True):
         return load_config()
 
@@ -236,18 +237,25 @@ class TestCaptureDialogues:
     """Tests for Config.capture_dialogues and CAPTURE_DIALOGUES env var parsing."""
 
     # ------------------------------------------------------------------
-    # Default / falsy values
+    # Default / truthy values (capture_dialogues defaults to True)
     # ------------------------------------------------------------------
 
-    def test_default_is_false_when_env_var_unset(self):
-        """capture_dialogues defaults to False when CAPTURE_DIALOGUES is absent."""
+    def test_default_is_true_when_env_var_unset(self):
+        """capture_dialogues defaults to True when CAPTURE_DIALOGUES is absent."""
         env = {**_BASE_ENV}
         with patch.dict(os.environ, env, clear=True):
             cfg = load_config()
-        assert cfg.capture_dialogues is False
+        assert cfg.capture_dialogues is True
 
-    def test_false_when_env_var_is_empty_string(self):
-        assert _load({"CAPTURE_DIALOGUES": ""}).capture_dialogues is False
+    def test_true_when_env_var_is_empty_string(self):
+        assert _load({"CAPTURE_DIALOGUES": ""}).capture_dialogues is True
+
+    def test_true_when_env_var_is_arbitrary_value(self):
+        assert _load({"CAPTURE_DIALOGUES": "maybe"}).capture_dialogues is True
+
+    # ------------------------------------------------------------------
+    # Explicit falsy values
+    # ------------------------------------------------------------------
 
     def test_false_when_env_var_is_false(self):
         assert _load({"CAPTURE_DIALOGUES": "false"}).capture_dialogues is False
@@ -257,9 +265,6 @@ class TestCaptureDialogues:
 
     def test_false_when_env_var_is_no(self):
         assert _load({"CAPTURE_DIALOGUES": "no"}).capture_dialogues is False
-
-    def test_false_when_env_var_is_arbitrary_value(self):
-        assert _load({"CAPTURE_DIALOGUES": "maybe"}).capture_dialogues is False
 
     # ------------------------------------------------------------------
     # Truthy values

@@ -2,7 +2,7 @@
 
 > **Parent:** [orchestrator/README.md](../README.md) · **Sources:** `orchestrator/src/utils/logging.py` (logger), `orchestrator/src/nodes/__init__.py` (stage events), `orchestrator/src/supervisor.py` (routing events), `orchestrator/src/cli.py` (run lifecycle events)
 
-Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start). Each line is a JSON object. The schema supports **18 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution).
+Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start). Each line is a JSON object. The schema supports **20 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution).
 
 > **Streaming guarantee:** Graph nodes call `stream_entry()` to persist events in real time via the `WorkflowLogger` instance passed through LangGraph's `configurable` dict (key: `run_logger`). For LangGraph to inject this, node functions must annotate their `config` parameter as `Optional[RunnableConfig]` — using `RunnableConfig | None` with `from __future__ import annotations` produces a string annotation that LangGraph's signature inspector does not recognise. When the logger is successfully injected, events appear in the JSONL file immediately as they occur. If the `WorkflowLogger` is unreachable inside graph nodes (e.g. incorrect annotation or the configurable key was stripped), events accumulate only in the LangGraph state's `run_log` list. At run exit, `cli.py` calls `flush_unstreamed(run_log)` to write any un-persisted entries as a batch before the `run_end` sentinel. In this fallback scenario, stage and supervisor events appear immediately before `run_end` rather than interleaved with heartbeats.
 
@@ -48,6 +48,8 @@ Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start
 | `total_duration_s` | `run_end` (optional) | float | Wall-clock duration of the run in seconds (rounded to 1 decimal place). Omitted when `run_start_ts` is unavailable or could not be parsed. |
 | `silence_s` | `heartbeat` | float | Seconds elapsed since the last log entry was emitted (rounded to 1 decimal place) |
 | `file_path` | `dialogue_captured` | string | Absolute path to the Markdown dialogue file written to disk (non-empty when capture succeeds) |
+| `detail` | `dry_run_no_ledger` | string | The underlying error message from the missing ledger (logged at INFO, not treated as an error) |
+| `reason` | `dry_run_complete` | string | Human-readable reason for clean termination (e.g. `"dry-run: PM stub executed; no ledger expected"`) |
 
 ---
 
@@ -59,7 +61,7 @@ Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start
 | `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, `duration_s` |
 | `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
-| `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `level="INFO"` — only emitted when `capture_dialogues=True` |
+| `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `level="INFO"` — emitted by default; suppressed when `capture_dialogues=False` |
 | `wp_status_change` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `old_status`, `new_status`, `level="INFO"` |
 | `wp_complete` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `level="INFO"` |
 | `progress_snapshot` | `supervisor.py` | `stage="supervisor"`, `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, `elapsed_s` (optional), `run_start_ts` |
@@ -67,7 +69,9 @@ Every run writes a JSONL file to `orchestrator/logs/` (path printed at run start
 | `route` | `supervisor.py` | `stage="supervisor"`, `destination`, `prev_stage`, `prev_wp_id`, `prev_result`, `level` (`"INFO"` / `"WARNING"`) |
 | `halt` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `level="WARNING"` |
 | `safety_limit` | `supervisor.py` | `stage="supervisor"`, `destination=END`, `iteration`, `level="WARNING"` |
-| `mcp_error` | `supervisor.py` | `stage="supervisor"`, `destination` (END or PM), `error`, `level` (`"ERROR"` / `"WARNING"`) |
+| `mcp_error` | `supervisor.py` | `stage="supervisor"`, `destination` (END or PM), `error`, `level` (`"ERROR"` / `"WARNING"`). **Suppressed in dry-run mode** — replaced by `dry_run_no_ledger` at INFO level. |
+| `dry_run_no_ledger` | `supervisor.py` | `stage="supervisor"`, `destination` (END or PM), `detail`, `level="INFO"`. Emitted in `--dry-run` mode when the ledger is missing (expected). Replaces `mcp_error` to avoid false-positive error noise. |
+| `dry_run_complete` | `supervisor.py` | `stage="supervisor"`, `destination=END`, `reason`, `level="INFO"`. Emitted in `--dry-run` mode on the second supervisor iteration when no WPs exist — signals clean termination (PM stub cannot create a ledger). |
 | `halted_repeated_failure` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination=END`, `consecutive_failures`, `level="WARNING"` |
 | `heartbeat` | `utils/logging.py` | `stage="heartbeat"`, `silence_s`, `level="INFO"` |
 | `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts` |
@@ -81,7 +85,7 @@ For every stage invocation, three to five entries are written in order:
 1. **`stage_start`** — emitted immediately before the Deep Agent is created
 2. **`stage_complete`** (or **`stage_error`** on exception) — emitted after the agent finishes
 3. **`pipeline_result`** *(optional)* — emitted after `stage_complete` when the WP still exists and carries at least one pipeline record; omitted on read-back failure or when `wp_id` is empty
-4. **`dialogue_captured`** *(optional)* — emitted when `capture_dialogues=True` and `wp_id` is non-empty; records the path of the Markdown dialogue file written to disk. A write failure is caught silently and this entry is omitted.
+4. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. A write failure is caught silently and this entry is omitted.
 
 `pipeline_result.duration_s` will be `null` until `ledger_complete_pipeline` stores `duration_ms` in the WP record (separate MCP server work package).
 
@@ -209,6 +213,18 @@ when `run_start_ts` was never stored in state or is unparseable.
 {"timestamp": "2026-03-22T10:12:00.000Z", "stage": "heartbeat", "action": "heartbeat", "level": "INFO", "silence_s": 120.3}
 ```
 
+### `dry_run_no_ledger`
+
+```json
+{"timestamp": "2026-03-23T17:38:51.000Z", "stage": "supervisor", "wp_id": "", "action": "dry_run_no_ledger", "level": "INFO", "destination": "pm", "detail": "Error: Root index not found — no project ledger exists at /path/to/project-ledger.json."}
+```
+
+### `dry_run_complete`
+
+```json
+{"timestamp": "2026-03-23T17:38:51.200Z", "stage": "supervisor", "wp_id": "", "action": "dry_run_complete", "level": "INFO", "destination": "__end__", "reason": "dry-run: PM stub executed; no ledger expected"}
+```
+
 ---
 
 ## Backward Compatibility
@@ -216,9 +232,13 @@ when `run_start_ts` was never stored in state or is unparseable.
 All new event types and enriched fields are **strictly additive**:
 
 - **New event types** (`stage_start`, `wp_status_change`, `progress_snapshot`,
-  `pipeline_result`, `wp_complete`, `rework_detected`) — existing log consumers
+  `pipeline_result`, `wp_complete`, `rework_detected`, `dry_run_no_ledger`,
+  `dry_run_complete`) — existing log consumers
   that filter by `action` (e.g. look for `stage_complete` only) will simply
   skip these new entries. No existing event type has been removed or renamed.
+  In `--dry-run` mode, `mcp_error` is **replaced** by `dry_run_no_ledger`
+  (INFO level) when the ledger is missing — this is a behavioural change for
+  dry-run only; non-dry-run `mcp_error` events are unaffected.
 - **New fields on existing events** (`duration_s` on `stage_complete` /
   `stage_error`, `run_start_ts` on `run_start`, `total_duration_s` on `run_end`,
   `prev_stage` / `prev_wp_id` / `prev_result` on `route`) — consumers that do

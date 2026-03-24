@@ -154,10 +154,10 @@ WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
 _ANTHROPIC_PREFIXES = ("claude",)
 _GOOGLE_PREFIXES = ("gemini", "models/gemini")
 
-#: Environment variable values that enable ``capture_dialogues`` (matched after
+#: Environment variable values that disable ``capture_dialogues`` (matched after
 #: ``.strip().lower()``). Kept as a module-level constant so it is visible
 #: alongside the other private config constants and easy to extend.
-_CAPTURE_DIALOGUES_TRUTHY: frozenset[str] = frozenset({"true", "1", "yes"})
+_CAPTURE_DIALOGUES_FALSY: frozenset[str] = frozenset({"false", "0", "no"})
 
 
 def _model_is_anthropic(model_name: str) -> bool:
@@ -256,9 +256,9 @@ class Config:
         Seconds of console silence before emitting a heartbeat. ``0`` disables.
     capture_dialogues:
         When ``True``, the orchestrator writes agent dialogue artefacts to disk.
-        Controlled by the ``CAPTURE_DIALOGUES`` environment variable (truthy
-        values: ``"true"``, ``"1"``, ``"yes"``; case-insensitive). Defaults to
-        ``False``.
+        Controlled by the ``CAPTURE_DIALOGUES`` environment variable (falsy
+        values: ``"false"``, ``"0"``, ``"no"``; case-insensitive). Defaults to
+        ``True``.
     """
 
     model_name: str
@@ -269,7 +269,7 @@ class Config:
     workspace_root: Path
     log_level: str
     heartbeat_interval_s: int = 120
-    capture_dialogues: bool = False
+    capture_dialogues: bool = True
 
     def get_chat_model(self):
         """
@@ -380,7 +380,8 @@ def load_config(
         )
 
     # --- capture_dialogues ---
-    capture_dialogues = os.environ.get("CAPTURE_DIALOGUES", "").strip().lower() in _CAPTURE_DIALOGUES_TRUTHY
+    raw_capture = os.environ.get("CAPTURE_DIALOGUES", "").strip().lower()
+    capture_dialogues = raw_capture not in _CAPTURE_DIALOGUES_FALSY if raw_capture else True
 
     # --- heartbeat_interval_s ---
     raw_heartbeat = os.environ.get("HEARTBEAT_INTERVAL_S", "120").strip()

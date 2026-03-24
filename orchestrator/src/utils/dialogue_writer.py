@@ -24,10 +24,10 @@ The following LangChain message types are recognised by ``_msg_role()``:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Message serialisation
@@ -142,13 +142,13 @@ def serialize_messages_to_markdown(
         optional token-usage footer.
     """
     if timestamp is None:
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        timestamp = datetime.now(UTC).isoformat(timespec="seconds")
 
     lines: list[str] = [
         f"# Dialogue — {stage} / {wp_id}",
         "",
-        f"| Field | Value |",
-        f"| ----- | ----- |",
+        "| Field | Value |",
+        "| ----- | ----- |",
         f"| Stage | `{stage}` |",
         f"| WP ID | `{wp_id}` |",
         f"| Captured | {timestamp} |",

@@ -26,7 +26,7 @@ High-level list of the primary functions and classes meant for external use or e
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `make_supervisor_node(mcp_tools)` | `src.supervisor` | Factory returning the async `supervisor_node` function. Closes over MCP tools for testability. |
+| `make_supervisor_node(mcp_tools, *, dry_run=False)` | `src.supervisor` | Factory returning the async `supervisor_node` function. Closes over MCP tools for testability. When `dry_run=True`, tolerates missing ledger state and terminates cleanly after one PM pass instead of looping. |
 
 ---
 
@@ -61,7 +61,7 @@ All follow the same pattern via `create_stage_node()`:
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `Config` | `src.config` | Dataclass holding all runtime settings (model, provider, paths, limits). Includes `capture_dialogues: bool` (default `False`) — set `CAPTURE_DIALOGUES=true` (or `1`/`yes`) in the environment to enable dialogue capture. |
+| `Config` | `src.config` | Dataclass holding all runtime settings (model, provider, paths, limits). Includes `capture_dialogues: bool` (default `True`) — set `CAPTURE_DIALOGUES=false` (or `0`/`no`) in the environment to disable dialogue capture. |
 | `load_config(*, workspace_root=None)` | `src.config` | Loads `.env`, resolves provider, returns `Config`. |
 | `get_chat_model()` | `src.config` | Returns the configured LangChain `BaseChatModel` instance. || `PIPELINE_PREREQUISITES` | `src.config` | `dict[str, str \| None]` — enforced pipeline execution order (prerequisite chain). Derived from `shared/workflow-manifest.json`. |
 | `PIPELINE_AGENT_MAP` | `src.config` | `dict[str, str]` — pipeline type → owning agent role name. Derived from manifest. |

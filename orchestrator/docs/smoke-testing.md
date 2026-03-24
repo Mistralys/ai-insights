@@ -28,6 +28,8 @@ node scripts/run-orchestrator.js docs/agents/plans/my-test-plan/plan.md --dry-ru
 
 ## 2. Expected Console Output (dry-run)
 
+### With an existing ledger (WPs already created)
+
 For a project with two `READY` WPs (WP-001, WP-002, no dependencies):
 
 ```
@@ -35,6 +37,21 @@ For a project with two `READY` WPs (WP-001, WP-002, no dependencies):
 [INFO] Supervisor iteration 2: routing WP-002 → developer
 [INFO] Supervisor iteration 3: all WPs COMPLETE → synthesis
 ```
+
+### Without a ledger (fresh plan, no project initialised)
+
+The supervisor validates the PM routing path once and terminates cleanly:
+
+```
+[dry-run] Starting orchestrator in dry-run mode.
+[dry-run] Plan   : /path/to/plan.md
+[dry-run] Project: /path/to/project
+[dry-run] Thread : <uuid>
+
+  [dry-run] pm: WP=—
+```
+
+No MCP error messages appear — the missing ledger is expected and logged at INFO level (`dry_run_no_ledger`). The run exits with `Result: SUCCESS`.
 
 In `--dry-run` mode no agents are called — only the routing decisions are executed.
 

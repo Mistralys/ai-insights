@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
@@ -102,7 +102,7 @@ except ImportError:
 # Factory
 # ---------------------------------------------------------------------------
 
-def make_supervisor_node(mcp_tools: list[Any]):
+def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
     """
     Return a LangGraph node function (supervisor) closed over *mcp_tools*.
 
@@ -114,6 +114,10 @@ def make_supervisor_node(mcp_tools: list[Any]):
     ----------
     mcp_tools:
         List of LangChain Tool objects returned by ``MCPToolkit.get_tools()``.
+    dry_run:
+        When ``True``, the supervisor tolerates missing ledger state
+        (expected when stage nodes are stubs) and terminates cleanly
+        instead of looping.
 
     Returns
     -------
@@ -155,7 +159,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # ------------------------------------------------------------------
 
     async def supervisor_node(
-        state: WorkflowState, config: Optional[RunnableConfig] = None,
+        state: WorkflowState, config: RunnableConfig | None = None,
     ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)
@@ -223,6 +227,28 @@ def make_supervisor_node(mcp_tools: list[Any]):
         try:
             status_data = await _call_tool("ledger_get_project_status", project_path=project_path)
         except Exception as exc:
+            if dry_run:
+                # Missing ledger is expected in dry-run mode — stubs don't
+                # initialise a project.  Log once at INFO and terminate.
+                log.info("[dry-run] Ledger not initialised (expected): %s", exc)
+                log_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="dry_run_no_ledger",
+                    destination=str(END),
+                    detail=str(exc),
+                    level="INFO",
+                )
+                if run_logger:
+                    run_logger.stream_entry(log_entry)
+                return Command(
+                    goto=END,
+                    update={
+                        "iteration": new_iteration,
+                        "current_stage": "supervisor",
+                        "run_log": [log_entry],
+                    },
+                )
             log.error("Failed to read project status: %s", exc)
             ts = datetime.now(UTC).isoformat()
             log_entry = _log_entry(
@@ -346,25 +372,63 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         # ── No WPs → PM needs to create them ─────────────────────────
         if not wp_summaries:
+            # In dry-run mode, PM stubs won't create a ledger.  Route to
+            # PM on the very first iteration (to validate the path), then
+            # terminate cleanly on subsequent iterations.
+            if dry_run and new_iteration > 1:
+                log_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="dry_run_complete",
+                    destination=str(END),
+                    reason="dry-run: PM stub executed; no ledger expected",
+                    level="INFO",
+                )
+                if run_logger:
+                    run_logger.stream_entry(log_entry)
+                return Command(
+                    goto=END,
+                    update={
+                        **base_update,
+                        "current_stage": "supervisor",
+                        "run_log": [log_entry, progress_snapshot],
+                    },
+                )
+
             extra_entries: list = []
             extra_errs: list = []
             if wp_list_error:
-                ts = datetime.now(UTC).isoformat()
-                err_entry = _log_entry(
-                    stage="supervisor",
-                    wp_id="",
-                    action="mcp_error",
-                    destination=_DEST_PM,
-                    error=wp_list_error,
-                    level="WARNING",
-                )
-                if run_logger:
-                    run_logger.stream_entry(err_entry)
-                extra_entries.append(err_entry)
-                extra_errs.append({
-                    "timestamp": ts,
-                    "message": f"ledger_list_work_packages failed: {wp_list_error}",
-                })
+                if dry_run:
+                    # Missing ledger is expected in dry-run — log at INFO,
+                    # don't record as an error.
+                    info_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id="",
+                        action="dry_run_no_ledger",
+                        destination=_DEST_PM,
+                        detail=wp_list_error,
+                        level="INFO",
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(info_entry)
+                    extra_entries.append(info_entry)
+                else:
+                    ts = datetime.now(UTC).isoformat()
+                    err_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id="",
+                        action="mcp_error",
+                        destination=_DEST_PM,
+                        error=wp_list_error,
+                        level="WARNING",
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(err_entry)
+                    extra_entries.append(err_entry)
+                    extra_errs.append({
+                        "timestamp": ts,
+                        "message": f"ledger_list_work_packages failed: {wp_list_error}",
+                    })
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",
