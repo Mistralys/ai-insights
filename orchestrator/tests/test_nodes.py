@@ -1041,11 +1041,8 @@ class TestSlimPromptContent:
         assert _SLIM_PROJECT_PATH in prompt, (
             f"project_path {_SLIM_PROJECT_PATH!r} must be present in prompt"
         )
-        assert "CRITICAL" in prompt, (
-            "Injection-safety warning (CRITICAL) must be present in prompt"
-        )
-        assert "project_path" in prompt, (
-            "'project_path' keyword must appear in the injection-safety warning"
+        assert "ledger tool calls" in prompt, (
+            "project_path reminder must be present in prompt"
         )
         if expect_wp:
             assert _SLIM_WP_ID in prompt, (
@@ -1064,7 +1061,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_developer_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1082,7 +1079,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_qa_prompt_has_slim_fields(self):
-        """_build_qa_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_qa_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.qa import _build_qa_prompt
 
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1100,7 +1097,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_reviewer_prompt_has_slim_fields(self):
-        """_build_reviewer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_reviewer_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.reviewer import _build_reviewer_prompt
 
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1118,7 +1115,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_security_auditor_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1136,7 +1133,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_release_engineer_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1154,7 +1151,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_docs_prompt_has_slim_fields(self):
-        """_build_docs_prompt must include project_path, wp_id, and CRITICAL warning."""
+        """_build_docs_prompt must include project_path, wp_id, and project_path reminder."""
         from src.nodes.docs import _build_docs_prompt
 
         prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1172,7 +1169,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_pm_prompt_has_slim_fields(self, tmp_path):
-        """_build_pm_prompt must include project_path and CRITICAL warning (no wp_id)."""
+        """_build_pm_prompt must include project_path and project_path reminder (no wp_id)."""
         from src.nodes.pm import _build_pm_prompt
 
         plan_file = tmp_path / "plan.md"
@@ -1182,10 +1179,9 @@ class TestSlimPromptContent:
         prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
 
         assert str(tmp_path) in prompt, "project_path must be present in PM prompt"
-        assert "CRITICAL" in prompt, (
-            "Injection-safety warning (CRITICAL) must be present in PM prompt"
+        assert "ledger tool calls" in prompt, (
+            "project_path reminder must be present in PM prompt"
         )
-        assert "project_path" in prompt, "'project_path' keyword must appear in PM prompt warning"
 
     def test_pm_prompt_has_no_identity_declarations(self, tmp_path):
         """_build_pm_prompt must not contain identity/role declaration text."""
@@ -1204,7 +1200,7 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_synthesis_prompt_has_slim_fields(self):
-        """_build_synthesis_prompt must include project_path and CRITICAL warning (no wp_id)."""
+        """_build_synthesis_prompt must include project_path and project_path reminder (no wp_id)."""
         from src.nodes.synthesis import _build_synthesis_prompt
 
         state = _build_slim_state(current_wp_id="")

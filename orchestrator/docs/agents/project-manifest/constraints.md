@@ -20,7 +20,7 @@ New constraint entries should follow this structure:
 
 ### 1. Persona Files Are the Source of Truth for Agent Behaviour
 
-**Rule:** All identity declarations, workflow step enumerations, and MCP tool-call instructions live exclusively in persona system prompts (`personas/ledger/claude-code/`). User-turn prompts in `_build_*_prompt()` functions must contain only runtime context that the persona file cannot know: concrete `project_path`, `wp_id`, plan content, and the injection-safety warning. Any change to agent behaviour must be made in the persona source files, **not** in prompt builder functions.
+**Rule:** All identity declarations, workflow step enumerations, and MCP tool-call instructions live exclusively in persona system prompts (`personas/ledger/claude-code/`). User-turn prompts in `_build_*_prompt()` functions must contain only runtime context that the persona file cannot know: concrete `project_path`, `wp_id`, and plan content. All prompt builders delegate to the centralized :func:`build_stage_prompt` in `src/nodes/__init__.py`. Any change to agent behaviour must be made in the persona source files, **not** in prompt builder functions.
 
 **Rationale:** Splitting identity from runtime context keeps persona files reviewable, versionable, and reusable across different orchestration surfaces without coupling them to Python implementation details.
 
@@ -41,29 +41,29 @@ def _build_developer_prompt(project_path: str, wp_id: str) -> str:
 
 **Correct pattern:**
 ```python
-# ✅ CORRECT — user-turn prompt carries only runtime context
-def _build_developer_prompt(project_path: str, wp_id: str) -> str:
-    return f"""**Project path:** {project_path}
-**Work package:** {wp_id}
+# ✅ CORRECT — delegate to the centralized helper
+from . import build_stage_prompt
 
-**CRITICAL — EVERY MCP TOOL CALL MUST include `project_path='{project_path}'`.**
-Omitting `project_path` from any tool call will cause it to fail immediately.
-"""
+def _build_developer_prompt(state: WorkflowState) -> str:
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),
+    )
 ```
 
 ---
 
-### 2. The `project_path` Injection-Safety Warning Is Permanent
+### 2. The `project_path` Reminder Is Permanent
 
-**Rule:** The user-turn prompt must always include the verbatim injection-safety warning: `**CRITICAL — EVERY MCP TOOL CALL MUST include \`project_path='...'\`.**` This warning must never be removed or weakened. Persona Markdown files are static and cannot contain runtime values, so this runtime reminder lives in the user-turn prompt.
+**Rule:** The user-turn prompt must always include a reminder to use the specified `project_path` for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`) and must never be removed. Persona Markdown files are static and cannot contain runtime values, so this runtime reminder lives in the user-turn prompt.
 
-**Rationale:** Without the injection-safety warning the agent may omit `project_path` from MCP tool calls, causing every ledger operation to fail. The warning is a runtime guard against path manipulation and a reminder of the MCP server's `project_path` requirement.
+**Rationale:** Without the reminder the agent may omit `project_path` from MCP tool calls, causing every ledger operation to fail.
 
 ---
 
 ### 3. Prompt Templates Are Structurally Uniform Within Their Category
 
-**Rule:** The six WP-scoped prompt builder functions (`_build_developer_prompt`, `_build_qa_prompt`, `_build_security_auditor_prompt`, `_build_reviewer_prompt`, `_build_release_engineer_prompt`, `_build_docs_prompt`) must remain structurally identical: same f-string layout, same fields (`project_path`, `wp_id`, injection-safety warning), same annotations. Any change to the minimal prompt pattern must be applied consistently across all six. The PM and synthesis templates are documented exceptions with justified divergences (PM adds plan content; synthesis adds a project-scoped summary and omits `wp_id`).
+**Rule:** The six WP-scoped prompt builder functions (`_build_developer_prompt`, `_build_qa_prompt`, `_build_security_auditor_prompt`, `_build_reviewer_prompt`, `_build_release_engineer_prompt`, `_build_docs_prompt`) must all delegate to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`. Any change to the minimal prompt pattern must be applied in that single helper. The PM and synthesis templates are documented exceptions with justified divergences (PM adds plan content via the `preamble`/`extra` parameters; synthesis omits `wp_id`).
 
 **Rationale:** Structural uniformity makes the prompt layer auditable at a glance and prevents silent divergence between nodes that should behave identically.
 

@@ -11,14 +11,13 @@ Slim prompt strategy
 only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
 ``wp_id`` is intentionally omitted — synthesis is a **project-scoped** stage
 that operates across all completed work packages rather than a single WP.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the Synthesis persona
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the Synthesis persona
 system prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_synthesis_prompt(state: WorkflowState) -> str:
@@ -43,13 +42,7 @@ def _build_synthesis_prompt(state: WorkflowState) -> str:
 
     No ``current_wp_id`` is required — synthesis operates on the full project.
     """
-    project_path: str = state["project_path"]
-
-    return (
-        f"**Project path:** {project_path}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
-    )
+    return build_stage_prompt(state["project_path"])
 
 
 def make_synthesis_node(config: Config, mcp_tools: list[Any]):

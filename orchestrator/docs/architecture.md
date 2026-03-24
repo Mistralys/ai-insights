@@ -55,13 +55,25 @@ There are three structurally distinct user-turn prompt templates, one for each c
 
 **WP-scoped template** (6 nodes: `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`)
 
-All six nodes share the minimal WP-scoped template. Each `_build_*_prompt()` function produces an identical f-string layout:
+All six nodes share the minimal WP-scoped template. Each `_build_*_prompt()` function delegates to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`:
 
 ```python
-f"**Project path:** {project_path}\n"
-f"**Work package:** {wp_id}\n\n"
-f"**CRITICAL — EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-f"Omitting `project_path` from any tool call will cause it to fail immediately.\n"
+from . import build_stage_prompt
+
+def _build_developer_prompt(state: WorkflowState) -> str:
+    return build_stage_prompt(
+        state["project_path"],
+        wp_id=state.get("current_wp_id", ""),
+    )
+```
+
+Which produces:
+
+```
+**Project:** `/path/to/project`
+**Work package:** WP-001
+
+Always use the project path above for all ledger tool calls.
 ```
 
 **PM template** (`pm` node)
@@ -74,26 +86,19 @@ The synthesis template is the other documented exception: it omits `wp_id` entir
 
 ### Field Reference
 
-| Template | `project_path` | `wp_id` | Injection-safety warning | Plan document content |
+| Template | `project_path` | `wp_id` | `project_path` reminder | Plan document content |
 |----------|:--------------:|:-------:|:------------------------:|:---------------------:|
 | WP-scoped (×6) | ✅ | ✅ | ✅ | ❌ |
 | PM | ✅ | ❌ | ✅ | ✅ |
 | Synthesis | ✅ | ❌ | ✅ | ❌ |
 
-### `project_path` Injection-Safety Warning
+### `project_path` Reminder
 
-Every user-turn prompt includes the following verbatim warning:
+Every user-turn prompt includes a reminder to use the specified project path for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`), so changes only need to happen in one place.
 
-```
-**CRITICAL — EVERY MCP TOOL CALL MUST include `project_path='<path>'`.**
-Omitting `project_path` from any tool call will cause it to fail immediately.
-```
+**Why it exists:** Persona Markdown files are static and cannot embed runtime values like the concrete `project_path` for a given run. The user-turn prompt is the only place this runtime value can appear.
 
-**Why it exists:** Persona Markdown files are static and cannot embed runtime values like the concrete `project_path` for a given run. The user-turn prompt is the only place this runtime value can appear, so the safety reminder must live there.
-
-**Why it's permanent:** Removing the warning creates path-manipulation risk: without an explicit reminder, an LLM-driven agent may omit `project_path` from MCP tool calls, causing every ledger operation to fail with a cryptic error. The Layer 2 `inject_project_path()` tool wrapper (see **MCP Tool Wrapping** below) provides a fallback injection mechanism, but the user-turn warning is the primary guard.
-
-**Relationship to Layer 2:** `inject_project_path()` is a belt-and-suspenders safety net — it auto-injects `project_path` when the argument is absent from a tool call. The user-turn warning and the Layer 2 wrapper are complementary and both intentional. Neither replaces the other.
+**Why it's permanent:** Removing the reminder risks the agent omitting `project_path` from MCP tool calls, causing every ledger operation to fail. The Layer 2 `inject_project_path()` tool wrapper (see **MCP Tool Wrapping** below) provides a fallback injection mechanism, but the user-turn reminder is the primary guide.
 
 ### Relationship to Persona Files
 

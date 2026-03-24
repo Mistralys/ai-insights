@@ -15,11 +15,10 @@ immediate runtime context:
   directly in the prompt. This is legitimate runtime data that the persona
   system prompt cannot know at build time and is therefore the only
   substantive content beyond the three slim fields above.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
-Identity declarations, workflow step enumerations, and MCP tool call guidance
-are intentionally omitted; those live exclusively in the PM persona system
+The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
+single source of truth for user-turn prompt structure. Identity declarations,
+workflow steps, and MCP tool call guidance live in the PM persona system
 prompt loaded from ``personas/ledger/claude-code/``.
 
 Public factory
@@ -36,7 +35,7 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import create_stage_node
+from . import build_stage_prompt, create_stage_node
 
 
 def _build_pm_prompt(state: WorkflowState) -> str:
@@ -51,15 +50,10 @@ def _build_pm_prompt(state: WorkflowState) -> str:
     except OSError as exc:
         plan_content = f"[Could not read plan file at {plan_path}: {exc}]"
 
-    return (
-        f"Please start your work on the project.\n\n"
-        f"**Project path:** {project_path}\n"
-        f"**Plan file:** {plan_file}\n\n"
-        f"**CRITICAL \u2014 EVERY MCP TOOL CALL MUST include `project_path={project_path!r}`.**\n"
-        f"Omitting `project_path` from any tool call will cause it to fail immediately.\n\n"
-        f"---\n\n"
-        f"# Plan Document\n\n"
-        f"{plan_content}"
+    return build_stage_prompt(
+        project_path,
+        preamble=f"Please start your work on the project.\n\n**Plan file:** {plan_file}",
+        extra=f"---\n\n# Plan Document\n\n{plan_content}",
     )
 
 
