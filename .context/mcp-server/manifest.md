@@ -1967,6 +1967,15 @@ export async function readLogEntries(
   filename: string,
   afterLine?: number
 ): Promise<{ entries: unknown[]; totalLines: number }>;
+
+// Moves orphaned JSONL log files from srcDir into destDir for the given slug.
+// No-op if destDir already contains logs for the slug, or srcDir has none.
+// Best-effort: individual rename failures are swallowed. Returns migrated count.
+export async function migrateOrphanedLogs(
+  destDir: string,
+  srcDir: string,
+  slug: string,
+): Promise<number>;
 ```
 
 **Self-healing stale runs (`findRunLogs`):**
@@ -1994,7 +2003,8 @@ Thin wrappers that add slug validation before delegating to `log-resolver.ts`.
 
 ```typescript
 // GET /api/projects/:slug/runs → sorted RunLogEntry[] (heals stale runs as a side-effect)
-export async function handleListRunLogs(slug: string, logsDir: string): Promise<RunLogEntry[]>;
+// legacyLogsDir: if supplied and logsDir has no logs for slug, orphaned files are moved in before listing.
+export async function handleListRunLogs(slug: string, logsDir: string, legacyLogsDir?: string): Promise<RunLogEntry[]>;
 
 // GET /api/projects/:slug/runs/:filename → { entries, totalLines }
 export async function handleGetRunLog(
@@ -2260,7 +2270,7 @@ export async function handleGetProjectHealth(
 ): Promise<ProjectHealthSummary>;
 
 // GET /api/projects/:slug/dialogues[?wp=WP-001]
-// Returns an array of dialogue filenames from the project's dialogues/ directory.
+// Returns an array of dialogue filenames from the project's orchestrator/dialogues/ directory.
 // slug is validated via assertSafeSlug(). Returns [] when the directory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
 // All returned filenames are sorted alphabetically.
@@ -2276,7 +2286,7 @@ export async function handleListDialogues(
 //   1. Primary allowlist: DIALOGUE_FILENAME_RE = /^[A-Za-z0-9_-]+\.md$/ — rejects any filename
 //      containing '.', '/', or other special characters (including percent-decoded traversals).
 //   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
-//      the project's dialogues/ directory.
+//      the project's orchestrator/dialogues/ directory.
 // Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
 export async function handleGetDialogueFile(
   ledgerRoot: string,
@@ -5826,10 +5836,13 @@ auto_archive_days === 0?
 ```
 GET /api/projects/:slug/runs
   ↓
-gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir)
+gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir, legacyLogsDir?)
   ↓
 src/gui/handlers/run-log-handlers.ts — handleListRunLogs
   assertSafeSlug(slug)   ← throws ApiError NOT_FOUND for empty / '/' / '..'
+  migrateOrphanedLogs(logsDir, legacyLogsDir, slug)  ← if legacyLogsDir supplied;
+                                                         moves *-{slug}.jsonl files from legacy dir
+                                                         into logsDir when logsDir has none; no-op otherwise
   findRunLogs(logsDir, slug)
   ↓
 src/gui/log-resolver.ts — findRunLogs
@@ -5862,7 +5875,8 @@ Return RunLogEntry[]
 **Key properties:**
 - Self-healing is idempotent: once a stale file gains a `run_error` closing entry, it will never be re-healed
 - Healing runs as a side-effect of the GET — no dedicated endpoint or background job needed
-- `logsDir` is resolved from GUI config (`orchestrator_logs_dir`), falling back to `~/.ai-insights/orchestrator-logs`
+- `logsDir` is the project's ledger storage directory (`{ledger_root}/{slug}/`); logs written there by the orchestrator post-run
+- `legacyLogsDir` (optional) is the old flat `orchestrator/logs/` directory — passed by `server.ts` to enable lazy migration of pre-archival runs
 - Security: slug validated in both `server.ts` dispatch and handler; filename validated in `readLogEntries` (allowlist + path escape check)
 
 ---
@@ -5988,9 +6002,9 @@ mcp-server/
 │   │   ├── auto-archive.ts      # Auto-archive service
 │   │   ├── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
 │   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
-│   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir
+│   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir; migrateOrphanedLogs
 │   │   └── handlers/
-│   │       └── run-log-handlers.ts  # handleListRunLogs, handleGetRunLog — thin wrappers adding slug validation over log-resolver.ts
+│   │       └── run-log-handlers.ts  # handleListRunLogs (optional legacyLogsDir migration), handleGetRunLog — thin wrappers adding slug validation over log-resolver.ts
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json

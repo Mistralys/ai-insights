@@ -1162,6 +1162,9 @@ _SOURCE: Directory tree_
         │       ├── project-ledger.json
         │       ├── synthesis.md
         │   └── 2026-03-20-dialogue-capture-rework-1/
+        │       ├── 20260323T173850-2026-03-20-dialogue-capture-rework-1.jsonl
+        │       ├── 20260323T174105-2026-03-20-dialogue-capture-rework-1.jsonl
+        │       ├── 20260323T180014-2026-03-20-dialogue-capture-rework-1.jsonl
         │       ├── WP-001.json
         │       ├── WP-002.json
         │       ├── WP-003.json
@@ -1171,6 +1174,9 @@ _SOURCE: Directory tree_
         │       ├── project-ledger.json
         │       ├── synthesis.md
         │   └── 2026-03-20-dialogue-capture/
+        │       ├── 20260323T143701-2026-03-20-dialogue-capture.jsonl
+        │       ├── 20260323T143922-2026-03-20-dialogue-capture.jsonl
+        │       ├── 20260323T160604-2026-03-20-dialogue-capture.jsonl
         │       ├── WP-001.json
         │       ├── WP-002.json
         │       ├── WP-003.json

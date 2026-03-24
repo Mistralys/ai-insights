@@ -59,6 +59,7 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
 import sys
 import time
 import uuid
@@ -270,7 +271,9 @@ async def _build_graph_for_run(
 
     When *dry_run* is ``True``, all six pipeline-stage nodes are replaced with
     lightweight stubs that log routing decisions without invoking Deep Agents.
-    The supervisor node is always real (it performs only ledger reads, not agent calls).
+    The supervisor node is always real (it performs only ledger reads, not agent
+    calls) but receives ``dry_run=True`` so it tolerates missing ledger state
+    and terminates cleanly instead of looping on MCP errors.
 
     Parameters
     ----------
@@ -296,7 +299,7 @@ async def _build_graph_for_run(
         from src.state import WorkflowState
         from src.supervisor import make_supervisor_node
 
-        supervisor_node = make_supervisor_node(mcp_tools)
+        supervisor_node = make_supervisor_node(mcp_tools, dry_run=True)
         builder = StateGraph(WorkflowState)
         builder.add_node("supervisor", supervisor_node)
         for stage in ("pm", "developer", "qa", "reviewer", "docs", "synthesis"):
@@ -607,8 +610,24 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         except OSError:
             pass
 
+    # ── Copy run log to ledger storage ──────────────────────────────────────
+    # Copy the JSONL file from orchestrator/logs/ into the project's ledger
+    # storage folder so all project artefacts are co-located there.
+    # The original file is kept in orchestrator/logs/ to avoid files
+    # disappearing from there for seemingly no reason.
+    log_final_path = run_logger._path
+    slug = plan_dir.name
+    ledger_log_dir = config.workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
+    try:
+        ledger_log_dir.mkdir(parents=True, exist_ok=True)
+        dest = ledger_log_dir / run_logger._path.name
+        shutil.copy2(run_logger._path, dest)
+        log_final_path = dest
+    except OSError as exc:
+        log.warning("Could not copy run log to ledger storage: %s", exc)
+
     duration = time.monotonic() - start_time
-    print(f"\n  Log file   : {run_logger._path}")
+    print(f"\n  Log file   : {log_final_path}")
     return _print_run_summary(
         final_state,
         duration,
@@ -838,10 +857,10 @@ WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
 _ANTHROPIC_PREFIXES = ("claude",)
 _GOOGLE_PREFIXES = ("gemini", "models/gemini")
 
-#: Environment variable values that enable ``capture_dialogues`` (matched after
+#: Environment variable values that disable ``capture_dialogues`` (matched after
 #: ``.strip().lower()``). Kept as a module-level constant so it is visible
 #: alongside the other private config constants and easy to extend.
-_CAPTURE_DIALOGUES_TRUTHY: frozenset[str] = frozenset({"true", "1", "yes"})
+_CAPTURE_DIALOGUES_FALSY: frozenset[str] = frozenset({"false", "0", "no"})
 
 
 def _model_is_anthropic(model_name: str) -> bool:
@@ -940,9 +959,9 @@ class Config:
         Seconds of console silence before emitting a heartbeat. ``0`` disables.
     capture_dialogues:
         When ``True``, the orchestrator writes agent dialogue artefacts to disk.
-        Controlled by the ``CAPTURE_DIALOGUES`` environment variable (truthy
-        values: ``"true"``, ``"1"``, ``"yes"``; case-insensitive). Defaults to
-        ``False``.
+        Controlled by the ``CAPTURE_DIALOGUES`` environment variable (falsy
+        values: ``"false"``, ``"0"``, ``"no"``; case-insensitive). Defaults to
+        ``True``.
     """
 
     model_name: str
@@ -953,7 +972,7 @@ class Config:
     workspace_root: Path
     log_level: str
     heartbeat_interval_s: int = 120
-    capture_dialogues: bool = False
+    capture_dialogues: bool = True
 
     def get_chat_model(self):
         """
@@ -1064,7 +1083,8 @@ def load_config(
         )
 
     # --- capture_dialogues ---
-    capture_dialogues = os.environ.get("CAPTURE_DIALOGUES", "").strip().lower() in _CAPTURE_DIALOGUES_TRUTHY
+    raw_capture = os.environ.get("CAPTURE_DIALOGUES", "").strip().lower()
+    capture_dialogues = raw_capture not in _CAPTURE_DIALOGUES_FALSY if raw_capture else True
 
     # --- heartbeat_interval_s ---
     raw_heartbeat = os.environ.get("HEARTBEAT_INTERVAL_S", "120").strip()
@@ -1646,7 +1666,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
@@ -1730,7 +1750,7 @@ except ImportError:
 # Factory
 # ---------------------------------------------------------------------------
 
-def make_supervisor_node(mcp_tools: list[Any]):
+def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
     """
     Return a LangGraph node function (supervisor) closed over *mcp_tools*.
 
@@ -1742,6 +1762,10 @@ def make_supervisor_node(mcp_tools: list[Any]):
     ----------
     mcp_tools:
         List of LangChain Tool objects returned by ``MCPToolkit.get_tools()``.
+    dry_run:
+        When ``True``, the supervisor tolerates missing ledger state
+        (expected when stage nodes are stubs) and terminates cleanly
+        instead of looping.
 
     Returns
     -------
@@ -1783,7 +1807,7 @@ def make_supervisor_node(mcp_tools: list[Any]):
     # ------------------------------------------------------------------
 
     async def supervisor_node(
-        state: WorkflowState, config: Optional[RunnableConfig] = None,
+        state: WorkflowState, config: RunnableConfig | None = None,
     ) -> Command:
         """Deterministic routing node — pure Python, no LLM calls."""
         run_logger = get_run_logger(config)
@@ -1851,6 +1875,28 @@ def make_supervisor_node(mcp_tools: list[Any]):
         try:
             status_data = await _call_tool("ledger_get_project_status", project_path=project_path)
         except Exception as exc:
+            if dry_run:
+                # Missing ledger is expected in dry-run mode — stubs don't
+                # initialise a project.  Log once at INFO and terminate.
+                log.info("[dry-run] Ledger not initialised (expected): %s", exc)
+                log_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="dry_run_no_ledger",
+                    destination=str(END),
+                    detail=str(exc),
+                    level="INFO",
+                )
+                if run_logger:
+                    run_logger.stream_entry(log_entry)
+                return Command(
+                    goto=END,
+                    update={
+                        "iteration": new_iteration,
+                        "current_stage": "supervisor",
+                        "run_log": [log_entry],
+                    },
+                )
             log.error("Failed to read project status: %s", exc)
             ts = datetime.now(UTC).isoformat()
             log_entry = _log_entry(
@@ -1974,25 +2020,63 @@ def make_supervisor_node(mcp_tools: list[Any]):
 
         # ── No WPs → PM needs to create them ─────────────────────────
         if not wp_summaries:
+            # In dry-run mode, PM stubs won't create a ledger.  Route to
+            # PM on the very first iteration (to validate the path), then
+            # terminate cleanly on subsequent iterations.
+            if dry_run and new_iteration > 1:
+                log_entry = _log_entry(
+                    stage="supervisor",
+                    wp_id="",
+                    action="dry_run_complete",
+                    destination=str(END),
+                    reason="dry-run: PM stub executed; no ledger expected",
+                    level="INFO",
+                )
+                if run_logger:
+                    run_logger.stream_entry(log_entry)
+                return Command(
+                    goto=END,
+                    update={
+                        **base_update,
+                        "current_stage": "supervisor",
+                        "run_log": [log_entry, progress_snapshot],
+                    },
+                )
+
             extra_entries: list = []
             extra_errs: list = []
             if wp_list_error:
-                ts = datetime.now(UTC).isoformat()
-                err_entry = _log_entry(
-                    stage="supervisor",
-                    wp_id="",
-                    action="mcp_error",
-                    destination=_DEST_PM,
-                    error=wp_list_error,
-                    level="WARNING",
-                )
-                if run_logger:
-                    run_logger.stream_entry(err_entry)
-                extra_entries.append(err_entry)
-                extra_errs.append({
-                    "timestamp": ts,
-                    "message": f"ledger_list_work_packages failed: {wp_list_error}",
-                })
+                if dry_run:
+                    # Missing ledger is expected in dry-run — log at INFO,
+                    # don't record as an error.
+                    info_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id="",
+                        action="dry_run_no_ledger",
+                        destination=_DEST_PM,
+                        detail=wp_list_error,
+                        level="INFO",
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(info_entry)
+                    extra_entries.append(info_entry)
+                else:
+                    ts = datetime.now(UTC).isoformat()
+                    err_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id="",
+                        action="mcp_error",
+                        destination=_DEST_PM,
+                        error=wp_list_error,
+                        level="WARNING",
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(err_entry)
+                    extra_entries.append(err_entry)
+                    extra_errs.append({
+                        "timestamp": ts,
+                        "message": f"ledger_list_work_packages failed: {wp_list_error}",
+                    })
             log_entry = _log_entry(
                 stage="supervisor",
                 wp_id="",

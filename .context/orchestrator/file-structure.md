@@ -45,12 +45,6 @@ _SOURCE: Directory tree_
         ├── 20260320T135939-2026-03-20-naming-convention-sweep.jsonl
         ├── 20260323T091956-2026-03-23-progress-reporting-followup.jsonl
         ├── 20260323T104010-2026-03-23-orchestrator-run-log-viewer.jsonl
-        ├── 20260323T143701-2026-03-20-dialogue-capture.jsonl
-        ├── 20260323T143922-2026-03-20-dialogue-capture.jsonl
-        ├── 20260323T160604-2026-03-20-dialogue-capture.jsonl
-        ├── 20260323T173850-2026-03-20-dialogue-capture-rework-1.jsonl
-        ├── 20260323T174105-2026-03-20-dialogue-capture-rework-1.jsonl
-        ├── 20260323T180014-2026-03-20-dialogue-capture-rework-1.jsonl
     └── module-context.yaml
     └── pyproject.toml
     └── requirements.txt

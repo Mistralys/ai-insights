@@ -36,7 +36,7 @@ serialize_messages_to_markdown(messages, stage, wp_id, timestamp) -> str
     Convert a LangChain message list to a human-readable Markdown document.
 
 write_dialogue(content, slug_dir, wp_id, stage) -> Path
-    Persist *content* to ``{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md``,
+    Persist *content* to ``{slug_dir}/orchestrator/dialogues/{wp_id}-{stage}-r{N}.md``,
     auto-incrementing the revision number *N* when prior revisions exist.
 
 Supported message roles
@@ -53,10 +53,10 @@ The following LangChain message types are recognised by ``_msg_role()``:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Message serialisation
@@ -171,13 +171,13 @@ def serialize_messages_to_markdown(
         optional token-usage footer.
     """
     if timestamp is None:
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        timestamp = datetime.now(UTC).isoformat(timespec="seconds")
 
     lines: list[str] = [
         f"# Dialogue — {stage} / {wp_id}",
         "",
-        f"| Field | Value |",
-        f"| ----- | ----- |",
+        "| Field | Value |",
+        "| ----- | ----- |",
         f"| Stage | `{stage}` |",
         f"| WP ID | `{wp_id}` |",
         f"| Captured | {timestamp} |",
@@ -232,16 +232,16 @@ def write_dialogue(
     stage: str,
 ) -> Path:
     """
-    Write *content* to ``{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md``.
+    Write *content* to ``{slug_dir}/orchestrator/dialogues/{wp_id}-{stage}-r{N}.md``.
 
     The revision number *N* is determined by globbing existing
-    ``{wp_id}-{stage}-r*.md`` files inside ``{slug_dir}/dialogues/``.
+    ``{wp_id}-{stage}-r*.md`` files inside ``{slug_dir}/orchestrator/dialogues/``.
     The first call writes ``r0``; subsequent calls for the same
     ``wp_id``/``stage`` pair increment the revision.
 
     .. note:: Cross-language coupling
-        The subdirectory name ``"dialogues"`` is intentionally kept in sync
-        with the MCP server's ``DIALOGUES_DIR`` constant defined in
+        The subdirectory path ``orchestrator/dialogues`` is intentionally kept
+        in sync with the MCP server's ``DIALOGUES_DIR`` constant defined in
         ``mcp-server/src/utils/constants.ts``.  If this value ever needs to
         change, both files must be updated together.
 
@@ -250,7 +250,8 @@ def write_dialogue(
     content:
         Markdown string to write.
     slug_dir:
-        Parent directory (e.g. the plan/project directory).
+        Root directory for the project's ledger storage
+        (e.g. ``{workspace_root}/mcp-server/storage/ledger/{slug}``).
     wp_id:
         Work-package identifier (e.g. ``"WP-001"``).
     stage:
@@ -261,7 +262,7 @@ def write_dialogue(
     Path
         Absolute path to the file that was written.
     """
-    dialogues_dir = slug_dir / "dialogues"
+    dialogues_dir = slug_dir / "orchestrator" / "dialogues"
     dialogues_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine next revision number.

@@ -111,7 +111,7 @@ HEARTBEAT_INTERVAL_S=120  # Heartbeat interval in seconds (0 = disabled)
 | `CHECKPOINT_DIR` | no | `./checkpoints` | Directory for LangGraph SQLite checkpoint files |
 | `LOG_LEVEL` | no | `INFO` | Python logging verbosity |
 | `HEARTBEAT_INTERVAL_S` | no | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled) |
-| `CAPTURE_DIALOGUES` | no | `false` | Capture full agent dialogue exchanges when `true`, `1`, or `yes` (case-insensitive); all other values (including unset) disable capture |
+| `CAPTURE_DIALOGUES` | no | `true` | Capture full agent dialogue exchanges (enabled by default); set to `false`, `0`, or `no` (case-insensitive) to disable |
 
 The provider is **auto-detected** from which API key is set. If both are set, the `MODEL_NAME` prefix is used as a tiebreaker (`claude-*` → Anthropic, `gemini-*` → Google).
 
@@ -236,7 +236,7 @@ For the full routing algorithm, action sets, and circuit-breaker mechanics, see 
 
 ### Stage nodes
 
-Each stage node emits a `stage_start` event, loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, invokes it, and emits `stage_complete` (with `duration_s`) followed by a best-effort `pipeline_result` read-back. When `CAPTURE_DIALOGUES=true`, a `dialogue_captured` event is also emitted (and appended to the run log) recording the path of the Markdown dialogue file written to disk; write failures are caught silently and do not interrupt stage execution. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
+Each stage node emits a `stage_start` event, loads a persona prompt, wraps the shared MCP tools (auto-injecting `project_path`), creates a **Deep Agent**, invokes it, and emits `stage_complete` (with `duration_s`) followed by a best-effort `pipeline_result` read-back. When dialogue capture is enabled (the default), a `dialogue_captured` event is also emitted (and appended to the run log) recording the path of the Markdown dialogue file written to disk; write failures are caught silently and do not interrupt stage execution. The 8 pipeline stages are: `pm`, `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`, `synthesis`. For internals, see [docs/architecture.md](docs/architecture.md).
 
 ---
 

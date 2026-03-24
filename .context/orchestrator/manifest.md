@@ -140,7 +140,7 @@ For complete signatures and full field descriptions see the linked documents abo
 
 ## JSONL Event Types — Logging Module (`src/utils/logging.py`)
 
-The schema supports **17 event types** across three emitters. For the full field reference,
+The schema supports **19 event types** across three emitters. For the full field reference,
 duration conventions, JSON examples, and backward-compatibility notes see
 [jsonl-log-schema.md](../../jsonl-log-schema.md).
 
@@ -162,6 +162,8 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `progress_snapshot` | `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, **`elapsed_s`**, `run_start_ts` (optional) | **New.** Emitted every iteration. `elapsed_s` — seconds since `run_start_ts`; omitted when `run_start_ts` absent. `run_start_ts` — echoes `WorkflowState.run_start_ts`; `None` when unavailable. |
 | `rework_detected` | `wp_id`, `agent_role`, `pipeline_type`, `rework_count` | **New.** Fired when supervisor dispatches a `REWORK` action. |
 | `route` | `destination`, `agent_role`, `ledger_action`, **`prev_stage`**, **`prev_wp_id`**, **`prev_result`** | Enriched: `prev_stage`, `prev_wp_id`, `prev_result` (`"PASS"` / `"FAIL"` / `""`) added to provide previous-stage context. |
+| `dry_run_no_ledger` | `destination`, `detail` | **New.** Emitted in `--dry-run` mode when the ledger is missing (expected). Replaces `mcp_error` at INFO level. |
+| `dry_run_complete` | `destination=END`, `reason` | **New.** Emitted in `--dry-run` mode on second iteration with no WPs — clean termination signal. |
 
 ### Heartbeat events (`src/utils/logging.py`)
 

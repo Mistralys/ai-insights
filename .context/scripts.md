@@ -1405,6 +1405,19 @@ function cmdCtxGenerate(args) {
     path.join(ctxDir, 'generated-at.txt'),
     new Date().toISOString() + '\n',
   );
+
+  // Copy AGENTS.md content into CLAUDE.md so IDEs that only read CLAUDE.md
+  // always get the latest agent instructions without a manual sync step.
+  const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
+  const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
+  if (fs.existsSync(agentsMd)) {
+    const agentsContent = fs.readFileSync(agentsMd, 'utf8');
+    const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
+    fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
+    log('Synced AGENTS.md → CLAUDE.md', 'dim');
+  } else {
+    log('\u26a0 AGENTS.md not found — CLAUDE.md not updated', 'yellow');
+  }
 }
 function cmdMcpJson(args)         { scaffoldMcpJson(args.includes('--force')); }
 function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]); }
