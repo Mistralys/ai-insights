@@ -1,6 +1,6 @@
 {
   "name": "project-ledger-mcp",
-  "version": "1.18.5",
+  "version": "1.18.6",
   "type": "module",
   "description": "MCP server for Project Ledger workflow coordination",
   "main": "dist/index.js",
