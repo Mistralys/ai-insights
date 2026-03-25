@@ -57,6 +57,7 @@ export function validatePlanPath(projectPath: string): { isValid: boolean; error
  * Resolution rules:
  * - `project_path` provided → validate format, return it (original behavior).
  * - Only `cwd_path` provided → call `LedgerStore.detectProjectByCwd`, return `meta.plan_path`.
+ * - Both provided → `project_path` wins; `cwd_path` is ignored.
  * - Neither provided → throw with a clear error.
  *
  * @throws {Error} on validation failure, AMBIGUOUS match, or NOT_FOUND.

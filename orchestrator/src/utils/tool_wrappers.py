@@ -114,8 +114,8 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
                 # project_path, so cwd_path-based auto-detection is never
                 # needed.  If the LLM agent followed persona instructions
                 # meant for interactive IDE agents and passed cwd_path,
-                # remove it — most MCP tools enforce mutual exclusivity
-                # between project_path and cwd_path.
+                # strip it — project_path takes precedence when both are
+                # present, but removing it avoids unnecessary ambiguity.
                 if "cwd_path" in target:
                     del target["cwd_path"]
                 target.setdefault("project_path", _proj)
