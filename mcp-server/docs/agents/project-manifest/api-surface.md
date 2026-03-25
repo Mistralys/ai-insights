@@ -1862,8 +1862,13 @@ Locates and reads orchestrator JSONL run log files on behalf of the run log API 
 export interface RunLogEntry {
   filename: string;   // Bare filename (no directory component), e.g. "20260323T143701-my-project.jsonl"
   is_active: boolean; // true when file does not end with a terminal action (run_end / run_error)
+  is_dry_run: boolean; // true when the first JSONL line is a run_start event with dry_run: true; defaults to false on any read/parse error
 }
+```
 
+> **Naming note:** `is_dry_run` is a computed summary property resolved once at list time. It is distinct from `dry_run`, the raw boolean property on the `run_start` event in the JSONL file.
+
+```typescript
 // Returns the configured logs directory, falling back to ~/.ai-insights/orchestrator-logs.
 export function resolveOrchestratorLogsDir(configured: string | undefined): string;
 

@@ -55,59 +55,59 @@ function formatTokens(tokens) {
  * @returns {string} HTML string for the card body.
  */
 function buildRunEventContent(entry) {
-  var action = entry && entry.action ? String(entry.action) : 'unknown';
+  const action = entry && entry.action ? String(entry.action) : 'unknown';
 
   switch (action) {
 
     // ── Orchestrator lifecycle ───────────────────────────────────────
     case 'run_start': {
-      var threadId = entry.thread_id ? escapeHtml(String(entry.thread_id)) : '';
-      var plan = entry.plan ? String(entry.plan) : '';
+      const threadId = entry.thread_id ? escapeHtml(String(entry.thread_id)) : '';
+      const plan = entry.plan ? String(entry.plan) : '';
       // Show just the plan filename, not the full path
-      var planName = plan ? escapeHtml(plan.split('/').pop() || plan) : '';
-      var dryRunBadge = entry.dry_run ? ' <span class="badge badge-dry-run">Dry Run</span>' : '';
-      var html = '<strong>Run started</strong>' + dryRunBadge;
+      const planName = plan ? escapeHtml(plan.split('/').pop() || plan) : '';
+      const dryRunBadge = entry.dry_run ? ' <span class="badge badge-dry-run">Dry Run</span>' : '';
+      let html = '<strong>Run started</strong>' + dryRunBadge;
       if (planName) html += ' &mdash; ' + planName;
       if (threadId) html += '<br><span class="text-muted monospace" style="font-size:11px">Thread: ' + threadId + '</span>';
       return html;
     }
     case 'run_end': {
-      var dur = entry.total_duration_s != null ? formatDurationSec(entry.total_duration_s) : '';
+      const dur = entry.total_duration_s != null ? formatDurationSec(entry.total_duration_s) : '';
       return '<strong>Run completed</strong>' + (dur ? ' <span class="text-muted">(' + escapeHtml(dur) + ')</span>' : '');
     }
     case 'run_error': {
-      var errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown error';
+      const errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown error';
       return '<strong>Run error:</strong> ' + errMsg;
     }
 
     // ── Stage events ─────────────────────────────────────────────────
     case 'stage_start': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
-      var iter = entry.iteration ? ' <span class="text-muted">(iteration ' + escapeHtml(String(entry.iteration)) + ')</span>' : '';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
+      const iter = entry.iteration ? ' <span class="text-muted">(iteration ' + escapeHtml(String(entry.iteration)) + ')</span>' : '';
       return '<strong>Stage started</strong>' +
         (stg ? ' &mdash; <em>' + stg + '</em>' : '') +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         iter;
     }
     case 'stage_complete': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var result = entry.result ? escapeHtml(String(entry.result)) : '';
-      var dur = formatDurationSec(entry.duration_s);
-      var tok = formatTokens(entry.tokens_used);
-      var details = [];
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const result = entry.result ? escapeHtml(String(entry.result)) : '';
+      const dur = formatDurationSec(entry.duration_s);
+      const tok = formatTokens(entry.tokens_used);
+      const details = [];
       if (dur) details.push(dur);
       if (tok) details.push(tok);
-      var resultClass = result === 'PASS' ? 'badge badge-pass' : (result === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
+      const resultClass = result === 'PASS' ? 'badge badge-pass' : (result === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
       return '<strong>Stage complete</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         (result ? ' <span class="' + resultClass + '">' + result + '</span>' : '') +
         (details.length ? ' <span class="text-muted">(' + escapeHtml(details.join(', ')) + ')</span>' : '');
     }
     case 'stage_error': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown error';
-      var dur = formatDurationSec(entry.duration_s);
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown error';
+      const dur = formatDurationSec(entry.duration_s);
       return '<strong>Stage failed</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         ' &mdash; ' + errMsg +
@@ -116,22 +116,22 @@ function buildRunEventContent(entry) {
 
     // ── Pipeline result ──────────────────────────────────────────────
     case 'pipeline_result': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var pType = entry.pipeline_type ? escapeHtml(String(entry.pipeline_type)) : '';
-      var pStatus = entry.pipeline_status || entry.result || '';
-      var files = Array.isArray(entry.files_modified) ? entry.files_modified : [];
-      var metrics = entry.metrics || {};
-      var summaryArr = Array.isArray(entry.summary) ? entry.summary : [];
-      var dur = formatDurationSec(entry.duration_s);
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const pType = entry.pipeline_type ? escapeHtml(String(entry.pipeline_type)) : '';
+      const pStatus = entry.pipeline_status || entry.result || '';
+      const files = Array.isArray(entry.files_modified) ? entry.files_modified : [];
+      const metrics = entry.metrics || {};
+      const summaryArr = Array.isArray(entry.summary) ? entry.summary : [];
+      const dur = formatDurationSec(entry.duration_s);
 
-      var statusClass = pStatus === 'PASS' ? 'badge badge-pass' : (pStatus === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
-      var html = '<strong>Pipeline result</strong>';
+      const statusClass = pStatus === 'PASS' ? 'badge badge-pass' : (pStatus === 'FAIL' ? 'badge badge-fail' : 'badge badge-neutral');
+      let html = '<strong>Pipeline result</strong>';
       if (pType) html += ' &mdash; <em>' + pType + '</em>';
       if (wpId) html += ' for <strong>' + wpId + '</strong>';
       if (pStatus) html += ' <span class="' + statusClass + '">' + escapeHtml(pStatus) + '</span>';
 
       // Details line
-      var detailBits = [];
+      const detailBits = [];
       if (files.length) detailBits.push(files.length + ' file' + (files.length !== 1 ? 's' : '') + ' modified');
       if (metrics.tests_passed != null) detailBits.push(metrics.tests_passed + ' tests passed');
       if (metrics.tests_failed) detailBits.push(metrics.tests_failed + ' tests failed');
@@ -157,12 +157,12 @@ function buildRunEventContent(entry) {
 
     // ── Supervisor routing & status ──────────────────────────────────
     case 'route': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var dest = entry.destination ? escapeHtml(String(entry.destination).replace(/_/g, ' ')) : '';
-      var role = entry.agent_role ? escapeHtml(String(entry.agent_role)) : '';
-      var ledgerAction = entry.ledger_action ? escapeHtml(String(entry.ledger_action).replace(/_/g, ' ')) : '';
-      var reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
-      var html = '<strong>Routing</strong>';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const dest = entry.destination ? escapeHtml(String(entry.destination).replace(/_/g, ' ')) : '';
+      const role = entry.agent_role ? escapeHtml(String(entry.agent_role)) : '';
+      const ledgerAction = entry.ledger_action ? escapeHtml(String(entry.ledger_action).replace(/_/g, ' ')) : '';
+      const reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
+      let html = '<strong>Routing</strong>';
       if (wpId) html += ' <strong>' + wpId + '</strong>';
       if (dest) html += ' \u2192 <em>' + dest + '</em>';
       if (role) html += ' <span class="text-muted">(' + role + ')</span>';
@@ -171,53 +171,53 @@ function buildRunEventContent(entry) {
       return html;
     }
     case 'wp_status_change': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var oldSt = entry.old_status ? escapeHtml(String(entry.old_status)) : '?';
-      var newSt = entry.new_status ? escapeHtml(String(entry.new_status)) : '?';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const oldSt = entry.old_status ? escapeHtml(String(entry.old_status)) : '?';
+      const newSt = entry.new_status ? escapeHtml(String(entry.new_status)) : '?';
       return '<strong>' + wpId + '</strong> status: ' +
         '<span class="badge badge-neutral">' + oldSt + '</span>' +
         ' \u2192 ' +
         '<span class="badge badge-neutral">' + newSt + '</span>';
     }
     case 'wp_complete': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
       return '\u2713 <strong>' + wpId + '</strong> completed';
     }
     case 'rework_detected': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var count = entry.rework_count != null ? String(entry.rework_count) : '?';
-      var pType = entry.pipeline_type ? escapeHtml(String(entry.pipeline_type)) : '';
-      var role = entry.agent_role ? escapeHtml(String(entry.agent_role)) : '';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const count = entry.rework_count != null ? String(entry.rework_count) : '?';
+      const pType = entry.pipeline_type ? escapeHtml(String(entry.pipeline_type)) : '';
+      const role = entry.agent_role ? escapeHtml(String(entry.agent_role)) : '';
       return '\u21bb <strong>' + wpId + '</strong> rework #' + escapeHtml(count) +
         (pType && role ? ' <span class="text-muted">(' + pType + ' \u2192 ' + role + ')</span>' : '');
     }
 
     // ── Safety & errors ──────────────────────────────────────────────
     case 'safety_limit': {
-      var iter = entry.iteration ? escapeHtml(String(entry.iteration)) : '?';
+      const iter = entry.iteration ? escapeHtml(String(entry.iteration)) : '?';
       return '<strong>Safety limit reached</strong> at iteration ' + iter;
     }
     case 'halted_repeated_failure': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var count = entry.consecutive_failures != null ? String(entry.consecutive_failures) : '?';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const count = entry.consecutive_failures != null ? String(entry.consecutive_failures) : '?';
       return '<strong>' + wpId + '</strong> halted after ' + escapeHtml(count) + ' consecutive failures';
     }
     case 'mcp_error': {
-      var errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown MCP error';
+      const errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown MCP error';
       return '<strong>MCP error:</strong> ' + errMsg;
     }
 
     // ── Heartbeat ────────────────────────────────────────────────────
     case 'heartbeat': {
-      var silence = entry.silence_s != null ? formatDurationSec(entry.silence_s) : '';
+      const silence = entry.silence_s != null ? formatDurationSec(entry.silence_s) : '';
       return '\u2665 <strong>Alive</strong>' + (silence ? ' <span class="text-muted">(quiet for ' + escapeHtml(silence) + ')</span>' : '');
     }
 
     // ── Dialogue capture ─────────────────────────────────────────────
     case 'dialogue_captured': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var filePath = entry.file_path ? String(entry.file_path) : '';
-      var fileName = filePath ? escapeHtml(filePath.split('/').pop() || filePath) : '';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const filePath = entry.file_path ? String(entry.file_path) : '';
+      const fileName = filePath ? escapeHtml(filePath.split('/').pop() || filePath) : '';
       return '<strong>Dialogue saved</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         (fileName ? ' &mdash; <span class="text-muted monospace" style="font-size:11px">' + fileName + '</span>' : '');
@@ -225,28 +225,28 @@ function buildRunEventContent(entry) {
 
     // ── Progress snapshot (rendered as card fallback if progress bar not used) ──
     case 'progress_snapshot': {
-      var total = entry.total_wps || 0;
-      var breakdown = entry.status_breakdown || {};
-      var completed = breakdown.COMPLETE || 0;
-      var pending = entry.pending || 0;
+      const total = entry.total_wps || 0;
+      const breakdown = entry.status_breakdown || {};
+      const completed = breakdown.COMPLETE || 0;
+      const pending = entry.pending || 0;
       return '<strong>Progress:</strong> ' + completed + '/' + total + ' WPs done, ' + pending + ' pending';
     }
 
     // ── Dry-run actions ──────────────────────────────────────────────
     case 'dry_run': {
-      var wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
-      var stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
+      const wpId = entry.wp_id ? escapeHtml(String(entry.wp_id)) : '';
+      const stg = entry.stage ? escapeHtml(String(entry.stage).replace(/_/g, ' ')) : '';
       return '<span class="badge badge-dry-run">Dry Run</span> <strong>Stage skipped</strong>' +
         (wpId ? ' for <strong>' + wpId + '</strong>' : '') +
         (stg ? ' &mdash; <em>' + stg + '</em>' : '');
     }
     case 'dry_run_no_ledger': {
-      var detail = entry.detail ? escapeHtml(String(entry.detail)) : '';
+      const detail = entry.detail ? escapeHtml(String(entry.detail)) : '';
       return '<span class="badge badge-dry-run">Dry Run</span> <strong>No ledger</strong>' +
         (detail ? ' &mdash; <span class="text-muted">' + detail + '</span>' : '');
     }
     case 'dry_run_complete': {
-      var reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
+      const reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
       return '<span class="badge badge-dry-run">Dry Run</span> <strong>Dry run complete</strong>' +
         (reason ? ' &mdash; <span class="text-muted">' + reason + '</span>' : '');
     }
@@ -254,23 +254,23 @@ function buildRunEventContent(entry) {
     // ── Legacy / generic events ──────────────────────────────────────
     case 'step_start':
     case 'step_end': {
-      var stepName = entry.step_name ? escapeHtml(String(entry.step_name)) : '\u2014';
+      const stepName = entry.step_name ? escapeHtml(String(entry.step_name)) : '\u2014';
       return '<strong>' + escapeHtml(action) + ':</strong> ' + stepName;
     }
     case 'llm_call_start':
     case 'llm_call_end': {
-      var model = entry.model ? escapeHtml(String(entry.model)) : '';
+      const model = entry.model ? escapeHtml(String(entry.model)) : '';
       return '<strong>' + escapeHtml(action) + '</strong>' + (model ? ' &mdash; <span class="text-muted">' + model + '</span>' : '');
     }
     case 'tool_call_start':
     case 'tool_call_end': {
-      var toolName = entry.tool_name ? escapeHtml(String(entry.tool_name)) : '\u2014';
+      const toolName = entry.tool_name ? escapeHtml(String(entry.tool_name)) : '\u2014';
       return '<strong>' + escapeHtml(action) + ':</strong> ' + toolName;
     }
 
     default: {
       // Generic fallback — shows raw action + any message/error/reason field
-      var genericMsg = entry.message ? ': ' + escapeHtml(String(entry.message)) : '';
+      let genericMsg = entry.message ? ': ' + escapeHtml(String(entry.message)) : '';
       if (!genericMsg && entry.error) genericMsg = ': ' + escapeHtml(String(entry.error));
       if (!genericMsg && entry.reason) genericMsg = ': ' + escapeHtml(String(entry.reason));
       return '<strong>' + escapeHtml(action) + '</strong>' + genericMsg;

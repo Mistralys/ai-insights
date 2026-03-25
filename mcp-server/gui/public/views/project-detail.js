@@ -95,6 +95,17 @@ function buildPipelineTrack(overviewEntry) {
   return '<div class="pipeline-track">' + badges + '</div>';
 }
 
+function buildRunBadges(item, isActive) {
+  var badges = '';
+  if (isActive) {
+    badges += '<span class="badge badge-in-progress">Running</span>';
+  }
+  if (item && item.is_dry_run) {
+    badges += '<span class="badge badge-dry-run">Dry Run</span>';
+  }
+  return badges;
+}
+
 function renderProjectDetail(app, slug) {
   showLoading(app);
 
@@ -499,15 +510,10 @@ function renderProjectDetail(app, slug) {
           return formatted ? ' <span class="text-muted" style="font-size:11px">' + escapeHtml(formatted) + '</span>' : '';
         }());
 
-        var badge = isActive
-          ? '<span class="badge badge-in-progress" style="margin-right:6px">Running</span>'
-          : '';
-        var dryRunBadge = (item && item.is_dry_run)
-          ? '<span class="badge badge-dry-run" style="margin-right:6px">Dry Run</span>'
-          : '';
+        var badges = buildRunBadges(item, isActive);
 
         return '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
-          '<span>' + badge + dryRunBadge + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
+          '<span>' + badges + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
           '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
         '</div>';
       }).join('');

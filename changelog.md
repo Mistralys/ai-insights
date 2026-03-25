@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.12.0 - GUI Dry-Run Identification
+> mcp v1.19.0
+
+- MCP: GUI now visually identifies dry-run orchestrator runs with a "Dry Run" badge in the project detail run list and in the run log timeline header.
+- MCP: Dedicated event card renderers for `dry_run`, `dry_run_no_ledger`, and `dry_run_complete` timeline actions replace the previous generic fallback.
+
 ## v1.11.0 - Dialogue Capture & Heartbeat
 > mcp v1.18.6 · orchestrator v0.9.5 · personas v3.10.3
 

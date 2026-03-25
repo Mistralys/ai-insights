@@ -16,6 +16,7 @@ import {
   migrateOrphanedLogs,
   archiveCompletedLogs,
   resolveLogSource,
+  readLogStatus,
   ApiError,
 } from '../../src/gui/log-resolver.js';
 
@@ -646,6 +647,103 @@ describe('archiveCompletedLogs', () => {
     await writeFile(join(sourceDir, '20260323T100000-other-slug.jsonl'), 'data', 'utf-8');
     const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
     expect(archived).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readLogStatus
+// ---------------------------------------------------------------------------
+
+describe('readLogStatus', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'log-resolver-read-status-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('is_dry_run: false + is_active: false for a completed non-dry-run', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end', ts: '2026-03-24T10:01:00Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(false);
+  });
+
+  it('is_dry_run: true + is_active: false for a completed dry run', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', dry_run: true, ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end', ts: '2026-03-24T10:01:00Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(true);
+    expect(status.is_active).toBe(false);
+  });
+
+  it('is_dry_run: false + is_active: true for an in-progress non-dry-run', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', ts: '2026-03-24T10:00:00Z' },
+      { action: 'stage_start', ts: '2026-03-24T10:00:05Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(true);
+  });
+
+  it('is_dry_run: true + is_active: true for an in-progress dry run (combined case)', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', dry_run: true, ts: '2026-03-24T10:00:00Z' },
+      { action: 'stage_start', ts: '2026-03-24T10:00:05Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(true);
+    expect(status.is_active).toBe(true);
+  });
+
+  it('returns { is_active: false, is_dry_run: false } for an unreadable file', async () => {
+    const status = await readLogStatus(join(tempDir, 'nonexistent.jsonl'));
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(false);
+  });
+
+  it('returns { is_active: true, is_dry_run: false } for an empty file', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeFile(file, '', 'utf-8');
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(true);
+  });
+
+  it('returns is_dry_run: false when first line is malformed JSON', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeFile(file, 'not-valid-json\n{"action":"run_end"}\n', 'utf-8');
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(false); // last line is run_end
+  });
+
+  it('returns is_active: true when last line is malformed JSON (fail-safe)', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeFile(file, '{"action":"run_start","dry_run":true}\nnot-valid-json\n', 'utf-8');
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(true);
+    expect(status.is_active).toBe(true); // cannot confirm completion — treated as active
   });
 });
 

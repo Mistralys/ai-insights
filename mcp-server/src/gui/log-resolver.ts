@@ -64,6 +64,11 @@ const SAFE_FILENAME_REGEX = /^[A-Za-z0-9._-]+$/;
 export interface RunLogEntry {
   filename: string;
   is_active: boolean;
+  /**
+   * `true` when the first JSONL line is a `run_start` event with `dry_run: true`.
+   * Defaults to `false` on any file-read or parse error (fail-safe: unreadable
+   * or malformed runs are never surfaced with a dry-run badge).
+   */
   is_dry_run: boolean;
 }
 
@@ -125,13 +130,11 @@ export async function findRunLogs(logsDir: string, slug: string): Promise<RunLog
   });
 
   // Build entries with active + dry-run status, then sort newest-first by filename prefix.
+  // readLogStatus reads the file once and returns both flags — avoids reading each file twice.
   const unsorted = await Promise.all(
     matching.map(async (filename) => {
       const filePath = join(logsDir, filename);
-      const [is_active, is_dry_run] = await Promise.all([
-        isRunActive(filePath),
-        isDryRun(filePath),
-      ]);
+      const { is_active, is_dry_run } = await readLogStatus(filePath);
       return { filename, is_active, is_dry_run };
     })
   );
@@ -229,7 +232,7 @@ export async function migrateOrphanedLogs(
  * Archives completed run log files from `sourceDir` into `archiveDir`.
  *
  * For each `*-{slug}.jsonl` file in `sourceDir`:
- *   - **Skips** files where `isRunActive()` returns `true` (run still in progress).
+ *   - **Skips** files where `readLogStatus()` returns `is_active: true` (run still in progress).
  *   - **Copies** the file to `archiveDir` when it is not yet present there.
  *   - **Refreshes** the archived copy when the source file's `mtime` is newer
  *     than the archived copy's `mtime` (source has been updated since last archive).
@@ -271,8 +274,8 @@ export async function archiveCompletedLogs(
     const destPath = join(archiveDir, filename);
 
     // Skip files that belong to an active (still-running) orchestrator run.
-    const active = await isRunActive(srcPath);
-    if (active) continue;
+    const { is_active } = await readLogStatus(srcPath);
+    if (is_active) continue;
 
     // Determine whether a copy is needed.
     let needsCopy = true;
@@ -366,52 +369,59 @@ export async function resolveLogSource(
 // ---------------------------------------------------------------------------
 
 /**
- * Returns `true` when a log file does not end with a terminal action.
+ * Reads a log file once and returns both active and dry-run status.
  *
- * A run is considered active if the last non-empty JSONL line does **not**
- * have `action: "run_end"` or `action: "run_error"`. Empty files (where the
- * run has just started writing) are also considered active.
+ * - `is_active` is `true` when the last non-empty JSONL line does **not** have
+ *   `action: "run_end"` or `action: "run_error"`. Empty files are considered
+ *   active (run has just started writing).
+ * - `is_dry_run` is `true` when the first non-empty JSONL line is a `run_start`
+ *   event with `dry_run: true`.
  *
- * Failures to read or parse the file are treated as inactive (`false`) so
- * that stale / unreadable files are never shown with a "Running" badge.
+ * Fail-safe defaults on any I/O or parse error:
+ *   - `is_active: false` — unreadable files are never shown with a "Running" badge.
+ *   - `is_dry_run: false` — unreadable / malformed files never surface a dry-run badge.
+ *
+ * Replaces the former separate `isRunActive()` and `isDryRun()` helpers,
+ * halving the number of `readFile()` calls per log entry in `findRunLogs()`.
  */
-async function isRunActive(filePath: string): Promise<boolean> {
+export async function readLogStatus(filePath: string): Promise<{ is_active: boolean; is_dry_run: boolean }> {
+  let raw: string;
   try {
-    const raw = await readFile(filePath, 'utf-8');
-    const lines = raw.split('\n').filter((line) => line.trim().length > 0);
-    if (lines.length === 0) return true; // File just created — run has started
-    const lastLine = lines[lines.length - 1]!;
-    const entry = JSON.parse(lastLine);
-    if (entry && typeof entry === 'object' && 'action' in entry) {
-      return entry.action !== 'run_end' && entry.action !== 'run_error';
-    }
-    return true; // No action field — cannot confirm completion
+    raw = await readFile(filePath, 'utf-8');
   } catch {
-    return false; // Unreadable or unparsable — treat as inactive
+    return { is_active: false, is_dry_run: false };
   }
-}
 
-/**
- * Returns `true` when the first non-empty JSONL line of a log file is a
- * `run_start` event with `dry_run: true`.
- *
- * Failures to read or parse the file are treated as non-dry-run (`false`) so
- * that unreadable / empty / malformed files never surface with a dry-run badge.
- */
-async function isDryRun(filePath: string): Promise<boolean> {
-  try {
-    const raw = await readFile(filePath, 'utf-8');
-    const lines = raw.split('\n').filter((line) => line.trim().length > 0);
-    if (lines.length === 0) return false;
-    const firstLine = lines[0]!;
-    const entry = JSON.parse(firstLine);
-    if (entry && typeof entry === 'object' && 'action' in entry) {
-      return entry.action === 'run_start' && entry.dry_run === true;
+  const lines = raw.split('\n').filter((line) => line.trim().length > 0);
+
+  // Determine is_dry_run from the first line (parsed independently so a
+  // malformed first line does not affect the is_active determination).
+  let is_dry_run = false;
+  if (lines.length > 0) {
+    try {
+      const firstEntry = JSON.parse(lines[0]!);
+      if (firstEntry && typeof firstEntry === 'object' && 'action' in firstEntry) {
+        is_dry_run = firstEntry.action === 'run_start' && firstEntry.dry_run === true;
+      }
+    } catch {
+      // Malformed first line — not a dry run.
     }
-    return false;
-  } catch {
-    return false; // Unreadable or unparsable — treat as not a dry run
   }
+
+  // Determine is_active from the last line.
+  if (lines.length === 0) {
+    return { is_active: true, is_dry_run }; // File just created — run has started
+  }
+  try {
+    const lastEntry = JSON.parse(lines[lines.length - 1]!);
+    if (lastEntry && typeof lastEntry === 'object' && 'action' in lastEntry) {
+      const is_active = lastEntry.action !== 'run_end' && lastEntry.action !== 'run_error';
+      return { is_active, is_dry_run };
+    }
+  } catch {
+    // Malformed last line — cannot confirm completion.
+  }
+  return { is_active: true, is_dry_run }; // No terminal action found — treat as active
 }
 
 /**

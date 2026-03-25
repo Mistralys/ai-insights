@@ -46,14 +46,30 @@ beforeAll(() => {
 
 // ---------------------------------------------------------------------------
 // URL-routing fetch mock — avoids shared-index ordering issues
+//
+// Route pattern reference for this file:
+//   '/work-packages/'     → getWorkPackage()      returns the WP JSON object
+//   /\/dialogues\?wp=/    → getDialogues()        returns array of { filename, stage }
+//   /\/dialogues\//       → getDialogueContent()  returns { content: '...' } (text via res.text())
+//
+// IMPORTANT: keep the two dialogue patterns distinct. Using /\/dialogues\?wp=/ for both
+// would cause the content fetch to silently match the list route (fallback behaviour) and
+// return an array instead of a string — tests pass the wrong shape with no warning.
+//
+// Fallback behaviour: when no route matches, the last route in the array is used and a
+// console.warn is emitted. Always order routes from most-specific to least-specific.
 // ---------------------------------------------------------------------------
 type Route = { match: string | RegExp; body?: unknown; text?: string; status?: number };
 
 function installFetchMock(routes: Route[]) {
   (globalThis as any).fetch = vi.fn(async (url: string) => {
-    const route = routes.find(r =>
+    const matched = routes.find(r =>
       typeof r.match === 'string' ? url.includes(r.match) : r.match.test(url)
-    ) ?? routes[routes.length - 1]!;
+    );
+    if (!matched) {
+      console.warn(`[installFetchMock] No route matched URL: "${url}" — falling back to last route. Check your route patterns.`);
+    }
+    const route = matched ?? routes[routes.length - 1]!;
     const status = route.status ?? 200;
     return {
       ok: status >= 200 && status < 300,
@@ -129,11 +145,17 @@ describe('AC1 — API.getDialogues URL', () => {
 // ============================================================
 
 describe('AC2 — API.getDialogueContent URL', () => {
+  // NOTE: These tests use a raw vi.fn() instead of installFetchMock because they
+  // need to inspect the raw URL. The mock must include BOTH json() and text() even
+  // though getDialogueContent() only calls text() — api-client.js uses a shared
+  // request() helper for other endpoints that calls json(), and omitting either
+  // method causes "res.json is not a function" / "res.text is not a function" errors
+  // depending on which code path executes first.
   it('makes GET /api/projects/{slug}/dialogues/{filename}', async () => {
     const calls: string[] = [];
     (globalThis as any).fetch = vi.fn(async (url: string) => {
       calls.push(url);
-      return { ok: true, status: 200, json: async () => ({ content: '# Hello' }) };
+      return { ok: true, status: 200, json: async () => ({ content: '# Hello' }), text: async () => '# Hello' };
     });
     await globalThis.API.getDialogueContent('my-project', 'file.md');
     expect(calls).toHaveLength(1);
@@ -142,7 +164,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
 
   it('returns raw text (not parsed JSON)', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
-      ok: true, status: 200, json: async () => ({ content: '# Markdown content' }),
+      ok: true, status: 200, json: async () => ({ content: '# Markdown content' }), text: async () => '# Markdown content',
     }));
     const result = await globalThis.API.getDialogueContent('p', 'f.md');
     expect(typeof result).toBe('string');
@@ -288,8 +310,7 @@ describe('AC6 — Click fetches and renders via marked.parse()', () => {
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
-    const section = app.querySelector('#wp-dialogues-section')!;
-    const btn     = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
+    const section = app.querySelector('#wp-dialogues-section')!;    expect(section).not.toBeNull();    const btn     = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
     expect(btn).not.toBeNull();
 
     btn.click();
@@ -323,6 +344,11 @@ describe('AC7 — Clicking second dialogue collapses first', () => {
           { filename: 'developer-r0.md', stage: 'developer' },
         ],
       },
+      // NOTE: Two distinct URL patterns for dialogues — keep them separate:
+      //   /dialogues?wp=   → getDialogues()       lists dialogue filenames for a WP
+      //   /dialogues/      → getDialogueContent()  fetches content for one file
+      // Using /dialogues?wp=/ for both would silently match the content fetch via
+      // the installFetchMock fallback, returning an array instead of { content }.
       { match: /\/dialogues\//, body: { content: '# Content' } },
     ]);
 

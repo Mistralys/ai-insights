@@ -176,6 +176,10 @@ main {
   white-space: nowrap;
 }
 
+.badge + .badge {
+  margin-left: 6px;
+}
+
 .badge-ready {
   background: #dbeafe;
   color: var(--color-ready);
@@ -1526,7 +1530,7 @@ th[data-sort="total_work_packages"] {
 }
 
 [data-theme="dark"] .badge-dry-run {
-  background: #2e1065;
+  background: #3b0764;
   color: #d8b4fe;
   border: 1px dashed #7e22ce;
 }
