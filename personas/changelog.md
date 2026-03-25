@@ -1,5 +1,11 @@
 # Personas Changelog
 
+## v3.10.5 - Orchestrator Runner: v0.9.7 Feature Sync
+- Personas: Orchestrator Runner v1.4.0 — updated JSONL event count from 16 → 20.
+- Personas: Orchestrator Runner v1.4.0 — added `CAPTURE_DIALOGUES` and `HEARTBEAT_INTERVAL_S` env vars.
+- Personas: Orchestrator Runner v1.4.0 — documented log archival to `{slug}/orchestrator/logs/`.
+- Personas: Orchestrator Runner v1.4.0 — removed stale `--checkpoint` extra requirement (now default).
+
 ## v3.10.4 - Reviewer Documentation-Forward Protocol
 - Partials: Expanded Reviewer `documentation-forward` convention with a named-convention spec, JSON `pipeline_comment` schema with `priority` field, and four concrete examples.
 

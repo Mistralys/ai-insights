@@ -117,9 +117,18 @@ The thread ID is printed at run start. Echo it clearly to the user immediately a
 | `--model <name>` | Override the LLM model | When testing a specific model or `.env` default needs overriding |
 | `--max-iterations <N>` | Safety ceiling on supervisor loop | Use `10`–`20` for smoke tests; default is `100` |
 | `--project-path <path>` | Set the target codebase path | **Always pass** when the plan is outside the ai-insights workspace |
-| `--resume <thread-id>` | Resume from a LangGraph checkpoint | Continuing an interrupted or safety-limited run. **Requires** the `checkpoint` extra: `pip install -e ".[checkpoint]"` — without it, runs use in-memory checkpoints only and cannot actually be resumed. |
+| `--resume <thread-id>` | Resume from a LangGraph checkpoint | Continuing an interrupted or safety-limited run. Checkpoint support (SQLite-backed) is included by default — no extra installation needed. |
 | `--interrupt-on <stages>` | Pause for human review at named stages | Values: `pm`, `fail`, `synthesis` (comma-separated) |
 | `--log-level DEBUG` | Verbose output | Debugging routing errors or unexpected stage failures |
+
+### Environment Variables
+
+Set these in `orchestrator/.env` (or export before running):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CAPTURE_DIALOGUES` | `true` | Capture full agent dialogue exchanges to Markdown in `{slug}/orchestrator/dialogues/`. Emits `dialogue_captured` JSONL event after each stage. |
+| `HEARTBEAT_INTERVAL_S` | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled). |
 
 ---
 
@@ -135,11 +144,13 @@ The console output is a formatted view of every structured event. Key lines to w
 [developer]  WP-003 ▶ stage_start
 [developer]  WP-003 stage_complete → PASS (3m 24s, 1234 tokens)
 [developer]  WP-003 pipeline: PASS · 12 files modified · 45s
+[developer]  WP-003 dialogue saved → WP-003-developer-r1.md
 [supervisor] WP-003 status: READY → IN_PROGRESS
 [supervisor] ✓ WP-003 COMPLETE
-[supervisor] WP-003 route → qa
+[supervisor] route → developer (prev: pm WP-003 PASS)
 [supervisor] ⟳ WP-004 rework #2 (implementation → developer)
 [—]          Progress: 5/10 WPs done · 2 in-progress · iter 3/5 · 2m 14s elapsed
+[heartbeat]  ♥ alive (quiet for 2m)
 ```
 
 | Line pattern | What it means |
@@ -148,17 +159,19 @@ The console output is a formatted view of every structured event. Key lines to w
 | `stage_complete → PASS` | Stage succeeded; shows duration and token count |
 | `stage_complete → FAIL` / `stage_error` | Stage failed; supervisor will route to rework |
 | `pipeline: PASS` | Pipeline outcome with file count and duration |
+| `dialogue saved →` | Full agent exchange captured to Markdown file |
 | `status: X → Y` | WP transitioned status |
 | `✓ WP-NNN COMPLETE` | WP reached COMPLETE |
-| `route → <destination>` | Supervisor routing decision |
+| `route → <destination>` | Supervisor routing decision (with previous context) |
 | `⟳ rework #N` | Rework triggered (agent role, pipeline type, count) |
 | `Progress: …` | Iteration summary with WP totals, pending count, elapsed time |
+| `♥ alive` | Heartbeat emitted after console silence |
 | Any `WARNING` | Circuit-breaker, safety limit, or repeated-failure halt |
 | Any `ERROR` | MCP connection failure or unhandled exception |
 
 ### JSONL log file (secondary — for post-run analysis)
 
-Every run also writes a structured JSONL log to `orchestrator/logs/` (path printed at run start). The JSONL contains the same events as the console in machine-readable JSON, plus `run_start`/`run_end` lifecycle entries with `thread_id` and `total_duration_s`. Use it for:
+Every run writes a structured JSONL log to `orchestrator/logs/`. At run completion, the log is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. Use it for:
 
 - **Post-run analysis** when you need to extract specific fields (e.g. `tokens_used`, `duration_s`, `files_modified`)
 - **Recovering context** if terminal output has scrolled beyond the buffer
@@ -169,7 +182,7 @@ Every run also writes a structured JSONL log to `orchestrator/logs/` (path print
 tail -f orchestrator/logs/<run-id>.jsonl
 ```
 
-Full schema reference (16 event types): `orchestrator/docs/jsonl-log-schema.md`.
+Full schema reference (20 event types): `orchestrator/docs/jsonl-log-schema.md`.
 
 ---
 
@@ -232,7 +245,7 @@ The thread ID appears in both the console output at run start and in the `run_st
 | Exit code `2` | `max_iterations` safety limit reached | Resume with `--resume <thread-id>` or increase `--max-iterations` |
 | All WPs BLOCKED at start | Dependency cycle or unresolved blockers | Inspect ledger with MCP tools or the GUI; resolve blockers first |
 | Circuit-breaker halt on a WP | 3 consecutive stage failures for one WP | Inspect the log; address root cause, then resume |
-| `--resume` starts a fresh run | `checkpoint` extra not installed | `cd orchestrator && pip install -e ".[checkpoint]"`, then re-run |
+| `--resume` starts a fresh run | Checkpoint directory not initialized | Run `orchestrate` once normally first; ensure `CHECKPOINT_DIR` is set in `.env` |
 
 ---
 
