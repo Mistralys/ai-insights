@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.10.4 - Reviewer Documentation-Forward Protocol
+- Partials: Expanded Reviewer `documentation-forward` convention with a named-convention spec, JSON `pipeline_comment` schema with `priority` field, and four concrete examples.
+
 ## v3.10.3 - Reviewer Feedback Tiers
 - Personas: Reviewer now uses three-tier feedback (Blocking,
   Fix-Forward, Documentation-Forward) instead of binary pass/fail.

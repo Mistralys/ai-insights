@@ -1,5 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.20.0 - Path Precedence & Error Hardening
+- PathValidator: `project_path` now takes precedence over `cwd_path` when both are supplied; mutual-exclusivity error removed.
+- PathValidator: Removed exported `mutuallyExclusivePaths()` predicate and `MUTUAL_EXCLUSIVITY_PATH_MSG` constant.
+- Tools: Removed per-tool `mutuallyExclusivePaths` Zod refinement from all tool schemas.
+- Pipeline: `completePipeline` accepts `handoff_notes` as `string | string[]`; bare string coerced to single-element array.
+- LogResolver: Orphaned log migration changed from `rename()` to `copyFile()` to preserve files still open by the orchestrator.
+- GUI: Extracted `buildBreadcrumb()` helper to `utils.js`; replaced inline path construction in project-detail, run-log, and work-package views.
+- HelpContent: Centralized repeated tool description strings into shared constants.
+- Tests: Expanded coverage across `path-validator.test.ts`, `log-resolver.test.ts`, and `run-log-handlers.test.ts`.
+
 ## v1.19.0 - GUI Dry-Run Badge
 - GUI Backend: Extended `RunLogEntry` with `is_dry_run: boolean`; `isDryRun()` helper reads the first JSONL line and returns `true` only when `action === 'run_start' && dry_run === true`.
 - GUI Backend: `findRunLogs()` calls `isDryRun()` concurrently with `isRunActive()` via `Promise.all` per file, populating `is_dry_run` on every returned entry.

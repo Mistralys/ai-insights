@@ -1,5 +1,16 @@
 # Orchestrator Changelog
 
+## v0.9.7 - WP Guard & CLI Resilience
+- ToolWrappers: Added `restrict_to_wp()` — Layer 3 guard that rejects tool calls targeting a `work_package_id` other than the active WP.
+- ToolWrappers: `inject_project_path()` now strips `cwd_path` from tool calls to prevent mutual-exclusivity errors with the MCP server.
+- ToolWrappers: Fixed tool call argument handling errors; expanded test coverage.
+- Nodes: Stage node factory applies `restrict_to_wp()` after `inject_project_path()` when a WP ID is present.
+- Nodes: Extracted `build_stage_prompt()` shared helper to `__init__.py`; all eight node builders now use it.
+- CLI: Fixed stale lock file left behind after a crashed or interrupted run.
+- CLI: Suppressed asyncio deprecation warning.
+- Supervisor: Removed noisy warning messages emitted during normal operation.
+- Tests: Extended `test_tool_wrappers.py` to cover `restrict_to_wp()` and error paths; updated `test_nodes.py` for the shared prompt helper.
+
 ## v0.9.6 - Slim Orchestrator Node Prompts
 
 Removed redundant identity declarations, workflow step enumerations, and MCP

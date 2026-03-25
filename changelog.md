@@ -1,5 +1,17 @@
 # AI Insights Changelog
 
+## v1.13.0 - Guard Rails & Path Hardening
+> mcp v1.20.0 · orchestrator v0.9.7 · personas v3.10.4
+
+- Orchestrator: Added WP guard — stage nodes reject tool calls that target a different work package.
+- Orchestrator: Fixed stale lock file left behind on crashed or interrupted runs.
+- Orchestrator: Extracted shared `build_stage_prompt()` helper; slim prompt strategy fully consolidated.
+- Orchestrator: `inject_project_path()` now strips `cwd_path` from tool calls to prevent server-side errors.
+- MCP: `project_path` takes precedence over `cwd_path` when both are supplied; mutual-exclusivity error removed.
+- MCP: Log migration uses `copyFile()` instead of `rename()` to preserve files still open by the orchestrator.
+- MCP: `complete_pipeline` accepts `handoff_notes` as a string or an array.
+- Personas: Reviewer `documentation-forward` convention expanded with JSON schema and concrete examples.
+
 ## v1.12.0 - GUI Dry-Run Identification
 > mcp v1.19.0
 
