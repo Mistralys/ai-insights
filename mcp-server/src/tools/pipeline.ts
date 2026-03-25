@@ -122,8 +122,8 @@ function buildCompletionGuidance(
  * Validates WP is IN_PROGRESS and no duplicate in-progress pipeline exists.
  */
 const StartPipelineSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -293,8 +293,8 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
  * Sets status, completion timestamp, summary, and optional fields.
  */
 const CompletePipelineSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -654,8 +654,8 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
  * its status to FAIL and recording the cancellation reason as the summary.
  */
 const CancelPipelineSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -724,8 +724,8 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
  * Allows agents to record progress notes without completing the pipeline.
  */
 const UpdatePipelineProgressSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)

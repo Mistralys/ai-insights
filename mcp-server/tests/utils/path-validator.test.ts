@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { join } from 'path';
-import { z } from 'zod';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import {
   validatePlanPath,
   planFolderBasename,
   resolveProjectPath,
-  mutuallyExclusivePaths,
-  MUTUAL_EXCLUSIVITY_PATH_MSG,
   formatCandidateList,
 } from '../../src/utils/path-validator.js';
 
@@ -199,93 +196,19 @@ describe('resolveProjectPath', () => {
     ).rejects.toThrow('No project found for cwd_path');
   });
 
-  it('throws when both project_path and cwd_path are provided', async () => {
-    await expect(
-      resolveProjectPath({ project_path: '/a', cwd_path: '/b' })
-    ).rejects.toThrow(MUTUAL_EXCLUSIVITY_PATH_MSG);
+  it('uses project_path when both project_path and cwd_path are provided', async () => {
+    const spy = vi.spyOn(LedgerStore, 'detectProjectByCwd');
+    const validPlan = '/tmp/2026-02-16-my-project';
+    const result = await resolveProjectPath({ project_path: validPlan, cwd_path: '/any/workspace' });
+    expect(result).toBe(validPlan);
+    // LedgerStore must NOT be called — project_path takes precedence
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('throws when neither project_path nor cwd_path is provided', async () => {
     await expect(resolveProjectPath({})).rejects.toThrow(
       'Either project_path or cwd_path is required.'
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// mutuallyExclusivePaths + MUTUAL_EXCLUSIVITY_PATH_MSG
-// ---------------------------------------------------------------------------
-
-describe('mutuallyExclusivePaths', () => {
-  it('returns true when only project_path is provided', () => {
-    expect(mutuallyExclusivePaths({ project_path: '/some/plan/2026-01-01-test' })).toBe(true);
-  });
-
-  it('returns true when only cwd_path is provided', () => {
-    expect(mutuallyExclusivePaths({ cwd_path: '/workspace/root' })).toBe(true);
-  });
-
-  it('returns true when neither field is provided', () => {
-    expect(mutuallyExclusivePaths({})).toBe(true);
-  });
-
-  it('returns false when both project_path and cwd_path are provided', () => {
-    expect(
-      mutuallyExclusivePaths({
-        project_path: '/some/plan/2026-01-01-test',
-        cwd_path: '/workspace/root',
-      })
-    ).toBe(false);
-  });
-
-  it('returns true when project_path is empty string (falsy)', () => {
-    expect(mutuallyExclusivePaths({ project_path: '', cwd_path: '/workspace/root' })).toBe(true);
-  });
-
-  it('returns true when cwd_path is undefined and project_path is set', () => {
-    expect(mutuallyExclusivePaths({ project_path: '/plan/2026-01-01-x', cwd_path: undefined })).toBe(true);
-  });
-});
-
-describe('MUTUAL_EXCLUSIVITY_PATH_MSG', () => {
-  it('is a non-empty string', () => {
-    expect(typeof MUTUAL_EXCLUSIVITY_PATH_MSG).toBe('string');
-    expect(MUTUAL_EXCLUSIVITY_PATH_MSG.length).toBeGreaterThan(0);
-  });
-
-  it('is surfaced by a Zod schema refine when both paths are provided', () => {
-    const TestSchema = z.object({
-      project_path: z.string().optional(),
-      cwd_path: z.string().optional(),
-    }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
-
-    // Both fields → validation error with expected message
-    const result = TestSchema.safeParse({
-      project_path: '/some/plan/2026-01-01-test',
-      cwd_path: '/workspace/root',
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.errors[0]!.message).toBe(MUTUAL_EXCLUSIVITY_PATH_MSG);
-    }
-  });
-
-  it('Zod schema with refine accepts project_path only', () => {
-    const TestSchema = z.object({
-      project_path: z.string().optional(),
-      cwd_path: z.string().optional(),
-    }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
-
-    expect(TestSchema.safeParse({ project_path: '/some/plan/2026-01-01-x' }).success).toBe(true);
-  });
-
-  it('Zod schema with refine accepts cwd_path only', () => {
-    const TestSchema = z.object({
-      project_path: z.string().optional(),
-      cwd_path: z.string().optional(),
-    }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
-
-    expect(TestSchema.safeParse({ cwd_path: '/workspace' }).success).toBe(true);
   });
 });
 

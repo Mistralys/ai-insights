@@ -30,8 +30,9 @@ Design notes — :func:`inject_project_path`
 - Injection uses ``setdefault`` semantics: an explicitly-provided
   ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
   (following persona instructions meant for IDE agents), the wrapper
-  strips it — most MCP tools enforce mutual exclusivity between
-  ``project_path`` and ``cwd_path``.
+  strips it for efficiency — the MCP server now handles both gracefully
+  (``project_path`` takes precedence), but stripping avoids sending
+  redundant data.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 

@@ -133,7 +133,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
     const calls: string[] = [];
     (globalThis as any).fetch = vi.fn(async (url: string) => {
       calls.push(url);
-      return { ok: true, status: 200, text: async () => '# Hello' };
+      return { ok: true, status: 200, json: async () => ({ content: '# Hello' }) };
     });
     await globalThis.API.getDialogueContent('my-project', 'file.md');
     expect(calls).toHaveLength(1);
@@ -142,7 +142,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
 
   it('returns raw text (not parsed JSON)', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
-      ok: true, status: 200, text: async () => '# Markdown content',
+      ok: true, status: 200, json: async () => ({ content: '# Markdown content' }),
     }));
     const result = await globalThis.API.getDialogueContent('p', 'f.md');
     expect(typeof result).toBe('string');
@@ -151,7 +151,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
 
   it('throws on HTTP error', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
-      ok: false, status: 404, text: async () => '',
+      ok: false, status: 404, json: async () => null,
     }));
     await expect(globalThis.API.getDialogueContent('p', 'f.md')).rejects.toMatchObject({
       code: 'ERROR',
@@ -282,7 +282,7 @@ describe('AC6 — Click fetches and renders via marked.parse()', () => {
     installFetchMock([
       { match: '/work-packages/',    body: { ...baseWp } },
       { match: /\/dialogues\?wp=/,   body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
-      { match: /\/dialogues\//,      text: markdownBody },
+      { match: /\/dialogues\//,      body: { content: markdownBody } },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -323,7 +323,7 @@ describe('AC7 — Clicking second dialogue collapses first', () => {
           { filename: 'developer-r0.md', stage: 'developer' },
         ],
       },
-      { match: /\/dialogues\//, text: '# Content' },
+      { match: /\/dialogues\//, body: { content: '# Content' } },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -384,7 +384,7 @@ describe('AC8 — Fetch error handling', () => {
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
-      { match: /\/dialogues\//,    text: '', status: 403 },
+      { match: /\/dialogues\//,    body: null, status: 403 },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -517,7 +517,7 @@ describe('Edge cases', () => {
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
-      { match: /\/dialogues\//,    text: '# Hello' },
+      { match: /\/dialogues\//,    body: { content: '# Hello' } },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -582,7 +582,7 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
           { filename: 'developer-r0.md', stage: 'developer' },
         ],
       },
-      { match: /\/dialogues\//, text: '# Hello' },
+      { match: /\/dialogues\//, body: { content: '# Hello' } },
     ]);
     document.body.appendChild(app);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');

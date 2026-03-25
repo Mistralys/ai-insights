@@ -1346,7 +1346,7 @@ describe('gui/api.ts', () => {
       await createDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md', content);
 
       const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md');
-      expect(result).toBe(content);
+      expect(result).toEqual({ content });
     });
 
     it("throws ApiError NOT_FOUND for '../secret.md' (traversal rejected by allowlist)", async () => {
@@ -1382,7 +1382,7 @@ describe('gui/api.ts', () => {
     it('returns content for a valid alphanumeric filename with underscores', async () => {
       await createDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md', 'underscore content');
       const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md');
-      expect(result).toBe('underscore content');
+      expect(result).toEqual({ content: 'underscore content' });
     });
 
     // ── WP-003: logging on rejection paths ───────────────────────────────────
