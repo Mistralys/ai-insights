@@ -416,6 +416,48 @@ def _print_run_summary(
 
 
 # ---------------------------------------------------------------------------
+# Checkpoint state helpers
+# ---------------------------------------------------------------------------
+
+def _thread_id_exists_in_checkpoint(db_path: Path, thread_id: str) -> bool:
+    """Return True if *thread_id* already has at least one checkpoint row.
+
+    Opens the SQLite database at *db_path* using the stdlib ``sqlite3`` module
+    (no LangGraph dependency).  Returns ``False`` on any I/O error so that
+    a corrupt or locked DB never blocks a new run.
+    """
+    try:
+        import sqlite3
+        with sqlite3.connect(str(db_path)) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM checkpoints WHERE thread_id = ? LIMIT 1",
+                (thread_id,),
+            ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _mark_run_terminal(checkpoint_dir: Path, thread_id: str) -> None:
+    """Write an empty marker file indicating *thread_id* ran to completion.
+
+    The file is named ``<thread_id>.terminal`` inside *checkpoint_dir*.  Its
+    presence is the sole signal used by :func:`_is_run_terminal`; contents are
+    intentionally empty.
+    """
+    try:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        (checkpoint_dir / f"{thread_id}.terminal").touch()
+    except OSError:
+        pass
+
+
+def _is_run_terminal(checkpoint_dir: Path, thread_id: str) -> bool:
+    """Return True if *thread_id* is flagged as a fully-completed run."""
+    return (checkpoint_dir / f"{thread_id}.terminal").exists()
+
+
+# ---------------------------------------------------------------------------
 # Main async entry point
 # ---------------------------------------------------------------------------
 
@@ -429,6 +471,22 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     3. Build and invoke graph.
     4. Print summary.
     5. Shut down MCP server.
+
+    Terminal marker behaviour
+    -------------------------
+    When a run completes successfully *without* ``--interrupt-on``, a
+    ``{thread_id}.terminal`` marker file is written via
+    :func:`_mark_run_terminal`.  This prevents accidental re-execution via
+    ``--resume``.
+
+    **If ``--interrupt-on`` is active, the marker is intentionally suppressed**
+    so that the interrupted run can be stepped and eventually resumed to
+    completion.  As a side effect, a step-resumed run that reaches its natural
+    end (graph returns normally) is also not marked terminal because
+    ``interrupt_before`` is still non-empty at the call site.  This is
+    correct: the user may want to resume again from the last checkpoint.
+    Future maintainers should preserve this invariant — only unconditional
+    (non-interrupt) runs should write the terminal marker.
     """
     from src.mcp_client import MCPToolkit
 
@@ -469,10 +527,30 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         await run_logger.start_heartbeat(config.heartbeat_interval_s)
 
         # ── Generate or reuse thread ID ─────────────────────────────────
-        thread_id: str = args.resume if args.resume else str(uuid.uuid4())
         if args.resume:
+            thread_id: str = args.resume
             log.info("Resuming run: thread_id=%s", thread_id)
+            # Guard: refuse to resume a run that already ran to completion.
+            if _is_run_terminal(config.checkpoint_dir, thread_id):
+                sys.stderr.write(
+                    f"orchestrate: error: thread {thread_id!r} is a completed run\n"
+                    "  (terminal checkpoint — nothing left to execute).\n"
+                    "  To start a fresh run, omit --resume.\n"
+                )
+                return EXIT_ERROR
         else:
+            thread_id = str(uuid.uuid4())
+            # Guard against the statistically-improbable UUID v4 collision.
+            ckpt_db = config.checkpoint_dir / "workflow.sqlite"
+            if ckpt_db.exists():
+                for _ in range(5):
+                    if not _thread_id_exists_in_checkpoint(ckpt_db, thread_id):
+                        break
+                    log.warning(
+                        "UUID collision detected for thread_id=%s; regenerating.",
+                        thread_id,
+                    )
+                    thread_id = str(uuid.uuid4())
             log.info("Starting new run: thread_id=%s", thread_id)
         # Capture run start timestamp for duration tracking and progress
         # snapshots.
@@ -552,6 +630,11 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                     else:
                         result = await graph.ainvoke(initial_state, run_config)
                     final_state = result
+                    # Mark as terminal when the graph ran to completion with no
+                    # interrupt checkpoints configured.  Interrupted runs must
+                    # remain re-resumable, so we only write the marker here.
+                    if not interrupt_before:
+                        _mark_run_terminal(config.checkpoint_dir, thread_id)
                 except KeyboardInterrupt:
                     log.info("Interrupted by user. Run can be resumed with --resume %s.", thread_id)
                     print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
@@ -2280,7 +2363,55 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                 },
             )
 
-        # ── All roles returned WAIT/skip → route to synthesis ─────────────────
+        # ── All roles returned WAIT/skip → cancel halted WPs + route to synthesis ──
+        # Before routing to synthesis, transition any circuit-broken WPs to CANCELLED.
+        # ledger_complete_synthesis requires all WPs to be terminal (COMPLETE or
+        # CANCELLED); halted WPs that are still IN_PROGRESS in the ledger would
+        # fail that precondition (§16.3 — automated circuit-breaker escalation).
+        cancellation_log_entries: list[dict] = []
+        for _wp in wp_summaries:
+            _wp_id_h = _wp.get("work_package_id", "")
+            _wp_status_h = _wp.get("status", "")
+            # Only act on non-terminal WPs that hit the circuit-breaker threshold.
+            if (
+                _wp_id_h
+                and _wp_status_h not in _TERMINAL_STATUSES
+                and cf.get(_wp_id_h, 0) >= 3
+            ):
+                try:
+                    await _call_tool(
+                        "ledger_update_work_package_status",
+                        project_path=project_path,
+                        work_package_id=_wp_id_h,
+                        status="CANCELLED",
+                        agent="Project Manager",
+                    )
+                    log.warning(
+                        "Cancelling halted WP %s to allow synthesis to proceed.",
+                        _wp_id_h,
+                    )
+                    _cancel_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id=_wp_id_h,
+                        action="halted_wp_cancelled",
+                        destination=_DEST_SYNTHESIS,
+                        level="WARNING",
+                        reason=(
+                            "Cancelled: exceeded orchestrator failure threshold "
+                            "(3 consecutive failures)"
+                        ),
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(_cancel_entry)
+                    cancellation_log_entries.append(_cancel_entry)
+                except Exception as _cancel_exc:  # noqa: BLE001
+                    log.warning(
+                        "Failed to cancel halted WP %s: %s (may already be "
+                        "terminal — proceeding to synthesis anyway).",
+                        _wp_id_h,
+                        _cancel_exc,
+                    )
+
         log_entry = _log_entry(
             stage="supervisor",
             wp_id="",
@@ -2296,7 +2427,10 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                 **base_update,
                 "current_stage": _DEST_SYNTHESIS,
                 "run_log": (
-                    status_change_entries + extra_log_entries + [log_entry, progress_snapshot]
+                    status_change_entries
+                    + extra_log_entries
+                    + cancellation_log_entries
+                    + [log_entry, progress_snapshot]
                 ),
                 "errors": extra_errors,
             },

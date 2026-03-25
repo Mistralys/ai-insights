@@ -189,6 +189,18 @@ orchestrate plan.md --log-level DEBUG
 
 The thread ID is printed at the start of every run and in the run summary under `Thread ID`. It looks like a UUID: `3fa85f64-5717-4562-b3fc-2c963f66afa6`.
 
+### Resume safety: terminal checkpoint guard
+
+When a run completes successfully without `--interrupt-on`, the orchestrator writes a `{thread_id}.terminal` marker file in the checkpoint directory. Attempting to `--resume` a terminal thread ID exits immediately with an error:
+
+```
+orchestrate: error: thread '3fa85f64-...' is a completed run
+  (terminal checkpoint — nothing left to execute).
+  To start a fresh run, omit --resume.
+```
+
+Runs that stop at an `--interrupt-on` breakpoint are **not** marked terminal so they can be stepped and resumed normally.
+
 ---
 
 ## Architecture

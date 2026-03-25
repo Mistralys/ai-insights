@@ -1242,11 +1242,26 @@ Design notes — :func:`restrict_to_wp`
   wrap; subsequent calls are idempotent and never stack closures.
 - If ``wp_id`` is the empty string the function returns the tools list unchanged
   (no wrapping).
-- The guard only fires when the call explicitly passes ``work_package_id``.
-  Tool calls that omit ``work_package_id`` are allowed through; this avoids
-  false positives for tools that do not accept a WP ID at all.
+- When a tool call **omits** ``work_package_id``, the wrapper **injects** the
+  active WP ID automatically.  This prevents the common LLM failure mode of
+  forgetting to pass ``work_package_id`` and silently operating on the server's
+  default WP instead of the intended one.
+- When a tool call **explicitly passes** a ``work_package_id`` that differs from
+  the active WP, a ``ValueError`` is raised immediately.  Explicit cross-WP
+  calls are unambiguous intent; injection would mask the mismatch.
 - Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected,
   mirroring the pattern used by :func:`inject_project_path`.
+- **Single-WP-per-tool-instance invariant:** Because the sentinel
+  (``_orig_ainvoke_wp``) captures the *original* ``ainvoke`` on the first
+  wrap, any subsequent call to :func:`restrict_to_wp` on the same tool
+  object with a *different* ``wp_id`` will replace the active closure but
+  still delegate to the same original — it will not stack guards.  As a
+  result, only the *most recent* guard's ``wp_id`` is enforced.  This is
+  safe in the current pipeline design where each tool instance is created
+  fresh per stage node invocation; tool instances **must not** be shared
+  across concurrent pipeline stages that target different work packages.
+  If that invariant is ever violated, the earlier guard's ``wp_id`` would
+  be silently bypassed.
 
 Context
 -------
@@ -1379,7 +1394,13 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
                     target = input
 
                 call_wp_id = target.get("work_package_id")
-                if call_wp_id is not None and call_wp_id != _active_wp:
+                if call_wp_id is None:
+                    # Inject the active WP ID when the agent omits it.  This
+                    # prevents cross-WP contamination from forgotten parameters
+                    # without raising an error — tools that don't use WP IDs
+                    # will simply ignore the extra argument.
+                    target["work_package_id"] = _active_wp
+                elif call_wp_id != _active_wp:
                     raise ValueError(
                         f"Tool call targets work_package_id={call_wp_id!r} but "
                         f"the active work package is {_active_wp!r}. "

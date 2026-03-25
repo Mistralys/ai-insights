@@ -256,7 +256,7 @@ description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator
 vs_file_name: orchestrator-runner.agent.md
 id: standalone-orchestrator-runner
 cc_file_name: orchestrator-runner.md
-version: "1.4.0"
+version: "1.4.1"
 last_updated: "2026-03-25"
 
 tools:

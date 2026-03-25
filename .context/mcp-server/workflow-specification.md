@@ -1039,6 +1039,26 @@ function resetReworkCount(wp, root, pipelineType, agentRole, reason):
 
 > **Use case:** After investigating a root cause (e.g., flaky test environment, misunderstood requirement), the PM resets the counter to allow retries. The mandatory reason and project comment ensure the decision is auditable. The PM should address the root cause before resetting — otherwise the circuit breaker will trip again after `MAX_REWORK_COUNT` additional attempts.
 
+### 16.3c Circuit Breaker Escalation for Automated Orchestrators
+
+The circuit breaker (§16.3) is designed around a human Project Manager who can review `REVIEW_REWORK_LIMIT` recommendations and decide whether to cancel or restructure the affected WP (see §16.3b for the PM reset operation). In **automated (headless) orchestrators** where no interactive PM is available, a circuit-broken WP would block indefinitely — `startPipeline` rejects the call, no human can reset the counter, and the project can never reach synthesis because `pending_work_packages > 0`.
+
+**Prescribed behavior for automated orchestrators:**
+
+When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and no PM intervention is available (the system is running headlessly), the orchestrator SHOULD:
+
+1. **Log the circuit-breaker event** — Record the WP ID, the circuit-broken pipeline type, the rework count, and a diagnostic note explaining that the circuit breaker was reached. This ensures the operator has visibility into which WPs were affected and why.
+2. **Transition the WP to CANCELLED** — Call `updateWorkPackageStatus(CANCELLED)` on the circuit-broken WP. This is a PM-level operation; automated orchestrators acting as PM surrogates must invoke it with `agent_role: "Project Manager"`. Cancellation is terminal (§21.1) — the WP's pipeline history is preserved for post-run analysis, and `synthesis_generated` is not reset (§21.38).
+3. **Allow the project to proceed to synthesis** — Once all remaining WPs are terminal (COMPLETE or CANCELLED), `completeSynthesis` (§19.1) can proceed. The Synthesis agent's final report SHOULD document cancelled WPs and the reason for cancellation.
+
+> **Rationale:** The circuit breaker threshold (`MAX_REWORK_COUNT = 5`) represents a systemic failure — 5 rework cycles without resolution indicates either a persistent bug, a fundamentally flawed requirement, or an environmental issue. In a headless run, the correct recovery is to preserve the evidence (cancel rather than delete), proceed with the deliverable WPs, and document the failure in the synthesis report. This is preferable to leaving the project stuck indefinitely, which produces no output and obscures the partial progress made on other WPs.
+
+> **PM reset as alternative:** If the automated system has access to an emergency PM intervention path (e.g., a human-triggered override webhook), the PM MAY reset the rework count via `ledger_reset_rework_count` (§16.3b) and let the orchestrator retry. This is preferable to cancellation when the root cause has been identified and fixed (e.g., a flaky test environment was repaired). Cancellation should be the default when no such path exists.
+
+> **Halted WPs and synthesis:** Some orchestrators implement a local circuit breaker (e.g., 3 consecutive failures → "halted" state) that prevents further invocation of the agent for that WP within the current run, even though the WP remains `IN_PROGRESS` in the ledger. Such halted WPs must be transitioned to `CANCELLED` before `completeSynthesis` is called, because the synthesis guard requires `pending_work_packages == 0` — a halted `IN_PROGRESS` WP still counts as pending.
+
+**Related sections:** [§16.3b](#163b-circuit-breaker-reset) (PM rework count reset), [§21.68](edge-cases.md#2168-orphaned-pipeline-recovery-agent-crash-between-begin_work-and-complete_pipeline) (orphaned pipeline recovery), [§19.1](auxiliary-systems.md#191-algorithm) (`completeSynthesis` pending guard)
+
 ### 16.4 Rework Flow
 
 The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
@@ -1756,6 +1776,33 @@ When the FAIL routing resolves to a different agent (the normal case), P4b does 
 **Interaction with §21.66:** This fix is complementary. §21.66 prevents the infinite re-engagement loop (`null → false`). §21.67 prevents the resulting deadlock when the agent should self-rework but the recommendation engine tells it to wait. Both fixes are required for correct behavior of first-active-stage compositions.
 
 **Related sections:** [§9.3.1](pipeline-routing.md#931-fail-routing-fallback) (`resolveFailAgent` fallback), [§14.3](recommendations.md#143-qa-action-logic) (QA action priorities), [§14.4](recommendations.md#144-reviewer-action-logic) (Reviewer action priorities), [§14.5b](recommendations.md#145b-security-auditor-action-logic) (Security Auditor action priorities), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback examples), [§21.66](#2166-first-active-stage-re-engagement-loop) (re-engagement loop fix)
+
+### 21.68 Orphaned Pipeline Recovery (Agent Crash Between begin_work and complete_pipeline)
+
+- **Scenario:** An agent calls `ledger_begin_work` (which creates an `IN_PROGRESS` pipeline on the WP) and then crashes, errors out, or is interrupted before calling `ledger_complete_pipeline`. The pipeline remains in `IN_PROGRESS` indefinitely — the WP cannot accept a new pipeline of the same type (duplicate guard in §11.1), and the next `ledger_begin_work` call is rejected.
+- **Detection:** On restart or re-invocation, `ledger_get_next_action` for the agent's role returns `RESUME_OR_CANCEL` (§14.7) when it detects an active pipeline that has exceeded the stale threshold (`STALE_PIPELINE_HOURS`). Alternatively, the orchestrator MAY detect the orphaned pipeline immediately after an agent exception if it can inspect the WP's in-progress pipeline state.
+- **Prescribed recovery:** The orchestrator or recovering agent MUST call `cancelPipeline` (§12.5) with `auto_cancelled = true` before retrying the stage. Setting `auto_cancelled = true` ensures the crash-recovery cancellation does not consume the per-pipeline rework budget (§16.2, §21.27) — the failure was caused by infrastructure, not agent quality.
+
+```
+function recoverOrphanedPipeline(wp, pipelineType, reason):
+  // Verify the pipeline is actually orphaned (IN_PROGRESS with no recent activity)
+  orphaned = wp.pipelines
+    .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
+    .last()
+
+  if orphaned is null:
+    return    // Nothing to recover
+
+  // Cancel with auto_cancelled = true (not a quality failure)
+  cancelPipeline(wp, root, pipelineType, reason, "Project Manager",
+                 { auto_cancelled: true })
+```
+
+- **Rework budget preservation:** The `auto_cancelled = true` flag excludes the orphaned pipeline from `effectiveSamePipelines` in rework detection (§11.1) and from all circuit-breaker calculations (§21.27). The agent may retry up to `MAX_REWORK_COUNT` times on genuine quality failures without any budget consumed by the infrastructure crash.
+- **Multiple orphaned pipelines:** If an agent crashes repeatedly across multiple invocations (e.g., due to a persistent environment issue), each recovery call to `cancelPipeline` with `auto_cancelled = true` does not increment the rework count. The circuit breaker is therefore not a useful safeguard against repeated infrastructure crashes — a separate orchestrator-level retry limit (e.g., a maximum number of crash-recovery attempts per WP per run) is recommended for automated systems.
+- **Distinction from manual PM cancellation:** A PM calling `cancelPipeline` to abort a pipeline whose output is known to be incorrect is an operational decision (the pipeline represents a genuine failure), not crash recovery. In this case `auto_cancelled` SHOULD be `false` (default) so the rework budget accurately reflects the number of genuine failure cycles.
+
+**Related sections:** [§12.5](operations.md#125-pipeline-cancellation-cancelpipeline) (`cancelPipeline` operation and `auto_cancelled` semantics), [§21.27](#2127-auto-cancelled-pipelines) (auto-cancelled pipeline exclusion rules), [§16.3](dependencies-and-rework.md#163-circuit-breaker) (circuit breaker and rework budget), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators) (orchestrator escalation guidance)
 ```
 ###  Path: `/mcp-server/docs/agents/workflow-specification/handoff.md`
 
@@ -2862,6 +2909,68 @@ The `agentRole` parameter is mandatory. The agent must match the pipeline owner 
 - **PM override:** The Project Manager may complete any pipeline type to handle operational scenarios (e.g., cancelling a stale pipeline by completing it with FAIL). A log entry is emitted for auditability.
 
 This guard is the completion counterpart of §11.1.2 (Agent Role Validation on start). Together they ensure that only the owning agent (or PM) can start and complete a given pipeline type.
+
+---
+
+### 12.5 Pipeline Cancellation (cancelPipeline)
+
+The `cancelPipeline` operation forcibly closes the most recent IN_PROGRESS pipeline of a given type on a WP. It is used for operational cleanup, crash recovery, and rollback of orphaned pipelines (see §21.68). The operation exists as `ledger_cancel_pipeline` in the implementation.
+
+### 12.5.1 Algorithm
+
+```
+function cancelPipeline(wp, root, pipelineType, reason, agentRole, opts):
+  // Guard: Agent role validation — only owning agent or PM may cancel
+  expectedRole = PIPELINE_AGENT_MAP[pipelineType]
+  if agentRole != expectedRole AND agentRole != "Project Manager":
+    ERROR("Agent role {agentRole} cannot cancel {pipelineType} pipeline "
+          + "(owned by {expectedRole})")
+
+  // Find the most recent IN_PROGRESS pipeline of the given type
+  pipeline = wp.pipelines
+    .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
+    .last()
+
+  if pipeline is null:
+    ERROR("No in-progress {pipelineType} pipeline found on {wp.work_package_id}")
+
+  // Apply cancellation
+  pipeline.status = "FAIL"
+  pipeline.completed_at = now()
+  pipeline.summary = ["Cancelled: " + reason]
+  pipeline.auto_cancelled = opts.auto_cancelled ?? false   // See §12.5.2
+
+  root.last_updated = now()
+  write wp
+  write root
+```
+
+### 12.5.2 auto_cancelled Semantics
+
+The `auto_cancelled` parameter controls whether the cancellation consumes the per-pipeline rework budget (§16.2):
+
+| `auto_cancelled` | Effect |
+|-----------------|--------|
+| `false` (default) | Pipeline counts as a rework attempt — `rework_counts[pipelineType]` increments on the next `startPipeline` call |
+| `true` | Pipeline is excluded from rework detection and circuit-breaker calculations (§21.27) — does not consume rework budget |
+
+**When to use `auto_cancelled = true`:** Cancellations caused by external interruptions rather than agent quality failures SHOULD set `auto_cancelled = true`. This includes:
+
+- **Crash recovery:** The orchestrator cancelling an orphaned pipeline after an agent crash (§21.68)
+- **WP lifecycle transitions:** System-generated cancellations on `IN_PROGRESS → BLOCKED` or `IN_PROGRESS → CANCELLED` transitions (§21.14b)
+- **GUI reset cleanup:** Cancellations applied by the GUI reset tool to clear orphaned pipelines before re-running
+
+**When to use `auto_cancelled = false` (default):** Explicit PM cancellations of running pipelines (e.g., aborting a pipeline whose output is known to be incorrect) are operational decisions, not external interruptions. These should not suppress rework budget tracking because the pipeline represents a genuine failure that required human intervention.
+
+### 12.5.3 Relationship to completePipeline
+
+`cancelPipeline` is a restricted form of `completePipeline` with:
+- Status always `FAIL`
+- Summary always `["Cancelled: {reason}"]`
+- No acceptance criteria updates, handoff notes, or pipeline metrics
+- An additional `auto_cancelled` flag (absent on `completePipeline`)
+
+For normal pipeline completion — including PM-forced FAIL completions — use `completePipeline` (§12.1). Reserve `cancelPipeline` for cleanup and crash-recovery scenarios where the pipeline was never legitimately completed.
 
 ```
 ###  Path: `/mcp-server/docs/agents/workflow-specification/pipeline-routing.md`

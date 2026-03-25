@@ -23,6 +23,7 @@ _SOURCE: Top-level directory tree_
     │   └── project-manifest/
     │       └── README.md
 └── history/
+    ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
     ├── key-learnings.md
     ├── screenshots/

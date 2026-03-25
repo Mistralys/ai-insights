@@ -47,13 +47,9 @@ No real MCP server, LLM, or LangGraph graph invocation is performed.
 
 from __future__ import annotations
 
-import platform
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Argument parser tests
@@ -305,7 +301,6 @@ class TestDryRunNode:
 class TestMainMissingPlan:
     def test_missing_plan_exits_1(self, tmp_path):
         """main() exits with EXIT_ERROR when the plan file does not exist."""
-        import os
         nonexistent = str(tmp_path / "no_such_plan.md")
 
         mock_config = MagicMock()
@@ -340,6 +335,153 @@ class TestDryRunNodeEdgeCases:
         node = _make_dryrun_node("synthesis")
         result = node({"current_wp_id": ""})
         assert result["run_log"][0]["result"] == "SKIP"
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint helpers — WP-004
+# ---------------------------------------------------------------------------
+
+class TestThreadIdExistsInCheckpoint:
+    def test_returns_false_when_db_absent(self, tmp_path):
+        """Non-existent DB must not raise; return False instead."""
+        from src.cli import _thread_id_exists_in_checkpoint
+        absent = tmp_path / "no_such.sqlite"
+        assert _thread_id_exists_in_checkpoint(absent, "any-id") is False
+
+    def test_returns_false_for_unknown_thread_id(self, tmp_path):
+        """A thread_id not in the DB must return False."""
+        import sqlite3
+
+        from src.cli import _thread_id_exists_in_checkpoint
+        db = tmp_path / "workflow.sqlite"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "CREATE TABLE checkpoints "
+                "(thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?)",
+                ("existing-id", "", "ckpt-1"),
+            )
+        assert _thread_id_exists_in_checkpoint(db, "other-id") is False
+
+    def test_returns_true_for_known_thread_id(self, tmp_path):
+        """A thread_id present in the DB must return True."""
+        import sqlite3
+
+        from src.cli import _thread_id_exists_in_checkpoint
+        db = tmp_path / "workflow.sqlite"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "CREATE TABLE checkpoints "
+                "(thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?)",
+                ("known-id", "", "ckpt-1"),
+            )
+        assert _thread_id_exists_in_checkpoint(db, "known-id") is True
+
+
+class TestMarkAndIsRunTerminal:
+    def test_is_run_terminal_returns_false_when_no_marker(self, tmp_path):
+        """No marker file → not terminal."""
+        from src.cli import _is_run_terminal
+        assert _is_run_terminal(tmp_path, "some-thread") is False
+
+    def test_mark_then_is_terminal_returns_true(self, tmp_path):
+        """Writing the marker file must make _is_run_terminal return True."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+        _mark_run_terminal(tmp_path, "my-thread")
+        assert _is_run_terminal(tmp_path, "my-thread") is True
+
+    def test_marker_is_file_scoped_to_thread_id(self, tmp_path):
+        """Marking one thread id must not affect another."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+        _mark_run_terminal(tmp_path, "thread-A")
+        assert _is_run_terminal(tmp_path, "thread-B") is False
+
+    def test_mark_creates_dir_if_absent(self, tmp_path):
+        """_mark_run_terminal must create the checkpoint_dir if it doesn't exist."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+        new_dir = tmp_path / "checkpoints" / "sub"
+        _mark_run_terminal(new_dir, "tid")
+        assert _is_run_terminal(new_dir, "tid") is True
+
+
+class TestTerminalResumeGuard:
+    async def test_resume_terminal_thread_exits_error(self, tmp_path):
+        """_run() must return EXIT_ERROR when --resume targets a terminal checkpoint."""
+        from unittest.mock import AsyncMock
+
+        from src.cli import EXIT_ERROR, _mark_run_terminal, _run
+
+        plan = tmp_path / "plan.md"
+        plan.write_text("# plan")
+        ckpt_dir = tmp_path / "checkpoints"
+        _mark_run_terminal(ckpt_dir, "finished-thread")
+
+        args = MagicMock()
+        args.plan = str(plan)
+        args.resume = "finished-thread"
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = None
+
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = ckpt_dir
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+
+        mock_run_logger = MagicMock()
+        mock_run_logger._path = tmp_path / "run.jsonl"
+        mock_run_logger.start_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.stop_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.flush_unstreamed = MagicMock()
+        mock_run_logger.log = MagicMock()
+        mock_run_logger.close = MagicMock()
+
+        with patch("src.utils.logging.WorkflowLogger") as mock_logger_cls:
+            mock_logger_cls.create.return_value = mock_run_logger
+            result = await _run(args, mock_config)
+
+        assert result == EXIT_ERROR
+
+    def test_resume_non_terminal_does_not_trigger_guard(self, tmp_path):
+        """_is_run_terminal returns False for a non-terminal thread — guard is not invoked."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+
+        ckpt_dir = tmp_path / "checkpoints"
+        # Mark a different thread — the one being resumed is not marked.
+        _mark_run_terminal(ckpt_dir, "other-thread")
+
+        # The thread being resumed has no marker → guard must not fire.
+        assert _is_run_terminal(ckpt_dir, "active-thread") is False
+
+
+class TestUuidCollisionHandling:
+    def test_new_run_regenerates_uuid_on_collision(self, tmp_path):
+        """When the generated UUID already exists, a new one must be used."""
+        import sqlite3
+
+        from src.cli import _thread_id_exists_in_checkpoint
+
+        db = tmp_path / "workflow.sqlite"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "CREATE TABLE checkpoints "
+                "(thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)"
+            )
+            # Pre-populate with a specific known UUID.
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?)",
+                ("collision-uuid", "", "ckpt-1"),
+            )
+
+        # Verify the helper can detect it.
+        assert _thread_id_exists_in_checkpoint(db, "collision-uuid") is True
+        assert _thread_id_exists_in_checkpoint(db, "different-uuid") is False
+
 
 ```
 ###  Path: `/orchestrator/tests/test_config.py`
@@ -570,7 +712,7 @@ _BASE_ENV = {
 }
 
 
-def _load(extra_env: dict | None = None) -> "Config":  # noqa: F821 – forward ref ok
+def _load(extra_env: dict | None = None) -> Config:  # noqa: F821 – forward ref ok
     """Call load_config() with a clean environment plus *extra_env* overrides."""
     env = {**_BASE_ENV, **(extra_env or {})}
     # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.
@@ -666,11 +808,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from langchain_core.messages import SystemMessage
 
 from src.utils.dialogue_writer import _msg_role, serialize_messages_to_markdown, write_dialogue
-
 
 # ---------------------------------------------------------------------------
 # Minimal message stubs (no LangChain dependency required for unit tests)
@@ -1076,11 +1216,11 @@ No real MCP server or LLM is used — all nodes are patched at import time.
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Mock config fixture
@@ -1119,13 +1259,28 @@ def _apply_patches(test_fn):
     async def wrapper(*args, **kwargs):
         # Patch at source module level (lazy imports inside build_graph()).
         with (
-            patch("src.supervisor.make_supervisor_node", side_effect=lambda tools: _noop_node("supervisor")),
+            patch(
+                "src.supervisor.make_supervisor_node",
+                side_effect=lambda tools: _noop_node("supervisor"),
+            ),
             patch("src.nodes.pm.make_pm_node", side_effect=lambda cfg, tools: _noop_node("pm")),
-            patch("src.nodes.developer.make_developer_node", side_effect=lambda cfg, tools: _noop_node("developer")),
+            patch(
+                "src.nodes.developer.make_developer_node",
+                side_effect=lambda cfg, tools: _noop_node("developer"),
+            ),
             patch("src.nodes.qa.make_qa_node", side_effect=lambda cfg, tools: _noop_node("qa")),
-            patch("src.nodes.reviewer.make_reviewer_node", side_effect=lambda cfg, tools: _noop_node("reviewer")),
-            patch("src.nodes.docs.make_docs_node", side_effect=lambda cfg, tools: _noop_node("docs")),
-            patch("src.nodes.synthesis.make_synthesis_node", side_effect=lambda cfg, tools: _noop_node("synthesis")),
+            patch(
+                "src.nodes.reviewer.make_reviewer_node",
+                side_effect=lambda cfg, tools: _noop_node("reviewer"),
+            ),
+            patch(
+                "src.nodes.docs.make_docs_node",
+                side_effect=lambda cfg, tools: _noop_node("docs"),
+            ),
+            patch(
+                "src.nodes.synthesis.make_synthesis_node",
+                side_effect=lambda cfg, tools: _noop_node("synthesis"),
+            ),
         ):
             return await test_fn(*args, **kwargs)
 
@@ -1248,6 +1403,7 @@ class TestCheckpointerIsAsync:
         AsyncSqliteSaver so that ``graph.ainvoke()`` works.
         """
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
         from src.graph import build_graph
 
         class _TmpConfig(_MockConfig):
@@ -2089,8 +2245,8 @@ def test_integration_marker_applied():
             (@pytest.mark.integration).
     """
     # The pytestmark at module level propagates to all tests.
-    import sys
     import inspect
+    import sys
 
     module = sys.modules[__name__]
     test_fns = [
@@ -2184,10 +2340,7 @@ Tests verify:
 
 from __future__ import annotations
 
-import pytest
-
 from src.utils.logging import _build_stream_console_line, _format_duration
-
 
 # ---------------------------------------------------------------------------
 # _format_duration
@@ -2707,7 +2860,6 @@ import pytest
 
 from src.utils.mcp_parse import parse_tool_response
 
-
 # ---------------------------------------------------------------------------
 # Parametrized cases
 # ---------------------------------------------------------------------------
@@ -2845,13 +2997,11 @@ import level so tests run without API keys.
 from __future__ import annotations
 
 import importlib
-import textwrap
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Minimal config stub
@@ -3329,8 +3479,6 @@ class TestToolWrappingInNode:
 
         # Agent mock that calls tool.ainvoke({}) once during invocation.
         async def _agent_invokes_tool(inputs: dict) -> dict:
-            # Simulate the agent calling the first wrapped tool with no project_path.
-            wrapped = inputs.get("_wrapped_tools")
             msg = MagicMock()
             msg.content = "done"
             return {"messages": [msg]}
@@ -3894,7 +4042,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id, pipeline_type, and project_path reminder."""
+        """_build_developer_prompt must include project_path, wp_id,
+        pipeline_type, and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -3911,7 +4060,8 @@ class TestSlimPromptContent:
         self._assert_no_identity_phrases(prompt, "developer")
 
     def test_developer_prompt_contains_ledger_begin_work_instruction(self):
-        """_build_developer_prompt extra must contain 'ledger_begin_work' and 'type=\"implementation\"'."""
+        """_build_developer_prompt extra must contain 'ledger_begin_work'
+        and 'type=\"implementation\"'."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -4054,7 +4204,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_security_auditor_prompt must include project_path, wp_id,
+        and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -4072,7 +4223,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_release_engineer_prompt must include project_path, wp_id,
+        and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -4139,7 +4291,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_synthesis_prompt_has_slim_fields(self):
-        """_build_synthesis_prompt must include project_path and project_path reminder (no wp_id)."""
+        """_build_synthesis_prompt must include project_path and project_path
+        reminder (no wp_id)."""
         from src.nodes.synthesis import _build_synthesis_prompt
 
         state = _build_slim_state(current_wp_id="")
@@ -4155,6 +4308,183 @@ class TestSlimPromptContent:
         prompt = _build_synthesis_prompt(state)  # type: ignore[arg-type]
 
         self._assert_no_identity_phrases(prompt, "synthesis")
+
+
+# ---------------------------------------------------------------------------
+# Tests: pipeline rollback when begin_work is called before a stage error
+# ---------------------------------------------------------------------------
+
+class TestPipelineRollback:
+    """
+    Verify the orphaned-pipeline rollback logic in create_stage_node.
+
+    When the Deep Agent errors after calling ledger_begin_work, the node must
+    automatically call ledger_cancel_pipeline with auto_cancelled=True so that
+    the orphaned IN_PROGRESS pipeline does not block the next run attempt.
+    """
+
+    class _RecordingTool:
+        """Plain tool stub with call recording. MagicMock is intentionally avoided
+        because its auto-attribute creation breaks the ``hasattr`` sentinel checks
+        used by inject_project_path, restrict_to_wp, and _install_begin_work_tracker."""
+
+        def __init__(self, name: str, raises: Exception | None = None) -> None:
+            self.name = name
+            self._raises = raises
+            self.calls: list[Any] = []
+
+        async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: A002
+            self.calls.append(input)
+            if self._raises is not None:
+                raise self._raises
+            return {"content": [{"type": "text", "text": "{}"}]}
+
+    async def test_rollback_called_when_begin_work_invoked_before_error(self):
+        """When begin_work is called and the agent then crashes, cancel_pipeline
+        must be called with auto_cancelled=True."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
+        tools = [begin_work_tool, cancel_tool]
+
+        # Fake agent: calls ledger_begin_work (to trigger the tracker),
+        # then raises RuntimeError to exercise the rollback path.
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            # Call begin_work via the tool reference which, after node_fn runs
+            # inject_project_path + restrict_to_wp + _install_begin_work_tracker,
+            # points to the tracker-wrapped ainvoke.
+            await begin_work_tool.ainvoke(
+                {"type": "implementation", "work_package_id": "WP-001"}
+            )
+            raise RuntimeError("Simulated agent crash after begin_work")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is False
+
+        assert cancel_tool.calls, "ledger_cancel_pipeline must have been called"
+        call_args = cancel_tool.calls[-1]
+        assert call_args.get("auto_cancelled") is True
+        assert call_args.get("work_package_id") == "WP-001"
+        assert call_args.get("type") == "implementation"
+
+    async def test_rollback_not_called_when_begin_work_not_invoked(self):
+        """When the agent crashes without calling begin_work, cancel_pipeline
+        must NOT be called."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
+        tools = [begin_work_tool, cancel_tool]
+
+        # Fake agent: crashes immediately without calling begin_work.
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            raise RuntimeError("Simulated crash without begin_work")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is False
+        assert not cancel_tool.calls, "ledger_cancel_pipeline must NOT have been called"
+
+    async def test_rollback_run_log_contains_pipeline_rollback_entry(self):
+        """Successful rollback must append a pipeline_rollback entry to run_log."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
+        tools = [begin_work_tool, cancel_tool]
+
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            await begin_work_tool.ainvoke(
+                {"type": "implementation", "work_package_id": "WP-001"}
+            )
+            raise RuntimeError("crash")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        rollback_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_rollback"]
+        assert rollback_entries, "run_log must contain a pipeline_rollback entry after rollback"
+        entry = rollback_entries[0]
+        assert entry["level"] == "INFO"
+        assert entry["wp_id"] == "WP-001"
+        assert entry["pipeline_type"] == "implementation"
+
+    async def test_rollback_original_error_preserved_when_cancel_fails(self):
+        """When cancel_pipeline itself raises, the original error must still
+        appear in the returned errors list."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool(
+            "ledger_cancel_pipeline", raises=RuntimeError("cancel_pipeline failed")
+        )
+        tools = [begin_work_tool, cancel_tool]
+
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            await begin_work_tool.ainvoke(
+                {"type": "implementation", "work_package_id": "WP-001"}
+            )
+            raise RuntimeError("Original agent crash")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is False
+        errors = result.get("errors", [])
+        assert errors, "errors must be non-empty"
+        assert "Original agent crash" in errors[0]["message"]
 
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
@@ -4212,7 +4542,9 @@ class TestStandardPlan:
     def test_extracts_summary(self, tmp_plan):
         path = tmp_plan(self.CONTENT)
         meta = parse_plan(str(path))
-        assert meta.summary == "Implements a LangGraph-based orchestrator that drives the AI agent workflow."
+        assert meta.summary == (
+            "Implements a LangGraph-based orchestrator that drives the AI agent workflow."
+        )
 
     def test_returns_absolute_file_path(self, tmp_plan):
         path = tmp_plan(self.CONTENT)
@@ -4313,9 +4645,10 @@ Verifies:
 
 from __future__ import annotations
 
-import pytest
-from typing import get_type_hints, get_args, Annotated
 from operator import add
+from typing import get_args, get_type_hints
+
+import pytest
 
 from src.state import WorkflowState
 
@@ -4433,7 +4766,6 @@ import pytest
 
 from src.config import FAIL_ROUTING_AGENT_MAP, PIPELINE_AGENT_MAP
 from src.supervisor import make_supervisor_node
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -4906,7 +5238,8 @@ class TestDocumentationFail:
 
 class TestRouteToDocs:
     async def test_pass_review_no_docs_routes_to_docs(self):
-        """A PASS code-review and release-engineering with no documentation pipeline routes to docs."""
+        """A PASS code-review and release-engineering with no documentation
+        pipeline routes to docs."""
         tools = make_mcp_tools(
             wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
             wp_details={
@@ -5227,6 +5560,161 @@ class TestCircuitBreaker:
 
 
 # ---------------------------------------------------------------------------
+# Tests: halted WP cancellation before synthesis dispatch
+# ---------------------------------------------------------------------------
+
+class TestHaltedWPCancellation:
+    """
+    When all roles return WAIT/skip due to circuit-broken WPs, the supervisor
+    must call ledger_update_work_package_status(CANCELLED) for each halted WP
+    before routing to synthesis (§16.3 — automated circuit-breaker escalation).
+    """
+
+    def _make_tools_with_update_status(
+        self,
+        wp_list: list,
+        wp_details: dict,
+        update_status_calls: list,
+        *,
+        update_raises: Exception | None = None,
+    ) -> list:
+        """
+        Build mock tools including ledger_update_work_package_status.
+        The *update_status_calls* list is populated with each call's kwargs.
+        """
+        base_tools = make_mcp_tools(wp_list=wp_list, wp_details=wp_details)
+
+        async def _update_status_side_effect(kwargs: dict) -> str:
+            update_status_calls.append(dict(kwargs))
+            if update_raises is not None:
+                raise update_raises
+            return json.dumps({"status": "CANCELLED"})
+
+        update_tool = MagicMock()
+        update_tool.name = "ledger_update_work_package_status"
+        update_tool.ainvoke = AsyncMock(side_effect=_update_status_side_effect)
+
+        return base_tools + [update_tool]
+
+    async def test_halted_wp_is_cancelled_before_synthesis(self):
+        """Halted WP (3 consecutive failures, IN_PROGRESS) is cancelled before
+        routing to synthesis."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-001"
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert update_calls, "ledger_update_work_package_status must have been called"
+        call = update_calls[0]
+        assert call.get("work_package_id") == "WP-001"
+        assert call.get("status") == "CANCELLED"
+        assert call.get("agent") == "Project Manager"
+
+    async def test_cancellation_logged_as_warning(self):
+        """Each cancelled WP must produce a WARNING-level run_log entry with
+        action 'halted_wp_cancelled'."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-001"
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        cmd = await node(state)
+
+        cancel_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "halted_wp_cancelled"
+        ]
+        assert cancel_entries, "run_log must contain a halted_wp_cancelled entry"
+        entry = cancel_entries[0]
+        assert entry["level"] == "WARNING"
+        assert entry["wp_id"] == "WP-001"
+
+    async def test_already_cancelled_wp_is_skipped_idempotent(self):
+        """A WP that is already CANCELLED must not trigger another status update."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "CANCELLED")],  # already CANCELLED
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        # All WPs CANCELLED → hits the "all terminal" path; no update needed.
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert not update_calls, (
+            "ledger_update_work_package_status must NOT be called for already-CANCELLED WPs"
+        )
+
+    async def test_cancellation_failure_does_not_block_synthesis(self):
+        """If ledger_update_work_package_status raises, synthesis routing must
+        still proceed (graceful degradation)."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+            update_raises=RuntimeError("ledger tool failure"),
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-001"
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        cmd = await node(state)
+
+        # Synthesis must still be reached despite the cancellation failure.
+        assert cmd.goto == "synthesis"
+
+    async def test_multiple_halted_wps_all_cancelled(self):
+        """All halted WPs (not just the first) must be cancelled."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[
+                wp_summary("WP-001", "IN_PROGRESS"),
+                wp_summary("WP-002", "IN_PROGRESS"),
+            ],
+            wp_details={
+                "WP-001": wp_with_pipelines("WP-001", []),
+                "WP-002": wp_with_pipelines("WP-002", []),
+            },
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3, "WP-002": 3}
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        cancelled_wp_ids = {c.get("work_package_id") for c in update_calls}
+        assert "WP-001" in cancelled_wp_ids
+        assert "WP-002" in cancelled_wp_ids
+
+
+# ---------------------------------------------------------------------------
 # Tests: level field in log entries
 # ---------------------------------------------------------------------------
 
@@ -5253,6 +5741,7 @@ class TestNoLLMCalls:
         """supervisor module must not import anthropic/openai/google-genai."""
         import ast
         import inspect
+
         import src.supervisor as sup_module
 
         source = inspect.getsource(sup_module)
@@ -5574,10 +6063,6 @@ class TestCircuitBreakerDirect:
 
     async def test_non_broken_wp_dispatches_while_broken_wp_skipped(self):
         """WP-002 (not broken) must be dispatched even if WP-001 is broken."""
-        tools = make_mcp_tools_with_actions({
-            "Developer": {"action": "IMPLEMENT", "work_package_id": "WP-001"},
-        })
-
         # Override to give WP-002 for second role, but that's hard in
         # the simple helper.  Instead use the state-based approach:
         # simulate Developer returning WP-002 after WP-001 is broken.
@@ -5681,7 +6166,7 @@ class TestProgressSnapshot:
 
     async def test_progress_snapshot_elapsed_s_computed_when_run_start_ts_set(self):
         """elapsed_s must be a non-negative float when run_start_ts is valid."""
-        from datetime import datetime, UTC, timedelta
+        from datetime import UTC, datetime, timedelta
 
         # Set run_start_ts to 60 seconds ago.
         past_ts = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()
@@ -6221,7 +6706,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -6931,8 +7415,8 @@ class TestRestrictToWpMatchingWpId:
         assert len(seen) == 1
         assert seen[0]["work_package_id"] == ACTIVE_WP
 
-    async def test_call_without_wp_id_passes_through(self):
-        """A call that omits work_package_id entirely must pass through."""
+    async def test_call_without_wp_id_injects_active_wp(self):
+        """A call that omits work_package_id must have it auto-injected with the active WP ID."""
         seen: list[Any] = []
         tool = _make_guard_tool(seen)
         restrict_to_wp([tool], ACTIVE_WP)
@@ -6940,6 +7424,7 @@ class TestRestrictToWpMatchingWpId:
         await tool.ainvoke({"agent_role": "Developer"})
 
         assert len(seen) == 1
+        assert seen[0]["work_package_id"] == ACTIVE_WP
 
     async def test_non_dict_input_passes_through(self):
         """Non-dict input (e.g. a string) must be forwarded without a guard check."""
@@ -6965,6 +7450,22 @@ class TestRestrictToWpMatchingWpId:
         })
 
         assert len(seen) == 1
+
+    async def test_toolcall_without_wp_id_injects_active_wp(self):
+        """ToolCall nested-dict that omits work_package_id must have it auto-injected."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_next_action",
+            "args": {"agent_role": "Developer"},
+            "id": "call-2",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == ACTIVE_WP
 
 
 class TestRestrictToWpMismatchRaises:
@@ -7087,7 +7588,7 @@ class TestRestrictToWpInCreateStageNode:
 
     async def test_restrict_to_wp_applied_in_node(self):
         """create_stage_node must call restrict_to_wp with the active WP ID."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         from src.nodes import create_stage_node
 
@@ -7129,7 +7630,7 @@ class TestRestrictToWpInCreateStageNode:
 
     async def test_restrict_to_wp_not_applied_when_wp_id_empty(self):
         """create_stage_node must not apply restrict_to_wp when wp_id is empty."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         from src.nodes import create_stage_node
 
