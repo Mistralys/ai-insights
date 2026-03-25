@@ -180,8 +180,6 @@ _SOURCE: Top-level directory tree_
     │   ├── test/
     │   │   ├── workflow.sqlite
     │   ├── workflow.sqlite
-    │   ├── workflow.sqlite-shm
-    │   ├── workflow.sqlite-wal
     ├── docs/
     │   ├── architecture.md
     │   ├── jsonl-log-schema.md

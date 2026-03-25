@@ -556,6 +556,7 @@ export function validatePlanPath(projectPath: string): { isValid: boolean; error
  * Resolution rules:
  * - `project_path` provided → validate format, return it (original behavior).
  * - Only `cwd_path` provided → call `LedgerStore.detectProjectByCwd`, return `meta.plan_path`.
+ * - Both provided → `project_path` wins; `cwd_path` is ignored.
  * - Neither provided → throw with a clear error.
  *
  * @throws {Error} on validation failure, AMBIGUOUS match, or NOT_FOUND.
@@ -566,11 +567,7 @@ export async function resolveProjectPath(args: {
   cwd_path?: string;
   [key: string]: unknown;
 }): Promise<string> {
-  // Mutual exclusivity guard (moved from Zod .refine() — see bug report 2026-03-05)
-  if (args.project_path && args.cwd_path) {
-    throw new Error(MUTUAL_EXCLUSIVITY_PATH_MSG);
-  }
-
+  // Precedence rule: project_path wins over cwd_path when both are supplied.
   if (args.project_path) {
     // Validate format. planFolderBasename throws on invalid pattern.
     planFolderBasename(args.project_path);
@@ -601,20 +598,6 @@ export async function resolveProjectPath(args: {
 
   throw new Error('Either project_path or cwd_path is required.');
 }
-
-/**
- * Zod refinement predicate: enforces that `project_path` and `cwd_path` are mutually exclusive.
- * At most one may be provided — passing both is an error.
- *
- * Usage: `someSchema.refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG })`
- */
-export const mutuallyExclusivePaths = (args: {
-  project_path?: string | null;
-  cwd_path?: string | null;
-}): boolean => !(args.project_path && args.cwd_path);
-
-export const MUTUAL_EXCLUSIVITY_PATH_MSG =
-  "Provide either 'project_path' or 'cwd_path', not both.";
 
 /**
  * Formats an AMBIGUOUS candidate list into a human-readable string with

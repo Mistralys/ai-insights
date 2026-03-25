@@ -1230,8 +1230,9 @@ Design notes — :func:`inject_project_path`
 - Injection uses ``setdefault`` semantics: an explicitly-provided
   ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
   (following persona instructions meant for IDE agents), the wrapper
-  strips it — most MCP tools enforce mutual exclusivity between
-  ``project_path`` and ``cwd_path``.
+  strips it for efficiency — the MCP server now handles both gracefully
+  (``project_path`` takes precedence), but stripping avoids sending
+  redundant data.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 
@@ -1313,8 +1314,8 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
                 # project_path, so cwd_path-based auto-detection is never
                 # needed.  If the LLM agent followed persona instructions
                 # meant for interactive IDE agents and passed cwd_path,
-                # remove it — most MCP tools enforce mutual exclusivity
-                # between project_path and cwd_path.
+                # strip it — project_path takes precedence when both are
+                # present, but removing it avoids unnecessary ambiguity.
                 if "cwd_path" in target:
                     del target["cwd_path"]
                 target.setdefault("project_path", _proj)
