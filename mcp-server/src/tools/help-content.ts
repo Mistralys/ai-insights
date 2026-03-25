@@ -4,6 +4,12 @@
  */
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
 
+// Shared parameter descriptions reused across all tools that accept project resolution params.
+const CWD_PATH_PARAM =
+  '- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don\'t have project_path yet.';
+const PROJECT_PATH_PARAM =
+  '- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.';
+
 export const TOOL_HELP: Record<string, string> = {
   overview: `
 # Project Ledger MCP — Tool Reference
@@ -108,8 +114,8 @@ All ledger files are stored **centrally** at \`{mcp-server}/storage/ledger/{slug
 Read the project overview from the root index.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 
 ## Example
 \`\`\`json
@@ -158,8 +164,8 @@ not yet exist, it is silently skipped and reported in \`archive_skipped\`.
 Read the full detail for a specific work package.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): Work package ID (format: WP-001, WP-002, etc.)
 
 ## Example
@@ -177,8 +183,8 @@ Read the full detail for a specific work package.
 List work packages with optional filters.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 
 ## Optional Parameters
 - **status** (string): Filter by status — "READY", "IN_PROGRESS", "COMPLETE", or "BLOCKED"
@@ -199,8 +205,8 @@ List work packages with optional filters.
 Create a new work package. WP ID is auto-generated.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **assigned_to** (string): Agent name (e.g., "Developer")
 - **dependencies** (array): Array of WP IDs this depends on. Use [] for no dependencies.
 - **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
@@ -241,8 +247,8 @@ Claim a READY work package and start its pipeline in a single atomic call. Repla
 If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the claim phase is skipped and only the pipeline is started. The response includes a \`claimed: boolean\` field indicating whether the claim step ran.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **agent_role** (string): Your agent role (e.g., "Developer", "QA") — used for both the claim and pipeline ownership guards
@@ -289,8 +295,8 @@ Claim a READY work package → transitions to IN_PROGRESS.
 If the work package is already assigned to a different agent, the claim will be **rejected** unless you pass \`override: true\`. This prevents agents from silently re-assigning work packages outside their remit.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **agent** (string): ⚠️ REQUIRED — Your agent name (e.g., "Developer", "QA")
 
@@ -323,8 +329,8 @@ If the work package is already assigned to a different agent, the claim will be 
 Update a work package's status.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **status** (string): New status — "READY", "IN_PROGRESS", "COMPLETE", or "BLOCKED"
 - **agent** (string): ⚠️ REQUIRED — Your agent name (e.g., "Developer", "Documentation")
@@ -370,8 +376,8 @@ Update a work package's status.
 Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 
@@ -397,8 +403,8 @@ Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 Complete the most recent IN_PROGRESS pipeline of the specified type.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type to complete
 - **status** (string): "PASS" or "FAIL"
@@ -441,8 +447,8 @@ Cancel the most recent IN_PROGRESS pipeline of the specified type by setting it 
 Use this to clean up stale or abandoned pipelines, typically after a RESUME_OR_CANCEL action from ledger_get_next_action.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **reason** (string): Human-readable reason for the cancellation
@@ -465,8 +471,8 @@ Update the summary array of the most recent IN_PROGRESS pipeline without complet
 Use this for long-running pipelines where you want to record incremental progress checkpoints.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **summary** (array of strings): Progress notes to append to the pipeline summary
@@ -488,8 +494,8 @@ Use this for long-running pipelines where you want to record incremental progres
 Add an observation/comment to the most recent pipeline of the specified type.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **pipeline_type** (string): Pipeline type to add the observation to
 - **type** (string): Category — "code-smell", "refactor", "improvement", "debt", "convention"
@@ -515,8 +521,8 @@ Add an observation/comment to the most recent pipeline of the specified type.
 Add a project-level comment (not tied to a specific pipeline).
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **type** (string): Comment type — "incident", "note", or "decision"
 - **priority** (string): "low", "medium", or "high"
 - **agent** (string): ⚠️ REQUIRED — Your agent name
@@ -549,8 +555,8 @@ When called with max_results > 1, returns up to that many actions as an array un
 key. Useful for projects with many independent WPs where you want to process several in parallel.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
 
 ## Optional Parameters
@@ -631,8 +637,8 @@ STATUS: <status>
 \`\`\`
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **current_agent** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
 
 ## Example
@@ -698,8 +704,8 @@ completion. If the file does not exist, it is silently skipped and reported in
 \`archive_skipped\`.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don't have project_path yet.
-- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 
 ## Optional Parameters
 - **synthesis_file** (string, default: \`"${SYNTHESIS_ARCHIVE_FILENAME}"\`): Filename of the synthesis
