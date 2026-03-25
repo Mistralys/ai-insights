@@ -1261,12 +1261,22 @@ if (autoFinalizeResult === 'finalized') { /* ... */ }
 
 ---
 
-### 57. Mutual Exclusivity of `project_path` and `cwd_path` — Runtime Guard via `resolveProjectPath()`
+### 57. `project_path` Takes Precedence Over `cwd_path` When Both Are Provided
 
-**Rule:** Mutual exclusivity of `project_path` and `cwd_path` is enforced at runtime by `resolveProjectPath()`, **not** by a Zod `.refine()` on the outer schema. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema.
+**Rule:** When a caller supplies both `project_path` and `cwd_path`, `resolveProjectPath()` uses `project_path` and silently ignores `cwd_path`. Supplying both parameters is **not** an error. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema to enforce exclusivity.
+
+**Precedence rule (in `resolveProjectPath()`, `src/utils/path-validator.ts`):**
+1. If `project_path` is provided (truthy) → use it directly; `cwd_path` is ignored.
+2. If only `cwd_path` is provided → auto-detect the active project from the workspace root.
+3. If neither is provided → throw a missing-path error.
+
+**Guidance for callers:**
+- If you already have `project_path` (the plan folder path from a prior tool response), pass it — it is the fastest path with no auto-detection overhead.
+- If you only know your workspace root, pass `cwd_path` and let the server detect the project.
+- If you pass both, `project_path` wins; `cwd_path` is a no-op in that call.
 
 **Enforcement:**
-- `resolveProjectPath()` (`src/utils/path-validator.ts`) throws `Error(MUTUAL_EXCLUSIVITY_PATH_MSG)` at the top of its body when both `project_path` and `cwd_path` are truthy. Every tool handler that accepts both optional path fields calls `resolveProjectPath()` — the guard fires unconditionally.
+- `resolveProjectPath()` (`src/utils/path-validator.ts`) applies the precedence rule at the top of its body. Every tool handler that accepts both optional path fields calls `resolveProjectPath()`.
 - The predicate `mutuallyExclusivePaths` and the constant `MUTUAL_EXCLUSIVITY_PATH_MSG` remain exported from `src/utils/path-validator.ts` for backward compatibility and test coverage. They are **not used in production tool files**.
 - Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt from this consideration. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
 
@@ -1284,7 +1294,7 @@ const GetWorkPackageSchema = z.object({
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — plain ZodObject; mutual exclusivity is enforced inside resolveProjectPath()
+// ✅ CORRECT — plain ZodObject; project_path-wins precedence is enforced inside resolveProjectPath()
 const GetWorkPackageSchema = z.object({
   project_path: z.string().optional().describe('…'),
   cwd_path:     z.string().optional().describe('…'),
@@ -1292,7 +1302,7 @@ const GetWorkPackageSchema = z.object({
 });
 ```
 
-**Rationale:** `.refine()` (and `.transform()`, `.superRefine()`) on the outer `z.object()` converts it from `ZodObject` to `ZodEffects`. The MCP SDK's `zodToJsonSchema` cannot extract properties from `ZodEffects` — every affected tool emits empty `{ properties: {}, required: [] }` in the `tools/list` response, preventing AI agents from passing arguments. Centralising the check in `resolveProjectPath()` keeps all tool schemas as plain `ZodObject` instances. (Background: 2026-03-05 Zod `.refine()` empty schema fix — 18 of 22 tools were affected.)
+**Rationale:** `.refine()` (and `.transform()`, `.superRefine()`) on the outer `z.object()` converts it from `ZodObject` to `ZodEffects`. The MCP SDK's `zodToJsonSchema` cannot extract properties from `ZodEffects` — every affected tool emits empty `{ properties: {}, required: [] }` in the `tools/list` response, preventing AI agents from passing arguments. Centralising the precedence logic in `resolveProjectPath()` keeps all tool schemas as plain `ZodObject` instances and eliminates spurious errors when callers pass both parameters. (Background: 2026-03-05 Zod `.refine()` empty schema fix — 18 of 22 tools were affected.)
 
 **See also:** §63 for the general rule covering all outer-schema uses of `.refine()`, `.transform()`, and `.superRefine()`.
 

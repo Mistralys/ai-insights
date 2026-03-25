@@ -20,11 +20,11 @@ const BeginWorkSchema = z.object({
   project_path: z
     .string()
     .optional()
-    .describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+    .describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
   cwd_path: z
     .string()
     .optional()
-    .describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+    .describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)

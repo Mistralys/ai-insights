@@ -95,8 +95,8 @@ export const _internal = {
  * Reads and returns the full work package detail for a given WP ID.
  */
 const GetWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -144,8 +144,8 @@ async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
  * Optionally filters by status and/or assigned_to.
  */
 const ListWorkPackagesSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
     .optional()
@@ -204,8 +204,8 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
  * Creates both the detail file (.ledger/WP-###.json) and root index summary atomically.
  */
 const CreateWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   assigned_to: z
     .string()
     .describe('Agent name assigned to this work package (e.g., "Developer")'),
@@ -445,8 +445,8 @@ async function createWorkPackage(
  * Validates dependencies are met before allowing the transition.
  */
 const ClaimWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -590,8 +590,8 @@ async function claimWorkPackage(
  * Enforces legal status transitions and special rules (COMPLETE requires all criteria met, etc.).
  */
 const UpdateWorkPackageStatusSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1156,8 +1156,8 @@ function getLegalTransitions(status: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ResetReworkCountSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1285,8 +1285,8 @@ async function resetReworkCount(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const UpdateAcceptanceCriteriaSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
