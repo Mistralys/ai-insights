@@ -16,6 +16,8 @@ _SOURCE: Top-level directory tree_
     ├── prompt-clarity.md
 └── docs/
     ├── agents/
+    │   └── bug-reports/
+    │       ├── chat.json
     │   └── implementation-history/
     │       ├── README.md
     │   └── project-manifest/
@@ -180,6 +182,8 @@ _SOURCE: Top-level directory tree_
     │   ├── test/
     │   │   ├── workflow.sqlite
     │   ├── workflow.sqlite
+    │   ├── workflow.sqlite-shm
+    │   ├── workflow.sqlite-wal
     ├── docs/
     │   ├── architecture.md
     │   ├── jsonl-log-schema.md

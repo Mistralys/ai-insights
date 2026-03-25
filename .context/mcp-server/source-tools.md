@@ -3084,10 +3084,9 @@ export function register(server: McpServer): void {
     'ledger_detect_project',
     {
       description:
-        'Detect the active project from the current workspace path when project_path is not explicitly provided. ' +
-        'Accepts a working directory path (cwd_path), cross-references it against all project roots stored in the ' +
-        'centralized ledger, and returns the unique project plan_path. Returns NOT_FOUND if no known project root ' +
-        'is an ancestor of the given path, or AMBIGUOUS (with candidate list) if more than one project matches.',
+        'REQUIRED param: cwd_path (absolute directory path). Detect the active project from the current workspace path when project_path is not explicitly provided. ' +
+        'Cross-references cwd_path against all project roots stored in the centralized ledger and returns the unique project plan_path. ' +
+        'Returns NOT_FOUND if no known project root is an ancestor of the given path, or AMBIGUOUS (with candidate list) if more than one project matches.',
       inputSchema: DetectProjectSchema.passthrough(),
     },
     detectProject as any

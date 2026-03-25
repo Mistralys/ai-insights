@@ -96,6 +96,18 @@ node scripts/run-orchestrator.js /path/to/plan.md --project-path /path/to/my-pro
   --dry-run --max-iterations 10
 ```
 
+Dry runs typically complete in **30–90 seconds**. Set a 120-second timeout when calling `get_terminal_output` to avoid premature interruption.
+
+**Always verify the exit code before declaring success.** A dry run that prints expected output but exits non-zero is not a clean result.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Success — routing verified, safe to proceed with a full run |
+| `1` | Error — plan or ledger issue; inspect the output before proceeding |
+| `130` | Process interrupted by SIGINT (Ctrl-C or tool timeout) |
+
+> **Exit code 130 edge case:** If the dry run exits `130` but produced complete routing output (supervisor decisions, WP routing) before the interrupt, the routing logic itself succeeded. This is safe to proceed from — the interrupt occurred after the logic finished, not during it.
+
 #### Resume a previous run
 
 ```bash
@@ -169,6 +181,15 @@ The console output is a formatted view of every structured event. Key lines to w
 | Any `WARNING` | Circuit-breaker, safety limit, or repeated-failure halt |
 | Any `ERROR` | MCP connection failure or unhandled exception |
 
+### Polling discipline
+
+Calling `get_terminal_output` to check progress is convenient, but polling in a tight loop wastes tokens on empty responses. Follow these rules:
+
+- **Minimum interval:** Wait at least **30 seconds** between consecutive `get_terminal_output` calls.
+- **Empty-check limit:** If `get_terminal_output` returns no new lines for **3 consecutive checks**, stop polling the terminal and switch to the JSONL log file instead.
+- **JSONL backoff:** After switching to the JSONL log, if the line count is unchanged from the previous read, wait **60 seconds** before the next read.
+- **Iteration cap:** If the orchestrator has not produced a new terminal line or JSONL event after **10 total polling iterations** (terminal + JSONL combined), pause polling and inform the user of the current state. Ask whether to continue waiting, resume with `--resume`, or abort.
+
 ### JSONL log file (secondary — for post-run analysis)
 
 Every run writes a structured JSONL log to `orchestrator/logs/`. At run completion, the log is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. Use it for:
@@ -182,7 +203,36 @@ Every run writes a structured JSONL log to `orchestrator/logs/`. At run completi
 tail -f orchestrator/logs/<run-id>.jsonl
 ```
 
+**Quick parsing** (requires `jq`):
+
+```bash
+# Show all stage errors with context:
+jq 'select(.action == "stage_error") | {timestamp, stage, wp_id, error}' orchestrator/logs/<run-id>.jsonl
+
+# Show pipeline outcomes per WP:
+jq 'select(.action == "pipeline_result") | {wp_id, pipeline_status, duration_s, files_modified}' orchestrator/logs/<run-id>.jsonl
+```
+
+> **Critical:** The event-type field is `action`, **not** `event`. Using `.event` in `jq` expressions will always return `null`. Full field and action-value reference: `orchestrator/docs/jsonl-log-schema.md`.
+
 Full schema reference (20 event types): `orchestrator/docs/jsonl-log-schema.md`.
+
+| Field | Present in | Description |
+|-------|-----------|-------------|
+| `timestamp` | all entries | Wall-clock time of the event (UTC, ISO 8601) |
+| `stage` | all entries | Node/stage name (`supervisor`, `developer`, `cli`, …) |
+| `action` | all entries | Event type — e.g. `stage_start`, `stage_complete`, `pipeline_result` |
+| `wp_id` | stage events | Work package ID being processed (e.g. `WP-003`) |
+| `result` | `stage_complete`, `stage_error` | `"PASS"` on success; `"FAIL"` on exception |
+| `level` | all entries | `"INFO"` (normal) · `"WARNING"` (safety/halts) · `"ERROR"` (MCP/exceptions) |
+| `tokens_used` | `stage_complete` | `{"input_tokens": N, "output_tokens": N, "total_tokens": N}` or `null` |
+| `duration_s` | `stage_complete`, `stage_error`, `pipeline_result` | Wallclock seconds (rounded to 1 d.p.) |
+
+### Terminal session hygiene
+
+- **Launch full runs as background processes:** Always start a full orchestrator run with `isBackground: true` so the terminal remains interactive for follow-up commands. A foreground run blocks the terminal until the process exits, preventing any interim status checks.
+- **Don't mix dry-run and full-run in the same foreground session:** Running a dry-run and then a full-run in the same foreground terminal carries over stale environment state (cwd, output buffer). Use a fresh terminal session for each distinct run type.
+- **Reset cwd after `cd` + build commands:** Pre-flight steps like `cd mcp-server && npm run build` change the working directory. Always `cd "$AI_INSIGHTS_ROOT"` before invoking `node scripts/run-orchestrator.js` — the script path is relative to the workspace root and will fail silently if cwd is still `mcp-server/`.
 
 ---
 

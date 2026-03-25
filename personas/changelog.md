@@ -1,6 +1,11 @@
 # Personas Changelog
 
-## v3.10.5 - Orchestrator Runner: v0.9.7 Feature Sync
+## v3.10.5 - Orchestrator Runner Fixes
+- Personas: Orchestrator Runner v1.4.1: Polling the terminal in a tight loop.
+- Personas: Orchestrator Runner v1.4.1: Misreading the JSONL log schema.
+- Personas: Orchestrator Runner v1.4.1: Making incorrect go/no-go decisions after a dry run.
+
+## v3.10.5 - Orchestrator Runner Feature Sync
 - Personas: Orchestrator Runner v1.4.0 — updated JSONL event count from 16 → 20.
 - Personas: Orchestrator Runner v1.4.0 — added `CAPTURE_DIALOGUES` and `HEARTBEAT_INTERVAL_S` env vars.
 - Personas: Orchestrator Runner v1.4.0 — documented log archival to `{slug}/orchestrator/logs/`.
