@@ -13,10 +13,7 @@ Tests verify:
 
 from __future__ import annotations
 
-import pytest
-
 from src.utils.logging import _build_stream_console_line, _format_duration
-
 
 # ---------------------------------------------------------------------------
 # _format_duration

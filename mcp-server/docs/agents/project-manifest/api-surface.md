@@ -380,10 +380,11 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
   work_package_id: string;
   type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   reason: string;
+  auto_cancelled?: boolean; // default: false. Set to true for infrastructure-driven cancellations (crash recovery, GUI reset) to exclude the pipeline from rework budget tracking (§12.5.2, §21.27)
 }) => Promise<MCPResult>
 ```
 
-Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting its status to `FAIL` and recording the reason as the summary. Throws an error if no `IN_PROGRESS` pipeline of the given type exists. Use this to cancel pipelines that have become stale (detected via `ledger_get_next_action` returning `RESUME_OR_CANCEL`).
+Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting its status to `FAIL` and recording the reason as the summary. Throws an error if no `IN_PROGRESS` pipeline of the given type exists. Use this to cancel pipelines that have become stale (detected via `ledger_get_next_action` returning `RESUME_OR_CANCEL`). When `auto_cancelled = true`, the pipeline is excluded from rework detection and circuit-breaker calculations — use this for crash-recovery or system-driven cancellations (§12.5.2).
 
 #### `ledger_update_pipeline_progress`
 
@@ -1410,12 +1411,14 @@ export interface WpResetDiagnosis {
   current_assigned_to: string | null;
   pipeline_stages_present: string[];       // stages with a PASS pipeline
   pipeline_stages_missing: string[];       // canonical stages lacking a PASS
+  active_pipeline_stages: string[];        // resolved stage set for this WP (wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES)
   next_required_stage: string | null;      // first missing stage, or null if all pass
   target_assigned_to: string | null;       // agent for next_required_stage via PIPELINE_AGENT_MAP
   needs_reset: boolean;                    // false for CANCELLED, healthy, BLOCKED, READY WPs
   reason: string;                          // human-readable diagnosis note
   suggested_action: 'reset' | 'skip';
   suggested_reset_criteria: boolean;       // whether to clear AC met-flags on reset
+  orphaned_pipeline_count: number;         // IN_PROGRESS pipelines on this WP that will be auto-cancelled by reset
 }
 
 export interface ProjectResetDiagnosis {
@@ -1425,6 +1428,7 @@ export interface ProjectResetDiagnosis {
   work_packages_needing_reset: number;
   work_packages_healthy: number;           // healthy + skipped-statuses (BLOCKED, READY, CANCELLED)
   work_packages_skipped: number;           // CANCELLED WPs
+  total_orphaned_pipelines: number;        // sum of orphaned_pipeline_count across all WPs
 }
 
 // ── Decision types (exported) ───────────────────────────────────────────────
@@ -1462,6 +1466,8 @@ export function getPassedStages(wp: WorkPackageDetail): Set<string>;
 //   IN_PROGRESS + assigned to wrong agent   → needs_reset:true
 //   Any other status or incomplete stages   → needs_reset:true, next_required_stage = first missing
 //   BLOCKED / READY  → needs_reset:false, suggested_action:'skip'
+// Also counts IN_PROGRESS pipelines per WP (orphaned_pipeline_count) and accumulates the
+// project total (total_orphaned_pipelines) — used by the GUI to warn before reset.
 // Does NOT read from disk — caller must supply the pre-loaded rootIndex and workPackages.
 export function analyzeProjectForReset(
   slug: string,
@@ -1474,7 +1480,9 @@ export function analyzeProjectForReset(
 // Applies user-confirmed per-WP decisions atomically via a single
 // store.batchUpdateWorkPackagesWithSync() call (single lock acquisition).
 // For each WP:
-//   'reset'  → wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
+//   'reset'  → IN_PROGRESS pipelines on the WP are auto-cancelled first:
+//                  {status: FAIL, auto_cancelled: true, completed_at, summary: ['Auto-cancelled by project reset']}
+//              then: wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
 //              wp.status_changed_at updated, wp.reset_at set to the mutation timestamp;
 //              if reset_criteria !== false, all acceptance_criteria[].met = false;
 //              blocked_by removed.
@@ -1700,6 +1708,12 @@ export const _internal: {
   completePipeline: (
     args: CompletePipelineArgs,
     _ledgerRoot?: string
+  ) => Promise<MCPResult>;
+  // Core implementation of ledger_cancel_pipeline. Exported to enable
+  // unit tests that call the real function path via _internal.cancelPipeline
+  // rather than simulating the underlying store mutation directly.
+  cancelPipeline: (
+    args: z.infer<typeof CancelPipelineSchema>
   ) => Promise<MCPResult>;
 };
 ```

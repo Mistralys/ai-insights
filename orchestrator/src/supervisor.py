@@ -620,7 +620,55 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                 },
             )
 
-        # ── All roles returned WAIT/skip → route to synthesis ─────────────────
+        # ── All roles returned WAIT/skip → cancel halted WPs + route to synthesis ──
+        # Before routing to synthesis, transition any circuit-broken WPs to CANCELLED.
+        # ledger_complete_synthesis requires all WPs to be terminal (COMPLETE or
+        # CANCELLED); halted WPs that are still IN_PROGRESS in the ledger would
+        # fail that precondition (§16.3 — automated circuit-breaker escalation).
+        cancellation_log_entries: list[dict] = []
+        for _wp in wp_summaries:
+            _wp_id_h = _wp.get("work_package_id", "")
+            _wp_status_h = _wp.get("status", "")
+            # Only act on non-terminal WPs that hit the circuit-breaker threshold.
+            if (
+                _wp_id_h
+                and _wp_status_h not in _TERMINAL_STATUSES
+                and cf.get(_wp_id_h, 0) >= 3
+            ):
+                try:
+                    await _call_tool(
+                        "ledger_update_work_package_status",
+                        project_path=project_path,
+                        work_package_id=_wp_id_h,
+                        status="CANCELLED",
+                        agent="Project Manager",
+                    )
+                    log.warning(
+                        "Cancelling halted WP %s to allow synthesis to proceed.",
+                        _wp_id_h,
+                    )
+                    _cancel_entry = _log_entry(
+                        stage="supervisor",
+                        wp_id=_wp_id_h,
+                        action="halted_wp_cancelled",
+                        destination=_DEST_SYNTHESIS,
+                        level="WARNING",
+                        reason=(
+                            "Cancelled: exceeded orchestrator failure threshold "
+                            "(3 consecutive failures)"
+                        ),
+                    )
+                    if run_logger:
+                        run_logger.stream_entry(_cancel_entry)
+                    cancellation_log_entries.append(_cancel_entry)
+                except Exception as _cancel_exc:  # noqa: BLE001
+                    log.warning(
+                        "Failed to cancel halted WP %s: %s (may already be "
+                        "terminal — proceeding to synthesis anyway).",
+                        _wp_id_h,
+                        _cancel_exc,
+                    )
+
         log_entry = _log_entry(
             stage="supervisor",
             wp_id="",
@@ -636,7 +684,10 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                 **base_update,
                 "current_stage": _DEST_SYNTHESIS,
                 "run_log": (
-                    status_change_entries + extra_log_entries + [log_entry, progress_snapshot]
+                    status_change_entries
+                    + extra_log_entries
+                    + cancellation_log_entries
+                    + [log_entry, progress_snapshot]
                 ),
                 "errors": extra_errors,
             },

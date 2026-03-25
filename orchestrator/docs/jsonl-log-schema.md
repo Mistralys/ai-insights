@@ -61,6 +61,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, `duration_s` |
 | `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
+| `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
 | `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `level="INFO"` — emitted by default; suppressed when `capture_dialogues=False` |
 | `wp_status_change` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `old_status`, `new_status`, `level="INFO"` |
 | `wp_complete` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `level="INFO"` |
@@ -73,6 +74,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `dry_run_no_ledger` | `supervisor.py` | `stage="supervisor"`, `destination` (END or PM), `detail`, `level="INFO"`. Emitted in `--dry-run` mode when the ledger is missing (expected). Replaces `mcp_error` to avoid false-positive error noise. |
 | `dry_run_complete` | `supervisor.py` | `stage="supervisor"`, `destination=END`, `reason`, `level="INFO"`. Emitted in `--dry-run` mode on the second supervisor iteration when no WPs exist — signals clean termination (PM stub cannot create a ledger). |
 | `halted_repeated_failure` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination=END`, `consecutive_failures`, `level="WARNING"` |
+| `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination` (synthesis), `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
 | `heartbeat` | `utils/logging.py` | `stage="heartbeat"`, `silence_s`, `level="INFO"` |
 | `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `thread_id`, `total_duration_s` |

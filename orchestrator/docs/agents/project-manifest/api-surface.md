@@ -9,7 +9,7 @@ For complete signatures and full field descriptions see the linked documents abo
 
 ## JSONL Event Types — Logging Module (`src/utils/logging.py`)
 
-The schema supports **19 event types** across three emitters. For the full field reference,
+The schema supports **21 event types** across three emitters. For the full field reference,
 duration conventions, JSON examples, and backward-compatibility notes see
 [jsonl-log-schema.md](../../jsonl-log-schema.md).
 
@@ -21,6 +21,7 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `stage_complete` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, **`duration_s`** | `duration_s` — wallclock seconds from `stage_start` to completion (float, 1 dp). |
 | `stage_error` | `stage`, `wp_id`, `result="FAIL"`, `error`, **`duration_s`** | `duration_s` — time elapsed before the exception was raised. |
 | `pipeline_result` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` | **New.** Best-effort read-back of latest WP pipeline after success. `duration_s` derived from `pipeline.duration_ms`; `null` when absent. Omitted on read-back failure. |
+| `pipeline_rollback` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` | Emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline after an unhandled stage exception. Only fires when `ledger_begin_work` was called before the crash. |
 
 ### Supervisor events (`src/supervisor.py`)
 
@@ -30,6 +31,7 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `wp_complete` | `wp_id` | **New.** Subset of `wp_status_change` — fired specifically on `→ COMPLETE` transitions. |
 | `progress_snapshot` | `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, **`elapsed_s`**, `run_start_ts` (optional) | **New.** Emitted every iteration. `elapsed_s` — seconds since `run_start_ts`; omitted when `run_start_ts` absent. `run_start_ts` — echoes `WorkflowState.run_start_ts`; `None` when unavailable. |
 | `rework_detected` | `wp_id`, `agent_role`, `pipeline_type`, `rework_count` | **New.** Fired when supervisor dispatches a `REWORK` action. |
+| `halted_wp_cancelled` | `stage="supervisor"`, `wp_id`, `destination`, `reason`, `level="WARNING"` | Emitted for each halted WP transitioned to CANCELLED before synthesis dispatch (when all remaining WPs exceeded the 3-consecutive-failure threshold). |
 | `route` | `destination`, `agent_role`, `ledger_action`, **`prev_stage`**, **`prev_wp_id`**, **`prev_result`** | Enriched: `prev_stage`, `prev_wp_id`, `prev_result` (`"PASS"` / `"FAIL"` / `""`) added to provide previous-stage context. |
 | `dry_run_no_ledger` | `destination`, `detail` | **New.** Emitted in `--dry-run` mode when the ledger is missing (expected). Replaces `mcp_error` at INFO level. |
 | `dry_run_complete` | `destination=END`, `reason` | **New.** Emitted in `--dry-run` mode on second iteration with no WPs — clean termination signal. |

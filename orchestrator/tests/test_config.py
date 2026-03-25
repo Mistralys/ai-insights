@@ -223,7 +223,7 @@ _BASE_ENV = {
 }
 
 
-def _load(extra_env: dict | None = None) -> "Config":  # noqa: F821 – forward ref ok
+def _load(extra_env: dict | None = None) -> Config:  # noqa: F821 – forward ref ok
     """Call load_config() with a clean environment plus *extra_env* overrides."""
     env = {**_BASE_ENV, **(extra_env or {})}
     # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.

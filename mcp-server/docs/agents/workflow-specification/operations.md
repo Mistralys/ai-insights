@@ -802,3 +802,65 @@ The `agentRole` parameter is mandatory. The agent must match the pipeline owner 
 - **PM override:** The Project Manager may complete any pipeline type to handle operational scenarios (e.g., cancelling a stale pipeline by completing it with FAIL). A log entry is emitted for auditability.
 
 This guard is the completion counterpart of §11.1.2 (Agent Role Validation on start). Together they ensure that only the owning agent (or PM) can start and complete a given pipeline type.
+
+---
+
+### 12.5 Pipeline Cancellation (cancelPipeline)
+
+The `cancelPipeline` operation forcibly closes the most recent IN_PROGRESS pipeline of a given type on a WP. It is used for operational cleanup, crash recovery, and rollback of orphaned pipelines (see §21.68). The operation exists as `ledger_cancel_pipeline` in the implementation.
+
+### 12.5.1 Algorithm
+
+```
+function cancelPipeline(wp, root, pipelineType, reason, agentRole, opts):
+  // Guard: Agent role validation — only owning agent or PM may cancel
+  expectedRole = PIPELINE_AGENT_MAP[pipelineType]
+  if agentRole != expectedRole AND agentRole != "Project Manager":
+    ERROR("Agent role {agentRole} cannot cancel {pipelineType} pipeline "
+          + "(owned by {expectedRole})")
+
+  // Find the most recent IN_PROGRESS pipeline of the given type
+  pipeline = wp.pipelines
+    .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
+    .last()
+
+  if pipeline is null:
+    ERROR("No in-progress {pipelineType} pipeline found on {wp.work_package_id}")
+
+  // Apply cancellation
+  pipeline.status = "FAIL"
+  pipeline.completed_at = now()
+  pipeline.summary = ["Cancelled: " + reason]
+  pipeline.auto_cancelled = opts.auto_cancelled ?? false   // See §12.5.2
+
+  root.last_updated = now()
+  write wp
+  write root
+```
+
+### 12.5.2 auto_cancelled Semantics
+
+The `auto_cancelled` parameter controls whether the cancellation consumes the per-pipeline rework budget (§16.2):
+
+| `auto_cancelled` | Effect |
+|-----------------|--------|
+| `false` (default) | Pipeline counts as a rework attempt — `rework_counts[pipelineType]` increments on the next `startPipeline` call |
+| `true` | Pipeline is excluded from rework detection and circuit-breaker calculations (§21.27) — does not consume rework budget |
+
+**When to use `auto_cancelled = true`:** Cancellations caused by external interruptions rather than agent quality failures SHOULD set `auto_cancelled = true`. This includes:
+
+- **Crash recovery:** The orchestrator cancelling an orphaned pipeline after an agent crash (§21.68)
+- **WP lifecycle transitions:** System-generated cancellations on `IN_PROGRESS → BLOCKED` or `IN_PROGRESS → CANCELLED` transitions (§21.14b)
+- **GUI reset cleanup:** Cancellations applied by the GUI reset tool to clear orphaned pipelines before re-running
+
+**When to use `auto_cancelled = false` (default):** Explicit PM cancellations of running pipelines (e.g., aborting a pipeline whose output is known to be incorrect) are operational decisions, not external interruptions. These should not suppress rework budget tracking because the pipeline represents a genuine failure that required human intervention.
+
+### 12.5.3 Relationship to completePipeline
+
+`cancelPipeline` is a restricted form of `completePipeline` with:
+- Status always `FAIL`
+- Summary always `["Cancelled: {reason}"]`
+- No acceptance criteria updates, handoff notes, or pipeline metrics
+- An additional `auto_cancelled` flag (absent on `completePipeline`)
+
+For normal pipeline completion — including PM-forced FAIL completions — use `completePipeline` (§12.1). Reserve `cancelPipeline` for cleanup and crash-recovery scenarios where the pipeline was never legitimately completed.

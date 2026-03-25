@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Implementation Comparison — Orchestrator Resilience Fixes</title>
+<style>
+  :root {
+    --bg: #fdfdfd;
+    --fg: #1a1a2e;
+    --accent: #3a86ff;
+    --accent2: #8338ec;
+    --green: #06d6a0;
+    --red: #ef476f;
+    --yellow: #ffd166;
+    --muted: #6c757d;
+    --border: #dee2e6;
+    --card-bg: #fff;
+    --code-bg: #f1f3f5;
+    --table-stripe: #f8f9fa;
+    --workflow-bg: #e8f5e9;
+    --claude-bg: #fce4ec;
+    --tie-bg: #fff8e1;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.65;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem 4rem;
+  }
+  h1 { font-size: 2rem; margin-bottom: .25rem; }
+  h2 { font-size: 1.5rem; margin-top: 2.5rem; margin-bottom: .75rem; border-bottom: 2px solid var(--accent); padding-bottom: .35rem; }
+  h3 { font-size: 1.15rem; margin-top: 1.75rem; margin-bottom: .5rem; color: var(--accent2); }
+  p, li { margin-bottom: .6rem; }
+  ul, ol { padding-left: 1.5rem; }
+  code {
+    font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, Consolas, monospace;
+    font-size: .88em;
+    background: var(--code-bg);
+    padding: .15em .35em;
+    border-radius: 4px;
+  }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0 1.25rem;
+    font-size: .92rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: .55rem .75rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--accent); color: #fff; font-weight: 600; }
+  tr:nth-child(even) td { background: var(--table-stripe); }
+  .verdict {
+    padding: .75rem 1rem;
+    border-left: 4px solid var(--accent);
+    background: #eef3ff;
+    margin: .75rem 0 1.25rem;
+    border-radius: 0 6px 6px 0;
+  }
+  .verdict strong { color: var(--accent); }
+  .bug {
+    background: #fce4ec;
+    color: #c62828;
+    padding: .15em .4em;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: .88em;
+  }
+  .pass {
+    background: #e8f5e9;
+    color: #2e7d32;
+    padding: .15em .4em;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: .88em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-bottom: 1.5rem; }
+  .scorecard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .scorecard .card {
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+    font-weight: 600;
+  }
+  .scorecard .card .label { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; opacity: .7; margin-bottom: .25rem; }
+  .scorecard .card .value { font-size: 1.6rem; }
+  .card-workflow { background: var(--workflow-bg); color: #1b5e20; }
+  .card-claude { background: var(--claude-bg); color: #b71c1c; }
+  .card-tie { background: var(--tie-bg); color: #f57f17; }
+  .recommendation {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    border: 2px solid #66bb6a;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .recommendation h3 { color: #2e7d32; margin-top: 0; }
+  .recommendation ul { margin-top: .5rem; }
+  .section-badge {
+    display: inline-block;
+    font-size: .75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: .2em .6em;
+    border-radius: 4px;
+    margin-right: .5rem;
+    vertical-align: middle;
+  }
+  .badge-c1 { background: #bbdefb; color: #0d47a1; }
+  .badge-c2 { background: #c5cae9; color: #1a237e; }
+  .badge-c3 { background: #d1c4e9; color: #311b92; }
+  .badge-c4 { background: #f0f4c3; color: #827717; }
+  .badge-c5 { background: #b2dfdb; color: #004d40; }
+  .meta { font-size: .85rem; color: var(--muted); margin-bottom: 1.5rem; }
+</style>
+</head>
+<body>
+
+<h1>Research Report</h1>
+<p class="subtitle">Implementation Comparison — Orchestrator Resilience Fixes</p>
+<p class="meta">Date: 2026-03-25 &nbsp;|&nbsp; Plan: <code>2026-03-25-orchestrator-resilience-fixes</code> &nbsp;|&nbsp; Branches: <code>test-workflow</code> vs <code>test-claude-teams</code> &nbsp;|&nbsp; Common ancestor: <code>e8d131b</code></p>
+
+<!-- ────────────────────── SCORECARD ────────────────────── -->
+
+<div class="scorecard">
+  <div class="card card-workflow"><div class="label">Winner</div><div class="value">Workflow</div></div>
+  <div class="card card-workflow"><div class="label">Criteria Won</div><div class="value">4 / 5</div></div>
+  <div class="card card-tie"><div class="label">Tied</div><div class="value">1 (C4)</div></div>
+  <div class="card card-claude"><div class="label">Claude Teams Bugs</div><div class="value">2</div></div>
+</div>
+
+<!-- ────────────────────── PROBLEM ────────────────────── -->
+
+<h2>Problem Statement</h2>
+<p>
+  Compare two independent implementations of the same plan produced by two different AI-assisted workflows:
+</p>
+<ul>
+  <li><strong>Workflow</strong> — VS Code Ledger workflow (branch <code>test-workflow</code>, 7 WPs)</li>
+  <li><strong>Claude Teams</strong> — Claude Teams (branch <code>test-claude-teams</code>, single commit)</li>
+</ul>
+<p>Evaluate each against five criteria (C1–C5) and determine which implementation is superior.</p>
+
+<h3>Context &amp; Constraints</h3>
+<ul>
+  <li>Both branches share the same merge base (<code>e8d131b</code>).</li>
+  <li>Both implement the same five-fix plan across two codebases (MCP server TypeScript, Orchestrator Python).</li>
+  <li>Existing constants <code>STAGE_TO_PIPELINE</code> and <code>WP_TERMINAL_STATUSES</code> already existed in <code>orchestrator/src/config.py</code> at the base commit.</li>
+  <li>The MCP tool <code>ledger_update_work_package_status</code> requires a parameter named <code>agent</code> (not <code>agent_role</code>).</li>
+  <li>Pre-existing <code>test_graph.py</code> failures (9 tests, <code>aiosqlite</code> missing) are present on both branches and unrelated to this work.</li>
+</ul>
+
+<hr>
+
+<!-- ────────────────────── C1 ────────────────────── -->
+
+<h2><span class="section-badge badge-c1">C1</span> Adherence to Plan</h2>
+
+<h3>Prerequisite: Workflow Specification Additions</h3>
+<p>The plan requires three specification additions before implementation:</p>
+
+<table>
+  <thead>
+    <tr><th>Spec Section</th><th>Plan Target</th><th>Workflow</th><th>Claude Teams</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>§12.5 Pipeline Cancellation</td>
+      <td><code>operations.md</code></td>
+      <td>Added §12.5 with algorithm, <code>auto_cancelled</code> semantics (§12.5.2), and relationship to <code>completePipeline</code> (§12.5.3). 62 lines. Comprehensive.</td>
+      <td>Added §12.5. 38 lines. Covers algorithm and parameter table but lacks subsection structure. Adequate but less thorough.</td>
+    </tr>
+    <tr>
+      <td>§21.68 Orphaned Pipeline Recovery</td>
+      <td><code>edge-cases.md</code></td>
+      <td>Added as §21.68. Full pseudocode, rework-budget rationale, multiple-orphan edge case, distinction from PM cancellation. 29 new lines.</td>
+      <td>Added as §21.68. Pseudocode, detection guidance, idempotency note. 28 new lines. Comparable.</td>
+    </tr>
+    <tr>
+      <td>§16.3c Circuit Breaker Escalation</td>
+      <td>Plan <em>incorrectly</em> says <code>auxiliary-systems.md</code></td>
+      <td>Added to <code>dependencies-and-rework.md</code> as §16.3c. 20 lines. Prescribes 3-step behavior, rationale, PM-reset alternative, halted-WP note.</td>
+      <td>Added as a blockquote under §16.3 in <code>dependencies-and-rework.md</code>. 2 lines. Minimal.</td>
+    </tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow is significantly more thorough on spec additions.</div>
+
+<h3>Fix 1: Orphaned Pipeline Rollback in Stage Nodes</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>auto_cancelled</code> param on <code>ledger_cancel_pipeline</code></td>
+      <td>Added with <code>.optional().default(false)</code>, inline comment explaining why <code>false</code> is never written. Exported via <code>_internal</code>.</td>
+      <td>Added with <code>.optional().default(false)</code>. Uses <code>(pipeline as Record&lt;string, unknown&gt;)</code> cast. Not exported.</td>
+    </tr>
+    <tr><td>MCP server tests</td><td><span class="pass">3 new tests</span> (true, false, omitted)</td><td><span class="bug">0 new tests</span></td></tr>
+    <tr>
+      <td>Stage node rollback</td>
+      <td>Full <code>_install_begin_work_tracker</code> with sentinel guard. Tracks <code>called</code> flag and <code>pipeline_type</code>. Uses <code>_STAGE_PIPELINE_TYPE</code> (local duplicate of <code>config.STAGE_TO_PIPELINE</code>).</td>
+      <td><code>nonlocal _begin_work_called</code> flag. Simpler. Uses <code>STAGE_TO_PIPELINE</code> from <code>config.py</code> (no duplication). Explicitly passes <code>project_path</code> in cancel call.</td>
+    </tr>
+    <tr><td>Orchestrator tests</td><td><span class="pass">4 new rollback tests</span></td><td><span class="bug">0 new rollback tests</span></td></tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow is more complete (tests, sentinel guards). Claude Teams is cleaner on one point — it reuses <code>STAGE_TO_PIPELINE</code> from <code>config.py</code> instead of duplicating it.</div>
+
+<h3>Fix 2: GUI Reset Clears Orphaned Pipelines</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>applyProjectReset</code> orphan cleanup</td>
+      <td>Iterates <code>wp.pipelines</code>, cancels <code>IN_PROGRESS</code> entries. Sets <code>status=FAIL</code>, <code>auto_cancelled=true</code>, <code>completed_at</code>, <code>summary</code>.</td>
+      <td>Same logic. Adds a defensive <code>if wp.pipelines</code> guard (unnecessary but not harmful).</td>
+    </tr>
+    <tr>
+      <td><code>analyzeProjectForReset</code> reporting</td>
+      <td>Adds <code>orphaned_pipeline_count</code> per WP and <code>total_orphaned_pipelines</code> to summary.</td>
+      <td>Adds <code>orphaned_in_progress_pipelines</code> per WP (different name). No project-level total.</td>
+    </tr>
+    <tr>
+      <td>Placement in <code>applyProjectReset</code></td>
+      <td><strong>Before</strong> the WP status reset (correct — pipelines cancelled before WP is reset).</td>
+      <td><strong>After</strong> criteria clearing but before blocker clearing (also correct, slightly later).</td>
+    </tr>
+    <tr><td>MCP server tests</td><td><span class="pass">6 new tests</span> (3 analyze + 3 apply)</td><td><span class="bug">0 new tests</span></td></tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow is more complete.</div>
+
+<h3>Fix 3: Stale Checkpoint Detection</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Approach</td>
+      <td>Lightweight <code>.terminal</code> marker files. Three helpers. Uses stdlib <code>sqlite3</code> — <strong>no new dependency</strong>.</td>
+      <td><code>aiosqlite</code> for async DB queries. Five helpers. <strong>Requires <code>aiosqlite</code> as a runtime dependency.</strong></td>
+    </tr>
+    <tr>
+      <td>Terminal state detection</td>
+      <td>Marker file written after successful completion. Simple, robust.</td>
+      <td>Inspects LangGraph checkpoint metadata for <code>__end__</code> key. Clever but fragile — relies on LangGraph internals.</td>
+    </tr>
+    <tr>
+      <td><code>--interrupt-on</code> handling</td>
+      <td>Explicitly documented: marker suppressed for interrupt runs.</td>
+      <td>Not addressed.</td>
+    </tr>
+    <tr>
+      <td>UUID collision guard</td>
+      <td>Loops up to 5 times with <code>log.warning</code> per retry.</td>
+      <td>Single regeneration with <code>log.error</code>.</td>
+    </tr>
+    <tr>
+      <td>Orchestrator tests</td>
+      <td><span class="pass">12 new tests — all pass</span></td>
+      <td><span class="bug">~12 new tests — 7 fail</span> (missing <code>aiosqlite</code>)</td>
+    </tr>
+    <tr>
+      <td>New runtime dependency</td>
+      <td><span class="pass">None</span> (uses stdlib <code>sqlite3</code>)</td>
+      <td><span class="bug">Requires <code>aiosqlite</code></span> — not added to <code>requirements.txt</code></td>
+    </tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow is clearly superior. The marker-file approach is simpler, has no new dependencies, and all tests pass.</div>
+
+<h3>Fix 4: Cross-WP Tool Guard Hardening</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Auto-injection logic</td>
+      <td>Restructured guard: <code>if None → inject</code>, <code>elif != → reject</code>. Clean conditional rewrite.</td>
+      <td>Appended post-guard check. Duplicates the <code>None</code> check. Works but less clean.</td>
+    </tr>
+    <tr>
+      <td>Docstring update</td>
+      <td>Comprehensive overhaul (15+ new lines). Documents single-WP-per-tool-instance invariant.</td>
+      <td>No docstring changes.</td>
+    </tr>
+    <tr>
+      <td>Prompt-level reminder</td>
+      <td><code>_WP_SCOPE_REMINDER</code> constant, appended via <code>build_stage_prompt()</code>.</td>
+      <td>Inline string. Same content, slightly less DRY.</td>
+    </tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow is more thorough (docstring, constant extraction, testing).</div>
+
+<h3>Fix 5: Cancel Halted WPs Before Synthesis</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr><td>Cancellation loop</td><td>Iterates <code>wp_summaries</code>, checks threshold + terminal status.</td><td>Extracts <code>halted_wp_ids</code> from <code>cf</code> dict, then checks terminal.</td></tr>
+    <tr>
+      <td>Agent parameter name</td>
+      <td><span class="pass"><code>agent="Project Manager"</code> — correct</span></td>
+      <td><span class="bug"><code>agent_role="Project Manager"</code> — BUG</span> (MCP tool expects <code>agent</code>, not <code>agent_role</code>)</td>
+    </tr>
+    <tr><td>Error handling</td><td>Catches exceptions, logs warning, proceeds.</td><td>Same pattern.</td></tr>
+    <tr><td>JSONL log events</td><td><code>"halted_wp_cancelled"</code> — matches plan.</td><td><code>"cancel_halted_wp"</code> — deviates from plan.</td></tr>
+    <tr><td>Orchestrator tests</td><td><span class="pass">5 new tests</span></td><td><span class="bug">0 new tests</span></td></tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow is correct and tested. Claude Teams has a <strong>functional bug</strong> — <code>agent_role</code> is not a valid parameter for <code>ledger_update_work_package_status</code>.</div>
+
+<hr>
+
+<!-- ────────────────────── C2 ────────────────────── -->
+
+<h2><span class="section-badge badge-c2">C2</span> Handling of §16.3 File Reference Inconsistency</h2>
+<p>The plan states: "Add §16.3 note to <code>auxiliary-systems.md</code>." However, §16 (Rework Management) lives in <code>dependencies-and-rework.md</code>.</p>
+
+<table>
+  <thead><tr><th></th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr><td>Correct file placement</td><td>Yes — <code>dependencies-and-rework.md</code></td><td>Yes — <code>dependencies-and-rework.md</code></td></tr>
+    <tr><td>Section numbering</td><td>§16.3c (properly sub-headed)</td><td>Blockquote under §16.3 (no subsection number)</td></tr>
+    <tr><td>Deviation documented</td><td>Synthesis report explicitly notes the discrepancy</td><td>No acknowledgment</td></tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Both correctly placed the content. Workflow handled it more professionally — proper subsection numbering and documented deviation.</div>
+
+<hr>
+
+<!-- ────────────────────── C3 ────────────────────── -->
+
+<h2><span class="section-badge badge-c3">C3</span> Documentation Updates</h2>
+
+<table>
+  <thead><tr><th>Document</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr><td><code>mcp-server/.../api-surface.md</code></td><td>Updated: signatures, interfaces, exports. 18 lines.</td><td><span class="bug">Not updated</span></td></tr>
+    <tr><td><code>orchestrator/docs/architecture.md</code></td><td>Updated: lifecycle steps, Pipeline Rollback subsection, <code>restrict_to_wp</code> docs. 26 lines.</td><td><span class="bug">Not updated</span></td></tr>
+    <tr><td><code>orchestrator/docs/jsonl-log-schema.md</code></td><td>Updated: 2 new event types.</td><td><span class="bug">Not updated</span></td></tr>
+    <tr><td><code>orchestrator/docs/public-api.md</code></td><td>Updated: <code>restrict_to_wp</code> entry.</td><td><span class="bug">Not updated</span></td></tr>
+    <tr><td><code>orchestrator/.../api-surface.md</code></td><td>Updated: event count, new entries.</td><td><span class="bug">Not updated</span></td></tr>
+    <tr><td><code>orchestrator/README.md</code></td><td>Updated: terminal checkpoint guard subsection.</td><td><span class="bug">Not updated</span></td></tr>
+    <tr><td>Synthesis report</td><td>Full project status report (<code>synthesis.md</code>).</td><td><span class="bug">Not generated</span></td></tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Workflow updated <strong>8 documentation files</strong>. Claude Teams updated <strong>0</strong> project documentation files (only the 3 workflow spec files).</div>
+
+<hr>
+
+<!-- ────────────────────── C4 ────────────────────── -->
+
+<h2><span class="section-badge badge-c4">C4</span> Changelog Updates</h2>
+
+<table>
+  <thead><tr><th></th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr><td><code>mcp-server/changelog.md</code></td><td>Not updated</td><td>Not updated</td></tr>
+    <tr><td><code>orchestrator/changelog.md</code></td><td>Not updated</td><td>Not updated</td></tr>
+    <tr><td>Root <code>changelog.md</code></td><td>Not updated</td><td>Not updated</td></tr>
+  </tbody>
+</table>
+<div class="verdict"><strong>Verdict:</strong> Tie — neither implementation updated changelogs.</div>
+
+<hr>
+
+<!-- ────────────────────── C5 ────────────────────── -->
+
+<h2><span class="section-badge badge-c5">C5</span> Overall Code Quality</h2>
+
+<h3>Test Coverage</h3>
+<table>
+  <thead><tr><th>Metric</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr><td>New MCP server tests</td><td><span class="pass">+9</span> (3 pipeline + 6 reset)</td><td><span class="bug">0</span></td></tr>
+    <tr><td>New orchestrator tests</td><td><span class="pass">~31</span> (12 CLI + 4 nodes + 5 supervisor + 10 tool_wrappers)</td><td>~12 (all CLI)</td></tr>
+    <tr><td>Test suite pass rate</td><td>526 pass / 9 fail (pre-existing)</td><td>515 pass / 16 fail (9 pre-existing + <span class="bug">7 new failures</span>)</td></tr>
+    <tr><td>Cleanup of existing tests</td><td>Cleaned imports in 8 existing test files</td><td>No changes</td></tr>
+  </tbody>
+</table>
+
+<h3>Code Reuse</h3>
+<table>
+  <thead><tr><th>Aspect</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>STAGE_TO_PIPELINE</code></td>
+      <td>Duplicated as <code>_STAGE_PIPELINE_TYPE</code> (unnecessarily)</td>
+      <td><span class="pass">Imported from <code>config.py</code></span> (correct reuse)</td>
+    </tr>
+    <tr>
+      <td><code>aiosqlite</code> dependency</td>
+      <td><span class="pass">Not introduced</span> (uses stdlib <code>sqlite3</code>)</td>
+      <td><span class="bug">Introduced but not added to <code>requirements.txt</code></span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Bugs Found</h3>
+<table>
+  <thead><tr><th>Bug</th><th>Workflow</th><th>Claude Teams</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>agent_role</code> vs <code>agent</code> in <code>ledger_update_work_package_status</code></td>
+      <td><span class="pass">Correct (<code>agent</code>)</span></td>
+      <td><span class="bug">BUG: uses <code>agent_role</code> — MCP server would reject</span></td>
+    </tr>
+    <tr>
+      <td><code>aiosqlite</code> missing from deps</td>
+      <td>N/A — not used</td>
+      <td><span class="bug">BUG: 7 tests fail; runtime would also fail</span></td>
+    </tr>
+    <tr>
+      <td><code>_STAGE_PIPELINE_TYPE</code> duplication</td>
+      <td>Code smell (flagged in synthesis report)</td>
+      <td>N/A — correctly imports from <code>config.py</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<!-- ────────────────────── FINAL ────────────────────── -->
+
+<h2>Comparative Evaluation</h2>
+
+<table>
+  <thead><tr><th>Criterion</th><th>Workflow (<code>test-workflow</code>)</th><th>Claude Teams (<code>test-claude-teams</code>)</th></tr></thead>
+  <tbody>
+    <tr style="background:var(--workflow-bg)">
+      <td><strong>C1. Plan adherence</strong></td>
+      <td>All 5 fixes + 3 spec additions. No functional bugs.</td>
+      <td>All 5 attempted. <span class="bug">1 functional bug</span> (wrong param), <span class="bug">1 env bug</span> (missing dep).</td>
+    </tr>
+    <tr style="background:var(--workflow-bg)">
+      <td><strong>C2. §16.3 handling</strong></td>
+      <td>Correct file, §16.3c subsection, deviation documented.</td>
+      <td>Correct file, inline blockquote, no deviation noted.</td>
+    </tr>
+    <tr style="background:var(--workflow-bg)">
+      <td><strong>C3. Documentation</strong></td>
+      <td>8 doc files updated + synthesis report.</td>
+      <td>0 doc files updated (only spec files).</td>
+    </tr>
+    <tr style="background:var(--tie-bg)">
+      <td><strong>C4. Changelogs</strong></td>
+      <td>Not updated.</td>
+      <td>Not updated.</td>
+    </tr>
+    <tr style="background:var(--workflow-bg)">
+      <td><strong>C5. Code quality</strong></td>
+      <td>+40 new tests, 0 new failures, thorough docstrings.</td>
+      <td>+12 new tests, <span class="bug">7 new failures</span>, <span class="bug">2 bugs</span>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ────────────────────── RECOMMENDATION ────────────────────── -->
+
+<div class="recommendation">
+  <h3>Recommendation: Workflow is the clearly superior implementation</h3>
+  <p>It is more complete across every criterion except C4 (tie) and one minor code-reuse point.</p>
+  <ul>
+    <li><strong>Zero functional bugs</strong> vs. two bugs in Claude Teams.</li>
+    <li><strong>40+ new tests</strong> with 0 new failures vs. 12 tests with 7 failures.</li>
+    <li><strong>8 documentation files updated</strong> vs. 0.</li>
+    <li><strong>Thorough spec additions</strong> vs. minimal spec additions.</li>
+    <li><strong>Full synthesis report</strong> documenting strategic recommendations.</li>
+    <li><strong>No new dependencies</strong> (stdlib <code>sqlite3</code>) vs. unresolved <code>aiosqlite</code> dep.</li>
+  </ul>
+  <p>The one improvement to take from Claude Teams: import <code>STAGE_TO_PIPELINE</code> from <code>config.py</code> instead of duplicating it as <code>_STAGE_PIPELINE_TYPE</code>.</p>
+</div>
+
+<h2>Open Questions</h2>
+<ul>
+  <li>Neither implementation updated changelogs. Should this be tracked as a follow-up?</li>
+  <li>The <code>_STAGE_PIPELINE_TYPE</code> duplication in the Workflow branch should be resolved (import from <code>config.py</code>) in a follow-up.</li>
+</ul>
+
+<h2>References</h2>
+<ul>
+  <li>Plan: <code>docs/agents/plans/2026-03-25-orchestrator-resilience-fixes/plan.md</code></li>
+  <li>Synthesis: <code>docs/agents/plans/2026-03-25-orchestrator-resilience-fixes/synthesis.md</code></li>
+  <li>Branch <code>test-workflow</code>: 1 commit (<code>6b48ba9</code>)</li>
+  <li>Branch <code>test-claude-teams</code>: 1 commit (<code>7b015aa</code>)</li>
+  <li>Common ancestor: <code>e8d131b</code></li>
+</ul>
+
+</body>
+</html>

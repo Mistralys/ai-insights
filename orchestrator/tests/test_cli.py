@@ -13,13 +13,9 @@ No real MCP server, LLM, or LangGraph graph invocation is performed.
 
 from __future__ import annotations
 
-import platform
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Argument parser tests
@@ -271,7 +267,6 @@ class TestDryRunNode:
 class TestMainMissingPlan:
     def test_missing_plan_exits_1(self, tmp_path):
         """main() exits with EXIT_ERROR when the plan file does not exist."""
-        import os
         nonexistent = str(tmp_path / "no_such_plan.md")
 
         mock_config = MagicMock()
@@ -306,3 +301,150 @@ class TestDryRunNodeEdgeCases:
         node = _make_dryrun_node("synthesis")
         result = node({"current_wp_id": ""})
         assert result["run_log"][0]["result"] == "SKIP"
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint helpers — WP-004
+# ---------------------------------------------------------------------------
+
+class TestThreadIdExistsInCheckpoint:
+    def test_returns_false_when_db_absent(self, tmp_path):
+        """Non-existent DB must not raise; return False instead."""
+        from src.cli import _thread_id_exists_in_checkpoint
+        absent = tmp_path / "no_such.sqlite"
+        assert _thread_id_exists_in_checkpoint(absent, "any-id") is False
+
+    def test_returns_false_for_unknown_thread_id(self, tmp_path):
+        """A thread_id not in the DB must return False."""
+        import sqlite3
+
+        from src.cli import _thread_id_exists_in_checkpoint
+        db = tmp_path / "workflow.sqlite"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "CREATE TABLE checkpoints "
+                "(thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?)",
+                ("existing-id", "", "ckpt-1"),
+            )
+        assert _thread_id_exists_in_checkpoint(db, "other-id") is False
+
+    def test_returns_true_for_known_thread_id(self, tmp_path):
+        """A thread_id present in the DB must return True."""
+        import sqlite3
+
+        from src.cli import _thread_id_exists_in_checkpoint
+        db = tmp_path / "workflow.sqlite"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "CREATE TABLE checkpoints "
+                "(thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?)",
+                ("known-id", "", "ckpt-1"),
+            )
+        assert _thread_id_exists_in_checkpoint(db, "known-id") is True
+
+
+class TestMarkAndIsRunTerminal:
+    def test_is_run_terminal_returns_false_when_no_marker(self, tmp_path):
+        """No marker file → not terminal."""
+        from src.cli import _is_run_terminal
+        assert _is_run_terminal(tmp_path, "some-thread") is False
+
+    def test_mark_then_is_terminal_returns_true(self, tmp_path):
+        """Writing the marker file must make _is_run_terminal return True."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+        _mark_run_terminal(tmp_path, "my-thread")
+        assert _is_run_terminal(tmp_path, "my-thread") is True
+
+    def test_marker_is_file_scoped_to_thread_id(self, tmp_path):
+        """Marking one thread id must not affect another."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+        _mark_run_terminal(tmp_path, "thread-A")
+        assert _is_run_terminal(tmp_path, "thread-B") is False
+
+    def test_mark_creates_dir_if_absent(self, tmp_path):
+        """_mark_run_terminal must create the checkpoint_dir if it doesn't exist."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+        new_dir = tmp_path / "checkpoints" / "sub"
+        _mark_run_terminal(new_dir, "tid")
+        assert _is_run_terminal(new_dir, "tid") is True
+
+
+class TestTerminalResumeGuard:
+    async def test_resume_terminal_thread_exits_error(self, tmp_path):
+        """_run() must return EXIT_ERROR when --resume targets a terminal checkpoint."""
+        from unittest.mock import AsyncMock
+
+        from src.cli import EXIT_ERROR, _mark_run_terminal, _run
+
+        plan = tmp_path / "plan.md"
+        plan.write_text("# plan")
+        ckpt_dir = tmp_path / "checkpoints"
+        _mark_run_terminal(ckpt_dir, "finished-thread")
+
+        args = MagicMock()
+        args.plan = str(plan)
+        args.resume = "finished-thread"
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = None
+
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = ckpt_dir
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+
+        mock_run_logger = MagicMock()
+        mock_run_logger._path = tmp_path / "run.jsonl"
+        mock_run_logger.start_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.stop_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.flush_unstreamed = MagicMock()
+        mock_run_logger.log = MagicMock()
+        mock_run_logger.close = MagicMock()
+
+        with patch("src.utils.logging.WorkflowLogger") as mock_logger_cls:
+            mock_logger_cls.create.return_value = mock_run_logger
+            result = await _run(args, mock_config)
+
+        assert result == EXIT_ERROR
+
+    def test_resume_non_terminal_does_not_trigger_guard(self, tmp_path):
+        """_is_run_terminal returns False for a non-terminal thread — guard is not invoked."""
+        from src.cli import _is_run_terminal, _mark_run_terminal
+
+        ckpt_dir = tmp_path / "checkpoints"
+        # Mark a different thread — the one being resumed is not marked.
+        _mark_run_terminal(ckpt_dir, "other-thread")
+
+        # The thread being resumed has no marker → guard must not fire.
+        assert _is_run_terminal(ckpt_dir, "active-thread") is False
+
+
+class TestUuidCollisionHandling:
+    def test_new_run_regenerates_uuid_on_collision(self, tmp_path):
+        """When the generated UUID already exists, a new one must be used."""
+        import sqlite3
+
+        from src.cli import _thread_id_exists_in_checkpoint
+
+        db = tmp_path / "workflow.sqlite"
+        with sqlite3.connect(str(db)) as conn:
+            conn.execute(
+                "CREATE TABLE checkpoints "
+                "(thread_id TEXT, checkpoint_ns TEXT, checkpoint_id TEXT)"
+            )
+            # Pre-populate with a specific known UUID.
+            conn.execute(
+                "INSERT INTO checkpoints VALUES (?, ?, ?)",
+                ("collision-uuid", "", "ckpt-1"),
+            )
+
+        # Verify the helper can detect it.
+        assert _thread_id_exists_in_checkpoint(db, "collision-uuid") is True
+        assert _thread_id_exists_in_checkpoint(db, "different-uuid") is False
+

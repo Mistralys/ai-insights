@@ -39,7 +39,6 @@ import pytest
 
 from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -748,8 +747,8 @@ class TestRestrictToWpMatchingWpId:
         assert len(seen) == 1
         assert seen[0]["work_package_id"] == ACTIVE_WP
 
-    async def test_call_without_wp_id_passes_through(self):
-        """A call that omits work_package_id entirely must pass through."""
+    async def test_call_without_wp_id_injects_active_wp(self):
+        """A call that omits work_package_id must have it auto-injected with the active WP ID."""
         seen: list[Any] = []
         tool = _make_guard_tool(seen)
         restrict_to_wp([tool], ACTIVE_WP)
@@ -757,6 +756,7 @@ class TestRestrictToWpMatchingWpId:
         await tool.ainvoke({"agent_role": "Developer"})
 
         assert len(seen) == 1
+        assert seen[0]["work_package_id"] == ACTIVE_WP
 
     async def test_non_dict_input_passes_through(self):
         """Non-dict input (e.g. a string) must be forwarded without a guard check."""
@@ -782,6 +782,22 @@ class TestRestrictToWpMatchingWpId:
         })
 
         assert len(seen) == 1
+
+    async def test_toolcall_without_wp_id_injects_active_wp(self):
+        """ToolCall nested-dict that omits work_package_id must have it auto-injected."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_next_action",
+            "args": {"agent_role": "Developer"},
+            "id": "call-2",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == ACTIVE_WP
 
 
 class TestRestrictToWpMismatchRaises:
@@ -904,7 +920,7 @@ class TestRestrictToWpInCreateStageNode:
 
     async def test_restrict_to_wp_applied_in_node(self):
         """create_stage_node must call restrict_to_wp with the active WP ID."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         from src.nodes import create_stage_node
 
@@ -946,7 +962,7 @@ class TestRestrictToWpInCreateStageNode:
 
     async def test_restrict_to_wp_not_applied_when_wp_id_empty(self):
         """create_stage_node must not apply restrict_to_wp when wp_id is empty."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         from src.nodes import create_stage_node
 
