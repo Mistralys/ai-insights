@@ -12,13 +12,11 @@ import level so tests run without API keys.
 from __future__ import annotations
 
 import importlib
-import textwrap
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Minimal config stub
@@ -496,8 +494,6 @@ class TestToolWrappingInNode:
 
         # Agent mock that calls tool.ainvoke({}) once during invocation.
         async def _agent_invokes_tool(inputs: dict) -> dict:
-            # Simulate the agent calling the first wrapped tool with no project_path.
-            wrapped = inputs.get("_wrapped_tools")
             msg = MagicMock()
             msg.content = "done"
             return {"messages": [msg]}
@@ -1061,7 +1057,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id, pipeline_type, and project_path reminder."""
+        """_build_developer_prompt must include project_path, wp_id,
+        pipeline_type, and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1078,7 +1075,8 @@ class TestSlimPromptContent:
         self._assert_no_identity_phrases(prompt, "developer")
 
     def test_developer_prompt_contains_ledger_begin_work_instruction(self):
-        """_build_developer_prompt extra must contain 'ledger_begin_work' and 'type=\"implementation\"'."""
+        """_build_developer_prompt extra must contain 'ledger_begin_work'
+        and 'type=\"implementation\"'."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1221,7 +1219,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_security_auditor_prompt must include project_path, wp_id,
+        and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1239,7 +1238,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_release_engineer_prompt must include project_path, wp_id,
+        and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
@@ -1306,7 +1306,8 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_synthesis_prompt_has_slim_fields(self):
-        """_build_synthesis_prompt must include project_path and project_path reminder (no wp_id)."""
+        """_build_synthesis_prompt must include project_path and project_path
+        reminder (no wp_id)."""
         from src.nodes.synthesis import _build_synthesis_prompt
 
         state = _build_slim_state(current_wp_id="")
@@ -1322,3 +1323,180 @@ class TestSlimPromptContent:
         prompt = _build_synthesis_prompt(state)  # type: ignore[arg-type]
 
         self._assert_no_identity_phrases(prompt, "synthesis")
+
+
+# ---------------------------------------------------------------------------
+# Tests: pipeline rollback when begin_work is called before a stage error
+# ---------------------------------------------------------------------------
+
+class TestPipelineRollback:
+    """
+    Verify the orphaned-pipeline rollback logic in create_stage_node.
+
+    When the Deep Agent errors after calling ledger_begin_work, the node must
+    automatically call ledger_cancel_pipeline with auto_cancelled=True so that
+    the orphaned IN_PROGRESS pipeline does not block the next run attempt.
+    """
+
+    class _RecordingTool:
+        """Plain tool stub with call recording. MagicMock is intentionally avoided
+        because its auto-attribute creation breaks the ``hasattr`` sentinel checks
+        used by inject_project_path, restrict_to_wp, and _install_begin_work_tracker."""
+
+        def __init__(self, name: str, raises: Exception | None = None) -> None:
+            self.name = name
+            self._raises = raises
+            self.calls: list[Any] = []
+
+        async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> Any:  # noqa: A002
+            self.calls.append(input)
+            if self._raises is not None:
+                raise self._raises
+            return {"content": [{"type": "text", "text": "{}"}]}
+
+    async def test_rollback_called_when_begin_work_invoked_before_error(self):
+        """When begin_work is called and the agent then crashes, cancel_pipeline
+        must be called with auto_cancelled=True."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
+        tools = [begin_work_tool, cancel_tool]
+
+        # Fake agent: calls ledger_begin_work (to trigger the tracker),
+        # then raises RuntimeError to exercise the rollback path.
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            # Call begin_work via the tool reference which, after node_fn runs
+            # inject_project_path + restrict_to_wp + _install_begin_work_tracker,
+            # points to the tracker-wrapped ainvoke.
+            await begin_work_tool.ainvoke(
+                {"type": "implementation", "work_package_id": "WP-001"}
+            )
+            raise RuntimeError("Simulated agent crash after begin_work")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is False
+
+        assert cancel_tool.calls, "ledger_cancel_pipeline must have been called"
+        call_args = cancel_tool.calls[-1]
+        assert call_args.get("auto_cancelled") is True
+        assert call_args.get("work_package_id") == "WP-001"
+        assert call_args.get("type") == "implementation"
+
+    async def test_rollback_not_called_when_begin_work_not_invoked(self):
+        """When the agent crashes without calling begin_work, cancel_pipeline
+        must NOT be called."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
+        tools = [begin_work_tool, cancel_tool]
+
+        # Fake agent: crashes immediately without calling begin_work.
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            raise RuntimeError("Simulated crash without begin_work")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is False
+        assert not cancel_tool.calls, "ledger_cancel_pipeline must NOT have been called"
+
+    async def test_rollback_run_log_contains_pipeline_rollback_entry(self):
+        """Successful rollback must append a pipeline_rollback entry to run_log."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
+        tools = [begin_work_tool, cancel_tool]
+
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            await begin_work_tool.ainvoke(
+                {"type": "implementation", "work_package_id": "WP-001"}
+            )
+            raise RuntimeError("crash")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        rollback_entries = [e for e in result["run_log"] if e.get("action") == "pipeline_rollback"]
+        assert rollback_entries, "run_log must contain a pipeline_rollback entry after rollback"
+        entry = rollback_entries[0]
+        assert entry["level"] == "INFO"
+        assert entry["wp_id"] == "WP-001"
+        assert entry["pipeline_type"] == "implementation"
+
+    async def test_rollback_original_error_preserved_when_cancel_fails(self):
+        """When cancel_pipeline itself raises, the original error must still
+        appear in the returned errors list."""
+        from src.nodes import create_stage_node
+
+        begin_work_tool = self._RecordingTool("ledger_begin_work")
+        cancel_tool = self._RecordingTool(
+            "ledger_cancel_pipeline", raises=RuntimeError("cancel_pipeline failed")
+        )
+        tools = [begin_work_tool, cancel_tool]
+
+        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+            await begin_work_tool.ainvoke(
+                {"type": "implementation", "work_package_id": "WP-001"}
+            )
+            raise RuntimeError("Original agent crash")
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda s: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=tools,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is False
+        errors = result.get("errors", [])
+        assert errors, "errors must be non-empty"
+        assert "Original agent crash" in errors[0]["message"]

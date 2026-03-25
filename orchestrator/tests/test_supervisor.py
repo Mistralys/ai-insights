@@ -18,7 +18,6 @@ import pytest
 from src.config import FAIL_ROUTING_AGENT_MAP, PIPELINE_AGENT_MAP
 from src.supervisor import make_supervisor_node
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -490,7 +489,8 @@ class TestDocumentationFail:
 
 class TestRouteToDocs:
     async def test_pass_review_no_docs_routes_to_docs(self):
-        """A PASS code-review and release-engineering with no documentation pipeline routes to docs."""
+        """A PASS code-review and release-engineering with no documentation
+        pipeline routes to docs."""
         tools = make_mcp_tools(
             wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
             wp_details={
@@ -811,6 +811,161 @@ class TestCircuitBreaker:
 
 
 # ---------------------------------------------------------------------------
+# Tests: halted WP cancellation before synthesis dispatch
+# ---------------------------------------------------------------------------
+
+class TestHaltedWPCancellation:
+    """
+    When all roles return WAIT/skip due to circuit-broken WPs, the supervisor
+    must call ledger_update_work_package_status(CANCELLED) for each halted WP
+    before routing to synthesis (§16.3 — automated circuit-breaker escalation).
+    """
+
+    def _make_tools_with_update_status(
+        self,
+        wp_list: list,
+        wp_details: dict,
+        update_status_calls: list,
+        *,
+        update_raises: Exception | None = None,
+    ) -> list:
+        """
+        Build mock tools including ledger_update_work_package_status.
+        The *update_status_calls* list is populated with each call's kwargs.
+        """
+        base_tools = make_mcp_tools(wp_list=wp_list, wp_details=wp_details)
+
+        async def _update_status_side_effect(kwargs: dict) -> str:
+            update_status_calls.append(dict(kwargs))
+            if update_raises is not None:
+                raise update_raises
+            return json.dumps({"status": "CANCELLED"})
+
+        update_tool = MagicMock()
+        update_tool.name = "ledger_update_work_package_status"
+        update_tool.ainvoke = AsyncMock(side_effect=_update_status_side_effect)
+
+        return base_tools + [update_tool]
+
+    async def test_halted_wp_is_cancelled_before_synthesis(self):
+        """Halted WP (3 consecutive failures, IN_PROGRESS) is cancelled before
+        routing to synthesis."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-001"
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert update_calls, "ledger_update_work_package_status must have been called"
+        call = update_calls[0]
+        assert call.get("work_package_id") == "WP-001"
+        assert call.get("status") == "CANCELLED"
+        assert call.get("agent") == "Project Manager"
+
+    async def test_cancellation_logged_as_warning(self):
+        """Each cancelled WP must produce a WARNING-level run_log entry with
+        action 'halted_wp_cancelled'."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-001"
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        cmd = await node(state)
+
+        cancel_entries = [
+            e for e in cmd.update.get("run_log", [])
+            if e.get("action") == "halted_wp_cancelled"
+        ]
+        assert cancel_entries, "run_log must contain a halted_wp_cancelled entry"
+        entry = cancel_entries[0]
+        assert entry["level"] == "WARNING"
+        assert entry["wp_id"] == "WP-001"
+
+    async def test_already_cancelled_wp_is_skipped_idempotent(self):
+        """A WP that is already CANCELLED must not trigger another status update."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "CANCELLED")],  # already CANCELLED
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        # All WPs CANCELLED → hits the "all terminal" path; no update needed.
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert not update_calls, (
+            "ledger_update_work_package_status must NOT be called for already-CANCELLED WPs"
+        )
+
+    async def test_cancellation_failure_does_not_block_synthesis(self):
+        """If ledger_update_work_package_status raises, synthesis routing must
+        still proceed (graceful degradation)."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+            update_status_calls=update_calls,
+            update_raises=RuntimeError("ledger tool failure"),
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-001"
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3}
+
+        cmd = await node(state)
+
+        # Synthesis must still be reached despite the cancellation failure.
+        assert cmd.goto == "synthesis"
+
+    async def test_multiple_halted_wps_all_cancelled(self):
+        """All halted WPs (not just the first) must be cancelled."""
+        update_calls: list = []
+        tools = self._make_tools_with_update_status(
+            wp_list=[
+                wp_summary("WP-001", "IN_PROGRESS"),
+                wp_summary("WP-002", "IN_PROGRESS"),
+            ],
+            wp_details={
+                "WP-001": wp_with_pipelines("WP-001", []),
+                "WP-002": wp_with_pipelines("WP-002", []),
+            },
+            update_status_calls=update_calls,
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["stage_success"] = False
+        state["consecutive_failures"] = {"WP-001": 3, "WP-002": 3}
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        cancelled_wp_ids = {c.get("work_package_id") for c in update_calls}
+        assert "WP-001" in cancelled_wp_ids
+        assert "WP-002" in cancelled_wp_ids
+
+
+# ---------------------------------------------------------------------------
 # Tests: level field in log entries
 # ---------------------------------------------------------------------------
 
@@ -837,6 +992,7 @@ class TestNoLLMCalls:
         """supervisor module must not import anthropic/openai/google-genai."""
         import ast
         import inspect
+
         import src.supervisor as sup_module
 
         source = inspect.getsource(sup_module)
@@ -1158,10 +1314,6 @@ class TestCircuitBreakerDirect:
 
     async def test_non_broken_wp_dispatches_while_broken_wp_skipped(self):
         """WP-002 (not broken) must be dispatched even if WP-001 is broken."""
-        tools = make_mcp_tools_with_actions({
-            "Developer": {"action": "IMPLEMENT", "work_package_id": "WP-001"},
-        })
-
         # Override to give WP-002 for second role, but that's hard in
         # the simple helper.  Instead use the state-based approach:
         # simulate Developer returning WP-002 after WP-001 is broken.
@@ -1265,7 +1417,7 @@ class TestProgressSnapshot:
 
     async def test_progress_snapshot_elapsed_s_computed_when_run_start_ts_set(self):
         """elapsed_s must be a non-negative float when run_start_ts is valid."""
-        from datetime import datetime, UTC, timedelta
+        from datetime import UTC, datetime, timedelta
 
         # Set run_start_ts to 60 seconds ago.
         past_ts = (datetime.now(UTC) - timedelta(seconds=60)).isoformat()

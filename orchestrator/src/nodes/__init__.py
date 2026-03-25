@@ -37,6 +37,61 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _PROJECT_PATH_REMINDER = "Always use the project path above for all ledger tool calls."
+_WP_SCOPE_REMINDER = (
+    "CRITICAL: Every MCP tool call MUST use `work_package_id={wp_id}`. "
+    "Do NOT reference or operate on any other work package."
+)
+
+# Maps orchestrator stage names to the MCP pipeline type used by ledger_begin_work.
+# Used to determine which pipeline type to cancel during error-path rollback.
+_STAGE_PIPELINE_TYPE: dict[str, str] = {
+    "developer": "implementation",
+    "qa": "qa",
+    "reviewer": "code-review",
+    "docs": "documentation",
+    "security_auditor": "security-audit",
+    "release_engineer": "release-engineering",
+}
+
+
+def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
+    """Wrap ``ledger_begin_work`` to record when it is invoked and which pipeline type was used.
+
+    Sets ``tracker["called"] = True`` and ``tracker["pipeline_type"] = <type>`` on
+    the first invocation.  Idempotent: a sentinel attribute ``_tracking_begin_work``
+    prevents double-wrapping when called multiple times on the same tool objects.
+    """
+    for tool in tools:
+        if tool.name != "ledger_begin_work":
+            continue
+        if hasattr(tool, "_tracking_begin_work"):
+            break  # already wrapped; do not stack
+        if not hasattr(tool, "_orig_ainvoke_bw"):
+            object.__setattr__(tool, "_orig_ainvoke_bw", tool.ainvoke)
+        _orig = tool._orig_ainvoke_bw  # type: ignore[attr-defined]
+
+        async def _tracked_ainvoke(
+            input: Any,
+            *args: Any,
+            _orig: Any = _orig,
+            _tracker: dict = tracker,
+            **kwargs: Any,
+        ) -> Any:
+            if isinstance(input, dict):
+                target = (
+                    input["args"]
+                    if "args" in input and isinstance(input["args"], dict)
+                    else input
+                )
+                pipeline_type = target.get("type")
+                if pipeline_type:
+                    _tracker["pipeline_type"] = pipeline_type
+            _tracker["called"] = True
+            return await _orig(input, *args, **kwargs)
+
+        object.__setattr__(tool, "ainvoke", _tracked_ainvoke)
+        object.__setattr__(tool, "_tracking_begin_work", True)
+        break
 
 
 def build_stage_prompt(
@@ -66,6 +121,8 @@ def build_stage_prompt(
     if wp_id:
         lines.append(f"**Work package:** {wp_id}")
     lines.append(f"\n{_PROJECT_PATH_REMINDER}")
+    if wp_id:
+        lines.append(f"\n{_WP_SCOPE_REMINDER.format(wp_id=wp_id)}")
     if extra:
         lines.append(f"\n{extra}")
     return "\n".join(lines) + "\n"
@@ -113,6 +170,12 @@ def create_stage_node(
         run_logger = get_run_logger(config)
         _wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
+        # Tracks whether ledger_begin_work was called during this stage invocation.
+        # Populated by the tracker installed in _install_begin_work_tracker below.
+        # Declared before `try` so it is accessible in the `except` rollback path.
+        _begin_work_state: dict = {"called": False, "pipeline_type": None}
+        wrapped_tools: list[Any] = []
+
         # ── stage_start ───────────────────────────────────────────────
         stage_start_time = datetime.now(UTC)
         start_entry: dict = {
@@ -137,6 +200,11 @@ def create_stage_node(
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:
                 restrict_to_wp(wrapped_tools, _wp_id)
+
+            # Install tracker so the except block can detect whether
+            # ledger_begin_work was called before the error occurred.
+            if _wp_id:
+                _install_begin_work_tracker(wrapped_tools, _begin_work_state)
 
             agent = create_deep_agent(
                 model=_app_config.model_name,
@@ -283,6 +351,54 @@ def create_stage_node(
             }
             if run_logger:
                 run_logger.stream_entry(log_entry)
+
+            # ── pipeline rollback ─────────────────────────────────────
+            # If ledger_begin_work was called before the error, cancel the
+            # orphaned IN_PROGRESS pipeline so the next run attempt is not
+            # blocked by a stale pipeline. auto_cancelled=True prevents the
+            # cancellation from counting toward the rework budget (§21.27).
+            rollback_log_entries: list[dict] = []
+            if _begin_work_state["called"] and _wp_id and wrapped_tools:
+                _pipeline_type = (
+                    _begin_work_state.get("pipeline_type") or _STAGE_PIPELINE_TYPE.get(stage)
+                )
+                if _pipeline_type:
+                    _cancel_tool = next(
+                        (t for t in wrapped_tools if t.name == "ledger_cancel_pipeline"),
+                        None,
+                    )
+                    if _cancel_tool:
+                        try:
+                            await _cancel_tool.ainvoke({
+                                "work_package_id": _wp_id,
+                                "type": _pipeline_type,
+                                "reason": f"Orchestrator stage error: {exc}",
+                                "auto_cancelled": True,
+                            })
+                            log.info(
+                                "Pipeline rollback: cancelled IN_PROGRESS %s pipeline for %s",
+                                _pipeline_type,
+                                _wp_id,
+                            )
+                            rollback_entry: dict = {
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "stage": stage,
+                                "wp_id": _wp_id,
+                                "action": "pipeline_rollback",
+                                "pipeline_type": _pipeline_type,
+                                "level": "INFO",
+                            }
+                            rollback_log_entries.append(rollback_entry)
+                            if run_logger:
+                                run_logger.stream_entry(rollback_entry)
+                        except Exception as rollback_exc:  # noqa: BLE001
+                            log.warning(
+                                "Pipeline rollback failed for %s %s: %s",
+                                _wp_id,
+                                _pipeline_type,
+                                rollback_exc,
+                            )
+
             return {
                 "stage_result": "",
                 "stage_success": False,
@@ -294,7 +410,7 @@ def create_stage_node(
                         "message": str(exc),
                     }
                 ],
-                "run_log": [start_entry, log_entry],
+                "run_log": [start_entry, log_entry] + rollback_log_entries,
             }
 
     node_fn.__name__ = f"{stage}_node"

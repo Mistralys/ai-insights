@@ -13,11 +13,11 @@ No real MCP server or LLM is used — all nodes are patched at import time.
 
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Mock config fixture
@@ -56,13 +56,28 @@ def _apply_patches(test_fn):
     async def wrapper(*args, **kwargs):
         # Patch at source module level (lazy imports inside build_graph()).
         with (
-            patch("src.supervisor.make_supervisor_node", side_effect=lambda tools: _noop_node("supervisor")),
+            patch(
+                "src.supervisor.make_supervisor_node",
+                side_effect=lambda tools: _noop_node("supervisor"),
+            ),
             patch("src.nodes.pm.make_pm_node", side_effect=lambda cfg, tools: _noop_node("pm")),
-            patch("src.nodes.developer.make_developer_node", side_effect=lambda cfg, tools: _noop_node("developer")),
+            patch(
+                "src.nodes.developer.make_developer_node",
+                side_effect=lambda cfg, tools: _noop_node("developer"),
+            ),
             patch("src.nodes.qa.make_qa_node", side_effect=lambda cfg, tools: _noop_node("qa")),
-            patch("src.nodes.reviewer.make_reviewer_node", side_effect=lambda cfg, tools: _noop_node("reviewer")),
-            patch("src.nodes.docs.make_docs_node", side_effect=lambda cfg, tools: _noop_node("docs")),
-            patch("src.nodes.synthesis.make_synthesis_node", side_effect=lambda cfg, tools: _noop_node("synthesis")),
+            patch(
+                "src.nodes.reviewer.make_reviewer_node",
+                side_effect=lambda cfg, tools: _noop_node("reviewer"),
+            ),
+            patch(
+                "src.nodes.docs.make_docs_node",
+                side_effect=lambda cfg, tools: _noop_node("docs"),
+            ),
+            patch(
+                "src.nodes.synthesis.make_synthesis_node",
+                side_effect=lambda cfg, tools: _noop_node("synthesis"),
+            ),
         ):
             return await test_fn(*args, **kwargs)
 
@@ -185,6 +200,7 @@ class TestCheckpointerIsAsync:
         AsyncSqliteSaver so that ``graph.ainvoke()`` works.
         """
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
         from src.graph import build_graph
 
         class _TmpConfig(_MockConfig):

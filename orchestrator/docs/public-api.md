@@ -81,6 +81,7 @@ All follow the same pattern via `create_stage_node()`:
 | Symbol | Module | Description |
 |--------|--------|-------------|
 | `inject_project_path(tools, project_path)` | `src.utils.tool_wrappers` | Monkeypatches `ainvoke` on each tool to auto-inject `project_path`. |
+| `restrict_to_wp(tools, wp_id)` | `src.utils.tool_wrappers` | Layer 3 WP-scope guard: auto-injects `work_package_id` when absent; raises `ValueError` on explicit cross-WP calls. No-op when `wp_id` is empty (synthesis stages). |
 | `load_persona(stage)` | `src.utils.persona` | Reads and caches the persona Markdown for a given stage. |
 | `parse_plan(path)` | `src.utils.plan_parser` | Extracts title, summary, and content from a plan `.md` file. Returns `PlanMetadata`. |
 | `parse_tool_response(raw)` | `src.utils.mcp_parse` | Parses an MCP tool response into a usable Python object. Handles `langchain-mcp-adapters` content-block lists, JSON strings, ToolMessage objects, and direct dicts. Returns `dict \| list \| str \| None`. |

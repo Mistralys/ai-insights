@@ -790,8 +790,8 @@ def test_integration_marker_applied():
             (@pytest.mark.integration).
     """
     # The pytestmark at module level propagates to all tests.
-    import sys
     import inspect
+    import sys
 
     module = sys.modules[__name__]
     test_fns = [

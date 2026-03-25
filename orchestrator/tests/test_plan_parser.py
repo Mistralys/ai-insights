@@ -50,7 +50,9 @@ class TestStandardPlan:
     def test_extracts_summary(self, tmp_plan):
         path = tmp_plan(self.CONTENT)
         meta = parse_plan(str(path))
-        assert meta.summary == "Implements a LangGraph-based orchestrator that drives the AI agent workflow."
+        assert meta.summary == (
+            "Implements a LangGraph-based orchestrator that drives the AI agent workflow."
+        )
 
     def test_returns_absolute_file_path(self, tmp_plan):
         path = tmp_plan(self.CONTENT)

@@ -9,9 +9,10 @@ Verifies:
 
 from __future__ import annotations
 
-import pytest
-from typing import get_type_hints, get_args, Annotated
 from operator import add
+from typing import get_args, get_type_hints
+
+import pytest
 
 from src.state import WorkflowState
 

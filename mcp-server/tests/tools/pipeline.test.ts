@@ -362,6 +362,108 @@ describe('cancelPipeline logic', () => {
   });
 });
 
+describe('cancelPipeline — auto_cancelled parameter', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+  const CANCEL_PLAN_PATH = join(tmpdir(), '2026-01-01-cancel-auto-test');
+
+  function makeRootIndex(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+  }
+
+  function makeWpWithInProgressPipeline(): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [{ type: 'implementation', status: 'IN_PROGRESS' as any, started_at: now(), summary: [] }],
+    };
+  }
+
+  const { cancelPipeline } = _internal;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'cancel-auto-'));
+    store = new LedgerStore(CANCEL_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    await store.writeRootIndex(makeRootIndex());
+    await store.writeWorkPackage('WP-001', makeWpWithInProgressPipeline());
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('sets auto_cancelled = true on the pipeline when auto_cancelled param is true', async () => {
+    const result = await cancelPipeline({
+      project_path: CANCEL_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      reason: 'Crash recovery',
+      auto_cancelled: true,
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].auto_cancelled).toBe(true);
+    expect(wp.pipelines[0].summary[0]).toContain('Cancelled: Crash recovery');
+  });
+
+  it('does not set auto_cancelled on the pipeline when auto_cancelled param is false (default)', async () => {
+    const result = await cancelPipeline({
+      project_path: CANCEL_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      reason: 'Manual PM cleanup',
+      auto_cancelled: false,
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].auto_cancelled).toBeUndefined();
+  });
+
+  it('does not set auto_cancelled when the parameter is omitted (backward compatibility)', async () => {
+    const result = await cancelPipeline({
+      project_path: CANCEL_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      reason: 'Stale pipeline cleanup',
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].auto_cancelled).toBeUndefined();
+  });
+});
+
 describe('Project status self-healing', () => {
   it('auto-heals from IN_PROGRESS to COMPLETE when pending_work_packages is 0', () => {
     // Simulate the getProjectStatus self-healing logic

@@ -662,6 +662,15 @@ const CancelPipelineSchema = z.object({
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type to cancel:')),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
+  auto_cancelled: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      'When true, marks the pipeline as auto-cancelled (auto_cancelled = true on the pipeline object). ' +
+        'Use this for crash-recovery cancellations so the cancelled pipeline does not count toward the rework budget. ' +
+        'Defaults to false for backward compatibility.',
+    ),
 });
 
 async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
@@ -690,6 +699,11 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
       pipeline.status = 'FAIL';
       pipeline.completed_at = now();
       pipeline.summary = [`Cancelled: ${args.reason}`];
+      // Only write true — never false — because Pipeline.auto_cancelled is optional (z.boolean().optional()).
+      // Writing false would be redundant; absent is the canonical "not auto-cancelled" state.
+      if (args.auto_cancelled) {
+        pipeline.auto_cancelled = true;
+      }
 
       root.last_updated = now();
       return { wp, root };
@@ -810,7 +824,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_cancel_pipeline',
     {
-      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: work_package_id, type, reason. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
+      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: work_package_id, type, reason. OPTIONAL: auto_cancelled (true for crash-recovery cancellations — prevents the cancelled pipeline from counting toward rework budget). Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CancelPipelineSchema,
     },
     cancelPipeline as any
@@ -838,6 +852,7 @@ export const _internal = {
   buildCompletionGuidance,
   startPipeline,
   completePipeline,
+  cancelPipeline,
   // Schemas (formerly _schemas — renamed to _internal per §53)
   StartPipelineSchema,
   CompletePipelineSchema,
