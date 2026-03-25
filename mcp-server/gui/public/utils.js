@@ -44,6 +44,38 @@ function statusBadge(status) {
   return '<span class="' + cls + '">' + escapeHtml(status) + '</span>';
 }
 
+function breadcrumb() {
+  var segments = [];
+  var api = {
+    projects: function () {
+      segments.push({ label: 'Projects', href: '#/' });
+      return api;
+    },
+    project: function (slug) {
+      segments.push({ label: slug, href: '#/projects/' + encodeURIComponent(slug) });
+      return api;
+    },
+    leaf: function (label) {
+      segments.push({ label: label });
+      return api;
+    },
+    leafSpan: function (label, id) {
+      segments.push({ label: label, id: id });
+      return api;
+    },
+    html: function () {
+      return '<p class="breadcrumb">' +
+        segments.map(function (s) {
+          if (s.href) return '<a href="' + s.href + '">' + escapeHtml(s.label) + '</a>';
+          if (s.id)   return '<span id="' + escapeHtml(s.id) + '">' + escapeHtml(s.label) + '</span>';
+          return escapeHtml(s.label);
+        }).join(' / ') +
+        '</p>';
+    }
+  };
+  return api;
+}
+
 function showLoading(container) {
   container.innerHTML = '<div class="loading">Loading…</div>';
 }

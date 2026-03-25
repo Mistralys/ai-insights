@@ -19,14 +19,12 @@ async function renderPlan(app, slug) {
     var result = await API.getPlanDocument(slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
-      '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Plan</div>' +
+      breadcrumb().projects().project(slug).leaf('Plan').html() +
       '<div class="plan-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
-        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Plan</div>' +
+        breadcrumb().projects().project(slug).leaf('Plan').html() +
         '<p class="empty-state">Plan document not available for this project.</p>';
     } else {
       app.innerHTML = '<p class="error-banner">Failed to load plan document.</p>';
@@ -43,14 +41,12 @@ async function renderSynthesis(app, slug) {
     var result = await API.getSynthesisDocument(slug);
     var html = marked.parse(result.content);
     app.innerHTML =
-      '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
-      '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Synthesis</div>' +
+      breadcrumb().projects().project(slug).leaf('Synthesis').html() +
       '<div class="synthesis-content">' + html + '</div>';
   } catch (err) {
     if (err && err.code === 'NOT_FOUND') {
       app.innerHTML =
-        '<div class="breadcrumb"><a href="#/projects">Projects</a> / ' +
-        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / Synthesis</div>' +
+        breadcrumb().projects().project(slug).leaf('Synthesis').html() +
         '<p class="empty-state">Synthesis document not available for this project.</p>';
     } else {
       app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>';
@@ -174,7 +170,7 @@ function renderProjectDetail(app, slug) {
 
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
     app.innerHTML =
-      '<p class="breadcrumb"><a href="#/">Projects</a> / <span id="breadcrumb-title">' + escapeHtml(displayTitle) + '</span></p>' +
+      breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?
         '<div class="info-banner" id="archive-banner">' +
           'This project is archived and hidden from the active list. ' +

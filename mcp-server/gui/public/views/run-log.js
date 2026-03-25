@@ -343,11 +343,7 @@ function renderRunLog(app, slug, filename) {
    */
   function buildPageShell() {
     app.innerHTML =
-      '<p class="breadcrumb">' +
-        '<a href="#/">Projects</a> / ' +
-        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / ' +
-        'Run Log' +
-      '</p>' +
+      breadcrumb().projects().project(slug).leaf('Run Log').html() +
       '<div class="page-header"><h1 style="font-size:16px;font-weight:600">' +
         escapeHtml(filename) +
       '</h1></div>' +

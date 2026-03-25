@@ -132,11 +132,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
       : '';
 
     app.innerHTML =
-      '<p class="breadcrumb">' +
-        '<a href="#/">Projects</a> / ' +
-        '<a href="#/projects/' + encodeURIComponent(slug) + '">' + escapeHtml(slug) + '</a> / ' +
-        escapeHtml(wpId) +
-      '</p>' +
+      breadcrumb().projects().project(slug).leaf(wpId).html() +
       '<div class="page-header">' +
         '<h1>' + escapeHtml(wpId) + '</h1>' +
         statusBadge(wp.status) +
