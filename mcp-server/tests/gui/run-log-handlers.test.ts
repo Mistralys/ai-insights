@@ -130,6 +130,26 @@ describe('handleListRunLogs', () => {
     expect(result[0]!.is_active).toBe(true);
   });
 
+  it('passes through is_dry_run: true for a dry-run log file', async () => {
+    const content = JSON.stringify({ action: 'run_start', dry_run: true }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(logsDir, '20260324T100000-my-project.jsonl'), content, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.is_dry_run).toBe(true);
+  });
+
+  it('passes through is_dry_run: false for a regular (non-dry-run) log file', async () => {
+    const content = JSON.stringify({ action: 'run_start' }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(logsDir, '20260324T110000-my-project.jsonl'), content, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.is_dry_run).toBe(false);
+  });
+
   // ── Integration: dual-source merge and deduplication ───────────────────────
 
   it('active run visible from orchestratorLogsDir (not yet archived)', async () => {

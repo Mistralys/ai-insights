@@ -502,9 +502,12 @@ function renderProjectDetail(app, slug) {
         var badge = isActive
           ? '<span class="badge badge-in-progress" style="margin-right:6px">Running</span>'
           : '';
+        var dryRunBadge = (item && item.is_dry_run)
+          ? '<span class="badge badge-dry-run" style="margin-right:6px">Dry Run</span>'
+          : '';
 
         return '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
-          '<span>' + badge + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
+          '<span>' + badge + dryRunBadge + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
           '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
         '</div>';
       }).join('');

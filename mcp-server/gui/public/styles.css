@@ -228,6 +228,12 @@ main {
   color: #6b7280;
 }
 
+.badge-dry-run {
+  background: #f3e8ff;
+  color: #7c3aed;
+  border: 1px dashed #c4b5fd;
+}
+
 /* ----------------------------------------------------------
    Tables
    ---------------------------------------------------------- */
@@ -1517,6 +1523,12 @@ th[data-sort="total_work_packages"] {
 [data-theme="dark"] .badge-runner-unknown {
   background: #374151;
   color: #9ca3af;
+}
+
+[data-theme="dark"] .badge-dry-run {
+  background: #2e1065;
+  color: #d8b4fe;
+  border: 1px dashed #7e22ce;
 }
 
 /* Table row hover */
