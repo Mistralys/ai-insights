@@ -469,10 +469,11 @@ Completes the most recent `IN_PROGRESS` pipeline of the specified type. If `hand
   work_package_id: string;
   type: 'implementation' | 'qa' | 'security-audit' | 'code-review' | 'release-engineering' | 'documentation';
   reason: string;
+  auto_cancelled?: boolean; // default: false. Set to true for infrastructure-driven cancellations (crash recovery, GUI reset) to exclude the pipeline from rework budget tracking (§12.5.2, §21.27)
 }) => Promise<MCPResult>
 ```
 
-Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting its status to `FAIL` and recording the reason as the summary. Throws an error if no `IN_PROGRESS` pipeline of the given type exists. Use this to cancel pipelines that have become stale (detected via `ledger_get_next_action` returning `RESUME_OR_CANCEL`).
+Cancels the most recent `IN_PROGRESS` pipeline of the specified type by setting its status to `FAIL` and recording the reason as the summary. Throws an error if no `IN_PROGRESS` pipeline of the given type exists. Use this to cancel pipelines that have become stale (detected via `ledger_get_next_action` returning `RESUME_OR_CANCEL`). When `auto_cancelled = true`, the pipeline is excluded from rework detection and circuit-breaker calculations — use this for crash-recovery or system-driven cancellations (§12.5.2).
 
 #### `ledger_update_pipeline_progress`
 
@@ -1499,12 +1500,14 @@ export interface WpResetDiagnosis {
   current_assigned_to: string | null;
   pipeline_stages_present: string[];       // stages with a PASS pipeline
   pipeline_stages_missing: string[];       // canonical stages lacking a PASS
+  active_pipeline_stages: string[];        // resolved stage set for this WP (wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES)
   next_required_stage: string | null;      // first missing stage, or null if all pass
   target_assigned_to: string | null;       // agent for next_required_stage via PIPELINE_AGENT_MAP
   needs_reset: boolean;                    // false for CANCELLED, healthy, BLOCKED, READY WPs
   reason: string;                          // human-readable diagnosis note
   suggested_action: 'reset' | 'skip';
   suggested_reset_criteria: boolean;       // whether to clear AC met-flags on reset
+  orphaned_pipeline_count: number;         // IN_PROGRESS pipelines on this WP that will be auto-cancelled by reset
 }
 
 export interface ProjectResetDiagnosis {
@@ -1514,6 +1517,7 @@ export interface ProjectResetDiagnosis {
   work_packages_needing_reset: number;
   work_packages_healthy: number;           // healthy + skipped-statuses (BLOCKED, READY, CANCELLED)
   work_packages_skipped: number;           // CANCELLED WPs
+  total_orphaned_pipelines: number;        // sum of orphaned_pipeline_count across all WPs
 }
 
 // ── Decision types (exported) ───────────────────────────────────────────────
@@ -1551,6 +1555,8 @@ export function getPassedStages(wp: WorkPackageDetail): Set<string>;
 //   IN_PROGRESS + assigned to wrong agent   → needs_reset:true
 //   Any other status or incomplete stages   → needs_reset:true, next_required_stage = first missing
 //   BLOCKED / READY  → needs_reset:false, suggested_action:'skip'
+// Also counts IN_PROGRESS pipelines per WP (orphaned_pipeline_count) and accumulates the
+// project total (total_orphaned_pipelines) — used by the GUI to warn before reset.
 // Does NOT read from disk — caller must supply the pre-loaded rootIndex and workPackages.
 export function analyzeProjectForReset(
   slug: string,
@@ -1563,7 +1569,9 @@ export function analyzeProjectForReset(
 // Applies user-confirmed per-WP decisions atomically via a single
 // store.batchUpdateWorkPackagesWithSync() call (single lock acquisition).
 // For each WP:
-//   'reset'  → wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
+//   'reset'  → IN_PROGRESS pipelines on the WP are auto-cancelled first:
+//                  {status: FAIL, auto_cancelled: true, completed_at, summary: ['Auto-cancelled by project reset']}
+//              then: wp.status = 'IN_PROGRESS', wp.assigned_to = target_assigned_to,
 //              wp.status_changed_at updated, wp.reset_at set to the mutation timestamp;
 //              if reset_criteria !== false, all acceptance_criteria[].met = false;
 //              blocked_by removed.
@@ -1790,6 +1798,12 @@ export const _internal: {
     args: CompletePipelineArgs,
     _ledgerRoot?: string
   ) => Promise<MCPResult>;
+  // Core implementation of ledger_cancel_pipeline. Exported to enable
+  // unit tests that call the real function path via _internal.cancelPipeline
+  // rather than simulating the underlying store mutation directly.
+  cancelPipeline: (
+    args: z.infer<typeof CancelPipelineSchema>
+  ) => Promise<MCPResult>;
 };
 ```
 
@@ -1951,8 +1965,13 @@ Locates and reads orchestrator JSONL run log files on behalf of the run log API 
 export interface RunLogEntry {
   filename: string;   // Bare filename (no directory component), e.g. "20260323T143701-my-project.jsonl"
   is_active: boolean; // true when file does not end with a terminal action (run_end / run_error)
+  is_dry_run: boolean; // true when the first JSONL line is a run_start event with dry_run: true; defaults to false on any read/parse error
 }
+```
 
+> **Naming note:** `is_dry_run` is a computed summary property resolved once at list time. It is distinct from `dry_run`, the raw boolean property on the `run_start` event in the JSONL file.
+
+```typescript
 // Returns the configured logs directory, falling back to ~/.ai-insights/orchestrator-logs.
 export function resolveOrchestratorLogsDir(configured: string | undefined): string;
 
@@ -4253,12 +4272,22 @@ if (autoFinalizeResult === 'finalized') { /* ... */ }
 
 ---
 
-### 57. Mutual Exclusivity of `project_path` and `cwd_path` — Runtime Guard via `resolveProjectPath()`
+### 57. `project_path` Takes Precedence Over `cwd_path` When Both Are Provided
 
-**Rule:** Mutual exclusivity of `project_path` and `cwd_path` is enforced at runtime by `resolveProjectPath()`, **not** by a Zod `.refine()` on the outer schema. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema.
+**Rule:** When a caller supplies both `project_path` and `cwd_path`, `resolveProjectPath()` uses `project_path` and silently ignores `cwd_path`. Supplying both parameters is **not** an error. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema to enforce exclusivity.
+
+**Precedence rule (in `resolveProjectPath()`, `src/utils/path-validator.ts`):**
+1. If `project_path` is provided (truthy) → use it directly; `cwd_path` is ignored.
+2. If only `cwd_path` is provided → auto-detect the active project from the workspace root.
+3. If neither is provided → throw a missing-path error.
+
+**Guidance for callers:**
+- If you already have `project_path` (the plan folder path from a prior tool response), pass it — it is the fastest path with no auto-detection overhead.
+- If you only know your workspace root, pass `cwd_path` and let the server detect the project.
+- If you pass both, `project_path` wins; `cwd_path` is a no-op in that call.
 
 **Enforcement:**
-- `resolveProjectPath()` (`src/utils/path-validator.ts`) throws `Error(MUTUAL_EXCLUSIVITY_PATH_MSG)` at the top of its body when both `project_path` and `cwd_path` are truthy. Every tool handler that accepts both optional path fields calls `resolveProjectPath()` — the guard fires unconditionally.
+- `resolveProjectPath()` (`src/utils/path-validator.ts`) applies the precedence rule at the top of its body. Every tool handler that accepts both optional path fields calls `resolveProjectPath()`.
 - The predicate `mutuallyExclusivePaths` and the constant `MUTUAL_EXCLUSIVITY_PATH_MSG` remain exported from `src/utils/path-validator.ts` for backward compatibility and test coverage. They are **not used in production tool files**.
 - Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt from this consideration. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
 
@@ -4276,7 +4305,7 @@ const GetWorkPackageSchema = z.object({
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — plain ZodObject; mutual exclusivity is enforced inside resolveProjectPath()
+// ✅ CORRECT — plain ZodObject; project_path-wins precedence is enforced inside resolveProjectPath()
 const GetWorkPackageSchema = z.object({
   project_path: z.string().optional().describe('…'),
   cwd_path:     z.string().optional().describe('…'),
@@ -4284,7 +4313,7 @@ const GetWorkPackageSchema = z.object({
 });
 ```
 
-**Rationale:** `.refine()` (and `.transform()`, `.superRefine()`) on the outer `z.object()` converts it from `ZodObject` to `ZodEffects`. The MCP SDK's `zodToJsonSchema` cannot extract properties from `ZodEffects` — every affected tool emits empty `{ properties: {}, required: [] }` in the `tools/list` response, preventing AI agents from passing arguments. Centralising the check in `resolveProjectPath()` keeps all tool schemas as plain `ZodObject` instances. (Background: 2026-03-05 Zod `.refine()` empty schema fix — 18 of 22 tools were affected.)
+**Rationale:** `.refine()` (and `.transform()`, `.superRefine()`) on the outer `z.object()` converts it from `ZodObject` to `ZodEffects`. The MCP SDK's `zodToJsonSchema` cannot extract properties from `ZodEffects` — every affected tool emits empty `{ properties: {}, required: [] }` in the `tools/list` response, preventing AI agents from passing arguments. Centralising the precedence logic in `resolveProjectPath()` keeps all tool schemas as plain `ZodObject` instances and eliminates spurious errors when callers pass both parameters. (Background: 2026-03-05 Zod `.refine()` empty schema fix — 18 of 22 tools were affected.)
 
 **See also:** §63 for the general rule covering all outer-schema uses of `.refine()`, `.transform()`, and `.superRefine()`.
 

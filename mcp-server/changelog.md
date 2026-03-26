@@ -1,5 +1,22 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.21.0 - Orphaned Pipeline Recovery
+- CancelPipeline: Added optional `auto_cancelled` flag to `ledger_cancel_pipeline`; crash-recovery cancellations set `pipeline.auto_cancelled = true` and are excluded from rework budget.
+- ProjectReset: `applyProjectReset` now auto-cancels all IN_PROGRESS pipelines (status FAIL, auto_cancelled true) before applying the WP status reset.
+- ProjectReset: `analyzeProjectForReset` reports `orphaned_pipeline_count` per WP and `total_orphaned_pipelines` at project level in diagnosis output.
+- DetectProject: Tool description prefixed with "REQUIRED param: cwd_path" to improve agent guidance.
+- Tests: Added pipeline and project-reset unit tests; MCP server suite now at 1,741 passing.
+
+## v1.20.0 - Path Precedence & Error Hardening
+- PathValidator: `project_path` now takes precedence over `cwd_path` when both are supplied; mutual-exclusivity error removed.
+- PathValidator: Removed exported `mutuallyExclusivePaths()` predicate and `MUTUAL_EXCLUSIVITY_PATH_MSG` constant.
+- Tools: Removed per-tool `mutuallyExclusivePaths` Zod refinement from all tool schemas.
+- Pipeline: `completePipeline` accepts `handoff_notes` as `string | string[]`; bare string coerced to single-element array.
+- LogResolver: Orphaned log migration changed from `rename()` to `copyFile()` to preserve files still open by the orchestrator.
+- GUI: Extracted `buildBreadcrumb()` helper to `utils.js`; replaced inline path construction in project-detail, run-log, and work-package views.
+- HelpContent: Centralized repeated tool description strings into shared constants.
+- Tests: Expanded coverage across `path-validator.test.ts`, `log-resolver.test.ts`, and `run-log-handlers.test.ts`.
+
 ## v1.19.0 - GUI Dry-Run Badge
 - GUI Backend: Extended `RunLogEntry` with `is_dry_run: boolean`; `isDryRun()` helper reads the first JSONL line and returns `true` only when `action === 'run_start' && dry_run === true`.
 - GUI Backend: `findRunLogs()` calls `isDryRun()` concurrently with `isRunActive()` via `Promise.all` per file, populating `is_dry_run` on every returned entry.

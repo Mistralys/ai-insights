@@ -556,6 +556,7 @@ export function validatePlanPath(projectPath: string): { isValid: boolean; error
  * Resolution rules:
  * - `project_path` provided → validate format, return it (original behavior).
  * - Only `cwd_path` provided → call `LedgerStore.detectProjectByCwd`, return `meta.plan_path`.
+ * - Both provided → `project_path` wins; `cwd_path` is ignored.
  * - Neither provided → throw with a clear error.
  *
  * @throws {Error} on validation failure, AMBIGUOUS match, or NOT_FOUND.
@@ -566,11 +567,7 @@ export async function resolveProjectPath(args: {
   cwd_path?: string;
   [key: string]: unknown;
 }): Promise<string> {
-  // Mutual exclusivity guard (moved from Zod .refine() — see bug report 2026-03-05)
-  if (args.project_path && args.cwd_path) {
-    throw new Error(MUTUAL_EXCLUSIVITY_PATH_MSG);
-  }
-
+  // Precedence rule: project_path wins over cwd_path when both are supplied.
   if (args.project_path) {
     // Validate format. planFolderBasename throws on invalid pattern.
     planFolderBasename(args.project_path);
@@ -601,20 +598,6 @@ export async function resolveProjectPath(args: {
 
   throw new Error('Either project_path or cwd_path is required.');
 }
-
-/**
- * Zod refinement predicate: enforces that `project_path` and `cwd_path` are mutually exclusive.
- * At most one may be provided — passing both is an error.
- *
- * Usage: `someSchema.refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG })`
- */
-export const mutuallyExclusivePaths = (args: {
-  project_path?: string | null;
-  cwd_path?: string | null;
-}): boolean => !(args.project_path && args.cwd_path);
-
-export const MUTUAL_EXCLUSIVITY_PATH_MSG =
-  "Provide either 'project_path' or 'cwd_path', not both.";
 
 /**
  * Formats an AMBIGUOUS candidate list into a human-readable string with
@@ -1122,6 +1105,8 @@ export interface WpResetDiagnosis {
   reason: string;
   suggested_action: 'reset' | 'skip';
   suggested_reset_criteria: boolean;
+  /** Number of IN_PROGRESS pipelines on this WP that will be auto-cancelled by reset. */
+  orphaned_pipeline_count: number;
 }
 
 export interface ProjectResetDiagnosis {
@@ -1131,6 +1116,8 @@ export interface ProjectResetDiagnosis {
   work_packages_needing_reset: number;
   work_packages_healthy: number;
   work_packages_skipped: number;
+  /** Total IN_PROGRESS pipelines across all WPs that will be auto-cancelled by reset. */
+  total_orphaned_pipelines: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1193,7 +1180,13 @@ export function analyzeProjectForReset(
   let healthy = 0;
   let skippedCancelled = 0;
 
+  let totalOrphanedPipelines = 0;
+
   for (const wp of workPackages) {
+    // Count IN_PROGRESS (orphaned) pipelines on this WP
+    const orphanedPipelineCount = wp.pipelines.filter((p) => p.status === 'IN_PROGRESS').length;
+    totalOrphanedPipelines += orphanedPipelineCount;
+
     // 1. CANCELLED WPs — skip entirely
     if (wp.status === 'CANCELLED') {
       skippedCancelled++;
@@ -1210,6 +1203,7 @@ export function analyzeProjectForReset(
         reason: 'CANCELLED — skipped',
         suggested_action: 'skip',
         suggested_reset_criteria: false,
+        orphaned_pipeline_count: orphanedPipelineCount,
       });
       continue;
     }
@@ -1266,6 +1260,7 @@ export function analyzeProjectForReset(
         reason: `All ${activeStages.length} pipeline stages passed — healthy`,
         suggested_action: 'skip',
         suggested_reset_criteria: false,
+        orphaned_pipeline_count: orphanedPipelineCount,
       });
       continue;
     }
@@ -1287,6 +1282,7 @@ export function analyzeProjectForReset(
         reason: `COMPLETE but missing pipeline stages: ${stagesMissing.join(', ')}`,
         suggested_action: 'reset',
         suggested_reset_criteria: true,
+        orphaned_pipeline_count: orphanedPipelineCount,
       });
       continue;
     }
@@ -1310,6 +1306,7 @@ export function analyzeProjectForReset(
           reason: 'IN_PROGRESS with correct assignment — healthy',
           suggested_action: 'skip',
           suggested_reset_criteria: false,
+          orphaned_pipeline_count: orphanedPipelineCount,
         });
       } else if (!correctAssignment) {
         // Wrong assignment or missing stages
@@ -1327,6 +1324,7 @@ export function analyzeProjectForReset(
           reason: `IN_PROGRESS but assigned to ${wp.assigned_to ?? 'null'} instead of ${targetAssignedTo}`,
           suggested_action: 'reset',
           suggested_reset_criteria: true,
+          orphaned_pipeline_count: orphanedPipelineCount,
         });
       } else {
         // All stages pass but status is IN_PROGRESS — unusual but healthy
@@ -1344,6 +1342,7 @@ export function analyzeProjectForReset(
           reason: 'All stages passed, IN_PROGRESS — may need manual completion',
           suggested_action: 'skip',
           suggested_reset_criteria: false,
+          orphaned_pipeline_count: orphanedPipelineCount,
         });
       }
       continue;
@@ -1365,6 +1364,7 @@ export function analyzeProjectForReset(
         reason: 'BLOCKED — user should evaluate manually',
         suggested_action: 'skip',
         suggested_reset_criteria: false,
+        orphaned_pipeline_count: orphanedPipelineCount,
       });
       continue;
     }
@@ -1385,6 +1385,7 @@ export function analyzeProjectForReset(
         reason: 'READY — not started yet',
         suggested_action: 'skip',
         suggested_reset_criteria: false,
+        orphaned_pipeline_count: orphanedPipelineCount,
       });
       continue;
     }
@@ -1404,6 +1405,7 @@ export function analyzeProjectForReset(
       reason: `Unknown status '${wp.status}' — skipping`,
       suggested_action: 'skip',
       suggested_reset_criteria: false,
+      orphaned_pipeline_count: orphanedPipelineCount,
     });
   }
 
@@ -1414,6 +1416,7 @@ export function analyzeProjectForReset(
     work_packages_needing_reset: needingReset,
     work_packages_healthy: healthy,
     work_packages_skipped: skippedCancelled,
+    total_orphaned_pipelines: totalOrphanedPipelines,
   };
 }
 
@@ -1464,6 +1467,16 @@ export async function applyProjectReset(
       }
 
       if (decision.action === 'reset') {
+        // Auto-cancel any orphaned IN_PROGRESS pipelines (§12.5, §21.68)
+        for (const pipeline of wp.pipelines) {
+          if (pipeline.status === 'IN_PROGRESS') {
+            pipeline.status = 'FAIL';
+            pipeline.auto_cancelled = true;
+            pipeline.completed_at = timestamp;
+            pipeline.summary = ['Auto-cancelled by project reset'];
+          }
+        }
+
         wp.status = 'IN_PROGRESS';
         wp.assigned_to = wpDiag.target_assigned_to ?? wp.assigned_to;
         wp.status_changed_at = timestamp;

@@ -12,11 +12,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from langchain_core.messages import SystemMessage
 
 from src.utils.dialogue_writer import _msg_role, serialize_messages_to_markdown, write_dialogue
-
 
 # ---------------------------------------------------------------------------
 # Minimal message stubs (no LangChain dependency required for unit tests)

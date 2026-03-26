@@ -7,14 +7,17 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── build-personas.js
     └── bundle-docs.js
     └── check-known-roles.js
+    └── cli-original.js
     └── cli.js
     └── extract-changelog-entry.js
     └── install-hooks.js
+    └── kill-orchestrator.js
     └── lib/
         ├── persona-helpers.js
     └── normalize-ctx-paths.js
     └── package-personas.js
     └── preflight-orchestrator.js
+    └── read-log.js
     └── run-gui.js
     └── run-orchestrator.js
     └── sync-personas.js
@@ -962,7 +965,7 @@ try {
 
 
 ```
-###  Path: `/scripts/cli.js`
+###  Path: `/scripts/cli-original.js`
 
 ```js
 #!/usr/bin/env node
@@ -1890,6 +1893,1016 @@ main().catch((err) => {
 });
 
 ```
+###  Path: `/scripts/cli.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * scripts/cli.js
+ *
+ * Unified workspace CLI — interactive command center and direct CLI entry point.
+ * Replaces the need to remember individual `node scripts/X.js` invocations.
+ *
+ * Usage:
+ *   node scripts/cli.js                     Interactive main menu
+ *   node scripts/cli.js help                Show all commands
+ *   node scripts/cli.js setup               Interactive setup wizard
+ *   node scripts/cli.js setup --all         Non-interactive full setup
+ *   node scripts/cli.js setup --components  Run selected components
+ *   node scripts/cli.js <command> [flags]   Run a command directly
+ *
+ * Note: scripts/setup-orchestrator.js has been removed.
+ *       Use `node scripts/cli.js setup` instead.
+ */
+
+'use strict';
+
+const path     = require('path');
+const fs       = require('fs');
+const readline = require('readline');
+const { spawnSync, spawn } = require('child_process');
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const WORKSPACE_ROOT   = path.resolve(__dirname, '..');
+const SCRIPTS_DIR      = __dirname;
+const MCP_SERVER_DIR   = path.join(WORKSPACE_ROOT, 'mcp-server');
+const PERSONAS_DIR     = path.join(WORKSPACE_ROOT, 'personas');
+const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
+const CHANGELOG_FILE   = path.join(WORKSPACE_ROOT, 'changelog.md');
+const MCP_DIST_JSON    = path.join(WORKSPACE_ROOT, '.mcp.dist.json');
+const MCP_JSON         = path.join(WORKSPACE_ROOT, '.mcp.json');
+const IS_WIN           = process.platform === 'win32';
+const NPM              = IS_WIN ? 'npm.cmd' : 'npm';
+
+// ─── ANSI color helpers ───────────────────────────────────────────────────────
+
+const C = {
+  reset:       (s) => `\x1b[0m${s}\x1b[0m`,
+  bold:        (s) => `\x1b[1m${s}\x1b[0m`,
+  dim:         (s) => `\x1b[2m${s}\x1b[0m`,
+  red:         (s) => `\x1b[31m${s}\x1b[0m`,
+  green:       (s) => `\x1b[32m${s}\x1b[0m`,
+  yellow:      (s) => `\x1b[33m${s}\x1b[0m`,
+  cyan:        (s) => `\x1b[36m${s}\x1b[0m`,
+  white:       (s) => `\x1b[37m${s}\x1b[0m`,
+  brightWhite: (s) => `\x1b[97m${s}\x1b[0m`,
+  brightCyan:  (s) => `\x1b[96m${s}\x1b[0m`,
+};
+
+// ─── Logging ──────────────────────────────────────────────────────────────────
+
+function log(msg, color) {
+  console.log(color && C[color] ? C[color](msg) : msg);
+}
+
+// ─── Pre-flight checks ────────────────────────────────────────────────────────
+
+function checkNodeVersion() {
+  const major = parseInt(process.versions.node.split('.')[0], 10);
+  if (major < 18) {
+    log(`✗ Node.js >= 18 required (found ${process.versions.node})`, 'red');
+    process.exit(1);
+  }
+}
+
+function checkWorkspaceRoot() {
+  if (!fs.existsSync(MCP_SERVER_DIR)) {
+    log('✗ Run from the workspace root (mcp-server/ not found)', 'red');
+    process.exit(1);
+  }
+}
+
+// ─── Version string helper ────────────────────────────────────────────────────
+
+function readVersion() {
+  try {
+    // Matches `## v1.2.3` and `## [1.2.3]` style headings.
+    // Verified against changelog.md format `## v{semver} - {title}` — 2026-03-04.
+    const m = fs.readFileSync(CHANGELOG_FILE, 'utf8').match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
+    return m ? `v${m[1]}` : 'unknown';
+  } catch { return 'unknown'; }
+}
+
+function readSubVersion(subDir) {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(subDir, 'package.json'), 'utf8'));
+    return pkg.version ? `v${pkg.version}` : 'unknown';
+  } catch { return 'unknown'; }
+}
+
+// ─── Script runners ───────────────────────────────────────────────────────────
+
+/**
+ * Run a script synchronously; exit on failure.
+ * Used for direct delegating commands (sync-personas, build-personas, etc.).
+ */
+function runScript(scriptName, args = []) {
+  const result = spawnSync('node', [path.join(SCRIPTS_DIR, scriptName), ...args], {
+    cwd: WORKSPACE_ROOT,
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) {
+    log(`\n✗ ${scriptName} exited with code ${result.status}`, 'red');
+    process.exit(result.status ?? 1);
+  }
+}
+
+/**
+ * Run a long-running script asynchronously (gui, orchestrator).
+ * Forwards SIGINT to child; exits when child exits.
+ */
+function runLongScript(scriptName, args = []) {
+  const child = spawn('node', [path.join(SCRIPTS_DIR, scriptName), ...args], {
+    cwd: WORKSPACE_ROOT,
+    stdio: 'inherit',
+  });
+  child.on('error', (err) => {
+    log(`✗ Failed to launch ${scriptName}: ${err.message}`, 'red');
+    process.exit(1);
+  });
+  process.on('SIGINT', () => child.kill('SIGINT'));
+  child.on('exit', (code) => process.exit(code ?? 0));
+}
+
+/**
+ * Run a command, returning the exit code.
+ * Used inside setup components — does NOT exit on failure.
+ *
+ * On Windows, .cmd files (npm.cmd, pip.cmd) require shell:true in Node 22+
+ * to avoid EINVAL from spawnSync. We default shell to IS_WIN; callers can
+ * override via opts if needed.
+ */
+function sh(cmd, args = [], opts = {}) {
+  const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: WORKSPACE_ROOT, shell: IS_WIN, ...opts });
+  return r.status ?? 1;
+}
+
+// ─── Python finder (for orchestrator setup) ───────────────────────────────────
+
+function findPython() {
+  const candidates = IS_WIN ? ['python', 'python3', 'py'] : ['python3', 'python'];
+  for (const cand of candidates) {
+    const a = cand === 'py' ? ['-3', '--version'] : ['--version'];
+    // python, python3, py are .exe on Windows — no shell wrapper needed
+    const r = spawnSync(cand, a, { encoding: 'utf8', shell: false });
+    if (r.status !== 0) continue;
+    const raw = (r.stdout || '') + (r.stderr || '');
+    const m = raw.match(/Python (\d+)\.(\d+)/);
+    if (!m) continue;
+    if (parseInt(m[1], 10) === 3 && parseInt(m[2], 10) >= 11) return cand;
+  }
+  return null;
+}
+
+function syncOrchestratorVersion() {
+  const changelogPath = path.join(ORCHESTRATOR_DIR, 'changelog.md');
+  const pyprojectPath = path.join(ORCHESTRATOR_DIR, 'pyproject.toml');
+
+  if (!fs.existsSync(changelogPath)) {
+    log('  ✗ orchestrator/changelog.md not found', 'red');
+    return;
+  }
+  if (!fs.existsSync(pyprojectPath)) {
+    log('  ✗ orchestrator/pyproject.toml not found', 'red');
+    return;
+  }
+
+  try {
+    const changelog = fs.readFileSync(changelogPath, 'utf8');
+    // Match ## v1.2.3 or ## [1.2.3]
+    const versionMatch = changelog.match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
+    
+    if (!versionMatch) {
+      // It's possible the changelog hasn't been started or format differs
+      log('  ⚠ Could not find version in orchestrator/changelog.md', 'yellow');
+      return;
+    }
+
+    const newVersion = versionMatch[1];
+    let pyproject = fs.readFileSync(pyprojectPath, 'utf8');
+
+    // Simple regex for top-level version = "..."
+    const versionRegex = /^version\s*=\s*"[^"]+"/m;
+    if (!versionRegex.test(pyproject)) {
+      log('  ⚠ Could not find "version" key in pyproject.toml', 'yellow');
+      return;
+    }
+
+    const newContent = pyproject.replace(versionRegex, `version = "${newVersion}"`);
+    
+    // Only write if changed
+    if (newContent !== pyproject) {
+      fs.writeFileSync(pyprojectPath, newContent, 'utf8');
+      log(`  ✓ Updated orchestrator/pyproject.toml to ${newVersion}`, 'green');
+    } else {
+      log(`  ✓ orchestrator/pyproject.toml already at ${newVersion}`, 'green');
+    }
+  } catch (e) {
+    log(`  ✗ Failed to sync orchestrator version: ${e.message}`, 'red');
+  }
+}
+
+function venvBin(name) {
+  return IS_WIN
+    ? path.join(ORCHESTRATOR_DIR, '.venv', 'Scripts', `${name}.exe`)
+    : path.join(ORCHESTRATOR_DIR, '.venv', 'bin', name);
+}
+
+// ─── .mcp.json scaffold ───────────────────────────────────────────────────────
+
+/**
+ * Scaffold .mcp.json from .mcp.dist.json, replacing the placeholder path
+ * with the real absolute path to mcp-server/src/index.ts.
+ *
+ * Returns true if the file was written or already exists (satisfied).
+ * Returns false only on hard error (e.g. missing .mcp.dist.json).
+ */
+function scaffoldMcpJson(force = false) {
+  if (fs.existsSync(MCP_JSON) && !force) {
+    log('  .mcp.json already exists. Use --force to overwrite.', 'yellow');
+    return true; // already satisfied
+  }
+  if (!fs.existsSync(MCP_DIST_JSON)) {
+    log('  ✗ .mcp.dist.json not found; cannot scaffold .mcp.json', 'red');
+    return false;
+  }
+  let template;
+  try {
+    template = JSON.parse(fs.readFileSync(MCP_DIST_JSON, 'utf8'));
+  } catch (e) {
+    log(`  ✗ Failed to parse .mcp.dist.json: ${e.message}`, 'red');
+    return false;
+  }
+
+  const indexTs     = path.join(MCP_SERVER_DIR, 'src', 'index.ts');
+  const PLACEHOLDER = '/Users/path/to/repo/ai-insights/mcp-server/src/index.ts';
+
+  // Walk every string value in the parsed JSON and replace the placeholder
+  function replaceInObj(obj) {
+    if (typeof obj === 'string')  return obj === PLACEHOLDER ? indexTs : obj;
+    if (Array.isArray(obj))       return obj.map(replaceInObj);
+    if (obj && typeof obj === 'object') {
+      const out = {};
+      for (const k of Object.keys(obj)) out[k] = replaceInObj(obj[k]);
+      return out;
+    }
+    return obj;
+  }
+
+  fs.writeFileSync(MCP_JSON, JSON.stringify(replaceInObj(template), null, 2) + '\n', 'utf8');
+  log(`  ✓ .mcp.json written → ${indexTs}`, 'green');
+  return true;
+}
+
+// ─── Setup components ─────────────────────────────────────────────────────────
+
+const SETUP_COMPONENTS = [
+  {
+    id:    'mcp-server',
+    label: 'MCP Server',
+    desc:  'npm install + build',
+    detect() {
+      return (
+        fs.existsSync(path.join(MCP_SERVER_DIR, 'node_modules')) &&
+        fs.existsSync(path.join(MCP_SERVER_DIR, 'dist'))
+      );
+    },
+    run() {
+      log('  Installing MCP server dependencies…', 'dim');
+      if (sh(NPM, ['install'], { cwd: MCP_SERVER_DIR }) !== 0) return false;
+      log('  Building MCP server…', 'dim');
+      if (sh(NPM, ['run', 'build'], { cwd: MCP_SERVER_DIR }) !== 0) return false;
+      return true;
+    },
+    validate: () => fs.existsSync(path.join(MCP_SERVER_DIR, 'dist', 'index.js')),
+  },
+  {
+    id:    'personas',
+    label: 'Personas',
+    desc:  'npm install + build + sync to IDE',
+    detect: () => fs.existsSync(path.join(PERSONAS_DIR, 'node_modules')),
+    run() {
+      log('  Installing personas dependencies…', 'dim');
+      if (sh(NPM, ['install'], { cwd: PERSONAS_DIR }) !== 0) return false;
+      log('  Syncing personas to IDE…', 'dim');
+      const r = spawnSync('node', [path.join(SCRIPTS_DIR, 'sync-personas.js')], {
+        cwd: WORKSPACE_ROOT,
+        stdio: 'inherit',
+      });
+      return (r.status ?? 1) === 0;
+    },
+    validate() {
+      try {
+        const dir = path.join(PERSONAS_DIR, 'ledger', 'vs-code');
+        return fs.readdirSync(dir).some((f) => f.endsWith('.md'));
+      } catch { return false; }
+    },
+  },
+  {
+    id:    'orchestrator',
+    label: 'Orchestrator',
+    desc:  'Python venv + pip install',
+    detect: () => fs.existsSync(path.join(ORCHESTRATOR_DIR, '.venv')),
+    run(args = []) {
+      // Parse orchestrator-specific flags forwarded through args
+      const pIdx  = args.indexOf('--provider');
+      const prov  = (pIdx !== -1 && args[pIdx + 1]) ? args[pIdx + 1] : 'anthropic';
+      const dev   = args.includes('--dev');
+      const ckpt  = args.includes('--checkpoint');
+      const force = args.includes('--force');
+      const VENV  = path.join(ORCHESTRATOR_DIR, '.venv');
+
+      const pyBin = findPython();
+      if (!pyBin) {
+        log('  ✗ Python 3.11+ not found. Install from https://python.org', 'red');
+        return false;
+      }
+
+      if (fs.existsSync(VENV) && force) {
+        log('  --force: removing existing .venv…', 'dim');
+        fs.rmSync(VENV, { recursive: true, force: true });
+      }
+      if (!fs.existsSync(VENV)) {
+        log('  Creating virtual environment…', 'dim');
+        const vArgs = pyBin === 'py' ? ['-3', '-m', 'venv', VENV] : ['-m', 'venv', VENV];
+        if (sh(pyBin, vArgs) !== 0) return false;
+      } else {
+        log('  .venv exists — skipping creation (use --force to recreate)', 'dim');
+      }
+
+      log('  Upgrading pip…', 'dim');
+      if (sh(venvBin('python'), ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip']) !== 0) {
+        return false;
+      }
+
+      const extras = [prov, ...(dev ? ['dev'] : []), ...(ckpt ? ['checkpoint'] : [])];
+      const target = `.[${extras.join(',')}]`;
+      log(`  Installing ${target}…`, 'dim');
+      if (sh(venvBin('pip'), ['install', '--quiet', '-e', target], { cwd: ORCHESTRATOR_DIR }) !== 0) {
+        return false;
+      }
+
+      // Scaffold .env if missing
+      const envFile = path.join(ORCHESTRATOR_DIR, '.env');
+      const envEx   = path.join(ORCHESTRATOR_DIR, '.env.example');
+      if (!fs.existsSync(envFile) || force) {
+        if (fs.existsSync(envEx)) {
+          fs.copyFileSync(envEx, envFile);
+          log('  ✓ orchestrator/.env created from .env.example', 'green');
+        } else {
+          fs.writeFileSync(envFile, `PROVIDER=${prov}\n`, 'utf8');
+          log('  ✓ orchestrator/.env scaffolded with defaults', 'green');
+        }
+      } else {
+        log('  orchestrator/.env already exists (use --force to overwrite)', 'dim');
+      }
+
+      return true;
+    },
+    validate: () => fs.existsSync(venvBin('python')),
+  },
+  {
+    id:    'mcp-json',
+    label: '.mcp.json',
+    desc:  'IDE MCP server config',
+    detect: () => fs.existsSync(MCP_JSON),
+    run:      (args = []) => scaffoldMcpJson(args.includes('--force')),
+    validate() {
+      if (!fs.existsSync(MCP_JSON)) return false;
+      try { JSON.parse(fs.readFileSync(MCP_JSON, 'utf8')); return true; } catch { return false; }
+    },
+  },
+  {
+    id:    'git-hooks',
+    label: 'Git hooks',
+    desc:  'Pre-commit persona guard',
+    detect() {
+      const r = spawnSync('git', ['config', 'core.hooksPath'], { encoding: 'utf8' });
+      return r.status === 0 && r.stdout.trim() === '.githooks';
+    },
+    run: () => sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]) === 0,
+    validate() {
+      const r = spawnSync('git', ['config', 'core.hooksPath'], { encoding: 'utf8' });
+      return r.status === 0 && r.stdout.trim() === '.githooks';
+    },
+  },
+];
+
+// ─── Delegating command functions ─────────────────────────────────────────────
+
+function cmdSyncPersonas(args)    { runScript('sync-personas.js', args); }
+function cmdBuildPersonas(args)   { runScript('build-personas.js', args); }
+function cmdPackagePersonas(args) { runScript('package-personas.js', args); }
+function cmdGui(args)             { runLongScript('run-gui.js', args); }
+function cmdBuildMaintain(args) {
+  // 1. Sync MCP server version (existing behavior)
+  runScript(path.join('..', 'mcp-server', 'scripts', 'sync-version.js'), args);
+
+  // 2. Sync Orchestrator version (new behavior)
+  syncOrchestratorVersion();
+
+  // 3. Build Personas (all suites: ledger + standalone)
+  const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
+  runScript('build-personas.js', buildArgs);
+
+  // 4. Check role parity (persona ↔ MCP server roles)
+  runScript('check-known-roles.js');
+}
+function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
+function cmdPreflight(args)       { runScript('preflight-orchestrator.js', args); }
+function cmdCheckRoles()          { runScript('check-known-roles.js'); }
+function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
+function cmdCtxGenerate(args) {
+  const ctxDir = path.join(WORKSPACE_ROOT, '.context');
+  if (fs.existsSync(ctxDir)) {
+    fs.rmSync(ctxDir, { recursive: true, force: true });
+    log('Cleaned .context/', 'dim');
+  }
+  const result = spawnSync('ctx', ['generate', ...args], {
+    cwd: WORKSPACE_ROOT,
+    stdio: 'inherit',
+    shell: IS_WIN,
+  });
+  if (result.status !== 0) {
+    log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
+    process.exit(result.status ?? 1);
+  }
+  // Normalize Windows backslash paths to forward slashes for cross-platform consistency
+  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir]);
+
+  fs.writeFileSync(
+    path.join(ctxDir, 'generated-at.txt'),
+    new Date().toISOString() + '\n',
+  );
+
+  // Copy AGENTS.md content into CLAUDE.md so IDEs that only read CLAUDE.md
+  // always get the latest agent instructions without a manual sync step.
+  const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
+  const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
+  if (fs.existsSync(agentsMd)) {
+    const agentsContent = fs.readFileSync(agentsMd, 'utf8');
+    const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
+    fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
+    log('Synced AGENTS.md → CLAUDE.md', 'dim');
+  } else {
+    log('\u26a0 AGENTS.md not found — CLAUDE.md not updated', 'yellow');
+  }
+}
+function cmdMcpJson(args)         { scaffoldMcpJson(args.includes('--force')); }
+function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]); }
+function cmdReadLog(args)          { runScript('read-log.js', args); }
+function cmdKillOrchestrator(args) { runScript('kill-orchestrator.js', args); }
+
+// ─── Command registry ─────────────────────────────────────────────────────────
+
+// forward-declares runSetup (defined below) — hoisting is fine for functions
+//
+// COMMANDS entry shape (all fields except id, key, label, category, description, run are optional):
+//   helpVariants:    [commandString, description][] — sub-rows rendered in printHelp()
+//                    immediately after the base command row. Never shown in the menu.
+//   hidden:          boolean — omits the command from the interactive menu;
+//                    command still dispatches via CLI and appears in printHelp().
+//   helpHidden:      boolean — omits the command from printHelp() output;
+//                    command still dispatches via CLI and appears in the menu (key required).
+//                    Composable with hidden: a command can carry both flags.
+//   interleaveAfter: { command: string, variant: number } — instructs printHelp() to
+//                    render this command after the specified parent's helpVariant at that
+//                    index. The command is excluded from its normal insertion-order position.
+//                    Note: command must match an existing COMMANDS id — no runtime validation.
+const COMMANDS = [
+  {
+    id:           'setup',
+    key:          's',
+    label:        'First-time setup',
+    category:     'Setup & Configuration',
+    description:  'Full workspace setup wizard',
+    helpVariants: [
+      ['setup --all',              'Non-interactive full setup'],
+      ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
+    ],
+    run:          (args) => runSetup(args),
+  },
+  {
+    id:             'build-maintain',
+    key:            'b',
+    label:          'Build & Maintain',
+    category:       'Validation & Utilities',
+    description:    'Sync versions & build personas',
+    // In printHelp(), render this command after setup's first helpVariant (setup --all)
+    // to reproduce the original canonical help output order.
+    interleaveAfter: { command: 'setup', variant: 0 },
+    run:            cmdBuildMaintain,
+  },
+  {
+    id:           'mcp-json',
+    key:          'm',
+    label:        'Scaffold .mcp.json',
+    category:     'Setup & Configuration',
+    description:  'Generate IDE MCP server config',
+    helpVariants: [
+      ['mcp-json --force', 'Overwrite existing .mcp.json'],
+    ],
+    run:          cmdMcpJson,
+  },
+  {
+    id:          'git-hooks',
+    key:         'o',
+    label:       'Install git hooks',
+    category:    'Setup & Configuration',
+    description: 'Install git hooks (pre-commit persona guard)',
+    run:         cmdGitHooks,
+  },
+  {
+    id:          'sync-personas',
+    key:         'p',
+    label:       'Sync personas',
+    category:    'Personas',
+    description: 'Deploy to VS Code & Claude Code',
+    run:         cmdSyncPersonas,
+  },
+  {
+    id:          'package-personas',
+    key:         'z',
+    label:       'Package personas',
+    category:    'Personas',
+    description: 'ZIP standalone personas',
+    run:         cmdPackagePersonas,
+  },
+  {
+    id:          'gui',
+    key:         'g',
+    label:       'Launch GUI dashboard',
+    category:    'MCP Server',
+    description: 'Launch MCP GUI dashboard (long-running)',
+    run:         cmdGui,
+  },
+  {
+    id:           'preflight',
+    key:          'f',
+    label:        'Pre-flight checks',
+    category:     'Orchestrator',
+    description:  'Pre-flight checks for orchestrator readiness',
+    helpVariants: [
+      ['preflight --plan <path>', 'Also verify plan file exists'],
+    ],
+    run:          cmdPreflight,
+  },
+  {
+    id:          'orchestrator',
+    key:         null,
+    label:       'Run orchestrator',
+    category:    'Orchestrator',
+    description: 'Run orchestrator pipeline (requires --plan <path>)',
+    hidden:      true,
+    run:         cmdOrchestrator,
+  },
+  {
+    id:           'read-log',
+    key:          'l',
+    label:        'Read orchestrator log',
+    category:     'Orchestrator',
+    description:  'Query & filter JSONL run logs',
+    helpVariants: [
+      ['read-log --summary', 'One-line run overview with token totals'],
+    ],
+    // Not shown in printHelp() — was absent from original help output
+    helpHidden:   true,
+    run:          cmdReadLog,
+  },
+  {
+    id:           'kill-orchestrator',
+    key:          'k',
+    label:        'Kill stale processes',
+    category:     'Orchestrator',
+    description:  'Find & terminate stale orchestrator processes',
+    helpVariants: [
+      ['kill-orchestrator --force', 'Kill without confirmation (agent use)'],
+    ],
+    // Not shown in printHelp() — was absent from original help output
+    helpHidden:   true,
+    run:          cmdKillOrchestrator,
+  },
+  {
+    id:          'bundle-docs',
+    key:         'd',
+    label:       'Bundle docs',
+    category:    'Validation & Utilities',
+    description: 'Compile doc bundles',
+    run:         cmdBundleDocs,
+  },
+  {
+    id:          'ctx-generate',
+    key:         'c',
+    label:       'CTX generate',
+    category:    'Validation & Utilities',
+    description: 'Generate context documentation (ctx generate)',
+    run:         cmdCtxGenerate,
+  },
+];
+
+// ─── Help ─────────────────────────────────────────────────────────────────────
+
+function printHelp() {
+  const ver = readVersion();
+  console.log(`\nAI Insights CLI — ${ver}\n`);
+  console.log('Usage: node scripts/cli.js [command] [options]\n');
+  console.log('Commands:');
+
+  // Build a map of commands that should be interleaved inside another command's
+  // helpVariants block. Key: "<parentId>:<variantIndex>" (insert AFTER that variant).
+  const interleaveMap = new Map();
+  const interleavedIds = new Set();
+  for (const cmd of COMMANDS) {
+    if (cmd.interleaveAfter) {
+      const key = `${cmd.interleaveAfter.command}:${cmd.interleaveAfter.variant}`;
+      if (!interleaveMap.has(key)) interleaveMap.set(key, []);
+      interleaveMap.get(key).push(cmd);
+      interleavedIds.add(cmd.id);
+    }
+  }
+
+  for (const cmd of COMMANDS) {
+    if (cmd.helpHidden) continue;         // explicitly excluded from help
+    if (interleavedIds.has(cmd.id)) continue; // rendered inline via interleaveAfter
+
+    process.stdout.write('  ' + cmd.id.padEnd(28) + C.dim(cmd.description) + '\n');
+    if (cmd.helpVariants) {
+      for (let i = 0; i < cmd.helpVariants.length; i++) {
+        const [variant, desc] = cmd.helpVariants[i];
+        process.stdout.write('  ' + variant.padEnd(28) + C.dim(desc) + '\n');
+        // After each variant, inject any interleaved commands registered for this position.
+        const key = `${cmd.id}:${i}`;
+        if (interleaveMap.has(key)) {
+          for (const other of interleaveMap.get(key)) {
+            process.stdout.write('  ' + other.id.padEnd(28) + C.dim(other.description) + '\n');
+            if (other.helpVariants) {
+              for (const [v, d] of other.helpVariants) {
+                process.stdout.write('  ' + v.padEnd(28) + C.dim(d) + '\n');
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  process.stdout.write('  ' + 'help'.padEnd(28) + C.dim('Show this help') + '\n');
+  console.log('\nRun without arguments for interactive mode.\n');
+}
+
+// ─── Argument parser ──────────────────────────────────────────────────────────
+
+function parseArgs(argv) {
+  const [first, ...rest] = argv;
+  if (!first || first.startsWith('-')) return { command: null, flags: argv };
+  return { command: first, flags: rest };
+}
+
+// ─── Setup wizard ─────────────────────────────────────────────────────────────
+
+/**
+ * Interactive checkbox menu for setup component selection.
+ * Returns a Promise that resolves to an array of component IDs,
+ * or null if the user quit without selecting.
+ */
+function runSetupMenu() {
+  const items = SETUP_COMPONENTS.map((c) => ({
+    id:      c.id,
+    label:   c.label,
+    desc:    c.desc,
+    checked: true,
+    done:    c.detect(),
+  }));
+  let cursor = 0;
+
+  function render() {
+    process.stdout.write('\x1b[2J\x1b[0;0H'); // clear screen + cursor home
+    console.log(C.bold('Select components to set up:\n'));
+    items.forEach((item, i) => {
+      const mark  = i === cursor ? C.cyan('▶') : ' ';
+      const box   = item.checked ? C.green('[x]') : '[ ]';
+      const num   = `${i + 1}.`.padEnd(3);
+      const label = item.label.padEnd(14);
+      const desc  = C.dim(item.desc.padEnd(32));
+      const done  = item.done ? C.dim(' (done)') : '';
+      console.log(`  ${mark} ${box} ${num} ${label} ${desc}${done}`);
+    });
+    console.log('');
+    console.log(C.dim('  (done) = already set up — toggle to re-run'));
+    console.log('');
+    console.log(
+      `  ${C.bold('[a]')} Toggle all   ` +
+      `${C.bold('[Enter]')} Run selected   ` +
+      `${C.bold('[q]')} Back`
+    );
+    console.log('  ↑/↓ or j/k move   Space toggles\n');
+  }
+
+  return new Promise((resolve) => {
+    readline.emitKeypressEvents(process.stdin);
+    let rawSet = false;
+    try { process.stdin.setRawMode(true); rawSet = true; } catch {}
+    process.stdin.resume();
+    render();
+
+    function finish(result) {
+      process.stdin.removeAllListeners('keypress');
+      if (rawSet) try { process.stdin.setRawMode(false); } catch {}
+      process.stdin.pause();
+      resolve(result);
+    }
+
+    process.stdin.on('keypress', (ch, key) => {
+      if (!key) return;
+      // Ctrl+C
+      if ((key.ctrl && key.name === 'c') || key.sequence === '\x03') {
+        finish(null);
+        return;
+      }
+      const k = key.name;
+      if (k === 'up'   || ch === 'k') { cursor = Math.max(0, cursor - 1);                  render(); return; }
+      if (k === 'down' || ch === 'j') { cursor = Math.min(items.length - 1, cursor + 1);   render(); return; }
+      if (ch === ' ')  { items[cursor].checked = !items[cursor].checked;                   render(); return; }
+      if (ch === 'a')  {
+        const allOn = items.every((i) => i.checked);
+        items.forEach((i) => { i.checked = !allOn; });
+        render();
+        return;
+      }
+      if (k === 'return' || k === 'enter') {
+        finish(items.filter((i) => i.checked).map((i) => i.id));
+        return;
+      }
+      if (ch === 'q') { finish(null); return; }
+    });
+  });
+}
+
+/**
+ * Entry function for the `setup` command.
+ * async so it can await the interactive checkbox menu when needed.
+ */
+async function runSetup(args) {
+  const runAll   = args.includes('--all');
+  const compIdx  = args.indexOf('--components');
+  const compList = compIdx !== -1
+    ? (args[compIdx + 1] || '').split(',').filter(Boolean)
+    : null;
+
+  let selectedIds;
+
+  if (runAll) {
+    selectedIds = SETUP_COMPONENTS.map((c) => c.id);
+  } else if (compList) {
+    selectedIds = compList;
+  } else if (!process.stdin.isTTY) {
+    log('✗ Non-interactive mode requires --all or --components <list>', 'red');
+    log('  Example: node scripts/cli.js setup --all', 'dim');
+    process.exit(1);
+  } else {
+    selectedIds = await runSetupMenu();
+    if (!selectedIds || selectedIds.length === 0) {
+      log('No components selected — aborted.', 'dim');
+      return;
+    }
+  }
+
+  const toRun = SETUP_COMPONENTS.filter((c) => selectedIds.includes(c.id));
+  if (toRun.length === 0) {
+    log('No matching components. Available: ' + SETUP_COMPONENTS.map((c) => c.id).join(', '), 'yellow');
+    return;
+  }
+
+  console.log('');
+
+  const results = [];
+  for (const comp of toRun) {
+    log(`→ ${comp.label}  ${C.dim(comp.desc)}`, 'bold');
+    let ok = false;
+    try {
+      ok = await Promise.resolve(comp.run(args));
+    } catch (e) {
+      log(`  ✗ ${comp.label} threw: ${e.message}`, 'red');
+    }
+    if (ok) ok = comp.validate();
+    results.push({ comp, ok });
+  }
+
+  // Print summary table
+  const LINE = '─'.repeat(50);
+  console.log('\nSetup Summary');
+  console.log(LINE);
+  for (const { comp, ok } of results) {
+    const icon  = ok ? C.green('✓') : C.red('✗');
+    const label = comp.label.padEnd(16);
+    const msg   = ok ? C.dim('OK') : C.red('Failed — see output above');
+    console.log(`  ${icon}  ${label} ${msg}`);
+  }
+  console.log(LINE);
+  const passed = results.filter((r) => r.ok).length;
+  const total  = results.length;
+  const color  = passed === total ? 'green' : passed > 0 ? 'yellow' : 'red';
+  log(`  ${passed}/${total} components succeeded`, color);
+  console.log('');
+  if (passed < total) process.exit(1);
+}
+
+// ─── Wait-for-key helper ──────────────────────────────────────────────────────
+
+/**
+ * Display a prompt and wait for the user to press any key.
+ * Used after blocking commands so their output stays visible before the menu
+ * re-renders and clears the screen.
+ */
+function waitForKey(prompt = '\n  Press any key to continue…') {
+  return new Promise((resolve) => {
+    process.stdout.write(C.dim(prompt));
+    readline.emitKeypressEvents(process.stdin);
+    let rawSet = false;
+    try { process.stdin.setRawMode(true); rawSet = true; } catch {}
+    process.stdin.resume();
+
+    function done() {
+      process.stdin.removeAllListeners('keypress');
+      if (rawSet) try { process.stdin.setRawMode(false); } catch {}
+      process.stdin.pause();
+      console.log('');
+      resolve();
+    }
+
+    process.stdin.on('keypress', (ch, key) => {
+      if (key && key.ctrl && key.name === 'c') {
+        done();
+        process.exit(0);
+      }
+      done();
+    });
+  });
+}
+
+// ─── Interactive main menu ────────────────────────────────────────────────────
+
+const BANNER_LINES = [
+  " ",
+  " █████╗ ██╗   ██╗███╗   ██╗███████╗██╗ ██████╗ ██╗  ██╗████████╗███████╗",
+  "██╔══██╗██║   ██║████╗  ██║██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝██╔════╝",
+  "███████║██║   ██║██╔██╗ ██║███████╗██║██║  ███╗███████║   ██║   ███████╗",
+  "██╔══██║██║   ██║██║╚██╗██║╚════██║██║██║   ██║██╔══██║   ██║   ╚════██║",
+  "██║  ██║██║   ██║██║ ╚████║███████║██║╚██████╔╝██║  ██║   ██║   ███████║",
+  "╚═╝  ╚═╝╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝",
+];
+
+function renderMenu(version) {
+  process.stdout.write('\x1b[2J\x1b[0;0H'); // clear screen + cursor home
+  console.log(C.cyan(BANNER_LINES.join('\n')));
+  console.log(C.dim(`  Workspace CLI  ${version}\n`));
+
+  const catVersions = {
+    'MCP Server': readSubVersion(MCP_SERVER_DIR),
+    'Personas':   readSubVersion(PERSONAS_DIR),
+  };
+
+  // Group commands by category (preserving insertion order)
+  const cats = [...new Set(COMMANDS.map((c) => c.category))];
+  for (const cat of cats) {
+    const subVer = catVersions[cat] ? C.dim(` ${catVersions[cat]}`) : '';
+    console.log(C.bold(`  ${cat}`) + subVer);
+    for (const cmd of COMMANDS.filter((c) => c.category === cat && !c.hidden)) {
+      const key   = C.cyan(`${cmd.key}.`);
+      const label = cmd.label.padEnd(26);
+      const desc  = C.dim(cmd.description);
+      console.log(`    ${key} ${label} ${desc}`);
+    }
+    console.log('');
+  }
+
+  console.log(`  ${C.dim('[h] Help   [q] Quit')}\n`);
+  process.stdout.write('  Choose: ');
+}
+
+/**
+ * Show the interactive main menu and handle keypresses.
+ * Called on first launch and after each non-long-running command completes.
+ */
+function showInteractiveMenu() {
+  const version = readVersion();
+  renderMenu(version);
+
+  readline.emitKeypressEvents(process.stdin);
+  let rawSet = false;
+  try {
+    process.stdin.setRawMode(true);
+    rawSet = true;
+  } catch {
+    log('\n✗ Interactive mode requires a TTY terminal.', 'red');
+    log('  Use: node scripts/cli.js help', 'dim');
+    process.exit(1);
+  }
+  process.stdin.resume();
+
+  function restoreTerminal() {
+    process.stdin.removeAllListeners('keypress');
+    if (rawSet) try { process.stdin.setRawMode(false); } catch {}
+    process.stdin.pause();
+  }
+
+  process.stdin.on('keypress', async (ch, key) => {
+    if (!key) return;
+    try {
+
+      // Ctrl+C or 'q' → exit
+      if ((key.ctrl && key.name === 'c') || key.sequence === '\x03' || ch === 'q') {
+        restoreTerminal();
+        console.log('');
+        process.exit(0);
+      }
+
+      // 'h' → show help, pause for user, then re-render menu
+      if (ch === 'h') {
+        restoreTerminal();
+        console.log('');
+        printHelp();
+        await waitForKey('\n  Press any key to return to menu…');
+        setImmediate(() => showInteractiveMenu());
+        return;
+      }
+
+      // Check if the keypress matches a command
+      const cmd = COMMANDS.find((c) => c.key === ch);
+      if (!cmd) {
+        renderMenu(version); // unknown key — just re-render
+        return;
+      }
+
+      // Restore terminal before running any command
+      restoreTerminal();
+      console.log('');
+
+      const isLong = cmd.id === 'gui' || cmd.id === 'orchestrator';
+      if (isLong) {
+        // Long-running: runLongScript manages process exit when child exits
+        cmd.run([]);
+      } else {
+        // Blocking command: run it, pause for user, then re-show menu
+        try {
+          const result = cmd.run([]);
+          if (result && typeof result.then === 'function') await result;
+        } catch { /* errors are already logged inside command implementations */ }
+        await waitForKey('\n  Press any key to return to menu…');
+        setImmediate(() => showInteractiveMenu());
+      }
+
+    } catch (e) {
+      // Safety net: if something unexpected throws, restore terminal and re-show menu
+      restoreTerminal();
+      console.error('\n' + C.red(`Unexpected error: ${e.message}`));
+      setImmediate(() => showInteractiveMenu());
+    }
+  });
+}
+
+// ─── Entry point ──────────────────────────────────────────────────────────────
+
+async function main() {
+  checkNodeVersion();
+  checkWorkspaceRoot();
+
+  const { command, flags } = parseArgs(process.argv.slice(2));
+
+  if (command === 'help') {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (command !== null) {
+    const cmd = COMMANDS.find((c) => c.id === command);
+    if (!cmd) {
+      log(`\n✗ Unknown command: "${command}"`, 'red');
+      log('  Run `node scripts/cli.js help` for a list of commands.', 'dim');
+      process.exit(1);
+    }
+    const result = cmd.run(flags);
+    if (result && typeof result.then === 'function') await result;
+    return;
+  }
+
+  // No command provided
+  if (!process.stdin.isTTY) {
+    log('Usage: node scripts/cli.js [command]', 'dim');
+    log('Run `node scripts/cli.js help` for a list of commands.', 'dim');
+    process.exit(1);
+  }
+
+  showInteractiveMenu();
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+
+```
 ###  Path: `/scripts/extract-changelog-entry.js`
 
 ```js
@@ -2031,6 +3044,416 @@ const { execSync } = require('child_process');
 
 execSync('git config core.hooksPath .githooks', { stdio: 'inherit' });
 console.log('Git hooks installed. Pre-commit persona guard active.');
+
+```
+###  Path: `/scripts/kill-orchestrator.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * scripts/kill-orchestrator.js
+ *
+ * Detect and terminate stale orchestrator processes. Cleans up stale
+ * .orchestrator.lock files after killing.
+ *
+ * Usage:
+ *   node scripts/kill-orchestrator.js            Interactive — prompts before killing
+ *   node scripts/kill-orchestrator.js --force      Kill without prompting (agent use)
+ *   node scripts/kill-orchestrator.js --json       List processes as JSON; no kill
+ *   node scripts/kill-orchestrator.js --depth N    Scan last N log files for lock cleanup (default: 20)
+ *   node scripts/kill-orchestrator.js --help       Show this help
+ *
+ * Exit codes:
+ *   0 — No processes found, or processes successfully killed
+ *   1 — Processes found but user declined to kill (interactive mode)
+ *
+ * No external dependencies — stdlib only (fs, path, child_process, readline).
+ */
+
+'use strict';
+
+const fs            = require('fs');
+const path          = require('path');
+const readline      = require('readline');
+const { spawnSync } = require('child_process');
+
+// ─── Paths ────────────────────────────────────────────────────────────────────
+
+const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const LOGS_DIR       = path.join(WORKSPACE_ROOT, 'orchestrator', 'logs');
+
+// ─── Platform ─────────────────────────────────────────────────────────────────
+
+const IS_WIN = process.platform === 'win32';
+
+// ─── Tunable constants ────────────────────────────────────────────────────────
+
+const SIGTERM_GRACE_MS  = 3000; // ms to wait before escalating to SIGKILL
+const DEFAULT_LOG_DEPTH = 20;   // number of recent log files to scan for lock cleanup
+
+// ─── ANSI colors ──────────────────────────────────────────────────────────────
+
+const USE_COLOR = process.stdout.isTTY;
+
+const C = {
+  dim:    (s) => USE_COLOR ? `\x1b[2m${s}\x1b[0m` : s,
+  bold:   (s) => USE_COLOR ? `\x1b[1m${s}\x1b[0m` : s,
+  red:    (s) => USE_COLOR ? `\x1b[31m${s}\x1b[0m` : s,
+  yellow: (s) => USE_COLOR ? `\x1b[33m${s}\x1b[0m` : s,
+  green:  (s) => USE_COLOR ? `\x1b[32m${s}\x1b[0m` : s,
+  cyan:   (s) => USE_COLOR ? `\x1b[36m${s}\x1b[0m` : s,
+};
+
+// ─── Help ─────────────────────────────────────────────────────────────────────
+
+const HELP = `
+Usage: node scripts/kill-orchestrator.js [options]
+
+Detect and terminate stale orchestrator processes.
+Also cleans up stale .orchestrator.lock files from recently-used plan directories.
+
+Flags:
+  (default)     List found processes and prompt for confirmation before killing
+  --force       Kill all found processes without prompting (for agent/CI use)
+  --json        Output process list as JSON array; does NOT kill anything
+  --depth N     Scan last N log files for lock-file cleanup (default: 20); must be a positive integer
+  --help, -h    Show this help
+
+Exit codes:
+  0   No processes found, or processes successfully killed
+  1   Processes found but user declined (interactive mode)
+
+Examples:
+  node scripts/kill-orchestrator.js
+  node scripts/kill-orchestrator.js --force
+  node scripts/kill-orchestrator.js --json
+  node scripts/kill-orchestrator.js --depth 5
+`;
+
+// ─── Argument parser ──────────────────────────────────────────────────────────
+
+function parseArgs(argv) {
+  const depthIdx = argv.indexOf('--depth');
+  let depth = DEFAULT_LOG_DEPTH;
+  if (depthIdx !== -1) {
+    const raw = argv[depthIdx + 1];
+    const parsed = parseInt(raw, 10);
+    if (raw === undefined || isNaN(parsed) || parsed <= 0) {
+      const got = raw === undefined ? 'nothing' : JSON.stringify(raw);
+      console.error(`Error: --depth requires a positive integer (got ${got})`);
+      process.exit(1);
+    }
+    depth = parsed;
+  }
+  return {
+    force: argv.includes('--force'),
+    json:  argv.includes('--json'),
+    help:  argv.includes('--help') || argv.includes('-h'),
+    depth,
+  };
+}
+
+// ─── Process detection ────────────────────────────────────────────────────────
+
+/**
+ * Get elapsed time for a PID using `ps -o etime= <pid>`.
+ *
+ * @param {number} pid
+ * @returns {string}  e.g. "01:23" or "2-04:05" — empty string on failure
+ */
+function getElapsed(pid) {
+  const r = spawnSync('ps', ['-o', 'etime=', String(pid)], { encoding: 'utf8', shell: false });
+  return r.status === 0 ? r.stdout.trim() : '';
+}
+
+/**
+ * Detect running orchestrator processes using pgrep.
+ * Filters out: this script, pgrep itself, preflight-orchestrator.
+ *
+ * Returns an array of { pid, cmdline, elapsed } objects.
+ * Returns null when pgrep is not available (unexpected on macOS/Linux).
+ *
+ * @returns {Array<{pid: number, cmdline: string, elapsed: string}>|null}
+ */
+function detectProcesses() {
+  const r = spawnSync('pgrep', ['-fl', 'orchestrate'], { encoding: 'utf8', shell: false });
+
+  // pgrep exits 1 when no matches — that is fine (not an error)
+  if (r.error) return null; // pgrep not available
+
+  if (!r.stdout || !r.stdout.trim()) return [];
+
+  const SELF_SCRIPT = path.basename(__filename);
+  const procs = [];
+
+  for (const line of r.stdout.trim().split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Filter out this script, pgrep, and preflight-orchestrator
+    if (trimmed.includes('kill-orchestrator'))   continue;
+    if (trimmed.includes('preflight-orchestrator')) continue;
+    if (trimmed.includes('pgrep'))               continue;
+
+    // pgrep -fl output: "<pid> <cmdline>"
+    const spaceIdx = trimmed.indexOf(' ');
+    if (spaceIdx === -1) continue;
+
+    const pid     = parseInt(trimmed.slice(0, spaceIdx), 10);
+    const cmdline = trimmed.slice(spaceIdx + 1).trim();
+    if (isNaN(pid)) continue;
+
+    const elapsed = getElapsed(pid);
+    procs.push({ pid, cmdline: cmdline.slice(0, 120), elapsed });
+  }
+
+  return procs;
+}
+
+// ─── Process display ──────────────────────────────────────────────────────────
+
+function printProcess(proc) {
+  const elapsed = proc.elapsed ? C.dim(` (running ${proc.elapsed})`) : '';
+  console.log(`  ${C.yellow('PID ' + proc.pid)}${elapsed}`);
+  console.log(`  ${C.dim(proc.cmdline)}`);
+}
+
+// ─── Kill logic ───────────────────────────────────────────────────────────────
+
+/**
+ * Check if a process is still alive (ESRCH = not found).
+ *
+ * @param {number} pid
+ * @returns {boolean}
+ */
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code !== 'ESRCH';
+  }
+}
+
+/**
+ * Kill a single process: SIGTERM first, then SIGKILL after 3s if still alive.
+ *
+ * @param {number} pid
+ * @returns {Promise<void>}
+ */
+async function killProcess(pid) {
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (e) {
+    if (e.code === 'ESRCH') return; // already gone
+    throw e;
+  }
+
+  // Wait for graceful exit before escalating to SIGKILL
+  await new Promise((resolve) => setTimeout(resolve, SIGTERM_GRACE_MS));
+
+  if (isAlive(pid)) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (e) {
+      if (e.code !== 'ESRCH') throw e;
+    }
+  }
+}
+
+// ─── Lock file cleanup ────────────────────────────────────────────────────────
+
+/**
+ * Scan recent JSONL log files for plan paths (via run_start entries).
+ * Returns a set of unique plan directory paths.
+ *
+ * @param {number} depth  Number of recent log files to scan (default: DEFAULT_LOG_DEPTH)
+ * @returns {Set<string>}
+ */
+function findRecentPlanDirs(depth) {
+  const planDirs = new Set();
+  if (!fs.existsSync(LOGS_DIR)) return planDirs;
+
+  const logFiles = fs
+    .readdirSync(LOGS_DIR)
+    .filter((f) => f.endsWith('.jsonl'))
+    .sort()
+    .slice(-depth); // check last N log files
+
+  for (const file of logFiles) {
+    const filePath = path.join(LOGS_DIR, file);
+    let content;
+    try { content = fs.readFileSync(filePath, 'utf8'); } catch { continue; }
+
+    for (const line of content.split('\n')) {
+      const t = line.trim();
+      if (!t) continue;
+      try {
+        const entry = JSON.parse(t);
+        if (entry.action === 'run_start' && entry.plan) {
+          // plan is the plan FILE path; lock is in the plan's parent directory
+          const planFile = entry.plan;
+          const planDir  = fs.statSync(planFile).isFile()
+            ? path.dirname(planFile)
+            : planFile;
+          // Defence-in-depth: only clean up locks within the workspace root.
+          // Prevents a malicious log entry from targeting arbitrary filesystem paths.
+          if (!path.resolve(planDir).startsWith(WORKSPACE_ROOT)) continue;
+          planDirs.add(planDir);
+        }
+      } catch { /* malformed / file not found — skip */ }
+    }
+  }
+
+  return planDirs;
+}
+
+/**
+ * Remove stale .orchestrator.lock files from recently-used plan directories.
+ *
+ * @param {number} depth  Passed through to findRecentPlanDirs
+ * @returns {string[]}  Paths of lock files removed
+ */
+function cleanupStaleLocks(depth) {
+  const removed = [];
+  let planDirs;
+  try { planDirs = findRecentPlanDirs(depth); } catch { return removed; }
+
+  for (const dir of planDirs) {
+    const lockPath = path.join(dir, '.orchestrator.lock');
+    if (fs.existsSync(lockPath)) {
+      try {
+        fs.rmSync(lockPath);
+        removed.push(lockPath);
+      } catch { /* ignore permission errors */ }
+    }
+  }
+
+  return removed;
+}
+
+// ─── Interactive prompt ───────────────────────────────────────────────────────
+
+/**
+ * Prompt the user for a y/N answer.
+ *
+ * @param {string} question
+ * @returns {Promise<boolean>}
+ */
+function askYesNo(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase() === 'y');
+    });
+  });
+}
+
+// ─── Windows advisory ─────────────────────────────────────────────────────────
+
+function printWindowsAdvisory() {
+  console.log('\nAutomatic process detection is not supported on Windows.');
+  console.log('To find and stop stale orchestrator processes manually:');
+  console.log('  1. Open Task Manager (Ctrl+Shift+Esc) → Details tab');
+  console.log('  2. Look for python.exe processes running "orchestrate"');
+  console.log('  3. Right-click → End Task');
+  console.log('');
+  console.log('Alternatively, use PowerShell:');
+  console.log('  Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*orchestrate*" }');
+  console.log('  Stop-Process -Id <PID>');
+  console.log('');
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.help) {
+    console.log(HELP);
+    process.exit(0);
+  }
+
+  // ── Windows: advisory only ───────────────────────────────────────────────
+  if (IS_WIN) {
+    printWindowsAdvisory();
+    process.exit(0);
+  }
+
+  // ── Detect processes ─────────────────────────────────────────────────────
+  const procs = detectProcesses();
+
+  if (procs === null) {
+    console.error('pgrep not found — cannot detect orchestrator processes.');
+    process.exit(1);
+  }
+
+  // ── JSON mode — just list, no kill ────────────────────────────────────────
+  if (opts.json) {
+    console.log(JSON.stringify(procs, null, 2));
+    process.exit(0);
+  }
+
+  // ── No processes found ────────────────────────────────────────────────────
+  if (procs.length === 0) {
+    console.log('No orchestrator processes found.');
+    process.exit(0);
+  }
+
+  // ── List found processes ──────────────────────────────────────────────────
+  console.log(`\nFound ${C.bold(String(procs.length))} orchestrator process${procs.length === 1 ? '' : 'es'}:\n`);
+  for (const proc of procs) {
+    printProcess(proc);
+    console.log('');
+  }
+
+  // ── Interactive confirmation ──────────────────────────────────────────────
+  if (!opts.force) {
+    const confirmed = await askYesNo(
+      `Kill ${procs.length === 1 ? 'this process' : `all ${procs.length} processes`}? [y/N] `,
+    );
+    if (!confirmed) {
+      console.log(C.dim('Cancelled — no processes killed.'));
+      process.exit(1);
+    }
+  }
+
+  // ── Kill ──────────────────────────────────────────────────────────────────
+  console.log('');
+  for (const proc of procs) {
+    process.stdout.write(`Sending SIGTERM to PID ${proc.pid}…`);
+    try {
+      await killProcess(proc.pid);
+      if (!isAlive(proc.pid)) {
+        process.stdout.write(C.green(' killed\n'));
+      } else {
+        process.stdout.write(C.yellow(' process may still be running\n'));
+      }
+    } catch (e) {
+      process.stdout.write(C.red(` error: ${e.message}\n`));
+    }
+  }
+
+  // ── Lock file cleanup ─────────────────────────────────────────────────────
+  const removed = cleanupStaleLocks(opts.depth);
+  if (removed.length > 0) {
+    console.log('');
+    for (const p of removed) {
+      const rel = path.relative(WORKSPACE_ROOT, p);
+      console.log(C.dim(`Removed lock: ${rel.startsWith('..') ? p : rel}`));
+    }
+  }
+
+  console.log('');
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error(`Unexpected error: ${err.message}`);
+  process.exit(1);
+});
 
 ```
 ###  Path: `/scripts/lib/persona-helpers.js`
@@ -2958,6 +4381,518 @@ function main() {
 main();
 
 ```
+###  Path: `/scripts/read-log.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * scripts/read-log.js
+ *
+ * Structured, cross-platform reader for orchestrator JSONL run logs.
+ * Replaces ad-hoc jq/grep pipelines with simple flag-based queries.
+ *
+ * Usage:
+ *   node scripts/read-log.js                        Last 20 entries, most recent log
+ *   node scripts/read-log.js --errors               Only ERROR + WARNING entries
+ *   node scripts/read-log.js --actions route        Filter by action type(s)
+ *   node scripts/read-log.js --wp WP-003            Filter to a specific WP
+ *   node scripts/read-log.js --summary              One-line run overview
+ *   node scripts/read-log.js --slug my-project      Target latest log matching slug
+ *   node scripts/read-log.js --file path/to/log     Explicit log file
+ *   node scripts/read-log.js --format json          JSON array output
+ *   node scripts/read-log.js --help                 Show this help
+ *
+ * No external dependencies — stdlib only (fs, path).
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+
+// ─── Paths ────────────────────────────────────────────────────────────────────
+
+const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const LOGS_DIR       = path.join(WORKSPACE_ROOT, 'orchestrator', 'logs');
+
+// ─── ANSI colors (disabled when stdout is not a TTY) ─────────────────────────
+
+const USE_COLOR = process.stdout.isTTY;
+
+const C = {
+  reset:  (s) => USE_COLOR ? `\x1b[0m${s}\x1b[0m` : s,
+  dim:    (s) => USE_COLOR ? `\x1b[2m${s}\x1b[0m` : s,
+  bold:   (s) => USE_COLOR ? `\x1b[1m${s}\x1b[0m` : s,
+  red:    (s) => USE_COLOR ? `\x1b[31m${s}\x1b[0m` : s,
+  yellow: (s) => USE_COLOR ? `\x1b[33m${s}\x1b[0m` : s,
+  green:  (s) => USE_COLOR ? `\x1b[32m${s}\x1b[0m` : s,
+  cyan:   (s) => USE_COLOR ? `\x1b[36m${s}\x1b[0m` : s,
+};
+
+// ─── Help ─────────────────────────────────────────────────────────────────────
+
+const HELP = `
+Usage: node scripts/read-log.js [options]
+
+Query and filter orchestrator JSONL run logs.
+
+Log Selection:
+  (default)           Most recent .jsonl file in orchestrator/logs/
+  --slug <name>       Latest log whose filename ends with -<name>.jsonl
+  --file <path>       Explicit log file path (absolute or relative to workspace root)
+
+Filtering:
+  --last <n>          Show last N entries (default: 20 when no other filter is set)
+  --actions <types>   Filter by action type(s), comma-separated
+                      e.g. --actions route,stage_complete
+  --level <levels>    Filter by log level(s), comma-separated (case-insensitive)
+                      e.g. --level ERROR,WARNING
+  --errors            Shorthand for --level ERROR,WARNING
+  --wp <id>           Filter to a specific work package, e.g. --wp WP-003
+  --summary           Print one-line run overview with token totals
+
+Output:
+  --format text       Human-readable colored output (default)
+  --format json       Raw JSON array to stdout (for piping)
+
+  --help, -h          Show this help text
+
+Examples:
+  node scripts/read-log.js
+  node scripts/read-log.js --last 50
+  node scripts/read-log.js --errors
+  node scripts/read-log.js --actions route
+  node scripts/read-log.js --actions stage_start,stage_complete
+  node scripts/read-log.js --wp WP-003
+  node scripts/read-log.js --summary
+  node scripts/read-log.js --slug my-project-slug
+  node scripts/read-log.js --errors --format json
+  node scripts/read-log.js --file orchestrator/logs/20260324T142851-my-run.jsonl
+`;
+
+// ─── Argument parser ──────────────────────────────────────────────────────────
+
+/**
+ * Minimal CLI arg parser — no external dependencies.
+ * Supports both `--flag value` and `--flag=value` forms.
+ *
+ * @param {string[]} argv  process.argv.slice(2)
+ * @returns {{
+ *   last: number|null,
+ *   actions: string[]|null,
+ *   level: string[]|null,
+ *   errors: boolean,
+ *   wp: string|null,
+ *   summary: boolean,
+ *   slug: string|null,
+ *   file: string|null,
+ *   format: string,
+ *   help: boolean,
+ * }}
+ */
+function parseArgs(argv) {
+  const opts = {
+    last:    null,
+    actions: null,
+    level:   null,
+    errors:  false,
+    wp:      null,
+    summary: false,
+    slug:    null,
+    file:    null,
+    format:  'text',
+    help:    false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+
+    // ── boolean flags ──
+    if (a === '--help' || a === '-h') { opts.help = true; continue; }
+    if (a === '--errors')    { opts.errors = true; continue; }
+    if (a === '--summary')   { opts.summary = true; continue; }
+
+    // ── value flags — support both --flag val and --flag=val ──
+    const eq = a.indexOf('=');
+    const key = eq === -1 ? a         : a.slice(0, eq);
+    const val = eq === -1 ? argv[++i] : a.slice(eq + 1);
+
+    switch (key) {
+      case '--last':
+        { const n = parseInt(val, 10); if (!isNaN(n) && n > 0) opts.last = n; break; }
+      case '--actions':
+        opts.actions = val.split(',').map((s) => s.trim()).filter(Boolean);
+        break;
+      case '--level':
+        opts.level = val.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+        break;
+      case '--wp':
+        opts.wp = val;
+        break;
+      case '--slug':
+        opts.slug = val;
+        break;
+      case '--file':
+        opts.file = val;
+        break;
+      case '--format':
+        opts.format = val.toLowerCase();
+        break;
+      default:
+        // unknown flag — ignore silently
+        if (eq === -1) i--; // undo argv[++i] that consumed the next element as val
+        break;
+    }
+  }
+
+  return opts;
+}
+
+// ─── Log discovery ────────────────────────────────────────────────────────────
+
+/**
+ * Return sorted list of .jsonl file paths from the logs directory.
+ * Alphabetical sort = chronological (filenames start with YYYYMMDDTHHmmSS).
+ *
+ * @param {string} logsDir
+ * @returns {string[]}
+ */
+function discoverLogs(logsDir) {
+  if (!fs.existsSync(logsDir)) return [];
+  return fs
+    .readdirSync(logsDir)
+    .filter((f) => f.endsWith('.jsonl'))
+    .sort()
+    .map((f) => path.join(logsDir, f));
+}
+
+// ─── JSONL parser ─────────────────────────────────────────────────────────────
+
+/**
+ * Parse every line of a JSONL file, silently skipping malformed lines.
+ *
+ * @param {string} filePath
+ * @returns {object[]}
+ */
+function parseJsonl(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const entries = [];
+  for (const line of content.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    try {
+      entries.push(JSON.parse(t));
+    } catch {
+      // malformed line — skip silently
+    }
+  }
+  return entries;
+}
+
+// ─── Filtering ────────────────────────────────────────────────────────────────
+
+/**
+ * Apply filter flags to an array of parsed log entries.
+ * --last is applied last (tail semantics).
+ *
+ * @param {object[]} entries
+ * @param {object} opts  parsed args
+ * @returns {object[]}
+ */
+function applyFilters(entries, opts) {
+  let result = entries;
+
+  // --wp
+  if (opts.wp) {
+    result = result.filter((e) => e.wp_id === opts.wp);
+  }
+
+  // --actions
+  if (opts.actions) {
+    const set = new Set(opts.actions);
+    result = result.filter((e) => set.has(e.action));
+  }
+
+  // --level / --errors
+  const levels = opts.errors
+    ? new Set(['ERROR', 'WARNING'])
+    : opts.level ? new Set(opts.level) : null;
+  if (levels) {
+    result = result.filter((e) => levels.has((e.level || 'INFO').toUpperCase()));
+  }
+
+  // --last N (default 20 when no other filter is active)
+  const noActiveFilter = !opts.wp && !opts.actions && !levels;
+  const lastN = opts.last !== null
+    ? opts.last
+    : (noActiveFilter ? 20 : null);
+  if (lastN !== null) {
+    result = result.slice(-lastN);
+  }
+
+  return result;
+}
+
+// ─── Formatting helpers ───────────────────────────────────────────────────────
+
+/**
+ * Format a duration in seconds as a human-readable string.
+ * Matches orchestrator/src/utils/logging.py::_format_duration()
+ *
+ * @param {number|null|undefined} seconds
+ * @returns {string}
+ */
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '';
+  const secs = Math.round(seconds);
+  if (secs < 60) return `${secs}s`;
+  const minutes = Math.floor(secs / 60);
+  const remSecs  = secs % 60;
+  if (minutes < 60) return `${minutes}m ${remSecs}s`;
+  const hours   = Math.floor(minutes / 60);
+  const remMins = minutes % 60;
+  return `${hours}h ${remMins}m`;
+}
+
+/**
+ * Extract HH:MM:SS from an ISO 8601 timestamp string.
+ *
+ * @param {string|undefined} ts
+ * @returns {string}
+ */
+function formatTime(ts) {
+  if (!ts) return '??:??:??';
+  try {
+    return new Date(ts).toISOString().slice(11, 19);
+  } catch {
+    return '??:??:??';
+  }
+}
+
+/**
+ * Format a number with comma-separated thousands (cross-platform).
+ *
+ * @param {number} n
+ * @returns {string}
+ */
+function numFmt(n) {
+  const s = String(Math.round(n));
+  return s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// ─── Text entry formatter ─────────────────────────────────────────────────────
+
+/**
+ * Format a single log entry as one human-readable line.
+ *
+ * Pattern:  HH:MM:SS [stage] WP-NNN action → result (duration, tokens)
+ *
+ * @param {object} entry
+ * @returns {string}
+ */
+function formatEntry(entry) {
+  const time   = formatTime(entry.timestamp);
+  const stage  = entry.stage  || '—';
+  const wpId   = entry.wp_id  || '';
+  const action = entry.action || '?';
+  const result = entry.result || '';
+  const level  = (entry.level || 'INFO').toUpperCase();
+
+  const stageStr = C.cyan(`[${stage}]`);
+  const parts = [`${time} ${stageStr}`];
+
+  if (wpId) parts.push(wpId);
+  parts.push(action);
+
+  if (result) {
+    const arrow = result === 'PASS' ? C.green(`→ ${result}`) : C.red(`→ ${result}`);
+    parts.push(arrow);
+  }
+
+  // Detail: duration + tokens
+  const details = [];
+  if (entry.duration_s !== null && entry.duration_s !== undefined) {
+    const d = formatDuration(entry.duration_s);
+    if (d) details.push(d);
+  }
+  if (entry.tokens_used && typeof entry.tokens_used === 'object') {
+    const t = entry.tokens_used.total_tokens;
+    if (t) details.push(`${numFmt(t)} tokens`);
+  }
+  if (details.length > 0) parts.push(`(${details.join(', ')})`);
+
+  let line = parts.filter(Boolean).join(' ');
+
+  // Level-based coloring (applied to whole line)
+  if (level === 'ERROR')   return C.red(line);
+  if (level === 'WARNING') return C.yellow(line);
+  return line;
+}
+
+// ─── Summary mode ─────────────────────────────────────────────────────────────
+
+/**
+ * Build the one-line run summary from the full entries array.
+ *
+ * Format: Run: <ts> | Duration: <d> | WPs: N (x complete, ...) |
+ *         Result: <r> | Tokens: N (in: N / out: N) | Errors: N | Warnings: N
+ *
+ * @param {object[]} entries
+ * @returns {string}
+ */
+function buildSummary(entries) {
+  const runStart        = entries.find((e) => e.action === 'run_start');
+  const runEnd          = entries.find((e) => e.action === 'run_end');
+  const progressEntries = entries.filter((e) => e.action === 'progress_snapshot');
+  const lastProgress    = progressEntries[progressEntries.length - 1];
+
+  // Token totals from all stage_complete entries
+  let tokenIn = 0, tokenOut = 0, hasTokens = false;
+  for (const e of entries) {
+    if (e.action === 'stage_complete' && e.tokens_used) {
+      tokenIn  += e.tokens_used.input_tokens  || 0;
+      tokenOut += e.tokens_used.output_tokens || 0;
+      hasTokens = true;
+    }
+  }
+
+  // Error / warning counts
+  let errorCount = 0, warnCount = 0;
+  for (const e of entries) {
+    const lvl = (e.level || '').toUpperCase();
+    if (lvl === 'ERROR')   errorCount++;
+    else if (lvl === 'WARNING') warnCount++;
+  }
+
+  const parts = [];
+
+  // Run timestamp
+  const ts = runStart?.run_start_ts || runStart?.timestamp;
+  if (ts) parts.push(`Run: ${ts}`);
+
+  // Duration
+  const totalDur = runEnd?.total_duration_s;
+  if (totalDur !== undefined && totalDur !== null) {
+    parts.push(`Duration: ${formatDuration(totalDur)}`);
+  } else if (lastProgress?.elapsed_s !== undefined) {
+    parts.push(`Elapsed: ${formatDuration(lastProgress.elapsed_s)}`);
+  }
+
+  // WP counts
+  if (lastProgress) {
+    const total     = lastProgress.total_wps || 0;
+    const breakdown = lastProgress.status_breakdown || {};
+    const complete  = breakdown.COMPLETE    || 0;
+    const inProg    = breakdown.IN_PROGRESS || 0;
+    const ready     = breakdown.READY       || 0;
+    const detail    = [];
+    if (complete) detail.push(`${complete} complete`);
+    if (inProg)   detail.push(`${inProg} in-progress`);
+    if (ready)    detail.push(`${ready} ready`);
+    parts.push(`WPs: ${total}${detail.length ? ` (${detail.join(', ')})` : ''}`);
+  }
+
+  // Result
+  const result = runEnd?.result || (runEnd ? 'COMPLETE' : 'IN_PROGRESS');
+  parts.push(`Result: ${result}`);
+
+  // Tokens
+  if (hasTokens) {
+    const total = tokenIn + tokenOut;
+    parts.push(`Tokens: ${numFmt(total)} (in: ${numFmt(tokenIn)} / out: ${numFmt(tokenOut)})`);
+  }
+
+  parts.push(`Errors: ${errorCount}`);
+  parts.push(`Warnings: ${warnCount}`);
+
+  return parts.join(' | ');
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+function main() {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.help) {
+    console.log(HELP);
+    process.exit(0);
+  }
+
+  // ── Resolve log file ──
+  let filePath;
+
+  if (opts.file) {
+    filePath = path.isAbsolute(opts.file)
+      ? opts.file
+      : path.resolve(WORKSPACE_ROOT, opts.file);
+    if (!fs.existsSync(filePath)) {
+      console.error(`File not found: ${filePath}`);
+      process.exit(1);
+    }
+  } else {
+    const allLogs = discoverLogs(LOGS_DIR);
+    if (allLogs.length === 0) {
+      console.error(`No log files found in ${LOGS_DIR}`);
+      process.exit(1);
+    }
+
+    if (opts.slug) {
+      const suffix = `-${opts.slug}.jsonl`;
+      const matched = allLogs.filter((f) => path.basename(f).endsWith(suffix));
+      if (matched.length === 0) {
+        console.error(`No log files found matching slug: ${opts.slug}`);
+        process.exit(1);
+      }
+      filePath = matched[matched.length - 1]; // latest among matches
+    } else {
+      filePath = allLogs[allLogs.length - 1]; // latest overall
+    }
+  }
+
+  // ── Parse JSONL ──
+  let entries;
+  try {
+    entries = parseJsonl(filePath);
+  } catch (err) {
+    console.error(`Failed to read log file: ${err.message}`);
+    process.exit(1);
+  }
+
+  // ── Summary mode ──
+  if (opts.summary) {
+    console.log(buildSummary(entries));
+    process.exit(0);
+  }
+
+  // ── Apply filters ──
+  const filtered = applyFilters(entries, opts);
+
+  // ── Output ──
+  if (opts.format === 'json') {
+    console.log(JSON.stringify(filtered, null, 2));
+  } else {
+    // Print a dim header showing which file is being read.
+    // Use relative path when the file is inside the workspace, absolute otherwise.
+    const rel = path.relative(WORKSPACE_ROOT, filePath);
+    const displayPath = rel.startsWith('..') ? filePath : rel;
+    console.log(C.dim(`Log: ${displayPath}\n`));
+
+    if (filtered.length === 0) {
+      console.log(C.dim('(no entries match the filter)'));
+    } else {
+      for (const entry of filtered) {
+        console.log(formatEntry(entry));
+      }
+    }
+  }
+
+  process.exit(0);
+}
+
+main();
+
+```
 ###  Path: `/scripts/run-gui.js`
 
 ```js
@@ -3142,6 +5077,19 @@ if (needBuild) {
 // 4. Launch the orchestrator, forwarding all arguments verbatim
 // ---------------------------------------------------------------------------
 const forwardedArgs = process.argv.slice(2);
+
+// ---------------------------------------------------------------------------
+// 5. Remind the caller about companion scripts
+// ---------------------------------------------------------------------------
+console.log('');
+console.log('[run-orchestrator.js] Companion scripts available while the orchestrator is running:');
+console.log('  Read logs  →  node scripts/read-log.js <path/to/log.jsonl>');
+console.log('               (alias: node scripts/cli.js read-log <path/to/log.jsonl>)');
+console.log('  Kill stale →  node scripts/kill-orchestrator.js');
+console.log('               (alias: node scripts/cli.js kill-orchestrator)');
+  console.log('  TIP: Prefer using read-log.js over native command line tools to read logs —');
+console.log('       it understands the JSONL format.');
+console.log('');
 
 // Resolve the orchestrate binary from the local venv to avoid picking up a
 // stale system-wide install via $PATH.  Python venv uses "Scripts" on Windows

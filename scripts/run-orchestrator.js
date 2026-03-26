@@ -94,6 +94,19 @@ if (needBuild) {
 // ---------------------------------------------------------------------------
 const forwardedArgs = process.argv.slice(2);
 
+// ---------------------------------------------------------------------------
+// 5. Remind the caller about companion scripts
+// ---------------------------------------------------------------------------
+console.log('');
+console.log('[run-orchestrator.js] Companion scripts available while the orchestrator is running:');
+console.log('  Read logs  →  node scripts/read-log.js <path/to/log.jsonl>');
+console.log('               (alias: node scripts/cli.js read-log <path/to/log.jsonl>)');
+console.log('  Kill stale →  node scripts/kill-orchestrator.js');
+console.log('               (alias: node scripts/cli.js kill-orchestrator)');
+  console.log('  TIP: Prefer using read-log.js over native command line tools to read logs —');
+console.log('       it understands the JSONL format.');
+console.log('');
+
 // Resolve the orchestrate binary from the local venv to avoid picking up a
 // stale system-wide install via $PATH.  Python venv uses "Scripts" on Windows
 // and "bin" elsewhere; the binary is "orchestrate.exe" on Windows.

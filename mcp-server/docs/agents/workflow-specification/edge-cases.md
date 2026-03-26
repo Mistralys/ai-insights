@@ -652,3 +652,30 @@ When the FAIL routing resolves to a different agent (the normal case), P4b does 
 **Interaction with §21.66:** This fix is complementary. §21.66 prevents the infinite re-engagement loop (`null → false`). §21.67 prevents the resulting deadlock when the agent should self-rework but the recommendation engine tells it to wait. Both fixes are required for correct behavior of first-active-stage compositions.
 
 **Related sections:** [§9.3.1](pipeline-routing.md#931-fail-routing-fallback) (`resolveFailAgent` fallback), [§14.3](recommendations.md#143-qa-action-logic) (QA action priorities), [§14.4](recommendations.md#144-reviewer-action-logic) (Reviewer action priorities), [§14.5b](recommendations.md#145b-security-auditor-action-logic) (Security Auditor action priorities), [§21.63](#2163-fail-routing-fallback-semantics) (FAIL routing fallback examples), [§21.66](#2166-first-active-stage-re-engagement-loop) (re-engagement loop fix)
+
+### 21.68 Orphaned Pipeline Recovery (Agent Crash Between begin_work and complete_pipeline)
+
+- **Scenario:** An agent calls `ledger_begin_work` (which creates an `IN_PROGRESS` pipeline on the WP) and then crashes, errors out, or is interrupted before calling `ledger_complete_pipeline`. The pipeline remains in `IN_PROGRESS` indefinitely — the WP cannot accept a new pipeline of the same type (duplicate guard in §11.1), and the next `ledger_begin_work` call is rejected.
+- **Detection:** On restart or re-invocation, `ledger_get_next_action` for the agent's role returns `RESUME_OR_CANCEL` (§14.7) when it detects an active pipeline that has exceeded the stale threshold (`STALE_PIPELINE_HOURS`). Alternatively, the orchestrator MAY detect the orphaned pipeline immediately after an agent exception if it can inspect the WP's in-progress pipeline state.
+- **Prescribed recovery:** The orchestrator or recovering agent MUST call `cancelPipeline` (§12.5) with `auto_cancelled = true` before retrying the stage. Setting `auto_cancelled = true` ensures the crash-recovery cancellation does not consume the per-pipeline rework budget (§16.2, §21.27) — the failure was caused by infrastructure, not agent quality.
+
+```
+function recoverOrphanedPipeline(wp, pipelineType, reason):
+  // Verify the pipeline is actually orphaned (IN_PROGRESS with no recent activity)
+  orphaned = wp.pipelines
+    .filter(p => p.type == pipelineType AND p.status == "IN_PROGRESS")
+    .last()
+
+  if orphaned is null:
+    return    // Nothing to recover
+
+  // Cancel with auto_cancelled = true (not a quality failure)
+  cancelPipeline(wp, root, pipelineType, reason, "Project Manager",
+                 { auto_cancelled: true })
+```
+
+- **Rework budget preservation:** The `auto_cancelled = true` flag excludes the orphaned pipeline from `effectiveSamePipelines` in rework detection (§11.1) and from all circuit-breaker calculations (§21.27). The agent may retry up to `MAX_REWORK_COUNT` times on genuine quality failures without any budget consumed by the infrastructure crash.
+- **Multiple orphaned pipelines:** If an agent crashes repeatedly across multiple invocations (e.g., due to a persistent environment issue), each recovery call to `cancelPipeline` with `auto_cancelled = true` does not increment the rework count. The circuit breaker is therefore not a useful safeguard against repeated infrastructure crashes — a separate orchestrator-level retry limit (e.g., a maximum number of crash-recovery attempts per WP per run) is recommended for automated systems.
+- **Distinction from manual PM cancellation:** A PM calling `cancelPipeline` to abort a pipeline whose output is known to be incorrect is an operational decision (the pipeline represents a genuine failure), not crash recovery. In this case `auto_cancelled` SHOULD be `false` (default) so the rework budget accurately reflects the number of genuine failure cycles.
+
+**Related sections:** [§12.5](operations.md#125-pipeline-cancellation-cancelpipeline) (`cancelPipeline` operation and `auto_cancelled` semantics), [§21.27](#2127-auto-cancelled-pipelines) (auto-cancelled pipeline exclusion rules), [§16.3](dependencies-and-rework.md#163-circuit-breaker) (circuit breaker and rework budget), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators) (orchestrator escalation guidance)

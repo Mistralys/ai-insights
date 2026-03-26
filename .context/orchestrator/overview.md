@@ -189,6 +189,18 @@ orchestrate plan.md --log-level DEBUG
 
 The thread ID is printed at the start of every run and in the run summary under `Thread ID`. It looks like a UUID: `3fa85f64-5717-4562-b3fc-2c963f66afa6`.
 
+### Resume safety: terminal checkpoint guard
+
+When a run completes successfully without `--interrupt-on`, the orchestrator writes a `{thread_id}.terminal` marker file in the checkpoint directory. Attempting to `--resume` a terminal thread ID exits immediately with an error:
+
+```
+orchestrate: error: thread '3fa85f64-...' is a completed run
+  (terminal checkpoint — nothing left to execute).
+  To start a fresh run, omit --resume.
+```
+
+Runs that stop at an `--interrupt-on` breakpoint are **not** marked terminal so they can be stepped and resumed normally.
+
 ---
 
 ## Architecture
@@ -406,7 +418,7 @@ Tests are structured as:
 | `test_supervisor.py` | Supervisor routing paths: ledger-driven action dispatch (all action types × all roles), all-WAIT synthesis routing, circuit-breaker increment/reset/halt, unknown-action forward-compatibility guard (mocked MCP); `_derive_next_action` test helper — PASS-branch and FAIL-branch routing both manifest-derived via `PIPELINE_AGENT_MAP`/`FAIL_ROUTING_AGENT_MAP` (no hard-coded role strings); dedicated routing classes for all pipeline stages including `TestRouteToSecurityAuditor`, `TestRouteToReleaseEngineer`, and `TestDocumentationFail`; `TestProgressSnapshot` (4 tests — emitted every iteration with correct fields, elapsed_s guard); `TestWPStatusChangeEvents` (4 tests — change detection, wp_complete sub-event, first-iteration guard); `TestPrevWPSummariesStored` (1 test); `TestEnrichedRouteEvents` (2 tests — prev_stage/wp_id/result on route entries); `TestReworkDetectedEvent` (2 tests) |
 | `test_config.py` | Manifest-derived config constants: `WP_TERMINAL_STATUSES`, `VALID_STAGES`, `PIPELINE_TYPES`, `ROLE_IDS`, `PIPELINE_ROLE_NAMES`, `FAIL_ROUTING_AGENT_MAP`, and `PIPELINE_AGENT_MAP` — structural assertions (type, non-emptiness, key membership, ordering) that tolerate future manifest additions; guards for orchestrating-role exclusion (Planner, Synthesis) and Release Engineer ID normalisation; `TestPipelineAgentMap` pins all pipeline-type-to-agent mappings and cross-validates against `PIPELINE_ROLE_NAMES` |
 | `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration; `TestStageStartEvent` (4 tests — `stage_start` emitted before agent invocation, correct fields); `TestDurationS` (12 parametrized tests — `duration_s` on both `stage_complete` and `stage_error` across all 6 factories); `TestPipelineResult` (7 tests — successful read-back emission, read-back failure isolation, no-pipeline guard); `TestDialogueCaptured` (5 tests — event emitted when `capture_dialogues=True`, required fields present, event omitted when flag is `False`, event omitted when `wp_id` is empty, `write_dialogue` failure does not affect `stage_success`) |
-| `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool |
+| `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool; `restrict_to_wp` contracts: empty-`wp_id` no-op, matching-`wp_id` pass-through, mismatched-`wp_id` raises `ValueError`, idempotency, integration with `inject_project_path`, wiring in `create_stage_node`; `log_tool_calls` contracts: signature and return-value identity, event emission (`tool_name`, `stage`, `wp_id`, `tool_wp_id`), idempotency (sentinel `_orig_ainvoke_log`), `None`-logger no-op, privacy constraint (argument payload excluded), return-value forwarding, edge cases |
 | `test_graph.py` | Graph topology, edges, compilation |
 | `test_cli.py` | Argument parsing, interrupt mapping, exit codes |
 | `test_state.py` | WorkflowState schema and reducer semantics |

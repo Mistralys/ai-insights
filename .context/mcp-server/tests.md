@@ -2393,7 +2393,7 @@ describe('gui/api.ts', () => {
       await createDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md', content);
 
       const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md');
-      expect(result).toBe(content);
+      expect(result).toEqual({ content });
     });
 
     it("throws ApiError NOT_FOUND for '../secret.md' (traversal rejected by allowlist)", async () => {
@@ -2429,7 +2429,7 @@ describe('gui/api.ts', () => {
     it('returns content for a valid alphanumeric filename with underscores', async () => {
       await createDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md', 'underscore content');
       const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md');
-      expect(result).toBe('underscore content');
+      expect(result).toEqual({ content: 'underscore content' });
     });
 
     // ── WP-003: logging on rejection paths ───────────────────────────────────
@@ -3358,14 +3358,30 @@ beforeAll(() => {
 
 // ---------------------------------------------------------------------------
 // URL-routing fetch mock — avoids shared-index ordering issues
+//
+// Route pattern reference for this file:
+//   '/work-packages/'     → getWorkPackage()      returns the WP JSON object
+//   /\/dialogues\?wp=/    → getDialogues()        returns array of { filename, stage }
+//   /\/dialogues\//       → getDialogueContent()  returns { content: '...' } (text via res.text())
+//
+// IMPORTANT: keep the two dialogue patterns distinct. Using /\/dialogues\?wp=/ for both
+// would cause the content fetch to silently match the list route (fallback behaviour) and
+// return an array instead of a string — tests pass the wrong shape with no warning.
+//
+// Fallback behaviour: when no route matches, the last route in the array is used and a
+// console.warn is emitted. Always order routes from most-specific to least-specific.
 // ---------------------------------------------------------------------------
 type Route = { match: string | RegExp; body?: unknown; text?: string; status?: number };
 
 function installFetchMock(routes: Route[]) {
   (globalThis as any).fetch = vi.fn(async (url: string) => {
-    const route = routes.find(r =>
+    const matched = routes.find(r =>
       typeof r.match === 'string' ? url.includes(r.match) : r.match.test(url)
-    ) ?? routes[routes.length - 1]!;
+    );
+    if (!matched) {
+      console.warn(`[installFetchMock] No route matched URL: "${url}" — falling back to last route. Check your route patterns.`);
+    }
+    const route = matched ?? routes[routes.length - 1]!;
     const status = route.status ?? 200;
     return {
       ok: status >= 200 && status < 300,
@@ -3441,11 +3457,17 @@ describe('AC1 — API.getDialogues URL', () => {
 // ============================================================
 
 describe('AC2 — API.getDialogueContent URL', () => {
+  // NOTE: These tests use a raw vi.fn() instead of installFetchMock because they
+  // need to inspect the raw URL. The mock must include BOTH json() and text() even
+  // though getDialogueContent() only calls text() — api-client.js uses a shared
+  // request() helper for other endpoints that calls json(), and omitting either
+  // method causes "res.json is not a function" / "res.text is not a function" errors
+  // depending on which code path executes first.
   it('makes GET /api/projects/{slug}/dialogues/{filename}', async () => {
     const calls: string[] = [];
     (globalThis as any).fetch = vi.fn(async (url: string) => {
       calls.push(url);
-      return { ok: true, status: 200, text: async () => '# Hello' };
+      return { ok: true, status: 200, json: async () => ({ content: '# Hello' }), text: async () => '# Hello' };
     });
     await globalThis.API.getDialogueContent('my-project', 'file.md');
     expect(calls).toHaveLength(1);
@@ -3454,7 +3476,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
 
   it('returns raw text (not parsed JSON)', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
-      ok: true, status: 200, text: async () => '# Markdown content',
+      ok: true, status: 200, json: async () => ({ content: '# Markdown content' }), text: async () => '# Markdown content',
     }));
     const result = await globalThis.API.getDialogueContent('p', 'f.md');
     expect(typeof result).toBe('string');
@@ -3463,7 +3485,7 @@ describe('AC2 — API.getDialogueContent URL', () => {
 
   it('throws on HTTP error', async () => {
     (globalThis as any).fetch = vi.fn(async () => ({
-      ok: false, status: 404, text: async () => '',
+      ok: false, status: 404, json: async () => null,
     }));
     await expect(globalThis.API.getDialogueContent('p', 'f.md')).rejects.toMatchObject({
       code: 'ERROR',
@@ -3594,14 +3616,13 @@ describe('AC6 — Click fetches and renders via marked.parse()', () => {
     installFetchMock([
       { match: '/work-packages/',    body: { ...baseWp } },
       { match: /\/dialogues\?wp=/,   body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
-      { match: /\/dialogues\//,      text: markdownBody },
+      { match: /\/dialogues\//,      body: { content: markdownBody } },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
     await new Promise(r => setTimeout(r, WAIT));
 
-    const section = app.querySelector('#wp-dialogues-section')!;
-    const btn     = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
+    const section = app.querySelector('#wp-dialogues-section')!;    expect(section).not.toBeNull();    const btn     = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
     expect(btn).not.toBeNull();
 
     btn.click();
@@ -3635,7 +3656,12 @@ describe('AC7 — Clicking second dialogue collapses first', () => {
           { filename: 'developer-r0.md', stage: 'developer' },
         ],
       },
-      { match: /\/dialogues\//, text: '# Content' },
+      // NOTE: Two distinct URL patterns for dialogues — keep them separate:
+      //   /dialogues?wp=   → getDialogues()       lists dialogue filenames for a WP
+      //   /dialogues/      → getDialogueContent()  fetches content for one file
+      // Using /dialogues?wp=/ for both would silently match the content fetch via
+      // the installFetchMock fallback, returning an array instead of { content }.
+      { match: /\/dialogues\//, body: { content: '# Content' } },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3696,7 +3722,7 @@ describe('AC8 — Fetch error handling', () => {
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
-      { match: /\/dialogues\//,    text: '', status: 403 },
+      { match: /\/dialogues\//,    body: null, status: 403 },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3829,7 +3855,7 @@ describe('Edge cases', () => {
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
-      { match: /\/dialogues\//,    text: '# Hello' },
+      { match: /\/dialogues\//,    body: { content: '# Hello' } },
     ]);
 
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3894,7 +3920,7 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
           { filename: 'developer-r0.md', stage: 'developer' },
         ],
       },
-      { match: /\/dialogues\//, text: '# Hello' },
+      { match: /\/dialogues\//, body: { content: '# Hello' } },
     ]);
     document.body.appendChild(app);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -4261,6 +4287,7 @@ import {
   migrateOrphanedLogs,
   archiveCompletedLogs,
   resolveLogSource,
+  readLogStatus,
   ApiError,
 } from '../../src/gui/log-resolver.js';
 
@@ -4515,6 +4542,79 @@ describe('findRunLogs', () => {
   it('returns an empty array when the directory is empty', async () => {
     const results = await findRunLogs(tempDir, 'my-project');
     expect(results).toEqual([]);
+  });
+
+  // ── is_dry_run population ─────────────────────────────────────────────────
+
+  it('sets is_dry_run: true when first line is run_start with dry_run: true', async () => {
+    const file = join(tempDir, '20260324T100000-my-project.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', dry_run: true, ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end' },
+    ]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(true);
+  });
+
+  it('sets is_dry_run: false when first line is run_start without dry_run', async () => {
+    const file = join(tempDir, '20260324T100000-my-project.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end' },
+    ]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false when first line is run_start with dry_run: false', async () => {
+    const file = join(tempDir, '20260324T110000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'run_start', dry_run: false }, { action: 'run_end' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false for an empty log file', async () => {
+    await writeFile(join(tempDir, '20260324T120000-my-project.jsonl'), '', 'utf-8');
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false when first line is malformed JSON', async () => {
+    await writeFile(
+      join(tempDir, '20260324T130000-my-project.jsonl'),
+      'not-valid-json\n{"action":"run_end"}\n',
+      'utf-8',
+    );
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('sets is_dry_run: false when first line is not a run_start event', async () => {
+    const file = join(tempDir, '20260324T140000-my-project.jsonl');
+    await writeJsonl(file, [{ action: 'step_start', dry_run: true }, { action: 'run_end' }]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results[0]!.is_dry_run).toBe(false);
+  });
+
+  it('every returned entry has an is_dry_run boolean field', async () => {
+    await writeFile(join(tempDir, '20260324T090000-my-project.jsonl'), '', 'utf-8');
+    await writeJsonl(join(tempDir, '20260324T095900-my-project.jsonl'), [
+      { action: 'run_start', dry_run: true },
+    ]);
+
+    const results = await findRunLogs(tempDir, 'my-project');
+    expect(results).toHaveLength(2);
+    results.forEach((r) => expect(typeof r.is_dry_run).toBe('boolean'));
   });
 });
 
@@ -4818,6 +4918,103 @@ describe('archiveCompletedLogs', () => {
     await writeFile(join(sourceDir, '20260323T100000-other-slug.jsonl'), 'data', 'utf-8');
     const archived = await archiveCompletedLogs(archiveDir, sourceDir, 'my-project');
     expect(archived).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// readLogStatus
+// ---------------------------------------------------------------------------
+
+describe('readLogStatus', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'log-resolver-read-status-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('is_dry_run: false + is_active: false for a completed non-dry-run', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end', ts: '2026-03-24T10:01:00Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(false);
+  });
+
+  it('is_dry_run: true + is_active: false for a completed dry run', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', dry_run: true, ts: '2026-03-24T10:00:00Z' },
+      { action: 'run_end', ts: '2026-03-24T10:01:00Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(true);
+    expect(status.is_active).toBe(false);
+  });
+
+  it('is_dry_run: false + is_active: true for an in-progress non-dry-run', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', ts: '2026-03-24T10:00:00Z' },
+      { action: 'stage_start', ts: '2026-03-24T10:00:05Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(true);
+  });
+
+  it('is_dry_run: true + is_active: true for an in-progress dry run (combined case)', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeJsonl(file, [
+      { action: 'run_start', dry_run: true, ts: '2026-03-24T10:00:00Z' },
+      { action: 'stage_start', ts: '2026-03-24T10:00:05Z' },
+    ]);
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(true);
+    expect(status.is_active).toBe(true);
+  });
+
+  it('returns { is_active: false, is_dry_run: false } for an unreadable file', async () => {
+    const status = await readLogStatus(join(tempDir, 'nonexistent.jsonl'));
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(false);
+  });
+
+  it('returns { is_active: true, is_dry_run: false } for an empty file', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeFile(file, '', 'utf-8');
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(true);
+  });
+
+  it('returns is_dry_run: false when first line is malformed JSON', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeFile(file, 'not-valid-json\n{"action":"run_end"}\n', 'utf-8');
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(false);
+    expect(status.is_active).toBe(false); // last line is run_end
+  });
+
+  it('returns is_active: true when last line is malformed JSON (fail-safe)', async () => {
+    const file = join(tempDir, 'run.jsonl');
+    await writeFile(file, '{"action":"run_start","dry_run":true}\nnot-valid-json\n', 'utf-8');
+
+    const status = await readLogStatus(file);
+    expect(status.is_dry_run).toBe(true);
+    expect(status.is_active).toBe(true); // cannot confirm completion — treated as active
   });
 });
 
@@ -5183,6 +5380,55 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     expect(section!.innerHTML).not.toContain('badge-in-progress');
   });
 
+  it('shows a Dry Run badge for a run with is_dry_run: true', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: false, is_dry_run: true },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).toContain('Dry Run');
+    expect(section!.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('does not show a Dry Run badge when is_dry_run is false', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: false, is_dry_run: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).not.toContain('badge-dry-run');
+  });
+
+  it('shows both Running and Dry Run badges for an active dry run', async () => {
+    const logs = [
+      { filename: '20260325T120000-my-project.jsonl', is_active: true, is_dry_run: true },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getProject: () => Promise.resolve(makeProject({ runner: 'orchestrator' })),
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    const section = app.querySelector('#orchestrator-runs-section');
+    expect(section).not.toBeNull();
+    expect(section!.innerHTML).toContain('badge-in-progress');
+    expect(section!.innerHTML).toContain('badge-dry-run');
+    expect(section!.innerHTML).toContain('Running');
+    expect(section!.innerHTML).toContain('Dry Run');
+  });
+
   it('only shows Running badge on the most-recent run even if older runs have is_active: true', async () => {
     // Simulates runs that were killed without writing run_end — they appear active
     // in the file, but only the newest one can truly be running.
@@ -5383,6 +5629,26 @@ describe('handleListRunLogs', () => {
     const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(true);
+  });
+
+  it('passes through is_dry_run: true for a dry-run log file', async () => {
+    const content = JSON.stringify({ action: 'run_start', dry_run: true }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(logsDir, '20260324T100000-my-project.jsonl'), content, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.is_dry_run).toBe(true);
+  });
+
+  it('passes through is_dry_run: false for a regular (non-dry-run) log file', async () => {
+    const content = JSON.stringify({ action: 'run_start' }) + '\n' +
+                    JSON.stringify({ action: 'run_end' }) + '\n';
+    await writeFile(join(logsDir, '20260324T110000-my-project.jsonl'), content, 'utf-8');
+
+    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.is_dry_run).toBe(false);
   });
 
   // ── Integration: dual-source merge and deduplication ───────────────────────
@@ -6040,6 +6306,31 @@ describe('renderRunLog', () => {
     expect(app.innerHTML).toContain('abc-123');
   });
 
+  it('renders run_start with Dry Run badge when dry_run is true', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', { dry_run: true, thread_id: 'dry-abc' }),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).toContain('Dry Run');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('does not render Dry Run badge on run_start when dry_run is false', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', { dry_run: false }),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).not.toContain('badge-dry-run');
+  });
+
+  it('does not render Dry Run badge on run_start when dry_run is absent', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('run_start', {}),
+    ]));
+    expect(app.innerHTML).toContain('Run started');
+    expect(app.innerHTML).not.toContain('badge-dry-run');
+  });
+
   it('renders run_end', async () => {
     await render(app, 'my-project', 'run.jsonl', makeResult([entry('run_end')]));
     expect(app.innerHTML).toContain('Run completed');
@@ -6054,6 +6345,55 @@ describe('renderRunLog', () => {
     expect(app.innerHTML).toContain('something exploded');
     // Should have error severity class
     expect(app.innerHTML).toContain('run-event--error');
+  });
+
+  it('renders dry_run with "Stage skipped", wp_id, and stage', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run', { wp_id: 'WP-003', stage: 'implementation' }),
+    ]));
+    expect(app.innerHTML).toContain('Stage skipped');
+    expect(app.innerHTML).toContain('WP-003');
+    expect(app.innerHTML).toContain('implementation');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('renders dry_run with severity run-event--info', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run', { wp_id: 'WP-001', stage: 'qa' }),
+    ]));
+    expect(app.innerHTML).toContain('run-event--info');
+  });
+
+  it('renders dry_run_no_ledger with "No ledger" and detail', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_no_ledger', { detail: 'Project not initialised' }),
+    ]));
+    expect(app.innerHTML).toContain('No ledger');
+    expect(app.innerHTML).toContain('Project not initialised');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('renders dry_run_no_ledger with severity run-event--warning', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_no_ledger', {}),
+    ]));
+    expect(app.innerHTML).toContain('run-event--warning');
+  });
+
+  it('renders dry_run_complete with "Dry run complete" and reason', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_complete', { reason: 'dry-run: PM stub executed; no ledger expected' }),
+    ]));
+    expect(app.innerHTML).toContain('Dry run complete');
+    expect(app.innerHTML).toContain('dry-run: PM stub executed');
+    expect(app.innerHTML).toContain('badge-dry-run');
+  });
+
+  it('renders dry_run_complete with severity run-event--success', async () => {
+    await render(app, 'my-project', 'run.jsonl', makeResult([
+      entry('dry_run_complete', {}),
+    ]));
+    expect(app.innerHTML).toContain('run-event--success');
   });
 
   it('renders unknown action types with a generic fallback without throwing', async () => {
@@ -13371,6 +13711,108 @@ describe('cancelPipeline logic', () => {
     );
     expect(pipeline).toBeUndefined();
     // In the real tool, this would throw the descriptive error
+  });
+});
+
+describe('cancelPipeline — auto_cancelled parameter', () => {
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+  let originalArgv: string[];
+  const CANCEL_PLAN_PATH = join(tmpdir(), '2026-01-01-cancel-auto-test');
+
+  function makeRootIndex(): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: 1,
+      pending_work_packages: 1,
+      work_packages: [
+        {
+          work_package_id: 'WP-001',
+          status: 'IN_PROGRESS',
+          assigned_to: 'Developer',
+          dependencies: [],
+          file: 'ledger/WP-001.json',
+        },
+      ],
+      project_comments: [],
+    };
+  }
+
+  function makeWpWithInProgressPipeline(): WorkPackageDetail {
+    return {
+      work_package_id: 'WP-001',
+      work_package_file: 'work/WP-001.md',
+      status: 'IN_PROGRESS',
+      assigned_to: 'Developer',
+      dependencies: [],
+      acceptance_criteria: [],
+      revision: 0,
+      pipelines: [{ type: 'implementation', status: 'IN_PROGRESS' as any, started_at: now(), summary: [] }],
+    };
+  }
+
+  const { cancelPipeline } = _internal;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'cancel-auto-'));
+    store = new LedgerStore(CANCEL_PLAN_PATH, tempLedgerRoot);
+    originalArgv = [...process.argv];
+    process.argv.push('--ledger-dir', tempLedgerRoot);
+    await store.writeRootIndex(makeRootIndex());
+    await store.writeWorkPackage('WP-001', makeWpWithInProgressPipeline());
+  });
+
+  afterEach(async () => {
+    process.argv = originalArgv;
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('sets auto_cancelled = true on the pipeline when auto_cancelled param is true', async () => {
+    const result = await cancelPipeline({
+      project_path: CANCEL_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      reason: 'Crash recovery',
+      auto_cancelled: true,
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].auto_cancelled).toBe(true);
+    expect(wp.pipelines[0].summary[0]).toContain('Cancelled: Crash recovery');
+  });
+
+  it('does not set auto_cancelled on the pipeline when auto_cancelled param is false (default)', async () => {
+    const result = await cancelPipeline({
+      project_path: CANCEL_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      reason: 'Manual PM cleanup',
+      auto_cancelled: false,
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].auto_cancelled).toBeUndefined();
+  });
+
+  it('does not set auto_cancelled when the parameter is omitted (backward compatibility)', async () => {
+    const result = await cancelPipeline({
+      project_path: CANCEL_PLAN_PATH,
+      work_package_id: 'WP-001',
+      type: 'implementation',
+      reason: 'Stale pipeline cleanup',
+    });
+
+    expect((result as any).isError).toBeUndefined();
+    const wp = await store.readWorkPackage('WP-001');
+    expect(wp.pipelines[0].status).toBe('FAIL');
+    expect(wp.pipelines[0].auto_cancelled).toBeUndefined();
   });
 });
 
@@ -26248,7 +26690,7 @@ describe('getNextAction — cwd_path auto-detection (WP-005)', () => {
     }
   });
 
-  it('returns an error when both project_path and cwd_path are provided', async () => {
+  it('uses project_path when both project_path and cwd_path are provided', async () => {
     const wp = makeWorkPackageDetail({
       work_package_id: 'WP-001',
       status: 'READY',
@@ -26259,10 +26701,12 @@ describe('getNextAction — cwd_path auto-detection (WP-005)', () => {
     const originalArgv = [...process.argv];
     process.argv.push('--ledger-dir', handle.ledgerRoot);
     try {
-      // Passing both paths is now an error — mutual exclusivity is enforced in resolveProjectPath()
-      const rawResult = await _internal.getNextAction({ project_path: planPath, cwd_path: '/some/other/path', agent_role: 'Developer' });
-      expect((rawResult as any).isError).toBe(true);
-      expect((rawResult as any).content[0].text).toMatch(/project_path.*cwd_path|cwd_path.*project_path/i);
+      // project_path takes precedence over cwd_path — should succeed, not error
+      const result = await parseResult(
+        _internal.getNextAction({ project_path: planPath, cwd_path: '/some/other/path', agent_role: 'Developer' })
+      );
+      expect(result.action).toBe('CLAIM_WP');
+      expect(result.work_package_id).toBe('WP-001');
     } finally {
       process.argv = originalArgv;
     }
@@ -27919,14 +28363,11 @@ describe('inferProjectRootFromPlanPath', () => {
 ```ts
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { join } from 'path';
-import { z } from 'zod';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import {
   validatePlanPath,
   planFolderBasename,
   resolveProjectPath,
-  mutuallyExclusivePaths,
-  MUTUAL_EXCLUSIVITY_PATH_MSG,
   formatCandidateList,
 } from '../../src/utils/path-validator.js';
 
@@ -28118,93 +28559,19 @@ describe('resolveProjectPath', () => {
     ).rejects.toThrow('No project found for cwd_path');
   });
 
-  it('throws when both project_path and cwd_path are provided', async () => {
-    await expect(
-      resolveProjectPath({ project_path: '/a', cwd_path: '/b' })
-    ).rejects.toThrow(MUTUAL_EXCLUSIVITY_PATH_MSG);
+  it('uses project_path when both project_path and cwd_path are provided', async () => {
+    const spy = vi.spyOn(LedgerStore, 'detectProjectByCwd');
+    const validPlan = '/tmp/2026-02-16-my-project';
+    const result = await resolveProjectPath({ project_path: validPlan, cwd_path: '/any/workspace' });
+    expect(result).toBe(validPlan);
+    // LedgerStore must NOT be called — project_path takes precedence
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('throws when neither project_path nor cwd_path is provided', async () => {
     await expect(resolveProjectPath({})).rejects.toThrow(
       'Either project_path or cwd_path is required.'
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// mutuallyExclusivePaths + MUTUAL_EXCLUSIVITY_PATH_MSG
-// ---------------------------------------------------------------------------
-
-describe('mutuallyExclusivePaths', () => {
-  it('returns true when only project_path is provided', () => {
-    expect(mutuallyExclusivePaths({ project_path: '/some/plan/2026-01-01-test' })).toBe(true);
-  });
-
-  it('returns true when only cwd_path is provided', () => {
-    expect(mutuallyExclusivePaths({ cwd_path: '/workspace/root' })).toBe(true);
-  });
-
-  it('returns true when neither field is provided', () => {
-    expect(mutuallyExclusivePaths({})).toBe(true);
-  });
-
-  it('returns false when both project_path and cwd_path are provided', () => {
-    expect(
-      mutuallyExclusivePaths({
-        project_path: '/some/plan/2026-01-01-test',
-        cwd_path: '/workspace/root',
-      })
-    ).toBe(false);
-  });
-
-  it('returns true when project_path is empty string (falsy)', () => {
-    expect(mutuallyExclusivePaths({ project_path: '', cwd_path: '/workspace/root' })).toBe(true);
-  });
-
-  it('returns true when cwd_path is undefined and project_path is set', () => {
-    expect(mutuallyExclusivePaths({ project_path: '/plan/2026-01-01-x', cwd_path: undefined })).toBe(true);
-  });
-});
-
-describe('MUTUAL_EXCLUSIVITY_PATH_MSG', () => {
-  it('is a non-empty string', () => {
-    expect(typeof MUTUAL_EXCLUSIVITY_PATH_MSG).toBe('string');
-    expect(MUTUAL_EXCLUSIVITY_PATH_MSG.length).toBeGreaterThan(0);
-  });
-
-  it('is surfaced by a Zod schema refine when both paths are provided', () => {
-    const TestSchema = z.object({
-      project_path: z.string().optional(),
-      cwd_path: z.string().optional(),
-    }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
-
-    // Both fields → validation error with expected message
-    const result = TestSchema.safeParse({
-      project_path: '/some/plan/2026-01-01-test',
-      cwd_path: '/workspace/root',
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.errors[0]!.message).toBe(MUTUAL_EXCLUSIVITY_PATH_MSG);
-    }
-  });
-
-  it('Zod schema with refine accepts project_path only', () => {
-    const TestSchema = z.object({
-      project_path: z.string().optional(),
-      cwd_path: z.string().optional(),
-    }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
-
-    expect(TestSchema.safeParse({ project_path: '/some/plan/2026-01-01-x' }).success).toBe(true);
-  });
-
-  it('Zod schema with refine accepts cwd_path only', () => {
-    const TestSchema = z.object({
-      project_path: z.string().optional(),
-      cwd_path: z.string().optional(),
-    }).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
-
-    expect(TestSchema.safeParse({ cwd_path: '/workspace' }).success).toBe(true);
   });
 });
 
@@ -29208,6 +29575,197 @@ describe('applyProjectReset — clears synthesis_generated_at (WP-008)', () => {
     const updatedRoot = await store.readRootIndex();
     expect(updatedRoot.synthesis_generated).toBe(false);
     expect(updatedRoot.synthesis_generated_at).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-002 — orphaned IN_PROGRESS pipeline cleanup on reset
+// ---------------------------------------------------------------------------
+
+describe('analyzeProjectForReset — orphaned_pipeline_count', () => {
+  it('reports orphaned_pipeline_count = 0 when no IN_PROGRESS pipelines', () => {
+    const wp = makeWp('WP-001', 'COMPLETE', 'Developer', ['implementation']);
+    const rootIndex = makeRootIndex({
+      status: 'COMPLETE',
+      work_packages: [{ work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'WP-001.json' }],
+    });
+
+    const result = analyzeProjectForReset('test-project', rootIndex, [wp]);
+
+    expect(result.work_packages[0]!.orphaned_pipeline_count).toBe(0);
+    expect(result.total_orphaned_pipelines).toBe(0);
+  });
+
+  it('reports orphaned_pipeline_count for WP with an IN_PROGRESS pipeline', () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'Developer', ['implementation']);
+    wp.pipelines.push({
+      type: 'qa',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T02:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootIndex({
+      work_packages: [{ work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'WP-001.json' }],
+    });
+
+    const result = analyzeProjectForReset('test-project', rootIndex, [wp]);
+
+    expect(result.work_packages[0]!.orphaned_pipeline_count).toBe(1);
+    expect(result.total_orphaned_pipelines).toBe(1);
+  });
+
+  it('sums total_orphaned_pipelines across multiple WPs', () => {
+    const wp1 = makeWp('WP-001', 'IN_PROGRESS', 'Developer', []);
+    wp1.pipelines.push({ type: 'implementation', status: 'IN_PROGRESS', started_at: '2026-03-01T00:00:00Z', summary: [] });
+
+    const wp2 = makeWp('WP-002', 'IN_PROGRESS', 'QA', ['implementation']);
+    wp2.pipelines.push({ type: 'qa', status: 'IN_PROGRESS', started_at: '2026-03-01T00:00:00Z', summary: [] });
+    wp2.pipelines.push({ type: 'code-review', status: 'IN_PROGRESS', started_at: '2026-03-01T01:00:00Z', summary: [] });
+
+    const rootIndex = makeRootIndex({
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'WP-001.json' },
+        { work_package_id: 'WP-002', status: 'IN_PROGRESS', assigned_to: 'QA', dependencies: [], file: 'WP-002.json' },
+      ],
+    });
+
+    const result = analyzeProjectForReset('test-project', rootIndex, [wp1, wp2]);
+
+    expect(result.work_packages[0]!.orphaned_pipeline_count).toBe(1);
+    expect(result.work_packages[1]!.orphaned_pipeline_count).toBe(2);
+    expect(result.total_orphaned_pipelines).toBe(3);
+  });
+});
+
+describe('applyProjectReset — orphaned pipeline cleanup (WP-002)', () => {
+  const ORPHAN_PLAN = join(tmpdir(), '2026-03-25-orphan-pipeline-test');
+  let ledgerRoot: string;
+
+  function makeRootWith(wps: WorkPackageDetail[]): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: wps.length,
+      pending_work_packages: wps.length,
+      work_packages: wps.map((wp) => ({
+        work_package_id: wp.work_package_id,
+        status: wp.status,
+        assigned_to: wp.assigned_to,
+        dependencies: wp.dependencies,
+        file: `${wp.work_package_id}.json`,
+      })),
+      project_comments: [],
+    };
+  }
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'orphan-pipeline-ledger-'));
+  });
+
+  afterEach(async () => {
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('sets IN_PROGRESS pipelines to FAIL with auto_cancelled=true on reset', async () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'Developer', []);
+    wp.pipelines.push({
+      type: 'implementation',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T00:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootWith([wp]);
+    const store = new LedgerStore(ORPHAN_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'reset' } });
+
+    const wpAfter = await store.readWorkPackage('WP-001');
+    const cancelledPipeline = wpAfter.pipelines.find(
+      (p) => p.type === 'implementation' && p.status === 'FAIL'
+    );
+    expect(cancelledPipeline).toBeDefined();
+    expect(cancelledPipeline!.auto_cancelled).toBe(true);
+    expect(cancelledPipeline!.summary).toEqual(['Auto-cancelled by project reset']);
+    expect(cancelledPipeline!.completed_at).toBeDefined();
+  });
+
+  it('preserves PASS and FAIL pipelines unchanged on reset', async () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'Developer', ['implementation']);
+    // Add a failed QA pipeline (should be preserved)
+    wp.pipelines.push({
+      type: 'qa',
+      status: 'FAIL',
+      started_at: '2026-03-01T01:00:00Z',
+      completed_at: '2026-03-01T02:00:00Z',
+      summary: ['QA failed with 3 errors'],
+    });
+    // Add an orphaned IN_PROGRESS pipeline (should be cancelled)
+    wp.pipelines.push({
+      type: 'code-review',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T03:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootWith([wp]);
+    const store = new LedgerStore(ORPHAN_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'reset' } });
+
+    const wpAfter = await store.readWorkPackage('WP-001');
+
+    // PASS implementation pipeline preserved
+    const implPipeline = wpAfter.pipelines.find((p) => p.type === 'implementation');
+    expect(implPipeline).toBeDefined();
+    expect(implPipeline!.status).toBe('PASS');
+    expect(implPipeline!.auto_cancelled).toBeUndefined();
+
+    // FAIL QA pipeline preserved
+    const qaPipeline = wpAfter.pipelines.find((p) => p.type === 'qa');
+    expect(qaPipeline).toBeDefined();
+    expect(qaPipeline!.status).toBe('FAIL');
+    expect(qaPipeline!.summary).toEqual(['QA failed with 3 errors']);
+    expect(qaPipeline!.auto_cancelled).toBeUndefined();
+
+    // IN_PROGRESS code-review pipeline was auto-cancelled
+    const reviewPipeline = wpAfter.pipelines.find((p) => p.type === 'code-review');
+    expect(reviewPipeline).toBeDefined();
+    expect(reviewPipeline!.status).toBe('FAIL');
+    expect(reviewPipeline!.auto_cancelled).toBe(true);
+    expect(reviewPipeline!.summary).toEqual(['Auto-cancelled by project reset']);
+  });
+
+  it('does not cancel pipelines on skip action', async () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'QA', ['implementation']);
+    wp.pipelines.push({
+      type: 'qa',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T01:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootWith([wp]);
+    const store = new LedgerStore(ORPHAN_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'skip' } });
+
+    const wpAfter = await store.readWorkPackage('WP-001');
+    // Skip does not modify the WP — IN_PROGRESS pipeline should remain
+    const qaPipeline = wpAfter.pipelines.find((p) => p.type === 'qa');
+    expect(qaPipeline!.status).toBe('IN_PROGRESS');
   });
 });
 

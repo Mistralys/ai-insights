@@ -60,6 +60,9 @@ You can also run any task directly:
 node scripts/cli.js sync-personas          # build + deploy personas to IDE
 node scripts/cli.js gui                    # launch MCP GUI dashboard
 node scripts/cli.js orchestrator plan.md  # run orchestrator pipeline
+node scripts/cli.js read-log               # tail and query orchestrator logs
+node scripts/cli.js kill-orchestrator      # terminate stale orchestrator processes
+node scripts/cli.js kill-orchestrator --depth 5  # scan only 5 log files for lock cleanup
 node scripts/cli.js help                  # list all commands
 ```
 
@@ -115,6 +118,8 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/run-gui.js` | Launch the MCP server GUI dashboard |
 | `node scripts/preflight-orchestrator.js` | Pre-flight readiness checks (venv, `.env`, dist, conflicts) |
 | `node scripts/run-orchestrator.js` | Launch the orchestrator (rebuilds MCP server if stale) |
+| `node scripts/kill-orchestrator.js` | Detect and terminate stale orchestrator processes; cleans up `.orchestrator.lock` files |
+| `node scripts/read-log.js` | Structured JSONL log reader — query, filter, and summarize orchestrator run logs |
 
 ---
 

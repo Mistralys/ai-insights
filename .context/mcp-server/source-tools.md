@@ -44,11 +44,11 @@ const BeginWorkSchema = z.object({
   project_path: z
     .string()
     .optional()
-    .describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+    .describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
   cwd_path: z
     .string()
     .optional()
-    .describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+    .describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -324,13 +324,19 @@ export function register(server: McpServer): void {
  */
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME } from '../utils/constants.js';
 
+// Shared parameter descriptions reused across all tools that accept project resolution params.
+const CWD_PATH_PARAM =
+  '- **cwd_path** (string): Workspace root — auto-detects the active project. Pass this if you don\'t have project_path yet.';
+const PROJECT_PATH_PARAM =
+  '- **project_path** (string): Plan folder path — use if already known; takes precedence over cwd_path if both are provided.';
+
 export const TOOL_HELP: Record<string, string> = {
   overview: `
 # Project Ledger MCP — Tool Reference
 
 ## Path Parameters
 
-**Most tools accept either \`cwd_path\` or \`project_path\` — not both.** Use \`cwd_path\` (your workspace root) as the preferred option; the server auto-detects the active project. Only provide \`project_path\` if you already have it from a previous tool response. The one exception is \`ledger_initialize_project\`, which requires \`project_path\` (the plan folder is being created and cannot be detected yet).
+**Most tools accept \`project_path\` and/or \`cwd_path\`.** If you have \`project_path\` (the plan folder), use it — it's the fastest path. If you only know your workspace directory, pass \`cwd_path\` and the server auto-detects the active project. If you pass both, \`project_path\` takes precedence and \`cwd_path\` is ignored. The one exception is \`ledger_initialize_project\`, which requires \`project_path\` (the plan folder is being created and cannot be detected yet).
 
 ## All Available Tools
 
@@ -428,8 +434,8 @@ All ledger files are stored **centrally** at \`{mcp-server}/storage/ledger/{slug
 Read the project overview from the root index.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 
 ## Example
 \`\`\`json
@@ -478,8 +484,8 @@ not yet exist, it is silently skipped and reported in \`archive_skipped\`.
 Read the full detail for a specific work package.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): Work package ID (format: WP-001, WP-002, etc.)
 
 ## Example
@@ -497,8 +503,8 @@ Read the full detail for a specific work package.
 List work packages with optional filters.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 
 ## Optional Parameters
 - **status** (string): Filter by status — "READY", "IN_PROGRESS", "COMPLETE", or "BLOCKED"
@@ -519,8 +525,8 @@ List work packages with optional filters.
 Create a new work package. WP ID is auto-generated.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **assigned_to** (string): Agent name (e.g., "Developer")
 - **dependencies** (array): Array of WP IDs this depends on. Use [] for no dependencies.
 - **acceptance_criteria** (array): Array of criteria strings — **must contain at least one entry** (empty array is rejected)
@@ -561,8 +567,8 @@ Claim a READY work package and start its pipeline in a single atomic call. Repla
 If the WP is already IN_PROGRESS and assigned to you (idempotent re-entry), the claim phase is skipped and only the pipeline is started. The response includes a \`claimed: boolean\` field indicating whether the claim step ran.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **agent_role** (string): Your agent role (e.g., "Developer", "QA") — used for both the claim and pipeline ownership guards
@@ -609,8 +615,8 @@ Claim a READY work package → transitions to IN_PROGRESS.
 If the work package is already assigned to a different agent, the claim will be **rejected** unless you pass \`override: true\`. This prevents agents from silently re-assigning work packages outside their remit.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **agent** (string): ⚠️ REQUIRED — Your agent name (e.g., "Developer", "QA")
 
@@ -643,8 +649,8 @@ If the work package is already assigned to a different agent, the claim will be 
 Update a work package's status.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **status** (string): New status — "READY", "IN_PROGRESS", "COMPLETE", or "BLOCKED"
 - **agent** (string): ⚠️ REQUIRED — Your agent name (e.g., "Developer", "Documentation")
@@ -690,8 +696,8 @@ Update a work package's status.
 Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 
@@ -717,8 +723,8 @@ Start a new pipeline for a work package. The WP must be IN_PROGRESS.
 Complete the most recent IN_PROGRESS pipeline of the specified type.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type to complete
 - **status** (string): "PASS" or "FAIL"
@@ -761,8 +767,8 @@ Cancel the most recent IN_PROGRESS pipeline of the specified type by setting it 
 Use this to clean up stale or abandoned pipelines, typically after a RESUME_OR_CANCEL action from ledger_get_next_action.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **reason** (string): Human-readable reason for the cancellation
@@ -785,8 +791,8 @@ Update the summary array of the most recent IN_PROGRESS pipeline without complet
 Use this for long-running pipelines where you want to record incremental progress checkpoints.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **type** (string): Pipeline type — "implementation", "qa", "code-review", "documentation", "security-audit", or "release-engineering"
 - **summary** (array of strings): Progress notes to append to the pipeline summary
@@ -808,8 +814,8 @@ Use this for long-running pipelines where you want to record incremental progres
 Add an observation/comment to the most recent pipeline of the specified type.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **work_package_id** (string): WP ID (format: WP-001)
 - **pipeline_type** (string): Pipeline type to add the observation to
 - **type** (string): Category — "code-smell", "refactor", "improvement", "debt", "convention"
@@ -835,8 +841,8 @@ Add an observation/comment to the most recent pipeline of the specified type.
 Add a project-level comment (not tied to a specific pipeline).
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **type** (string): Comment type — "incident", "note", or "decision"
 - **priority** (string): "low", "medium", or "high"
 - **agent** (string): ⚠️ REQUIRED — Your agent name
@@ -869,8 +875,8 @@ When called with max_results > 1, returns up to that many actions as an array un
 key. Useful for projects with many independent WPs where you want to process several in parallel.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **agent_role** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
 
 ## Optional Parameters
@@ -951,8 +957,8 @@ STATUS: <status>
 \`\`\`
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 - **current_agent** (string): Exactly one of: "Planner", "Project Manager", "Developer", "QA", "Reviewer", "Documentation", "Synthesis"
 
 ## Example
@@ -1018,8 +1024,8 @@ completion. If the file does not exist, it is silently skipped and reported in
 \`archive_skipped\`.
 
 ## Required Parameters
-- **cwd_path** (string): Workspace root (preferred) — auto-detects the active project. *(Provide this OR project_path — not both.)*
-- **project_path** (string): Plan folder path — use only if already known. *(Provide this OR cwd_path — not both.)*
+${CWD_PATH_PARAM}
+${PROJECT_PATH_PARAM}
 
 ## Optional Parameters
 - **synthesis_file** (string, default: \`"${SYNTHESIS_ARCHIVE_FILENAME}"\`): Filename of the synthesis
@@ -1158,8 +1164,8 @@ import { PipelineTypeEnum, describePipelineTypes } from '../utils/pipeline-maps.
  * Comments do NOT include an agent field (agent is inferred from pipeline type).
  */
 const AddObservationSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1252,8 +1258,8 @@ async function addObservation(args: z.infer<typeof AddObservationSchema>) {
  * For incident type comments, context is required.
  */
 const AddProjectCommentSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   type: z.string().describe('Comment type: "incident", "note", or "decision"'),
   priority: z.enum(['low', 'medium', 'high']).describe('Priority level: "low", "medium", or "high"'),
   agent: z.string().describe('REQUIRED. Your agent name (e.g., "Developer", "QA", "Reviewer", "Documentation")'),
@@ -1499,8 +1505,8 @@ function buildCompletionGuidance(
  * Validates WP is IN_PROGRESS and no duplicate in-progress pipeline exists.
  */
 const StartPipelineSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -1670,8 +1676,8 @@ async function startPipeline(args: z.infer<typeof StartPipelineSchema>) {
  * Sets status, completion timestamp, summary, and optional fields.
  */
 const CompletePipelineSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -2031,14 +2037,23 @@ async function completePipeline(rawArgs: z.infer<typeof CompletePipelineSchema>)
  * its status to FAIL and recording the cancellation reason as the summary.
  */
 const CancelPipelineSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
     .describe('Work package ID, format: WP-001, WP-002, etc.'),
   type: PipelineTypeEnum.describe(describePipelineTypes('Pipeline type to cancel:')),
   reason: z.string().describe('Reason for cancelling the pipeline (stored as summary)'),
+  auto_cancelled: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      'When true, marks the pipeline as auto-cancelled (auto_cancelled = true on the pipeline object). ' +
+        'Use this for crash-recovery cancellations so the cancelled pipeline does not count toward the rework budget. ' +
+        'Defaults to false for backward compatibility.',
+    ),
 });
 
 async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
@@ -2067,6 +2082,11 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
       pipeline.status = 'FAIL';
       pipeline.completed_at = now();
       pipeline.summary = [`Cancelled: ${args.reason}`];
+      // Only write true — never false — because Pipeline.auto_cancelled is optional (z.boolean().optional()).
+      // Writing false would be redundant; absent is the canonical "not auto-cancelled" state.
+      if (args.auto_cancelled) {
+        pipeline.auto_cancelled = true;
+      }
 
       root.last_updated = now();
       return { wp, root };
@@ -2101,8 +2121,8 @@ async function cancelPipeline(args: z.infer<typeof CancelPipelineSchema>) {
  * Allows agents to record progress notes without completing the pipeline.
  */
 const UpdatePipelineProgressSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -2187,7 +2207,7 @@ export function register(server: McpServer): void {
   server.registerTool(
     'ledger_cancel_pipeline',
     {
-      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: work_package_id, type, reason. Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
+      description: 'Cancel the most recent IN_PROGRESS pipeline of a given type by setting it to FAIL with the provided reason. Use this to clean up stale pipelines detected by RESUME_OR_CANCEL from ledger_get_next_action. REQUIRED params: work_package_id, type, reason. OPTIONAL: auto_cancelled (true for crash-recovery cancellations — prevents the cancelled pipeline from counting toward rework budget). Use cwd_path (workspace root) for auto-detection, or project_path if already known.',
       inputSchema: CancelPipelineSchema,
     },
     cancelPipeline as any
@@ -2215,6 +2235,7 @@ export const _internal = {
   buildCompletionGuidance,
   startPipeline,
   completePipeline,
+  cancelPipeline,
   // Schemas (formerly _schemas — renamed to _internal per §53)
   StartPipelineSchema,
   CompletePipelineSchema,
@@ -2324,8 +2345,8 @@ async function detectProject(args: z.infer<typeof DetectProjectSchema>) {
  * Includes self-healing logic that recomputes counters from actual WP data.
  */
 const GetProjectStatusSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
 });
 
 /**
@@ -2920,11 +2941,11 @@ const CompleteSynthesisSchema = z.object({
   project_path: z
     .string()
     .optional()
-    .describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
+    .describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
   cwd_path: z
     .string()
     .optional()
-    .describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+    .describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   agent_role: z
     .string()
     .describe('The agent role completing synthesis (must be "Synthesis" or "Project Manager")'),
@@ -3078,10 +3099,9 @@ export function register(server: McpServer): void {
     'ledger_detect_project',
     {
       description:
-        'Detect the active project from the current workspace path when project_path is not explicitly provided. ' +
-        'Accepts a working directory path (cwd_path), cross-references it against all project roots stored in the ' +
-        'centralized ledger, and returns the unique project plan_path. Returns NOT_FOUND if no known project root ' +
-        'is an ancestor of the given path, or AMBIGUOUS (with candidate list) if more than one project matches.',
+        'REQUIRED param: cwd_path (absolute directory path). Detect the active project from the current workspace path when project_path is not explicitly provided. ' +
+        'Cross-references cwd_path against all project roots stored in the centralized ledger and returns the unique project plan_path. ' +
+        'Returns NOT_FOUND if no known project root is an ancestor of the given path, or AMBIGUOUS (with candidate list) if more than one project matches.',
       inputSchema: DetectProjectSchema.passthrough(),
     },
     detectProject as any
@@ -3225,8 +3245,8 @@ export const _internal = {
  * Reads and returns the full work package detail for a given WP ID.
  */
 const GetWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -3274,8 +3294,8 @@ async function getWorkPackage(args: z.infer<typeof GetWorkPackageSchema>) {
  * Optionally filters by status and/or assigned_to.
  */
 const ListWorkPackagesSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   status: z
     .enum(['READY', 'IN_PROGRESS', 'COMPLETE', 'BLOCKED'])
     .optional()
@@ -3334,8 +3354,8 @@ async function listWorkPackages(args: z.infer<typeof ListWorkPackagesSchema>) {
  * Creates both the detail file (.ledger/WP-###.json) and root index summary atomically.
  */
 const CreateWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   assigned_to: z
     .string()
     .describe('Agent name assigned to this work package (e.g., "Developer")'),
@@ -3575,8 +3595,8 @@ async function createWorkPackage(
  * Validates dependencies are met before allowing the transition.
  */
 const ClaimWorkPackageSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -3720,8 +3740,8 @@ async function claimWorkPackage(
  * Enforces legal status transitions and special rules (COMPLETE requires all criteria met, etc.).
  */
 const UpdateWorkPackageStatusSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -4286,8 +4306,8 @@ function getLegalTransitions(status: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ResetReworkCountSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -4415,8 +4435,8 @@ async function resetReworkCount(
 // ─────────────────────────────────────────────────────────────────────────────
 
 const UpdateAcceptanceCriteriaSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   work_package_id: z
     .string()
     .regex(/^WP-\d{3,}$/)
@@ -4686,8 +4706,8 @@ const HANDOFF_DISPATCH: Record<AgentRole, HandoffHandler> = {
  * the correct AGENT: and STATUS: handoff block for the current agent.
  */
 const GetHandoffStatusSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   current_agent: z
     .string()
     .describe(
@@ -6353,8 +6373,8 @@ const NEXT_ACTION_DISPATCH: Partial<Record<AgentRole, NextActionHandler>> = {
  * Returns actionable recommendations based on work package statuses and pipeline states.
  */
 const GetNextActionSchema = z.object({
-  project_path: z.string().optional().describe('Plan folder path — use only if you already have it from a previous tool response. Otherwise prefer cwd_path.'),
-  cwd_path: z.string().optional().describe('Your workspace root directory — preferred. The server auto-detects the active project.'),
+  project_path: z.string().optional().describe('Absolute path to the plan folder. Use this if you already have it from a previous tool response or if it was provided in your instructions. Takes precedence over cwd_path if both are given.'),
+  cwd_path: z.string().optional().describe('Your current workspace root directory. The server auto-detects the active project. Ignored if project_path is also provided.'),
   agent_role: z
     .string()
     .describe(

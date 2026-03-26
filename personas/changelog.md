@@ -1,6 +1,6 @@
 # Personas Changelog
 
-## v3.10.4 - Local Ledger Plugin
+## v3.10.8 - Local Ledger Plugin
 - Build: Migrated ledger plugin from `@mistralys/persona-builder/plugins/ledger`
   to a local copy at `personas/plugins/ledger/` (5 JS files: index.js,
   frontmatter-templates.js, mcp-tools-renderer.js, role-validator.js,
@@ -9,6 +9,26 @@
   `./plugins/ledger` instead of the npm package.
 - Docs: Updated `personas/docs/agents/project-manifest/file-tree.md`
   to document the new `personas/plugins/ledger/` directory.
+
+## v3.10.7 - Orchestrator Runner: Document --depth N Flag
+- Personas: Orchestrator Runner v1.5.1 — troubleshooting table now mentions `--depth N`
+  for `kill-orchestrator.js` lock-file scan depth (default 20).
+
+## v3.10.6 - Orchestrator Runner: Log & Process Scripts
+- Personas: Orchestrator Runner v1.5.0 — replaced jq/grep/tail log monitoring with read-log.js.
+- Personas: Orchestrator Runner v1.5.0 — added kill-orchestrator.js for process-conflict resolution.
+
+## v3.10.5 - Orchestrator Runner Feature Sync and Fixes
+- Personas: Orchestrator Runner v1.4.0 — updated JSONL event count from 16 → 20.
+- Personas: Orchestrator Runner v1.4.0 — added `CAPTURE_DIALOGUES` and `HEARTBEAT_INTERVAL_S` env vars.
+- Personas: Orchestrator Runner v1.4.0 — documented log archival to `{slug}/orchestrator/logs/`.
+- Personas: Orchestrator Runner v1.4.0 — removed stale `--checkpoint` extra requirement (now default).
+- Personas: Orchestrator Runner v1.4.1: Polling the terminal in a tight loop.
+- Personas: Orchestrator Runner v1.4.1: Misreading the JSONL log schema.
+- Personas: Orchestrator Runner v1.4.1: Making incorrect go/no-go decisions after a dry run.
+
+## v3.10.4 - Reviewer Documentation-Forward Protocol
+- Partials: Expanded Reviewer `documentation-forward` convention with a named-convention spec, JSON `pipeline_comment` schema with `priority` field, and four concrete examples.
 
 ## v3.10.3 - Reviewer Feedback Tiers
 - Personas: Reviewer now uses three-tier feedback (Blocking,

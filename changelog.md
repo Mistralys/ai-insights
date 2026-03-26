@@ -1,10 +1,30 @@
 # AI Insights Changelog
 
-## v1.12.0 - GUI Dry-Run Identification
-> mcp v1.19.0
+## v1.13.0 - Tool-Call Visibility
+> orchestrator v0.11.0
 
-- MCP: GUI now visually identifies dry-run orchestrator runs with a "Dry Run" badge in the project detail run list and in the run log timeline header.
-- MCP: Dedicated event card renderers for `dry_run`, `dry_run_no_ledger`, and `dry_run_complete` timeline actions replace the previous generic fallback.
+- Orchestrator: Added real-time `tool_call` JSONL events — stage, tool name, and WP ID per MCP invocation; argument payloads excluded for privacy.
+- Scripts: `run-orchestrator.js` now prints `read-log.js` and `kill-orchestrator.js` usage hints at startup.
+
+## v1.12.0 - Resilience, Guard Rails & GUI Polish
+> mcp v1.21.0 · orchestrator v0.10.0 · personas v3.10.7
+
+- Orchestrator: Pipeline rollback on stage crash auto-cancels the orphaned IN_PROGRESS pipeline and logs a `pipeline_rollback` entry.
+- Orchestrator: Supervisor auto-cancels circuit-broken WPs (≥3 failures) before synthesis, satisfying the terminal-state precondition.
+- Orchestrator: WP scope guard now injects missing `work_package_id` instead of passing through silently.
+- Orchestrator: Terminal marker prevents re-execution of completed runs via `--resume`; UUID collision guard added.
+- Orchestrator: Added WP guard — stage nodes reject tool calls that target a different work package.
+- Orchestrator: Fixed stale lock file left behind on crashed or interrupted runs.
+- Orchestrator: `inject_project_path()` strips `cwd_path` from tool calls to prevent server-side mutual-exclusivity errors.
+- MCP: `ledger_cancel_pipeline` gains `auto_cancelled` flag; crash-recovery cancellations are excluded from rework budget.
+- MCP: Project reset auto-cancels orphaned IN_PROGRESS pipelines and surfaces counts in the diagnosis output.
+- MCP: `project_path` takes precedence over `cwd_path` when both are supplied; mutual-exclusivity error removed.
+- MCP: Log migration uses `copyFile()` to preserve files still open by the orchestrator.
+- MCP: `complete_pipeline` accepts `handoff_notes` as a string or an array.
+- MCP: GUI identifies dry-run orchestrator runs with a "Dry Run" badge in the run list and run log timeline.
+- CLI: `printHelp()` auto-generates from `COMMANDS`; `kill-orchestrator.js` gains `--depth N` lock-file scan override.
+- Personas: Orchestrator Runner v1.5.1 — log monitoring via `read-log.js`, process cleanup via `kill-orchestrator.js`.
+- Personas: Reviewer `documentation-forward` convention expanded with JSON schema and concrete examples.
 
 ## v1.11.0 - Dialogue Capture & Heartbeat
 > mcp v1.18.6 · orchestrator v0.9.5 · personas v3.10.3

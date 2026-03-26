@@ -16,11 +16,14 @@ _SOURCE: Top-level directory tree_
     ├── prompt-clarity.md
 └── docs/
     ├── agents/
+    │   └── bug-reports/
+    │       ├── chat.json
     │   └── implementation-history/
     │       ├── README.md
     │   └── project-manifest/
     │       └── README.md
 └── history/
+    ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
     ├── key-learnings.md
     ├── screenshots/
@@ -176,12 +179,6 @@ _SOURCE: Top-level directory tree_
     │   ├── requires.txt
     │   ├── top_level.txt
     ├── changelog.md
-    ├── checkpoints/
-    │   ├── test/
-    │   │   ├── workflow.sqlite
-    │   ├── workflow.sqlite
-    │   ├── workflow.sqlite-shm
-    │   ├── workflow.sqlite-wal
     ├── docs/
     │   ├── architecture.md
     │   ├── jsonl-log-schema.md
@@ -238,6 +235,8 @@ _SOURCE: Top-level directory tree_
 └── personas/
     ├── README.md
     ├── changelog.md
+    ├── docs/
+    │   ├── persona-design-guide.md
     ├── ledger/
     │   ├── README.md
     │   ├── claude-code/
@@ -325,14 +324,17 @@ _SOURCE: Top-level directory tree_
     ├── build-personas.js
     ├── bundle-docs.js
     ├── check-known-roles.js
+    ├── cli-original.js
     ├── cli.js
     ├── extract-changelog-entry.js
     ├── install-hooks.js
+    ├── kill-orchestrator.js
     ├── lib/
     │   ├── persona-helpers.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-orchestrator.js
+    ├── read-log.js
     ├── run-gui.js
     ├── run-orchestrator.js
     ├── sync-personas.js

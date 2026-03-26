@@ -1,7 +1,8 @@
 """
 test_tool_wrappers.py — Unit tests for src.utils.tool_wrappers.
 
-Tests cover every behavioural contract promised by ``inject_project_path``:
+Tests cover every behavioural contract promised by ``log_tool_calls`` (AC
+coverage for WP-001) and ``inject_project_path``:
 
 1. **Injection when absent** — ``project_path`` is added when the tool call
    dict does not already contain it.
@@ -38,7 +39,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -748,8 +748,8 @@ class TestRestrictToWpMatchingWpId:
         assert len(seen) == 1
         assert seen[0]["work_package_id"] == ACTIVE_WP
 
-    async def test_call_without_wp_id_passes_through(self):
-        """A call that omits work_package_id entirely must pass through."""
+    async def test_call_without_wp_id_injects_active_wp(self):
+        """A call that omits work_package_id must have it auto-injected with the active WP ID."""
         seen: list[Any] = []
         tool = _make_guard_tool(seen)
         restrict_to_wp([tool], ACTIVE_WP)
@@ -757,6 +757,7 @@ class TestRestrictToWpMatchingWpId:
         await tool.ainvoke({"agent_role": "Developer"})
 
         assert len(seen) == 1
+        assert seen[0]["work_package_id"] == ACTIVE_WP
 
     async def test_non_dict_input_passes_through(self):
         """Non-dict input (e.g. a string) must be forwarded without a guard check."""
@@ -782,6 +783,22 @@ class TestRestrictToWpMatchingWpId:
         })
 
         assert len(seen) == 1
+
+    async def test_toolcall_without_wp_id_injects_active_wp(self):
+        """ToolCall nested-dict that omits work_package_id must have it auto-injected."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_next_action",
+            "args": {"agent_role": "Developer"},
+            "id": "call-2",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == ACTIVE_WP
 
 
 class TestRestrictToWpMismatchRaises:
@@ -904,7 +921,7 @@ class TestRestrictToWpInCreateStageNode:
 
     async def test_restrict_to_wp_applied_in_node(self):
         """create_stage_node must call restrict_to_wp with the active WP ID."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         from src.nodes import create_stage_node
 
@@ -946,7 +963,7 @@ class TestRestrictToWpInCreateStageNode:
 
     async def test_restrict_to_wp_not_applied_when_wp_id_empty(self):
         """create_stage_node must not apply restrict_to_wp when wp_id is empty."""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import MagicMock, patch
 
         from src.nodes import create_stage_node
 
@@ -983,5 +1000,502 @@ class TestRestrictToWpInCreateStageNode:
 
         assert not restrict_calls, (
             "restrict_to_wp must NOT be called when wp_id is empty"
+        )
+
+
+# ===========================================================================
+# log_tool_calls — WP-001 Acceptance Criteria
+# ===========================================================================
+
+from src.utils.tool_wrappers import log_tool_calls  # noqa: E402
+
+
+class _LogTool:
+    """Minimal plain-Python tool stub for log_tool_calls tests.
+
+    Uses a plain class (not MagicMock) so ``hasattr(tool, '_orig_ainvoke_log')``
+    correctly returns ``False`` before the first wrap.
+    """
+
+    def __init__(self, seen: list[Any] | None = None, ret: Any = "log_result") -> None:
+        _seen: list[Any] = seen if seen is not None else []
+        self.name = "log_tool"
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> Any:
+            _seen.append(input)
+            return ret
+
+        self.ainvoke = _ainvoke
+
+
+def _make_log_tool(
+    captured: list[Any] | None = None, ret: Any = "log_result"
+) -> _LogTool:
+    return _LogTool(seen=captured if captured is not None else [], ret=ret)
+
+
+class _MockLogger:
+    """Minimal logger stub that records stream_entry calls."""
+
+    def __init__(self) -> None:
+        self.entries: list[dict] = []
+
+    def stream_entry(self, entry: dict) -> None:
+        self.entries.append(entry)
+
+
+# ---------------------------------------------------------------------------
+# AC1 — Function signature
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsSignature:
+    def test_importable(self) -> None:
+        """log_tool_calls must be importable from src.utils.tool_wrappers."""
+        assert callable(log_tool_calls)
+
+    def test_signature_matches(self) -> None:
+        """Signature must accept (tools, stage, wp_id, logger) and return list."""
+        import inspect
+
+        sig = inspect.signature(log_tool_calls)
+        params = list(sig.parameters.keys())
+        assert params == ["tools", "stage", "wp_id", "logger"], (
+            f"Unexpected parameters: {params}"
+        )
+
+    def test_returns_list(self) -> None:
+        """log_tool_calls must return a list."""
+        tools = [_make_log_tool()]
+        result = log_tool_calls(tools, stage="pm", wp_id="WP-001", logger=None)
+        assert isinstance(result, list)
+
+    def test_returns_same_list_object(self) -> None:
+        """log_tool_calls must return the same list (in-place mutation)."""
+        tools = [_make_log_tool()]
+        logger = _MockLogger()
+        result = log_tool_calls(tools, stage="pm", wp_id="WP-001", logger=logger)
+        assert result is tools
+
+
+# ---------------------------------------------------------------------------
+# AC2 — Emitted event fields
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsEmitsEvent:
+    async def test_emits_tool_call_action(self) -> None:
+        """stream_entry must be called with action='tool_call'."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert len(logger.entries) == 1
+        assert logger.entries[0]["action"] == "tool_call"
+
+    async def test_emits_tool_name(self) -> None:
+        """stream_entry event must contain tool_name matching tool.name."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        tool.name = "ledger_get_next_action"
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["tool_name"] == "ledger_get_next_action"
+
+    async def test_emits_tool_wp_id_from_flat_dict(self) -> None:
+        """tool_wp_id must be extracted from flat-dict work_package_id."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="qa", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({"work_package_id": "WP-003", "other": "data"})
+
+        assert logger.entries[0]["tool_wp_id"] == "WP-003"
+
+    async def test_emits_tool_wp_id_from_toolcall_structure(self) -> None:
+        """tool_wp_id must be extracted from ToolCall nested-dict args."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({
+            "name": "ledger_complete_pipeline",
+            "args": {"work_package_id": "WP-005", "type": "implementation"},
+            "id": "call-1",
+            "type": "tool_call",
+        })
+
+        assert logger.entries[0]["tool_wp_id"] == "WP-005"
+
+    async def test_emits_level_debug(self) -> None:
+        """stream_entry event must have level='DEBUG'."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["level"] == "DEBUG"
+
+    async def test_emits_stage_field(self) -> None:
+        """stream_entry event must contain the stage passed to log_tool_calls."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="security_auditor", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["stage"] == "security_auditor"
+
+    async def test_emits_wp_id_field(self) -> None:
+        """stream_entry event must carry the stage-level wp_id."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="developer", wp_id="WP-007", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["wp_id"] == "WP-007"
+
+    async def test_tool_wp_id_empty_when_no_wp_arg(self) -> None:
+        """tool_wp_id must be empty string when the call has no work_package_id."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert logger.entries[0]["tool_wp_id"] == ""
+
+    async def test_all_required_fields_present(self) -> None:
+        """All required event fields must be present in a single call."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        tool.name = "ledger_begin_work"
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+
+        entry = logger.entries[0]
+        for field in ("action", "tool_name", "tool_wp_id", "level"):
+            assert field in entry, f"Required field '{field}' missing from event"
+
+
+# ---------------------------------------------------------------------------
+# AC3 — Sentinel idempotency (no stacking)
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsIdempotency:
+    async def test_double_wrap_does_not_stack_closures(self) -> None:
+        """Calling log_tool_calls twice on the same tool must not cause original
+        ainvoke to be called more than once per invocation."""
+        call_count = 0
+
+        class _CountingTool:
+            name = "counting_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                nonlocal call_count
+                call_count += 1
+                return "ok"
+
+        tool = _CountingTool()
+        logger = _MockLogger()
+
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert call_count == 1, (
+            f"Original ainvoke called {call_count} times — wrapper stacking occurred"
+        )
+
+    async def test_double_wrap_emits_exactly_one_event(self) -> None:
+        """Double-wrapping must still emit only one event per call."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert len(logger.entries) == 1, (
+            f"Expected 1 event, got {len(logger.entries)}"
+        )
+
+    async def test_sentinel_is_set_after_first_wrap(self) -> None:
+        """_orig_ainvoke_log sentinel must be set on the tool after first wrap."""
+        tool = _make_log_tool()
+        logger = _MockLogger()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+        assert hasattr(tool, "_orig_ainvoke_log"), (
+            "_orig_ainvoke_log sentinel must be set after first wrap"
+        )
+
+    async def test_triple_wrap_is_also_safe(self) -> None:
+        """Idempotency must hold for an arbitrary number of wraps."""
+        call_count = 0
+
+        class _CountingTool:
+            name = "counting_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                nonlocal call_count
+                call_count += 1
+                return "ok"
+
+        tool = _CountingTool()
+        logger = _MockLogger()
+
+        for _ in range(3):
+            log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# AC4 — None logger: no error, tools function normally
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsNoneLogger:
+    def test_none_logger_returns_tools_unchanged(self) -> None:
+        """When logger is None, ainvoke must not be replaced."""
+        tool = _make_log_tool()
+        original_ainvoke = tool.ainvoke
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=None)
+        assert tool.ainvoke is original_ainvoke, (
+            "ainvoke must not be replaced when logger is None"
+        )
+
+    def test_none_logger_no_sentinel(self) -> None:
+        """When logger is None, no sentinel should be set."""
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=None)
+        assert not hasattr(tool, "_orig_ainvoke_log"), (
+            "_orig_ainvoke_log must not be set when logger is None"
+        )
+
+    async def test_none_logger_tool_still_invokable(self) -> None:
+        """When logger is None, the tool must still function normally."""
+        seen: list[Any] = []
+        tool = _make_log_tool(captured=seen, ret="original")
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=None)
+
+        result = await tool.ainvoke({"key": "value"})
+
+        assert result == "original"
+        assert seen[0] == {"key": "value"}
+
+    def test_none_logger_returns_same_list(self) -> None:
+        """log_tool_calls with None logger must return the same list object."""
+        tools = [_make_log_tool()]
+        result = log_tool_calls(tools, stage="pm", wp_id="WP-001", logger=None)
+        assert result is tools
+
+
+# ---------------------------------------------------------------------------
+# AC5 — Argument payload excluded from emitted event (privacy)
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsPrivacyConstraint:
+    async def test_arguments_not_in_event_flat_dict(self) -> None:
+        """The full flat-dict argument payload must not appear in the event."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({
+            "work_package_id": "WP-001",
+            "secret_plan_content": "deploy at midnight",
+            "acceptance_criteria": ["do the thing"],
+        })
+
+        entry = logger.entries[0]
+        # Only these keys should appear; no argument payload
+        allowed_keys = {"stage", "wp_id", "action", "tool_name", "tool_wp_id", "level"}
+        assert set(entry.keys()) == allowed_keys, (
+            f"Event contains extra keys: {set(entry.keys()) - allowed_keys}"
+        )
+
+    async def test_arguments_not_in_event_toolcall_structure(self) -> None:
+        """The ToolCall nested args must not appear in the event."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({
+            "name": "ledger_create_work_package",
+            "args": {
+                "work_package_id": "WP-001",
+                "assigned_to": "Developer",
+                "acceptance_criteria": ["criterion 1", "criterion 2"],
+                "dependencies": [],
+            },
+            "id": "call-priv",
+            "type": "tool_call",
+        })
+
+        entry = logger.entries[0]
+        allowed_keys = {"stage", "wp_id", "action", "tool_name", "tool_wp_id", "level"}
+        assert set(entry.keys()) == allowed_keys, (
+            f"Event leaks argument data: {set(entry.keys()) - allowed_keys}"
+        )
+
+    async def test_only_wp_id_extracted_not_other_args(self) -> None:
+        """Only work_package_id is extracted; other argument values must not appear."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({"work_package_id": "WP-002", "payload": "confidential"})
+
+        entry = logger.entries[0]
+        assert "payload" not in entry
+        assert "confidential" not in str(entry)
+
+
+# ---------------------------------------------------------------------------
+# AC6 — Original ainvoke return value forwarded unchanged
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsReturnValueForwarded:
+    async def test_string_return_value_forwarded(self) -> None:
+        """Return value of the original ainvoke must pass through unchanged."""
+        logger = _MockLogger()
+        tool = _make_log_tool(ret="expected_return")
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        result = await tool.ainvoke({})
+
+        assert result == "expected_return"
+
+    async def test_dict_return_value_forwarded(self) -> None:
+        """Dict return value from original ainvoke must be forwarded unchanged."""
+        logger = _MockLogger()
+        expected = {"status": "ok", "data": [1, 2, 3]}
+        tool = _make_log_tool(ret=expected)
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert result is expected
+
+    async def test_none_return_value_forwarded(self) -> None:
+        """None return value from original ainvoke must be forwarded."""
+        logger = _MockLogger()
+        tool = _make_log_tool(ret=None)
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        result = await tool.ainvoke({})
+
+        assert result is None
+
+    async def test_return_value_unaffected_by_event_emission(self) -> None:
+        """Logging must not alter the return value in any way."""
+        logger = _MockLogger()
+        sentinel = object()
+        tool = _make_log_tool(ret=sentinel)
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        result = await tool.ainvoke({})
+
+        assert result is sentinel, "Return value identity must be preserved"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsEdgeCases:
+    async def test_non_dict_input_has_empty_tool_wp_id(self) -> None:
+        """Non-dict input must not raise; tool_wp_id must be empty string."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke("raw string input")
+
+        assert logger.entries[0]["tool_wp_id"] == ""
+
+    async def test_none_input_has_empty_tool_wp_id(self) -> None:
+        """None input must not raise; tool_wp_id must be empty string."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke(None)
+
+        assert logger.entries[0]["tool_wp_id"] == ""
+
+    async def test_empty_tools_list_is_noop(self) -> None:
+        """Empty tools list must return the same empty list without error."""
+        logger = _MockLogger()
+        tools: list = []
+        result = log_tool_calls(tools, stage="pm", wp_id="", logger=logger)
+        assert result is tools
+        assert logger.entries == []
+
+    async def test_tool_name_fallback_when_missing(self) -> None:
+        """When tool.name is absent, tool_name must default to empty string."""
+        logger = _MockLogger()
+
+        class _UnnamedTool:
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                return "ok"
+
+        tool = _UnnamedTool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["tool_name"] == ""
+
+    async def test_multiple_tools_all_emit_events(self) -> None:
+        """Every tool in the list must emit an event on ainvoke."""
+        logger = _MockLogger()
+        tool_a = _make_log_tool()
+        tool_b = _make_log_tool()
+        log_tool_calls([tool_a, tool_b], stage="qa", wp_id="WP-001", logger=logger)
+
+        await tool_a.ainvoke({})
+        await tool_b.ainvoke({})
+
+        assert len(logger.entries) == 2
+
+    async def test_event_emitted_before_original_call(self) -> None:
+        """stream_entry must be called BEFORE the original ainvoke executes."""
+        order: list[str] = []
+
+        class _OrderTracker:
+            name = "order_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                order.append("original")
+                return "ok"
+
+        class _OrderLogger:
+            def stream_entry(self, entry: dict) -> None:
+                order.append("log")
+
+        tool = _OrderTracker()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=_OrderLogger())
+
+        await tool.ainvoke({})
+
+        assert order == ["log", "original"], (
+            f"Expected log before original, got: {order}"
         )
 

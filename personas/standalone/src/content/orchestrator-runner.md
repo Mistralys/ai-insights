@@ -69,7 +69,7 @@ node scripts/preflight-orchestrator.js --plan <plan-path> --json
 
 ## Launching the Orchestrator
 
-**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions. The preflight script checks for running processes, and the CLI enforces a lock file (`.orchestrator.lock` in the plan directory). If the preflight script reports a conflict, resolve it before proceeding.
+**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions. The preflight script checks for running processes, and the CLI enforces a lock file (`.orchestrator.lock` in the plan directory). If the preflight script reports a conflict, use `node scripts/kill-orchestrator.js` to review and terminate stale processes, then re-run preflight before proceeding.
 
 Once all pre-flight checks pass, always pass `--project-path` pointing to the plan's project root (resolved in pre-flight step 2). Without it, the orchestrator infers the project path from the plan's directory — which breaks when the plan lives outside the ai-insights workspace.
 
@@ -96,6 +96,18 @@ node scripts/run-orchestrator.js /path/to/plan.md --project-path /path/to/my-pro
   --dry-run --max-iterations 10
 ```
 
+Dry runs typically complete in **30–90 seconds**. Set a 120-second timeout when calling `get_terminal_output` to avoid premature interruption.
+
+**Always verify the exit code before declaring success.** A dry run that prints expected output but exits non-zero is not a clean result.
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Success — routing verified, safe to proceed with a full run |
+| `1` | Error — plan or ledger issue; inspect the output before proceeding |
+| `130` | Process interrupted by SIGINT (Ctrl-C or tool timeout) |
+
+> **Exit code 130 edge case:** If the dry run exits `130` but produced complete routing output (supervisor decisions, WP routing) before the interrupt, the routing logic itself succeeded. This is safe to proceed from — the interrupt occurred after the logic finished, not during it.
+
 #### Resume a previous run
 
 ```bash
@@ -117,9 +129,18 @@ The thread ID is printed at run start. Echo it clearly to the user immediately a
 | `--model <name>` | Override the LLM model | When testing a specific model or `.env` default needs overriding |
 | `--max-iterations <N>` | Safety ceiling on supervisor loop | Use `10`–`20` for smoke tests; default is `100` |
 | `--project-path <path>` | Set the target codebase path | **Always pass** when the plan is outside the ai-insights workspace |
-| `--resume <thread-id>` | Resume from a LangGraph checkpoint | Continuing an interrupted or safety-limited run. **Requires** the `checkpoint` extra: `pip install -e ".[checkpoint]"` — without it, runs use in-memory checkpoints only and cannot actually be resumed. |
+| `--resume <thread-id>` | Resume from a LangGraph checkpoint | Continuing an interrupted or safety-limited run. Checkpoint support (SQLite-backed) is included by default — no extra installation needed. |
 | `--interrupt-on <stages>` | Pause for human review at named stages | Values: `pm`, `fail`, `synthesis` (comma-separated) |
 | `--log-level DEBUG` | Verbose output | Debugging routing errors or unexpected stage failures |
+
+### Environment Variables
+
+Set these in `orchestrator/.env` (or export before running):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CAPTURE_DIALOGUES` | `true` | Capture full agent dialogue exchanges to Markdown in `{slug}/orchestrator/dialogues/`. Emits `dialogue_captured` JSONL event after each stage. |
+| `HEARTBEAT_INTERVAL_S` | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled). |
 
 ---
 
@@ -135,11 +156,13 @@ The console output is a formatted view of every structured event. Key lines to w
 [developer]  WP-003 ▶ stage_start
 [developer]  WP-003 stage_complete → PASS (3m 24s, 1234 tokens)
 [developer]  WP-003 pipeline: PASS · 12 files modified · 45s
+[developer]  WP-003 dialogue saved → WP-003-developer-r1.md
 [supervisor] WP-003 status: READY → IN_PROGRESS
 [supervisor] ✓ WP-003 COMPLETE
-[supervisor] WP-003 route → qa
+[supervisor] route → developer (prev: pm WP-003 PASS)
 [supervisor] ⟳ WP-004 rework #2 (implementation → developer)
 [—]          Progress: 5/10 WPs done · 2 in-progress · iter 3/5 · 2m 14s elapsed
+[heartbeat]  ♥ alive (quiet for 2m)
 ```
 
 | Line pattern | What it means |
@@ -148,17 +171,28 @@ The console output is a formatted view of every structured event. Key lines to w
 | `stage_complete → PASS` | Stage succeeded; shows duration and token count |
 | `stage_complete → FAIL` / `stage_error` | Stage failed; supervisor will route to rework |
 | `pipeline: PASS` | Pipeline outcome with file count and duration |
+| `dialogue saved →` | Full agent exchange captured to Markdown file |
 | `status: X → Y` | WP transitioned status |
 | `✓ WP-NNN COMPLETE` | WP reached COMPLETE |
-| `route → <destination>` | Supervisor routing decision |
+| `route → <destination>` | Supervisor routing decision (with previous context) |
 | `⟳ rework #N` | Rework triggered (agent role, pipeline type, count) |
 | `Progress: …` | Iteration summary with WP totals, pending count, elapsed time |
+| `♥ alive` | Heartbeat emitted after console silence |
 | Any `WARNING` | Circuit-breaker, safety limit, or repeated-failure halt |
 | Any `ERROR` | MCP connection failure or unhandled exception |
 
+### Polling discipline
+
+Calling `get_terminal_output` to check progress is convenient, but polling in a tight loop wastes tokens on empty responses. Follow these rules:
+
+- **Minimum interval:** Wait at least **30 seconds** between consecutive `get_terminal_output` calls.
+- **Empty-check limit:** If `get_terminal_output` returns no new lines for **3 consecutive checks**, stop polling the terminal and switch to the JSONL log file instead.
+- **JSONL backoff:** After switching to the JSONL log, if the line count is unchanged from the previous read, wait **60 seconds** before the next read.
+- **Iteration cap:** If the orchestrator has not produced a new terminal line or JSONL event after **10 total polling iterations** (terminal + JSONL combined), pause polling and inform the user of the current state. Ask whether to continue waiting, resume with `--resume`, or abort.
+
 ### JSONL log file (secondary — for post-run analysis)
 
-Every run also writes a structured JSONL log to `orchestrator/logs/` (path printed at run start). The JSONL contains the same events as the console in machine-readable JSON, plus `run_start`/`run_end` lifecycle entries with `thread_id` and `total_duration_s`. Use it for:
+Every run writes a structured JSONL log to `orchestrator/logs/`. At run completion, the log is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. Use it for:
 
 - **Post-run analysis** when you need to extract specific fields (e.g. `tokens_used`, `duration_s`, `files_modified`)
 - **Recovering context** if terminal output has scrolled beyond the buffer
@@ -166,10 +200,48 @@ Every run also writes a structured JSONL log to `orchestrator/logs/` (path print
 
 ```bash
 # Only if terminal output is unavailable:
-tail -f orchestrator/logs/<run-id>.jsonl
+node scripts/read-log.js
 ```
 
-Full schema reference (16 event types): `orchestrator/docs/jsonl-log-schema.md`.
+**Targeted queries** (no `jq` required):
+
+```bash
+# Show all errors and warnings from the latest run:
+node scripts/read-log.js --errors
+
+# Show routing events only:
+node scripts/read-log.js --actions
+
+# Filter to a specific work package:
+node scripts/read-log.js --wp WP-003
+
+# One-line run summary with token totals:
+node scripts/read-log.js --summary
+
+# Target a specific run by plan slug:
+node scripts/read-log.js --slug my-feature
+```
+
+> **Critical:** The event-type field is `action`, **not** `event`. Full field and action-value reference: `orchestrator/docs/jsonl-log-schema.md`.
+
+Full schema reference (20 event types): `orchestrator/docs/jsonl-log-schema.md`.
+
+| Field | Present in | Description |
+|-------|-----------|-------------|
+| `timestamp` | all entries | Wall-clock time of the event (UTC, ISO 8601) |
+| `stage` | all entries | Node/stage name (`supervisor`, `developer`, `cli`, …) |
+| `action` | all entries | Event type — e.g. `stage_start`, `stage_complete`, `pipeline_result` |
+| `wp_id` | stage events | Work package ID being processed (e.g. `WP-003`) |
+| `result` | `stage_complete`, `stage_error` | `"PASS"` on success; `"FAIL"` on exception |
+| `level` | all entries | `"INFO"` (normal) · `"WARNING"` (safety/halts) · `"ERROR"` (MCP/exceptions) |
+| `tokens_used` | `stage_complete` | `{"input_tokens": N, "output_tokens": N, "total_tokens": N}` or `null` |
+| `duration_s` | `stage_complete`, `stage_error`, `pipeline_result` | Wallclock seconds (rounded to 1 d.p.) |
+
+### Terminal session hygiene
+
+- **Launch full runs as background processes:** Always start a full orchestrator run with `isBackground: true` so the terminal remains interactive for follow-up commands. A foreground run blocks the terminal until the process exits, preventing any interim status checks.
+- **Don't mix dry-run and full-run in the same foreground session:** Running a dry-run and then a full-run in the same foreground terminal carries over stale environment state (cwd, output buffer). Use a fresh terminal session for each distinct run type.
+- **Reset cwd after `cd` + build commands:** Pre-flight steps like `cd mcp-server && npm run build` change the working directory. Always `cd "$AI_INSIGHTS_ROOT"` before invoking `node scripts/run-orchestrator.js` — the script path is relative to the workspace root and will fail silently if cwd is still `mcp-server/`.
 
 ---
 
@@ -230,9 +302,10 @@ The thread ID appears in both the console output at run start and in the `run_st
 | `MCP connection failed` at runtime | `dist/` corrupted after build | `cd mcp-server && npm run build` |
 | Wrong project path inferred | Plan is outside ai-insights workspace | Always pass `--project-path` pointing to the plan's own project root |
 | Exit code `2` | `max_iterations` safety limit reached | Resume with `--resume <thread-id>` or increase `--max-iterations` |
+| Preflight fails: conflicting process | A previous orchestrator run is still active | `node scripts/kill-orchestrator.js` — lists and terminates stale processes; use `--force` to skip confirmation; `--depth N` to scan the last N log files for lock cleanup (default 20) |
 | All WPs BLOCKED at start | Dependency cycle or unresolved blockers | Inspect ledger with MCP tools or the GUI; resolve blockers first |
 | Circuit-breaker halt on a WP | 3 consecutive stage failures for one WP | Inspect the log; address root cause, then resume |
-| `--resume` starts a fresh run | `checkpoint` extra not installed | `cd orchestrator && pip install -e ".[checkpoint]"`, then re-run |
+| `--resume` starts a fresh run | Checkpoint directory not initialized | Run `orchestrate` once normally first; ensure `CHECKPOINT_DIR` is set in `.env` |
 
 ---
 

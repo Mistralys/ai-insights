@@ -13,10 +13,10 @@ Each stage node follows a uniform lifecycle managed by `create_stage_node()` in 
 1. **Emit `stage_start`** — records `timestamp`, `stage`, `wp_id`, and `iteration` before any LLM work begins.
 2. **Load persona** — reads the persona Markdown from `personas/ledger/claude-code/<N>-<role>.md` (cached in memory after first load).
 3. **Build prompt** — a stage-specific prompt builder assembles the user message from `WorkflowState` fields (e.g. `current_wp_id`, plan content).
-4. **Wrap tools** — `inject_project_path(list(mcp_tools), project_path)` patches all MCP tools with the Layer 2 safety net (see below).
+4. **Wrap tools** — Four wrappers are applied in sequence: (a) `inject_project_path(list(mcp_tools), project_path)` auto-injects `project_path` as a Layer 2 safety net. (b) `restrict_to_wp(wrapped_tools, _wp_id)` enforces WP scope as a Layer 3 safety net (no-op when `_wp_id` is empty). (c) `_install_begin_work_tracker(wrapped_tools, _begin_work_state)` mounts a tracker around `ledger_begin_work` to record when it fires and which pipeline type was requested (enables **Pipeline Rollback** on error; skipped when `_wp_id` is empty). (d) `log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)` applies the outermost wrapper, emitting a `tool_call` JSONL event before each invocation. See **MCP Tool Wrapping** below for full descriptions.
 5. **Create Deep Agent** — `create_deep_agent(model, backend, system_prompt, tools)` with a `LocalShellBackend(root_dir=target_project_path)`.
 6. **Invoke** — `agent.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})`.
-7. **Emit `stage_complete`** — records `result="PASS"`, `tokens_used`, and `duration_s` (wallclock seconds from step 1). On exception, emits **`stage_error`** instead with `result="FAIL"`, `error`, and `duration_s`.
+7. **Emit `stage_complete`** — records `result="PASS"`, `tokens_used`, and `duration_s` (wallclock seconds from step 1). On exception, emits **`stage_error`** with `result="FAIL"`, `error`, and `duration_s`, then runs the **pipeline rollback** path if `ledger_begin_work` was called (see **Pipeline Rollback** below).
 8. **Best-effort `pipeline_result` read-back** — calls `ledger_get_work_package` using `wrapped_tools` to emit a `pipeline_result` event with `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, and `duration_s`. Any failure is caught silently at `DEBUG` level; stage success is never affected.
 9. **Return state update** — `{"stage_result", "stage_success", "run_log"}` on success; adds `"errors"` on failure.
 
@@ -34,6 +34,20 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 | `src/nodes/release_engineer.py` | `make_release_engineer_node` | Calls `ledger_begin_work`, curates the release, completes release-engineering pipeline |
 | `src/nodes/docs.py` | `make_docs_node` | Calls `ledger_begin_work`, updates docs, handles auto-finalize |
 | `src/nodes/synthesis.py` | `make_synthesis_node` | Calls `ledger_complete_synthesis`, writes `synthesis.md` |
+
+### Pipeline Rollback (Orphaned Pipeline Cleanup)
+
+When a stage node raises an exception *after* `ledger_begin_work` was called, the MCP ledger contains an orphaned `IN_PROGRESS` pipeline. Without cleanup, the next run attempt for the same WP receives a "duplicate in-progress pipeline" error from the MCP server.
+
+The `except` block in `create_stage_node()` automatically resolves this:
+
+1. **Detect invocation** — `_begin_work_state["called"]` is `True`, set by the `_install_begin_work_tracker` wrapper installed in step 4 of the lifecycle.
+2. **Resolve pipeline type** — from `_begin_work_state["pipeline_type"]` (captured from the `type` argument passed to `ledger_begin_work`), or as a fallback from `_STAGE_PIPELINE_TYPE` keyed on the stage name.
+3. **Cancel the orphan** — calls `ledger_cancel_pipeline` with `auto_cancelled=True`. The flag prevents this system-initiated cancellation from counting toward the rework budget.
+4. **Emit `pipeline_rollback`** — appended to `run_log` and streamed immediately via `run_logger`.
+5. **Preserve original error** — rollback is fire-and-forget; if cancellation itself raises, the failure is logged at `WARNING` level and the original `stage_error` is returned unchanged.
+
+This mechanism activates automatically for any stage that uses `ledger_begin_work` — no per-stage configuration required.
 
 ---
 
@@ -110,15 +124,34 @@ The persona file is the single source of truth for what an agent does — its ro
 
 ## MCP Tool Wrapping (`src/utils/tool_wrappers.py`)
 
+Three defensive wrapper functions are applied to every MCP tool in a stage node. They must be applied in this canonical order:
+
+```
+inject_project_path(tools, project_path)
+    → restrict_to_wp(tools, wp_id)
+        → log_tool_calls(tools, stage, wp_id, logger)
+```
+
+Each wrapper is **idempotent** (sentinel attributes prevent closure stacking) and handles both flat-dict and ToolCall `{"args": {...}}` input structures.
+
 `inject_project_path(tools, project_path)` monkeypatches each tool's `ainvoke` to auto-inject `project_path` when the argument is absent from the tool call. It acts as a **Layer 2 safety net**: even if the LLM-driven agent ignores explicit prompt instructions to supply `project_path`, the argument still reaches the MCP server.
+
+`restrict_to_wp(tools, wp_id)` is a **Layer 3 safety net** applied in WP-scoped stage nodes. It auto-injects the active `work_package_id` into any tool call that omits it, and raises `ValueError` on any tool call that explicitly passes a *different* `work_package_id`. This prevents a confused LLM from accidentally operating on the wrong work package. Passing an empty `wp_id` is a no-op (synthesis stages, which operate at project scope, are unaffected).
+
+> **Single-WP-per-tool-instance invariant:** `restrict_to_wp` stores the original `ainvoke` on first wrap (sentinel `_orig_ainvoke_wp`). Tool instances **must not** be shared across concurrent pipeline stages that target different work packages — only the most recent guard's `wp_id` would be enforced. In the current pipeline design each tool instance is created fresh per stage node invocation, satisfying this invariant.
+
+`log_tool_calls(tools, stage, wp_id, logger)` emits a `tool_call` JSONL event (via `WorkflowLogger.stream_entry()`) before forwarding each `ainvoke` call to the underlying MCP tool. Records `stage`, `wp_id` (stage-level), `tool_name`, and `tool_wp_id` (extracted from call arguments) at `level: "DEBUG"`. Full argument payloads are deliberately **excluded** (privacy constraint). When `logger` is `None` the function returns tools unchanged — no wrapping is applied (e.g. in unit tests).
+
+The **Layer 3 prompt companion** is `_WP_SCOPE_REMINDER` (in `src/nodes/__init__.py`). `build_stage_prompt()` appends a `CRITICAL` scope line (`Every MCP tool call MUST use work_package_id={wp_id}`) to the user-turn prompt for any stage that has a non-empty `wp_id`. It reinforces the wrapper guard at the prompt level.
 
 ### Design Properties
 
 | Property | Detail |
 |----------|--------|
-| **Idempotent** | A sentinel attribute `_orig_ainvoke` is stored on the tool object on the first wrap. Repeated calls — which occur because `list(mcp_tools)` in `node_fn` is a shallow copy referencing the same tool objects — always delegate to the true original `ainvoke`. Wrapper chains never grow beyond one level. |
+| **Idempotent** | Each wrapper stores a sentinel attribute on the tool object on the first wrap (`_orig_ainvoke`, `_orig_ainvoke_wp`, `_orig_ainvoke_log`). Repeated calls — which occur because `list(mcp_tools)` in `node_fn` is a shallow copy referencing the same tool objects — always delegate to the true original `ainvoke`. Wrapper chains never grow beyond one level per wrapper. |
 | **Non-destructive** | Only `ainvoke` is patched. All other attributes (`name`, `description`, `args_schema`) remain untouched, so schema introspection and tool discovery work normally. |
-| **`setdefault` semantics** | An explicitly-provided `project_path` already present in the tool-call arguments is never overwritten. Injection is also skipped when `cwd_path` is present (used by `ledger_detect_project`). |
+| **`setdefault` semantics** | An explicitly-provided `project_path` already present in the tool-call arguments is never overwritten by `inject_project_path`. Injection is also skipped when `cwd_path` is present (used by `ledger_detect_project`). |
+| **Privacy** | `log_tool_calls` captures only `tool.name` and `work_package_id`; the full argument payload is never logged. |
 
 ---
 
@@ -163,10 +196,13 @@ Each run writes a JSONL file to `orchestrator/logs/` during execution. At run co
 | `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used` (dict or `null`), `duration_s` (float) |
 | `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s` (float), `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified` (list), `metrics` (dict or null), `summary` (list), `duration_s` (float or null) |
+| `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
+| `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy) |
 | `wp_status_change` | `supervisor.py` | `wp_id`, `old_status`, `new_status`, `level="INFO"` |
 | `wp_complete` | `supervisor.py` | `wp_id`, `level="INFO"` |
 | `progress_snapshot` | `supervisor.py` | `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, `elapsed_s` (optional), `run_start_ts` |
 | `rework_detected` | `supervisor.py` | `wp_id`, `agent_role`, `pipeline_type`, `rework_count`, `level="INFO"` |
+| `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination`, `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
 | `route` | `supervisor.py` | `destination`, `prev_stage`, `prev_wp_id`, `prev_result`, `level` (`"INFO"` / `"WARNING"`) |
 | `run_error` | `cli.py` | `stage="cli"`, `level="ERROR"`, `error` (message string), `thread_id` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `level` (`"INFO"` / `"ERROR"`), `thread_id`, `total_duration_s` (float, optional — omitted if `run_start_ts` unavailable) |

@@ -454,33 +454,66 @@ function cmdCtxGenerate(args) {
 }
 function cmdMcpJson(args)         { scaffoldMcpJson(args.includes('--force')); }
 function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]); }
+function cmdReadLog(args)          { runScript('read-log.js', args); }
+function cmdKillOrchestrator(args) { runScript('kill-orchestrator.js', args); }
 
 // ─── Command registry ─────────────────────────────────────────────────────────
 
 // forward-declares runSetup (defined below) — hoisting is fine for functions
+//
+// COMMANDS entry shape (all fields except id, key, label, category, description, run are optional):
+//   helpVariants:    [commandString, description][] — sub-rows rendered in printHelp()
+//                    immediately after the base command row. Never shown in the menu.
+//   hidden:          boolean — omits the command from the interactive menu;
+//                    command still dispatches via CLI and appears in printHelp().
+//   helpHidden:      boolean — omits the command from printHelp() output;
+//                    command still dispatches via CLI and appears in the menu (key required).
+//                    Composable with hidden: a command can carry both flags.
+//   interleaveAfter: { command: string, variant: number } — instructs printHelp() to
+//                    render this command after the specified parent's helpVariant at that
+//                    index. The command is excluded from its normal insertion-order position.
+//                    Note: command must match an existing COMMANDS id — no runtime validation.
 const COMMANDS = [
   {
-    id:          'setup',
-    key:         's',
-    label:       'First-time setup',
-    category:    'Setup & Configuration',
-    description: 'Full workspace setup wizard',
-    run:         (args) => runSetup(args),
+    id:           'setup',
+    key:          's',
+    label:        'First-time setup',
+    category:     'Setup & Configuration',
+    description:  'Full workspace setup wizard',
+    helpVariants: [
+      ['setup --all',              'Non-interactive full setup'],
+      ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
+    ],
+    run:          (args) => runSetup(args),
   },
   {
-    id:          'mcp-json',
-    key:         'm',
-    label:       'Scaffold .mcp.json',
-    category:    'Setup & Configuration',
-    description: 'Generate IDE MCP config',
-    run:         cmdMcpJson,
+    id:             'build-maintain',
+    key:            'b',
+    label:          'Build & Maintain',
+    category:       'Validation & Utilities',
+    description:    'Sync versions & build personas',
+    // In printHelp(), render this command after setup's first helpVariant (setup --all)
+    // to reproduce the original canonical help output order.
+    interleaveAfter: { command: 'setup', variant: 0 },
+    run:            cmdBuildMaintain,
+  },
+  {
+    id:           'mcp-json',
+    key:          'm',
+    label:        'Scaffold .mcp.json',
+    category:     'Setup & Configuration',
+    description:  'Generate IDE MCP server config',
+    helpVariants: [
+      ['mcp-json --force', 'Overwrite existing .mcp.json'],
+    ],
+    run:          cmdMcpJson,
   },
   {
     id:          'git-hooks',
     key:         'o',
     label:       'Install git hooks',
     category:    'Setup & Configuration',
-    description: 'Pre-commit persona guard',
+    description: 'Install git hooks (pre-commit persona guard)',
     run:         cmdGitHooks,
   },
   {
@@ -504,16 +537,54 @@ const COMMANDS = [
     key:         'g',
     label:       'Launch GUI dashboard',
     category:    'MCP Server',
-    description: 'Open the ledger GUI in browser',
+    description: 'Launch MCP GUI dashboard (long-running)',
     run:         cmdGui,
   },
   {
-    id:          'build-maintain',
-    key:         'b',
-    label:       'Build & Maintain',
-    category:    'Validation & Utilities',
-    description: 'Sync versions, build & validate',
-    run:         cmdBuildMaintain,
+    id:           'preflight',
+    key:          'f',
+    label:        'Pre-flight checks',
+    category:     'Orchestrator',
+    description:  'Pre-flight checks for orchestrator readiness',
+    helpVariants: [
+      ['preflight --plan <path>', 'Also verify plan file exists'],
+    ],
+    run:          cmdPreflight,
+  },
+  {
+    id:          'orchestrator',
+    key:         null,
+    label:       'Run orchestrator',
+    category:    'Orchestrator',
+    description: 'Run orchestrator pipeline (requires --plan <path>)',
+    hidden:      true,
+    run:         cmdOrchestrator,
+  },
+  {
+    id:           'read-log',
+    key:          'l',
+    label:        'Read orchestrator log',
+    category:     'Orchestrator',
+    description:  'Query & filter JSONL run logs',
+    helpVariants: [
+      ['read-log --summary', 'One-line run overview with token totals'],
+    ],
+    // Not shown in printHelp() — was absent from original help output
+    helpHidden:   true,
+    run:          cmdReadLog,
+  },
+  {
+    id:           'kill-orchestrator',
+    key:          'k',
+    label:        'Kill stale processes',
+    category:     'Orchestrator',
+    description:  'Find & terminate stale orchestrator processes',
+    helpVariants: [
+      ['kill-orchestrator --force', 'Kill without confirmation (agent use)'],
+    ],
+    // Not shown in printHelp() — was absent from original help output
+    helpHidden:   true,
+    run:          cmdKillOrchestrator,
   },
   {
     id:          'bundle-docs',
@@ -528,16 +599,8 @@ const COMMANDS = [
     key:         'c',
     label:       'CTX generate',
     category:    'Validation & Utilities',
-    description: 'Generate context documentation',
+    description: 'Generate context documentation (ctx generate)',
     run:         cmdCtxGenerate,
-  },
-  {
-    id:          'preflight',
-    key:         'f',
-    label:       'Pre-flight checks',
-    category:    'Orchestrator',
-    description: 'Validate orchestrator readiness',
-    run:         cmdPreflight,
   },
 ];
 
@@ -548,26 +611,45 @@ function printHelp() {
   console.log(`\nAI Insights CLI — ${ver}\n`);
   console.log('Usage: node scripts/cli.js [command] [options]\n');
   console.log('Commands:');
-  const rows = [
-    ['setup',                    'Full workspace setup wizard'],
-    ['setup --all',              'Non-interactive full setup'],
-    ['build-maintain',           'Sync versions & build personas'],
-    ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
-    ['mcp-json',                 'Generate IDE MCP server config'],
-    ['mcp-json --force',         'Overwrite existing .mcp.json'],
-    ['git-hooks',                'Install git hooks (pre-commit persona guard)'],
-    ['sync-personas',            'Deploy to VS Code & Claude Code'],
-    ['package-personas',         'ZIP standalone personas'],
-    ['gui',                      'Launch MCP GUI dashboard (long-running)'],
-    // Note: orchestrator requires --plan <path>; not available in interactive menu
-    ['preflight',                'Pre-flight checks for orchestrator readiness'],
-    ['preflight --plan <path>',  'Also verify plan file exists'],
-    ['orchestrator',             'Run orchestrator pipeline (requires --plan <path>)'],
-    ['bundle-docs',              'Compile doc bundles'],    ['ctx-generate',             'Generate context documentation (ctx generate)'],    ['help',                     'Show this help'],
-  ];
-  for (const [cmd, desc] of rows) {
-    process.stdout.write('  ' + cmd.padEnd(28) + C.dim(desc) + '\n');
+
+  // Build a map of commands that should be interleaved inside another command's
+  // helpVariants block. Key: "<parentId>:<variantIndex>" (insert AFTER that variant).
+  const interleaveMap = new Map();
+  const interleavedIds = new Set();
+  for (const cmd of COMMANDS) {
+    if (cmd.interleaveAfter) {
+      const key = `${cmd.interleaveAfter.command}:${cmd.interleaveAfter.variant}`;
+      if (!interleaveMap.has(key)) interleaveMap.set(key, []);
+      interleaveMap.get(key).push(cmd);
+      interleavedIds.add(cmd.id);
+    }
   }
+
+  for (const cmd of COMMANDS) {
+    if (cmd.helpHidden) continue;         // explicitly excluded from help
+    if (interleavedIds.has(cmd.id)) continue; // rendered inline via interleaveAfter
+
+    process.stdout.write('  ' + cmd.id.padEnd(28) + C.dim(cmd.description) + '\n');
+    if (cmd.helpVariants) {
+      for (let i = 0; i < cmd.helpVariants.length; i++) {
+        const [variant, desc] = cmd.helpVariants[i];
+        process.stdout.write('  ' + variant.padEnd(28) + C.dim(desc) + '\n');
+        // After each variant, inject any interleaved commands registered for this position.
+        const key = `${cmd.id}:${i}`;
+        if (interleaveMap.has(key)) {
+          for (const other of interleaveMap.get(key)) {
+            process.stdout.write('  ' + other.id.padEnd(28) + C.dim(other.description) + '\n');
+            if (other.helpVariants) {
+              for (const [v, d] of other.helpVariants) {
+                process.stdout.write('  ' + v.padEnd(28) + C.dim(d) + '\n');
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  process.stdout.write('  ' + 'help'.padEnd(28) + C.dim('Show this help') + '\n');
   console.log('\nRun without arguments for interactive mode.\n');
 }
 
@@ -788,7 +870,7 @@ function renderMenu(version) {
   for (const cat of cats) {
     const subVer = catVersions[cat] ? C.dim(` ${catVersions[cat]}`) : '';
     console.log(C.bold(`  ${cat}`) + subVer);
-    for (const cmd of COMMANDS.filter((c) => c.category === cat)) {
+    for (const cmd of COMMANDS.filter((c) => c.category === cat && !c.hidden)) {
       const key   = C.cyan(`${cmd.key}.`);
       const label = cmd.label.padEnd(26);
       const desc  = C.dim(cmd.description);

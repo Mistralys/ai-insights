@@ -455,3 +455,194 @@ describe('applyProjectReset — clears synthesis_generated_at (WP-008)', () => {
     expect(updatedRoot.synthesis_generated_at).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// WP-002 — orphaned IN_PROGRESS pipeline cleanup on reset
+// ---------------------------------------------------------------------------
+
+describe('analyzeProjectForReset — orphaned_pipeline_count', () => {
+  it('reports orphaned_pipeline_count = 0 when no IN_PROGRESS pipelines', () => {
+    const wp = makeWp('WP-001', 'COMPLETE', 'Developer', ['implementation']);
+    const rootIndex = makeRootIndex({
+      status: 'COMPLETE',
+      work_packages: [{ work_package_id: 'WP-001', status: 'COMPLETE', assigned_to: 'Developer', dependencies: [], file: 'WP-001.json' }],
+    });
+
+    const result = analyzeProjectForReset('test-project', rootIndex, [wp]);
+
+    expect(result.work_packages[0]!.orphaned_pipeline_count).toBe(0);
+    expect(result.total_orphaned_pipelines).toBe(0);
+  });
+
+  it('reports orphaned_pipeline_count for WP with an IN_PROGRESS pipeline', () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'Developer', ['implementation']);
+    wp.pipelines.push({
+      type: 'qa',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T02:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootIndex({
+      work_packages: [{ work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'WP-001.json' }],
+    });
+
+    const result = analyzeProjectForReset('test-project', rootIndex, [wp]);
+
+    expect(result.work_packages[0]!.orphaned_pipeline_count).toBe(1);
+    expect(result.total_orphaned_pipelines).toBe(1);
+  });
+
+  it('sums total_orphaned_pipelines across multiple WPs', () => {
+    const wp1 = makeWp('WP-001', 'IN_PROGRESS', 'Developer', []);
+    wp1.pipelines.push({ type: 'implementation', status: 'IN_PROGRESS', started_at: '2026-03-01T00:00:00Z', summary: [] });
+
+    const wp2 = makeWp('WP-002', 'IN_PROGRESS', 'QA', ['implementation']);
+    wp2.pipelines.push({ type: 'qa', status: 'IN_PROGRESS', started_at: '2026-03-01T00:00:00Z', summary: [] });
+    wp2.pipelines.push({ type: 'code-review', status: 'IN_PROGRESS', started_at: '2026-03-01T01:00:00Z', summary: [] });
+
+    const rootIndex = makeRootIndex({
+      work_packages: [
+        { work_package_id: 'WP-001', status: 'IN_PROGRESS', assigned_to: 'Developer', dependencies: [], file: 'WP-001.json' },
+        { work_package_id: 'WP-002', status: 'IN_PROGRESS', assigned_to: 'QA', dependencies: [], file: 'WP-002.json' },
+      ],
+    });
+
+    const result = analyzeProjectForReset('test-project', rootIndex, [wp1, wp2]);
+
+    expect(result.work_packages[0]!.orphaned_pipeline_count).toBe(1);
+    expect(result.work_packages[1]!.orphaned_pipeline_count).toBe(2);
+    expect(result.total_orphaned_pipelines).toBe(3);
+  });
+});
+
+describe('applyProjectReset — orphaned pipeline cleanup (WP-002)', () => {
+  const ORPHAN_PLAN = join(tmpdir(), '2026-03-25-orphan-pipeline-test');
+  let ledgerRoot: string;
+
+  function makeRootWith(wps: WorkPackageDetail[]): RootIndex {
+    return {
+      plan_file: 'plan.md',
+      date_created: now(),
+      last_updated: now(),
+      status: 'IN_PROGRESS',
+      total_work_packages: wps.length,
+      pending_work_packages: wps.length,
+      work_packages: wps.map((wp) => ({
+        work_package_id: wp.work_package_id,
+        status: wp.status,
+        assigned_to: wp.assigned_to,
+        dependencies: wp.dependencies,
+        file: `${wp.work_package_id}.json`,
+      })),
+      project_comments: [],
+    };
+  }
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'orphan-pipeline-ledger-'));
+  });
+
+  afterEach(async () => {
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('sets IN_PROGRESS pipelines to FAIL with auto_cancelled=true on reset', async () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'Developer', []);
+    wp.pipelines.push({
+      type: 'implementation',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T00:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootWith([wp]);
+    const store = new LedgerStore(ORPHAN_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'reset' } });
+
+    const wpAfter = await store.readWorkPackage('WP-001');
+    const cancelledPipeline = wpAfter.pipelines.find(
+      (p) => p.type === 'implementation' && p.status === 'FAIL'
+    );
+    expect(cancelledPipeline).toBeDefined();
+    expect(cancelledPipeline!.auto_cancelled).toBe(true);
+    expect(cancelledPipeline!.summary).toEqual(['Auto-cancelled by project reset']);
+    expect(cancelledPipeline!.completed_at).toBeDefined();
+  });
+
+  it('preserves PASS and FAIL pipelines unchanged on reset', async () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'Developer', ['implementation']);
+    // Add a failed QA pipeline (should be preserved)
+    wp.pipelines.push({
+      type: 'qa',
+      status: 'FAIL',
+      started_at: '2026-03-01T01:00:00Z',
+      completed_at: '2026-03-01T02:00:00Z',
+      summary: ['QA failed with 3 errors'],
+    });
+    // Add an orphaned IN_PROGRESS pipeline (should be cancelled)
+    wp.pipelines.push({
+      type: 'code-review',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T03:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootWith([wp]);
+    const store = new LedgerStore(ORPHAN_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'reset' } });
+
+    const wpAfter = await store.readWorkPackage('WP-001');
+
+    // PASS implementation pipeline preserved
+    const implPipeline = wpAfter.pipelines.find((p) => p.type === 'implementation');
+    expect(implPipeline).toBeDefined();
+    expect(implPipeline!.status).toBe('PASS');
+    expect(implPipeline!.auto_cancelled).toBeUndefined();
+
+    // FAIL QA pipeline preserved
+    const qaPipeline = wpAfter.pipelines.find((p) => p.type === 'qa');
+    expect(qaPipeline).toBeDefined();
+    expect(qaPipeline!.status).toBe('FAIL');
+    expect(qaPipeline!.summary).toEqual(['QA failed with 3 errors']);
+    expect(qaPipeline!.auto_cancelled).toBeUndefined();
+
+    // IN_PROGRESS code-review pipeline was auto-cancelled
+    const reviewPipeline = wpAfter.pipelines.find((p) => p.type === 'code-review');
+    expect(reviewPipeline).toBeDefined();
+    expect(reviewPipeline!.status).toBe('FAIL');
+    expect(reviewPipeline!.auto_cancelled).toBe(true);
+    expect(reviewPipeline!.summary).toEqual(['Auto-cancelled by project reset']);
+  });
+
+  it('does not cancel pipelines on skip action', async () => {
+    const wp = makeWp('WP-001', 'IN_PROGRESS', 'QA', ['implementation']);
+    wp.pipelines.push({
+      type: 'qa',
+      status: 'IN_PROGRESS',
+      started_at: '2026-03-01T01:00:00Z',
+      summary: [],
+    });
+
+    const rootIndex = makeRootWith([wp]);
+    const store = new LedgerStore(ORPHAN_PLAN, ledgerRoot);
+    await store.writeRootIndex(rootIndex);
+    await store.writeWorkPackage('WP-001', wp);
+
+    const diagnosis = analyzeProjectForReset('test', rootIndex, [wp]);
+    await applyProjectReset(store, diagnosis, { 'WP-001': { action: 'skip' } });
+
+    const wpAfter = await store.readWorkPackage('WP-001');
+    // Skip does not modify the WP — IN_PROGRESS pipeline should remain
+    const qaPipeline = wpAfter.pipelines.find((p) => p.type === 'qa');
+    expect(qaPipeline!.status).toBe('IN_PROGRESS');
+  });
+});
