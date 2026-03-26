@@ -1,67 +1,62 @@
 # Public API Surface
 
-## Build Scripts
+## Build System
 
-The persona build system is split across two files:
+The persona build system consists of two files in this workspace:
 
 | File | Role |
 |------|------|
-| `scripts/build-personas.js` | CLI entry point — handles flags, suite/target selection, file I/O, and assembly |
-| `scripts/lib/persona-helpers.js` | Pure helper module — 12 stateless functions imported by `build-personas.js` and the test suite |
+| `scripts/build-personas.js` | Thin CLI wrapper — resolves paths, reads flags, and delegates to the `@mistralys/persona-builder` library CLI |
+| `personas/persona-build.config.js` | Build configuration — declares suite directories, output paths, and plugins |
 
-### `scripts/build-personas.js`
+All template engine logic (partial resolution, conditionals, variable interpolation, frontmatter assembly) is implemented inside the `@mistralys/persona-builder` library.
 
-### CLI Flags
+### `scripts/build-personas.js` — CLI Interface
 
-| Flag | Values | Default | Description |
-|------|--------|---------|-------------|
-| `--suite` | `ledger \| standalone \| all` or comma-separated | `ledger` | Select which persona suite(s) to build. `all` expands to `ledger,standalone`. Comma-separated values run suites in order without duplication (e.g. `--suite ledger,standalone`). |
-| `--target` | `vscode \| claude-code \| all` | `all` | Select which IDE target to generate. Can be combined with `--suite`. |
-| `--check` | *(flag)* | off | Verify output is up-to-date without writing. Exits 1 if any file is stale or if any `note_only: true` tool entry appears as a rendered table row in generated output (`[note_only-violation]`). Suite-aware: use `--suite all --check` to check all suites. |
-| `--dry-run` | *(flag)* | off | Preview build without writing files. |
-| `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block — fenced blocks are stripped before scanning (WP-002), eliminating this risk (see [constraint 6 GN-4](constraints-build-system.md#c10)); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see [constraint 6 GN-5](constraints-build-system.md#c10)). |
+The wrapper accepts three flags. Suite and target selection are controlled by the config file.
 
-### Constants
+| Flag | Effect |
+|------|--------|
+| *(none)* | Delegate full build to `@mistralys/persona-builder` for all suites and targets in the config |
+| `--check` | Forward `--check` to the library CLI — compare generated output against existing files; exit 1 if stale |
+| `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
+| `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
 
-| Constant | Value | Description |
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs.
+
+### `personas/persona-build.config.js` — Config Interface
+
+The config file is loaded by the library CLI. It exports an object with the following shape:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `sharedPartialsDir` | `string` | Absolute path to `personas/shared/partials/` — base partial layer shared across all suites |
+| `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`) |
+| `plugins` | `Array` | Plugin instances — currently `[ledgerPlugin({...})]` for role validation |
+
+**Suite Configuration**
+
+Each suite entry (`suites.ledger`, `suites.standalone`) has this shape:
+
+| Property | Value | Description |
 |----------|-------|-------------|
-| `VALID_SUITES` | `['ledger', 'standalone', 'all']` | Accepted values for the `--suite` CLI flag. `expandSuites()` validates against this list and exits with `[ERROR]` on unknown values. `'all'` is a shorthand that expands to both concrete suite names. |
-
-### Suite Configuration (`SUITE_CONFIGS`)
-
-The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
-
-| Suite | `srcDir` | `outVscode` | `outCC` | `personaMode` |
-|-------|----------|-------------|---------|---------------|
-| `ledger` | `personas/ledger/src/` | `personas/ledger/vs-code/` | `personas/ledger/claude-code/` | `numbered` |
-| `standalone` | `personas/standalone/src/` | `personas/standalone/vs-code/` | `personas/standalone/claude-code/` | `standalone` |
+| `srcDir` | `personas/<suite>/src/` | Source templates directory |
+| `outVscode` | `personas/<suite>/vs-code/` | VS Code output directory |
+| `outClaudeCode` | `personas/<suite>/claude-code/` | Claude Code output directory |
+| `personaMode` | `'numbered'` \| `'standalone'` | Persona discovery and frontmatter mode |
 
 `personaMode: 'numbered'` uses `N-name.yaml` discovery and number-prefixed frontmatter fields. `personaMode: 'standalone'` uses slug-based YAML discovery and slug-derived frontmatter.
 
-### Template Functions
+**`ledgerPlugin` options**
 
-> **Module split (WP-001/WP-002):** 12 of the functions below are defined in `scripts/lib/persona-helpers.js` and imported by `build-personas.js`. The remaining functions — `expandSuites`, `loadPartials`, `discoverPersonaYamls`, `ccFrontmatterFields`, and `buildForTarget` — are defined directly in `build-personas.js` (they require filesystem I/O, process.exit, or CLI state). The `scripts/tests/persona-helpers.test.js` vitest suite covers the 12 extracted functions.
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `expandSuites` | `(suiteArg: string) → string[]` | Expands a `--suite` CLI argument (possibly comma-separated, possibly containing `"all"`) to a deduplicated ordered list of concrete suite names. |
-| `loadPartials` | `(suiteConfig: Object) → Object.<string, string>` | Loads the merged partials map for a suite. Base layer: `personas/shared/partials/`. Override layer: `personas/<suite>/src/partials/`. Suite-local entries shadow same-named shared entries. Returns a name→content map. |
-| `discoverPersonaYamls` | `(suiteConfig: Object) → string[]` | Discovers per-persona YAML files in `suiteConfig.srcDir/meta/`, excluding `_shared.yaml`. Returns sorted filenames. |
-| `resolvePartials` | `(text: string, partialsMap: Object, depth?: number) → string` | Replaces `{{> name}}` markers with content from `partialsMap`. Recursive to depth 2. Warns and leaves marker as-is on missing partial. |
-| `resolveConditionals` | `(text: string, context: Object) → string` | Processes `{{#if flag}}…{{/if}}` blocks. Truthy = keep inner content; falsy = remove block. |
-| `resolveVariables` | `(text: string, context: Object, filename: string) → string` | Replaces `{{variable}}` with `String(context[variable])`. Warns on unresolved variables. |
-| `collapseBlankLines` | `(text: string) → string` | Reduces 3+ consecutive blank lines to 2. Post-processing step. |
-| `renderRoster` | `(roster: Array, activeNumber: number) → string` | Renders the 9-agent roster as a numbered Markdown list, tagging the current agent with `(YOU)`. |
-| `renderMcpToolsTable` | `(tools: Array) → string` | Renders MCP tool entries as Markdown table rows (`| \`tool\` | purpose |`). |
-| `serializeTools` | `(tools: string[]) → string` | Serializes a tools array to YAML flow format **with** outer brackets: `['vscode', 'execute', ...]`. Used in ledger frontmatter. |
-| `serializeToolsList` | `(tools: string[]) → string` | Serializes a tools array **without** outer brackets: `'vscode', 'execute', ...`. Used inside `[…]` literals in standalone frontmatter templates. |
-| `validateFileName` | `(persona: Object, fieldName: 'cc_file_name' \| 'vs_file_name', suite: string) → void` | Validates that a persona object has the specified filename field set. Exits with code 1 and prints an error if the field is missing. Replaces the former `validateCcFileName` / `validateVsFileName` pair (WP-002). |
-| `ccFrontmatterFields` | `() → string` | Returns the three shared Claude Code frontmatter fields (`permissionMode`, `model`, `memory`) as a YAML fragment string with no leading or trailing newlines. Interpolated into both `FRONTMATTER_LEDGER_CC` and `FRONTMATTER_STANDALONE_CC` template literals to eliminate verbatim duplication. |
-| `buildForTarget` | `(suite: string, target: 'vscode' \| 'claude-code') → void` | Executes one complete build pass for the given suite + target combination. Loads suite config, reads `_shared.yaml`, loads merged partials, discovers persona YAMLs, selects the correct frontmatter template, and writes all persona files to the appropriate output directory. |
+| Option | Type | Description |
+|--------|------|-------------|
+| `manifestRoles` | `string[]` | Array of role name strings from `shared/workflow-manifest.json` — used to validate persona `role` fields |
+| `warnOnUnknownRole` | `boolean` | Controls severity when a persona `role` is not in `manifestRoles`. `true` (default): emits a `warning` — build continues. `false`: escalates to `error` — hard failure. |
 
 ### Template Processing Order
 
-Phases execute in strict order — each phase sees the output of the previous phase:
+Phases execute in strict order inside the library — each phase sees the output of the previous phase:
 
 ```
 1. resolvePartials()       →  embed shared fragments
@@ -82,7 +77,7 @@ Phases execute in strict order — each phase sees the output of the previous ph
 
 Embeds a partial from the merged partials registry. Recursive to depth 2 (partials can include other partials). Unknown partials emit a warning and are left as-is in the output.
 
-**Two-layer loading:** The build script loads partials in two passes:
+**Two-layer loading:** The library loads partials in two passes:
 1. **Base layer** — `personas/shared/partials/` (suite-agnostic content shared across all suites)
 2. **Override layer** — `personas/<suite>/src/partials/` (suite-specific partials; same-named entries shadow the base layer)
 
@@ -118,7 +113,7 @@ Replaced with `String(context[variable])`. Unknown variables emit a warning and 
 
 ### Computed Variables
 
-These are generated by the build script — they cannot be set in YAML files:
+These are generated by the library — they cannot be set in YAML files:
 
 | Variable | Suite | Source | Output |
 |----------|-------|--------|--------|
@@ -161,7 +156,7 @@ Use these flags in content templates to write platform-conditional blocks:
 |-------|------|-------------|
 | `author` | `string` | Author name embedded in generated frontmatter |
 | `last_updated` | `string` | ISO-style date string (e.g. `"2026-02-21 18:30"`) |
-| `default_version` | `string` | **Required.** Default version string (e.g. `"3.4.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `default_version` | `string` | **Required.** Default version string (e.g. `"3.4.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `default_model` | `string` | Default AI model for generated frontmatter (e.g. `"Claude Sonnet 4.6"`). Per-persona `model` overrides this. |
 | `mcp_server_name` | `string` | MCP server name used in tool patterns and references (e.g. `"central_pm"`) |
 | `roster` | `Array<{number, title, short}>` | 9-entry list of agent identities |
@@ -179,7 +174,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `model` | `string` | no | AI model override — replaces `default_model` for this persona (e.g. `"Claude Opus 4.6"`) |
 | `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `ledger-{vs_file_name stem}` (e.g. `ledger-3-dev` for `3-dev.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
 | `vs_file_name` | `string` | yes | Output filename when synced to VS Code prompts dir |
-| `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `version` | `string` | no | Overrides `default_version` for this persona |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` when present (e.g. `["Bash", "Read", "Edit", ...]`) |
@@ -187,7 +182,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
-| `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, `renderMcpToolsTable` excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
+| `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, the library excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
 
 ---
 
@@ -214,7 +209,7 @@ tools: {{tools_json}}
 
 ### Ledger — Claude Code (`FRONTMATTER_LEDGER_CC`)
 
-Written to `personas/ledger/claude-code/`. The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
+Written to `personas/ledger/claude-code/`.
 
 ```yaml
 ---
@@ -225,7 +220,9 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: {{cc_tools_json}}
-${ccFrontmatterFields()}
+permissionMode: {{cc_permission_mode}}
+model: {{cc_model}}
+memory: {{cc_memory}}
 mcpServers:
   - {{mcp_server_name}}
 ---
@@ -250,7 +247,7 @@ tools: [{{tools_list}}]
 
 ### Standalone — Claude Code (`FRONTMATTER_STANDALONE_CC`)
 
-Written to `personas/standalone/claude-code/`. No `role`; optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix). The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
+Written to `personas/standalone/claude-code/`. No `role`; optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix).
 
 ```yaml
 ---
@@ -260,7 +257,9 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: [{{cc_tools_list}}]
-${ccFrontmatterFields()}
+permissionMode: {{cc_permission_mode}}
+model: {{cc_model}}
+memory: {{cc_memory}}
 {{#if mcp_server_name}}
 mcpServers:
   - {{mcp_server_name}}
@@ -268,7 +267,7 @@ mcpServers:
 ---
 ```
 
-When a per-persona YAML sets `mcp_server_name`, the `{{#if mcp_server_name}}` block resolves to include the `mcpServers` entry. Personas without `mcp_server_name` produce no `mcpServers` block — the conditional is stripped and blank lines are normalized by `collapseBlankLines()`.
+When a per-persona YAML sets `mcp_server_name`, the `{{#if mcp_server_name}}` block resolves to include the `mcpServers` entry. Personas without `mcp_server_name` produce no `mcpServers` block — the conditional is stripped and blank lines are normalized by the library's post-processing step.
 
 Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Source: personas/<suite>/src/ -->` immediately after the frontmatter. The source path reflects the actual suite (e.g. `personas/ledger/src/` for ledger builds).
 
@@ -282,7 +281,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 |-------|------|-------------|
 | `author` | `string` | Author name |
 | `last_updated` | `string` | ISO-style date string |
-| `default_version` | `string` | **Required.** Default version string (e.g. `"1.0.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `default_version` | `string` | **Required.** Default version string (e.g. `"1.0.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
 | `cc_model` | `string` | Claude Code model override |
 | `cc_memory` | `string` | Claude Code memory scope |
@@ -299,7 +298,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `name` | `string` | yes | Human-readable display name including version (e.g. `"Researcher v1.0.1"`) |
 | `description` | `string` | yes | Short description of the persona's purpose |
 | `vs_file_name` | `string` | yes | Output filename for VS Code sync (e.g. `"researcher.agent.md"`) |
-| `cc_file_name` | `string` | yes | Output filename for Claude Code sync (e.g. `"researcher.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `cc_file_name` | `string` | yes | Output filename for Claude Code sync (e.g. `"researcher.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `version` | `string` | yes | Per-persona version string |
 | `last_updated` | `string` | no | Per-persona last-updated date |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |

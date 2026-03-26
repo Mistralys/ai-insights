@@ -1,5 +1,15 @@
 # Personas Changelog
 
+## v3.10.4 - Local Ledger Plugin
+- Build: Migrated ledger plugin from `@mistralys/persona-builder/plugins/ledger`
+  to a local copy at `personas/plugins/ledger/` (5 JS files: index.js,
+  frontmatter-templates.js, mcp-tools-renderer.js, role-validator.js,
+  roster-renderer.js).
+- Build: `persona-build.config.js` now requires the plugin from
+  `./plugins/ledger` instead of the npm package.
+- Docs: Updated `personas/docs/agents/project-manifest/file-tree.md`
+  to document the new `personas/plugins/ledger/` directory.
+
 ## v3.10.3 - Reviewer Feedback Tiers
 - Personas: Reviewer now uses three-tier feedback (Blocking,
   Fix-Forward, Documentation-Forward) instead of binary pass/fail.

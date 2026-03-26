@@ -7,6 +7,7 @@
     "test:scripts": "vitest run scripts/tests/"
   },
   "devDependencies": {
+    "@mistralys/persona-builder": "^0.2.0",
     "vitest": "^4.0.18"
   }
 }

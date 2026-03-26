@@ -1,6 +1,6 @@
 # Constraints — Build System & Sync
 
-> **Scope:** Template engine behavior, build script flags, log conventions, and sync script rules. Consult this document when modifying `scripts/build-personas.js`, `scripts/lib/persona-helpers.js`, or `scripts/sync-personas.js`.
+> **Scope:** Template engine behavior, build script flags, log conventions, and sync script rules. Consult this document when modifying `scripts/build-personas.js`, `personas/persona-build.config.js`, or `scripts/sync-personas.js`.
 >
 > See also: [Core Constraints](constraints.md) · [Cross-System Constraints](constraints-cross-system.md)
 

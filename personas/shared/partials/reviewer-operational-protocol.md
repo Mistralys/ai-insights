@@ -28,6 +28,8 @@ Eligible fixes — all must be **non-behavioral** (QA's validation remains intac
 
 **Hard boundary:** If a change alters what the program *does* — even slightly — it is not Fix-Forward. Treat it as Blocking and bounce to the Developer.
 
+**Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified (including Fix-Forward edits) in `artifacts.files_modified`. Even if you made no changes, declare the files you actively reviewed. This maintains a complete audit trail.
+
 After applying each fix, record it as a pipeline comment with type `reviewer-applied-fix` and a brief description of what you changed and why. This maintains a full audit trail.
 
 #### Tier 3 — Documentation-Forward Rules
