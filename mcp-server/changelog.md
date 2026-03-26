@@ -1,5 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.21.0 - Orphaned Pipeline Recovery
+- CancelPipeline: Added optional `auto_cancelled` flag to `ledger_cancel_pipeline`; crash-recovery cancellations set `pipeline.auto_cancelled = true` and are excluded from rework budget.
+- ProjectReset: `applyProjectReset` now auto-cancels all IN_PROGRESS pipelines (status FAIL, auto_cancelled true) before applying the WP status reset.
+- ProjectReset: `analyzeProjectForReset` reports `orphaned_pipeline_count` per WP and `total_orphaned_pipelines` at project level in diagnosis output.
+- DetectProject: Tool description prefixed with "REQUIRED param: cwd_path" to improve agent guidance.
+- Tests: Added pipeline and project-reset unit tests; MCP server suite now at 1,741 passing.
+
 ## v1.20.0 - Path Precedence & Error Hardening
 - PathValidator: `project_path` now takes precedence over `cwd_path` when both are supplied; mutual-exclusivity error removed.
 - PathValidator: Removed exported `mutuallyExclusivePaths()` predicate and `MUTUAL_EXCLUSIVITY_PATH_MSG` constant.

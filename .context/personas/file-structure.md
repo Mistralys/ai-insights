@@ -8,16 +8,17 @@ _SOURCE: Directory tree_
     └── changelog.md
     └── docs/
         ├── agents/
-        │   └── project-manifest/
-        │       ├── README.md
-        │       ├── api-surface.md
-        │       ├── constraints-build-system.md
-        │       ├── constraints-cross-system.md
-        │       ├── constraints.md
-        │       ├── data-flows.md
-        │       ├── tech-stack.md
-        │   └── research/
-        │       └── 2026-02-22-skill-extraction-mcp-docs.md
+        │   ├── project-manifest/
+        │   │   ├── README.md
+        │   │   ├── api-surface.md
+        │   │   ├── constraints-build-system.md
+        │   │   ├── constraints-cross-system.md
+        │   │   ├── constraints.md
+        │   │   ├── data-flows.md
+        │   │   ├── tech-stack.md
+        │   ├── research/
+        │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
+        ├── persona-design-guide.md
     └── ledger/
         ├── README.md
         ├── claude-code/

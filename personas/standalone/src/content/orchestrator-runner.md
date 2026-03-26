@@ -69,7 +69,7 @@ node scripts/preflight-orchestrator.js --plan <plan-path> --json
 
 ## Launching the Orchestrator
 
-**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions. The preflight script checks for running processes, and the CLI enforces a lock file (`.orchestrator.lock` in the plan directory). If the preflight script reports a conflict, resolve it before proceeding.
+**CRITICAL — Never launch a second orchestrator process while one is already running against the same plan.** Concurrent runs against the same ledger cause race conditions. The preflight script checks for running processes, and the CLI enforces a lock file (`.orchestrator.lock` in the plan directory). If the preflight script reports a conflict, use `node scripts/kill-orchestrator.js` to review and terminate stale processes, then re-run preflight before proceeding.
 
 Once all pre-flight checks pass, always pass `--project-path` pointing to the plan's project root (resolved in pre-flight step 2). Without it, the orchestrator infers the project path from the plan's directory — which breaks when the plan lives outside the ai-insights workspace.
 
@@ -200,20 +200,29 @@ Every run writes a structured JSONL log to `orchestrator/logs/`. At run completi
 
 ```bash
 # Only if terminal output is unavailable:
-tail -f orchestrator/logs/<run-id>.jsonl
+node scripts/read-log.js
 ```
 
-**Quick parsing** (requires `jq`):
+**Targeted queries** (no `jq` required):
 
 ```bash
-# Show all stage errors with context:
-jq 'select(.action == "stage_error") | {timestamp, stage, wp_id, error}' orchestrator/logs/<run-id>.jsonl
+# Show all errors and warnings from the latest run:
+node scripts/read-log.js --errors
 
-# Show pipeline outcomes per WP:
-jq 'select(.action == "pipeline_result") | {wp_id, pipeline_status, duration_s, files_modified}' orchestrator/logs/<run-id>.jsonl
+# Show routing events only:
+node scripts/read-log.js --actions
+
+# Filter to a specific work package:
+node scripts/read-log.js --wp WP-003
+
+# One-line run summary with token totals:
+node scripts/read-log.js --summary
+
+# Target a specific run by plan slug:
+node scripts/read-log.js --slug my-feature
 ```
 
-> **Critical:** The event-type field is `action`, **not** `event`. Using `.event` in `jq` expressions will always return `null`. Full field and action-value reference: `orchestrator/docs/jsonl-log-schema.md`.
+> **Critical:** The event-type field is `action`, **not** `event`. Full field and action-value reference: `orchestrator/docs/jsonl-log-schema.md`.
 
 Full schema reference (20 event types): `orchestrator/docs/jsonl-log-schema.md`.
 
@@ -293,6 +302,7 @@ The thread ID appears in both the console output at run start and in the `run_st
 | `MCP connection failed` at runtime | `dist/` corrupted after build | `cd mcp-server && npm run build` |
 | Wrong project path inferred | Plan is outside ai-insights workspace | Always pass `--project-path` pointing to the plan's own project root |
 | Exit code `2` | `max_iterations` safety limit reached | Resume with `--resume <thread-id>` or increase `--max-iterations` |
+| Preflight fails: conflicting process | A previous orchestrator run is still active | `node scripts/kill-orchestrator.js` — lists and terminates stale processes; use `--force` to skip confirmation; `--depth N` to scan the last N log files for lock cleanup (default 20) |
 | All WPs BLOCKED at start | Dependency cycle or unresolved blockers | Inspect ledger with MCP tools or the GUI; resolve blockers first |
 | Circuit-breaker halt on a WP | 3 consecutive stage failures for one WP | Inspect the log; address root cause, then resume |
 | `--resume` starts a fresh run | Checkpoint directory not initialized | Run `orchestrate` once normally first; ensure `CHECKPOINT_DIR` is set in `.env` |

@@ -1,5 +1,14 @@
 # Orchestrator Changelog
 
+## v0.10.0 - Resilience Overhaul
+- Nodes: Pipeline rollback on stage crash — auto-cancels the orphaned IN_PROGRESS pipeline with `auto_cancelled: true` and emits a `pipeline_rollback` run-log entry.
+- Nodes: `restrict_to_wp()` now auto-injects missing `work_package_id` so agents that omit it still operate on the correct WP; explicit wrong-WP calls continue to raise `ValueError`.
+- Nodes: `build_stage_prompt()` appends a CRITICAL scope reminder (WP ID) for all WP-scoped stages.
+- Supervisor: Auto-cancels halted WPs at the circuit-breaker threshold (≥3 failures) before routing to synthesis; emits `halted_wp_cancelled` WARNING run-log entry per WP.
+- CLI: Terminal marker (`.terminal` file) written after a successful non-interrupted run; `--resume` of a completed run exits with an actionable error instead of silently re-executing.
+- CLI: UUID collision guard regenerates thread ID up to 5 retries when the checkpoint DB already contains the candidate ID.
+- Tests: Extended node, supervisor, CLI, and tool-wrapper suites; +31 new tests; orchestrator suite at 526 passing.
+
 ## v0.9.7 - WP Guard & CLI Resilience
 - ToolWrappers: Added `restrict_to_wp()` — Layer 3 guard that rejects tool calls targeting a `work_package_id` other than the active WP.
 - ToolWrappers: `inject_project_path()` now strips `cwd_path` from tool calls to prevent mutual-exclusivity errors with the MCP server.
