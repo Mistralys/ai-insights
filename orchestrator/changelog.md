@@ -1,68 +1,37 @@
 # Orchestrator Changelog
 
+## v0.11.0 - Tool-Call Activity Logging
+- ToolWrappers: Added `log_tool_calls()` — emits a `tool_call` JSONL event per MCP tool call.
+- ToolWrappers: Events capture stage, tool name, and WP ID; argument payloads excluded for privacy.
+- Logging: Added `tool_call` console rendering with stage, tool name, and WP ID.
+- Nodes: All stage nodes now emit real-time tool-call events via `log_tool_calls()`.
+- Docs: Documented `tool_call` event type in the JSONL log schema.
+- Tests: +46 unit tests; 572 passing.
+
 ## v0.10.0 - Resilience Overhaul
-- Nodes: Pipeline rollback on stage crash — auto-cancels the orphaned IN_PROGRESS pipeline with `auto_cancelled: true` and emits a `pipeline_rollback` run-log entry.
-- Nodes: `restrict_to_wp()` now auto-injects missing `work_package_id` so agents that omit it still operate on the correct WP; explicit wrong-WP calls continue to raise `ValueError`.
-- Nodes: `build_stage_prompt()` appends a CRITICAL scope reminder (WP ID) for all WP-scoped stages.
-- Supervisor: Auto-cancels halted WPs at the circuit-breaker threshold (≥3 failures) before routing to synthesis; emits `halted_wp_cancelled` WARNING run-log entry per WP.
-- CLI: Terminal marker (`.terminal` file) written after a successful non-interrupted run; `--resume` of a completed run exits with an actionable error instead of silently re-executing.
-- CLI: UUID collision guard regenerates thread ID up to 5 retries when the checkpoint DB already contains the candidate ID.
-- Tests: Extended node, supervisor, CLI, and tool-wrapper suites; +31 new tests; orchestrator suite at 526 passing.
+- Nodes: Stage crash triggers pipeline rollback and emits a `pipeline_rollback` event.
+- Nodes: `restrict_to_wp()` auto-injects missing `work_package_id` instead of passing through silently.
+- Nodes: Stage prompts include a CRITICAL WP ID scope reminder.
+- Supervisor: Auto-cancels circuit-broken WPs (≥3 failures) before routing to synthesis.
+- CLI: Terminal marker prevents re-execution of completed runs via `--resume`.
+- CLI: UUID collision guard regenerates thread ID on checkpoint DB conflicts.
+- Tests: +31 new tests; 526 passing.
 
 ## v0.9.7 - WP Guard & CLI Resilience
-- ToolWrappers: Added `restrict_to_wp()` — Layer 3 guard that rejects tool calls targeting a `work_package_id` other than the active WP.
-- ToolWrappers: `inject_project_path()` now strips `cwd_path` from tool calls to prevent mutual-exclusivity errors with the MCP server.
-- ToolWrappers: Fixed tool call argument handling errors; expanded test coverage.
-- Nodes: Stage node factory applies `restrict_to_wp()` after `inject_project_path()` when a WP ID is present.
-- Nodes: Extracted `build_stage_prompt()` shared helper to `__init__.py`; all eight node builders now use it.
+- ToolWrappers: Added `restrict_to_wp()` — rejects tool calls targeting a different work package.
+- ToolWrappers: `inject_project_path()` strips `cwd_path` to avoid mutual-exclusivity errors.
+- ToolWrappers: Fixed tool call argument handling errors.
+- Nodes: Stage node factory applies `restrict_to_wp()` after `inject_project_path()`.
+- Nodes: Extracted shared `build_stage_prompt()` helper; all eight node builders now use it.
 - CLI: Fixed stale lock file left behind after a crashed or interrupted run.
 - CLI: Suppressed asyncio deprecation warning.
 - Supervisor: Removed noisy warning messages emitted during normal operation.
-- Tests: Extended `test_tool_wrappers.py` to cover `restrict_to_wp()` and error paths; updated `test_nodes.py` for the shared prompt helper.
+- Tests: Expanded tool-wrapper and node test suites.
 
 ## v0.9.6 - Slim Orchestrator Node Prompts
-
-Removed redundant identity declarations, workflow step enumerations, and MCP
-tool call guidance from all eight node prompt builder functions. Each
-``_build_*_prompt()`` now provides only the runtime context the persona system
-prompt cannot know.
-
-**Functions changed:**
-
-- `orchestrator/src/nodes/developer.py` — `_build_developer_prompt()`
-- `orchestrator/src/nodes/qa.py` — `_build_qa_prompt()`
-- `orchestrator/src/nodes/reviewer.py` — `_build_reviewer_prompt()`
-- `orchestrator/src/nodes/security_auditor.py` — `_build_security_auditor_prompt()`
-- `orchestrator/src/nodes/release_engineer.py` — `_build_release_engineer_prompt()`
-- `orchestrator/src/nodes/docs.py` — `_build_docs_prompt()`
-- `orchestrator/src/nodes/pm.py` — `_build_pm_prompt()`
-- `orchestrator/src/nodes/synthesis.py` — `_build_synthesis_prompt()`
-
-**What each slim prompt now contains:**
-
-- Standard WP-scoped nodes (developer, qa, reviewer, security_auditor,
-  release_engineer, docs): `project_path`, `wp_id`, and the
-  `project_path` injection-safety warning.
-- PM node: `project_path`, `plan_file`, the `project_path`
-  injection-safety warning, and the embedded plan document content (unique
-  runtime data the persona cannot know).
-- Synthesis node: `project_path` and the `project_path` injection-safety
-  warning only — `wp_id` is omitted because synthesis is project-scoped.
-
-**Rationale:**
-
-The persona system prompts (loaded from `personas/ledger/claude-code/`) are
-the canonical source of truth for agent behaviour. Duplicating identity,
-workflow steps, and tool guidance in the user turn created conflicts with the
-persona, wasted input tokens on every agent invocation, and risked the
-simplified user-turn instructions overriding the richer persona guidance due
-to LLM attention weighting of user-turn content.
-
-- Docs: Updated module-level docstrings in all eight node files to document
-  the slim prompt strategy, what fields are included, and what is
-  intentionally omitted.
-- Tests: Updated orchestrator test suite assertions to reflect slim prompt
-  format (slim fields present; identity/role declarations absent).
+- Nodes: Removed redundant identity, workflow steps, and tool guidance from all eight node prompts.
+- Nodes: Each `_build_*_prompt()` now includes only runtime context the persona cannot know.
+- Tests: Updated assertions to reflect slim prompt format.
 
 ## v0.9.5 - Defaults & Heartbeat
 - Config: `capture_dialogues` default changed from `False` to `True`.
@@ -73,23 +42,20 @@ to LLM attention weighting of user-turn content.
 - CLI: Run log archival now targets `{slug}/orchestrator/logs/`.
 
 ## v0.9.4 - Run Log Archival to Ledger Storage
-- CLI: After run completion, the JSONL log is moved from `orchestrator/logs/` into `mcp-server/storage/ledger/{slug}/` so all project artefacts are co-located in the ledger folder. The final path is printed at run end. Falls back to the original location on `OSError`.
-- Utils: Fixed stale docstring in `write_dialogue()` — `slug_dir` parameter now correctly documents the ledger storage path rather than the plan directory.
-- Docs: Updated `architecture.md`, `jsonl-log-schema.md`, and `smoke-testing.md` to reflect the new log file location.
+- CLI: Run logs moved into the project's ledger storage folder on completion.
+- Docs: Updated architecture and log-schema docs to reflect the new log location.
 
 ## v0.9.3 - Dialogue Capture Integration
-- Nodes: `create_stage_node()` now captures full agent dialogue exchanges when `CAPTURE_DIALOGUES=true`. After each `ainvoke()`, the message sequence is serialised to Markdown and written to `{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md` via `write_dialogue()`. Failures are non-fatal — stage execution continues normally.
-- Nodes: Emits a `dialogue_captured` JSONL event (`stage`, `wp_id`, `file_path`, `level="INFO"`) immediately after the `pipeline_result` entry. Only emitted when capture succeeds and `wp_id` is non-empty.
-- Logging: Added `dialogue_captured` console-line branch to `_build_stream_console_line()` — formats as `[{stage}] {wp_id} dialogue saved → {filename}`.
-- Docs: `orchestrator/docs/jsonl-log-schema.md` updated: `file_path` field added to Full Field Reference table; `dialogue_captured` row added to Action Values table; stage-start/complete ordering section updated to document step 4 (`dialogue_captured`); event count updated to 18.
-- Tests: `TestDialogueCaptured` added to `test_nodes.py` (5 tests) and `test_logging.py` (4 tests). Total test suite: 455 tests.
+- Nodes: Agent dialogue exchanges serialised to Markdown and saved to ledger storage per stage.
+- Nodes: Emits a `dialogue_captured` JSONL event after each successful capture.
+- Logging: Added `dialogue_captured` console-line rendering.
+- Docs: Updated JSONL log schema with `file_path` field and `dialogue_captured` event.
+- Tests: +9 tests; 455 passing.
 
 ## v0.9.2 - Dialogue Writer Utility
-- Utils: Added `src/utils/dialogue_writer.py` with `serialize_messages_to_markdown()` and `write_dialogue()`.
-- `serialize_messages_to_markdown()`: renders a Markdown document from a LangChain message sequence — header table, per-message sections (Human/Assistant/Tool Result/System), tool call JSON fences, and token-usage footer.
-- `write_dialogue()`: persists Markdown to `{slug_dir}/dialogues/{wp_id}-{stage}-r{N}.md` with auto-incrementing revision numbers.
-- Tests: 39 tests in `tests/test_dialogue_writer.py` covering all message types, revision numbering, and filesystem isolation via `tmp_path`.
-- Docs: Documented `CAPTURE_DIALOGUES` env var, `dialogue_writer` public API, and supported message roles.
+- Utils: Added dialogue writer — serialises LangChain message sequences to Markdown.
+- Tests: 39 tests covering all message types, revision numbering, and filesystem isolation.
+- Docs: Documented `CAPTURE_DIALOGUES` env var and dialogue writer public API.
 
 ## v0.9.1 - Dialogue Capture Flag
 - Config: Added `capture_dialogues: bool` field to `Config` dataclass (default `False`).
@@ -117,9 +83,9 @@ to LLM attention weighting of user-turn content.
 - Tests: Added stage lifecycle and pipeline result test suites.
 
 ## v0.6.0 - Windows Cross-Platform Fix
-- Fix: Replaced unconditional `import fcntl` in `cli.py` with a cross-platform `filelock` module; the orchestrator now starts on Windows without `ModuleNotFoundError`.
-- Core: Added `src/utils/filelock.py` — stdlib-only file locking (`fcntl.flock` on Unix, `msvcrt.locking` on Windows, no third-party dependencies).
-- Tests: Added `tests/test_filelock.py` with 3 platform-agnostic unit tests: acquire succeeds, contention raises `OSError`, `unlock` is idempotent.
+- Fix: Replaced `import fcntl` with a cross-platform `filelock` module; orchestrator now starts on Windows.
+- Core: Added stdlib-only `filelock` module with platform-specific locking for Unix and Windows.
+- Tests: Added 3 platform-agnostic file-lock unit tests.
 - Docs: Created project manifest documentation.
 
 ## v0.5.0 - Checkpoint Support & Stability
@@ -151,7 +117,7 @@ to LLM attention weighting of user-turn content.
 - Scripts: Replaced the primary execution script.
 
 ### Breaking Changes
-This release significantly refactors the orchestration logic, moving execution responsibility to the ledger. Previous local execution patterns may be deprecated.
+This release moves all execution responsibility to the ledger. Previous local execution patterns are superseded.
 
 ## v0.1.1 - Logic Cycle Stabilization
 - Logic: Fixed issues in the third logic cycle execution.
@@ -160,4 +126,3 @@ This release significantly refactors the orchestration logic, moving execution r
 - Core: Initial implementation of the LangGraph-based pipeline.
 - Core: Completed post-development rework and stabilization.
 - Config: Updated `.env.example`.
-- Housekeeping: Removed temporary folders.

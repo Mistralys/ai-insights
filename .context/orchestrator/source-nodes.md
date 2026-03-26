@@ -50,7 +50,7 @@ from langchain_core.runnables import RunnableConfig
 from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
-from src.utils.tool_wrappers import inject_project_path, restrict_to_wp
+from src.utils.tool_wrappers import inject_project_path, log_tool_calls, restrict_to_wp
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -177,6 +177,27 @@ def create_stage_node(
     Callable[[WorkflowState], dict]
         A LangGraph node function that creates a Deep Agent, invokes it, and
         returns a state-update dict.
+
+    Wrapper layers
+    --------------
+    Four defensive wrappers are applied to `mcp_tools` inside the node function,
+    in this canonical order:
+
+    1. :func:`~src.utils.tool_wrappers.inject_project_path` — Layer 2 safety net.
+       Auto-injects ``project_path`` into every call when the argument is absent.
+    2. :func:`~src.utils.tool_wrappers.restrict_to_wp` — Layer 3 safety net
+       (skipped when ``_wp_id`` is empty, e.g. synthesis stages).  Auto-injects
+       ``work_package_id`` and raises :exc:`ValueError` on cross-WP calls.
+    3. :func:`_install_begin_work_tracker` — Internal tracker (skipped when
+       ``_wp_id`` is empty).  Wraps ``ledger_begin_work`` to record when it fires
+       and which pipeline type was requested; enables automatic pipeline rollback
+       on error (see the ``except`` block).
+    4. :func:`~src.utils.tool_wrappers.log_tool_calls` — Outermost wrapper.
+       Applied last, so ``_logged_ainvoke`` executes *first* on each call —
+       before inner wrappers inject ``project_path`` or ``work_package_id``.
+       Emits a ``tool_call`` JSONL event (``level: DEBUG``) recording
+       ``stage``, ``wp_id``, ``tool_name``, and ``tool_wp_id``; full argument
+       payloads are never logged (privacy constraint).
     """
 
     # Capture the app-level Config in a closure variable so it doesn't clash
@@ -227,6 +248,12 @@ def create_stage_node(
             # ledger_begin_work was called before the error occurred.
             if _wp_id:
                 _install_begin_work_tracker(wrapped_tools, _begin_work_state)
+
+            # Wire tool-call logging as the outermost wrapper (applied last).
+            # Being outermost, _logged_ainvoke executes first on every call,
+            # capturing tool_name and the wp_id argument as the agent supplied
+            # them — before inner wrappers inject project_path or wp_id.
+            log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)
 
             agent = create_deep_agent(
                 model=_app_config.model_name,

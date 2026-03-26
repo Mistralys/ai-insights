@@ -2,7 +2,7 @@
 
 > **Parent:** [orchestrator/README.md](../README.md) · **Sources:** `orchestrator/src/utils/logging.py` (logger), `orchestrator/src/nodes/__init__.py` (stage events), `orchestrator/src/supervisor.py` (routing events), `orchestrator/src/cli.py` (run lifecycle events)
 
-Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **20 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution).
+Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **21 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
 
 > **Streaming guarantee:** Graph nodes call `stream_entry()` to persist events in real time via the `WorkflowLogger` instance passed through LangGraph's `configurable` dict (key: `run_logger`). For LangGraph to inject this, node functions must annotate their `config` parameter as `Optional[RunnableConfig]` — using `RunnableConfig | None` with `from __future__ import annotations` produces a string annotation that LangGraph's signature inspector does not recognise. When the logger is successfully injected, events appear in the JSONL file immediately as they occur. If the `WorkflowLogger` is unreachable inside graph nodes (e.g. incorrect annotation or the configurable key was stripped), events accumulate only in the LangGraph state's `run_log` list. At run exit, `cli.py` calls `flush_unstreamed(run_log)` to write any un-persisted entries as a batch before the `run_end` sentinel. In this fallback scenario, stage and supervisor events appear immediately before `run_end` rather than interleaved with heartbeats.
 
@@ -48,6 +48,8 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `total_duration_s` | `run_end` (optional) | float | Wall-clock duration of the run in seconds (rounded to 1 decimal place). Omitted when `run_start_ts` is unavailable or could not be parsed. |
 | `silence_s` | `heartbeat` | float | Seconds elapsed since the last log entry was emitted (rounded to 1 decimal place) |
 | `file_path` | `dialogue_captured` | string | Absolute path to the Markdown dialogue file written to disk (non-empty when capture succeeds) |
+| `tool_name` | `tool_call` | string | The MCP tool name from `tool.name` (e.g. `"ledger_create_work_package"`) |
+| `tool_wp_id` | `tool_call` | string | The `work_package_id` argument extracted from the call arguments; empty string when absent. **Never** includes the full argument payload (privacy constraint). |
 | `detail` | `dry_run_no_ledger` | string | The underlying error message from the missing ledger (logged at INFO, not treated as an error) |
 | `reason` | `dry_run_complete` | string | Human-readable reason for clean termination (e.g. `"dry-run: PM stub executed; no ledger expected"`) |
 
@@ -62,6 +64,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
 | `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
+| `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `action="tool_call"`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy constraint) |
 | `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `level="INFO"` — emitted by default; suppressed when `capture_dialogues=False` |
 | `wp_status_change` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `old_status`, `new_status`, `level="INFO"` |
 | `wp_complete` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `level="INFO"` |
@@ -85,11 +88,18 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 For every stage invocation, three to five entries are written in order:
 
 1. **`stage_start`** — emitted immediately before the Deep Agent is created
-2. **`stage_complete`** (or **`stage_error`** on exception) — emitted after the agent finishes
-3. **`pipeline_result`** *(optional)* — emitted after `stage_complete` when the WP still exists and carries at least one pipeline record; omitted on read-back failure or when `wp_id` is empty
-4. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. A write failure is caught silently and this entry is omitted.
+2. **`tool_call`** *(0–N)* — emitted once before each MCP tool `ainvoke`; high-frequency at `level: "DEBUG"` (one per tool call during the stage); never includes argument payloads
+3. **`stage_complete`** (or **`stage_error`** on exception) — emitted after the agent finishes
+4. **`pipeline_result`** *(optional)* — emitted after `stage_complete` when the WP still exists and carries at least one pipeline record; omitted on read-back failure or when `wp_id` is empty
+5. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. A write failure is caught silently and this entry is omitted.
 
 `pipeline_result.duration_s` will be `null` until `ledger_complete_pipeline` stores `duration_ms` in the WP record (separate MCP server work package).
+
+### `tool_call` — level and privacy notes
+
+**`level: "DEBUG"`** — `tool_call` events are high-frequency (one per MCP tool invocation during a stage). Using `"DEBUG"` level allows consumers to filter them out of normal console output and summary views without losing them from the JSONL record. The `scripts/read-log.js` reader and the `WorkflowLogger` console renderer both suppress `DEBUG` entries from default output.
+
+**Argument payload exclusion (privacy)** — Only `tool_name` and `tool_wp_id` are captured. The full `input` dict passed to `ainvoke` is deliberately **not logged**. This prevents plan content, work package descriptions, and any other sensitive data the LLM passes to tools from appearing in the JSONL log. `tool_wp_id` is the sole exception: it is a non-sensitive identifier extracted specifically to provide WP-level routing visibility in the log stream.
 
 ### Supervisor event ordering per iteration
 
@@ -225,6 +235,18 @@ when `run_start_ts` was never stored in state or is unparseable.
 
 ```json
 {"timestamp": "2026-03-23T17:38:51.200Z", "stage": "supervisor", "wp_id": "", "action": "dry_run_complete", "level": "INFO", "destination": "__end__", "reason": "dry-run: PM stub executed; no ledger expected"}
+```
+
+### `tool_call` (with `tool_wp_id`; PM stage)
+
+```json
+{"timestamp": "2026-03-26T10:05:32.000000+00:00", "stage": "pm", "wp_id": "", "action": "tool_call", "level": "DEBUG", "tool_name": "ledger_create_work_package", "tool_wp_id": "WP-003"}
+```
+
+> **Note:** `tool_wp_id` is empty when the tool call does not include a `work_package_id` argument. Argument payloads are never logged — only `tool_name` and `tool_wp_id` are captured.
+
+```json
+{"timestamp": "2026-03-26T10:05:33.000000+00:00", "stage": "developer", "wp_id": "WP-003", "action": "tool_call", "level": "DEBUG", "tool_name": "ledger_complete_pipeline", "tool_wp_id": "WP-003"}
 ```
 
 ---

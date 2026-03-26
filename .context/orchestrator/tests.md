@@ -2831,6 +2831,202 @@ class TestRobustness:
         line = _build_stream_console_line(entry)
         assert "route" in line  # doesn't crash, ignores unknown fields
 
+
+# ---------------------------------------------------------------------------
+# TestToolCallRendering — WP-002 Acceptance Criteria
+# ---------------------------------------------------------------------------
+
+
+class TestToolCallRendering:
+    """Verify _build_stream_console_line renders tool_call events correctly.
+
+    Each test targets one of the four WP-002 acceptance criteria:
+    AC1 — wrench prefix + tool_name in output.
+    AC2 — stage prefix and WP ID consistent with other events.
+    AC3 — tool_wp_id parenthetical omitted when empty.
+    AC4 — no changes to rendering of existing events (spot-checked in TestExistingEventTypes).
+    """
+
+    # AC1 — wrench emoji + tool_name
+
+    def test_ac1_wrench_emoji_present(self):
+        """🔧 emoji must be present in the rendered line."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "🔧" in line
+
+    def test_ac1_tool_name_in_output(self):
+        """tool_name must appear in the rendered line."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "ledger_create_work_package" in line
+
+    def test_ac1_tool_wp_id_in_parentheses(self):
+        """tool_wp_id must appear in parentheses when non-empty."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "(WP-003)" in line
+
+    def test_ac1_full_format(self):
+        """Full line format: '[pm] 🔧 ledger_create_work_package (WP-003)'."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert line == "[pm] 🔧 ledger_create_work_package (WP-003)"
+
+    # AC2 — stage prefix and WP ID consistent with other events
+
+    def test_ac2_stage_prefix_in_brackets(self):
+        """Stage must appear as [stage] prefix, consistent with other events."""
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "tool_call",
+            "tool_name": "ledger_complete_pipeline",
+            "tool_wp_id": "WP-001",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+
+    def test_ac2_wp_id_included_when_present(self):
+        """stage-level wp_id must appear in the line when non-empty."""
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "tool_call",
+            "tool_name": "ledger_complete_pipeline",
+            "tool_wp_id": "WP-001",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "WP-001" in line
+
+    def test_ac2_no_stage_wp_id_when_empty(self):
+        """When stage wp_id is empty, line must not contain a bare WP-XXX prefix."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_get_next_action",
+            "tool_wp_id": "",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        # wp_id is empty — the stage prefix should NOT have a WP ref right after [pm]
+        assert line.startswith("[pm]")
+
+    # AC3 — empty tool_wp_id omits parenthetical
+
+    def test_ac3_empty_tool_wp_id_no_parens(self):
+        """When tool_wp_id is empty, the parenthetical must be omitted."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_list_work_packages",
+            "tool_wp_id": "",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "()" not in line
+        assert "( )" not in line
+        assert "🔧 ledger_list_work_packages" in line
+
+    def test_ac3_exact_format_without_tool_wp_id(self):
+        """Exact format when tool_wp_id is empty: '[pm] 🔧 ledger_list_work_packages'."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_list_work_packages",
+            "tool_wp_id": "",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert line == "[pm] 🔧 ledger_list_work_packages"
+
+    # AC4 — no changes to existing event rendering (spot-checks)
+
+    def test_ac4_heartbeat_unaffected(self):
+        """heartbeat event must not be rendered as a tool_call."""
+        entry = {"stage": "pm", "wp_id": "", "action": "heartbeat", "silence_s": 30}
+        line = _build_stream_console_line(entry)
+        assert "♥" in line
+        assert "🔧" not in line
+
+    def test_ac4_progress_snapshot_unaffected(self):
+        """progress_snapshot event must not be rendered as a tool_call."""
+        entry = {"stage": "developer", "wp_id": "WP-001", "action": "progress_snapshot"}
+        line = _build_stream_console_line(entry)
+        assert "Progress:" in line
+        assert "🔧" not in line
+
+    def test_ac4_stage_complete_unaffected(self):
+        """stage_complete event must not be rendered as a tool_call."""
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "stage_complete",
+            "result": "ok",
+        }
+        line = _build_stream_console_line(entry)
+        assert "🔧" not in line
+
+    def test_tool_call_console_line_distinguishes_stage_wp_id_from_tool_wp_id(self):
+        """When wp_id and tool_wp_id differ, both must appear in the rendered
+        line at their respective positions, confirming neither value is confused
+        with the other.
+
+        Stage wp_id (WP-002) appears right after the [stage] prefix.
+        tool_wp_id (WP-007) appears in the trailing parenthetical.
+        """
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-002",
+            "action": "tool_call",
+            "tool_name": "ledger_begin_work",
+            "tool_wp_id": "WP-007",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        # Both IDs must appear in the output.
+        assert "WP-002" in line, f"stage-level wp_id 'WP-002' missing from: {line!r}"
+        assert "WP-007" in line, f"tool-level tool_wp_id 'WP-007' missing from: {line!r}"
+        # tool_wp_id must be in the trailing parenthetical.
+        assert "(WP-007)" in line, f"tool_wp_id must appear as '(WP-007)' in: {line!r}"
+        # stage wp_id must appear between [stage] prefix and the tool emoji.
+        assert "[developer] WP-002 🔧" in line, (
+            f"stage prefix + wp_id + wrench must appear in order in: {line!r}"
+        )
+
 ```
 ###  Path: `/orchestrator/tests/test_mcp_parse.py`
 
@@ -4485,6 +4681,74 @@ class TestPipelineRollback:
         errors = result.get("errors", [])
         assert errors, "errors must be non-empty"
         assert "Original agent crash" in errors[0]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: log_tool_calls wiring inside create_stage_node
+# ---------------------------------------------------------------------------
+
+
+class TestCreateStageNodeWiring:
+    """Verify that create_stage_node wires log_tool_calls with the correct
+    stage, wp_id, and logger arguments (WP-002 integration coverage)."""
+
+    async def test_log_tool_calls_is_wired_with_correct_args(self):
+        """create_stage_node must call log_tool_calls exactly once, passing
+        the correct stage, wp_id, and run_logger (None in unit tests)."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch("src.nodes.log_tool_calls") as mock_log:
+            await node_fn(base_state(current_wp_id="WP-003"))
+
+        mock_log.assert_called_once()
+        args = mock_log.call_args.args
+        # args: (wrapped_tools, stage, wp_id, run_logger)
+        assert args[1] == "developer", (
+            f"log_tool_calls called with wrong stage: {args[1]!r}"
+        )
+        assert args[2] == "WP-003", (
+            f"log_tool_calls called with wrong wp_id: {args[2]!r}"
+        )
+        # run_logger is None in unit tests (no RunnableConfig provided)
+        assert args[3] is None, (
+            f"log_tool_calls called with unexpected logger: {args[3]!r}"
+        )
+
+    async def test_log_tool_calls_wired_for_synthesis_empty_wp_id(self):
+        """Synthesis stages have empty wp_id; log_tool_calls must still fire
+        with wp_id='' so the wrapper can handle project-scoped calls."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="synthesis",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch("src.nodes.log_tool_calls") as mock_log:
+            await node_fn(base_state(current_wp_id=""))
+
+        mock_log.assert_called_once()
+        args = mock_log.call_args.args
+        assert args[1] == "synthesis", (
+            f"log_tool_calls called with wrong stage: {args[1]!r}"
+        )
+        assert args[2] == "", (
+            f"log_tool_calls called with non-empty wp_id for synthesis: {args[2]!r}"
+        )
+        assert args[3] is None
 
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
@@ -6669,7 +6933,8 @@ class TestDryRunMode:
 """
 test_tool_wrappers.py — Unit tests for src.utils.tool_wrappers.
 
-Tests cover every behavioural contract promised by ``inject_project_path``:
+Tests cover every behavioural contract promised by ``log_tool_calls`` (AC
+coverage for WP-001) and ``inject_project_path``:
 
 1. **Injection when absent** — ``project_path`` is added when the tool call
    dict does not already contain it.
@@ -7667,6 +7932,503 @@ class TestRestrictToWpInCreateStageNode:
 
         assert not restrict_calls, (
             "restrict_to_wp must NOT be called when wp_id is empty"
+        )
+
+
+# ===========================================================================
+# log_tool_calls — WP-001 Acceptance Criteria
+# ===========================================================================
+
+from src.utils.tool_wrappers import log_tool_calls  # noqa: E402
+
+
+class _LogTool:
+    """Minimal plain-Python tool stub for log_tool_calls tests.
+
+    Uses a plain class (not MagicMock) so ``hasattr(tool, '_orig_ainvoke_log')``
+    correctly returns ``False`` before the first wrap.
+    """
+
+    def __init__(self, seen: list[Any] | None = None, ret: Any = "log_result") -> None:
+        _seen: list[Any] = seen if seen is not None else []
+        self.name = "log_tool"
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> Any:
+            _seen.append(input)
+            return ret
+
+        self.ainvoke = _ainvoke
+
+
+def _make_log_tool(
+    captured: list[Any] | None = None, ret: Any = "log_result"
+) -> _LogTool:
+    return _LogTool(seen=captured if captured is not None else [], ret=ret)
+
+
+class _MockLogger:
+    """Minimal logger stub that records stream_entry calls."""
+
+    def __init__(self) -> None:
+        self.entries: list[dict] = []
+
+    def stream_entry(self, entry: dict) -> None:
+        self.entries.append(entry)
+
+
+# ---------------------------------------------------------------------------
+# AC1 — Function signature
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsSignature:
+    def test_importable(self) -> None:
+        """log_tool_calls must be importable from src.utils.tool_wrappers."""
+        assert callable(log_tool_calls)
+
+    def test_signature_matches(self) -> None:
+        """Signature must accept (tools, stage, wp_id, logger) and return list."""
+        import inspect
+
+        sig = inspect.signature(log_tool_calls)
+        params = list(sig.parameters.keys())
+        assert params == ["tools", "stage", "wp_id", "logger"], (
+            f"Unexpected parameters: {params}"
+        )
+
+    def test_returns_list(self) -> None:
+        """log_tool_calls must return a list."""
+        tools = [_make_log_tool()]
+        result = log_tool_calls(tools, stage="pm", wp_id="WP-001", logger=None)
+        assert isinstance(result, list)
+
+    def test_returns_same_list_object(self) -> None:
+        """log_tool_calls must return the same list (in-place mutation)."""
+        tools = [_make_log_tool()]
+        logger = _MockLogger()
+        result = log_tool_calls(tools, stage="pm", wp_id="WP-001", logger=logger)
+        assert result is tools
+
+
+# ---------------------------------------------------------------------------
+# AC2 — Emitted event fields
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsEmitsEvent:
+    async def test_emits_tool_call_action(self) -> None:
+        """stream_entry must be called with action='tool_call'."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert len(logger.entries) == 1
+        assert logger.entries[0]["action"] == "tool_call"
+
+    async def test_emits_tool_name(self) -> None:
+        """stream_entry event must contain tool_name matching tool.name."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        tool.name = "ledger_get_next_action"
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["tool_name"] == "ledger_get_next_action"
+
+    async def test_emits_tool_wp_id_from_flat_dict(self) -> None:
+        """tool_wp_id must be extracted from flat-dict work_package_id."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="qa", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({"work_package_id": "WP-003", "other": "data"})
+
+        assert logger.entries[0]["tool_wp_id"] == "WP-003"
+
+    async def test_emits_tool_wp_id_from_toolcall_structure(self) -> None:
+        """tool_wp_id must be extracted from ToolCall nested-dict args."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({
+            "name": "ledger_complete_pipeline",
+            "args": {"work_package_id": "WP-005", "type": "implementation"},
+            "id": "call-1",
+            "type": "tool_call",
+        })
+
+        assert logger.entries[0]["tool_wp_id"] == "WP-005"
+
+    async def test_emits_level_debug(self) -> None:
+        """stream_entry event must have level='DEBUG'."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["level"] == "DEBUG"
+
+    async def test_emits_stage_field(self) -> None:
+        """stream_entry event must contain the stage passed to log_tool_calls."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="security_auditor", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["stage"] == "security_auditor"
+
+    async def test_emits_wp_id_field(self) -> None:
+        """stream_entry event must carry the stage-level wp_id."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="developer", wp_id="WP-007", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["wp_id"] == "WP-007"
+
+    async def test_tool_wp_id_empty_when_no_wp_arg(self) -> None:
+        """tool_wp_id must be empty string when the call has no work_package_id."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert logger.entries[0]["tool_wp_id"] == ""
+
+    async def test_all_required_fields_present(self) -> None:
+        """All required event fields must be present in a single call."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        tool.name = "ledger_begin_work"
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+
+        entry = logger.entries[0]
+        for field in ("action", "tool_name", "tool_wp_id", "level"):
+            assert field in entry, f"Required field '{field}' missing from event"
+
+
+# ---------------------------------------------------------------------------
+# AC3 — Sentinel idempotency (no stacking)
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsIdempotency:
+    async def test_double_wrap_does_not_stack_closures(self) -> None:
+        """Calling log_tool_calls twice on the same tool must not cause original
+        ainvoke to be called more than once per invocation."""
+        call_count = 0
+
+        class _CountingTool:
+            name = "counting_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                nonlocal call_count
+                call_count += 1
+                return "ok"
+
+        tool = _CountingTool()
+        logger = _MockLogger()
+
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert call_count == 1, (
+            f"Original ainvoke called {call_count} times — wrapper stacking occurred"
+        )
+
+    async def test_double_wrap_emits_exactly_one_event(self) -> None:
+        """Double-wrapping must still emit only one event per call."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert len(logger.entries) == 1, (
+            f"Expected 1 event, got {len(logger.entries)}"
+        )
+
+    async def test_sentinel_is_set_after_first_wrap(self) -> None:
+        """_orig_ainvoke_log sentinel must be set on the tool after first wrap."""
+        tool = _make_log_tool()
+        logger = _MockLogger()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+        assert hasattr(tool, "_orig_ainvoke_log"), (
+            "_orig_ainvoke_log sentinel must be set after first wrap"
+        )
+
+    async def test_triple_wrap_is_also_safe(self) -> None:
+        """Idempotency must hold for an arbitrary number of wraps."""
+        call_count = 0
+
+        class _CountingTool:
+            name = "counting_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                nonlocal call_count
+                call_count += 1
+                return "ok"
+
+        tool = _CountingTool()
+        logger = _MockLogger()
+
+        for _ in range(3):
+            log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# AC4 — None logger: no error, tools function normally
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsNoneLogger:
+    def test_none_logger_returns_tools_unchanged(self) -> None:
+        """When logger is None, ainvoke must not be replaced."""
+        tool = _make_log_tool()
+        original_ainvoke = tool.ainvoke
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=None)
+        assert tool.ainvoke is original_ainvoke, (
+            "ainvoke must not be replaced when logger is None"
+        )
+
+    def test_none_logger_no_sentinel(self) -> None:
+        """When logger is None, no sentinel should be set."""
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=None)
+        assert not hasattr(tool, "_orig_ainvoke_log"), (
+            "_orig_ainvoke_log must not be set when logger is None"
+        )
+
+    async def test_none_logger_tool_still_invokable(self) -> None:
+        """When logger is None, the tool must still function normally."""
+        seen: list[Any] = []
+        tool = _make_log_tool(captured=seen, ret="original")
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=None)
+
+        result = await tool.ainvoke({"key": "value"})
+
+        assert result == "original"
+        assert seen[0] == {"key": "value"}
+
+    def test_none_logger_returns_same_list(self) -> None:
+        """log_tool_calls with None logger must return the same list object."""
+        tools = [_make_log_tool()]
+        result = log_tool_calls(tools, stage="pm", wp_id="WP-001", logger=None)
+        assert result is tools
+
+
+# ---------------------------------------------------------------------------
+# AC5 — Argument payload excluded from emitted event (privacy)
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsPrivacyConstraint:
+    async def test_arguments_not_in_event_flat_dict(self) -> None:
+        """The full flat-dict argument payload must not appear in the event."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({
+            "work_package_id": "WP-001",
+            "secret_plan_content": "deploy at midnight",
+            "acceptance_criteria": ["do the thing"],
+        })
+
+        entry = logger.entries[0]
+        # Only these keys should appear; no argument payload
+        allowed_keys = {"stage", "wp_id", "action", "tool_name", "tool_wp_id", "level"}
+        assert set(entry.keys()) == allowed_keys, (
+            f"Event contains extra keys: {set(entry.keys()) - allowed_keys}"
+        )
+
+    async def test_arguments_not_in_event_toolcall_structure(self) -> None:
+        """The ToolCall nested args must not appear in the event."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        await tool.ainvoke({
+            "name": "ledger_create_work_package",
+            "args": {
+                "work_package_id": "WP-001",
+                "assigned_to": "Developer",
+                "acceptance_criteria": ["criterion 1", "criterion 2"],
+                "dependencies": [],
+            },
+            "id": "call-priv",
+            "type": "tool_call",
+        })
+
+        entry = logger.entries[0]
+        allowed_keys = {"stage", "wp_id", "action", "tool_name", "tool_wp_id", "level"}
+        assert set(entry.keys()) == allowed_keys, (
+            f"Event leaks argument data: {set(entry.keys()) - allowed_keys}"
+        )
+
+    async def test_only_wp_id_extracted_not_other_args(self) -> None:
+        """Only work_package_id is extracted; other argument values must not appear."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({"work_package_id": "WP-002", "payload": "confidential"})
+
+        entry = logger.entries[0]
+        assert "payload" not in entry
+        assert "confidential" not in str(entry)
+
+
+# ---------------------------------------------------------------------------
+# AC6 — Original ainvoke return value forwarded unchanged
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsReturnValueForwarded:
+    async def test_string_return_value_forwarded(self) -> None:
+        """Return value of the original ainvoke must pass through unchanged."""
+        logger = _MockLogger()
+        tool = _make_log_tool(ret="expected_return")
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        result = await tool.ainvoke({})
+
+        assert result == "expected_return"
+
+    async def test_dict_return_value_forwarded(self) -> None:
+        """Dict return value from original ainvoke must be forwarded unchanged."""
+        logger = _MockLogger()
+        expected = {"status": "ok", "data": [1, 2, 3]}
+        tool = _make_log_tool(ret=expected)
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=logger)
+
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert result is expected
+
+    async def test_none_return_value_forwarded(self) -> None:
+        """None return value from original ainvoke must be forwarded."""
+        logger = _MockLogger()
+        tool = _make_log_tool(ret=None)
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        result = await tool.ainvoke({})
+
+        assert result is None
+
+    async def test_return_value_unaffected_by_event_emission(self) -> None:
+        """Logging must not alter the return value in any way."""
+        logger = _MockLogger()
+        sentinel = object()
+        tool = _make_log_tool(ret=sentinel)
+        log_tool_calls([tool], stage="pm", wp_id="WP-001", logger=logger)
+
+        result = await tool.ainvoke({})
+
+        assert result is sentinel, "Return value identity must be preserved"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestLogToolCallsEdgeCases:
+    async def test_non_dict_input_has_empty_tool_wp_id(self) -> None:
+        """Non-dict input must not raise; tool_wp_id must be empty string."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke("raw string input")
+
+        assert logger.entries[0]["tool_wp_id"] == ""
+
+    async def test_none_input_has_empty_tool_wp_id(self) -> None:
+        """None input must not raise; tool_wp_id must be empty string."""
+        logger = _MockLogger()
+        tool = _make_log_tool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke(None)
+
+        assert logger.entries[0]["tool_wp_id"] == ""
+
+    async def test_empty_tools_list_is_noop(self) -> None:
+        """Empty tools list must return the same empty list without error."""
+        logger = _MockLogger()
+        tools: list = []
+        result = log_tool_calls(tools, stage="pm", wp_id="", logger=logger)
+        assert result is tools
+        assert logger.entries == []
+
+    async def test_tool_name_fallback_when_missing(self) -> None:
+        """When tool.name is absent, tool_name must default to empty string."""
+        logger = _MockLogger()
+
+        class _UnnamedTool:
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                return "ok"
+
+        tool = _UnnamedTool()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=logger)
+
+        await tool.ainvoke({})
+
+        assert logger.entries[0]["tool_name"] == ""
+
+    async def test_multiple_tools_all_emit_events(self) -> None:
+        """Every tool in the list must emit an event on ainvoke."""
+        logger = _MockLogger()
+        tool_a = _make_log_tool()
+        tool_b = _make_log_tool()
+        log_tool_calls([tool_a, tool_b], stage="qa", wp_id="WP-001", logger=logger)
+
+        await tool_a.ainvoke({})
+        await tool_b.ainvoke({})
+
+        assert len(logger.entries) == 2
+
+    async def test_event_emitted_before_original_call(self) -> None:
+        """stream_entry must be called BEFORE the original ainvoke executes."""
+        order: list[str] = []
+
+        class _OrderTracker:
+            name = "order_tool"
+
+            async def ainvoke(self, input: Any, *args: Any, **kwargs: Any) -> str:
+                order.append("original")
+                return "ok"
+
+        class _OrderLogger:
+            def stream_entry(self, entry: dict) -> None:
+                order.append("log")
+
+        tool = _OrderTracker()
+        log_tool_calls([tool], stage="pm", wp_id="", logger=_OrderLogger())
+
+        await tool.ainvoke({})
+
+        assert order == ["log", "original"], (
+            f"Expected log before original, got: {order}"
         )
 
 

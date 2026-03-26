@@ -238,6 +238,17 @@ def _build_stream_console_line(entry: dict[str, Any]) -> str:
         parts.append(rework_label)
         return " ".join(parts)
 
+    if action == "tool_call":
+        tool_name = entry.get("tool_name") or ""
+        tool_wp_id = entry.get("tool_wp_id") or ""
+        parts = [prefix]
+        if wp_id:
+            parts.append(wp_id)
+        parts.append(f"🔧 {tool_name}" if tool_name else "🔧")
+        if tool_wp_id:
+            parts.append(f"({tool_wp_id})")
+        return " ".join(parts)
+
     # ── Default fallback (preserves existing behavior for all other events) ──
     result = entry.get("result") or ""
     tokens = entry.get("tokens_used")

@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.13.0 - Tool-Call Visibility
+> orchestrator v0.11.0
+
+- Orchestrator: Added real-time `tool_call` JSONL events — stage, tool name, and WP ID per MCP invocation; argument payloads excluded for privacy.
+- Scripts: `run-orchestrator.js` now prints `read-log.js` and `kill-orchestrator.js` usage hints at startup.
+
 ## v1.12.0 - Resilience, Guard Rails & GUI Polish
 > mcp v1.21.0 · orchestrator v0.10.0 · personas v3.10.7
 

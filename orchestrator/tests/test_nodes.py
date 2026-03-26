@@ -1500,3 +1500,71 @@ class TestPipelineRollback:
         errors = result.get("errors", [])
         assert errors, "errors must be non-empty"
         assert "Original agent crash" in errors[0]["message"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: log_tool_calls wiring inside create_stage_node
+# ---------------------------------------------------------------------------
+
+
+class TestCreateStageNodeWiring:
+    """Verify that create_stage_node wires log_tool_calls with the correct
+    stage, wp_id, and logger arguments (WP-002 integration coverage)."""
+
+    async def test_log_tool_calls_is_wired_with_correct_args(self):
+        """create_stage_node must call log_tool_calls exactly once, passing
+        the correct stage, wp_id, and run_logger (None in unit tests)."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch("src.nodes.log_tool_calls") as mock_log:
+            await node_fn(base_state(current_wp_id="WP-003"))
+
+        mock_log.assert_called_once()
+        args = mock_log.call_args.args
+        # args: (wrapped_tools, stage, wp_id, run_logger)
+        assert args[1] == "developer", (
+            f"log_tool_calls called with wrong stage: {args[1]!r}"
+        )
+        assert args[2] == "WP-003", (
+            f"log_tool_calls called with wrong wp_id: {args[2]!r}"
+        )
+        # run_logger is None in unit tests (no RunnableConfig provided)
+        assert args[3] is None, (
+            f"log_tool_calls called with unexpected logger: {args[3]!r}"
+        )
+
+    async def test_log_tool_calls_wired_for_synthesis_empty_wp_id(self):
+        """Synthesis stages have empty wp_id; log_tool_calls must still fire
+        with wp_id='' so the wrapper can handle project-scoped calls."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="synthesis",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        create_p, backend_p = _patch_deep_agent()
+        with _patch_persona(), create_p, backend_p, \
+             patch("src.nodes.log_tool_calls") as mock_log:
+            await node_fn(base_state(current_wp_id=""))
+
+        mock_log.assert_called_once()
+        args = mock_log.call_args.args
+        assert args[1] == "synthesis", (
+            f"log_tool_calls called with wrong stage: {args[1]!r}"
+        )
+        assert args[2] == "", (
+            f"log_tool_calls called with non-empty wp_id for synthesis: {args[2]!r}"
+        )
+        assert args[3] is None

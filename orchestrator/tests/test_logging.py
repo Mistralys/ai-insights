@@ -503,3 +503,199 @@ class TestRobustness:
         }
         line = _build_stream_console_line(entry)
         assert "route" in line  # doesn't crash, ignores unknown fields
+
+
+# ---------------------------------------------------------------------------
+# TestToolCallRendering — WP-002 Acceptance Criteria
+# ---------------------------------------------------------------------------
+
+
+class TestToolCallRendering:
+    """Verify _build_stream_console_line renders tool_call events correctly.
+
+    Each test targets one of the four WP-002 acceptance criteria:
+    AC1 — wrench prefix + tool_name in output.
+    AC2 — stage prefix and WP ID consistent with other events.
+    AC3 — tool_wp_id parenthetical omitted when empty.
+    AC4 — no changes to rendering of existing events (spot-checked in TestExistingEventTypes).
+    """
+
+    # AC1 — wrench emoji + tool_name
+
+    def test_ac1_wrench_emoji_present(self):
+        """🔧 emoji must be present in the rendered line."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "🔧" in line
+
+    def test_ac1_tool_name_in_output(self):
+        """tool_name must appear in the rendered line."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "ledger_create_work_package" in line
+
+    def test_ac1_tool_wp_id_in_parentheses(self):
+        """tool_wp_id must appear in parentheses when non-empty."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "(WP-003)" in line
+
+    def test_ac1_full_format(self):
+        """Full line format: '[pm] 🔧 ledger_create_work_package (WP-003)'."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_create_work_package",
+            "tool_wp_id": "WP-003",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert line == "[pm] 🔧 ledger_create_work_package (WP-003)"
+
+    # AC2 — stage prefix and WP ID consistent with other events
+
+    def test_ac2_stage_prefix_in_brackets(self):
+        """Stage must appear as [stage] prefix, consistent with other events."""
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "tool_call",
+            "tool_name": "ledger_complete_pipeline",
+            "tool_wp_id": "WP-001",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "[developer]" in line
+
+    def test_ac2_wp_id_included_when_present(self):
+        """stage-level wp_id must appear in the line when non-empty."""
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "tool_call",
+            "tool_name": "ledger_complete_pipeline",
+            "tool_wp_id": "WP-001",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "WP-001" in line
+
+    def test_ac2_no_stage_wp_id_when_empty(self):
+        """When stage wp_id is empty, line must not contain a bare WP-XXX prefix."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_get_next_action",
+            "tool_wp_id": "",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        # wp_id is empty — the stage prefix should NOT have a WP ref right after [pm]
+        assert line.startswith("[pm]")
+
+    # AC3 — empty tool_wp_id omits parenthetical
+
+    def test_ac3_empty_tool_wp_id_no_parens(self):
+        """When tool_wp_id is empty, the parenthetical must be omitted."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_list_work_packages",
+            "tool_wp_id": "",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert "()" not in line
+        assert "( )" not in line
+        assert "🔧 ledger_list_work_packages" in line
+
+    def test_ac3_exact_format_without_tool_wp_id(self):
+        """Exact format when tool_wp_id is empty: '[pm] 🔧 ledger_list_work_packages'."""
+        entry = {
+            "stage": "pm",
+            "wp_id": "",
+            "action": "tool_call",
+            "tool_name": "ledger_list_work_packages",
+            "tool_wp_id": "",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        assert line == "[pm] 🔧 ledger_list_work_packages"
+
+    # AC4 — no changes to existing event rendering (spot-checks)
+
+    def test_ac4_heartbeat_unaffected(self):
+        """heartbeat event must not be rendered as a tool_call."""
+        entry = {"stage": "pm", "wp_id": "", "action": "heartbeat", "silence_s": 30}
+        line = _build_stream_console_line(entry)
+        assert "♥" in line
+        assert "🔧" not in line
+
+    def test_ac4_progress_snapshot_unaffected(self):
+        """progress_snapshot event must not be rendered as a tool_call."""
+        entry = {"stage": "developer", "wp_id": "WP-001", "action": "progress_snapshot"}
+        line = _build_stream_console_line(entry)
+        assert "Progress:" in line
+        assert "🔧" not in line
+
+    def test_ac4_stage_complete_unaffected(self):
+        """stage_complete event must not be rendered as a tool_call."""
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-001",
+            "action": "stage_complete",
+            "result": "ok",
+        }
+        line = _build_stream_console_line(entry)
+        assert "🔧" not in line
+
+    def test_tool_call_console_line_distinguishes_stage_wp_id_from_tool_wp_id(self):
+        """When wp_id and tool_wp_id differ, both must appear in the rendered
+        line at their respective positions, confirming neither value is confused
+        with the other.
+
+        Stage wp_id (WP-002) appears right after the [stage] prefix.
+        tool_wp_id (WP-007) appears in the trailing parenthetical.
+        """
+        entry = {
+            "stage": "developer",
+            "wp_id": "WP-002",
+            "action": "tool_call",
+            "tool_name": "ledger_begin_work",
+            "tool_wp_id": "WP-007",
+            "level": "DEBUG",
+        }
+        line = _build_stream_console_line(entry)
+        # Both IDs must appear in the output.
+        assert "WP-002" in line, f"stage-level wp_id 'WP-002' missing from: {line!r}"
+        assert "WP-007" in line, f"tool-level tool_wp_id 'WP-007' missing from: {line!r}"
+        # tool_wp_id must be in the trailing parenthetical.
+        assert "(WP-007)" in line, f"tool_wp_id must appear as '(WP-007)' in: {line!r}"
+        # stage wp_id must appear between [stage] prefix and the tool emoji.
+        assert "[developer] WP-002 🔧" in line, (
+            f"stage prefix + wp_id + wrench must appear in order in: {line!r}"
+        )
