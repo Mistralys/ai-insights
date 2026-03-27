@@ -4,15 +4,16 @@ nodes — One module per pipeline stage.
 Each node module exposes a ``make_<stage>_node(config, mcp_tools)`` factory
 that returns a LangGraph node function.  The generic scaffolding lives here in
 :func:`create_stage_node`; individual modules provide stage-specific prompt
-builders.
+builders using the template-based prompt renderer.
 
 Public factories
 ----------------
 - :func:`create_stage_node` — Generic factory used internally by each module.
 
-Shared helpers
---------------
-- :func:`build_stage_prompt` — Assemble the user-turn prompt for any stage.
+Template-based prompts
+----------------------
+Stage prompts are assembled by each module using ``render_prompt`` and
+``load_template`` from :mod:`src.nodes.prompt_renderer`.
 """
 
 from __future__ import annotations
@@ -35,12 +36,6 @@ if TYPE_CHECKING:
     from src.state import WorkflowState
 
 log = logging.getLogger(__name__)
-
-_PROJECT_PATH_REMINDER = "Always use the project path above for all ledger tool calls."
-_WP_SCOPE_REMINDER = (
-    "CRITICAL: Every MCP tool call MUST use `work_package_id={wp_id}`. "
-    "Do NOT reference or operate on any other work package."
-)
 
 # Maps orchestrator stage names to the MCP pipeline type used by ledger_begin_work.
 # Used to determine which pipeline type to cancel during error-path rollback.
@@ -92,40 +87,6 @@ def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
         object.__setattr__(tool, "ainvoke", _tracked_ainvoke)
         object.__setattr__(tool, "_tracking_begin_work", True)
         break
-
-
-def build_stage_prompt(
-    project_path: str,
-    *,
-    wp_id: str = "",
-    preamble: str = "",
-    extra: str = "",
-) -> str:
-    """Assemble a slim user-turn prompt for any pipeline stage.
-
-    Parameters
-    ----------
-    project_path:
-        Absolute path passed to every MCP tool call.
-    wp_id:
-        Work-package identifier (omit for project-scoped stages like synthesis).
-    preamble:
-        Optional text placed *before* the project/WP fields (e.g. "Please start…").
-    extra:
-        Optional content appended *after* the reminder (e.g. the plan document).
-    """
-    lines: list[str] = []
-    if preamble:
-        lines.append(f"{preamble}\n")
-    lines.append(f"**Project:** `{project_path}`")
-    if wp_id:
-        lines.append(f"**Work package:** {wp_id}")
-    lines.append(f"\n{_PROJECT_PATH_REMINDER}")
-    if wp_id:
-        lines.append(f"\n{_WP_SCOPE_REMINDER.format(wp_id=wp_id)}")
-    if extra:
-        lines.append(f"\n{extra}")
-    return "\n".join(lines) + "\n"
 
 
 def create_stage_node(

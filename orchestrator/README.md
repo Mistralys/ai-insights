@@ -251,6 +251,8 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/config.py` | `.env` loading, provider auto-detection, `capture_dialogues` flag, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
+| `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
+| `src/nodes/templates/` | Per-stage Markdown prompt templates (one `.md` per stage, e.g. `developer.md`). Editable without touching Python. |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`) |
 | `tests/` | 374 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |

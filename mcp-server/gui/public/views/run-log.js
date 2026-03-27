@@ -21,6 +21,7 @@ function runEventSeverity(action) {
   if (action === 'run_error' || action === 'stage_error' || action === 'halted_repeated_failure') return 'run-event--error';
   if (action === 'safety_limit' || action === 'rework_detected' || action === 'mcp_error' || action === 'dry_run_no_ledger') return 'run-event--warning';
   if (action === 'wp_complete' || action === 'run_end' || action === 'dry_run_complete') return 'run-event--success';
+  if (action === 'tool_call') return 'run-event--debug';
   return 'run-event--info';
 }
 
@@ -249,6 +250,28 @@ function buildRunEventContent(entry) {
       const reason = entry.reason ? escapeHtml(String(entry.reason)) : '';
       return '<span class="badge badge-dry-run">Dry Run</span> <strong>Dry run complete</strong>' +
         (reason ? ' &mdash; <span class="text-muted">' + reason + '</span>' : '');
+    }
+
+    // ── MCP tool call (DEBUG level, high-frequency) ──────────────────
+    case 'tool_call': {
+      const toolName = entry.tool_name ? escapeHtml(String(entry.tool_name)) : '\u2014';
+      // Strip the common "ledger_" prefix for brevity; keep it otherwise
+      const displayName = toolName.startsWith('ledger_') ? toolName.slice(7) : toolName;
+      const toolWpId = entry.tool_wp_id ? String(entry.tool_wp_id) : '';
+      const stageWpId = entry.wp_id ? String(entry.wp_id) : '';
+
+      // Flag cross-WP calls: tool_wp_id targets a different WP than the current stage WP
+      const isCrossWp = toolWpId && stageWpId && toolWpId !== stageWpId;
+
+      let html = '<span class="text-muted" style="font-size:11px;margin-right:4px">&#9881; tool</span>' +
+        '<span class="monospace" style="font-size:12px">' + displayName + '</span>';
+      if (isCrossWp) {
+        html += ' <span class="badge badge-fail" title="Tool targeted ' + escapeHtml(toolWpId) + ' but stage is running ' + escapeHtml(stageWpId) + '">&#9888; cross-WP: ' + escapeHtml(toolWpId) + '</span>';
+      } else if (toolWpId && toolWpId !== stageWpId) {
+        // tool_wp_id present but stageWpId is empty (e.g. PM stage)
+        html += ' <span class="text-muted" style="font-size:11px">WP: ' + escapeHtml(toolWpId) + '</span>';
+      }
+      return html;
     }
 
     // ── Legacy / generic events ──────────────────────────────────────

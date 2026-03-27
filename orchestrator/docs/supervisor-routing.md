@@ -19,6 +19,8 @@ supervisor_node
   └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
 ```
 
+> **State clearing on synthesis routes:** Both synthesis routing paths (all-WPs-terminal and all-roles-WAIT) explicitly set `"current_wp_id": ""` in their `Command` update dicts. This ensures the `restrict_to_wp` tool wrapper does not activate in the synthesis stage, which is project-scoped and must not be constrained to a single WP. A stale `current_wp_id` (left over from the preceding stage) would otherwise cause every MCP tool call in synthesis to raise a `ValueError`.
+
 ### Dry-Run Mode
 
 When `make_supervisor_node(mcp_tools, dry_run=True)` is used (set automatically by `--dry-run`), the supervisor tolerates missing ledger state:
@@ -58,6 +60,10 @@ For each role in priority order:
 
 All roles returned WAIT/skip          → synthesis
 ```
+
+> **State clearing on synthesis fall-through:** Like the all-WPs-terminal path, this path also sets `"current_wp_id": ""` in the `Command` update dict to prevent the `restrict_to_wp` guard from activating in synthesis.
+
+> **Test coverage gap (known):** The existing `test_supervisor.py` synthesis routing tests assert `goto == "synthesis"` but do not assert `current_wp_id == ""` in the Command update dict. Dedicated assertions verifying both synthesis paths clear `current_wp_id` (including with a stale non-empty value in input state) are missing and should be added in a follow-up task.
 
 > `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
 > `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage

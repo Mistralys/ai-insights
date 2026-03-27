@@ -5,3 +5,4 @@ __pycache__/
 checkpoints/
 *.sqlite
 *.egg-info/
+_*.py

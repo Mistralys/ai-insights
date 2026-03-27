@@ -16,10 +16,10 @@ immediate runtime context:
   system prompt cannot know at build time and is therefore the only
   substantive content beyond the three slim fields above.
 
-The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
-single source of truth for user-turn prompt structure. Identity declarations,
-workflow steps, and MCP tool call guidance live in the PM persona system
-prompt loaded from ``personas/ledger/claude-code/``.
+The prompt is assembled by :func:`~src.nodes.prompt_renderer.render_prompt`
+using the ``pm`` Markdown template.  Identity declarations, workflow steps,
+and MCP tool call guidance live in the PM persona system prompt loaded from
+``personas/ledger/claude-code/``.
 
 Public factory
 --------------
@@ -35,7 +35,10 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import build_stage_prompt, create_stage_node
+from . import create_stage_node
+from .prompt_renderer import load_template, render_prompt
+
+_TEMPLATE = load_template("pm")
 
 
 def _build_pm_prompt(state: WorkflowState) -> str:
@@ -50,11 +53,11 @@ def _build_pm_prompt(state: WorkflowState) -> str:
     except OSError as exc:
         plan_content = f"[Could not read plan file at {plan_path}: {exc}]"
 
-    return build_stage_prompt(
-        project_path,
-        preamble=f"Please start your work on the project.\n\n**Plan file:** {plan_file}",
-        extra=f"---\n\n# Plan Document\n\n{plan_content}",
-    )
+    return render_prompt(_TEMPLATE, {
+        "project_path": project_path,
+        "plan_file": plan_file,
+        "extra": f"---\n\n# Plan Document\n\n{plan_content}",
+    })
 
 
 def make_pm_node(config: Config, mcp_tools: list[Any]):

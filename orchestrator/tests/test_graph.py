@@ -71,6 +71,14 @@ def _apply_patches(test_fn):
                 side_effect=lambda cfg, tools: _noop_node("reviewer"),
             ),
             patch(
+                "src.nodes.security_auditor.make_security_auditor_node",
+                side_effect=lambda cfg, tools: _noop_node("security_auditor"),
+            ),
+            patch(
+                "src.nodes.release_engineer.make_release_engineer_node",
+                side_effect=lambda cfg, tools: _noop_node("release_engineer"),
+            ),
+            patch(
                 "src.nodes.docs.make_docs_node",
                 side_effect=lambda cfg, tools: _noop_node("docs"),
             ),
@@ -123,15 +131,6 @@ class TestGraphNodes:
 
 
 class TestGraphEdges:
-    @_apply_patches
-    async def _get_edges(self):
-        from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        # graph.builder.edges is a set of (source, target) tuples — includes all
-        # static edges declared with add_edge(), unlike get_graph().edges which
-        # omits Command-routed edges in LangGraph 1.x.
-        return graph.builder.edges
-
     @_apply_patches
     async def test_start_edges_to_supervisor(self):
         """START must edge to 'supervisor'."""

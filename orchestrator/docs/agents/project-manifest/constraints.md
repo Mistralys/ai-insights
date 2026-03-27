@@ -20,42 +20,45 @@ New constraint entries should follow this structure:
 
 ### 1. Persona Files Are the Source of Truth for Agent Behaviour
 
-**Rule:** All identity declarations, workflow step enumerations, and MCP tool-call instructions live exclusively in persona system prompts (`personas/ledger/claude-code/`). User-turn prompts in `_build_*_prompt()` functions must contain only runtime context that the persona file cannot know: concrete `project_path`, `wp_id`, and plan content. All prompt builders delegate to the centralized :func:`build_stage_prompt` in `src/nodes/__init__.py`. Any change to agent behaviour must be made in the persona source files, **not** in prompt builder functions.
+**Rule:** All identity declarations, workflow step enumerations, and MCP tool-call instructions live exclusively in persona system prompts (`personas/ledger/claude-code/`). User-turn prompts in `_build_*_prompt()` functions must contain only runtime context that the persona file cannot know: concrete `project_path`, `wp_id`, and plan content. Each prompt builder assembles a variables dict and calls the template renderer — it must not embed workflow logic or behavioural instructions in Python string literals. Any change to agent behaviour must be made in the persona source files or the stage template (`.md`), **not** in Python `_build_*_prompt()` function bodies.
 
-**Rationale:** Splitting identity from runtime context keeps persona files reviewable, versionable, and reusable across different orchestration surfaces without coupling them to Python implementation details.
+**Rationale:** Splitting identity from runtime context keeps persona files reviewable, versionable, and reusable across different orchestration surfaces without coupling them to Python implementation details. Template files (`.md`) make runtime context editable without touching Python.
 
 **Anti-pattern:**
 ```python
 # ❌ WRONG — workflow instructions embedded in the user-turn prompt
-def _build_developer_prompt(project_path: str, wp_id: str) -> str:
+def _build_developer_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
     return f"""
-    CRITICAL — EVERY MCP TOOL CALL MUST include `project_path='{project_path}'`.
+    CRITICAL — EVERY MCP TOOL CALL MUST include `project_path='{state["project_path"]}'`.
 
     Your workflow:
     1. Call ledger_get_next_action with agent_role: "Developer"
     2. Read the WP spec
     3. Implement the changes
-    ...
     """
 ```
 
 **Correct pattern:**
 ```python
-# ✅ CORRECT — delegate to the centralized helper
-from . import build_stage_prompt
+# ✅ CORRECT — cache template at module level, assemble variables and delegate to the renderer
+from src.nodes.prompt_renderer import load_template, render_prompt
+
+_TEMPLATE = load_template("developer")
 
 def _build_developer_prompt(state: WorkflowState) -> str:
-    return build_stage_prompt(
-        state["project_path"],
-        wp_id=state.get("current_wp_id", ""),
-    )
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
 ```
 
 ---
 
 ### 2. The `project_path` Reminder Is Permanent
 
-**Rule:** The user-turn prompt must always include a reminder to use the specified `project_path` for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`) and must never be removed. Persona Markdown files are static and cannot contain runtime values, so this runtime reminder lives in the user-turn prompt.
+**Rule:** The user-turn prompt must always include a reminder to use the specified `project_path` for all ledger tool calls. The reminder text lives in `templates/partials/project-path-reminder.md` and is included in every stage template via `{{> project-path-reminder}}`. Persona Markdown files are static and cannot contain runtime values, so this text lives in the user-turn prompt layer. The `{{> project-path-reminder}}` include in each stage template must never be removed.
 
 **Rationale:** Without the reminder the agent may omit `project_path` from MCP tool calls, causing every ledger operation to fail.
 
@@ -63,9 +66,26 @@ def _build_developer_prompt(state: WorkflowState) -> str:
 
 ### 3. Prompt Templates Are Structurally Uniform Within Their Category
 
-**Rule:** The six WP-scoped prompt builder functions (`_build_developer_prompt`, `_build_qa_prompt`, `_build_security_auditor_prompt`, `_build_reviewer_prompt`, `_build_release_engineer_prompt`, `_build_docs_prompt`) must all delegate to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`. Any change to the minimal prompt pattern must be applied in that single helper. The PM and synthesis templates are documented exceptions with justified divergences (PM adds plan content via the `preamble`/`extra` parameters; synthesis omits `wp_id`).
+**Rule:** The six WP-scoped prompt builder functions (`_build_developer_prompt`, `_build_qa_prompt`, `_build_security_auditor_prompt`, `_build_reviewer_prompt`, `_build_release_engineer_prompt`, `_build_docs_prompt`) must each call `render_prompt(load_template("<stage>"), variables)` from `src.nodes.prompt_renderer`. The variables dict must include `project_path` and `wp_id` (at minimum). Shared text fragments — path reminders, scope enforcement, and stage-specific instructions — are embedded in templates via `{{> partial-name}}` directives rather than passed as Python variables. Any change to what the six WP-scoped prompts share must be made in the shared template structure or the relevant partial file, not in individual Python function bodies. The PM and synthesis builders are documented exceptions (no `wp_id` block; PM adds plan content; synthesis omits WP scope).
 
-**Rationale:** Structural uniformity makes the prompt layer auditable at a glance and prevents silent divergence between nodes that should behave identically.
+**Rationale:** Structural uniformity makes the prompt layer auditable at a glance and prevents silent divergence between nodes that should behave identically. Template files (`.md`) are the canonical source — editing Python string literals in `_build_*_prompt()` bodies is the anti-pattern.
+
+---
+
+### 3a. Template Syntax Rules
+
+**Rule:** All stage templates MUST follow these constraints:
+
+1. **Location:** `orchestrator/src/nodes/templates/<stage>.md` — one file per stage, named exactly as the stage identifier (e.g. `developer.md`).
+2. **Variable substitution:** Use `{variable}` placeholders. Missing keys resolve to empty string — do not rely on this as a feature; always pass expected variables explicitly.
+3. **Conditional blocks:** Use `{{#if variable}}` … `{{/if}}`. Both markers must appear **on their own line** — inline markers are not treated as conditionals (they are consumed as Python format-string double-brace escapes instead, producing `{#if variable}` in the output).
+4. **No nesting:** Nested `{{#if}}` blocks are not supported.
+5. **No `{{else}}`:** Absent from the renderer — factor into two separate `{{#if}}` / `{{#if not}}` blocks (or pre-process in Python).
+6. **No external template engines:** Do not add Jinja2, Mako, or similar libraries. The renderer uses Python stdlib only (`re`, `pathlib`, `collections.defaultdict`).
+7. **Double-brace escaping:** `{{variable}}` is **not** a valid syntax marker — only `{{#if}}` / `{{/if}}` are recognised by the renderer. A literal `{{...}}` in output cannot be produced via the current renderer.
+8. **Include directives:** Stage templates may reference shared Markdown fragments in `templates/partials/` using `{{> partial-name}}` (filename without `.md` extension). Includes are expanded **before** `{{#if}}` evaluation and variable substitution, so included content participates fully in all downstream processing steps. Partials may themselves contain one level of `{{> ...}}` includes — these are expanded (the partial's partial is inlined), but any `{{> ...}}` directives inside that second-level partial are **not** further resolved. Fully recursive expansion is not supported.
+
+**Rationale:** The minimal syntax keeps prompts editable by non-developers and prevents the template layer from growing into a Turing-complete DSL that defeats the "runtime context only" principle.
 
 ---
 

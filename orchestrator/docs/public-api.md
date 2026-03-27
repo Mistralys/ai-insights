@@ -18,7 +18,7 @@ High-level list of the primary functions and classes meant for external use or e
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `build_graph(config, mcp_tools, *, interrupt_before=None)` | `src.graph` | Assembles the 7-node LangGraph `StateGraph`, compiles with SQLite or in-memory checkpointer. Returns `CompiledGraph`. |
+| `build_graph(config, mcp_tools, *, interrupt_before=None)` | `src.graph` | Assembles the 9-node LangGraph `StateGraph`, compiles with SQLite or in-memory checkpointer. Returns `CompiledGraph`. |
 
 ---
 
@@ -44,6 +44,21 @@ All follow the same pattern via `create_stage_node()`:
 | `make_release_engineer_node(config, mcp_tools)` | `src.nodes.release_engineer` | `release_engineer` |
 | `make_docs_node(config, mcp_tools)` | `src.nodes.docs` | `docs` |
 | `make_synthesis_node(config, mcp_tools)` | `src.nodes.synthesis` | `synthesis` |
+
+---
+
+## Template Renderer
+
+Shared by all stage node modules to assemble user-turn prompts from `.md` templates.
+
+| Symbol | Module | Description |
+|--------|--------|-------------|
+| `load_template(stage)` | `src.nodes.prompt_renderer` | Reads and caches the Markdown template for *stage* from `src/nodes/templates/{stage}.md`. Raises `FileNotFoundError` if the template does not exist. Cached in-process; subsequent calls for the same stage return the cached string. |
+| `render_prompt(template, variables)` | `src.nodes.prompt_renderer` | Processes `{{#if var}}`…`{{/if}}` conditional blocks, substitutes `{variable}` placeholders (missing keys → empty string via `defaultdict(str)`), and collapses 3+ consecutive newlines to a single blank line. Returns the rendered string. |
+| `clear_template_cache()` | `src.nodes.prompt_renderer` | Resets the in-memory template cache. Intended for test support only. |
+| `load_partial(name)` | `src.nodes.prompt_renderer` | Reads and caches a Markdown partial for *name* from `src/nodes/templates/partials/{name}.md`. *name* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process alongside templates. |
+
+For the expected `variables` dict for each template (required vs optional fields, conditional rules, and usage examples), see [`src/nodes/templates/VARIABLES.md`](../src/nodes/templates/VARIABLES.md).
 
 ---
 

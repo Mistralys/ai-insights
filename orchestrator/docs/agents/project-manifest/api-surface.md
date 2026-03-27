@@ -67,6 +67,33 @@ All duration values are floats rounded to 1 decimal place.
 
 ---
 
+## Template Renderer (`src/nodes/prompt_renderer.py`)
+
+Shared by all stage node modules to assemble user-turn prompts from `.md` templates.
+Template files live at `src/nodes/templates/<stage>.md`.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `load_template` | `load_template(stage: str) -> str` | Reads and caches the Markdown template for *stage* from `src/nodes/templates/{stage}.md`. *stage* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process; subsequent calls for the same stage bypass disk I/O. |
+| `render_prompt` | `render_prompt(template: str, variables: dict[str, str]) -> str` | Four-step pipeline: (0) resolve `{{> partial-name}}` include directives — partials are expanded with one additional pass for nested `{{> ...}}` within partial content (one level deep; directives inside second-level partials are not resolved); (1) evaluate `{{#if var}}`…`{{/if}}` conditional blocks; (2) substitute `{variable}` placeholders (`defaultdict(str)` fallback for missing keys); (3) collapse 3+ consecutive newlines to one blank line. |
+| `clear_template_cache` | `clear_template_cache() -> None` | Resets the in-memory cache. For test use only. |
+| `load_partial` | `load_partial(name: str) -> str` | Reads and caches a Markdown partial for *name* from `src/nodes/templates/partials/{name}.md`. *name* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process alongside templates. |
+
+### Template Partials (`src/nodes/templates/partials/`)
+
+Shared Markdown fragments included in stage templates via `{{> partial-name}}`. Variables
+listed are resolved from the enclosing template's variable dict after inlining.
+
+| Partial file | Placeholder variables | Used by |
+|---|---|---|
+| `project-path-reminder.md` | _(none)_ | All templates |
+| `wp-scope-reminder.md` | `{wp_id}` | All WP-scoped templates |
+| `scope-restriction.md` | `{wp_id}` | `developer`, `qa`, `reviewer`, `docs` |
+| `begin-work-developer.md` | `{wp_id}` | `developer` |
+| `pm-preamble.md` | `{plan_file}` | `pm` |
+
+---
+
 ## Utilities
 
 ### `src/utils/logging.py`
