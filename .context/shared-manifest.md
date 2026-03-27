@@ -134,7 +134,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
   "constants": {
     "max_rework_count": 5,
     "stale_pipeline_hours": 24,
-    "max_handoff_depth": 50,
+    "max_handoff_depth": 100,
     "handoff_depth_multiplier": 30
   }
 }

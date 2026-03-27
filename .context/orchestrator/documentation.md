@@ -86,50 +86,95 @@ There are three structurally distinct user-turn prompt templates, one for each c
 
 **WP-scoped template** (6 nodes: `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`)
 
-All six nodes share the minimal WP-scoped template. Each `_build_*_prompt()` function delegates to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`:
+All six nodes use the same minimal Python pattern. Each module caches its template at import time with `_TEMPLATE = load_template("<stage>")` and passes only `project_path` and `wp_id` to `render_prompt`. Scope reminders, the path reminder text, and stage-specific instructions (e.g. the `ledger_begin_work` call reminder for `developer`) are embedded in the respective template files via `{{> partial-name}}` includes — they are not passed as Python variables.
 
 ```python
-from . import build_stage_prompt
+from src.nodes.prompt_renderer import load_template, render_prompt
 
-def _build_developer_prompt(state: WorkflowState) -> str:
-    return build_stage_prompt(
-        state["project_path"],
-        wp_id=state.get("current_wp_id", ""),
-    )
+_TEMPLATE = load_template("security_auditor")
+
+def _build_security_auditor_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
 ```
 
-Which produces:
-
-```
-**Project:** `/path/to/project`
-**Work package:** WP-001
-
-Always use the project path above for all ledger tool calls.
-```
+This pattern applies identically to all six WP-scoped nodes — only the string passed to `load_template` differs. Template-level differences (e.g. the scope-restriction block in `developer`, `qa`, `reviewer`, `docs`; the begin-work reminder in `developer`) are expressed as different `{{> partial-name}}` includes in the respective `.md` template files, not as different Python variable dicts.
 
 **PM template** (`pm` node)
 
-The PM template is a documented exception: it embeds the full plan document content so the PM agent has the complete spec before creating work packages. It includes all WP-scoped fields plus a `# Plan Document` section with the full plan file text read from disk at invocation time.
+The PM template is a documented exception. It omits `wp_id` entirely (the PM stage initialises a project, not a WP). The `{{> pm-preamble}}` partial provides the static preamble text and plan file reference; `plan_file` and `extra` (the full plan document content read from disk at invocation time) are the only runtime variables passed.
 
 **Synthesis template** (`synthesis` node)
 
-The synthesis template is the other documented exception: it omits `wp_id` entirely because synthesis is project-scoped and operates across all completed work packages rather than a single WP.
+The synthesis template is the other documented exception: it omits `wp_id`, `plan_file`, and `extra` — only `project_path` is passed. Synthesis is project-scoped and operates across all completed work packages rather than a single WP.
 
 ### Field Reference
 
-| Template | `project_path` | `wp_id` | `project_path` reminder | Plan document content |
-|----------|:--------------:|:-------:|:------------------------:|:---------------------:|
-| WP-scoped (×6) | ✅ | ✅ | ✅ | ❌ |
-| PM | ✅ | ❌ | ✅ | ✅ |
-| Synthesis | ✅ | ❌ | ✅ | ❌ |
+**Key:** ✅ = always passed · opt = optional · — = not used by this template
+
+| Template | `project_path` | `wp_id` | `plan_file` | `extra` |
+|---|:---:|:---:|:---:|:---:|
+| `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs` | ✅ | opt | — | — |
+| `pm` | ✅ | — | ✅ | ✅ |
+| `synthesis` | ✅ | — | — | — |
+
+`wp_id` in WP-scoped templates: when non-empty, the template's `{{#if wp_id}}` blocks render the work package header, scope reminders, and stage-specific partials; when empty, those blocks are omitted.
+
+For accepted values and usage patterns, see [`src/nodes/templates/VARIABLES.md`](../src/nodes/templates/VARIABLES.md).
 
 ### `project_path` Reminder
 
-Every user-turn prompt includes a reminder to use the specified project path for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`), so changes only need to happen in one place.
+Every user-turn prompt includes a reminder to use the specified project path for all ledger tool calls. The reminder text lives in `templates/partials/project-path-reminder.md` and is injected into every stage template via `{{> project-path-reminder}}`.
 
 **Why it exists:** Persona Markdown files are static and cannot embed runtime values like the concrete `project_path` for a given run. The user-turn prompt is the only place this runtime value can appear.
 
 **Why it's permanent:** Removing the reminder risks the agent omitting `project_path` from MCP tool calls, causing every ledger operation to fail. The Layer 2 `inject_project_path()` tool wrapper (see **MCP Tool Wrapping** below) provides a fallback injection mechanism, but the user-turn reminder is the primary guide.
+
+The reminder text is embedded directly in each template file via a partial include — it is not a Python constant and must not be added back to variable dicts.
+
+### Template Partials
+
+Shared prompt fragments live in `templates/partials/` and are included in stage templates using `{{> partial-name}}` syntax (filename without the `.md` extension). The renderer expands all includes before evaluating `{{#if}}` blocks and substituting variables, so partial content participates fully in all downstream processing.
+
+Five partials are currently defined:
+
+| Partial file | Content | Included by |
+|---|---|---|
+| `project-path-reminder.md` | "Always use the project path above for all ledger tool calls." | All stage templates |
+| `wp-scope-reminder.md` | `CRITICAL: Every MCP tool call MUST use work_package_id={wp_id}.` | All 6 WP-scoped templates (inside `{{#if wp_id}}`) |
+| `scope-restriction.md` | `**SCOPE RESTRICTION** — stronger WP restriction statement | `developer`, `qa`, `reviewer`, `docs` templates; also referenced by `begin-work-developer` |
+| `begin-work-developer.md` | Step 1 `ledger_begin_work` instruction + `{{> scope-restriction}}` | `developer` template only |
+| `pm-preamble.md` | "Please start your work…" + `{plan_file}` reference | `pm` template only |
+
+To edit a shared fragment, change its partial file. To add new shared content, create a new file under `templates/partials/` and reference it with `{{> your-partial-name}}` in the relevant template(s).
+
+---
+
+### Module-Level Template Caching
+
+Each stage node module caches its compiled template at import time using a module-level constant named `_TEMPLATE`:
+
+```python
+_TEMPLATE = load_template("security_auditor")
+```
+
+`load_template` reads the template file once per Python process (it maintains an internal cache). Assigning the result to `_TEMPLATE` at module scope makes the caching intent explicit and provides a consistent, greppable entry point in every stage module. The `_build_*_prompt()` function references `_TEMPLATE` directly:
+
+```python
+def _build_security_auditor_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
+```
+
+**Convention:** the constant must always be named `_TEMPLATE`. Storing it under a stage-specific name (e.g. `_SECURITY_AUDITOR_TEMPLATE`) or calling `load_template` inside `_build_*_prompt()` are both anti-patterns — the former breaks grep consistency, the latter obscures the caching intent even though `load_template` itself caches internally.
+
+---
 
 ### Relationship to Persona Files
 
@@ -159,7 +204,13 @@ Each wrapper is **idempotent** (sentinel attributes prevent closure stacking) an
 
 `log_tool_calls(tools, stage, wp_id, logger)` emits a `tool_call` JSONL event (via `WorkflowLogger.stream_entry()`) before forwarding each `ainvoke` call to the underlying MCP tool. Records `stage`, `wp_id` (stage-level), `tool_name`, and `tool_wp_id` (extracted from call arguments) at `level: "DEBUG"`. Full argument payloads are deliberately **excluded** (privacy constraint). When `logger` is `None` the function returns tools unchanged — no wrapping is applied (e.g. in unit tests).
 
-The **Layer 3 prompt companion** is `_WP_SCOPE_REMINDER` (in `src/nodes/__init__.py`). `build_stage_prompt()` appends a `CRITICAL` scope line (`Every MCP tool call MUST use work_package_id={wp_id}`) to the user-turn prompt for any stage that has a non-empty `wp_id`. It reinforces the wrapper guard at the prompt level.
+**Two-layer prompt scope reinforcement** operates alongside the `restrict_to_wp` wrapper:
+
+- **Layer 3a — shared scope baseline:** All six WP-scoped templates include `{{> wp-scope-reminder}}` inside their `{{#if wp_id}}` block. When `wp_id` is non-empty, this partial renders a `CRITICAL` scope constraint telling the agent to use only the active `work_package_id`. The `{wp_id}` placeholder in the partial text is substituted during `render_prompt`.
+
+- **Layer 3b — per-template SCOPE RESTRICTION:** Four templates (`developer`, `qa`, `reviewer`, `docs`) additionally include `{{> scope-restriction}}` — in `developer`'s case via `{{> begin-work-developer}}`, which itself includes `{{> scope-restriction}}`. This adds a stronger **SCOPE RESTRICTION** statement below the baseline. The two remaining WP-scoped templates (`security_auditor`, `release_engineer`) rely on Layer 3a alone.
+
+The double statement is intentional: the two-layer approach improves LLM reliability without any functional downside.
 
 ### Design Properties
 
@@ -178,6 +229,7 @@ The full state is defined as a `TypedDict` in `src/state.py`. Key fields for und
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `current_wp_id` | `str` | ID of the work package currently being processed (e.g. `"WP-003"`). Empty string when no WP is active — specifically cleared to `""` by both synthesis routing paths in `supervisor.py` so that the `restrict_to_wp` guard does not activate during the project-scoped synthesis stage. |
 | `consecutive_failures` | `dict` | Per-WP consecutive failure counter (`{wp_id: count}`). Reset on success. The supervisor halts a WP after ≥ 3 consecutive failures. |
 | `run_log` | `list` (append-only) | JSONL-style log entries. Each entry carries a `level` field: `"INFO"` for normal routing, `"WARNING"` for safety/circuit-breaker halts, `"ERROR"` for MCP or stage errors. |
 | `wps_completed_this_run` | `int` | Running total of work packages completed during this execution. Printed in the run summary. |
@@ -534,7 +586,7 @@ High-level list of the primary functions and classes meant for external use or e
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `build_graph(config, mcp_tools, *, interrupt_before=None)` | `src.graph` | Assembles the 7-node LangGraph `StateGraph`, compiles with SQLite or in-memory checkpointer. Returns `CompiledGraph`. |
+| `build_graph(config, mcp_tools, *, interrupt_before=None)` | `src.graph` | Assembles the 9-node LangGraph `StateGraph`, compiles with SQLite or in-memory checkpointer. Returns `CompiledGraph`. |
 
 ---
 
@@ -560,6 +612,21 @@ All follow the same pattern via `create_stage_node()`:
 | `make_release_engineer_node(config, mcp_tools)` | `src.nodes.release_engineer` | `release_engineer` |
 | `make_docs_node(config, mcp_tools)` | `src.nodes.docs` | `docs` |
 | `make_synthesis_node(config, mcp_tools)` | `src.nodes.synthesis` | `synthesis` |
+
+---
+
+## Template Renderer
+
+Shared by all stage node modules to assemble user-turn prompts from `.md` templates.
+
+| Symbol | Module | Description |
+|--------|--------|-------------|
+| `load_template(stage)` | `src.nodes.prompt_renderer` | Reads and caches the Markdown template for *stage* from `src/nodes/templates/{stage}.md`. Raises `FileNotFoundError` if the template does not exist. Cached in-process; subsequent calls for the same stage return the cached string. |
+| `render_prompt(template, variables)` | `src.nodes.prompt_renderer` | Processes `{{#if var}}`…`{{/if}}` conditional blocks, substitutes `{variable}` placeholders (missing keys → empty string via `defaultdict(str)`), and collapses 3+ consecutive newlines to a single blank line. Returns the rendered string. |
+| `clear_template_cache()` | `src.nodes.prompt_renderer` | Resets the in-memory template cache. Intended for test support only. |
+| `load_partial(name)` | `src.nodes.prompt_renderer` | Reads and caches a Markdown partial for *name* from `src/nodes/templates/partials/{name}.md`. *name* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process alongside templates. |
+
+For the expected `variables` dict for each template (required vs optional fields, conditional rules, and usage examples), see [`src/nodes/templates/VARIABLES.md`](../src/nodes/templates/VARIABLES.md).
 
 ---
 
@@ -722,6 +789,8 @@ supervisor_node
   └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
 ```
 
+> **State clearing on synthesis routes:** Both synthesis routing paths (all-WPs-terminal and all-roles-WAIT) explicitly set `"current_wp_id": ""` in their `Command` update dicts. This ensures the `restrict_to_wp` tool wrapper does not activate in the synthesis stage, which is project-scoped and must not be constrained to a single WP. A stale `current_wp_id` (left over from the preceding stage) would otherwise cause every MCP tool call in synthesis to raise a `ValueError`.
+
 ### Dry-Run Mode
 
 When `make_supervisor_node(mcp_tools, dry_run=True)` is used (set automatically by `--dry-run`), the supervisor tolerates missing ledger state:
@@ -761,6 +830,10 @@ For each role in priority order:
 
 All roles returned WAIT/skip          → synthesis
 ```
+
+> **State clearing on synthesis fall-through:** Like the all-WPs-terminal path, this path also sets `"current_wp_id": ""` in the `Command` update dict to prevent the `restrict_to_wp` guard from activating in synthesis.
+
+> **Test coverage gap (known):** The existing `test_supervisor.py` synthesis routing tests assert `goto == "synthesis"` but do not assert `current_wp_id == ""` in the Command update dict. Dedicated assertions verifying both synthesis paths clear `current_wp_id` (including with a stale non-empty value in input state) are missing and should be added in a follow-up task.
 
 > `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
 > `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage

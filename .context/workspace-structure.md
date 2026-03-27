@@ -17,7 +17,8 @@ _SOURCE: Top-level directory tree_
 └── docs/
     ├── agents/
     │   └── bug-reports/
-    │       ├── chat.json
+    │       ├── chat-handoff-issue.json
+    │       ├── handoff-issue.md
     │   └── implementation-history/
     │       ├── README.md
     │   └── project-manifest/
@@ -170,7 +171,6 @@ _SOURCE: Top-level directory tree_
     ├── vitest.config.ts
 └── orchestrator/
     ├── README.md
-    ├── _test_config.py
     ├── ai_insights_orchestrator.egg-info/
     │   ├── PKG-INFO/
     │   ├── SOURCES.txt
@@ -199,6 +199,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── developer.py
     │   │   ├── docs.py
     │   │   ├── pm.py
+    │   │   ├── prompt_renderer.py
     │   │   ├── qa.py
     │   │   ├── release_engineer.py
     │   │   ├── reviewer.py
@@ -227,6 +228,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_mcp_parse.py
     │   └── test_nodes.py
     │   └── test_plan_parser.py
+    │   └── test_prompt_renderer.py
     │   └── test_state.py
     │   └── test_supervisor.py
     │   └── test_tool_wrappers.py
@@ -334,6 +336,7 @@ _SOURCE: Top-level directory tree_
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-orchestrator.js
+    ├── preview-prompts.py
     ├── read-log.js
     ├── run-gui.js
     ├── run-orchestrator.js

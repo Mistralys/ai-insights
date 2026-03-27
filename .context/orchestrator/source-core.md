@@ -2235,6 +2235,7 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
                 update={
                     **base_update,
                     "current_stage": _DEST_SYNTHESIS,
+                    "current_wp_id": "",
                     "run_log": status_change_entries + [log_entry, progress_snapshot],
                 },
             )
@@ -2426,6 +2427,7 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
             update={
                 **base_update,
                 "current_stage": _DEST_SYNTHESIS,
+                "current_wp_id": "",
                 "run_log": (
                     status_change_entries
                     + extra_log_entries

@@ -2312,6 +2312,13 @@ function cmdBuildMaintain(args) {
 }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdPreflight(args)       { runScript('preflight-orchestrator.js', args); }
+function cmdPreviewPrompts(args) {
+  const result = spawnSync(venvBin('python'), [path.join(SCRIPTS_DIR, 'preview-prompts.py'), ...args], {
+    cwd: WORKSPACE_ROOT,
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
 function cmdCtxGenerate(args) {
@@ -2448,6 +2455,18 @@ const COMMANDS = [
       ['preflight --plan <path>', 'Also verify plan file exists'],
     ],
     run:          cmdPreflight,
+  },
+  {
+    id:           'preview-prompts',
+    key:          'r',
+    label:        'Preview stage prompts',
+    category:     'Orchestrator',
+    description:  'Render prompts for reviewing',
+    helpVariants: [
+      ['preview-prompts --stage <name>', 'Preview a single stage only'],
+      ['preview-prompts --list',         'List available stage names'],
+    ],
+    run:          cmdPreviewPrompts,
   },
   {
     id:          'orchestrator',
