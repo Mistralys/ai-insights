@@ -1,8 +1,5 @@
-{{> pm-preamble}}
-**Project:** `{project_path}`
+Please start with the plan: `{plan_file}`.
 
-{{> project-path-reminder}}
 {{#if extra}}
-
 {extra}
 {{/if}}

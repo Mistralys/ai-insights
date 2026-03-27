@@ -484,12 +484,12 @@ class TestRenderPromptPipeline:
             "src.nodes.prompt_renderer._PARTIALS_DIR",
             tmp_path,
         )
-        (tmp_path / "wp-scope-reminder.md").write_text(
+        (tmp_path / "custom-reminder.md").write_text(
             "Only work on: {wp_id}\n", encoding="utf-8"
         )
         template = (
             "**Project:** `{project_path}`\n"
-            "{{> wp-scope-reminder}}\n"
+            "{{> custom-reminder}}\n"
             "{{#if preamble}}\n"
             "{preamble}\n"
             "{{/if}}\n"

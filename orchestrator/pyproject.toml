@@ -8,7 +8,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite",
     "deepagents>=0.3",
     "langchain-mcp-adapters>=0.2",
-    "langchain-core>=0.3.45",
+    "langchain-core>=1.2.22",
     "python-dotenv>=1.0",
 ]
 

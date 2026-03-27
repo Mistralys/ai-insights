@@ -10,11 +10,6 @@ Slim prompt strategy
 only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
-- ``wp_id`` — active work package identifier.
-- ``pipeline_type`` — explicit instruction to start an ``implementation``
-  pipeline, reinforcing the persona system prompt on every invocation.
-- ``project_path`` injection-safety warning — critical reminder that every MCP
-  tool call must include the ``project_path`` parameter.
 
 The prompt is assembled by :func:`~src.nodes.prompt_renderer.render_prompt`
 using the ``developer`` Markdown template.  Identity declarations, workflow
@@ -42,10 +37,8 @@ _TEMPLATE = load_template("developer")
 
 def _build_developer_prompt(state: WorkflowState) -> str:
     """Construct the developer agent's user-turn prompt."""
-    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
     return render_prompt(_TEMPLATE, {
         "project_path": state["project_path"],
-        "wp_id": wp_id,
     })
 
 

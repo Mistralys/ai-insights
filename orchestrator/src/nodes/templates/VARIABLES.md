@@ -3,10 +3,10 @@
 Documents the expected `variables` dict for each stage template. Use this when
 calling `render_prompt(load_template(stage), variables)`.
 
-> **Note:** As of WP-003, shared text fragments (project-path reminder, scope
-> reminders, stage-specific instructions) are embedded directly in templates via
-> `{{> partial-name}}` include directives rather than being passed as Python
-> variables. The variables dict is now minimal — only runtime-dynamic values.
+> **Note:** Shared text fragments (project-path reminder) are embedded directly
+> in templates via `{{> partial-name}}` include directives rather than being
+> passed as Python variables. The variables dict is now minimal — only
+> runtime-dynamic values.
 
 ---
 
@@ -15,34 +15,29 @@ calling `render_prompt(load_template(stage), variables)`.
 | Variable | Required? | Description |
 |---|---|---|
 | `project_path` | **required** | Absolute path to the plan directory. Source: `state["project_path"]`. |
-| `wp_id` | optional | Active work package ID, e.g. `"WP-001"`. Pass empty string when absent — `{{#if wp_id}}` blocks (scope reminders, stage instructions) are then suppressed. Source: `state.get("current_wp_id", "")`. |
 | `plan_file` | pm only | Relative path of the plan document within the project, e.g. `"plan.md"`. Substituted into the `{{> pm-preamble}}` partial. Source: `state.get("plan_file", "plan.md")`. |
 | `extra` | pm only | Plan document content block rendered after the standard header. Source: `plan_path.read_text(...)`. |
 
 > `render_prompt()` uses `defaultdict(str)`, so any key that is omitted or left as
 > empty string safely resolves to `""`. Shared text is now supplied by partial
-> files in `templates/partials/` rather than Python constants — see the partials
-> directory for content that was previously in `PROJECT_PATH_REMINDER`,
-> `WP_SCOPE_REMINDER`, and the f-string `extra` builders.
+> files in `templates/partials/` rather than Python constants.
 
 ---
 
 ## Per-Template Variable Matrix
 
-**Key:** ✅ = required · opt = optional · — = not used
+**Key:** ✅ = required · — = not used
 
-| Template | `project_path` | `wp_id` | `plan_file` | `extra` | Partials used |
-|---|:---:|:---:|:---:|:---:|---|
-| `developer.md` | ✅ | opt | — | — | `project-path-reminder`, `wp-scope-reminder`†, `begin-work-developer`† |
-| `qa.md` | ✅ | opt | — | — | `project-path-reminder`, `wp-scope-reminder`†, `scope-restriction`† |
-| `reviewer.md` | ✅ | opt | — | — | `project-path-reminder`, `wp-scope-reminder`†, `scope-restriction`† |
-| `docs.md` | ✅ | opt | — | — | `project-path-reminder`, `wp-scope-reminder`†, `scope-restriction`† |
-| `security_auditor.md` | ✅ | opt | — | — | `project-path-reminder`, `wp-scope-reminder`† |
-| `release_engineer.md` | ✅ | opt | — | — | `project-path-reminder`, `wp-scope-reminder`† |
-| `pm.md` | ✅ | — | ✅ | opt | `pm-preamble`, `project-path-reminder` |
-| `synthesis.md` | ✅ | — | — | — | `project-path-reminder` |
-
-† = included only when `wp_id` is truthy (inside `{{#if wp_id}}` block).
+| Template | `project_path` | `plan_file` | `extra` | Partials used |
+|---|:---:|:---:|:---:|---|
+| `developer.md` | ✅ | — | — | `project-path-reminder` |
+| `qa.md` | ✅ | — | — | `project-path-reminder` |
+| `reviewer.md` | ✅ | — | — | `project-path-reminder` |
+| `docs.md` | ✅ | — | — | `project-path-reminder` |
+| `security_auditor.md` | ✅ | — | — | `project-path-reminder` |
+| `release_engineer.md` | ✅ | — | — | `project-path-reminder` |
+| `pm.md` | ✅ | ✅ | opt | `pm-preamble`, `project-path-reminder` |
+| `synthesis.md` | ✅ | — | — | `project-path-reminder` |
 
 ---
 
@@ -56,9 +51,9 @@ in a stage template using the `{{> partial-name}}` directive (filename without t
 {{> partial-name}}
 ```
 
-Partials are resolved **before** `{{#if}}` evaluation and variable substitution, so
-included content participates fully in all downstream processing steps (conditionals,
-`{variable}` substitution, blank-line collapse).
+Partials are resolved **before** variable substitution, so included content
+participates fully in all downstream processing steps (`{variable}` substitution,
+blank-line collapse).
 
 **Limitation:** Partials support **one level** of `{{> ...}}` nesting. A `{{> ...}}`
 directive found inside a partial is expanded (its content inserted), but any
@@ -70,9 +65,6 @@ Fully recursive includes are not supported.
 | Partial file | Placeholder variables | Used by |
 |---|---|---|
 | `project-path-reminder.md` | _(none)_ | All templates |
-| `wp-scope-reminder.md` | `{wp_id}` | All WP-scoped templates |
-| `scope-restriction.md` | `{wp_id}` | `developer` (via `begin-work-developer`), `qa`, `reviewer`, `docs` |
-| `begin-work-developer.md` | `{wp_id}` | `developer` |
 | `pm-preamble.md` | `{plan_file}` | `pm` |
 
 > Placeholder variables listed above are resolved from the outer template's variable
@@ -83,17 +75,15 @@ Fully recursive includes are not supported.
 
 ## Usage Patterns
 
-### WP-scoped stages (`developer`, `qa`, `reviewer`, `docs`, `security_auditor`, `release_engineer`)
+### Stage nodes (`developer`, `qa`, `reviewer`, `docs`, `security_auditor`, `release_engineer`)
 
 ```python
 from src.nodes import create_stage_node
 from src.nodes.prompt_renderer import load_template, render_prompt
 
 def _build_security_auditor_prompt(state: WorkflowState) -> str:
-    wp_id = state.get("current_wp_id", "")
     return render_prompt(load_template("security_auditor"), {
         "project_path": state["project_path"],
-        "wp_id": wp_id,
     })
 ```
 
@@ -114,7 +104,7 @@ def _build_pm_prompt(state: WorkflowState) -> str:
     })
 ```
 
-### Synthesis stage (no wp_id)
+### Synthesis stage
 
 ```python
 from src.nodes import create_stage_node
@@ -130,11 +120,9 @@ def _build_synthesis_prompt(state: WorkflowState) -> str:
 
 ## Notes
 
-- `developer`, `qa`, `reviewer`, and `docs` apply a **two-layer scope reinforcement**:
-  `{{> wp-scope-reminder}}` (Layer 3a, baseline) plus `{{> scope-restriction}}`
-  (Layer 3b, per-node). `security_auditor` and `release_engineer` use Layer 3a only.
-  See [architecture.md — Two-layer prompt scope reinforcement](../../../docs/architecture.md).
-- All four WP-scoped-with-extra templates (`developer`, `qa`, `reviewer`, `docs`) share
-  an identical template structure. Likewise `security_auditor` and `release_engineer`
-  are structurally identical. This is by design — template inheritance is deliberately
-  out of scope to keep each file independently readable.
+- All six stage templates (`developer`, `qa`, `reviewer`, `docs`, `security_auditor`,
+  `release_engineer`) share an identical structure: project-path header + the
+  `{{> project-path-reminder}}` partial. This is by design — template inheritance is
+  deliberately out of scope to keep each file independently readable.
+- Role-specific instructions (workflow steps, tool guidance, persona identity) live
+  entirely in the agent's system prompt, loaded from `personas/ledger/claude-code/`.

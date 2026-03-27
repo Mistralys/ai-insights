@@ -1057,15 +1057,11 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id,
-        pipeline_type, and project_path reminder."""
+        """_build_developer_prompt must include project_path and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
-        assert "implementation" in prompt, (
-            "Pipeline-type line must contain 'implementation'"
-        )
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_developer_prompt_has_no_identity_declarations(self):
         """_build_developer_prompt must not contain identity/role declaration text."""
@@ -1074,66 +1070,16 @@ class TestSlimPromptContent:
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "developer")
 
-    def test_developer_prompt_contains_ledger_begin_work_instruction(self):
-        """_build_developer_prompt extra must contain 'ledger_begin_work'
-        and 'type=\"implementation\"'."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "ledger_begin_work" in prompt, (
-            "Developer prompt must contain 'ledger_begin_work' in the extra instruction"
-        )
-        assert 'type="implementation"' in prompt, (
-            "Developer prompt must contain 'type=\"implementation\"' in the extra instruction"
-        )
-
-    def test_developer_prompt_wp_id_is_dynamic(self):
-        """The wp_id in the ledger_begin_work instruction must be substituted from state."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt_a = _build_developer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_developer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a, "wp_id WP-001 must appear in prompt"
-        assert "WP-042" in prompt_b, "wp_id WP-042 must appear in prompt"
-        # Cross-check: the wrong WP ID must not appear in each prompt.
-        assert "WP-042" not in prompt_a, "WP-042 must not appear in prompt built for WP-001"
-        assert "WP-001" not in prompt_b, "WP-001 must not appear in prompt built for WP-042"
-
-    def test_developer_prompt_step1_is_bold_markdown(self):
-        """The Step 1 instruction must use bold markdown for visual prominence."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "**Step 1" in prompt, (
-            "Developer prompt must contain a bold '**Step 1' instruction"
-        )
-
-    def test_developer_prompt_contains_scope_restriction(self):
-        """Developer prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "Developer prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "Developer prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"Developer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
     # ------------------------------------------------------------------
     # QA node
     # ------------------------------------------------------------------
 
     def test_qa_prompt_has_slim_fields(self):
-        """_build_qa_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_qa_prompt must include project_path and project_path reminder."""
         from src.nodes.qa import _build_qa_prompt
 
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_qa_prompt_has_no_identity_declarations(self):
         """_build_qa_prompt must not contain identity/role declaration text."""
@@ -1142,43 +1088,16 @@ class TestSlimPromptContent:
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "qa")
 
-    def test_qa_prompt_contains_scope_restriction(self):
-        """_build_qa_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.qa import _build_qa_prompt
-
-        prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "QA prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "QA prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"QA prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
-    def test_qa_prompt_scope_restriction_is_dynamic(self):
-        """QA scope restriction must substitute wp_id dynamically from state."""
-        from src.nodes.qa import _build_qa_prompt
-
-        prompt_a = _build_qa_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_qa_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a
-        assert "WP-042" in prompt_b
-        assert "WP-042" not in prompt_a
-        assert "WP-001" not in prompt_b
-
     # ------------------------------------------------------------------
     # Reviewer node
     # ------------------------------------------------------------------
 
     def test_reviewer_prompt_has_slim_fields(self):
-        """_build_reviewer_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_reviewer_prompt must include project_path and project_path reminder."""
         from src.nodes.reviewer import _build_reviewer_prompt
 
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_reviewer_prompt_has_no_identity_declarations(self):
         """_build_reviewer_prompt must not contain identity/role declaration text."""
@@ -1187,44 +1106,17 @@ class TestSlimPromptContent:
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "reviewer")
 
-    def test_reviewer_prompt_contains_scope_restriction(self):
-        """_build_reviewer_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.reviewer import _build_reviewer_prompt
-
-        prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "Reviewer prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "Reviewer prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"Reviewer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
-    def test_reviewer_prompt_scope_restriction_is_dynamic(self):
-        """Reviewer scope restriction must substitute wp_id dynamically from state."""
-        from src.nodes.reviewer import _build_reviewer_prompt
-
-        prompt_a = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a
-        assert "WP-042" in prompt_b
-        assert "WP-042" not in prompt_a
-        assert "WP-001" not in prompt_b
-
     # ------------------------------------------------------------------
     # Security Auditor node
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id,
+        """_build_security_auditor_prompt must include project_path
         and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_security_auditor_prompt_has_no_identity_declarations(self):
         """_build_security_auditor_prompt must not contain identity/role declaration text."""
@@ -1238,12 +1130,12 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id,
+        """_build_release_engineer_prompt must include project_path
         and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_release_engineer_prompt_has_no_identity_declarations(self):
         """_build_release_engineer_prompt must not contain identity/role declaration text."""
@@ -1257,11 +1149,11 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_docs_prompt_has_slim_fields(self):
-        """_build_docs_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_docs_prompt must include project_path and project_path reminder."""
         from src.nodes.docs import _build_docs_prompt
 
         prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_docs_prompt_has_no_identity_declarations(self):
         """_build_docs_prompt must not contain identity/role declaration text."""

@@ -10,7 +10,6 @@ Slim prompt strategy
 immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
-- ``wp_id`` — active work package identifier.
 
 The prompt is assembled by :func:`~src.nodes.prompt_renderer.render_prompt`
 using the ``docs`` Markdown template.  Identity declarations, workflow steps,
@@ -38,10 +37,8 @@ _TEMPLATE = load_template("docs")
 
 def _build_docs_prompt(state: WorkflowState) -> str:
     """Construct the documentation agent's user-turn prompt."""
-    wp_id = state.get("current_wp_id", "")  # type: ignore[call-overload]
     return render_prompt(_TEMPLATE, {
         "project_path": state["project_path"],
-        "wp_id": wp_id,
     })
 
 

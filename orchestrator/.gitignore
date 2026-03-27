@@ -6,3 +6,4 @@ checkpoints/
 *.sqlite
 *.egg-info/
 _*.py
+dist/
