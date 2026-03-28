@@ -28,20 +28,9 @@
  */
 
 import { readdir, readFile, appendFile, copyFile, mkdir, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { homedir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 import { ApiError } from './errors.js';
 export { ApiError };
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/**
- * Default orchestrator logs directory when none is configured.
- * Using `~/.ai-insights/orchestrator-logs` as the sensible default.
- */
-const DEFAULT_LOGS_DIR = join(homedir(), '.ai-insights', 'orchestrator-logs');
 
 /**
  * Allowlist for log filenames.
@@ -75,19 +64,6 @@ export interface RunLogEntry {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-
-/**
- * Returns the orchestrator logs directory to use.
- *
- * - If `configured` is a non-empty string, returns it unchanged.
- * - Otherwise returns the default path: `~/.ai-insights/orchestrator-logs`.
- */
-export function resolveOrchestratorLogsDir(configured: string | undefined): string {
-  if (configured && configured.trim().length > 0) {
-    return configured;
-  }
-  return DEFAULT_LOGS_DIR;
-}
 
 /**
  * Lists `.jsonl` files in `logsDir` whose names end with `-{slug}.jsonl`.
@@ -484,7 +460,7 @@ export async function readLogEntries(
   const resolvedLogsDir = resolve(logsDir);
   const resolvedFilePath = resolve(join(logsDir, filename));
 
-  if (!resolvedFilePath.startsWith(resolvedLogsDir + '/') &&
+  if (!resolvedFilePath.startsWith(resolvedLogsDir + sep) &&
       resolvedFilePath !== resolvedLogsDir) {
     throw new ApiError(
       'FORBIDDEN',

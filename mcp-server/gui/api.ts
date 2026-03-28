@@ -16,7 +16,7 @@
  */
 
 import { rm, readFile, readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
 import { withLock } from '../src/storage/file-lock.js';
@@ -1331,7 +1331,7 @@ export async function handleGetDialogueFile(
   const filePath = resolve(join(dialoguesDir, filename));
 
   // Defence-in-depth: ensure resolved path stays inside dialoguesDir.
-  if (!filePath.startsWith(dialoguesDir + '/') && filePath !== dialoguesDir) {
+  if (!filePath.startsWith(dialoguesDir + sep) && filePath !== dialoguesDir) {
     console.warn(`[handleGetDialogueFile] Rejected filename (prefix check): '${filename}'`);
     notFound(`Dialogue file not found: '${filename}'.`);
   }

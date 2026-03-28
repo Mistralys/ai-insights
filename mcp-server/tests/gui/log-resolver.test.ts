@@ -7,10 +7,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile, mkdir, stat, utimes } from 'fs/promises';
 import { join } from 'path';
-import { tmpdir, homedir } from 'os';
+import { tmpdir } from 'os';
 
 import {
-  resolveOrchestratorLogsDir,
   findRunLogs,
   readLogEntries,
   migrateOrphanedLogs,
@@ -43,37 +42,6 @@ async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
   const content = objects.map((o) => JSON.stringify(o)).join('\n') + '\n';
   await writeFile(filePath, content, 'utf-8');
 }
-
-// ---------------------------------------------------------------------------
-// resolveOrchestratorLogsDir
-// ---------------------------------------------------------------------------
-
-describe('resolveOrchestratorLogsDir', () => {
-  it('returns the default path when called with undefined', () => {
-    const result = resolveOrchestratorLogsDir(undefined);
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThan(0);
-    // Should be under the home directory
-    expect(result.startsWith(homedir())).toBe(true);
-  });
-
-  it('returns an explicit path unchanged', () => {
-    const path = '/custom/logs/dir';
-    expect(resolveOrchestratorLogsDir(path)).toBe(path);
-  });
-
-  it('returns the default for an empty string', () => {
-    const result = resolveOrchestratorLogsDir('');
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('returns the default for a whitespace-only string', () => {
-    const result = resolveOrchestratorLogsDir('   ');
-    expect(result).toBeTruthy();
-    expect(result.startsWith(homedir())).toBe(true);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // findRunLogs

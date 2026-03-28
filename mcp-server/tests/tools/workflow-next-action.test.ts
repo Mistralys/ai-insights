@@ -473,6 +473,19 @@ describe('Developer action logic', () => {
     expect(result.work_package_id).toBe('WP-001');
   });
 
+  // Case 6b: Auto-cancelled FAIL implementation pipeline treated as "no pipeline" → IMPLEMENT
+  it('returns IMPLEMENT for IN_PROGRESS WP whose only implementation pipeline is auto-cancelled FAIL', async () => {
+    const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline({ type: 'implementation', status: 'FAIL', auto_cancelled: true,
+        started_at: '2026-01-01T08:00:00Z', completed_at: '2026-01-01T08:01:00Z' }),
+    ] });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('IMPLEMENT');
+    expect(result.work_package_id).toBe('WP-001');
+  });
+
   // Case 7: READY WP assigned to Developer, deps satisfied → CLAIM_WP
   it('returns CLAIM_WP for a READY WP assigned to Developer with satisfied dependencies', async () => {
     const wp = makeWorkPackageDetail({ status: 'READY', acceptance_criteria: [], pipelines: [] });
