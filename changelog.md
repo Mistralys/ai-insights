@@ -1,5 +1,14 @@
 # AI Insights Changelog
 
+## v1.14.0 - Template-Driven Prompts
+> mcp v1.21.1 · orchestrator v0.12.0
+
+- Orchestrator: Stage prompts now use a Markdown template engine with partials and conditionals, replacing inline Python.
+- Orchestrator: Simplified all stage prompts to project-path-only; WP details and scope restrictions removed.
+- MCP: GUI renders `tool_call` events with debug severity and cross-WP badges.
+- MCP: `max_handoff_depth` default raised from 50 to 100.
+- Scripts: Added `preview-prompts` command for rendering and reviewing stage templates.
+
 ## v1.13.0 - Tool-Call Visibility
 > orchestrator v0.11.0
 
