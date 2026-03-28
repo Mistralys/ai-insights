@@ -187,6 +187,32 @@ async def node(state: WorkflowState, config: Optional[RunnableConfig] = None) ->
 
 ---
 
+### 12. Cross-WP Guard Exempts Read-Only Tools
+
+**Rule:** `restrict_to_wp()` in `src/utils/tool_wrappers.py` must only guard *write* tools. Read-only MCP tools — those listed in the `_READ_ONLY_TOOLS` frozenset — must be completely exempt: no `ainvoke` wrapper, no WP-ID injection, no cross-WP rejection. The exemption set must be maintained as a module-level constant in `tool_wrappers.py` and covered by dedicated tests.
+
+**Rationale:** Agents legitimately need to read other work packages for context (pipeline comments, handoff notes, dependency status). When read operations triggered the guard, stages failed spuriously. Combined with the circuit-breaker (constraint 6), this caused false cancellation of work packages whose pipelines had actually completed successfully.
+
+**Current read-only tools:** `ledger_get_work_package`, `ledger_list_work_packages`, `ledger_get_next_action`, `ledger_get_project_status`, `ledger_get_handoff_status`, `ledger_detect_project`, `ledger_list_projects`, `ledger_help`.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — guard applied uniformly to all tools, blocking cross-WP reads
+for tool in tools:
+    object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — read-only tools skip the guard entirely
+for tool in tools:
+    if getattr(tool, "name", "") in _READ_ONLY_TOOLS:
+        continue
+    object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+```
+
+---
+
 ## MCP Server Dependency
 
 ### 11. MCP Server Must Be Pre-Built

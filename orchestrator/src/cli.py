@@ -42,6 +42,7 @@ from typing import Any
 # Suppress Pydantic V1 deprecation warning emitted by langchain_core on Python 3.14+.
 warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
 
+import src.utils.subprocess_encoding  # noqa: E402, F401  # side-effect: safe text-mode defaults on Windows
 from src.utils.filelock import lock_exclusive, unlock  # noqa: E402
 
 log = logging.getLogger(__name__)

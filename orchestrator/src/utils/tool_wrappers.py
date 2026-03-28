@@ -45,35 +45,38 @@ Design notes — :func:`inject_project_path`
 
 Design notes — :func:`restrict_to_wp`
 --------------------------------------
-- A sentinel attribute ``_orig_ainvoke_wp`` is stored on each tool on the first
-  wrap; subsequent calls are idempotent and never stack closures.
+- ``_orig_ainvoke_wp`` is **always overwritten** with the current ``ainvoke``
+  on each call (not just the first).  This ensures the guard closure delegates
+  to the *most recently applied* inner wrapper (e.g. a fresh
+  ``inject_project_path`` wrapper) rather than a stale one from a previous
+  node invocation.  Because ``_orig_ainvoke_wp`` is unconditionally set,
+  closures never stack — only one guard layer exists at any time.
 - If ``wp_id`` is the empty string the function returns the tools list unchanged
   (no wrapping).
-- When a tool call **omits** ``work_package_id``, the wrapper **injects** the
-  active WP ID automatically.  This prevents the common LLM failure mode of
-  forgetting to pass ``work_package_id`` and silently operating on the server's
-  default WP instead of the intended one.
-- When a tool call **explicitly passes** a ``work_package_id`` that differs from
-  the active WP, a ``ValueError`` is raised immediately.  Explicit cross-WP
-  calls are unambiguous intent; injection would mask the mismatch.
+- **Read-only tools are exempt.**  Tools whose names are in
+  ``_READ_ONLY_TOOLS`` skip both WP-ID injection and cross-WP rejection.
+  This allows agents to read other WPs for context (e.g. pipeline comments,
+  handoff notes) while still preventing *writes* to a foreign WP.
+- When a *write* tool call **omits** ``work_package_id``, the wrapper
+  **injects** the active WP ID automatically.  This prevents the common LLM
+  failure mode of forgetting to pass ``work_package_id`` and silently
+  operating on the server's default WP instead of the intended one.
+- When a *write* tool call **explicitly passes** a ``work_package_id`` that
+  differs from the active WP, a ``ValueError`` is raised immediately.
+  Explicit cross-WP calls are unambiguous intent; injection would mask the
+  mismatch.
 - Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected,
   mirroring the pattern used by :func:`inject_project_path`.
-- **Single-WP-per-tool-instance invariant:** Because the sentinel
-  (``_orig_ainvoke_wp``) captures the *original* ``ainvoke`` on the first
-  wrap, any subsequent call to :func:`restrict_to_wp` on the same tool
-  object with a *different* ``wp_id`` will replace the active closure but
-  still delegate to the same original — it will not stack guards.  As a
-  result, only the *most recent* guard's ``wp_id`` is enforced.  This is
-  safe in the current pipeline design where each tool instance is created
-  fresh per stage node invocation; tool instances **must not** be shared
-  across concurrent pipeline stages that target different work packages.
-  If that invariant is ever violated, the earlier guard's ``wp_id`` would
-  be silently bypassed.
+- **Shared-tool-instance safe:** Tool objects are shared across all graph nodes.
+  Each node re-wraps the tools for its own WP.  Because the sentinel is
+  overwritten on every call, the guard always reflects the most recent WP.
 
 Design notes — :func:`log_tool_calls`
 --------------------------------------
-- A sentinel attribute ``_orig_ainvoke_log`` is stored on each tool on the first
-  wrap; subsequent calls are idempotent and never stack closures.
+- ``_orig_ainvoke_log`` is **always overwritten** with the current ``ainvoke``
+  on each call, mirroring the approach used by :func:`restrict_to_wp`.  This
+  prevents the logger closure from delegating to a stale inner wrapper chain
+  when tool objects are shared across node invocations.
 - When *logger* is ``None`` (e.g. in unit tests or stages without an active
   logger), the function returns the tool list unchanged — no wrapping is applied.
 - Only ``tool.name`` and the ``work_package_id`` argument (if present) are
@@ -96,6 +99,21 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.utils.logging import WorkflowLogger
+
+# MCP tools that perform read-only operations.  These are exempt from
+# the cross-WP guard in :func:`restrict_to_wp` so that agents can read
+# other work packages for context (pipeline comments, handoff notes, etc.)
+# without triggering a stage-level error.
+_READ_ONLY_TOOLS: frozenset[str] = frozenset({
+    "ledger_get_work_package",
+    "ledger_list_work_packages",
+    "ledger_get_next_action",
+    "ledger_get_project_status",
+    "ledger_get_handoff_status",
+    "ledger_detect_project",
+    "ledger_list_projects",
+    "ledger_help",
+})
 
 
 def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
@@ -199,10 +217,22 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
         return tools
 
     for tool in tools:
-        # Idempotency: use the sentinel to find the true original ainvoke.
-        if not hasattr(tool, "_orig_ainvoke_wp"):
+        # Read-only tools are exempt from the guard — agents need to read
+        # other WPs for context (pipeline comments, handoff notes, etc.).
+        tool_name = getattr(tool, "name", "")
+        if tool_name in _READ_ONLY_TOOLS:
+            continue
+
+        # If the current ainvoke is our own guard from a previous call
+        # (identity check), reuse the saved delegation target (idempotent
+        # double-call scenario).  Otherwise the inner layers were re-wrapped
+        # since our last call — capture the fresh inner wrapper.
+        _prev = getattr(tool, "_wp_guard_ref", None)
+        if _prev is not None and tool.ainvoke is _prev:
+            _original_ainvoke_wp = tool._orig_ainvoke_wp  # type: ignore[attr-defined]
+        else:
             object.__setattr__(tool, "_orig_ainvoke_wp", tool.ainvoke)
-        _original_ainvoke_wp = tool._orig_ainvoke_wp  # type: ignore[attr-defined]
+            _original_ainvoke_wp = tool.ainvoke
 
         async def _guarded_ainvoke(
             input: Any,
@@ -234,6 +264,7 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+        object.__setattr__(tool, "_wp_guard_ref", _guarded_ainvoke)
 
     return tools
 
@@ -290,12 +321,15 @@ def log_tool_calls(
         return tools
 
     for tool in tools:
-        # Idempotency: use the sentinel to find the true original ainvoke.
-        # This prevents wrapper stacking when the same tool object is passed
-        # to log_tool_calls more than once.
-        if not hasattr(tool, "_orig_ainvoke_log"):
+        # If the current ainvoke is our own log wrapper from a previous call
+        # (identity check), reuse the saved delegation target.  Otherwise
+        # the inner layers were re-wrapped — capture the fresh inner wrapper.
+        _prev_log = getattr(tool, "_log_wrapper_ref", None)
+        if _prev_log is not None and tool.ainvoke is _prev_log:
+            _original_ainvoke_log = tool._orig_ainvoke_log  # type: ignore[attr-defined]
+        else:
             object.__setattr__(tool, "_orig_ainvoke_log", tool.ainvoke)
-        _original_ainvoke_log = tool._orig_ainvoke_log  # type: ignore[attr-defined]
+            _original_ainvoke_log = tool.ainvoke
 
         _tool_name: str = getattr(tool, "name", "")
 
@@ -332,6 +366,7 @@ def log_tool_calls(
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _logged_ainvoke)
+        object.__setattr__(tool, "_log_wrapper_ref", _logged_ainvoke)
 
     return tools
 

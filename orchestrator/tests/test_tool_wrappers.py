@@ -871,6 +871,90 @@ class TestRestrictToWpIdempotency:
         assert result is tools
 
 
+class TestRestrictToWpReadOnlyExemption:
+    """Read-only tools (e.g. ledger_get_work_package) must be exempt from
+    the cross-WP guard so agents can read other work packages for context."""
+
+    def _make_read_tool(self, seen: list[Any] | None = None, name: str = "ledger_get_work_package") -> _GuardTool:
+        tool = _make_guard_tool(seen)
+        tool.name = name
+        return tool
+
+    async def test_read_tool_with_different_wp_passes(self):
+        """A read-only tool targeting a different WP must NOT raise ValueError."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # WP-002 ≠ ACTIVE_WP ("WP-001") — must pass for read-only tools.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert len(seen) == 1
+        assert seen[0]["work_package_id"] == "WP-002"
+
+    async def test_read_tool_does_not_get_wp_injected(self):
+        """A read-only tool that omits work_package_id must NOT have it auto-injected."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert len(seen) == 1
+        assert "work_package_id" not in seen[0]
+
+    async def test_read_tool_ainvoke_not_replaced(self):
+        """A read-only tool's ainvoke must not be wrapped at all."""
+        tool = self._make_read_tool()
+        original = tool.ainvoke
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        assert tool.ainvoke is original
+
+    async def test_write_tool_still_guarded(self):
+        """A write tool in the same call must still raise on mismatch."""
+        read_tool = self._make_read_tool()
+        write_tool = _make_guard_tool()
+        write_tool.name = "ledger_begin_work"
+
+        restrict_to_wp([read_tool, write_tool], ACTIVE_WP)
+
+        # Read tool — cross-WP passes
+        await read_tool.ainvoke({"work_package_id": "WP-002"})
+
+        # Write tool — cross-WP raises
+        with pytest.raises(ValueError, match="WP-002"):
+            await write_tool.ainvoke({"work_package_id": "WP-002"})
+
+    async def test_all_read_only_tools_exempt(self):
+        """Every tool in _READ_ONLY_TOOLS must be exempt from the guard."""
+        from src.utils.tool_wrappers import _READ_ONLY_TOOLS
+
+        for tool_name in _READ_ONLY_TOOLS:
+            tool = self._make_read_tool(name=tool_name)
+            original = tool.ainvoke
+            restrict_to_wp([tool], ACTIVE_WP)
+            assert tool.ainvoke is original, (
+                f"{tool_name} should be exempt but ainvoke was replaced"
+            )
+
+    async def test_toolcall_structure_read_tool_passes(self):
+        """ToolCall nested-dict with a different WP must pass for read-only tools."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_work_package",
+            "args": {"work_package_id": "WP-003"},
+            "id": "call-read",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == "WP-003"
+
+
 class TestRestrictToWpIntegrationWithInjectProjectPath:
     """Verify that restrict_to_wp composes correctly with inject_project_path."""
 
@@ -894,6 +978,59 @@ class TestRestrictToWpIntegrationWithInjectProjectPath:
 
         with pytest.raises(ValueError):
             await tool.ainvoke({"work_package_id": "WP-999"})
+
+
+class TestSharedToolReWrapAcrossWPs:
+    """Regression: shared tool objects re-wrapped for a different WP must
+    enforce the *new* WP, not the stale one from the previous invocation.
+
+    This reproduces the production bug where the full wrapper chain
+    (inject → restrict → log) captured stale sentinel targets, causing
+    the outermost wrapper to bypass the updated WP guard.
+    """
+
+    async def test_full_chain_rewrap_enforces_new_wp(self):
+        """Simulate two node invocations on the same tool objects with different WPs."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+
+        # --- First node invocation (WP-001) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+        assert len(seen) == 1
+
+        # --- Second node invocation (WP-002) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # Must succeed — the guard should now enforce WP-002, not WP-001.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+        assert len(seen) == 2
+
+    async def test_full_chain_rewrap_rejects_old_wp(self):
+        """After re-wrapping for WP-002, calls targeting WP-001 must be rejected."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        tool = _make_guard_tool()
+
+        # First invocation (WP-001)
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        # Second invocation (WP-002)
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        with pytest.raises(ValueError, match="WP-001"):
+            await tool.ainvoke({"work_package_id": "WP-001"})
 
 
 def _make_stage_node_state(*, current_wp_id: str = "WP-001") -> dict:

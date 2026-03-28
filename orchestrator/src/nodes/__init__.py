@@ -59,11 +59,15 @@ def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
     for tool in tools:
         if tool.name != "ledger_begin_work":
             continue
-        if hasattr(tool, "_tracking_begin_work"):
-            break  # already wrapped; do not stack
-        if not hasattr(tool, "_orig_ainvoke_bw"):
+        # If the current ainvoke is our own tracker from a previous call,
+        # reuse the saved delegation target.  Otherwise inner layers were
+        # re-wrapped — capture the fresh inner wrapper.
+        _prev_bw = getattr(tool, "_bw_wrapper_ref", None)
+        if _prev_bw is not None and tool.ainvoke is _prev_bw:
+            _orig = tool._orig_ainvoke_bw  # type: ignore[attr-defined]
+        else:
             object.__setattr__(tool, "_orig_ainvoke_bw", tool.ainvoke)
-        _orig = tool._orig_ainvoke_bw  # type: ignore[attr-defined]
+            _orig = tool.ainvoke
 
         async def _tracked_ainvoke(
             input: Any,
@@ -85,6 +89,7 @@ def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
             return await _orig(input, *args, **kwargs)
 
         object.__setattr__(tool, "ainvoke", _tracked_ainvoke)
+        object.__setattr__(tool, "_bw_wrapper_ref", _tracked_ainvoke)
         object.__setattr__(tool, "_tracking_begin_work", True)
         break
 

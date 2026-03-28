@@ -1,5 +1,14 @@
 # Orchestrator Changelog
 
+## v0.12.0 - Stage Prompt Templating
+- PromptRenderer: Added Markdown template engine with partial includes, conditionals, and variable substitution.
+- Nodes: Migrated all eight stage prompts from inline Python to Markdown templates.
+- Nodes: Simplified stage prompts — stripped WP details and scope restrictions; project path is the only runtime variable.
+- Nodes: Removed `build_stage_prompt()` helper; template renderer replaces it.
+- Supervisor: Clears `current_wp_id` when routing to synthesis.
+- Deps: Bumped `langchain-core` minimum from `0.3.45` to `1.2.22`.
+- Tests: Added prompt renderer and supervisor test suites.
+
 ## v0.11.0 - Tool-Call Activity Logging
 - ToolWrappers: Added `log_tool_calls()` — emits a `tool_call` JSONL event per MCP tool call.
 - ToolWrappers: Events capture stage, tool name, and WP ID; argument payloads excluded for privacy.
