@@ -329,6 +329,17 @@ function syncFromDir(sourceDir, targetDir, extractFileNameFn, label, dryRun = fa
       continue;
     }
 
+    // Guard: skip stale artifact files whose own filename doesn't match the
+    // declared deploy name. This prevents old plain .md files (legacy build
+    // output) from overwriting the correct .agent.md files they share a
+    // vs_file_name with.
+    const srcBasename = path.basename(filePath);
+    if (srcBasename !== deployName) {
+      console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${relSrc} ${colors.yellow}(filename mismatch: source "${srcBasename}" vs deploy target "${deployName}" — stale artifact)${colors.reset}`);
+      skippedCount++;
+      continue;
+    }
+
     const targetPath = path.join(targetDir, deployName);
 
     if (dryRun) {

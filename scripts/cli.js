@@ -334,12 +334,30 @@ const SETUP_COMPONENTS = [
         log('  .venv exists — skipping creation (use --force to recreate)', 'dim');
       }
 
+      // Remove any partial .dist-info dirs left by interrupted pip installs.
+      // pip writes them with a leading '~' and renames on success; leftover
+      // tilde-prefixed entries cause "Ignoring invalid distribution" warnings.
+      const sitePkgsCandidates = [
+        path.join(VENV, 'Lib', 'site-packages'),                  // Windows
+        ...(() => { try { return fs.readdirSync(path.join(VENV, 'lib')).map(d => path.join(VENV, 'lib', d, 'site-packages')); } catch { return []; } })(),
+      ];
+      for (const sp of sitePkgsCandidates) {
+        if (!fs.existsSync(sp)) continue;
+        for (const entry of fs.readdirSync(sp, { withFileTypes: true })) {
+          if (entry.isDirectory() && entry.name.startsWith('~') && entry.name.endsWith('.dist-info')) {
+            fs.rmSync(path.join(sp, entry.name), { recursive: true, force: true });
+            log(`  Removed partial dist-info: ${entry.name}`, 'dim');
+          }
+        }
+      }
+
       log('  Upgrading pip…', 'dim');
       if (sh(venvBin('python'), ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip']) !== 0) {
         return false;
       }
 
-      const extras = [prov, ...(dev ? ['dev'] : []), ...(ckpt ? ['checkpoint'] : [])];
+      // Always include 'dev' so ruff (used by the pre-commit hook) is available
+      const extras = [prov, 'dev', ...(ckpt ? ['checkpoint'] : [])];
       const target = `.[${extras.join(',')}]`;
       log(`  Installing ${target}…`, 'dim');
       if (sh(venvBin('pip'), ['install', '--quiet', '-e', target], { cwd: ORCHESTRATOR_DIR }) !== 0) {
