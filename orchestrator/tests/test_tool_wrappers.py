@@ -803,10 +803,17 @@ class TestRestrictToWpMatchingWpId:
 
 class TestRestrictToWpMismatchRaises:
     async def test_mismatching_wp_id_raises_value_error(self):
-        """A call with a work_package_id that differs from the active WP must raise ValueError."""
+        """Third cross-WP call (after two soft-fails) must raise ValueError."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # First two violations return error strings (soft-fail).
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str)
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str)
+
+        # Third violation must raise ValueError.
         with pytest.raises(ValueError, match="WP-002"):
             await tool.ainvoke({"work_package_id": "WP-002"})
 
@@ -815,14 +822,25 @@ class TestRestrictToWpMismatchRaises:
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance first.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError, match=ACTIVE_WP):
             await tool.ainvoke({"work_package_id": "WP-999"})
 
     async def test_toolcall_mismatch_raises_value_error(self):
-        """ToolCall structure with mismatching work_package_id must raise ValueError."""
+        """ToolCall structure with mismatching work_package_id raises ValueError on third violation."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-bad",
+                "type": "tool_call",
+            })
         with pytest.raises(ValueError):
             await tool.ainvoke({
                 "name": "ledger_begin_work",
@@ -830,6 +848,125 @@ class TestRestrictToWpMismatchRaises:
                 "id": "call-bad",
                 "type": "tool_call",
             })
+
+
+# ---------------------------------------------------------------------------
+# 12b. Soft-fail strike counter behavior (WP-001 acceptance criteria)
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictToWpSoftFail:
+    """Full behavior of the 2-strike soft-fail counter in restrict_to_wp."""
+
+    async def test_first_violation_returns_error_string(self):
+        """First cross-WP call must return a descriptive error string, not raise."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), "First violation must return a string, not raise"
+        assert "ERROR" in result
+
+    async def test_first_violation_error_string_contains_both_wp_ids(self):
+        """The returned error string must mention both the wrong and the expected WP ID."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert "WP-002" in result, "Error string must mention the rejected WP ID"
+        assert ACTIVE_WP in result, "Error string must mention the active WP ID"
+
+    async def test_second_violation_returns_error_string(self):
+        """Second cross-WP call must also return an error string (still within soft-fail limit)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result1, str) and "ERROR" in result1
+        assert isinstance(result2, str) and "ERROR" in result2
+
+    async def test_third_violation_raises_value_error(self):
+        """Third cross-WP call must raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+        with pytest.raises(ValueError):
+            await tool.ainvoke({"work_package_id": "WP-002"})  # strike 3 → hard kill
+
+    async def test_strike_counter_shared_across_tools(self):
+        """Violations from different tools must count toward the same shared counter."""
+        tool_a = _make_guard_tool()
+        tool_b = _make_guard_tool()
+        tool_a.name = "tool_a"
+        tool_b.name = "tool_b"
+        restrict_to_wp([tool_a, tool_b], ACTIVE_WP)
+
+        # Strike 1 from tool_a.
+        result1 = await tool_a.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str) and "ERROR" in result1
+
+        # Strike 2 from tool_b.
+        result2 = await tool_b.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str) and "ERROR" in result2
+
+        # Strike 3 from tool_a — shared counter is at 2, so this must hard-kill.
+        with pytest.raises(ValueError):
+            await tool_a.ainvoke({"work_package_id": "WP-002"})
+
+    async def test_correct_calls_do_not_increment_counter(self):
+        """Successful calls (matching WP ID) must not affect the strike counter."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Many correct calls — counter must not advance.
+        for _ in range(10):
+            await tool.ainvoke({"work_package_id": ACTIVE_WP})
+
+        # After 10 correct calls, the first violation must still be a soft-fail.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Correct calls must not increment the strike counter"
+        )
+        assert len(seen) == 10, "Only correct calls must reach the underlying tool"
+
+    async def test_toolcall_structure_first_violation_returns_error_string(self):
+        """ToolCall nested-dict structure: first violation must return error string."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-soft",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, str) and "ERROR" in result
+
+    async def test_counter_resets_on_new_restrict_call(self):
+        """Calling restrict_to_wp again creates a fresh counter (simulating new stage)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Use up both soft-fail allowances.
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+
+        # Re-wrap (simulating a new stage invocation).
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Counter should have reset — first violation is soft-fail again.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Counter must reset when restrict_to_wp is called again"
+        )
 
 
 class TestRestrictToWpIdempotency:
@@ -856,13 +993,14 @@ class TestRestrictToWpIdempotency:
         )
 
     async def test_double_wrap_still_guards(self):
-        """After double-wrap, the guard must still fire on mismatch."""
+        """After double-wrap, the guard must still fire: first mismatch returns an error string."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
         restrict_to_wp([tool], ACTIVE_WP)
 
-        with pytest.raises(ValueError):
-            await tool.ainvoke({"work_package_id": "WP-bad"})
+        result = await tool.ainvoke({"work_package_id": "WP-bad"})
+        assert isinstance(result, str), "Guard must return error string on first mismatch after double-wrap"
+        assert "ERROR" in result
 
     def test_double_wrap_returns_same_list(self):
         """restrict_to_wp must return the same list object (in-place mutation)."""
@@ -912,19 +1050,21 @@ class TestRestrictToWpReadOnlyExemption:
         assert tool.ainvoke is original
 
     async def test_write_tool_still_guarded(self):
-        """A write tool in the same call must still raise on mismatch."""
+        """A write tool in the same call must still be guarded; read tool passes freely."""
         read_tool = self._make_read_tool()
         write_tool = _make_guard_tool()
         write_tool.name = "ledger_begin_work"
 
         restrict_to_wp([read_tool, write_tool], ACTIVE_WP)
 
-        # Read tool — cross-WP passes
+        # Read tool — cross-WP passes without restriction.
         await read_tool.ainvoke({"work_package_id": "WP-002"})
 
-        # Write tool — cross-WP raises
-        with pytest.raises(ValueError, match="WP-002"):
-            await write_tool.ainvoke({"work_package_id": "WP-002"})
+        # Write tool — first cross-WP call returns error string (soft-fail guard is active).
+        result = await write_tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Write tool must be guarded — first violation must return error string"
+        )
 
     async def test_all_read_only_tools_exempt(self):
         """Every tool in _READ_ONLY_TOOLS must be exempt from the guard."""
@@ -971,11 +1111,14 @@ class TestRestrictToWpIntegrationWithInjectProjectPath:
         assert seen[0]["project_path"] == PROJECT
 
     async def test_chained_wrappers_mismatch_raises(self):
-        """inject_project_path followed by restrict_to_wp — mismatch raises ValueError."""
+        """inject_project_path followed by restrict_to_wp — third mismatch raises ValueError."""
         tool = _make_guard_tool()
         inject_project_path([tool], PROJECT)
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError):
             await tool.ainvoke({"work_package_id": "WP-999"})
 
@@ -1024,13 +1167,16 @@ class TestSharedToolReWrapAcrossWPs:
         restrict_to_wp([tool], "WP-001")
         log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
 
-        # Second invocation (WP-002)
+        # Second invocation (WP-002) — counter resets because restrict_to_wp is re-called.
         inject_project_path([tool], PROJECT)
         restrict_to_wp([tool], "WP-002")
         log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
 
-        with pytest.raises(ValueError, match="WP-001"):
-            await tool.ainvoke({"work_package_id": "WP-001"})
+        # First WP-001 call after re-wrap is soft-fail (returns error string).
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Cross-WP call must return error string on first violation after re-wrap"
+        )
 
 
 def _make_stage_node_state(*, current_wp_id: str = "WP-001") -> dict:

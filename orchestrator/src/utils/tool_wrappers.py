@@ -11,10 +11,12 @@ This module provides three defensive wrapper functions:
     server.
 
 :func:`restrict_to_wp`
-    Guards against hallucinated cross-WP tool calls by raising ``ValueError``
-    when a tool argument contains a ``work_package_id`` that does not match the
-    active work package.  This is a **Layer 3 safety net** that prevents a
-    confused LLM from accidentally operating on a different work package.
+    Guards against hallucinated cross-WP tool calls using a **soft-fail with
+    strike counter**.  The first two cross-WP write attempts return a
+    descriptive ``"ERROR: …"`` string to the agent (giving it a chance to
+    self-correct); the third violation raises :class:`ValueError` (hard kill).
+    This is a **Layer 3 safety net** that prevents a confused LLM from
+    accidentally operating on a different work package.
 
 :func:`log_tool_calls`
     Emits a ``tool_call`` JSONL event (via :class:`~src.utils.logging.WorkflowLogger`)
@@ -45,12 +47,16 @@ Design notes — :func:`inject_project_path`
 
 Design notes — :func:`restrict_to_wp`
 --------------------------------------
-- ``_orig_ainvoke_wp`` is **always overwritten** with the current ``ainvoke``
-  on each call (not just the first).  This ensures the guard closure delegates
-  to the *most recently applied* inner wrapper (e.g. a fresh
-  ``inject_project_path`` wrapper) rather than a stale one from a previous
-  node invocation.  Because ``_orig_ainvoke_wp`` is unconditionally set,
-  closures never stack — only one guard layer exists at any time.
+- A ``_wp_guard_ref`` sentinel stores the current guard closure reference.
+  On subsequent calls, if ``tool.ainvoke`` is the same guard (identity check
+  via ``_wp_guard_ref``), ``_orig_ainvoke_wp`` is **reused unchanged** —
+  preventing double-stacking in pure idempotent re-wrap scenarios.  If inner
+  wrappers were re-applied since the last call (e.g. a fresh
+  ``inject_project_path`` pass), ``tool.ainvoke is _prev`` is ``False``, so
+  ``_orig_ainvoke_wp`` is updated to capture the fresh inner chain.  This
+  ensures the guard always delegates to the *most recently applied* inner
+  wrapper while closures never stack — only one guard layer exists at any
+  time.
 - If ``wp_id`` is the empty string the function returns the tools list unchanged
   (no wrapping).
 - **Read-only tools are exempt.**  Tools whose names are in
@@ -62,9 +68,14 @@ Design notes — :func:`restrict_to_wp`
   failure mode of forgetting to pass ``work_package_id`` and silently
   operating on the server's default WP instead of the intended one.
 - When a *write* tool call **explicitly passes** a ``work_package_id`` that
-  differs from the active WP, a ``ValueError`` is raised immediately.
-  Explicit cross-WP calls are unambiguous intent; injection would mask the
-  mismatch.
+  differs from the active WP, a **soft-fail** is applied: the first two
+  violations return a descriptive ``"ERROR: …"`` string to the agent so it
+  can self-correct by retrying with the correct WP ID.  On the third
+  violation a :class:`ValueError` is raised (hard kill) to prevent infinite
+  retry loops.  The **strike counter** is a ``list[int]`` created once per
+  :func:`restrict_to_wp` call and shared across all tool closures via a
+  default-argument capture.  The counter resets automatically when
+  :func:`restrict_to_wp` is called again for a new stage.
 - Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected,
   mirroring the pattern used by :func:`inject_project_path`.
 - **Shared-tool-instance safe:** Tool objects are shared across all graph nodes.
@@ -73,10 +84,14 @@ Design notes — :func:`restrict_to_wp`
 
 Design notes — :func:`log_tool_calls`
 --------------------------------------
-- ``_orig_ainvoke_log`` is **always overwritten** with the current ``ainvoke``
-  on each call, mirroring the approach used by :func:`restrict_to_wp`.  This
-  prevents the logger closure from delegating to a stale inner wrapper chain
-  when tool objects are shared across node invocations.
+- A ``_log_wrapper_ref`` sentinel stores the current logger closure reference.
+  On subsequent calls, if ``tool.ainvoke`` is the same logger (identity check
+  via ``_log_wrapper_ref``), ``_orig_ainvoke_log`` is **reused unchanged** —
+  preventing double-stacking in pure idempotent re-wrap scenarios. If inner
+  wrappers were re-applied since the last call, the identity check fails and
+  ``_orig_ainvoke_log`` is updated to capture the fresh inner chain. This
+  ensures the logger always delegates to the *most recently applied* inner
+  wrapper while closures never stack.
 - When *logger* is ``None`` (e.g. in unit tests or stages without an active
   logger), the function returns the tool list unchanged — no wrapping is applied.
 - Only ``tool.name`` and the ``work_package_id`` argument (if present) are
@@ -185,12 +200,21 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
 
 
 def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
-    """Wrap each tool's ``ainvoke`` to reject calls targeting a different WP.
+    """Wrap each tool's ``ainvoke`` to guard against cross-WP write calls.
 
-    If a tool call includes a ``work_package_id`` argument whose value does not
-    match *wp_id*, a :class:`ValueError` is raised before the call is forwarded
-    to the underlying MCP server.  Tool calls that do not include
-    ``work_package_id`` are passed through unmodified.
+    When a tool call includes a ``work_package_id`` argument that does not
+    match *wp_id*, the guard applies a **soft-fail with strike counter**:
+
+    * **Violations 1–2** — returns a descriptive ``"ERROR: …"`` string so the
+      agent can self-correct without aborting the stage.
+    * **Violation 3+** — raises :class:`ValueError` (hard kill) to prevent
+      infinite retry loops.
+
+    The strike counter is shared across *all* tools wrapped in a single call
+    so any two cross-WP violations in the same stage trigger the hard kill.
+
+    Tool calls that do not include ``work_package_id`` are passed through
+    unmodified; the active WP ID is auto-injected instead.
 
     The function is **idempotent**: a sentinel attribute ``_orig_ainvoke_wp``
     prevents closure stacking when the same tool objects are wrapped more than
@@ -216,6 +240,14 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
     if not wp_id:
         return tools
 
+    # Shared strike counter for all tools in this restrict_to_wp invocation.
+    # A single-element list acts as a mutable counter so each closure can
+    # increment it without a ``nonlocal`` statement.  The counter resets
+    # automatically when restrict_to_wp is called again for a new stage
+    # (a fresh list is created on each call).
+    _strikes: list[int] = [0]
+    _MAX_SOFT_FAILS: int = 2
+
     for tool in tools:
         # Read-only tools are exempt from the guard — agents need to read
         # other WPs for context (pipeline comments, handoff notes, etc.).
@@ -239,6 +271,8 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
             *args: Any,
             _orig: Any = _original_ainvoke_wp,
             _active_wp: str = wp_id,
+            _counter: list[int] = _strikes,
+            _max_soft: int = _MAX_SOFT_FAILS,
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
@@ -256,6 +290,17 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
                     # will simply ignore the extra argument.
                     target["work_package_id"] = _active_wp
                 elif call_wp_id != _active_wp:
+                    _counter[0] += 1
+                    if _counter[0] <= _max_soft:
+                        # Soft-fail: return an error string so the agent can
+                        # self-correct without aborting the stage.
+                        return (
+                            f"ERROR: Tool call targets work_package_id={call_wp_id!r} "
+                            f"but the active work package is {_active_wp!r}. "
+                            f"You MUST retry this call with work_package_id={_active_wp!r}. "
+                            f"(violation {_counter[0]} of {_max_soft} allowed before hard abort)"
+                        )
+                    # Hard kill — third+ violation; prevent infinite retry loops.
                     raise ValueError(
                         f"Tool call targets work_package_id={call_wp_id!r} but "
                         f"the active work package is {_active_wp!r}. "

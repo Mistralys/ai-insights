@@ -933,6 +933,143 @@ class TestDialogueCaptured:
 
 
 # ---------------------------------------------------------------------------
+# Tests: error-path dialogue capture (WP-002)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorPathDialogueCapture:
+    """Error-path dialogue capture: partial dialogue written when stage crashes
+    after agent.ainvoke() populates _msgs."""
+
+    class _BrokenMsg:
+        """Message stub whose .content access raises, simulating a post-ainvoke crash."""
+
+        @property
+        def content(self) -> str:
+            raise RuntimeError("Simulated failure in success path after ainvoke")
+
+        usage_metadata = None
+
+    async def _invoke_with_post_ainvoke_error(
+        self, capture: bool = True, wp_id: str = "WP-001"
+    ) -> dict:
+        """Invoke developer node where agent.ainvoke() returns messages but
+        subsequent .content access raises, driving the except path."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig() if capture else _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            return await node_fn(base_state(current_wp_id=wp_id))
+
+    async def test_dialogue_captured_when_msgs_populated(self):
+        """dialogue_captured must appear in run_log (partial=True) on the error
+        path when _msgs contains messages collected before the crash."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, (
+            "dialogue_captured must appear in run_log when _msgs is non-empty on error path"
+        )
+        entry = dc_entries[0]
+        assert entry.get("partial") is True, (
+            "Error-path dialogue_captured entry must have partial=True"
+        )
+        assert entry.get("level") == "INFO"
+        assert entry.get("wp_id") == "WP-001"
+        assert entry.get("file_path"), "file_path must be a non-empty string"
+
+    async def test_stage_fails_even_when_partial_dialogue_written(self):
+        """Stage must still return stage_success=False when error-path dialogue is written."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        assert result["stage_success"] is False
+
+    async def test_no_dialogue_when_msgs_empty(self):
+        """No dialogue_captured when exception occurs before agent.ainvoke()
+        (empty _msgs — e.g. create_deep_agent raises)."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        with _patch_persona(), \
+             patch(
+                 "deepagents.create_deep_agent",
+                 side_effect=RuntimeError("Pre-ainvoke crash"),
+             ), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must NOT appear when _msgs is empty (exception before ainvoke)"
+        )
+        assert result["stage_success"] is False
+
+    async def test_error_path_dialogue_failure_is_non_fatal(self):
+        """write_dialogue failure on the error path must not crash the stage or
+        change the returned stage_success or error values."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch(
+                 "src.nodes.write_dialogue",
+                 side_effect=PermissionError("disk full"),
+             ), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        # Stage must still return stage_success=False (original error preserved).
+        assert result["stage_success"] is False
+        # No dialogue_captured entry because write_dialogue raised.
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when write_dialogue raises on error path"
+        )
+
+    async def test_no_dialogue_when_capture_flag_false(self):
+        """Error-path dialogue capture must respect capture_dialogues=False."""
+        result = await self._invoke_with_post_ainvoke_error(capture=False)
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when capture_dialogues=False"
+        )
+
+    async def test_no_dialogue_when_wp_id_empty(self):
+        """Error-path dialogue capture must not fire when wp_id is empty."""
+        result = await self._invoke_with_post_ainvoke_error(wp_id="")
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when wp_id is empty"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: slug derivation uses Path(...).name (WP-002)
 # ---------------------------------------------------------------------------
 

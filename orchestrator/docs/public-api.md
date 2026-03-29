@@ -96,7 +96,7 @@ For the expected `variables` dict for each template (required vs optional fields
 | Symbol | Module | Description |
 |--------|--------|-------------|
 | `inject_project_path(tools, project_path)` | `src.utils.tool_wrappers` | Monkeypatches `ainvoke` on each tool to auto-inject `project_path`. |
-| `restrict_to_wp(tools, wp_id)` | `src.utils.tool_wrappers` | Layer 3 WP-scope guard for **write tools only**: auto-injects `work_package_id` when absent; raises `ValueError` on explicit cross-WP calls. Read-only tools (listed in `_READ_ONLY_TOOLS`) are exempt — no injection, no rejection. No-op when `wp_id` is empty (synthesis stages). |
+| `restrict_to_wp(tools, wp_id)` | `src.utils.tool_wrappers` | Layer 3 WP-scope guard for **write tools only**: auto-injects `work_package_id` when absent; soft-fails cross-WP calls (2 strikes) before raising `ValueError`. Read-only tools (listed in `_READ_ONLY_TOOLS`) are exempt — no injection, no rejection. No-op when `wp_id` is empty (synthesis stages). |
 | `log_tool_calls(tools, stage, wp_id, logger)` | `src.utils.tool_wrappers` | Emits a `tool_call` JSONL event before each `ainvoke` call. Records `stage`, `wp_id`, `tool_name`, and `tool_wp_id`; argument payload excluded (privacy). No-op when `logger` is `None`. Apply last in the wrapper chain: `inject_project_path → restrict_to_wp → log_tool_calls`. |
 | `load_persona(stage)` | `src.utils.persona` | Reads and caches the persona Markdown for a given stage. |
 | `parse_plan(path)` | `src.utils.plan_parser` | Extracts title, summary, and content from a plan `.md` file. Returns `PlanMetadata`. |

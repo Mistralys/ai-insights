@@ -131,7 +131,9 @@ def create_stage_node(
        Auto-injects ``project_path`` into every call when the argument is absent.
     2. :func:`~src.utils.tool_wrappers.restrict_to_wp` — Layer 3 safety net
        (skipped when ``_wp_id`` is empty, e.g. synthesis stages).  Auto-injects
-       ``work_package_id`` and raises :exc:`ValueError` on cross-WP calls.
+       ``work_package_id``; returns a descriptive error string to the agent for
+       the first two cross-WP violations (soft-fail) and raises
+       :exc:`ValueError` on the third (hard kill).
     3. :func:`_install_begin_work_tracker` — Internal tracker (skipped when
        ``_wp_id`` is empty).  Wraps ``ledger_begin_work`` to record when it fires
        and which pipeline type was requested; enables automatic pipeline rollback
@@ -141,7 +143,18 @@ def create_stage_node(
        before inner wrappers inject ``project_path`` or ``work_package_id``.
        Emits a ``tool_call`` JSONL event (``level: DEBUG``) recording
        ``stage``, ``wp_id``, ``tool_name``, and ``tool_wp_id``; full argument
-       payloads are never logged (privacy constraint).
+       payloads are never logging (privacy constraint).
+
+    Error-path dialogue capture
+    ---------------------------
+    When ``capture_dialogues=True``, dialogue capture acts as a debugging safety
+    net even when an exception interrupts the node (e.g. LLM context overflow or
+    MCP token limit). If the agent crash occurs *after* ``_msgs`` starts
+    collecting turns, the ``except`` block writes a partial dialogue file and
+    emits a ``dialogue_captured`` JSONL event tagged with ``partial: True``.
+    This operation is entirely non-fatal: any file-system failure during capture
+    is logged at DEBUG but swallowed so it never obscures the original exception
+    that took down the pipeline.
     """
 
     # Capture the app-level Config in a closure variable so it doesn't clash
@@ -162,6 +175,9 @@ def create_stage_node(
         # Declared before `try` so it is accessible in the `except` rollback path.
         _begin_work_state: dict = {"called": False, "pipeline_type": None}
         wrapped_tools: list[Any] = []
+        # Pre-declared before `try` so that messages collected before a crash are
+        # accessible in the `except` block for error-path dialogue capture.
+        _msgs: list = []
 
         # ── stage_start ───────────────────────────────────────────────
         stage_start_time = datetime.now(UTC)
@@ -391,6 +407,41 @@ def create_stage_node(
                                 _pipeline_type,
                                 rollback_exc,
                             )
+
+            # ── error-path dialogue capture (best-effort) ─────────────
+            # Write a partial dialogue file when the stage accumulated messages
+            # before the crash.  Non-fatal: any write failure is silently logged
+            # and the stage-error result is returned unchanged.
+            if _app_config.capture_dialogues and _wp_id and _msgs:
+                try:
+                    project_path_obj = state["project_path"]  # type: ignore[index]
+                    slug = Path(project_path_obj).name
+                    slug_dir = (
+                        _app_config.workspace_root
+                        / "mcp-server"
+                        / "storage"
+                        / "ledger"
+                        / slug
+                    )
+                    ts_str = stage_start_time.isoformat()
+                    err_content = serialize_messages_to_markdown(_msgs, stage, _wp_id, ts_str)
+                    written_path = write_dialogue(err_content, slug_dir, _wp_id, stage)
+                    err_dialogue_entry: dict = {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "action": "dialogue_captured",
+                        "stage": stage,
+                        "wp_id": _wp_id,
+                        "file_path": str(written_path),
+                        "level": "INFO",
+                        "partial": True,
+                    }
+                    if run_logger:
+                        run_logger.stream_entry(err_dialogue_entry)
+                    rollback_log_entries.append(err_dialogue_entry)
+                except Exception:  # noqa: BLE001
+                    log.debug(
+                        "Error-path dialogue capture failed for %s", stage, exc_info=True
+                    )
 
             return {
                 "stage_result": "",
