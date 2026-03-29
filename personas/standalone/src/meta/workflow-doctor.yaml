@@ -17,6 +17,7 @@ tools:
   - web
   - mcp
   - todo
+  - central_pm/*
 
 cc_tools:
   - Bash

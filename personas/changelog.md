@@ -1,69 +1,76 @@
 # Personas Changelog
 
+## v3.10.8 - Standalone Developer Persona
+- New Agent: Standalone Developer.
+- New Agent: Ledger Workflow Doctor.
+- Project Manager: Fixed subagent calls not using custom agents.
+- Release Engineer: Now using agent name variables.
+- Added agent name variables, e.g. `{{agent_researcher}}`.
+
 ## v3.10.7 - Orchestrator Runner: Document --depth N Flag
-- Personas: Orchestrator Runner v1.5.1 — troubleshooting table now mentions `--depth N`
+- Orchestrator Runner v1.5.1 — troubleshooting table now mentions `--depth N`
   for `kill-orchestrator.js` lock-file scan depth (default 20).
 
 ## v3.10.6 - Orchestrator Runner: Log & Process Scripts
-- Personas: Orchestrator Runner v1.5.0 — replaced jq/grep/tail log monitoring with read-log.js.
-- Personas: Orchestrator Runner v1.5.0 — added kill-orchestrator.js for process-conflict resolution.
+- Orchestrator Runner v1.5.0 — replaced jq/grep/tail log monitoring with read-log.js.
+- Orchestrator Runner v1.5.0 — added kill-orchestrator.js for process-conflict resolution.
 
 ## v3.10.5 - Orchestrator Runner Feature Sync and Fixes
-- Personas: Orchestrator Runner v1.4.0 — updated JSONL event count from 16 → 20.
-- Personas: Orchestrator Runner v1.4.0 — added `CAPTURE_DIALOGUES` and `HEARTBEAT_INTERVAL_S` env vars.
-- Personas: Orchestrator Runner v1.4.0 — documented log archival to `{slug}/orchestrator/logs/`.
-- Personas: Orchestrator Runner v1.4.0 — removed stale `--checkpoint` extra requirement (now default).
-- Personas: Orchestrator Runner v1.4.1: Polling the terminal in a tight loop.
-- Personas: Orchestrator Runner v1.4.1: Misreading the JSONL log schema.
-- Personas: Orchestrator Runner v1.4.1: Making incorrect go/no-go decisions after a dry run.
+- Orchestrator Runner v1.4.0 — updated JSONL event count from 16 → 20.
+- Orchestrator Runner v1.4.0 — added `CAPTURE_DIALOGUES` and `HEARTBEAT_INTERVAL_S` env vars.
+- Orchestrator Runner v1.4.0 — documented log archival to `{slug}/orchestrator/logs/`.
+- Orchestrator Runner v1.4.0 — removed stale `--checkpoint` extra requirement (now default).
+- Orchestrator Runner v1.4.1: Polling the terminal in a tight loop.
+- Orchestrator Runner v1.4.1: Misreading the JSONL log schema.
+- Orchestrator Runner v1.4.1: Making incorrect go/no-go decisions after a dry run.
 
 ## v3.10.4 - Reviewer Documentation-Forward Protocol
 - Partials: Expanded Reviewer `documentation-forward` convention with a named-convention spec, JSON `pipeline_comment` schema with `priority` field, and four concrete examples.
 
 ## v3.10.3 - Reviewer Feedback Tiers
-- Personas: Reviewer now uses three-tier feedback (Blocking,
+- Reviewer now uses three-tier feedback (Blocking,
   Fix-Forward, Documentation-Forward) instead of binary pass/fail.
-- Personas: Reviewer applies trivial non-behavioral fixes directly.
-- Personas: Documentation agent checks reviewer-forwarded items.
+- Reviewer applies trivial non-behavioral fixes directly.
+- Documentation agent checks reviewer-forwarded items.
 
 ## v3.10.2 - Orchestrator Runner: JSONL Event Coverage
-- Personas: Orchestrator Runner v1.3.0 — restructured progress
+- Orchestrator Runner v1.3.0 — restructured progress
   monitoring to use live terminal output as primary channel.
-- Personas: Orchestrator Runner v1.3.0 — expanded event coverage
+- Orchestrator Runner v1.3.0 — expanded event coverage
   to all 16 JSONL event types with duration fields reference.
 
 ## v3.10.1 - Release Engineer: Delegate Changelog & CTX
-- Personas: Release Engineer v3.7.0 — delegates changelog curation
+- Release Engineer v3.7.0 — delegates changelog curation
   to Changelog Curator sub-agent.
-- Personas: Release Engineer v3.7.0 — delegates CTX updates to CTX
+- Release Engineer v3.7.0 — delegates CTX updates to CTX
   Architect sub-agent.
 - Partials: Updated release engineer operational protocol.
 
 ## v3.10.0 - AGENTS.md Curator: CLAUDE.md Companion
-- Personas: AGENTS.md Curator v1.1.0 — now creates a CLAUDE.md companion file.
+- AGENTS.md Curator v1.1.0 — now creates a CLAUDE.md companion file.
 - Docs: Split constraints into build-system and cross-system sub-documents.
 - Docs: Added persona versioning constraint.
 
 ## v3.9.3 - CTX Architect: Tree Exclusion Guidance
-- Personas: CTX Architect v1.1.0 — added `notPath` vs `excludePatterns` warning
+- CTX Architect v1.1.0 — added `notPath` vs `excludePatterns` warning
   for tree vs file source types (silent ignore bug).
-- Personas: CTX Architect v1.1.0 — added constraint to always exclude package
+- CTX Architect v1.1.0 — added constraint to always exclude package
   manager artifacts (`node_modules/`, `vendor/`, `.venv/`, etc.) from tree sources.
 
 ## v3.9.2 - Preflight & Docs Cleanup
-- Personas: Simplified Orchestrator Runner preflight to a single script call.
+- Simplified Orchestrator Runner preflight to a single script call.
 - Docs: Removed `file-tree.md` from the persona manifest.
 
 ## v3.9.1 - Helper Unification & Strict-Mode Robustness
 - Build: Unified `validateCcFileName` and `validateVsFileName` into a single `validateFileName` helper.
 - Build: Fixed `--strict` false-positive by stripping fenced code blocks before scanning for unresolved markers.
-- Personas: Updated Unit Test Auditor description to verb-forward, purpose-specific text.
+- Updated Unit Test Auditor description to verb-forward, purpose-specific text.
 - Docs: Added named anchors to all 47 constraints; updated cross-references.
 
 ## v3.9.0 - Build Pipeline Fixes & `mcpServers` Auto-Injection
 - Build: Fixed VS Code output filenames to use YAML-declared `vs_file_name` instead of template basename.
 - Build: Standalone Claude Code personas with MCP tools now receive `mcpServers` auto-injection in frontmatter.
-- Personas: `ledger-bootstrapper` Claude Code build now includes `mcpServers: central_pm` in frontmatter.
+- `ledger-bootstrapper` Claude Code build now includes `mcpServers: central_pm` in frontmatter.
 - Docs: Renumbered all constraints to a clean sequential 1–47 scheme.
 - Docs: Updated standalone README to document MCP server auto-injection.
 
@@ -71,19 +78,19 @@
 - Docs: Added `personas/standalone/README.md` — user-facing guide for all 15 standalone personas.
 - Docs: Added pipeline stage ordering and WP ID auto-generation constraints.
 - Docs: Updated `personas/ledger/README.md` for the 9-agent workflow layout.
-- Personas: Reviewer (6) mission statement now scopes security to the dedicated Security Auditor.
+- Reviewer (6) mission statement now scopes security to the dedicated Security Auditor.
 - Partials: Added explicit comment type documentation to `release-engineer-output-format.md`.
 
 ---
 
 ## v3.8.0 - 9-Agent Personas & PM Sub-Agents
-- Personas: Added Security Auditor v3.6.1 at pipeline position 5 with OWASP A01–A10 coverage.
-- Personas: Added Release Engineer v3.6.1 at pipeline position 7.
-- Personas: Renumbered Reviewer (5→6), Documentation (6→8), and Synthesis (7→9).
-- Personas: Project Manager now delegates WP decomposition to four focused sub-agents.
-- Personas: Developer now requires all modified files listed in `artifacts.files_modified`.
-- Personas: Reviewer security review scope delegated to Security Auditor.
-- Personas: Added WP Decomposer, Dependency Sequencer, Pipeline Configurator, and Ledger Bootstrapper standalone sub-agents.
+- Added Security Auditor v3.6.1 at pipeline position 5 with OWASP A01–A10 coverage.
+- Added Release Engineer v3.6.1 at pipeline position 7.
+- Renumbered Reviewer (5→6), Documentation (6→8), and Synthesis (7→9).
+- Project Manager now delegates WP decomposition to four focused sub-agents.
+- Developer now requires all modified files listed in `artifacts.files_modified`.
+- Reviewer security review scope delegated to Security Auditor.
+- Added WP Decomposer, Dependency Sequencer, Pipeline Configurator, and Ledger Bootstrapper standalone sub-agents.
 - Partials: Added shared partials for Security Auditor and Release Engineer protocols and output formats.
 
 ## v3.7.3 - Per-Persona Model Field

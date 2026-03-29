@@ -52,34 +52,58 @@ You will be provided with:
 2. **Read the plan:** Read the plan document provided by the Planner Agent. Identify the project scope, key goals, and any explicit constraints or phasing notes.
 3. **Invoke WP Decomposer sub-agent:**
 {{#if target_vscode}}
-   Use `runSubagent` with the `@wp-decomposer` agent. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_wp_decomposer}}"`
+   - `description`: `"Decompose plan into work packages"`
+   - `prompt`: the full plan document content, project name, and any explicit scope/phasing notes
+
+   > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
+
    Expected output: A list of Work Package definitions, each with title, description, scope, and draft acceptance criteria.
 {{else}}
-   Use the `Task` tool with `description: "wp-decomposer"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
    Expected output: A list of Work Package definitions, each with title, description, scope, and draft acceptance criteria.
 {{/if}}
 4. **Invoke Dependency Sequencer sub-agent:**
 {{#if target_vscode}}
-   Use `runSubagent` with the `@dependency-sequencer` agent. Pass: the WP definitions received from the WP Decomposer.
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_dependency_sequencer}}"`
+   - `description`: `"Map WP dependencies and execution order"`
+   - `prompt`: the WP definitions received from the WP Decomposer
+
+   > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
+
    Expected output: A dependency graph with execution ordering and identified parallelization opportunities.
 {{else}}
-   Use the `Task` tool with `description: "dependency-sequencer"`. Pass: the WP definitions received from the WP Decomposer.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
    Expected output: A dependency graph with execution ordering and identified parallelization opportunities.
 {{/if}}
 5. **Invoke Pipeline Configurator sub-agent:**
 {{#if target_vscode}}
-   Use `runSubagent` with the `@pipeline-configurator` agent. Pass: the WP definitions and dependency graph from prior sub-agents.
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_pipeline_configurator}}"`
+   - `description`: `"Configure pipeline stages per work package"`
+   - `prompt`: the WP definitions and dependency graph from prior sub-agents
+
+   > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
+
    Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
 {{else}}
-   Use the `Task` tool with `description: "pipeline-configurator"`. Pass: the WP definitions and dependency graph from prior sub-agents.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
    Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
 {{/if}}
 6. **Invoke Ledger Bootstrapper sub-agent:**
 {{#if target_vscode}}
-   Use `runSubagent` with the `@ledger-bootstrapper` agent. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_ledger_bootstrapper}}"`
+   - `description`: `"Initialize project ledger with all work packages"`
+   - `prompt`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path
+
+   > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
+
    Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
 {{else}}
-   Use the `Task` tool with `description: "ledger-bootstrapper"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_bootstrapper}}"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
    Expected output: Confirmation that the ledger is initialized — all WPs created via `ledger_initialize_project` + `ledger_create_work_package`, with WP IDs returned.
 {{/if}}
 7. **Validate test-only WPs:** For every WP whose `active_pipeline_stages` excludes `implementation` (making it test-only, verification-only, or documentation-only), verify that all methods, functions, and classes referenced in the WP's scope already exist in production code (a grep or codebase search is sufficient). If a required symbol does not exist, reclassify the WP to include the `implementation` stage by recreating it with the correct `active_pipeline_stages`.

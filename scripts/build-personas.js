@@ -177,6 +177,61 @@ const SUITE_CONFIGS = {
 const SHARED_PARTIALS_DIR = path.join(ROOT, 'personas', 'shared', 'partials');
 
 // ---------------------------------------------------------------------------
+// Standalone agent name map (cross-suite injection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load all standalone persona YAML metadata and build a map of
+ * template-friendly variable names to VS Code agent display names.
+ *
+ * Result example:
+ *   { agent_wp_decomposer: 'WP Decomposer v1.0.0', ... }
+ *
+ * The key convention is: `agent_` + slug with hyphens replaced by underscores.
+ * The value is the VS Code display name: `"<name> v<version>"`.
+ *
+ * These variables are injected into ledger persona contexts so templates can
+ * reference standalone agent names without hardcoding them.
+ *
+ * @returns {Object.<string, string>}
+ */
+function loadStandaloneAgentNames() {
+  const standaloneMetaDir = path.join(SUITE_CONFIGS.standalone.srcDir, 'meta');
+  const sharedStandalone  = yaml.load(
+    fs.readFileSync(path.join(standaloneMetaDir, '_shared.yaml'), 'utf8')
+  );
+  const defaultVersion = sharedStandalone.default_version || '0.0.0';
+
+  const map = {};
+  const yamlFiles = fs.readdirSync(standaloneMetaDir)
+    .filter(f => f.endsWith('.yaml') && !f.startsWith('_'))
+    .sort();
+
+  for (const yamlFile of yamlFiles) {
+    const persona = yaml.load(
+      fs.readFileSync(path.join(standaloneMetaDir, yamlFile), 'utf8')
+    );
+    if (!persona.slug || !persona.name) continue;
+
+    const version = persona.version !== undefined ? persona.version : defaultVersion;
+    const key     = `agent_${persona.slug.replace(/-/g, '_')}`;
+    map[key] = `${persona.name} v${version}`;
+  }
+
+  return map;
+}
+
+/** Lazily-initialised standalone agent-name map (computed once per process). */
+let _standaloneAgentNames = null;
+
+function getStandaloneAgentNames() {
+  if (!_standaloneAgentNames) {
+    _standaloneAgentNames = loadStandaloneAgentNames();
+  }
+  return _standaloneAgentNames;
+}
+
+// ---------------------------------------------------------------------------
 // Per-suite helpers
 // ---------------------------------------------------------------------------
 
@@ -476,6 +531,12 @@ function buildForTarget(suite, target) {
       ? { name: `${persona.name} v${version}` }
       : {};
 
+    // Cross-suite agent name variables (ledger templates can reference
+    // standalone agent display names without hardcoding).
+    const agentNames = personaMode === 'numbered'
+      ? getStandaloneAgentNames()
+      : {};
+
     const context = {
       // Shared metadata fields
       author:             sharedMeta.author,
@@ -502,6 +563,8 @@ function buildForTarget(suite, target) {
       // Platform feature flags
       target_vscode:      isVscode,
       target_claude_code: !isVscode,
+      // Cross-suite: standalone agent display names (e.g. agent_wp_decomposer)
+      ...agentNames,
     };
 
     // ------------------------------------------------------------------
