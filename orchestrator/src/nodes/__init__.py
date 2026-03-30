@@ -198,7 +198,11 @@ def create_stage_node(
 
             target_path: str = state.get("target_project_path", "")  # type: ignore[call-overload]
             project_path: str = state["project_path"]  # type: ignore[index]
-            backend = LocalShellBackend(root_dir=target_path or None)
+            # SECURITY DECISION (2026-03-30): inherit_env=True exposes all host
+            # environment variables to agent subprocesses. Acceptable for local
+            # development; curated-env hardening is tracked in
+            # docs/agents/deferred-topics.md § Orchestrator.
+            backend = LocalShellBackend(root_dir=target_path or None, inherit_env=True)
 
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:

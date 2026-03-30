@@ -1597,3 +1597,38 @@ class TestCreateStageNodeWiring:
             f"log_tool_calls called with non-empty wp_id for synthesis: {args[2]!r}"
         )
         assert args[3] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: LocalShellBackend receives inherit_env=True
+# ---------------------------------------------------------------------------
+
+
+class TestLocalShellBackendInheritEnv:
+    """LocalShellBackend must be constructed with inherit_env=True so that
+    agent subprocesses can access host CLI tools (python, npm, git, etc.)."""
+
+    async def test_stage_node_passes_inherit_env_true(self):
+        """create_stage_node must call LocalShellBackend(inherit_env=True)."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        backend_cls_mock = MagicMock(return_value=MagicMock())
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=_make_agent_mock()), \
+             patch("deepagents.backends.LocalShellBackend", backend_cls_mock):
+            await node_fn(base_state())
+
+        backend_cls_mock.assert_called_once()
+        _, kwargs = backend_cls_mock.call_args
+        assert kwargs.get("inherit_env") is True, (
+            f"LocalShellBackend must be called with inherit_env=True, "
+            f"got kwargs={kwargs!r}"
+        )
