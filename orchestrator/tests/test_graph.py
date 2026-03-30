@@ -19,6 +19,10 @@ from unittest.mock import patch
 
 import pytest
 
+aiosqlite = pytest.importorskip(
+    "aiosqlite", reason="aiosqlite not installed — run: pip install -e '.[dev]'"
+)
+
 # ---------------------------------------------------------------------------
 # Mock config fixture
 # ---------------------------------------------------------------------------
@@ -58,7 +62,7 @@ def _apply_patches(test_fn):
         with (
             patch(
                 "src.supervisor.make_supervisor_node",
-                side_effect=lambda tools: _noop_node("supervisor"),
+                side_effect=lambda tools, *, dry_run=False: _noop_node("supervisor"),
             ),
             patch("src.nodes.pm.make_pm_node", side_effect=lambda cfg, tools: _noop_node("pm")),
             patch(
@@ -98,32 +102,44 @@ def _apply_patches(test_fn):
 
 class TestBuildGraphReturnType:
     @_apply_patches
-    async def test_build_graph_returns_object(self):
+    async def test_build_graph_returns_object(self, tmp_path):
         """build_graph() returns a non-None compiled graph."""
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             assert graph is not None
         finally:
             await conn.close()
 
     @_apply_patches
-    async def test_compiled_graph_is_callable(self):
+    async def test_compiled_graph_is_callable(self, tmp_path):
         """The compiled graph exposes an invoke() method."""
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             assert callable(getattr(graph, "invoke", None))
         finally:
             await conn.close()
 
     @_apply_patches
-    async def test_conn_is_aiosqlite_connection(self):
+    async def test_conn_is_aiosqlite_connection(self, tmp_path):
         """build_graph() second return value is an aiosqlite.Connection."""
         import aiosqlite
 
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             assert isinstance(conn, aiosqlite.Connection), (
                 f"Expected aiosqlite.Connection, got {type(conn).__name__}"
@@ -134,10 +150,14 @@ class TestBuildGraphReturnType:
 
 class TestGraphNodes:
     @_apply_patches
-    async def test_graph_has_nine_nodes(self):
+    async def test_graph_has_nine_nodes(self, tmp_path):
         """Graph topology must contain exactly 9 nodes."""
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
             nodes = set(graph.nodes)
@@ -155,10 +175,14 @@ class TestGraphNodes:
 
 class TestGraphEdges:
     @_apply_patches
-    async def test_start_edges_to_supervisor(self):
+    async def test_start_edges_to_supervisor(self, tmp_path):
         """START must edge to 'supervisor'."""
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             edges = graph.builder.edges
             start_targets = {edge[1] for edge in edges if edge[0] == "__start__"}
@@ -167,10 +191,14 @@ class TestGraphEdges:
             await conn.close()
 
     @_apply_patches
-    async def test_loop_stages_edge_to_supervisor(self):
+    async def test_loop_stages_edge_to_supervisor(self, tmp_path):
         """pm, developer, qa, reviewer, docs must each edge back to supervisor."""
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             edges = graph.builder.edges  # set of (source, target) tuples
             # Build a mapping: source → set of targets
@@ -188,10 +216,14 @@ class TestGraphEdges:
             await conn.close()
 
     @_apply_patches
-    async def test_synthesis_edges_to_end(self):
+    async def test_synthesis_edges_to_end(self, tmp_path):
         """synthesis must edge to END (not back to supervisor)."""
         from src.graph import build_graph
-        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         try:
             edges = graph.builder.edges  # set of (source, target) tuples
             edge_map: dict = {}
@@ -283,5 +315,57 @@ class TestCheckpointerIsAsync:
             except NotImplementedError as exc:
                 if "async" in str(exc).lower():
                     pytest.fail(f"Checkpointer does not support async: {exc}")
+        finally:
+            await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests: build_graph(dry_run=True)
+# ---------------------------------------------------------------------------
+
+class TestDryRunGraph:
+    """Verify that dry_run=True produces a structurally correct 9-node graph."""
+
+    async def test_dry_run_returns_graph_and_conn(self, tmp_path):
+        """build_graph(dry_run=True) returns a compiled graph + connection."""
+        import aiosqlite
+
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        with patch(
+            "src.supervisor.make_supervisor_node",
+            side_effect=lambda tools, *, dry_run=False: _noop_node("supervisor"),
+        ):
+            graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS, dry_run=True)
+        try:
+            assert graph is not None
+            assert isinstance(conn, aiosqlite.Connection)
+        finally:
+            await conn.close()
+
+    async def test_dry_run_has_nine_nodes(self, tmp_path):
+        """dry_run graph must have the same 9-node topology as a live graph."""
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        with patch(
+            "src.supervisor.make_supervisor_node",
+            side_effect=lambda tools, *, dry_run=False: _noop_node("supervisor"),
+        ):
+            graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS, dry_run=True)
+        try:
+            nodes = set(graph.nodes)
+            nodes.discard("__start__")
+            nodes.discard("__end__")
+            expected = {
+                "supervisor", "pm", "developer", "qa", "reviewer",
+                "security_auditor", "release_engineer", "docs", "synthesis",
+            }
+            assert nodes == expected, f"Node mismatch: {nodes ^ expected}"
         finally:
             await conn.close()

@@ -193,46 +193,7 @@ def _parse_interrupt_stages(raw: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dry-run stub factory
-# ---------------------------------------------------------------------------
-
-def _make_dryrun_node(stage: str):
-    """
-    Return a no-op LangGraph node for ``--dry-run`` mode.
-
-    The stub logs the stage name and returns a state update indicating
-    success without invoking the Deep Agent.
-    """
-    from src.utils.logging import get_run_logger
-
-    def _stub(state: Any, config: Any = None) -> dict:
-        ts = datetime.now(UTC).isoformat()
-        wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
-        log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "—")
-        print(f"  [dry-run] {stage}: WP={wp_id or '—'}")
-        log_entry = {
-            "timestamp": ts,
-            "stage": stage,
-            "wp_id": wp_id,
-            "action": "dry_run",
-            "result": "SKIP",
-        }
-        run_logger = get_run_logger(config)
-        if run_logger:
-            run_logger.stream_entry(log_entry)
-        return {
-            "stage_result": f"[dry-run] {stage} stub",
-            "stage_success": True,
-            "run_log": [log_entry],
-        }
-
-    _stub.__name__ = f"{stage}_dryrun"
-    _stub.__qualname__ = f"{stage}_dryrun"
-    return _stub
-
-
-# ---------------------------------------------------------------------------
-# Graph builder — wires dry-run stubs when requested
+# Graph builder
 # ---------------------------------------------------------------------------
 
 async def _build_graph_for_run(
@@ -243,13 +204,11 @@ async def _build_graph_for_run(
     interrupt_before: list[str],
 ):
     """
-    Build the LangGraph compiled graph, optionally with dry-run stubs.
+    Thin wrapper around :func:`~src.graph.build_graph`.
 
-    When *dry_run* is ``True``, all six pipeline-stage nodes are replaced with
-    lightweight stubs that log routing decisions without invoking Deep Agents.
-    The supervisor node is always real (it performs only ledger reads, not agent
-    calls) but receives ``dry_run=True`` so it tolerates missing ledger state
-    and terminates cleanly instead of looping on MCP errors.
+    Delegates entirely to ``build_graph()``; dry-run stub wiring is handled
+    there so that both modes share the same checkpoint boilerplate and graph
+    topology.
 
     Parameters
     ----------
@@ -258,7 +217,8 @@ async def _build_graph_for_run(
     mcp_tools:
         LangChain Tool objects from :class:`~src.mcp_client.MCPToolkit`.
     dry_run:
-        Replace stage nodes with no-op stubs.
+        Passed through to :func:`~src.graph.build_graph`; replaces stage nodes
+        with no-op stubs when ``True``.
     interrupt_before:
         List of node names at which LangGraph should pause for human input.
 
@@ -266,41 +226,12 @@ async def _build_graph_for_run(
     -------
     tuple[CompiledGraph, aiosqlite.Connection]
     """
-    if dry_run:
-        # Build with dry-run stubs instead of real Deep Agent nodes.
-        import aiosqlite
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-        from langgraph.graph import END, START, StateGraph
-
-        from src.state import WorkflowState
-        from src.supervisor import make_supervisor_node
-
-        supervisor_node = make_supervisor_node(mcp_tools, dry_run=True)
-        builder = StateGraph(WorkflowState)
-        builder.add_node("supervisor", supervisor_node)
-        for stage in ("pm", "developer", "qa", "reviewer", "docs", "synthesis"):
-            builder.add_node(stage, _make_dryrun_node(stage))
-        builder.add_edge(START, "supervisor")
-        for stage in ("pm", "developer", "qa", "reviewer", "docs"):
-            builder.add_edge(stage, "supervisor")
-        builder.add_edge("synthesis", END)
-
-        config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        db_path = config.checkpoint_dir / "workflow.sqlite"
-        conn = await aiosqlite.connect(str(db_path))
-        checkpointer = AsyncSqliteSaver(conn)
-        await checkpointer.setup()
-
-        return builder.compile(
-            checkpointer=checkpointer,
-            interrupt_before=interrupt_before if interrupt_before else None,
-        ), conn
-    else:
-        from src.graph import build_graph
-        graph, conn = await build_graph(
-            config, mcp_tools, interrupt_before=interrupt_before or None
-        )
-        return graph, conn
+    from src.graph import build_graph
+    return await build_graph(
+        config, mcp_tools,
+        interrupt_before=interrupt_before or None,
+        dry_run=dry_run,
+    )
 
 
 # ---------------------------------------------------------------------------

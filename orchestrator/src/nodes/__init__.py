@@ -18,6 +18,7 @@ Stage prompts are assembled by each module using ``render_prompt`` and
 
 from __future__ import annotations
 
+import json as _json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -29,7 +30,12 @@ from langchain_core.runnables import RunnableConfig
 from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
-from src.utils.tool_wrappers import _make_tool_response, inject_project_path, log_tool_calls, restrict_to_wp
+from src.utils.tool_wrappers import (
+    _make_tool_response,
+    inject_project_path,
+    log_tool_calls,
+    restrict_to_wp,
+)
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -165,8 +171,6 @@ def _install_post_completion_guard(tools: list[Any], completion_tracker: dict) -
     Pre-completion calls are delegated transparently to the original ``ainvoke``.
     Idempotent: a sentinel attribute ``_post_completion_guard`` prevents double-wrapping.
     """
-    import json as _json
-
     for tool in tools:
         if tool.name != "ledger_get_next_action":
             continue
@@ -487,7 +491,12 @@ def create_stage_node(
             # blocked by a stale pipeline. auto_cancelled=True prevents the
             # cancellation from counting toward the rework budget (§21.27).
             rollback_log_entries: list[dict] = []
-            if _begin_work_state["called"] and not _complete_pipeline_state["completed"] and _wp_id and wrapped_tools:
+            if (
+                _begin_work_state["called"]
+                and not _complete_pipeline_state["completed"]
+                and _wp_id
+                and wrapped_tools
+            ):
                 _pipeline_type = (
                     _begin_work_state.get("pipeline_type") or _STAGE_PIPELINE_TYPE.get(stage)
                 )

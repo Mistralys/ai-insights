@@ -3,6 +3,7 @@
 # Last updated: 2026-02-25
 
 # Core dependencies
+aiosqlite>=0.19.0
 langchain-core>=1.2.22
 langchain-mcp-adapters>=0.2
 langgraph>=0.4

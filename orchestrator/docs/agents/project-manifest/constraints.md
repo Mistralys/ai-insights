@@ -277,3 +277,21 @@ def _build_developer_prompt(state: WorkflowState) -> str:
         "wp_id": wp_id,
     })
 ```
+
+---
+
+## Code Quality
+
+### 17. Run `ruff check` After Every Code Change
+
+**Rule:** After making any change to Python source files in `orchestrator/`, run `python3 -m ruff check .` from the `orchestrator/` directory and resolve all reported violations before considering the task complete. This applies to every change — including single-line edits, refactors, and new files.
+
+**Rationale:** Ruff is the project's linter and catches style violations, unused imports, undefined names, and common bugs at near-zero cost. Skipping the check after a change allows lint errors to accumulate silently and compounds the cleanup burden for future agents.
+
+**How to run:**
+```bash
+cd orchestrator
+python3 -m ruff check .
+```
+
+**Forbidden shortcut:** Do not mark a coding task complete, write a changelog entry, or hand off to the next pipeline stage without a clean ruff output.

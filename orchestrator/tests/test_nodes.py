@@ -1304,7 +1304,13 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_pm_prompt_has_slim_fields(self, tmp_path):
-        """_build_pm_prompt must include project_path and project_path reminder (no wp_id)."""
+        """_build_pm_prompt must embed plan_file reference and plan content.
+
+        The PM is the first agent in the chain — it determines the project
+        path from the plan's location rather than consuming it from the
+        prompt.  Therefore the prompt intentionally omits project_path and
+        the project-path-reminder partial.
+        """
         from src.nodes.pm import _build_pm_prompt
 
         plan_file = tmp_path / "plan.md"
@@ -1313,10 +1319,8 @@ class TestSlimPromptContent:
         state = _build_slim_state(project_path=str(tmp_path), plan_file="plan.md")
         prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
 
-        assert str(tmp_path) in prompt, "project_path must be present in PM prompt"
-        assert "ledger tool calls" in prompt, (
-            "project_path reminder must be present in PM prompt"
-        )
+        assert "plan.md" in prompt, "plan_file reference must be present in PM prompt"
+        assert "# Plan" in prompt, "plan content must be embedded in PM prompt"
 
     def test_pm_prompt_has_no_identity_declarations(self, tmp_path):
         """_build_pm_prompt must not contain identity/role declaration text."""

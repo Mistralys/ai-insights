@@ -227,7 +227,7 @@ class TestPrintRunSummary:
 
 class TestDryRunNode:
     def _make(self, stage: str):
-        from src.cli import _make_dryrun_node
+        from src.graph import _make_dryrun_node
         return _make_dryrun_node(stage)
 
     def test_returns_callable(self):
@@ -291,13 +291,13 @@ class TestMainMissingPlan:
 class TestDryRunNodeEdgeCases:
     def test_missing_wp_id_handled(self):
         """Node must not crash when state has no current_wp_id."""
-        from src.cli import _make_dryrun_node
+        from src.graph import _make_dryrun_node
         node = _make_dryrun_node("pm")
         result = node({})  # Empty state
         assert result["stage_success"] is True
 
     def test_run_log_result_is_skip(self):
-        from src.cli import _make_dryrun_node
+        from src.graph import _make_dryrun_node
         node = _make_dryrun_node("synthesis")
         result = node({"current_wp_id": ""})
         assert result["run_log"][0]["result"] == "SKIP"
