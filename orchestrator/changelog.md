@@ -27,6 +27,8 @@
 - Supervisor: Fixed an unnecessary exception.
 - Fixed a type error with the new langchain package version.
 - Extracted complex functions into dataclasses.
+- Aiosql handling fixed and fully documented.
+- Added ruff checks to constraints.
 
 ## v0.12.0 - Stage Prompt Templating
 - PromptRenderer: Added Markdown template engine with partial includes, conditionals, and variable substitution.
