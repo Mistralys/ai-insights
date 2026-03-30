@@ -42,6 +42,11 @@ Design notes — :func:`inject_project_path`
   strips it for efficiency — the MCP server now handles both gracefully
   (``project_path`` takes precedence), but stripping avoids sending
   redundant data.
+- When the tool name is ``ledger_detect_project``, a synthetic response is
+  returned immediately without an MCP round-trip.  This IDE-facing tool is
+  redundant in the orchestrator context because ``project_path`` is always
+  known; the short-circuit eliminates the validation error caused by the
+  wrapper stripping the ``cwd_path`` that the real tool requires.
 - The wrapper handles both dict-style and plain-string input gracefully — if
   the input is not a dict no injection is attempted.
 
@@ -110,6 +115,7 @@ Tests for this module live in ``orchestrator/tests/test_tool_wrappers.py``.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -125,7 +131,7 @@ _READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "ledger_get_next_action",
     "ledger_get_project_status",
     "ledger_get_handoff_status",
-    "ledger_detect_project",
+    "ledger_detect_project",  # also short-circuited by inject_project_path
     "ledger_list_projects",
     "ledger_help",
 })
@@ -170,8 +176,23 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
             *args: Any,
             _orig: Any = _original_ainvoke,
             _proj: str = project_path,
+            _tool_name: str = tool.name,
             **kwargs: Any,
         ) -> Any:
+            # Short-circuit: ledger_detect_project is an IDE-facing tool that
+            # cross-references cwd_path against stored project roots.  In the
+            # orchestrator, project_path is always known, so we return a
+            # synthetic response immediately — no MCP round-trip needed.
+            if _tool_name == "ledger_detect_project":
+                slug = _proj.rstrip("/").rsplit("/", 1)[-1]
+                title = slug.replace("-", " ").replace("_", " ").title()
+                return json.dumps({
+                    "plan_path": _proj,
+                    "slug": slug,
+                    "title": title,
+                    "status": "active",
+                    "note": "Short-circuited by orchestrator — project_path is already known.",
+                })
             if isinstance(input, dict):
                 # LangGraph ToolNode passes a ToolCall dict with args nested
                 # inside input["args"], while direct invocations pass a flat

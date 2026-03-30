@@ -1782,3 +1782,185 @@ class TestLogToolCallsEdgeCases:
             f"Expected log before original, got: {order}"
         )
 
+
+# ===========================================================================
+# 13. ledger_detect_project short-circuit
+# ===========================================================================
+
+
+class _DetectProjectTool:
+    """Tool stub with name='ledger_detect_project' to trigger the short-circuit."""
+
+    def __init__(self, seen: list[Any] | None = None) -> None:
+        _seen: list[Any] = seen if seen is not None else []
+        self.name = "ledger_detect_project"
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> str:
+            _seen.append(input)
+            return "mcp_result"
+
+        self.ainvoke = _ainvoke
+
+
+class TestDetectProjectShortCircuit:
+    """Verify that ledger_detect_project calls are short-circuited by
+    inject_project_path without forwarding to the MCP server.
+
+    ledger_detect_project is an IDE-facing tool that cross-references
+    cwd_path against stored project roots.  In the orchestrator
+    project_path is always known, so the wrapper returns a synthetic
+    JSON response immediately.
+    """
+
+    async def test_original_ainvoke_not_called(self):
+        """When tool is ledger_detect_project, the original ainvoke must NOT be called."""
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 0, (
+            "Original ainvoke must not be called for ledger_detect_project"
+        )
+
+    async def test_returns_valid_json(self):
+        """The short-circuit result must be valid JSON."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        # Must not raise
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
+
+    async def test_response_contains_plan_path(self):
+        """The synthetic response must contain 'plan_path' equal to project_path."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["plan_path"] == PROJECT
+
+    async def test_response_contains_slug(self):
+        """The synthetic response must contain 'slug' derived from the last path segment."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["slug"] == "my-project"
+
+    async def test_response_contains_title(self):
+        """The synthetic response must contain 'title' derived from the slug."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["title"] == "My Project"
+
+    async def test_title_with_underscores(self):
+        """Underscores in the slug must also be replaced when deriving title."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my_project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["title"] == "My Project"
+
+    async def test_response_contains_active_status(self):
+        """The synthetic response must contain 'status' equal to 'active'."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["status"] == "active"
+
+    async def test_slug_with_trailing_slash(self):
+        """A project_path with a trailing slash must still produce the correct slug."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project/")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["slug"] == "my-project"
+
+    async def test_toolcall_structure_also_short_circuited(self):
+        """Short-circuit must also apply when input has ToolCall {'args': {...}} structure."""
+        import json
+
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/some/workspace"},
+            "id": "call-detect",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 0, "Original ainvoke must not be called for ToolCall input either"
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
+    async def test_other_tool_names_not_short_circuited(self):
+        """Tools with names other than ledger_detect_project must still delegate to original."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)  # name = "test_tool"
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert len(seen) == 1, "Non-detect-project tools must reach the original ainvoke"
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_short_circuit_with_cwd_path_input_no_original_call(self):
+        """Even when caller passes cwd_path, the short-circuit fires and original is skipped."""
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"cwd_path": "/workspace"})
+
+        assert len(seen) == 0, "Short-circuit must fire regardless of what input contains"
+
+    async def test_short_circuit_idempotent_double_wrap(self):
+        """Double-wrapping a ledger_detect_project tool must not stack closures."""
+        import json
+
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        assert len(seen) == 0
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
