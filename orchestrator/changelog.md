@@ -1,6 +1,12 @@
 # Orchestrator Changelog
 
-## v0.12.1 - Environment Inheritance
+## v0.13.0 - Cross-WP Authorization & Windows Support
+- ToolWrappers: Cross-WP write violations soft-fail for the first two attempts; hard kill on the third.
+- ToolWrappers: Read-only tools exempt from WP guard, enabling cross-WP context reads.
+- ToolWrappers: Extracted closure state into frozen dataclasses; centralised `_patch_tool()` helper.
+- Nodes: Error-path dialogue capture writes partial dialogues on stage crashes.
+- Supervisor: Tool calls bypass stage wrappers via bare `ainvoke` references.
+- Utils: Added `subprocess_encoding` for safe text-mode defaults on Windows.
 - Nodes: All agent nodes now inherit the machine environment.
 - Supervisor: Fixed an unnecessary exception.
 - Fixed a type error with the new langchain package version.
