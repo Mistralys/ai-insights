@@ -71,7 +71,7 @@ npm run test:watch    # Run tests in watch mode
 **Important:** The version in `changelog.md` is the **source of truth**. When releasing a new version:
 1. Update `changelog.md` first (add new version header at top)
 2. Run `npm run sync-version` to update `package.json`
-3. The MCP server displays its version at startup: `[project-ledger-mcp] Server v1.0.1 started successfully`
+3. The MCP server displays its version at startup: `[project-ledger-mcp] Server v1.21.1 started successfully`
 
 See [constraints.md](constraints.md#development--build-constraints) for more details.
 
@@ -6063,14 +6063,17 @@ mcp-server/
 │   └── utils/                   # Utility functions
 │       ├── workflow-helpers.ts  # Shared constants and stateless helpers
 │       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs
+│       ├── client-info.ts       # Module-level MCP server reference for extracting client info
 │       ├── constants.ts         # Shared constants derived from shared/workflow-manifest.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
 │       ├── path-validator.ts    # Project path validation
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
 │       ├── project-reset.ts     # Semi-intelligent project reset
-│       ├── timestamp.ts         # Timestamp formatting
+│       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
+│       ├── server-version.ts    # Reads MCP server version from package.json
+│       ├── timestamp.ts         # Timestamp formatting
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
@@ -6080,18 +6083,28 @@ mcp-server/
     │   └── test-utils.ts        # injectLedgerDir(), nowFloor()
     │
     ├── gui/                     # GUI and config module tests
-    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── api-client.test.ts
     │   ├── api-reset.test.ts    # Integration tests for handleResetProject (13 tests)
     │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
-    │   ├── config.test.ts       # Unit tests for src/gui/config.ts
     │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
-    │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
+    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── client-rendering.test.ts
+    │   ├── config.test.ts       # Unit tests for src/gui/config.ts
+    │   ├── dialogue-qa.test.ts
+    │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
+    │   ├── log-resolver.test.ts
+    │   ├── project-detail-runs.test.ts
+    │   ├── run-log-handlers.test.ts
+    │   ├── run-log-server.test.ts
+    │   ├── run-log.test.ts
+    │   └── security-headers.test.ts
     │
     ├── integration/             # End-to-end workflow tests
     │   ├── auto-handoff.test.ts
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
+    │   ├── project-archiving-schema.test.ts
     │   ├── project-meta-runner.test.ts  # 10 backward-compatibility tests (WP-005 verification of WP-001 AC5): ProjectMetaSchema and RootIndexSchema accept runner fields when present (orchestrator, vscode, claude-code), accept empty strings for runner_client/runner_version, reject invalid enum values, and parse cleanly without runner fields (legacy fixture and full real-world legacy project-ledger.json simulation)
     │   ├── root-index.test.ts   # RootIndexSchema and WorkPackageSummarySchema tests (20 tests)
     │   ├── validators.test.ts
@@ -6102,18 +6115,28 @@ mcp-server/
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
+    │   ├── begin-work.test.ts
     │   ├── cancelled-status.test.ts
     │   ├── cascade-reblock.test.ts
     │   ├── claim-guard.test.ts
+    │   ├── complete-pipeline-guards.test.ts
+    │   ├── enrichment-resilience.test.ts
+    │   ├── list-projects.test.ts
+    │   ├── meta-enrichment.test.ts
+    │   ├── observations.test.ts
+    │   ├── pipeline-duration.test.ts
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts
     │   ├── rework-circuit-breaker.test.ts
+    │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   ├── schema-integrity.test.ts
+    │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
+    │   ├── version-freshness.test.ts
     │   ├── work-package.test.ts
+    │   ├── workflow-batch-actions.test.ts
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts
-    │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   └── workflow-rework-loop.test.ts
     │
     └── utils/                   # Utility function tests
@@ -6187,10 +6210,12 @@ The following directories are not version-controlled:
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `tsx` | ^4.19.2 | TypeScript execution for development |
-| `vitest` | ^2.1.8 | Unit and integration testing framework |
-| `typescript` | ^5.7.2 | TypeScript compiler |
 | `@types/node` | ^22.10.5 | Node.js type definitions |
+| `@types/proper-lockfile` | ^4.1.4 | Type definitions for proper-lockfile |
+| `jsdom` | ^29.0.0 | DOM implementation for GUI tests |
+| `tsx` | ^4.19.2 | TypeScript execution for development |
+| `typescript` | ^5.7.2 | TypeScript compiler |
+| `vitest` | ^4.0.18 | Unit and integration testing framework |
 
 ---
 
@@ -6200,7 +6225,7 @@ The following directories are not version-controlled:
 
 The application is structured as an **MCP (Model Context Protocol) server** that:
 - Runs as a standalone process communicating via STDIO
-- Registers multiple tools (17 total) that agents can invoke
+- Registers multiple tools (22 total) that agents can invoke
 - Returns structured JSON responses conforming to MCP specification
 - Logs diagnostics to `stderr` (never `stdout`, which is reserved for protocol)
 
@@ -6361,11 +6386,15 @@ function resolveStore(
 
 | Script | Command | Purpose |
 |--------|---------|----------|
+| **sync-version** | `npm run sync-version` | Sync version from changelog.md to package.json |
+| **predev** | *(auto)* | Runs sync-version before dev |
 | **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
 | **dev** | `npm run dev` | Run server in development mode with tsx |
 | **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js --check` before every test run — exits 1 if any generated persona file is stale, blocking the test run. This is **one of two** enforcement layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
 | **test** | `npm test` | Run all tests once (pretest fires first) |
 | **test:watch** | `npm run test:watch` | Run tests in watch mode |
+| **check:roles** | `npm run check:roles` | Validate workflow manifest roles via `scripts/check-known-roles.js` |
+| **gui** | `npm run gui` | Start the GUI dashboard server (`tsx gui/server.ts`) |
 
 No explicit build step is required for development (tsx handles TypeScript on-the-fly).
 For production or CI, run `npm run build` — compilation fails immediately on any type error (`noEmitOnError: true`) and no output is written to `dist/`.

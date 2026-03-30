@@ -6211,7 +6211,7 @@ export async function getNextActionsCollector(
       if (
         (wpDetail.status === 'READY' || wpDetail.status === 'IN_PROGRESS') &&
         !hasDependencyBlocked(wpDetail) &&
-        !wpDetail.pipelines.some((p) => p.type === 'implementation')
+        !wpDetail.pipelines.some((p) => p.type === 'implementation' && !p.auto_cancelled)
       ) {
         const handoffNotes = wpDetail.assigned_to === 'Developer'
           ? (getHandoffNotesForAgent(wpDetail, 'Developer') ?? undefined)
@@ -6913,7 +6913,7 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
 
     // P6: IMPLEMENT (IN_PROGRESS, no implementation pipeline started yet)
     if (wpDetail.status === 'IN_PROGRESS') {
-      const hasImplPipeline = wpDetail.pipelines.some((p) => p.type === 'implementation');
+      const hasImplPipeline = wpDetail.pipelines.some((p) => p.type === 'implementation' && !p.auto_cancelled);
       if (!hasImplPipeline) {
         const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
         return {

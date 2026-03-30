@@ -14,7 +14,7 @@ Each stage node follows a uniform lifecycle managed by `create_stage_node()` in 
 2. **Load persona** — reads the persona Markdown from `personas/ledger/claude-code/<N>-<role>.md` (cached in memory after first load).
 3. **Build prompt** — a stage-specific prompt builder assembles the user message from `WorkflowState` fields (e.g. `current_wp_id`, plan content).
 4. **Wrap tools** — Four wrappers are applied in sequence: (a) `inject_project_path(list(mcp_tools), project_path)` auto-injects `project_path` as a Layer 2 safety net. (b) `restrict_to_wp(wrapped_tools, _wp_id)` enforces WP scope as a Layer 3 safety net — guards write tools only; read-only tools are exempt (no-op when `_wp_id` is empty). (c) `_install_begin_work_tracker(wrapped_tools, _begin_work_state)` mounts a tracker around `ledger_begin_work` to record when it fires and which pipeline type was requested (enables **Pipeline Rollback** on error; skipped when `_wp_id` is empty). (d) `log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)` applies the outermost wrapper, emitting a `tool_call` JSONL event before each invocation. See **MCP Tool Wrapping** below for full descriptions.
-5. **Create Deep Agent** — `create_deep_agent(model, backend, system_prompt, tools)` with a `LocalShellBackend(root_dir=target_project_path)`.
+5. **Create Deep Agent** — `create_deep_agent(model, backend, system_prompt, tools)` with a `LocalShellBackend(root_dir=target_project_path, inherit_env=True)`.
 6. **Invoke** — `agent.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})`.
 7. **Emit `stage_complete`** — records `result="PASS"`, `tokens_used`, and `duration_s` (wallclock seconds from step 1). On exception, emits **`stage_error`** with `result="FAIL"`, `error`, and `duration_s`, then runs the **pipeline rollback** path if `ledger_begin_work` was called (see **Pipeline Rollback** below).
 8. **Best-effort `pipeline_result` read-back** — calls `ledger_get_work_package` using `wrapped_tools` to emit a `pipeline_result` event with `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, and `duration_s`. Any failure is caught silently at `DEBUG` level; stage success is never affected.
@@ -122,15 +122,13 @@ The reminder text is embedded directly in each template file via a partial inclu
 
 Shared prompt fragments live in `templates/partials/` and are included in stage templates using `{{> partial-name}}` syntax (filename without the `.md` extension). The renderer expands all includes before evaluating `{{#if}}` blocks and substituting variables, so partial content participates fully in all downstream processing.
 
-Five partials are currently defined:
+One partial is currently defined:
 
 | Partial file | Content | Included by |
 |---|---|---|
-| `project-path-reminder.md` | "Always use the project path above for all ledger tool calls." | All stage templates |
-| `wp-scope-reminder.md` | `CRITICAL: Every MCP tool call MUST use work_package_id={wp_id}.` | All 6 WP-scoped templates (inside `{{#if wp_id}}`) |
-| `scope-restriction.md` | `**SCOPE RESTRICTION** — stronger WP restriction statement | `developer`, `qa`, `reviewer`, `docs` templates; also referenced by `begin-work-developer` |
-| `begin-work-developer.md` | Step 1 `ledger_begin_work` instruction + `{{> scope-restriction}}` | `developer` template only |
-| `pm-preamble.md` | "Please start your work…" + `{plan_file}` reference | `pm` template only |
+| `project-path-reminder.md` | "Always use the project path above for all ledger tool calls." | All WP-scoped templates + `synthesis` (7 of 8 stage templates; `pm` inlines its preamble content directly) |
+
+> **Note:** Earlier documentation described additional partials (`wp-scope-reminder.md`, `scope-restriction.md`, `begin-work-developer.md`, `pm-preamble.md`) that were planned but never created. The PM preamble and scope-restriction text are embedded directly in their respective template `.md` files rather than extracted into partial files.
 
 To edit a shared fragment, change its partial file. To add new shared content, create a new file under `templates/partials/` and reference it with `{{> your-partial-name}}` in the relevant template(s).
 
@@ -189,13 +187,9 @@ Each wrapper is **idempotent** (sentinel attributes prevent closure stacking) an
 
 `log_tool_calls(tools, stage, wp_id, logger)` emits a `tool_call` JSONL event (via `WorkflowLogger.stream_entry()`) before forwarding each `ainvoke` call to the underlying MCP tool. Records `stage`, `wp_id` (stage-level), `tool_name`, and `tool_wp_id` (extracted from call arguments) at `level: "DEBUG"`. Full argument payloads are deliberately **excluded** (privacy constraint). When `logger` is `None` the function returns tools unchanged — no wrapping is applied (e.g. in unit tests).
 
-**Two-layer prompt scope reinforcement** operates alongside the `restrict_to_wp` wrapper:
+**Prompt scope reinforcement** operates alongside the `restrict_to_wp` wrapper:
 
-- **Layer 3a — shared scope baseline:** All six WP-scoped templates include `{{> wp-scope-reminder}}` inside their `{{#if wp_id}}` block. When `wp_id` is non-empty, this partial renders a `CRITICAL` scope constraint telling the agent to use only the active `work_package_id`. The `{wp_id}` placeholder in the partial text is substituted during `render_prompt`.
-
-- **Layer 3b — per-template SCOPE RESTRICTION:** Four templates (`developer`, `qa`, `reviewer`, `docs`) additionally include `{{> scope-restriction}}` — in `developer`'s case via `{{> begin-work-developer}}`, which itself includes `{{> scope-restriction}}`. This adds a stronger **SCOPE RESTRICTION** statement below the baseline. The two remaining WP-scoped templates (`security_auditor`, `release_engineer`) rely on Layer 3a alone.
-
-The double statement is intentional: the two-layer approach improves LLM reliability without any functional downside.
+The `restrict_to_wp` tool wrapper (Layer 3 safety net) handles WP-scope enforcement at the tool level. The persona files themselves contain scope guidance as part of the agent's static instructions. The user-turn prompt adds only the `{{> project-path-reminder}}` partial to remind the agent of the concrete project path for this run. No additional scope partials are included in user-turn prompts — the persona file's static instructions provide scope awareness, and the tool wrapper enforces it programmatically.
 
 ### Design Properties
 

@@ -1,5 +1,8 @@
 # Orchestrator Changelog
 
+## v0.12.1 - Environment Inheritance
+- Nodes: All agent nodes now inherit the machine environment.
+
 ## v0.12.0 - Stage Prompt Templating
 - PromptRenderer: Added Markdown template engine with partial includes, conditionals, and variable substitution.
 - Nodes: Migrated all eight stage prompts from inline Python to Markdown templates.

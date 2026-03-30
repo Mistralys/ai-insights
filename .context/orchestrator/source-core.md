@@ -71,6 +71,7 @@ from typing import Any
 # Suppress Pydantic V1 deprecation warning emitted by langchain_core on Python 3.14+.
 warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
 
+import src.utils.subprocess_encoding  # noqa: E402, F401  # side-effect: safe text-mode defaults on Windows
 from src.utils.filelock import lock_exclusive, unlock  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -1869,19 +1870,25 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
     """
     tools_by_name: dict[str, Any] = {t.name: t for t in mcp_tools}
 
+    # Save bare (unwrapped) ainvoke references at construction time, before
+    # any stage-node wrapper (inject_project_path, restrict_to_wp, etc.) can
+    # mutate tool.ainvoke.  The supervisor operates across WPs and always
+    # supplies explicit arguments, so it must bypass per-WP guards.
+    _bare_ainvoke: dict[str, Any] = {t.name: t.ainvoke for t in mcp_tools}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     async def _call_tool(name: str, **kwargs: Any) -> Any:
-        """Invoke an MCP tool by name and return the parsed JSON response."""
-        tool = tools_by_name.get(name)
-        if tool is None:
+        """Invoke an MCP tool by name, bypassing stage wrappers."""
+        bare = _bare_ainvoke.get(name)
+        if bare is None:
             raise RuntimeError(
                 f"MCP tool {name!r} not found. "
                 f"Available: {sorted(tools_by_name)}"
             )
-        raw = await tool.ainvoke(kwargs)
+        raw = await bare(kwargs)
         return parse_tool_response(raw)
 
     def _log_entry(

@@ -106,6 +106,7 @@ These synchronization points span multiple sub-projects. Breaking any of them ca
 | `scripts/build-personas.js` | Assemble persona files from template sources |
 | `scripts/preflight-orchestrator.js` | Pre-flight readiness checks for the orchestrator |
 | `context.yaml` | [CTX Generator](https://github.com/context-hub/generator) root config — generates `.context/` snapshots |
+| [`docs/agents/deferred-topics.md`](../deferred-topics.md) | Tracks deliberately deferred implementation decisions with structured trigger/timeline fields |
 
 ---
 
@@ -137,4 +138,5 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | Understand workflow state machines | [Workflow Specification](../../../mcp-server/docs/agents/workflow-specification/README.md) |
 | Understand orchestrator routing | [Supervisor Routing](../../../orchestrator/docs/supervisor-routing.md) |
 | Understand the 9-agent pipeline | [Ledger Suite Guide](../../../personas/ledger/README.md) |
+| Review deferred implementation decisions | [Deferred Topics](../deferred-topics.md) |
 | Get a full codebase snapshot | `.context/` (run `node scripts/cli.js ctx-generate`) |

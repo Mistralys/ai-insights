@@ -15,7 +15,7 @@ calling `render_prompt(load_template(stage), variables)`.
 | Variable | Required? | Description |
 |---|---|---|
 | `project_path` | **required** | Absolute path to the plan directory. Source: `state["project_path"]`. |
-| `plan_file` | pm only | Relative path of the plan document within the project, e.g. `"plan.md"`. Substituted into the `{{> pm-preamble}}` partial. Source: `state.get("plan_file", "plan.md")`. |
+| `plan_file` | pm only | Relative path of the plan document within the project, e.g. `"plan.md"`. Substituted directly in the `pm` template. Source: `state.get("plan_file", "plan.md")`. |
 | `extra` | pm only | Plan document content block rendered after the standard header. Source: `plan_path.read_text(...)`. |
 
 > `render_prompt()` uses `defaultdict(str)`, so any key that is omitted or left as
@@ -36,7 +36,7 @@ calling `render_prompt(load_template(stage), variables)`.
 | `docs.md` | ✅ | — | — | `project-path-reminder` |
 | `security_auditor.md` | ✅ | — | — | `project-path-reminder` |
 | `release_engineer.md` | ✅ | — | — | `project-path-reminder` |
-| `pm.md` | ✅ | ✅ | opt | `pm-preamble`, `project-path-reminder` |
+| `pm.md` | ✅ | ✅ | opt | _(none — pm inlines its content)_ |
 | `synthesis.md` | ✅ | — | — | `project-path-reminder` |
 
 ---
@@ -64,8 +64,7 @@ Fully recursive includes are not supported.
 
 | Partial file | Placeholder variables | Used by |
 |---|---|---|
-| `project-path-reminder.md` | _(none)_ | All templates |
-| `pm-preamble.md` | `{plan_file}` | `pm` |
+| `project-path-reminder.md` | _(none)_ | All WP-scoped templates + `synthesis` (7 of 8; `pm` inlines its content) |
 
 > Placeholder variables listed above are resolved from the outer template's variable
 > dict after the partial content is inlined — they are **not** passed separately to

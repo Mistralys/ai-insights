@@ -9,7 +9,7 @@ For complete signatures and full field descriptions see the linked documents abo
 
 ## JSONL Event Types — Logging Module (`src/utils/logging.py`)
 
-The schema supports **21 event types** across three emitters. For the full field reference,
+The schema supports **23 event types** across three emitters. For the full field reference,
 duration conventions, JSON examples, and backward-compatibility notes see
 [jsonl-log-schema.md](../../jsonl-log-schema.md).
 
@@ -86,11 +86,7 @@ listed are resolved from the enclosing template's variable dict after inlining.
 
 | Partial file | Placeholder variables | Used by |
 |---|---|---|
-| `project-path-reminder.md` | _(none)_ | All templates |
-| `wp-scope-reminder.md` | `{wp_id}` | All WP-scoped templates |
-| `scope-restriction.md` | `{wp_id}` | `developer`, `qa`, `reviewer`, `docs` |
-| `begin-work-developer.md` | `{wp_id}` | `developer` |
-| `pm-preamble.md` | `{plan_file}` | `pm` |
+| `project-path-reminder.md` | _(none)_ | All WP-scoped templates + `synthesis` (7 of 8; `pm` inlines its content) |
 
 ---
 

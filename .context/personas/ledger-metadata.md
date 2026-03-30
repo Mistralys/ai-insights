@@ -55,8 +55,8 @@ model: "Claude Opus 4.6"
 vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
-version: "3.6.0"
-last_updated: "2026-03-04"
+version: "3.6.1"
+last_updated: "2026-03-28"
 
 tools:
   - vscode
@@ -275,8 +275,8 @@ role: Release Engineer
 vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
-version: "3.7.0"
-last_updated: "2026-03-22"
+version: "3.7.1"
+last_updated: "2026-03-28"
 
 tools:
   - vscode

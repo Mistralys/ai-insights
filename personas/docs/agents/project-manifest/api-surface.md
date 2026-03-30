@@ -40,7 +40,7 @@ The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
 
 ### Template Functions
 
-> **Module split (WP-001/WP-002):** 12 of the functions below are defined in `scripts/lib/persona-helpers.js` and imported by `build-personas.js`. The remaining functions — `expandSuites`, `loadPartials`, `discoverPersonaYamls`, `ccFrontmatterFields`, and `buildForTarget` — are defined directly in `build-personas.js` (they require filesystem I/O, process.exit, or CLI state). The `scripts/tests/persona-helpers.test.js` vitest suite covers the 12 extracted functions.
+> **Module split (WP-001/WP-002):** 14 of the functions below are defined in `scripts/lib/persona-helpers.js` and imported by `build-personas.js`. The remaining functions — `expandSuites`, `loadPartials`, `discoverPersonaYamls`, `ccFrontmatterFields`, and `buildForTarget` — are defined directly in `build-personas.js` (they require filesystem I/O, process.exit, or CLI state). The `scripts/tests/persona-helpers.test.js` vitest suite covers the 14 extracted functions.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -51,6 +51,8 @@ The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
 | `resolveConditionals` | `(text: string, context: Object) → string` | Processes `{{#if flag}}…{{/if}}` blocks. Truthy = keep inner content; falsy = remove block. |
 | `resolveVariables` | `(text: string, context: Object, filename: string) → string` | Replaces `{{variable}}` with `String(context[variable])`. Warns on unresolved variables. |
 | `collapseBlankLines` | `(text: string) → string` | Reduces 3+ consecutive blank lines to 2. Post-processing step. |
+| `ensureBlankLineBeforeHeadings` | `(text: string) → string` | Inserts a blank line before Markdown headings (`#`) when one is not already present. Post-processing step applied after `collapseBlankLines`. |
+| `normalizeNewlines` | `(text: string) → string` | Normalizes CRLF and CR line endings to LF. Applied during partial loading and content reading for cross-platform consistency. |
 | `renderRoster` | `(roster: Array, activeNumber: number) → string` | Renders the 9-agent roster as a numbered Markdown list, tagging the current agent with `(YOU)`. |
 | `renderMcpToolsTable` | `(tools: Array) → string` | Renders MCP tool entries as Markdown table rows (`| \`tool\` | purpose |`). |
 | `serializeTools` | `(tools: string[]) → string` | Serializes a tools array to YAML flow format **with** outer brackets: `['vscode', 'execute', ...]`. Used in ledger frontmatter. |
@@ -389,6 +391,7 @@ This table is the **normative reference** for which MCP tools belong in each per
 |----------|-----------|-------------|
 | `getVSCodePromptsDir` | `() → string` | Returns platform-specific VS Code User prompts directory (win32/darwin/linux) |
 | `getClaudeCodeAgentsDir` | `() → string` | Returns `~/.claude/agents/` (cross-platform via `os.homedir()`) |
+| `getClaudeCodeSkillsDir` | `() → string` | Returns `~/.claude/skills/` (cross-platform via `os.homedir()`) |
 | `extractVSFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `vs_file_name` field or null |
 | `extractCCFileName` | `(filePath: string) → string \| null` | Delegates to `parseFrontmatter()`; returns `name` field (trimmed) + `.md`, or null |
 | `parseFrontmatter` | `(filePath: string) → Object \| null` | Reads all top-level YAML frontmatter fields into a plain object |

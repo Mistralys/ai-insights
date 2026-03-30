@@ -4278,10 +4278,9 @@ describe('handoff-config integration: runtime config monitoring', () => {
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile, mkdir, stat, utimes } from 'fs/promises';
 import { join } from 'path';
-import { tmpdir, homedir } from 'os';
+import { tmpdir } from 'os';
 
 import {
-  resolveOrchestratorLogsDir,
   findRunLogs,
   readLogEntries,
   migrateOrphanedLogs,
@@ -4314,37 +4313,6 @@ async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
   const content = objects.map((o) => JSON.stringify(o)).join('\n') + '\n';
   await writeFile(filePath, content, 'utf-8');
 }
-
-// ---------------------------------------------------------------------------
-// resolveOrchestratorLogsDir
-// ---------------------------------------------------------------------------
-
-describe('resolveOrchestratorLogsDir', () => {
-  it('returns the default path when called with undefined', () => {
-    const result = resolveOrchestratorLogsDir(undefined);
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThan(0);
-    // Should be under the home directory
-    expect(result.startsWith(homedir())).toBe(true);
-  });
-
-  it('returns an explicit path unchanged', () => {
-    const path = '/custom/logs/dir';
-    expect(resolveOrchestratorLogsDir(path)).toBe(path);
-  });
-
-  it('returns the default for an empty string', () => {
-    const result = resolveOrchestratorLogsDir('');
-    expect(result).toBeTruthy();
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it('returns the default for a whitespace-only string', () => {
-    const result = resolveOrchestratorLogsDir('   ');
-    expect(result).toBeTruthy();
-    expect(result.startsWith(homedir())).toBe(true);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // findRunLogs
@@ -25562,6 +25530,19 @@ describe('Developer action logic', () => {
   // Case 6: No implementation pipeline at all (IN_PROGRESS) → IMPLEMENT
   it('returns IMPLEMENT for an IN_PROGRESS WP with no implementation pipeline', async () => {
     const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [] });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('IMPLEMENT');
+    expect(result.work_package_id).toBe('WP-001');
+  });
+
+  // Case 6b: Auto-cancelled FAIL implementation pipeline treated as "no pipeline" → IMPLEMENT
+  it('returns IMPLEMENT for IN_PROGRESS WP whose only implementation pipeline is auto-cancelled FAIL', async () => {
+    const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline({ type: 'implementation', status: 'FAIL', auto_cancelled: true,
+        started_at: '2026-01-01T08:00:00Z', completed_at: '2026-01-01T08:01:00Z' }),
+    ] });
     const rootIndex = await setupStore(handle, [wp]);
     const result = await parseResult(getDeveloperAction(rootIndex, handle.store));
 

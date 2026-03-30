@@ -140,7 +140,7 @@ For complete signatures and full field descriptions see the linked documents abo
 
 ## JSONL Event Types — Logging Module (`src/utils/logging.py`)
 
-The schema supports **21 event types** across three emitters. For the full field reference,
+The schema supports **23 event types** across three emitters. For the full field reference,
 duration conventions, JSON examples, and backward-compatibility notes see
 [jsonl-log-schema.md](../../jsonl-log-schema.md).
 
@@ -217,11 +217,7 @@ listed are resolved from the enclosing template's variable dict after inlining.
 
 | Partial file | Placeholder variables | Used by |
 |---|---|---|
-| `project-path-reminder.md` | _(none)_ | All templates |
-| `wp-scope-reminder.md` | `{wp_id}` | All WP-scoped templates |
-| `scope-restriction.md` | `{wp_id}` | `developer`, `qa`, `reviewer`, `docs` |
-| `begin-work-developer.md` | `{wp_id}` | `developer` |
-| `pm-preamble.md` | `{plan_file}` | `pm` |
+| `project-path-reminder.md` | _(none)_ | All WP-scoped templates + `synthesis` (7 of 8; `pm` inlines its content) |
 
 ---
 
@@ -256,7 +252,7 @@ All three functions are **idempotent** (sentinel attributes prevent closure stac
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `inject_project_path` | `inject_project_path(tools: list[Any], project_path: str) -> list[Any]` | **Layer 2 safety net.** Auto-injects `project_path` into every tool call when absent. Uses `setdefault` semantics — explicit `project_path` values are never overwritten. Strips redundant `cwd_path` from call arguments. Sentinel: `_orig_ainvoke`. |
-| `restrict_to_wp` | `restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]` | **Layer 3 safety net.** Auto-injects `work_package_id` when absent; raises `ValueError` on explicit cross-WP calls. No-op when `wp_id` is empty (synthesis stages). Sentinel: `_orig_ainvoke_wp`. |
+| `restrict_to_wp` | `restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]` | **Layer 3 safety net (write tools only).** Auto-injects `work_package_id` when absent; soft-fails cross-WP calls (2 strikes) before raising `ValueError`. Read-only tools (in `_READ_ONLY_TOOLS`) are exempt — no wrapping, no injection, no rejection. No-op when `wp_id` is empty (synthesis stages). Sentinel: `_orig_ainvoke_wp`. |
 | `log_tool_calls` | `log_tool_calls(tools: list[Any], stage: str, wp_id: str, logger: WorkflowLogger \| None) -> list[Any]` | Emits a `tool_call` JSONL event (`level: "DEBUG"`) before each `ainvoke` call. Records `stage`, `wp_id`, `tool_name`, and `tool_wp_id`; full argument payload excluded (privacy constraint). Returns tools unchanged when `logger` is `None`. Sentinel: `_orig_ainvoke_log`. |
 
 ### Writing a New Tool Wrapper
@@ -517,9 +513,51 @@ async def node(state: WorkflowState, config: Optional[RunnableConfig] = None) ->
 
 ---
 
+### 11. Cross-WP Guard Exempts Read-Only Tools
+
+**Rule:** `restrict_to_wp()` in `src/utils/tool_wrappers.py` must only guard *write* tools. Read-only MCP tools — those listed in the `_READ_ONLY_TOOLS` frozenset — must be completely exempt: no `ainvoke` wrapper, no WP-ID injection, no cross-WP rejection. The exemption set must be maintained as a module-level constant in `tool_wrappers.py` and covered by dedicated tests.
+
+**Rationale:** Agents legitimately need to read other work packages for context (pipeline comments, handoff notes, dependency status). When read operations triggered the guard, stages failed spuriously. Combined with the circuit-breaker (constraint 6), this caused false cancellation of work packages whose pipelines had actually completed successfully.
+
+**Current read-only tools:** `ledger_get_work_package`, `ledger_list_work_packages`, `ledger_get_next_action`, `ledger_get_project_status`, `ledger_get_handoff_status`, `ledger_detect_project`, `ledger_list_projects`, `ledger_help`.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — guard applied uniformly to all tools, blocking cross-WP reads
+for tool in tools:
+    object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — read-only tools skip the guard entirely
+for tool in tools:
+    if getattr(tool, "name", "") in _READ_ONLY_TOOLS:
+        continue
+    object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+```
+
+---
+
+### 12. Cross-WP Guard Soft-Fails Before Hard Kill
+
+**Rule:** `restrict_to_wp()` in `src/utils/tool_wrappers.py` must use a soft-fail strategy for cross-WP write attempts before escalating to a hard exception. The first two violations return a descriptive error string to the agent; the third violation raises `ValueError` (hard kill). The strike counter must be shared across all tool closures within a single `restrict_to_wp` invocation.
+
+**Rationale:** LLM agents sometimes hallucinate or reuse tool call templates with incorrect WP IDs. Throwing a hard exception immediately bypasses the agent's ability to see the error and self-correct, often resulting in dialogue loss if safety nets are not in place. Soft-failing gives the agent two chances to fix the ID; the hard kill on the third strike prevents infinite retry loops.
+
+---
+
+### 13. Error-Path Dialogue Capture Must Be Non-Fatal
+
+**Rule:** When an agent invocation crashes (e.g. from context overflow or token limits) after partial messages have been collected, `create_stage_node()` in `src/nodes/__init__.py` must attempt to write those messages to a Markdown file. This capture must execute inside a broad `except Exception` block that silently swallows any filesystem errors, ensuring the original pipeline exception is re-raised and preserved.
+
+**Rationale:** If writing the partial dialogue to disk triggers a secondary error (e.g. `PermissionError`), it would overshadow the original exception that broke the stage, destroying critical debugging context.
+
+---
+
 ## MCP Server Dependency
 
-### 11. MCP Server Must Be Pre-Built
+### 14. MCP Server Must Be Pre-Built
 
 **Rule:** The orchestrator spawns the MCP server as a subprocess. `mcp-server/dist/index.js` must exist before any orchestration run begins. Use `node scripts/run-orchestrator.js` for automatic build-freshness checks rather than launching `orchestrator` directly.
 

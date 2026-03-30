@@ -18,6 +18,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_plan_parser.py
         └── test_prompt_renderer.py
         └── test_state.py
+        └── test_subprocess_encoding.py
         └── test_supervisor.py
         └── test_tool_wrappers.py
 
@@ -4114,6 +4115,143 @@ class TestDialogueCaptured:
 
 
 # ---------------------------------------------------------------------------
+# Tests: error-path dialogue capture (WP-002)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorPathDialogueCapture:
+    """Error-path dialogue capture: partial dialogue written when stage crashes
+    after agent.ainvoke() populates _msgs."""
+
+    class _BrokenMsg:
+        """Message stub whose .content access raises, simulating a post-ainvoke crash."""
+
+        @property
+        def content(self) -> str:
+            raise RuntimeError("Simulated failure in success path after ainvoke")
+
+        usage_metadata = None
+
+    async def _invoke_with_post_ainvoke_error(
+        self, capture: bool = True, wp_id: str = "WP-001"
+    ) -> dict:
+        """Invoke developer node where agent.ainvoke() returns messages but
+        subsequent .content access raises, driving the except path."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig() if capture else _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            return await node_fn(base_state(current_wp_id=wp_id))
+
+    async def test_dialogue_captured_when_msgs_populated(self):
+        """dialogue_captured must appear in run_log (partial=True) on the error
+        path when _msgs contains messages collected before the crash."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, (
+            "dialogue_captured must appear in run_log when _msgs is non-empty on error path"
+        )
+        entry = dc_entries[0]
+        assert entry.get("partial") is True, (
+            "Error-path dialogue_captured entry must have partial=True"
+        )
+        assert entry.get("level") == "INFO"
+        assert entry.get("wp_id") == "WP-001"
+        assert entry.get("file_path"), "file_path must be a non-empty string"
+
+    async def test_stage_fails_even_when_partial_dialogue_written(self):
+        """Stage must still return stage_success=False when error-path dialogue is written."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        assert result["stage_success"] is False
+
+    async def test_no_dialogue_when_msgs_empty(self):
+        """No dialogue_captured when exception occurs before agent.ainvoke()
+        (empty _msgs — e.g. create_deep_agent raises)."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        with _patch_persona(), \
+             patch(
+                 "deepagents.create_deep_agent",
+                 side_effect=RuntimeError("Pre-ainvoke crash"),
+             ), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must NOT appear when _msgs is empty (exception before ainvoke)"
+        )
+        assert result["stage_success"] is False
+
+    async def test_error_path_dialogue_failure_is_non_fatal(self):
+        """write_dialogue failure on the error path must not crash the stage or
+        change the returned stage_success or error values."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch(
+                 "src.nodes.write_dialogue",
+                 side_effect=PermissionError("disk full"),
+             ), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        # Stage must still return stage_success=False (original error preserved).
+        assert result["stage_success"] is False
+        # No dialogue_captured entry because write_dialogue raised.
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when write_dialogue raises on error path"
+        )
+
+    async def test_no_dialogue_when_capture_flag_false(self):
+        """Error-path dialogue capture must respect capture_dialogues=False."""
+        result = await self._invoke_with_post_ainvoke_error(capture=False)
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when capture_dialogues=False"
+        )
+
+    async def test_no_dialogue_when_wp_id_empty(self):
+        """Error-path dialogue capture must not fire when wp_id is empty."""
+        result = await self._invoke_with_post_ainvoke_error(wp_id="")
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when wp_id is empty"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: slug derivation uses Path(...).name (WP-002)
 # ---------------------------------------------------------------------------
 
@@ -4641,6 +4779,41 @@ class TestCreateStageNodeWiring:
             f"log_tool_calls called with non-empty wp_id for synthesis: {args[2]!r}"
         )
         assert args[3] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: LocalShellBackend receives inherit_env=True
+# ---------------------------------------------------------------------------
+
+
+class TestLocalShellBackendInheritEnv:
+    """LocalShellBackend must be constructed with inherit_env=True so that
+    agent subprocesses can access host CLI tools (python, npm, git, etc.)."""
+
+    async def test_stage_node_passes_inherit_env_true(self):
+        """create_stage_node must call LocalShellBackend(inherit_env=True)."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        backend_cls_mock = MagicMock(return_value=MagicMock())
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=_make_agent_mock()), \
+             patch("deepagents.backends.LocalShellBackend", backend_cls_mock):
+            await node_fn(base_state())
+
+        backend_cls_mock.assert_called_once()
+        _, kwargs = backend_cls_mock.call_args
+        assert kwargs.get("inherit_env") is True, (
+            f"LocalShellBackend must be called with inherit_env=True, "
+            f"got kwargs={kwargs!r}"
+        )
 
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
@@ -5485,6 +5658,142 @@ class TestStateGraphIntegration:
         # This is the primary acceptance criterion: no exception raised.
         graph = StateGraph(WorkflowState)
         assert graph is not None
+
+```
+###  Path: `/orchestrator/tests/test_subprocess_encoding.py`
+
+```py
+"""
+Tests for ``src.utils.subprocess_encoding`` — the Windows subprocess text-mode
+encoding monkeypatch.
+
+Covers:
+1. Patch is applied on Windows (or skipped on non-Windows).
+2. ``errors='replace'`` is injected when ``text=True`` and no explicit ``errors``.
+3. Explicit ``errors=`` is never overridden.
+4. Binary-mode (no text=True, no encoding=) is never affected.
+5. ``encoding='...'`` without ``text=True`` also triggers the patch.
+6. Idempotency — importing/applying twice doesn't stack patches.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# 1. Patch application
+# ---------------------------------------------------------------------------
+
+
+class TestPatchApplication:
+    def test_module_importable(self):
+        """The module must import without errors."""
+        import src.utils.subprocess_encoding  # noqa: F401
+
+    def test_patch_flag_is_set(self):
+        """After import, the _PATCHED flag must be True on Windows."""
+        import src.utils.subprocess_encoding as mod
+
+        if sys.platform == "win32":
+            assert mod._PATCHED is True
+        else:
+            # On non-Windows, the patch is a no-op.
+            assert mod._PATCHED is False
+
+    def test_idempotent(self):
+        """Calling _apply_patch() again must not stack patches."""
+        import src.utils.subprocess_encoding as mod
+
+        prev = subprocess.Popen.__init__
+        mod._apply_patch()
+        assert subprocess.Popen.__init__ is prev, "Patch must not stack on repeated apply"
+
+
+# ---------------------------------------------------------------------------
+# 2–5. Subprocess.Popen argument injection (Windows only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Patch only applies on Windows")
+class TestPopenErrorsInjection:
+    """Verify that the monkeypatch injects ``errors='replace'`` correctly."""
+
+    def test_text_true_injects_errors_replace(self, tmp_path):
+        """Popen(text=True) without errors= must get errors='replace'."""
+        # Use a harmless command that finishes immediately.
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # Check that the stdout wrapper has 'replace' error mode.
+        assert p.stdout is not None
+        assert p.stdout.errors == "replace"
+        p.communicate()
+        p.wait()
+
+    def test_explicit_errors_not_overridden(self, tmp_path):
+        """Popen(text=True, errors='strict') must keep 'strict'."""
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            text=True,
+            errors="strict",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert p.stdout is not None
+        assert p.stdout.errors == "strict"
+        p.communicate()
+        p.wait()
+
+    def test_encoding_without_text_injects_errors(self):
+        """Popen(encoding='utf-8') (no text=True) must also get errors='replace'."""
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert p.stdout is not None
+        assert p.stdout.errors == "replace"
+        p.communicate()
+        p.wait()
+
+    def test_binary_mode_unaffected(self):
+        """Popen without text=True or encoding= must not be patched."""
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # In binary mode, stdout has no 'errors' attribute.
+        assert not hasattr(p.stdout, "errors") or p.stdout.errors is None  # type: ignore[union-attr]
+        p.communicate()
+        p.wait()
+
+    def test_replacement_character_on_invalid_bytes(self, tmp_path):
+        """Bytes invalid in UTF-8 must be replaced, not crash."""
+        # Write a file containing 0x82 (invalid in UTF-8, valid in CP1252).
+        bad_file = tmp_path / "bad.bin"
+        bad_file.write_bytes(b"hello \x82 world\n")
+
+        p = subprocess.Popen(
+            ["cmd", "/c", f"type {bad_file}"],
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, _ = p.communicate()
+        # The 0x82 byte should be replaced with U+FFFD, not crash.
+        assert "\ufffd" in stdout or "hello" in stdout
+        assert p.returncode == 0
 
 ```
 ###  Path: `/orchestrator/tests/test_supervisor.py`
@@ -8256,10 +8565,17 @@ class TestRestrictToWpMatchingWpId:
 
 class TestRestrictToWpMismatchRaises:
     async def test_mismatching_wp_id_raises_value_error(self):
-        """A call with a work_package_id that differs from the active WP must raise ValueError."""
+        """Third cross-WP call (after two soft-fails) must raise ValueError."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # First two violations return error strings (soft-fail).
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str)
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str)
+
+        # Third violation must raise ValueError.
         with pytest.raises(ValueError, match="WP-002"):
             await tool.ainvoke({"work_package_id": "WP-002"})
 
@@ -8268,14 +8584,25 @@ class TestRestrictToWpMismatchRaises:
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance first.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError, match=ACTIVE_WP):
             await tool.ainvoke({"work_package_id": "WP-999"})
 
     async def test_toolcall_mismatch_raises_value_error(self):
-        """ToolCall structure with mismatching work_package_id must raise ValueError."""
+        """ToolCall structure with mismatching work_package_id raises ValueError on third violation."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-bad",
+                "type": "tool_call",
+            })
         with pytest.raises(ValueError):
             await tool.ainvoke({
                 "name": "ledger_begin_work",
@@ -8283,6 +8610,125 @@ class TestRestrictToWpMismatchRaises:
                 "id": "call-bad",
                 "type": "tool_call",
             })
+
+
+# ---------------------------------------------------------------------------
+# 12b. Soft-fail strike counter behavior (WP-001 acceptance criteria)
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictToWpSoftFail:
+    """Full behavior of the 2-strike soft-fail counter in restrict_to_wp."""
+
+    async def test_first_violation_returns_error_string(self):
+        """First cross-WP call must return a descriptive error string, not raise."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), "First violation must return a string, not raise"
+        assert "ERROR" in result
+
+    async def test_first_violation_error_string_contains_both_wp_ids(self):
+        """The returned error string must mention both the wrong and the expected WP ID."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert "WP-002" in result, "Error string must mention the rejected WP ID"
+        assert ACTIVE_WP in result, "Error string must mention the active WP ID"
+
+    async def test_second_violation_returns_error_string(self):
+        """Second cross-WP call must also return an error string (still within soft-fail limit)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result1, str) and "ERROR" in result1
+        assert isinstance(result2, str) and "ERROR" in result2
+
+    async def test_third_violation_raises_value_error(self):
+        """Third cross-WP call must raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+        with pytest.raises(ValueError):
+            await tool.ainvoke({"work_package_id": "WP-002"})  # strike 3 → hard kill
+
+    async def test_strike_counter_shared_across_tools(self):
+        """Violations from different tools must count toward the same shared counter."""
+        tool_a = _make_guard_tool()
+        tool_b = _make_guard_tool()
+        tool_a.name = "tool_a"
+        tool_b.name = "tool_b"
+        restrict_to_wp([tool_a, tool_b], ACTIVE_WP)
+
+        # Strike 1 from tool_a.
+        result1 = await tool_a.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str) and "ERROR" in result1
+
+        # Strike 2 from tool_b.
+        result2 = await tool_b.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str) and "ERROR" in result2
+
+        # Strike 3 from tool_a — shared counter is at 2, so this must hard-kill.
+        with pytest.raises(ValueError):
+            await tool_a.ainvoke({"work_package_id": "WP-002"})
+
+    async def test_correct_calls_do_not_increment_counter(self):
+        """Successful calls (matching WP ID) must not affect the strike counter."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Many correct calls — counter must not advance.
+        for _ in range(10):
+            await tool.ainvoke({"work_package_id": ACTIVE_WP})
+
+        # After 10 correct calls, the first violation must still be a soft-fail.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Correct calls must not increment the strike counter"
+        )
+        assert len(seen) == 10, "Only correct calls must reach the underlying tool"
+
+    async def test_toolcall_structure_first_violation_returns_error_string(self):
+        """ToolCall nested-dict structure: first violation must return error string."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-soft",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, str) and "ERROR" in result
+
+    async def test_counter_resets_on_new_restrict_call(self):
+        """Calling restrict_to_wp again creates a fresh counter (simulating new stage)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Use up both soft-fail allowances.
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+
+        # Re-wrap (simulating a new stage invocation).
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Counter should have reset — first violation is soft-fail again.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Counter must reset when restrict_to_wp is called again"
+        )
 
 
 class TestRestrictToWpIdempotency:
@@ -8309,19 +8755,106 @@ class TestRestrictToWpIdempotency:
         )
 
     async def test_double_wrap_still_guards(self):
-        """After double-wrap, the guard must still fire on mismatch."""
+        """After double-wrap, the guard must still fire: first mismatch returns an error string."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
         restrict_to_wp([tool], ACTIVE_WP)
 
-        with pytest.raises(ValueError):
-            await tool.ainvoke({"work_package_id": "WP-bad"})
+        result = await tool.ainvoke({"work_package_id": "WP-bad"})
+        assert isinstance(result, str), "Guard must return error string on first mismatch after double-wrap"
+        assert "ERROR" in result
 
     def test_double_wrap_returns_same_list(self):
         """restrict_to_wp must return the same list object (in-place mutation)."""
         tools = [_make_guard_tool()]
         result = restrict_to_wp(tools, ACTIVE_WP)
         assert result is tools
+
+
+class TestRestrictToWpReadOnlyExemption:
+    """Read-only tools (e.g. ledger_get_work_package) must be exempt from
+    the cross-WP guard so agents can read other work packages for context."""
+
+    def _make_read_tool(self, seen: list[Any] | None = None, name: str = "ledger_get_work_package") -> _GuardTool:
+        tool = _make_guard_tool(seen)
+        tool.name = name
+        return tool
+
+    async def test_read_tool_with_different_wp_passes(self):
+        """A read-only tool targeting a different WP must NOT raise ValueError."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # WP-002 ≠ ACTIVE_WP ("WP-001") — must pass for read-only tools.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert len(seen) == 1
+        assert seen[0]["work_package_id"] == "WP-002"
+
+    async def test_read_tool_does_not_get_wp_injected(self):
+        """A read-only tool that omits work_package_id must NOT have it auto-injected."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert len(seen) == 1
+        assert "work_package_id" not in seen[0]
+
+    async def test_read_tool_ainvoke_not_replaced(self):
+        """A read-only tool's ainvoke must not be wrapped at all."""
+        tool = self._make_read_tool()
+        original = tool.ainvoke
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        assert tool.ainvoke is original
+
+    async def test_write_tool_still_guarded(self):
+        """A write tool in the same call must still be guarded; read tool passes freely."""
+        read_tool = self._make_read_tool()
+        write_tool = _make_guard_tool()
+        write_tool.name = "ledger_begin_work"
+
+        restrict_to_wp([read_tool, write_tool], ACTIVE_WP)
+
+        # Read tool — cross-WP passes without restriction.
+        await read_tool.ainvoke({"work_package_id": "WP-002"})
+
+        # Write tool — first cross-WP call returns error string (soft-fail guard is active).
+        result = await write_tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Write tool must be guarded — first violation must return error string"
+        )
+
+    async def test_all_read_only_tools_exempt(self):
+        """Every tool in _READ_ONLY_TOOLS must be exempt from the guard."""
+        from src.utils.tool_wrappers import _READ_ONLY_TOOLS
+
+        for tool_name in _READ_ONLY_TOOLS:
+            tool = self._make_read_tool(name=tool_name)
+            original = tool.ainvoke
+            restrict_to_wp([tool], ACTIVE_WP)
+            assert tool.ainvoke is original, (
+                f"{tool_name} should be exempt but ainvoke was replaced"
+            )
+
+    async def test_toolcall_structure_read_tool_passes(self):
+        """ToolCall nested-dict with a different WP must pass for read-only tools."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_work_package",
+            "args": {"work_package_id": "WP-003"},
+            "id": "call-read",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == "WP-003"
 
 
 class TestRestrictToWpIntegrationWithInjectProjectPath:
@@ -8340,13 +8873,72 @@ class TestRestrictToWpIntegrationWithInjectProjectPath:
         assert seen[0]["project_path"] == PROJECT
 
     async def test_chained_wrappers_mismatch_raises(self):
-        """inject_project_path followed by restrict_to_wp — mismatch raises ValueError."""
+        """inject_project_path followed by restrict_to_wp — third mismatch raises ValueError."""
         tool = _make_guard_tool()
         inject_project_path([tool], PROJECT)
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError):
             await tool.ainvoke({"work_package_id": "WP-999"})
+
+
+class TestSharedToolReWrapAcrossWPs:
+    """Regression: shared tool objects re-wrapped for a different WP must
+    enforce the *new* WP, not the stale one from the previous invocation.
+
+    This reproduces the production bug where the full wrapper chain
+    (inject → restrict → log) captured stale sentinel targets, causing
+    the outermost wrapper to bypass the updated WP guard.
+    """
+
+    async def test_full_chain_rewrap_enforces_new_wp(self):
+        """Simulate two node invocations on the same tool objects with different WPs."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+
+        # --- First node invocation (WP-001) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+        assert len(seen) == 1
+
+        # --- Second node invocation (WP-002) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # Must succeed — the guard should now enforce WP-002, not WP-001.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+        assert len(seen) == 2
+
+    async def test_full_chain_rewrap_rejects_old_wp(self):
+        """After re-wrapping for WP-002, calls targeting WP-001 must be rejected."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        tool = _make_guard_tool()
+
+        # First invocation (WP-001)
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        # Second invocation (WP-002) — counter resets because restrict_to_wp is re-called.
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # First WP-001 call after re-wrap is soft-fail (returns error string).
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Cross-WP call must return error string on first violation after re-wrap"
+        )
 
 
 def _make_stage_node_state(*, current_wp_id: str = "WP-001") -> dict:

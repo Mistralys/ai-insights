@@ -206,6 +206,61 @@ const SUITE_CONFIGS = {
 const SHARED_PARTIALS_DIR = path.join(ROOT, 'personas', 'shared', 'partials');
 
 // ---------------------------------------------------------------------------
+// Standalone agent name map (cross-suite injection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load all standalone persona YAML metadata and build a map of
+ * template-friendly variable names to VS Code agent display names.
+ *
+ * Result example:
+ *   { agent_wp_decomposer: 'WP Decomposer v1.0.0', ... }
+ *
+ * The key convention is: `agent_` + slug with hyphens replaced by underscores.
+ * The value is the VS Code display name: `"<name> v<version>"`.
+ *
+ * These variables are injected into ledger persona contexts so templates can
+ * reference standalone agent names without hardcoding them.
+ *
+ * @returns {Object.<string, string>}
+ */
+function loadStandaloneAgentNames() {
+  const standaloneMetaDir = path.join(SUITE_CONFIGS.standalone.srcDir, 'meta');
+  const sharedStandalone  = yaml.load(
+    fs.readFileSync(path.join(standaloneMetaDir, '_shared.yaml'), 'utf8')
+  );
+  const defaultVersion = sharedStandalone.default_version || '0.0.0';
+
+  const map = {};
+  const yamlFiles = fs.readdirSync(standaloneMetaDir)
+    .filter(f => f.endsWith('.yaml') && !f.startsWith('_'))
+    .sort();
+
+  for (const yamlFile of yamlFiles) {
+    const persona = yaml.load(
+      fs.readFileSync(path.join(standaloneMetaDir, yamlFile), 'utf8')
+    );
+    if (!persona.slug || !persona.name) continue;
+
+    const version = persona.version !== undefined ? persona.version : defaultVersion;
+    const key     = `agent_${persona.slug.replace(/-/g, '_')}`;
+    map[key] = `${persona.name} v${version}`;
+  }
+
+  return map;
+}
+
+/** Lazily-initialised standalone agent-name map (computed once per process). */
+let _standaloneAgentNames = null;
+
+function getStandaloneAgentNames() {
+  if (!_standaloneAgentNames) {
+    _standaloneAgentNames = loadStandaloneAgentNames();
+  }
+  return _standaloneAgentNames;
+}
+
+// ---------------------------------------------------------------------------
 // Per-suite helpers
 // ---------------------------------------------------------------------------
 
@@ -505,6 +560,12 @@ function buildForTarget(suite, target) {
       ? { name: `${persona.name} v${version}` }
       : {};
 
+    // Cross-suite agent name variables (ledger templates can reference
+    // standalone agent display names without hardcoding).
+    const agentNames = personaMode === 'numbered'
+      ? getStandaloneAgentNames()
+      : {};
+
     const context = {
       // Shared metadata fields
       author:             sharedMeta.author,
@@ -531,6 +592,8 @@ function buildForTarget(suite, target) {
       // Platform feature flags
       target_vscode:      isVscode,
       target_claude_code: !isVscode,
+      // Cross-suite: standalone agent display names (e.g. agent_wp_decomposer)
+      ...agentNames,
     };
 
     // ------------------------------------------------------------------
@@ -2232,12 +2295,30 @@ const SETUP_COMPONENTS = [
         log('  .venv exists — skipping creation (use --force to recreate)', 'dim');
       }
 
+      // Remove any partial .dist-info dirs left by interrupted pip installs.
+      // pip writes them with a leading '~' and renames on success; leftover
+      // tilde-prefixed entries cause "Ignoring invalid distribution" warnings.
+      const sitePkgsCandidates = [
+        path.join(VENV, 'Lib', 'site-packages'),                  // Windows
+        ...(() => { try { return fs.readdirSync(path.join(VENV, 'lib')).map(d => path.join(VENV, 'lib', d, 'site-packages')); } catch { return []; } })(),
+      ];
+      for (const sp of sitePkgsCandidates) {
+        if (!fs.existsSync(sp)) continue;
+        for (const entry of fs.readdirSync(sp, { withFileTypes: true })) {
+          if (entry.isDirectory() && entry.name.startsWith('~') && entry.name.endsWith('.dist-info')) {
+            fs.rmSync(path.join(sp, entry.name), { recursive: true, force: true });
+            log(`  Removed partial dist-info: ${entry.name}`, 'dim');
+          }
+        }
+      }
+
       log('  Upgrading pip…', 'dim');
       if (sh(venvBin('python'), ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip']) !== 0) {
         return false;
       }
 
-      const extras = [prov, ...(dev ? ['dev'] : []), ...(ckpt ? ['checkpoint'] : [])];
+      // Always include 'dev' so ruff (used by the pre-commit hook) is available
+      const extras = [prov, 'dev', ...(ckpt ? ['checkpoint'] : [])];
       const target = `.[${extras.join(',')}]`;
       log(`  Installing ${target}…`, 'dim');
       if (sh(venvBin('pip'), ['install', '--quiet', '-e', target], { cwd: ORCHESTRATOR_DIR }) !== 0) {
@@ -5118,6 +5199,7 @@ const orchestrateCmd = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv', venvBi
 const result = spawnSync(orchestrateCmd, forwardedArgs, {
   stdio: 'inherit',
   shell: false,
+  env: { ...process.env, PYTHONUTF8: '1' },
 });
 
 process.exit(result.status ?? 1);
@@ -5453,6 +5535,17 @@ function syncFromDir(sourceDir, targetDir, extractFileNameFn, label, dryRun = fa
 
     if (!deployName) {
       console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${relSrc} ${colors.yellow}(no deployable filename in frontmatter)${colors.reset}`);
+      skippedCount++;
+      continue;
+    }
+
+    // Guard: skip stale artifact files whose own filename doesn't match the
+    // declared deploy name. This prevents old plain .md files (legacy build
+    // output) from overwriting the correct .agent.md files they share a
+    // vs_file_name with.
+    const srcBasename = path.basename(filePath);
+    if (srcBasename !== deployName) {
+      console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${relSrc} ${colors.yellow}(filename mismatch: source "${srcBasename}" vs deploy target "${deployName}" — stale artifact)${colors.reset}`);
       skippedCount++;
       continue;
     }

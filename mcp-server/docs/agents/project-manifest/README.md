@@ -51,7 +51,7 @@ npm run test:watch    # Run tests in watch mode
 **Important:** The version in `changelog.md` is the **source of truth**. When releasing a new version:
 1. Update `changelog.md` first (add new version header at top)
 2. Run `npm run sync-version` to update `package.json`
-3. The MCP server displays its version at startup: `[project-ledger-mcp] Server v1.0.1 started successfully`
+3. The MCP server displays its version at startup: `[project-ledger-mcp] Server v1.21.1 started successfully`
 
 See [constraints.md](constraints.md#development--build-constraints) for more details.
 

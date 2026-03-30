@@ -76,6 +76,7 @@ _SOURCE: Directory tree_
         │   └── mcp_parse.py
         │   └── persona.py
         │   └── plan_parser.py
+        │   └── subprocess_encoding.py
         │   └── tool_wrappers.py
     └── tests/
         └── __init__.py
@@ -91,6 +92,7 @@ _SOURCE: Directory tree_
         └── test_plan_parser.py
         └── test_prompt_renderer.py
         └── test_state.py
+        └── test_subprocess_encoding.py
         └── test_supervisor.py
         └── test_tool_wrappers.py
 
