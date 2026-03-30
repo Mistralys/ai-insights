@@ -21,7 +21,6 @@ _SOURCE: Top-level directory tree_
     │       ├── README.md
     │   └── project-manifest/
     │       └── README.md
-    │       └── audit-report-2026-03-30.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
