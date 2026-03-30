@@ -829,7 +829,8 @@ class TestRestrictToWpMismatchRaises:
             await tool.ainvoke({"work_package_id": "WP-999"})
 
     async def test_toolcall_mismatch_raises_value_error(self):
-        """ToolCall structure with mismatching work_package_id raises ValueError on third violation."""
+        """ToolCall structure with mismatching work_package_id
+        raises ValueError on third violation."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
@@ -936,8 +937,10 @@ class TestRestrictToWpSoftFail:
         )
         assert len(seen) == 10, "Only correct calls must reach the underlying tool"
 
-    async def test_toolcall_structure_first_violation_returns_error_string(self):
-        """ToolCall nested-dict structure: first violation must return error string."""
+    async def test_toolcall_structure_first_violation_returns_tool_message(self):
+        """ToolCall nested-dict structure: first violation must return ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
@@ -948,7 +951,11 @@ class TestRestrictToWpSoftFail:
             "type": "tool_call",
         })
 
-        assert isinstance(result, str) and "ERROR" in result
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "error"
+        assert "ERROR" in result.content
 
     async def test_counter_resets_on_new_restrict_call(self):
         """Calling restrict_to_wp again creates a fresh counter (simulating new stage)."""
@@ -999,7 +1006,9 @@ class TestRestrictToWpIdempotency:
         restrict_to_wp([tool], ACTIVE_WP)
 
         result = await tool.ainvoke({"work_package_id": "WP-bad"})
-        assert isinstance(result, str), "Guard must return error string on first mismatch after double-wrap"
+        assert isinstance(result, str), (
+            "Guard must return error string on first mismatch after double-wrap"
+        )
         assert "ERROR" in result
 
     def test_double_wrap_returns_same_list(self):
@@ -1013,7 +1022,11 @@ class TestRestrictToWpReadOnlyExemption:
     """Read-only tools (e.g. ledger_get_work_package) must be exempt from
     the cross-WP guard so agents can read other work packages for context."""
 
-    def _make_read_tool(self, seen: list[Any] | None = None, name: str = "ledger_get_work_package") -> _GuardTool:
+    def _make_read_tool(
+        self,
+        seen: list[Any] | None = None,
+        name: str = "ledger_get_work_package",
+    ) -> _GuardTool:
         tool = _make_guard_tool(seen)
         tool.name = name
         return tool
@@ -1913,6 +1926,8 @@ class TestDetectProjectShortCircuit:
         """Short-circuit must also apply when input has ToolCall {'args': {...}} structure."""
         import json
 
+        from langchain_core.messages import ToolMessage
+
         seen: list[Any] = []
         tool = _DetectProjectTool(seen)
         inject_project_path([tool], PROJECT)
@@ -1925,7 +1940,10 @@ class TestDetectProjectShortCircuit:
         })
 
         assert len(seen) == 0, "Original ainvoke must not be called for ToolCall input either"
-        parsed = json.loads(result)
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage for ToolCall input, got {type(result).__name__}"
+        )
+        parsed = json.loads(result.content)
         assert parsed["plan_path"] == PROJECT
 
     async def test_other_tool_names_not_short_circuited(self):
@@ -1963,4 +1981,217 @@ class TestDetectProjectShortCircuit:
         assert len(seen) == 0
         parsed = json.loads(result)
         assert parsed["plan_path"] == PROJECT
+
+
+# ===========================================================================
+# _make_tool_response — helper unit tests
+# ===========================================================================
+
+from src.utils.tool_wrappers import _make_tool_response  # noqa: E402
+
+
+class TestMakeToolResponse:
+    """Unit tests for the _make_tool_response helper function."""
+
+    def test_plain_dict_without_id_returns_string(self):
+        """A plain dict (no 'id' key) must return the content string as-is."""
+        result = _make_tool_response("some error", {"args": {}}, "my_tool")
+        assert isinstance(result, str)
+        assert result == "some error"
+
+    def test_dict_with_id_returns_tool_message(self):
+        """A dict with 'id' key must return a ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response(
+            "bad input", {"id": "call-123", "args": {}}, "ledger_begin_work"
+        )
+        assert isinstance(result, ToolMessage)
+        assert result.content == "bad input"
+        assert result.tool_call_id == "call-123"
+        assert result.name == "ledger_begin_work"
+        assert result.status == "error"
+
+    def test_non_dict_input_returns_string(self):
+        """Non-dict input (e.g. a string) must return the content string as-is."""
+        result = _make_tool_response("hello", "raw string", "tool")
+        assert isinstance(result, str)
+        assert result == "hello"
+
+    def test_none_input_returns_string(self):
+        """None input must return the content string as-is."""
+        result = _make_tool_response("content", None, "tool")
+        assert isinstance(result, str)
+        assert result == "content"
+
+    def test_status_error_default(self):
+        """Default status must be 'error'."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response("err", {"id": "c1"}, "t")
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+
+    def test_status_success_forwarded(self):
+        """Explicit status='success' must be forwarded to ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response("ok", {"id": "c2"}, "t", status="success")
+        assert isinstance(result, ToolMessage)
+        assert result.status == "success"
+
+    def test_dict_with_id_none_returns_string(self):
+        """A dict with 'id' set to None must return a plain string."""
+        result = _make_tool_response("msg", {"id": None}, "tool")
+        assert isinstance(result, str)
+        assert result == "msg"
+
+
+# ===========================================================================
+# ledger_detect_project short-circuit — ToolMessage wrapping tests
+# ===========================================================================
+
+
+class TestLedgerDetectProjectToolMessage:
+    """Verify that the ledger_detect_project short-circuit returns ToolMessage
+    when called with a ToolCall dict (containing 'id')."""
+
+    async def test_toolcall_returns_tool_message(self):
+        """ToolCall input with 'id' must produce a ToolMessage with status='success'."""
+        import json
+        
+        from langchain_core.messages import ToolMessage
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/some/workspace"},
+            "id": "call-detect-tm",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "success"
+        assert result.tool_call_id == "call-detect-tm"
+        assert result.name == "ledger_detect_project"
+
+        parsed = json.loads(result.content)
+        assert parsed["plan_path"] == PROJECT
+        assert "slug" in parsed
+        assert "title" in parsed
+        assert "status" in parsed
+
+    async def test_flat_dict_returns_string(self):
+        """Flat dict input (no 'id') must still return a plain JSON string."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        assert isinstance(result, str), (
+            f"Expected str for flat dict, got {type(result).__name__}"
+        )
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
+
+# ===========================================================================
+# restrict_to_wp — ToolMessage wrapping tests
+# ===========================================================================
+
+
+class TestRestrictToWpToolMessage:
+    """Verify that restrict_to_wp soft-fail returns ToolMessage when called
+    with a ToolCall dict (containing 'id')."""
+
+    async def test_toolcall_soft_fail_returns_tool_message(self):
+        """First violation with ToolCall input must return ToolMessage with status='error'."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-wp-tm",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "error"
+        assert result.tool_call_id == "call-wp-tm"
+        assert result.name == "guard_tool"
+        assert "ERROR" in result.content
+        assert "WP-007" in result.content
+        assert ACTIVE_WP in result.content
+
+    async def test_toolcall_second_violation_returns_tool_message(self):
+        """Second violation with ToolCall input must also return ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # First violation
+        await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-v1",
+            "type": "tool_call",
+        })
+
+        # Second violation
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-v2",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert result.tool_call_id == "call-v2"
+
+    async def test_flat_dict_soft_fail_returns_string(self):
+        """Flat dict input (no 'id') must still return a plain error string."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), (
+            f"Expected str for flat dict, got {type(result).__name__}"
+        )
+        assert "ERROR" in result
+
+    async def test_toolcall_third_violation_still_raises(self):
+        """Third violation with ToolCall input must still raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Exhaust soft-fail allowance with ToolCall inputs.
+        for i in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": f"call-exhaust-{i}",
+                "type": "tool_call",
+            })
+
+        with pytest.raises(ValueError, match="WP-007"):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-hard-kill",
+                "type": "tool_call",
+            })
 

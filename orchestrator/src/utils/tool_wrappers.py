@@ -1,7 +1,9 @@
 """
 tool_wrappers — MCP tool call safety-net utilities.
 
-This module provides three defensive wrapper functions:
+This module provides three defensive wrapper functions (compatible with
+langchain-core >= 1.2.x and LangGraph >= 1.0.x, which require ``ainvoke``
+to return ``ToolMessage`` objects when invoked via ``ToolNode``):
 
 :func:`inject_project_path`
     Auto-injects ``project_path`` into every MCP tool call when the argument is
@@ -118,6 +120,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.messages import ToolMessage
+
 if TYPE_CHECKING:
     from src.utils.logging import WorkflowLogger
 
@@ -135,6 +139,35 @@ _READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "ledger_list_projects",
     "ledger_help",
 })
+
+
+def _make_tool_response(
+    content: str,
+    input: Any,
+    tool_name: str,
+    status: str = "error",
+) -> ToolMessage | str:
+    """Wrap *content* in a ``ToolMessage`` when running inside LangGraph's ToolNode.
+
+    LangGraph >= 1.0.9 enforces ``isinstance(response, ToolMessage)`` on the
+    return value of ``tool.ainvoke``.  Short-circuit return paths that bypass
+    the normal ``BaseTool.ainvoke → _format_output`` chain must therefore
+    produce a ``ToolMessage`` when a ``tool_call_id`` (input dict key ``"id"``)
+    is present.
+
+    When the input is a plain dict without ``"id"`` (unit tests, direct
+    invocations), the raw string is returned for backward compatibility.
+    """
+    if isinstance(input, dict):
+        tool_call_id = input.get("id")
+        if tool_call_id is not None:
+            return ToolMessage(
+                content=content,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+                status=status,
+            )
+    return content
 
 
 def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
@@ -186,13 +219,14 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
             if _tool_name == "ledger_detect_project":
                 slug = _proj.rstrip("/").rsplit("/", 1)[-1]
                 title = slug.replace("-", " ").replace("_", " ").title()
-                return json.dumps({
+                payload = json.dumps({
                     "plan_path": _proj,
                     "slug": slug,
                     "title": title,
                     "status": "active",
                     "note": "Short-circuited by orchestrator — project_path is already known.",
                 })
+                return _make_tool_response(payload, input, _tool_name, status="success")
             if isinstance(input, dict):
                 # LangGraph ToolNode passes a ToolCall dict with args nested
                 # inside input["args"], while direct invocations pass a flat
@@ -294,6 +328,7 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
             _active_wp: str = wp_id,
             _counter: list[int] = _strikes,
             _max_soft: int = _MAX_SOFT_FAILS,
+            _tool_name: str = tool_name,
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
@@ -313,14 +348,15 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
                 elif call_wp_id != _active_wp:
                     _counter[0] += 1
                     if _counter[0] <= _max_soft:
-                        # Soft-fail: return an error string so the agent can
+                        # Soft-fail: return an error message so the agent can
                         # self-correct without aborting the stage.
-                        return (
+                        error_msg = (
                             f"ERROR: Tool call targets work_package_id={call_wp_id!r} "
                             f"but the active work package is {_active_wp!r}. "
                             f"You MUST retry this call with work_package_id={_active_wp!r}. "
                             f"(violation {_counter[0]} of {_max_soft} allowed before hard abort)"
                         )
+                        return _make_tool_response(error_msg, input, _tool_name)
                     # Hard kill — third+ violation; prevent infinite retry loops.
                     raise ValueError(
                         f"Tool call targets work_package_id={call_wp_id!r} but "
