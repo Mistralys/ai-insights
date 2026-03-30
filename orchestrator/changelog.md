@@ -4,6 +4,7 @@
 - Nodes: All agent nodes now inherit the machine environment.
 - Supervisor: Fixed an unnecessary exception.
 - Fixed a type error with the new langchain package version.
+- Extracted complex functions into dataclasses.
 
 ## v0.12.0 - Stage Prompt Templating
 - PromptRenderer: Added Markdown template engine with partial includes, conditionals, and variable substitution.
