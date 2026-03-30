@@ -1,5 +1,21 @@
 # Orchestrator Changelog
 
+## v0.14.0 - Post-Completion Cross-WP Escape Fix
+- Nodes: Added `_install_complete_pipeline_tracker` — wraps `ledger_complete_pipeline`
+  to set a `completed` flag after a successful pipeline completion call.
+- Nodes: Added `_install_post_completion_guard` — wraps `ledger_get_next_action` to
+  return a synthetic `{"action": "WAIT"}` response when the completion flag is set,
+  preventing the agent from escaping to the next work package after completing its own.
+- Nodes: Both new wrappers installed in `create_stage_node` between the begin-work
+  tracker and `log_tool_calls`; guarded by `_wp_id` check (WP-scoped stages only).
+- Nodes: Rollback guard now checks `not _complete_pipeline_state["completed"]` before
+  attempting `ledger_cancel_pipeline`, eliminating the spurious rollback-failure warning
+  when an exception fires after a successful pipeline completion.
+- Constraints: Added constraints 15 and 16 documenting the post-completion guard pattern
+  and explicitly rejecting user-turn prompt WP-scoping as an alternative mechanism.
+- Tests: +26 unit tests in `tests/test_post_completion_guard.py` covering tracker,
+  guard, combined flow, and rollback suppression contracts.
+
 ## v0.13.0 - Cross-WP Authorization & Windows Support
 - ToolWrappers: Cross-WP write violations soft-fail for the first two attempts; hard kill on the third.
 - ToolWrappers: Read-only tools exempt from WP guard, enabling cross-WP context reads.

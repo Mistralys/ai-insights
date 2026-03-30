@@ -101,15 +101,35 @@ class TestBuildGraphReturnType:
     async def test_build_graph_returns_object(self):
         """build_graph() returns a non-None compiled graph."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        assert graph is not None
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            assert graph is not None
+        finally:
+            await conn.close()
 
     @_apply_patches
     async def test_compiled_graph_is_callable(self):
         """The compiled graph exposes an invoke() method."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        assert callable(getattr(graph, "invoke", None))
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            assert callable(getattr(graph, "invoke", None))
+        finally:
+            await conn.close()
+
+    @_apply_patches
+    async def test_conn_is_aiosqlite_connection(self):
+        """build_graph() second return value is an aiosqlite.Connection."""
+        import aiosqlite
+
+        from src.graph import build_graph
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            assert isinstance(conn, aiosqlite.Connection), (
+                f"Expected aiosqlite.Connection, got {type(conn).__name__}"
+            )
+        finally:
+            await conn.close()
 
 
 class TestGraphNodes:
@@ -117,17 +137,20 @@ class TestGraphNodes:
     async def test_graph_has_nine_nodes(self):
         """Graph topology must contain exactly 9 nodes."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
-        nodes = set(graph.nodes)
-        expected_nodes = {
-            "supervisor", "pm", "developer", "qa", "reviewer",
-            "security_auditor", "docs", "release_engineer", "synthesis",
-        }
-        # START and END are pseudo-nodes added by LangGraph; remove them for comparison.
-        nodes.discard("__start__")
-        nodes.discard("__end__")
-        assert nodes == expected_nodes
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
+            nodes = set(graph.nodes)
+            expected_nodes = {
+                "supervisor", "pm", "developer", "qa", "reviewer",
+                "security_auditor", "docs", "release_engineer", "synthesis",
+            }
+            # START and END are pseudo-nodes added by LangGraph; remove them for comparison.
+            nodes.discard("__start__")
+            nodes.discard("__end__")
+            assert nodes == expected_nodes
+        finally:
+            await conn.close()
 
 
 class TestGraphEdges:
@@ -135,43 +158,52 @@ class TestGraphEdges:
     async def test_start_edges_to_supervisor(self):
         """START must edge to 'supervisor'."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        edges = graph.builder.edges
-        start_targets = {edge[1] for edge in edges if edge[0] == "__start__"}
-        assert "supervisor" in start_targets
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            edges = graph.builder.edges
+            start_targets = {edge[1] for edge in edges if edge[0] == "__start__"}
+            assert "supervisor" in start_targets
+        finally:
+            await conn.close()
 
     @_apply_patches
     async def test_loop_stages_edge_to_supervisor(self):
         """pm, developer, qa, reviewer, docs must each edge back to supervisor."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        edges = graph.builder.edges  # set of (source, target) tuples
-        # Build a mapping: source → set of targets
-        edge_map: dict = {}
-        for edge in edges:
-            src, dst = edge[0], edge[1]
-            edge_map.setdefault(src, set()).add(dst)
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            edges = graph.builder.edges  # set of (source, target) tuples
+            # Build a mapping: source → set of targets
+            edge_map: dict = {}
+            for edge in edges:
+                src, dst = edge[0], edge[1]
+                edge_map.setdefault(src, set()).add(dst)
 
-        loop_stages = ("pm", "developer", "qa", "reviewer", "docs")
-        for stage in loop_stages:
-            assert "supervisor" in edge_map.get(stage, set()), (
-                f"Stage {stage!r} must have an edge back to supervisor"
-            )
+            loop_stages = ("pm", "developer", "qa", "reviewer", "docs")
+            for stage in loop_stages:
+                assert "supervisor" in edge_map.get(stage, set()), (
+                    f"Stage {stage!r} must have an edge back to supervisor"
+                )
+        finally:
+            await conn.close()
 
     @_apply_patches
     async def test_synthesis_edges_to_end(self):
         """synthesis must edge to END (not back to supervisor)."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        edges = graph.builder.edges  # set of (source, target) tuples
-        edge_map: dict = {}
-        for edge in edges:
-            src, dst = edge[0], edge[1]
-            edge_map.setdefault(src, set()).add(dst)
+        graph, conn = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
+        try:
+            edges = graph.builder.edges  # set of (source, target) tuples
+            edge_map: dict = {}
+            for edge in edges:
+                src, dst = edge[0], edge[1]
+                edge_map.setdefault(src, set()).add(dst)
 
-        synthesis_targets = edge_map.get("synthesis", set())
-        assert "__end__" in synthesis_targets
-        assert "supervisor" not in synthesis_targets
+            synthesis_targets = edge_map.get("synthesis", set())
+            assert "__end__" in synthesis_targets
+            assert "supervisor" not in synthesis_targets
+        finally:
+            await conn.close()
 
 
 class TestCheckpointerCreated:
@@ -185,8 +217,11 @@ class TestCheckpointerCreated:
 
         cfg = _TmpConfig()
         assert not cfg.checkpoint_dir.exists()
-        await build_graph(cfg, MOCK_TOOLS)
-        assert cfg.checkpoint_dir.exists()
+        graph, conn = await build_graph(cfg, MOCK_TOOLS)
+        try:
+            assert cfg.checkpoint_dir.exists()
+        finally:
+            await conn.close()
 
 
 class TestCheckpointerIsAsync:
@@ -205,11 +240,14 @@ class TestCheckpointerIsAsync:
         class _TmpConfig(_MockConfig):
             checkpoint_dir = tmp_path / "checkpoints"
 
-        graph = await build_graph(_TmpConfig(), MOCK_TOOLS)
-        checkpointer = graph.checkpointer
-        assert isinstance(checkpointer, AsyncSqliteSaver), (
-            f"Checkpointer must be AsyncSqliteSaver, got {type(checkpointer).__name__}"
-        )
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            checkpointer = graph.checkpointer
+            assert isinstance(checkpointer, AsyncSqliteSaver), (
+                f"Checkpointer must be AsyncSqliteSaver, got {type(checkpointer).__name__}"
+            )
+        finally:
+            await conn.close()
 
     @_apply_patches
     async def test_graph_ainvoke_does_not_raise_not_implemented(self, tmp_path):
@@ -223,7 +261,7 @@ class TestCheckpointerIsAsync:
         class _TmpConfig(_MockConfig):
             checkpoint_dir = tmp_path / "checkpoints"
 
-        graph = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         initial_state = {
             "plan_text": "test",
             "project_slug": "test-project",
@@ -233,14 +271,17 @@ class TestCheckpointerIsAsync:
             "supervisor_iteration": 0,
             "run_log": [],
         }
-        # The supervisor stub will route somewhere that may fail, but the
-        # important thing is that the checkpointer itself does NOT raise
-        # NotImplementedError.  We catch any other exception and let it pass.
         try:
-            await graph.ainvoke(
-                initial_state,
-                {"configurable": {"thread_id": "test-async-compat"}},
-            )
-        except NotImplementedError as exc:
-            if "async" in str(exc).lower():
-                pytest.fail(f"Checkpointer does not support async: {exc}")
+            # The supervisor stub will route somewhere that may fail, but the
+            # important thing is that the checkpointer itself does NOT raise
+            # NotImplementedError.  We catch any other exception and let it pass.
+            try:
+                await graph.ainvoke(
+                    initial_state,
+                    {"configurable": {"thread_id": "test-async-compat"}},
+                )
+            except NotImplementedError as exc:
+                if "async" in str(exc).lower():
+                    pytest.fail(f"Checkpointer does not support async: {exc}")
+        finally:
+            await conn.close()

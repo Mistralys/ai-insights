@@ -95,8 +95,11 @@ async def build_graph(
 
     Returns
     -------
-    CompiledGraph
-        The compiled LangGraph state graph, ready to invoke or stream.
+    tuple[CompiledGraph, aiosqlite.Connection]
+        The compiled LangGraph state graph, ready to invoke or stream, and
+        the open ``aiosqlite`` connection that backs the checkpointer.  The
+        caller is responsible for awaiting ``conn.close()`` after the graph
+        run completes so the background worker thread shuts down cleanly.
     """
     import aiosqlite
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -164,4 +167,4 @@ async def build_graph(
     return builder.compile(
         checkpointer=checkpointer,
         interrupt_before=interrupt_before if interrupt_before else None,
-    )
+    ), conn

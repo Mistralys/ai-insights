@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. Patch application

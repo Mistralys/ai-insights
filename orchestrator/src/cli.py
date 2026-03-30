@@ -264,7 +264,7 @@ async def _build_graph_for_run(
 
     Returns
     -------
-    CompiledGraph
+    tuple[CompiledGraph, aiosqlite.Connection]
     """
     if dry_run:
         # Build with dry-run stubs instead of real Deep Agent nodes.
@@ -294,10 +294,13 @@ async def _build_graph_for_run(
         return builder.compile(
             checkpointer=checkpointer,
             interrupt_before=interrupt_before if interrupt_before else None,
-        )
+        ), conn
     else:
         from src.graph import build_graph
-        return await build_graph(config, mcp_tools, interrupt_before=interrupt_before or None)
+        graph, conn = await build_graph(
+            config, mcp_tools, interrupt_before=interrupt_before or None
+        )
+        return graph, conn
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +588,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 mcp_tools = toolkit.get_tools()
                 log.info("MCP server started with %d tools.", len(mcp_tools))
 
-                graph = await _build_graph_for_run(
+                graph, db_conn = await _build_graph_for_run(
                     config,
                     mcp_tools,
                     dry_run=args.dry_run,
@@ -595,25 +598,31 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 run_config = {"configurable": {"thread_id": thread_id, "run_logger": run_logger}}
 
                 try:
-                    if args.resume:
-                        # For resume: invoke without an initial state so
-                        # the graph continues from the last checkpoint.
-                        result = await graph.ainvoke(None, run_config)
-                    else:
-                        result = await graph.ainvoke(initial_state, run_config)
-                    final_state = result
-                    # Mark as terminal when the graph ran to completion with no
-                    # interrupt checkpoints configured.  Interrupted runs must
-                    # remain re-resumable, so we only write the marker here.
-                    if not interrupt_before:
-                        _mark_run_terminal(config.checkpoint_dir, thread_id)
-                except KeyboardInterrupt:
-                    log.info("Interrupted by user. Run can be resumed with --resume %s.", thread_id)
-                    print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
-                    outside_errors.append("Interrupted by user.")
-                except Exception as exc:
-                    log.error("Graph execution failed: %s", exc, exc_info=True)
-                    outside_errors.append(f"Graph error: {exc}")
+                    try:
+                        if args.resume:
+                            # For resume: invoke without an initial state so
+                            # the graph continues from the last checkpoint.
+                            result = await graph.ainvoke(None, run_config)
+                        else:
+                            result = await graph.ainvoke(initial_state, run_config)
+                        final_state = result
+                        # Mark as terminal when the graph ran to completion with no
+                        # interrupt checkpoints configured.  Interrupted runs must
+                        # remain re-resumable, so we only write the marker here.
+                        if not interrupt_before:
+                            _mark_run_terminal(config.checkpoint_dir, thread_id)
+                    except KeyboardInterrupt:
+                        log.info(
+                            "Interrupted by user. Run can be resumed with --resume %s.",
+                            thread_id,
+                        )
+                        print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
+                        outside_errors.append("Interrupted by user.")
+                    except Exception as exc:
+                        log.error("Graph execution failed: %s", exc, exc_info=True)
+                        outside_errors.append(f"Graph error: {exc}")
+                finally:
+                    await db_conn.close()
 
         except KeyboardInterrupt:
             outside_errors.append("Interrupted during MCP server startup.")
