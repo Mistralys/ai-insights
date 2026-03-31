@@ -154,3 +154,57 @@ Add a new section to `personas/docs/agents/project-manifest/constraints.md` titl
 | **`prebuild` hook not triggered by `tsup --watch`** | The `prebuild` hook only fires on `npm run build`, not on `npm run dev` (watch mode). This is acceptable — stale directories only matter in production builds. Document this in a code comment if needed. |
 | **npm publish of v2.0.0 breaks downstream consumers** | The CHANGELOG already documents the breaking change. The only known consumer (ai-insights-dev) has already migrated to the local plugin. Publish with `npm publish` (not `--tag next`). |
 | **Some WARNs may not be fixable in the ledger plugin** | Variables like `{{model}}` may originate from the persona-builder library's base context rather than the ledger plugin. If so, the fix belongs in per-persona YAML metadata rather than the plugin. The audit step accounts for both paths. |
+
+---
+
+## Implementation Summary
+
+Implemented 2026-03-26. All five deliverables complete.
+
+### Step 1: `scripts/tests/README.md` — Done
+
+Created `scripts/tests/README.md` documenting the `createRequire` bridge pattern, `.test.js` file naming convention, run commands, and the CJS plugin import requirement.
+
+### Step 2: `prebuild` npm script — Done
+
+Added `"prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""` to `ai-persona-builder-STABLE/package.json`. Verified: `npm run build` succeeds, `dist/` contains no empty stale subdirectories, 228 tests pass.
+
+### Step 3: Unresolved template variables — Done (scope was larger than anticipated)
+
+The plan identified six variable names. The actual audit revealed **130+ warnings** across both suites (ledger and standalone), caused by two distinct root causes:
+
+**Root cause 1 — Standalone suite received ledger frontmatter templates.**
+The ledger plugin's `frontmatterTemplates` property was static and applied globally to all suites. Since both suites share the same plugin array, standalone personas were rendered with the ledger CC frontmatter template (which references `{{cc_name}}`, `{{cc_description}}`, `{{role}}`, `{{number}}`, `{{total}}`). Standalone personas have no `role` or `number` fields, so these all became unresolved.
+
+**Fix:** Added an `onSuiteInit` hook to the ledger plugin that dynamically sets or removes `frontmatterTemplates` based on `suite.personaMode`. For `numbered` (ledger) suites, ledger templates are applied. For all other suites, the property is deleted so config-level or library defaults take effect. Added standalone frontmatter templates to `persona-build.config.js` as `frontmatter` config-level defaults.
+
+**Root cause 2 — Missing computed context variables.**
+The library computes only six derived fields (`version`, `tools_list`, `tools_json`, `cc_tools_list`, `cc_tools_json`, `cc_file_name_stem`). The old `build-personas.js` script computed additional variables that the library + plugin combination did not replicate.
+
+**Fix:** Extended the ledger plugin's `onBuildContext` hook to inject:
+- `total` — `roster.length` (persona count in the suite)
+- `model` — falls back to `default_model` from shared YAML when per-persona `model` is absent
+- `cc_name` — alias for the library's `cc_file_name_stem` (same value, different key name)
+- `cc_description` — derived from roster entry (`title — short`) for ledger, falls back to `description` for standalone
+
+**Additional fix:** Changed `persona['roster']` → `updated['roster']` in the plugin. The roster array comes from `_shared.yaml` and is merged into the context by the library before `onBuildContext` runs — it is not a per-persona YAML field. The old code passed `persona` (raw per-persona metadata) which never contains `roster`.
+
+**Test updates:** Updated 8 existing tests to reflect the behavioral changes (roster/number in context not persona, frontmatter set via `onSuiteInit`). Added 1 new test for `onSuiteInit` suite-scoping behavior. Final: 51 tests pass.
+
+**Result:** Zero `[WARN]` lines from `node scripts/build-personas.js`. 50 files generated successfully.
+
+### Step 4: CJS plugin convention — Done
+
+Added constraints 29–31 under a new "Plugin Module Convention" section in `personas/docs/agents/project-manifest/constraints.md`.
+
+### Step 5: Publish v2.0.0 — Already done
+
+User confirmed `@mistralys/persona-builder` was published as v2.0.1 prior to implementation.
+
+### Implementation Comments
+
+1. **Step 3 was significantly underscoped.** The plan assumed six isolated variable warnings. The actual problem was architectural: the plugin's frontmatter templates applied globally across suites. This required introducing a new lifecycle hook (`onSuiteInit`), standalone frontmatter templates in the build config, and a roster source bug fix. The plan's investigation table correctly identified the variables but not the cross-suite template leakage root cause.
+
+2. **The `onSuiteInit` approach is clean but fragile.** It relies on mutating the plugin object's `frontmatterTemplates` property between suite builds. If the library ever clones the plugin object between suites, this will break. A more robust approach would be per-suite plugin arrays in the build config, but that would require duplicating validation logic. The current approach is acceptable given the library's documented plugin contract.
+
+3. **No YAML metadata changes were needed.** All fixes were in the plugin and build config. The plan anticipated possible YAML edits — none were required because the missing variables were all computable from existing context data.

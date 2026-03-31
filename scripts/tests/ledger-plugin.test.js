@@ -31,11 +31,12 @@ const { ledgerPlugin }                       = require('../../personas/plugins/l
 // Shared fixtures
 // ---------------------------------------------------------------------------
 
-/** Minimal SuiteConfig-equivalent for testing purposes */
+/** Minimal SuiteConfig-equivalent for testing purposes (numbered = ledger) */
 const suite = {
   srcDir: '/fixtures/ledger-suite',
   outVscode: '/out/vscode',
   outClaudeCode: '/out/claude-code',
+  personaMode: 'numbered',
 };
 
 /** Canonical three-entry roster used across multiple roster tests */
@@ -333,12 +334,11 @@ describe('ledgerPlugin()', () => {
   // AC-5: onBuildContext injects roster_rendered
   it('onBuildContext injects roster_rendered into the context when persona has roster and number', () => {
     const plugin = ledgerPlugin();
-    const persona = {
-      name: 'developer',
-      roster: threeEntryRoster,
-      number: 2,
-    };
-    const ctx = plugin.onBuildContext({}, persona, suite);
+    const persona = { name: 'developer' };
+    // In real builds, roster (from shared YAML) and number (from per-persona YAML)
+    // are both merged into the context by the library before onBuildContext runs.
+    const context = { roster: threeEntryRoster, number: 2 };
+    const ctx = plugin.onBuildContext(context, persona, suite);
     expect(ctx).toHaveProperty('roster_rendered');
     expect(typeof ctx['roster_rendered']).toBe('string');
     // Active persona is number 2 (Developer)
@@ -369,13 +369,9 @@ describe('ledgerPlugin()', () => {
   it('onBuildContext injects both roster_rendered and mcp_tools_table in a single call', () => {
     const plugin = ledgerPlugin();
     const tools = [{ tool: 'some_tool', purpose: 'Does something' }];
-    const persona = {
-      name: 'planner',
-      roster: threeEntryRoster,
-      number: 1,
-      mcp_tools: tools,
-    };
-    const ctx = plugin.onBuildContext({}, persona, suite);
+    const persona = { name: 'planner', mcp_tools: tools };
+    const context = { roster: threeEntryRoster, number: 1 };
+    const ctx = plugin.onBuildContext(context, persona, suite);
     expect(ctx).toHaveProperty('roster_rendered');
     expect(ctx).toHaveProperty('mcp_tools_table');
     // Both must be non-empty for this persona
@@ -399,15 +395,12 @@ describe('ledgerPlugin()', () => {
     expect(ctx['mcp_tools_table']).toBe('');
   });
 
-  // Fallback: persona has roster but no number → roster_rendered is empty string
-  it('sets roster_rendered to an empty string when persona has roster but no number', () => {
+  // Fallback: context has roster but no number → roster_rendered is empty string
+  it('sets roster_rendered to an empty string when context has roster but no number', () => {
     const plugin = ledgerPlugin();
-    const persona = {
-      name: 'no-number',
-      roster: threeEntryRoster,
-      // number intentionally absent
-    };
-    const ctx = plugin.onBuildContext({}, persona, suite);
+    const persona = { name: 'no-number' };
+    const context = { roster: threeEntryRoster /* number intentionally absent */ };
+    const ctx = plugin.onBuildContext(context, persona, suite);
     expect(ctx['roster_rendered']).toBe('');
   });
 
@@ -538,9 +531,10 @@ describe('ledgerPlugin()', () => {
     expect(returned).toBe(output);
   });
 
-  // frontmatterTemplates: vscode and claude-code keys are present
-  it('exposes frontmatterTemplates for both vscode and claude-code targets', () => {
+  // frontmatterTemplates: vscode and claude-code keys are present after onSuiteInit (numbered)
+  it('exposes frontmatterTemplates for both vscode and claude-code targets after onSuiteInit', () => {
     const plugin = ledgerPlugin();
+    plugin.onSuiteInit(suite, {});
     expect(plugin.frontmatterTemplates).toBeDefined();
     expect(typeof plugin.frontmatterTemplates['vscode']).toBe('string');
     expect(typeof plugin.frontmatterTemplates['claude-code']).toBe('string');
@@ -549,6 +543,7 @@ describe('ledgerPlugin()', () => {
   // frontmatterTemplates: vscode template starts with frontmatter fence
   it('vscode frontmatter template begins with --- and contains expected fields', () => {
     const plugin = ledgerPlugin();
+    plugin.onSuiteInit(suite, {});
     const vsTemplate = plugin.frontmatterTemplates['vscode'];
     expect(vsTemplate.startsWith('---')).toBe(true);
     expect(vsTemplate).toContain('{{id}}');
@@ -559,6 +554,7 @@ describe('ledgerPlugin()', () => {
   // frontmatterTemplates: claude-code template starts with frontmatter fence
   it('claude-code frontmatter template begins with --- and contains expected fields', () => {
     const plugin = ledgerPlugin();
+    plugin.onSuiteInit(suite, {});
     const ccTemplate = plugin.frontmatterTemplates['claude-code'];
     expect(ccTemplate.startsWith('---')).toBe(true);
     expect(ccTemplate).toContain('{{role}}');
@@ -567,11 +563,21 @@ describe('ledgerPlugin()', () => {
   });
 
   // Plugin satisfies PersonaBuildPlugin interface: has required hooks
-  it('returned plugin has onBuildContext, onPostRender, onValidate, and frontmatterTemplates', () => {
+  it('returned plugin has onBuildContext, onPostRender, onValidate, and onSuiteInit', () => {
     const plugin = ledgerPlugin();
     expect(typeof plugin.onBuildContext).toBe('function');
     expect(typeof plugin.onPostRender).toBe('function');
     expect(typeof plugin.onValidate).toBe('function');
+    expect(typeof plugin.onSuiteInit).toBe('function');
+  });
+
+  // onSuiteInit: frontmatterTemplates removed for non-numbered suites
+  it('removes frontmatterTemplates when suite is not numbered', () => {
+    const plugin = ledgerPlugin();
+    const standaloneSuite = { ...suite, personaMode: 'standalone' };
+    plugin.onSuiteInit(suite, {});
     expect(plugin.frontmatterTemplates).toBeDefined();
+    plugin.onSuiteInit(standaloneSuite, {});
+    expect(plugin.frontmatterTemplates).toBeUndefined();
   });
 });

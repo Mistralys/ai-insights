@@ -69,29 +69,77 @@ function ledgerPlugin(options) {
    */
   const renderedOutputCache = new Map();
 
-  return {
+  const plugin = {
     name: 'ledger',
 
     // -------------------------------------------------------------------------
-    // onBuildContext — inject roster_rendered and mcp_tools_table
+    // onSuiteInit — scope frontmatter templates to the ledger suite only
+    // -------------------------------------------------------------------------
+
+    onSuiteInit(suite, _sharedMeta) {
+      // Only apply ledger frontmatter when building the numbered (ledger) suite.
+      // For other suites (e.g. standalone), remove the templates so the config-
+      // level or library-default templates take effect instead.
+      if (suite.personaMode === 'numbered') {
+        plugin.frontmatterTemplates = {
+          vscode: FRONTMATTER_LEDGER_VSCODE,
+          'claude-code': FRONTMATTER_LEDGER_CC,
+        };
+      } else {
+        delete plugin.frontmatterTemplates;
+      }
+    },
+
+    // -------------------------------------------------------------------------
+    // onBuildContext — inject computed variables for template rendering
     // -------------------------------------------------------------------------
 
     onBuildContext(context, persona, _suite) {
       const updated = Object.assign({}, context);
 
-      // Render roster list if the persona carries a roster array
-      const roster = persona['roster'];
-      const personaNumber = persona['number'];
+      // --- roster_rendered ---------------------------------------------------
+      // Roster lives in _shared.yaml → merged context (not per-persona YAML).
+      const roster = updated['roster'];
+      const personaNumber = updated['number'];
 
       if (Array.isArray(roster) && personaNumber !== undefined) {
         updated['roster_rendered'] = renderRoster(roster, personaNumber);
       } else {
-        // Emit an empty string so templates can safely reference the variable
-        // without producing an unresolved-variable warning on non-ledger personas.
         updated['roster_rendered'] = '';
       }
 
-      // Render MCP tools table if the persona carries an mcp_tools array
+      // --- total (persona count in the suite) --------------------------------
+      if (Array.isArray(roster) && !updated['total']) {
+        updated['total'] = roster.length;
+      }
+
+      // --- model (VS Code frontmatter) — fallback to default_model -----------
+      if (!updated['model'] && updated['default_model']) {
+        updated['model'] = updated['default_model'];
+      }
+
+      // --- cc_name (Claude Code identifier) — alias for cc_file_name_stem ----
+      if (!updated['cc_name'] && updated['cc_file_name_stem']) {
+        updated['cc_name'] = updated['cc_file_name_stem'];
+      }
+
+      // --- cc_description (Claude Code description) --------------------------
+      // For ledger personas: derive from roster entry matching persona's number.
+      // For standalone: fall back to the persona's description field.
+      if (!updated['cc_description']) {
+        if (Array.isArray(roster) && personaNumber !== undefined) {
+          const entry = roster.find(r => r.number === personaNumber);
+          if (entry) {
+            updated['cc_description'] = entry.title + ' \u2014 ' + entry.short;
+          }
+        }
+        // Fall back to the persona's description field (works for standalone)
+        if (!updated['cc_description'] && updated['description']) {
+          updated['cc_description'] = updated['description'];
+        }
+      }
+
+      // --- mcp_tools_table ---------------------------------------------------
       const mcpTools = persona['mcp_tools'];
 
       if (Array.isArray(mcpTools)) {
@@ -145,14 +193,15 @@ function ledgerPlugin(options) {
     },
 
     // -------------------------------------------------------------------------
-    // frontmatterTemplates — ledger-specific frontmatter for both targets
+    // frontmatterTemplates — set dynamically by onSuiteInit (not static)
     // -------------------------------------------------------------------------
-
-    frontmatterTemplates: {
-      vscode: FRONTMATTER_LEDGER_VSCODE,
-      'claude-code': FRONTMATTER_LEDGER_CC,
-    },
+    // The frontmatterTemplates property is set/removed by onSuiteInit so that
+    // ledger templates only apply when building the ledger (numbered) suite.
+    // For standalone builds, the property is deleted so that config-level or
+    // library-default templates take effect instead.
   };
+
+  return plugin;
 }
 
 module.exports = { ledgerPlugin };
