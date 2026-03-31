@@ -5,7 +5,6 @@ _SOURCE: Directory tree_
 ```
 └── orchestrator/
     └── README.md
-    └── _test_config.py
     └── ai_insights_orchestrator.egg-info/
         ├── PKG-INFO/
         ├── SOURCES.txt
@@ -14,6 +13,16 @@ _SOURCE: Directory tree_
         ├── requires.txt
         ├── top_level.txt
     └── changelog.md
+    └── dist/
+        ├── stage-prompts/
+        │   └── developer.md
+        │   └── docs.md
+        │   └── pm.md
+        │   └── qa.md
+        │   └── release_engineer.md
+        │   └── reviewer.md
+        │   └── security_auditor.md
+        │   └── synthesis.md
     └── docs/
         ├── agents/
         │   ├── project-manifest/
@@ -39,11 +48,24 @@ _SOURCE: Directory tree_
         │   ├── developer.py
         │   ├── docs.py
         │   ├── pm.py
+        │   ├── prompt_renderer.py
         │   ├── qa.py
         │   ├── release_engineer.py
         │   ├── reviewer.py
         │   ├── security_auditor.py
         │   ├── synthesis.py
+        │   ├── templates/
+        │   │   └── VARIABLES.md
+        │   │   └── developer.md
+        │   │   └── docs.md
+        │   │   └── partials/
+        │   │       ├── project-path-reminder.md
+        │   │   └── pm.md
+        │   │   └── qa.md
+        │   │   └── release_engineer.md
+        │   │   └── reviewer.md
+        │   │   └── security_auditor.md
+        │   │   └── synthesis.md
         ├── state.py
         ├── supervisor.py
         ├── utils/
@@ -54,6 +76,7 @@ _SOURCE: Directory tree_
         │   └── mcp_parse.py
         │   └── persona.py
         │   └── plan_parser.py
+        │   └── subprocess_encoding.py
         │   └── tool_wrappers.py
     └── tests/
         └── __init__.py
@@ -67,7 +90,9 @@ _SOURCE: Directory tree_
         └── test_mcp_parse.py
         └── test_nodes.py
         └── test_plan_parser.py
+        └── test_prompt_renderer.py
         └── test_state.py
+        └── test_subprocess_encoding.py
         └── test_supervisor.py
         └── test_tool_wrappers.py
 

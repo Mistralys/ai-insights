@@ -16,10 +16,9 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveLedgerRoot } from '../src/utils/ledger-root.js';
-import { readConfigFromDisk, startConfigWatcher, getConfig } from '../src/gui/config.js';
+import { resolveLedgerRoot, ORCHESTRATOR_LOGS_DIR } from '../src/utils/ledger-root.js';
+import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
 import { startAutoArchiveTimer } from '../src/gui/auto-archive.js';
-import { resolveOrchestratorLogsDir } from '../src/gui/log-resolver.js';
 import {
   handleListRunLogs,
   handleGetRunLog,
@@ -602,12 +601,7 @@ async function main(): Promise<void> {
   await readConfigFromDisk(configPath);
   startConfigWatcher(configPath);
 
-  // Resolve the orchestrator's live logs directory from config.
-  // This is passed to handleListRunLogs() and handleGetRunLog() so they can:
-  //   - Archive completed runs into per-project ledger storage on each list request.
-  //   - Surface active runs that haven't been archived yet.
-  //   - Serve log reads from the most up-to-date source (archive or live).
-  const orchestratorLogsDir = resolveOrchestratorLogsDir(getConfig().orchestrator_logs_dir);
+  const orchestratorLogsDir = ORCHESTRATOR_LOGS_DIR;
 
   // Start the auto-archive background service. Reads auto_archive_days from
   // config; no-op if the setting is 0.

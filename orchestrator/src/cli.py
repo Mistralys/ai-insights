@@ -42,6 +42,7 @@ from typing import Any
 # Suppress Pydantic V1 deprecation warning emitted by langchain_core on Python 3.14+.
 warnings.filterwarnings("ignore", message="Core Pydantic V1 functionality", category=UserWarning)
 
+import src.utils.subprocess_encoding  # noqa: E402, F401  # side-effect: safe text-mode defaults on Windows
 from src.utils.filelock import lock_exclusive, unlock  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -192,46 +193,7 @@ def _parse_interrupt_stages(raw: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dry-run stub factory
-# ---------------------------------------------------------------------------
-
-def _make_dryrun_node(stage: str):
-    """
-    Return a no-op LangGraph node for ``--dry-run`` mode.
-
-    The stub logs the stage name and returns a state update indicating
-    success without invoking the Deep Agent.
-    """
-    from src.utils.logging import get_run_logger
-
-    def _stub(state: Any, config: Any = None) -> dict:
-        ts = datetime.now(UTC).isoformat()
-        wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
-        log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "—")
-        print(f"  [dry-run] {stage}: WP={wp_id or '—'}")
-        log_entry = {
-            "timestamp": ts,
-            "stage": stage,
-            "wp_id": wp_id,
-            "action": "dry_run",
-            "result": "SKIP",
-        }
-        run_logger = get_run_logger(config)
-        if run_logger:
-            run_logger.stream_entry(log_entry)
-        return {
-            "stage_result": f"[dry-run] {stage} stub",
-            "stage_success": True,
-            "run_log": [log_entry],
-        }
-
-    _stub.__name__ = f"{stage}_dryrun"
-    _stub.__qualname__ = f"{stage}_dryrun"
-    return _stub
-
-
-# ---------------------------------------------------------------------------
-# Graph builder — wires dry-run stubs when requested
+# Graph builder
 # ---------------------------------------------------------------------------
 
 async def _build_graph_for_run(
@@ -242,13 +204,11 @@ async def _build_graph_for_run(
     interrupt_before: list[str],
 ):
     """
-    Build the LangGraph compiled graph, optionally with dry-run stubs.
+    Thin wrapper around :func:`~src.graph.build_graph`.
 
-    When *dry_run* is ``True``, all six pipeline-stage nodes are replaced with
-    lightweight stubs that log routing decisions without invoking Deep Agents.
-    The supervisor node is always real (it performs only ledger reads, not agent
-    calls) but receives ``dry_run=True`` so it tolerates missing ledger state
-    and terminates cleanly instead of looping on MCP errors.
+    Delegates entirely to ``build_graph()``; dry-run stub wiring is handled
+    there so that both modes share the same checkpoint boilerplate and graph
+    topology.
 
     Parameters
     ----------
@@ -257,46 +217,21 @@ async def _build_graph_for_run(
     mcp_tools:
         LangChain Tool objects from :class:`~src.mcp_client.MCPToolkit`.
     dry_run:
-        Replace stage nodes with no-op stubs.
+        Passed through to :func:`~src.graph.build_graph`; replaces stage nodes
+        with no-op stubs when ``True``.
     interrupt_before:
         List of node names at which LangGraph should pause for human input.
 
     Returns
     -------
-    CompiledGraph
+    tuple[CompiledGraph, aiosqlite.Connection]
     """
-    if dry_run:
-        # Build with dry-run stubs instead of real Deep Agent nodes.
-        import aiosqlite
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-        from langgraph.graph import END, START, StateGraph
-
-        from src.state import WorkflowState
-        from src.supervisor import make_supervisor_node
-
-        supervisor_node = make_supervisor_node(mcp_tools, dry_run=True)
-        builder = StateGraph(WorkflowState)
-        builder.add_node("supervisor", supervisor_node)
-        for stage in ("pm", "developer", "qa", "reviewer", "docs", "synthesis"):
-            builder.add_node(stage, _make_dryrun_node(stage))
-        builder.add_edge(START, "supervisor")
-        for stage in ("pm", "developer", "qa", "reviewer", "docs"):
-            builder.add_edge(stage, "supervisor")
-        builder.add_edge("synthesis", END)
-
-        config.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        db_path = config.checkpoint_dir / "workflow.sqlite"
-        conn = await aiosqlite.connect(str(db_path))
-        checkpointer = AsyncSqliteSaver(conn)
-        await checkpointer.setup()
-
-        return builder.compile(
-            checkpointer=checkpointer,
-            interrupt_before=interrupt_before if interrupt_before else None,
-        )
-    else:
-        from src.graph import build_graph
-        return await build_graph(config, mcp_tools, interrupt_before=interrupt_before or None)
+    from src.graph import build_graph
+    return await build_graph(
+        config, mcp_tools,
+        interrupt_before=interrupt_before or None,
+        dry_run=dry_run,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -584,7 +519,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 mcp_tools = toolkit.get_tools()
                 log.info("MCP server started with %d tools.", len(mcp_tools))
 
-                graph = await _build_graph_for_run(
+                graph, db_conn = await _build_graph_for_run(
                     config,
                     mcp_tools,
                     dry_run=args.dry_run,
@@ -594,25 +529,31 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 run_config = {"configurable": {"thread_id": thread_id, "run_logger": run_logger}}
 
                 try:
-                    if args.resume:
-                        # For resume: invoke without an initial state so
-                        # the graph continues from the last checkpoint.
-                        result = await graph.ainvoke(None, run_config)
-                    else:
-                        result = await graph.ainvoke(initial_state, run_config)
-                    final_state = result
-                    # Mark as terminal when the graph ran to completion with no
-                    # interrupt checkpoints configured.  Interrupted runs must
-                    # remain re-resumable, so we only write the marker here.
-                    if not interrupt_before:
-                        _mark_run_terminal(config.checkpoint_dir, thread_id)
-                except KeyboardInterrupt:
-                    log.info("Interrupted by user. Run can be resumed with --resume %s.", thread_id)
-                    print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
-                    outside_errors.append("Interrupted by user.")
-                except Exception as exc:
-                    log.error("Graph execution failed: %s", exc, exc_info=True)
-                    outside_errors.append(f"Graph error: {exc}")
+                    try:
+                        if args.resume:
+                            # For resume: invoke without an initial state so
+                            # the graph continues from the last checkpoint.
+                            result = await graph.ainvoke(None, run_config)
+                        else:
+                            result = await graph.ainvoke(initial_state, run_config)
+                        final_state = result
+                        # Mark as terminal when the graph ran to completion with no
+                        # interrupt checkpoints configured.  Interrupted runs must
+                        # remain re-resumable, so we only write the marker here.
+                        if not interrupt_before:
+                            _mark_run_terminal(config.checkpoint_dir, thread_id)
+                    except KeyboardInterrupt:
+                        log.info(
+                            "Interrupted by user. Run can be resumed with --resume %s.",
+                            thread_id,
+                        )
+                        print(f"\n[interrupted] Resume with: orchestrate --resume {thread_id}")
+                        outside_errors.append("Interrupted by user.")
+                    except Exception as exc:
+                        log.error("Graph execution failed: %s", exc, exc_info=True)
+                        outside_errors.append(f"Graph error: {exc}")
+                finally:
+                    await db_conn.close()
 
         except KeyboardInterrupt:
             outside_errors.append("Interrupted during MCP server startup.")

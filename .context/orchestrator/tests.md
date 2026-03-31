@@ -16,7 +16,9 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_mcp_parse.py
         └── test_nodes.py
         └── test_plan_parser.py
+        └── test_prompt_renderer.py
         └── test_state.py
+        └── test_subprocess_encoding.py
         └── test_supervisor.py
         └── test_tool_wrappers.py
 
@@ -1274,6 +1276,14 @@ def _apply_patches(test_fn):
                 side_effect=lambda cfg, tools: _noop_node("reviewer"),
             ),
             patch(
+                "src.nodes.security_auditor.make_security_auditor_node",
+                side_effect=lambda cfg, tools: _noop_node("security_auditor"),
+            ),
+            patch(
+                "src.nodes.release_engineer.make_release_engineer_node",
+                side_effect=lambda cfg, tools: _noop_node("release_engineer"),
+            ),
+            patch(
                 "src.nodes.docs.make_docs_node",
                 side_effect=lambda cfg, tools: _noop_node("docs"),
             ),
@@ -1326,15 +1336,6 @@ class TestGraphNodes:
 
 
 class TestGraphEdges:
-    @_apply_patches
-    async def _get_edges(self):
-        from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        # graph.builder.edges is a set of (source, target) tuples — includes all
-        # static edges declared with add_edge(), unlike get_graph().edges which
-        # omits Command-routed edges in LangGraph 1.x.
-        return graph.builder.edges
-
     @_apply_patches
     async def test_start_edges_to_supervisor(self):
         """START must edge to 'supervisor'."""
@@ -4114,6 +4115,143 @@ class TestDialogueCaptured:
 
 
 # ---------------------------------------------------------------------------
+# Tests: error-path dialogue capture (WP-002)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorPathDialogueCapture:
+    """Error-path dialogue capture: partial dialogue written when stage crashes
+    after agent.ainvoke() populates _msgs."""
+
+    class _BrokenMsg:
+        """Message stub whose .content access raises, simulating a post-ainvoke crash."""
+
+        @property
+        def content(self) -> str:
+            raise RuntimeError("Simulated failure in success path after ainvoke")
+
+        usage_metadata = None
+
+    async def _invoke_with_post_ainvoke_error(
+        self, capture: bool = True, wp_id: str = "WP-001"
+    ) -> dict:
+        """Invoke developer node where agent.ainvoke() returns messages but
+        subsequent .content access raises, driving the except path."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig() if capture else _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            return await node_fn(base_state(current_wp_id=wp_id))
+
+    async def test_dialogue_captured_when_msgs_populated(self):
+        """dialogue_captured must appear in run_log (partial=True) on the error
+        path when _msgs contains messages collected before the crash."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, (
+            "dialogue_captured must appear in run_log when _msgs is non-empty on error path"
+        )
+        entry = dc_entries[0]
+        assert entry.get("partial") is True, (
+            "Error-path dialogue_captured entry must have partial=True"
+        )
+        assert entry.get("level") == "INFO"
+        assert entry.get("wp_id") == "WP-001"
+        assert entry.get("file_path"), "file_path must be a non-empty string"
+
+    async def test_stage_fails_even_when_partial_dialogue_written(self):
+        """Stage must still return stage_success=False when error-path dialogue is written."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        assert result["stage_success"] is False
+
+    async def test_no_dialogue_when_msgs_empty(self):
+        """No dialogue_captured when exception occurs before agent.ainvoke()
+        (empty _msgs — e.g. create_deep_agent raises)."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        with _patch_persona(), \
+             patch(
+                 "deepagents.create_deep_agent",
+                 side_effect=RuntimeError("Pre-ainvoke crash"),
+             ), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must NOT appear when _msgs is empty (exception before ainvoke)"
+        )
+        assert result["stage_success"] is False
+
+    async def test_error_path_dialogue_failure_is_non_fatal(self):
+        """write_dialogue failure on the error path must not crash the stage or
+        change the returned stage_success or error values."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch(
+                 "src.nodes.write_dialogue",
+                 side_effect=PermissionError("disk full"),
+             ), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        # Stage must still return stage_success=False (original error preserved).
+        assert result["stage_success"] is False
+        # No dialogue_captured entry because write_dialogue raised.
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when write_dialogue raises on error path"
+        )
+
+    async def test_no_dialogue_when_capture_flag_false(self):
+        """Error-path dialogue capture must respect capture_dialogues=False."""
+        result = await self._invoke_with_post_ainvoke_error(capture=False)
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when capture_dialogues=False"
+        )
+
+    async def test_no_dialogue_when_wp_id_empty(self):
+        """Error-path dialogue capture must not fire when wp_id is empty."""
+        result = await self._invoke_with_post_ainvoke_error(wp_id="")
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when wp_id is empty"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: slug derivation uses Path(...).name (WP-002)
 # ---------------------------------------------------------------------------
 
@@ -4238,15 +4376,11 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id,
-        pipeline_type, and project_path reminder."""
+        """_build_developer_prompt must include project_path and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
-        assert "implementation" in prompt, (
-            "Pipeline-type line must contain 'implementation'"
-        )
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_developer_prompt_has_no_identity_declarations(self):
         """_build_developer_prompt must not contain identity/role declaration text."""
@@ -4255,66 +4389,16 @@ class TestSlimPromptContent:
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "developer")
 
-    def test_developer_prompt_contains_ledger_begin_work_instruction(self):
-        """_build_developer_prompt extra must contain 'ledger_begin_work'
-        and 'type=\"implementation\"'."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "ledger_begin_work" in prompt, (
-            "Developer prompt must contain 'ledger_begin_work' in the extra instruction"
-        )
-        assert 'type="implementation"' in prompt, (
-            "Developer prompt must contain 'type=\"implementation\"' in the extra instruction"
-        )
-
-    def test_developer_prompt_wp_id_is_dynamic(self):
-        """The wp_id in the ledger_begin_work instruction must be substituted from state."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt_a = _build_developer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_developer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a, "wp_id WP-001 must appear in prompt"
-        assert "WP-042" in prompt_b, "wp_id WP-042 must appear in prompt"
-        # Cross-check: the wrong WP ID must not appear in each prompt.
-        assert "WP-042" not in prompt_a, "WP-042 must not appear in prompt built for WP-001"
-        assert "WP-001" not in prompt_b, "WP-001 must not appear in prompt built for WP-042"
-
-    def test_developer_prompt_step1_is_bold_markdown(self):
-        """The Step 1 instruction must use bold markdown for visual prominence."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "**Step 1" in prompt, (
-            "Developer prompt must contain a bold '**Step 1' instruction"
-        )
-
-    def test_developer_prompt_contains_scope_restriction(self):
-        """Developer prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "Developer prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "Developer prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"Developer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
     # ------------------------------------------------------------------
     # QA node
     # ------------------------------------------------------------------
 
     def test_qa_prompt_has_slim_fields(self):
-        """_build_qa_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_qa_prompt must include project_path and project_path reminder."""
         from src.nodes.qa import _build_qa_prompt
 
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_qa_prompt_has_no_identity_declarations(self):
         """_build_qa_prompt must not contain identity/role declaration text."""
@@ -4323,43 +4407,16 @@ class TestSlimPromptContent:
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "qa")
 
-    def test_qa_prompt_contains_scope_restriction(self):
-        """_build_qa_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.qa import _build_qa_prompt
-
-        prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "QA prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "QA prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"QA prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
-    def test_qa_prompt_scope_restriction_is_dynamic(self):
-        """QA scope restriction must substitute wp_id dynamically from state."""
-        from src.nodes.qa import _build_qa_prompt
-
-        prompt_a = _build_qa_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_qa_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a
-        assert "WP-042" in prompt_b
-        assert "WP-042" not in prompt_a
-        assert "WP-001" not in prompt_b
-
     # ------------------------------------------------------------------
     # Reviewer node
     # ------------------------------------------------------------------
 
     def test_reviewer_prompt_has_slim_fields(self):
-        """_build_reviewer_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_reviewer_prompt must include project_path and project_path reminder."""
         from src.nodes.reviewer import _build_reviewer_prompt
 
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_reviewer_prompt_has_no_identity_declarations(self):
         """_build_reviewer_prompt must not contain identity/role declaration text."""
@@ -4368,44 +4425,17 @@ class TestSlimPromptContent:
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "reviewer")
 
-    def test_reviewer_prompt_contains_scope_restriction(self):
-        """_build_reviewer_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.reviewer import _build_reviewer_prompt
-
-        prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "Reviewer prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "Reviewer prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"Reviewer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
-    def test_reviewer_prompt_scope_restriction_is_dynamic(self):
-        """Reviewer scope restriction must substitute wp_id dynamically from state."""
-        from src.nodes.reviewer import _build_reviewer_prompt
-
-        prompt_a = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a
-        assert "WP-042" in prompt_b
-        assert "WP-042" not in prompt_a
-        assert "WP-001" not in prompt_b
-
     # ------------------------------------------------------------------
     # Security Auditor node
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id,
+        """_build_security_auditor_prompt must include project_path
         and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_security_auditor_prompt_has_no_identity_declarations(self):
         """_build_security_auditor_prompt must not contain identity/role declaration text."""
@@ -4419,12 +4449,12 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id,
+        """_build_release_engineer_prompt must include project_path
         and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_release_engineer_prompt_has_no_identity_declarations(self):
         """_build_release_engineer_prompt must not contain identity/role declaration text."""
@@ -4438,11 +4468,11 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_docs_prompt_has_slim_fields(self):
-        """_build_docs_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_docs_prompt must include project_path and project_path reminder."""
         from src.nodes.docs import _build_docs_prompt
 
         prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_docs_prompt_has_no_identity_declarations(self):
         """_build_docs_prompt must not contain identity/role declaration text."""
@@ -4750,6 +4780,41 @@ class TestCreateStageNodeWiring:
         )
         assert args[3] is None
 
+
+# ---------------------------------------------------------------------------
+# Tests: LocalShellBackend receives inherit_env=True
+# ---------------------------------------------------------------------------
+
+
+class TestLocalShellBackendInheritEnv:
+    """LocalShellBackend must be constructed with inherit_env=True so that
+    agent subprocesses can access host CLI tools (python, npm, git, etc.)."""
+
+    async def test_stage_node_passes_inherit_env_true(self):
+        """create_stage_node must call LocalShellBackend(inherit_env=True)."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        backend_cls_mock = MagicMock(return_value=MagicMock())
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=_make_agent_mock()), \
+             patch("deepagents.backends.LocalShellBackend", backend_cls_mock):
+            await node_fn(base_state())
+
+        backend_cls_mock.assert_called_once()
+        _, kwargs = backend_cls_mock.call_args
+        assert kwargs.get("inherit_env") is True, (
+            f"LocalShellBackend must be called with inherit_env=True, "
+            f"got kwargs={kwargs!r}"
+        )
+
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
 
@@ -4895,6 +4960,593 @@ class TestEdgeCases:
         assert meta.summary == "Line one Line two Line three."
 
 ```
+###  Path: `/orchestrator/tests/test_prompt_renderer.py`
+
+```py
+"""
+test_prompt_renderer.py — Regression guard for src/nodes/prompt_renderer.py.
+
+Covers the four public functions:
+- load_template(stage)
+- load_partial(name)
+- render_prompt(template, variables)
+- clear_template_cache()
+
+Behaviours verified by the WP-001 QA scripts are captured here as permanent
+pytest assertions so no future refactor can silently break the renderer.
+"""
+
+from __future__ import annotations
+
+import ast
+import importlib
+import inspect
+from pathlib import Path
+
+import pytest
+
+from src.nodes.prompt_renderer import (
+    clear_template_cache,
+    load_partial,
+    load_template,
+    render_prompt,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "src" / "nodes" / "templates"
+
+
+# ---------------------------------------------------------------------------
+# Module-level checks
+# ---------------------------------------------------------------------------
+
+
+class TestModuleStructure:
+    """Verify structural invariants of the renderer module itself."""
+
+    def test_three_public_functions_are_importable(self):
+        """load_template, render_prompt, clear_template_cache must all be importable."""
+        from src.nodes import prompt_renderer  # noqa: F401 (import check)
+
+        assert callable(load_template)
+        assert callable(render_prompt)
+        assert callable(clear_template_cache)
+        assert callable(load_partial)
+
+    def test_stdlib_only_imports(self):
+        """prompt_renderer must not import any non-stdlib dependency."""
+        import src.nodes.prompt_renderer as pm
+
+        source = inspect.getsource(pm)
+        tree = ast.parse(source)
+        discovered: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                discovered.extend(n.name.split(".")[0] for n in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    discovered.append(node.module.split(".")[0])
+        allowed = {"re", "pathlib", "collections", "__future__", "typing", "annotations"}
+        non_stdlib = [m for m in discovered if m not in allowed and not m.startswith("_")]
+        assert non_stdlib == [], f"Non-stdlib imports found: {non_stdlib}"
+
+    def test_templates_directory_exists(self):
+        """orchestrator/src/nodes/templates/ must exist."""
+        assert _TEMPLATES_DIR.is_dir(), f"templates/ not found at {_TEMPLATES_DIR}"
+
+
+# ---------------------------------------------------------------------------
+# load_template
+# ---------------------------------------------------------------------------
+
+
+class TestLoadTemplate:
+    """Behaviour of load_template()."""
+
+    def setup_method(self):
+        clear_template_cache()
+
+    def test_raises_file_not_found_for_missing_stage(self, tmp_path):
+        """load_template('nonexistent') must raise FileNotFoundError, not return None."""
+        with pytest.raises(FileNotFoundError):
+            load_template("nonexistent_stage_xyz_test_sentinel")
+
+    def test_caches_result_on_second_call(self, tmp_path, monkeypatch):
+        """Second call for the same stage must return the cached string without re-reading."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._TEMPLATES_DIR",
+            tmp_path,
+        )
+        stage_file = tmp_path / "cached_stage.md"
+        stage_file.write_text("original content", encoding="utf-8")
+
+        first = load_template("cached_stage")
+        assert first == "original content"
+
+        # Modify the file after the first load — cache must still return original.
+        stage_file.write_text("modified content", encoding="utf-8")
+        second = load_template("cached_stage")
+        assert second == "original content", "Cache was not used on second call"
+
+    def test_clear_cache_forces_reread(self, tmp_path, monkeypatch):
+        """clear_template_cache() must cause load_template to re-read from disk."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._TEMPLATES_DIR",
+            tmp_path,
+        )
+        stage_file = tmp_path / "reload_stage.md"
+        stage_file.write_text("v1", encoding="utf-8")
+        assert load_template("reload_stage") == "v1"
+
+        stage_file.write_text("v2", encoding="utf-8")
+        clear_template_cache()
+        assert load_template("reload_stage") == "v2"
+
+    def test_returns_str_not_bytes(self, tmp_path, monkeypatch):
+        """load_template must return a str, not bytes."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._TEMPLATES_DIR",
+            tmp_path,
+        )
+        (tmp_path / "str_stage.md").write_text("hello", encoding="utf-8")
+        result = load_template("str_stage")
+        assert isinstance(result, str)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../etc/passwd",
+            "",
+            "name.with.dots",
+            "/absolute/path",
+            "has space",
+            "semi;colon",
+        ],
+    )
+    def test_raises_value_error_for_invalid_name(self, name):
+        """load_template raises ValueError for names that don't match [\\w-]+."""
+        with pytest.raises(ValueError):
+            load_template(name)
+
+
+# ---------------------------------------------------------------------------
+# load_partial
+# ---------------------------------------------------------------------------
+
+
+class TestLoadPartial:
+    """Behaviour of load_partial()."""
+
+    def setup_method(self):
+        clear_template_cache()
+
+    def test_reads_partial_file(self, tmp_path, monkeypatch):
+        """load_partial('example') reads templates/partials/example.md."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "example.md").write_text("partial content", encoding="utf-8")
+        result = load_partial("example")
+        assert result == "partial content"
+
+    def test_returns_str_not_bytes(self, tmp_path, monkeypatch):
+        """load_partial must return a str, not bytes."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "str_partial.md").write_text("hello", encoding="utf-8")
+        result = load_partial("str_partial")
+        assert isinstance(result, str)
+
+    def test_caches_result_on_second_call(self, tmp_path, monkeypatch):
+        """Second call for the same partial must return cached string without re-reading."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        partial_file = tmp_path / "cached.md"
+        partial_file.write_text("original", encoding="utf-8")
+
+        first = load_partial("cached")
+        assert first == "original"
+
+        partial_file.write_text("modified", encoding="utf-8")
+        second = load_partial("cached")
+        assert second == "original", "Cache was not used on second call"
+
+    def test_raises_file_not_found_for_missing_partial(self):
+        """load_partial('nonexistent') must raise FileNotFoundError."""
+        with pytest.raises(FileNotFoundError):
+            load_partial("nonexistent_partial_xyz_sentinel")
+
+    def test_clear_cache_forces_reread(self, tmp_path, monkeypatch):
+        """clear_template_cache() must cause load_partial to re-read from disk."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        partial_file = tmp_path / "reread.md"
+        partial_file.write_text("v1", encoding="utf-8")
+        assert load_partial("reread") == "v1"
+
+        partial_file.write_text("v2", encoding="utf-8")
+        clear_template_cache()
+        assert load_partial("reread") == "v2"
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../etc/passwd",
+            "",
+            "name.with.dots",
+            "/absolute/path",
+            "has space",
+            "semi;colon",
+        ],
+    )
+    def test_raises_value_error_for_invalid_name(self, name):
+        """load_partial raises ValueError for names that don't match [\\w-]+."""
+        with pytest.raises(ValueError):
+            load_partial(name)
+
+
+# ---------------------------------------------------------------------------
+# render_prompt — include directives
+# ---------------------------------------------------------------------------
+
+
+class TestRenderPromptIncludes:
+    """{{> partial-name}} include directive behaviour."""
+
+    def setup_method(self):
+        clear_template_cache()
+
+    def test_include_replaced_with_partial_content(self, tmp_path, monkeypatch):
+        """render_prompt() replaces {{> name}} markers with partial file content."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "greeting.md").write_text("Hello from partial\n", encoding="utf-8")
+        template = "Before\n{{> greeting}}\nAfter"
+        result = render_prompt(template, {})
+        assert "Hello from partial" in result
+        assert "Before" in result
+        assert "After" in result
+        assert "{{>" not in result
+
+    def test_variables_in_partial_are_substituted(self, tmp_path, monkeypatch):
+        """Variables inside included partials (e.g., {wp_id}) are substituted correctly."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "scope.md").write_text("Scope: {wp_id}\n", encoding="utf-8")
+        template = "{{> scope}}\nEnd"
+        result = render_prompt(template, {"wp_id": "WP-042"})
+        assert "Scope: WP-042" in result
+
+    def test_include_resolved_before_conditionals(self, tmp_path, monkeypatch):
+        """{{> partial}} includes are resolved before {{#if}} evaluation."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        # Partial contains an {{#if}} block that must be evaluated after inclusion.
+        (tmp_path / "cond.md").write_text(
+            "{{#if show}}\nConditional text\n{{/if}}\n", encoding="utf-8"
+        )
+        template = "{{> cond}}\nEnd"
+
+        result_show = render_prompt(template, {"show": "yes"})
+        assert "Conditional text" in result_show
+
+        result_hide = render_prompt(template, {"show": ""})
+        assert "Conditional text" not in result_hide
+
+    def test_no_recursive_includes(self, tmp_path, monkeypatch):
+        """{{> partial}} inside a partial (one level deep) is resolved correctly."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "outer.md").write_text("{{> inner}}\n", encoding="utf-8")
+        (tmp_path / "inner.md").write_text("Inner content\n", encoding="utf-8")
+        template = "{{> outer}}\nEnd"
+        result = render_prompt(template, {})
+        # One level deep: inner content IS resolved via outer → inner expansion.
+        assert "Inner content" in result
+        assert "End" in result
+
+    def test_includes_not_resolved_beyond_one_level(self, tmp_path, monkeypatch):
+        """{{> partial}} inside a second-level partial (two levels deep) is NOT resolved."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "outer.md").write_text("{{> inner}}\n", encoding="utf-8")
+        (tmp_path / "inner.md").write_text("{{> deepest}}\n", encoding="utf-8")
+        (tmp_path / "deepest.md").write_text("Deepest content\n", encoding="utf-8")
+        template = "{{> outer}}\nEnd"
+        result = render_prompt(template, {})
+        # Two levels deep: deepest content must NOT appear.
+        assert "Deepest content" not in result
+        assert "End" in result
+
+    def test_inline_include_ignored(self, tmp_path, monkeypatch):
+        """{{> name}} preceded by other text on the same line is not processed."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "side.md").write_text("injected content\n", encoding="utf-8")
+        # The include marker has text before it — must NOT be expanded.
+        template = "text before {{> side}}"
+        result = render_prompt(template, {})
+        assert "injected content" not in result
+
+
+# ---------------------------------------------------------------------------
+# render_prompt — conditional blocks
+# ---------------------------------------------------------------------------
+
+
+class TestRenderPromptConditionals:
+    """{{#if var}}…{{/if}} block evaluation."""
+
+    _TEMPLATE = "Header\n{{#if show}}\nVisible content\n{{/if}}\nFooter"
+
+    def test_truthy_variable_includes_block(self):
+        out = render_prompt(self._TEMPLATE, {"show": "yes"})
+        assert "Visible content" in out
+        assert "Footer" in out
+
+    def test_falsy_empty_string_hides_block(self):
+        out = render_prompt(self._TEMPLATE, {"show": ""})
+        assert "Visible content" not in out
+        assert "Footer" in out
+
+    def test_missing_key_hides_block(self):
+        """Missing keys are falsy (defaultdict(str) → empty string)."""
+        out = render_prompt(self._TEMPLATE, {})
+        assert "Visible content" not in out
+
+    def test_block_markers_stripped_from_truthy_output(self):
+        out = render_prompt(self._TEMPLATE, {"show": "yes"})
+        assert "{{#if" not in out
+        assert "{{/if}}" not in out
+
+    def test_block_markers_stripped_from_falsy_output(self):
+        out = render_prompt(self._TEMPLATE, {"show": ""})
+        assert "{{#if" not in out
+        assert "{{/if}}" not in out
+
+    def test_multiple_independent_blocks(self):
+        template = "{{#if a}}\nA block\n{{/if}}\n{{#if b}}\nB block\n{{/if}}\nEnd"
+        out = render_prompt(template, {"a": "1", "b": ""})
+        assert "A block" in out
+        assert "B block" not in out
+        assert "End" in out
+
+    def test_inline_if_marker_not_processed_as_conditional(self):
+        """Markers not on their own line are not processed as conditional blocks.
+        
+        Note: Python's format_map transforms ``{{`` → ``{`` as escape notation,
+        so inline markers like ``{{#if var}}`` become ``{#if var}`` in the output.
+        This is not a conditional block evaluation — it is a format_map side-effect.
+        The key invariant is: the block body is NOT conditionally included/excluded.
+        """
+        template = "Inline {{#if var}} not-a-block {{/if}} text"
+        out = render_prompt(template, {"var": "yes"})
+        # Block body is not conditionally evaluated (it always appears).
+        assert "not-a-block" in out
+        # format_map consumes the double-braces as escape sequences.
+        assert "{{#if var}}" not in out
+
+
+# ---------------------------------------------------------------------------
+# render_prompt — variable substitution
+# ---------------------------------------------------------------------------
+
+
+class TestRenderPromptVariables:
+    """{{variable}} substitution behaviour."""
+
+    def test_present_variable_substituted(self):
+        out = render_prompt("Value is {x}", {"x": "42"})
+        assert out == "Value is 42"
+
+    def test_missing_variable_resolves_to_empty_string(self):
+        out = render_prompt("A={missing} B={present}", {"present": "X"})
+        assert "{" not in out
+        assert "X" in out
+        assert "A= B=X" == out
+
+    def test_multiple_variables_substituted(self):
+        out = render_prompt("{a} and {b}", {"a": "hello", "b": "world"})
+        assert out == "hello and world"
+
+    def test_empty_variables_dict_leaves_no_placeholders(self):
+        out = render_prompt("no vars here", {})
+        assert out == "no vars here"
+
+
+# ---------------------------------------------------------------------------
+# render_prompt — blank line collapse
+# ---------------------------------------------------------------------------
+
+
+class TestRenderPromptBlankLineCollapse:
+    """Consecutive blank lines (3+) are collapsed to a single blank line."""
+
+    def test_three_newlines_collapsed(self):
+        out = render_prompt("line1\n\n\n\nline2", {})
+        assert "\n\n\n" not in out
+
+    def test_two_newlines_preserved(self):
+        """Two newlines (one blank line) must NOT be collapsed."""
+        out = render_prompt("line1\n\nline2", {})
+        assert "\n\n" in out
+
+    def test_collapse_after_conditional_removal(self):
+        """Removing a conditional block must not leave triple-blank-line gaps."""
+        template = "Start\n\n{{#if gone}}\nRemoved\n{{/if}}\n\nEnd"
+        out = render_prompt(template, {"gone": ""})
+        assert "\n\n\n" not in out
+        assert "End" in out
+
+
+# ---------------------------------------------------------------------------
+# render_prompt — combined pipeline
+# ---------------------------------------------------------------------------
+
+
+class TestRenderPromptPipeline:
+    """End-to-end render_prompt behaviour with realistic template fragments."""
+
+    def test_standard_prompt_fragment(self):
+        """Minimal stage-prompt template renders correctly."""
+        template = (
+            "{{#if preamble}}\n"
+            "{preamble}\n"
+            "{{/if}}\n"
+            "**Project:** `{project_path}`\n"
+            "{{#if wp_id}}\n"
+            "**Work package:** {wp_id}\n"
+            "{{/if}}\n"
+            "{project_path_reminder}"
+        )
+        out = render_prompt(
+            template,
+            {
+                "preamble": "Do great work.",
+                "project_path": "/some/path",
+                "wp_id": "WP-001",
+                "project_path_reminder": "Always use the project path.",
+            },
+        )
+        assert "Do great work." in out
+        assert "/some/path" in out
+        assert "WP-001" in out
+        assert "Always use the project path." in out
+        assert "{{" not in out
+
+    def test_wp_id_omitted_when_empty(self):
+        template = "{{#if wp_id}}\n**Work package:** {wp_id}\n{{/if}}\n{project_path}"
+        out = render_prompt(template, {"wp_id": "", "project_path": "/p"})
+        assert "Work package" not in out
+        assert "/p" in out
+
+    def test_partial_include_in_pipeline(self, tmp_path, monkeypatch):
+        """Template fragment using {{> partial}} syntax renders correctly end-to-end."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "custom-reminder.md").write_text(
+            "Only work on: {wp_id}\n", encoding="utf-8"
+        )
+        template = (
+            "**Project:** `{project_path}`\n"
+            "{{> custom-reminder}}\n"
+            "{{#if preamble}}\n"
+            "{preamble}\n"
+            "{{/if}}\n"
+        )
+        out = render_prompt(
+            template,
+            {
+                "project_path": "/some/path",
+                "wp_id": "WP-007",
+                "preamble": "Do great work.",
+            },
+        )
+        assert "/some/path" in out
+        assert "Only work on: WP-007" in out
+        assert "Do great work." in out
+        assert "{{>" not in out
+
+
+# ---------------------------------------------------------------------------
+# clear_template_cache
+# ---------------------------------------------------------------------------
+
+
+class TestClearTemplateCache:
+    """clear_template_cache() contract."""
+
+    def test_callable_without_error(self):
+        clear_template_cache()  # must not raise
+
+    def test_callable_when_cache_already_empty(self):
+        clear_template_cache()
+        clear_template_cache()  # idempotent
+
+    def test_clears_cached_entries(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._TEMPLATES_DIR",
+            tmp_path,
+        )
+        (tmp_path / "clr.md").write_text("cached", encoding="utf-8")
+        load_template("clr")
+        clear_template_cache()
+        (tmp_path / "clr.md").write_text("fresh", encoding="utf-8")
+        assert load_template("clr") == "fresh"
+
+    def test_clears_partial_cache_entries(self, tmp_path, monkeypatch):
+        """clear_template_cache() must also clear the partial cache."""
+        monkeypatch.setattr(
+            "src.nodes.prompt_renderer._PARTIALS_DIR",
+            tmp_path,
+        )
+        (tmp_path / "clr_partial.md").write_text("v1", encoding="utf-8")
+        load_partial("clr_partial")
+        clear_template_cache()
+        (tmp_path / "clr_partial.md").write_text("v2", encoding="utf-8")
+        assert load_partial("clr_partial") == "v2"
+
+
+# ---------------------------------------------------------------------------
+# Integration: importable from src.nodes
+# ---------------------------------------------------------------------------
+
+
+class TestNodeModuleImports:
+    """All 8 stage node modules must import cleanly with the current __init__.py state."""
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "src.nodes.developer",
+            "src.nodes.qa",
+            "src.nodes.reviewer",
+            "src.nodes.docs",
+            "src.nodes.security_auditor",
+            "src.nodes.release_engineer",
+            "src.nodes.pm",
+            "src.nodes.synthesis",
+        ],
+    )
+    def test_stage_module_importable(self, module_name):
+        """No NameError or ImportError when importing stage node modules."""
+        mod = importlib.import_module(module_name)
+        assert mod is not None
+
+    def test_build_stage_prompt_not_in_nodes(self):
+        """build_stage_prompt must not exist in src.nodes (it was removed by WP-004)."""
+        import src.nodes as nodes_mod
+
+        assert not hasattr(nodes_mod, "build_stage_prompt"), (
+            "build_stage_prompt was re-introduced — it was intentionally removed by WP-004"
+        )
+
+```
 ###  Path: `/orchestrator/tests/test_state.py`
 
 ```py
@@ -5006,6 +5658,142 @@ class TestStateGraphIntegration:
         # This is the primary acceptance criterion: no exception raised.
         graph = StateGraph(WorkflowState)
         assert graph is not None
+
+```
+###  Path: `/orchestrator/tests/test_subprocess_encoding.py`
+
+```py
+"""
+Tests for ``src.utils.subprocess_encoding`` — the Windows subprocess text-mode
+encoding monkeypatch.
+
+Covers:
+1. Patch is applied on Windows (or skipped on non-Windows).
+2. ``errors='replace'`` is injected when ``text=True`` and no explicit ``errors``.
+3. Explicit ``errors=`` is never overridden.
+4. Binary-mode (no text=True, no encoding=) is never affected.
+5. ``encoding='...'`` without ``text=True`` also triggers the patch.
+6. Idempotency — importing/applying twice doesn't stack patches.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+# ---------------------------------------------------------------------------
+# 1. Patch application
+# ---------------------------------------------------------------------------
+
+
+class TestPatchApplication:
+    def test_module_importable(self):
+        """The module must import without errors."""
+        import src.utils.subprocess_encoding  # noqa: F401
+
+    def test_patch_flag_is_set(self):
+        """After import, the _PATCHED flag must be True on Windows."""
+        import src.utils.subprocess_encoding as mod
+
+        if sys.platform == "win32":
+            assert mod._PATCHED is True
+        else:
+            # On non-Windows, the patch is a no-op.
+            assert mod._PATCHED is False
+
+    def test_idempotent(self):
+        """Calling _apply_patch() again must not stack patches."""
+        import src.utils.subprocess_encoding as mod
+
+        prev = subprocess.Popen.__init__
+        mod._apply_patch()
+        assert subprocess.Popen.__init__ is prev, "Patch must not stack on repeated apply"
+
+
+# ---------------------------------------------------------------------------
+# 2–5. Subprocess.Popen argument injection (Windows only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Patch only applies on Windows")
+class TestPopenErrorsInjection:
+    """Verify that the monkeypatch injects ``errors='replace'`` correctly."""
+
+    def test_text_true_injects_errors_replace(self, tmp_path):
+        """Popen(text=True) without errors= must get errors='replace'."""
+        # Use a harmless command that finishes immediately.
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # Check that the stdout wrapper has 'replace' error mode.
+        assert p.stdout is not None
+        assert p.stdout.errors == "replace"
+        p.communicate()
+        p.wait()
+
+    def test_explicit_errors_not_overridden(self, tmp_path):
+        """Popen(text=True, errors='strict') must keep 'strict'."""
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            text=True,
+            errors="strict",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert p.stdout is not None
+        assert p.stdout.errors == "strict"
+        p.communicate()
+        p.wait()
+
+    def test_encoding_without_text_injects_errors(self):
+        """Popen(encoding='utf-8') (no text=True) must also get errors='replace'."""
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        assert p.stdout is not None
+        assert p.stdout.errors == "replace"
+        p.communicate()
+        p.wait()
+
+    def test_binary_mode_unaffected(self):
+        """Popen without text=True or encoding= must not be patched."""
+        p = subprocess.Popen(
+            ["cmd", "/c", "echo hello"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        # In binary mode, stdout has no 'errors' attribute.
+        assert not hasattr(p.stdout, "errors") or p.stdout.errors is None  # type: ignore[union-attr]
+        p.communicate()
+        p.wait()
+
+    def test_replacement_character_on_invalid_bytes(self, tmp_path):
+        """Bytes invalid in UTF-8 must be replaced, not crash."""
+        # Write a file containing 0x82 (invalid in UTF-8, valid in CP1252).
+        bad_file = tmp_path / "bad.bin"
+        bad_file.write_bytes(b"hello \x82 world\n")
+
+        p = subprocess.Popen(
+            ["cmd", "/c", f"type {bad_file}"],
+            text=True,
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        stdout, _ = p.communicate()
+        # The 0x82 byte should be replaced with U+FFFD, not crash.
+        assert "\ufffd" in stdout or "hello" in stdout
+        assert p.returncode == 0
 
 ```
 ###  Path: `/orchestrator/tests/test_supervisor.py`
@@ -5542,6 +6330,7 @@ class TestRouteToSynthesis:
         cmd = await node(base_state())
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_routes_to_synthesis_when_all_wps_mix_of_complete_and_cancelled(self):
         """WPs that are a mix of COMPLETE and CANCELLED should route to synthesis."""
@@ -5556,6 +6345,7 @@ class TestRouteToSynthesis:
         cmd = await node(base_state())
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_pending_count_excludes_cancelled_wps(self):
         """CANCELLED WPs must not be counted as pending (pending_count should be 0)."""
@@ -5570,6 +6360,7 @@ class TestRouteToSynthesis:
 
         assert cmd.goto == "synthesis"
         assert cmd.update["pending_wp_count"] == 0
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_all_pipelines_pass_routes_to_synthesis(self):
         """All six pipelines PASS → WP considered done → synthesis."""
@@ -5593,6 +6384,45 @@ class TestRouteToSynthesis:
         cmd = await node(base_state())
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
+
+    async def test_synthesis_all_terminal_clears_stale_wp_id(self):
+        """All-WPs-terminal synthesis path clears a stale current_wp_id."""
+        tools = make_mcp_tools(
+            wp_list=[
+                wp_summary("WP-001", "COMPLETE"),
+                wp_summary("WP-002", "COMPLETE"),
+            ]
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-STALE"
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
+
+    async def test_synthesis_all_wait_clears_stale_wp_id(self):
+        """All-roles-WAIT synthesis path clears a stale current_wp_id.
+
+        WP-001 is IN_PROGRESS but circuit-broken (3 consecutive failures),
+        so all roles skip it and the supervisor falls through to the
+        all-roles-WAIT synthesis route.
+        """
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-STALE"
+        state["consecutive_failures"] = {"WP-001": 3}  # circuit-breaks WP-001 → all roles WAIT
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
 
 # ---------------------------------------------------------------------------
@@ -7735,10 +8565,17 @@ class TestRestrictToWpMatchingWpId:
 
 class TestRestrictToWpMismatchRaises:
     async def test_mismatching_wp_id_raises_value_error(self):
-        """A call with a work_package_id that differs from the active WP must raise ValueError."""
+        """Third cross-WP call (after two soft-fails) must raise ValueError."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # First two violations return error strings (soft-fail).
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str)
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str)
+
+        # Third violation must raise ValueError.
         with pytest.raises(ValueError, match="WP-002"):
             await tool.ainvoke({"work_package_id": "WP-002"})
 
@@ -7747,14 +8584,26 @@ class TestRestrictToWpMismatchRaises:
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance first.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError, match=ACTIVE_WP):
             await tool.ainvoke({"work_package_id": "WP-999"})
 
     async def test_toolcall_mismatch_raises_value_error(self):
-        """ToolCall structure with mismatching work_package_id must raise ValueError."""
+        """ToolCall structure with mismatching work_package_id
+        raises ValueError on third violation."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-bad",
+                "type": "tool_call",
+            })
         with pytest.raises(ValueError):
             await tool.ainvoke({
                 "name": "ledger_begin_work",
@@ -7762,6 +8611,131 @@ class TestRestrictToWpMismatchRaises:
                 "id": "call-bad",
                 "type": "tool_call",
             })
+
+
+# ---------------------------------------------------------------------------
+# 12b. Soft-fail strike counter behavior (WP-001 acceptance criteria)
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictToWpSoftFail:
+    """Full behavior of the 2-strike soft-fail counter in restrict_to_wp."""
+
+    async def test_first_violation_returns_error_string(self):
+        """First cross-WP call must return a descriptive error string, not raise."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), "First violation must return a string, not raise"
+        assert "ERROR" in result
+
+    async def test_first_violation_error_string_contains_both_wp_ids(self):
+        """The returned error string must mention both the wrong and the expected WP ID."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert "WP-002" in result, "Error string must mention the rejected WP ID"
+        assert ACTIVE_WP in result, "Error string must mention the active WP ID"
+
+    async def test_second_violation_returns_error_string(self):
+        """Second cross-WP call must also return an error string (still within soft-fail limit)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result1, str) and "ERROR" in result1
+        assert isinstance(result2, str) and "ERROR" in result2
+
+    async def test_third_violation_raises_value_error(self):
+        """Third cross-WP call must raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+        with pytest.raises(ValueError):
+            await tool.ainvoke({"work_package_id": "WP-002"})  # strike 3 → hard kill
+
+    async def test_strike_counter_shared_across_tools(self):
+        """Violations from different tools must count toward the same shared counter."""
+        tool_a = _make_guard_tool()
+        tool_b = _make_guard_tool()
+        tool_a.name = "tool_a"
+        tool_b.name = "tool_b"
+        restrict_to_wp([tool_a, tool_b], ACTIVE_WP)
+
+        # Strike 1 from tool_a.
+        result1 = await tool_a.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str) and "ERROR" in result1
+
+        # Strike 2 from tool_b.
+        result2 = await tool_b.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str) and "ERROR" in result2
+
+        # Strike 3 from tool_a — shared counter is at 2, so this must hard-kill.
+        with pytest.raises(ValueError):
+            await tool_a.ainvoke({"work_package_id": "WP-002"})
+
+    async def test_correct_calls_do_not_increment_counter(self):
+        """Successful calls (matching WP ID) must not affect the strike counter."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Many correct calls — counter must not advance.
+        for _ in range(10):
+            await tool.ainvoke({"work_package_id": ACTIVE_WP})
+
+        # After 10 correct calls, the first violation must still be a soft-fail.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Correct calls must not increment the strike counter"
+        )
+        assert len(seen) == 10, "Only correct calls must reach the underlying tool"
+
+    async def test_toolcall_structure_first_violation_returns_tool_message(self):
+        """ToolCall nested-dict structure: first violation must return ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-soft",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "error"
+        assert "ERROR" in result.content
+
+    async def test_counter_resets_on_new_restrict_call(self):
+        """Calling restrict_to_wp again creates a fresh counter (simulating new stage)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Use up both soft-fail allowances.
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+
+        # Re-wrap (simulating a new stage invocation).
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Counter should have reset — first violation is soft-fail again.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Counter must reset when restrict_to_wp is called again"
+        )
 
 
 class TestRestrictToWpIdempotency:
@@ -7788,19 +8762,112 @@ class TestRestrictToWpIdempotency:
         )
 
     async def test_double_wrap_still_guards(self):
-        """After double-wrap, the guard must still fire on mismatch."""
+        """After double-wrap, the guard must still fire: first mismatch returns an error string."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
         restrict_to_wp([tool], ACTIVE_WP)
 
-        with pytest.raises(ValueError):
-            await tool.ainvoke({"work_package_id": "WP-bad"})
+        result = await tool.ainvoke({"work_package_id": "WP-bad"})
+        assert isinstance(result, str), (
+            "Guard must return error string on first mismatch after double-wrap"
+        )
+        assert "ERROR" in result
 
     def test_double_wrap_returns_same_list(self):
         """restrict_to_wp must return the same list object (in-place mutation)."""
         tools = [_make_guard_tool()]
         result = restrict_to_wp(tools, ACTIVE_WP)
         assert result is tools
+
+
+class TestRestrictToWpReadOnlyExemption:
+    """Read-only tools (e.g. ledger_get_work_package) must be exempt from
+    the cross-WP guard so agents can read other work packages for context."""
+
+    def _make_read_tool(
+        self,
+        seen: list[Any] | None = None,
+        name: str = "ledger_get_work_package",
+    ) -> _GuardTool:
+        tool = _make_guard_tool(seen)
+        tool.name = name
+        return tool
+
+    async def test_read_tool_with_different_wp_passes(self):
+        """A read-only tool targeting a different WP must NOT raise ValueError."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # WP-002 ≠ ACTIVE_WP ("WP-001") — must pass for read-only tools.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert len(seen) == 1
+        assert seen[0]["work_package_id"] == "WP-002"
+
+    async def test_read_tool_does_not_get_wp_injected(self):
+        """A read-only tool that omits work_package_id must NOT have it auto-injected."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert len(seen) == 1
+        assert "work_package_id" not in seen[0]
+
+    async def test_read_tool_ainvoke_not_replaced(self):
+        """A read-only tool's ainvoke must not be wrapped at all."""
+        tool = self._make_read_tool()
+        original = tool.ainvoke
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        assert tool.ainvoke is original
+
+    async def test_write_tool_still_guarded(self):
+        """A write tool in the same call must still be guarded; read tool passes freely."""
+        read_tool = self._make_read_tool()
+        write_tool = _make_guard_tool()
+        write_tool.name = "ledger_begin_work"
+
+        restrict_to_wp([read_tool, write_tool], ACTIVE_WP)
+
+        # Read tool — cross-WP passes without restriction.
+        await read_tool.ainvoke({"work_package_id": "WP-002"})
+
+        # Write tool — first cross-WP call returns error string (soft-fail guard is active).
+        result = await write_tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Write tool must be guarded — first violation must return error string"
+        )
+
+    async def test_all_read_only_tools_exempt(self):
+        """Every tool in _READ_ONLY_TOOLS must be exempt from the guard."""
+        from src.utils.tool_wrappers import _READ_ONLY_TOOLS
+
+        for tool_name in _READ_ONLY_TOOLS:
+            tool = self._make_read_tool(name=tool_name)
+            original = tool.ainvoke
+            restrict_to_wp([tool], ACTIVE_WP)
+            assert tool.ainvoke is original, (
+                f"{tool_name} should be exempt but ainvoke was replaced"
+            )
+
+    async def test_toolcall_structure_read_tool_passes(self):
+        """ToolCall nested-dict with a different WP must pass for read-only tools."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_work_package",
+            "args": {"work_package_id": "WP-003"},
+            "id": "call-read",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == "WP-003"
 
 
 class TestRestrictToWpIntegrationWithInjectProjectPath:
@@ -7819,13 +8886,72 @@ class TestRestrictToWpIntegrationWithInjectProjectPath:
         assert seen[0]["project_path"] == PROJECT
 
     async def test_chained_wrappers_mismatch_raises(self):
-        """inject_project_path followed by restrict_to_wp — mismatch raises ValueError."""
+        """inject_project_path followed by restrict_to_wp — third mismatch raises ValueError."""
         tool = _make_guard_tool()
         inject_project_path([tool], PROJECT)
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError):
             await tool.ainvoke({"work_package_id": "WP-999"})
+
+
+class TestSharedToolReWrapAcrossWPs:
+    """Regression: shared tool objects re-wrapped for a different WP must
+    enforce the *new* WP, not the stale one from the previous invocation.
+
+    This reproduces the production bug where the full wrapper chain
+    (inject → restrict → log) captured stale sentinel targets, causing
+    the outermost wrapper to bypass the updated WP guard.
+    """
+
+    async def test_full_chain_rewrap_enforces_new_wp(self):
+        """Simulate two node invocations on the same tool objects with different WPs."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+
+        # --- First node invocation (WP-001) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+        assert len(seen) == 1
+
+        # --- Second node invocation (WP-002) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # Must succeed — the guard should now enforce WP-002, not WP-001.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+        assert len(seen) == 2
+
+    async def test_full_chain_rewrap_rejects_old_wp(self):
+        """After re-wrapping for WP-002, calls targeting WP-001 must be rejected."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        tool = _make_guard_tool()
+
+        # First invocation (WP-001)
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        # Second invocation (WP-002) — counter resets because restrict_to_wp is re-called.
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # First WP-001 call after re-wrap is soft-fail (returns error string).
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Cross-WP call must return error string on first violation after re-wrap"
+        )
 
 
 def _make_stage_node_state(*, current_wp_id: str = "WP-001") -> dict:
@@ -8430,6 +9556,406 @@ class TestLogToolCallsEdgeCases:
         assert order == ["log", "original"], (
             f"Expected log before original, got: {order}"
         )
+
+
+# ===========================================================================
+# 13. ledger_detect_project short-circuit
+# ===========================================================================
+
+
+class _DetectProjectTool:
+    """Tool stub with name='ledger_detect_project' to trigger the short-circuit."""
+
+    def __init__(self, seen: list[Any] | None = None) -> None:
+        _seen: list[Any] = seen if seen is not None else []
+        self.name = "ledger_detect_project"
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> str:
+            _seen.append(input)
+            return "mcp_result"
+
+        self.ainvoke = _ainvoke
+
+
+class TestDetectProjectShortCircuit:
+    """Verify that ledger_detect_project calls are short-circuited by
+    inject_project_path without forwarding to the MCP server.
+
+    ledger_detect_project is an IDE-facing tool that cross-references
+    cwd_path against stored project roots.  In the orchestrator
+    project_path is always known, so the wrapper returns a synthetic
+    JSON response immediately.
+    """
+
+    async def test_original_ainvoke_not_called(self):
+        """When tool is ledger_detect_project, the original ainvoke must NOT be called."""
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 0, (
+            "Original ainvoke must not be called for ledger_detect_project"
+        )
+
+    async def test_returns_valid_json(self):
+        """The short-circuit result must be valid JSON."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        # Must not raise
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
+
+    async def test_response_contains_plan_path(self):
+        """The synthetic response must contain 'plan_path' equal to project_path."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["plan_path"] == PROJECT
+
+    async def test_response_contains_slug(self):
+        """The synthetic response must contain 'slug' derived from the last path segment."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["slug"] == "my-project"
+
+    async def test_response_contains_title(self):
+        """The synthetic response must contain 'title' derived from the slug."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["title"] == "My Project"
+
+    async def test_title_with_underscores(self):
+        """Underscores in the slug must also be replaced when deriving title."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my_project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["title"] == "My Project"
+
+    async def test_response_contains_active_status(self):
+        """The synthetic response must contain 'status' equal to 'active'."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["status"] == "active"
+
+    async def test_slug_with_trailing_slash(self):
+        """A project_path with a trailing slash must still produce the correct slug."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project/")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["slug"] == "my-project"
+
+    async def test_toolcall_structure_also_short_circuited(self):
+        """Short-circuit must also apply when input has ToolCall {'args': {...}} structure."""
+        import json
+
+        from langchain_core.messages import ToolMessage
+
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/some/workspace"},
+            "id": "call-detect",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 0, "Original ainvoke must not be called for ToolCall input either"
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage for ToolCall input, got {type(result).__name__}"
+        )
+        parsed = json.loads(result.content)
+        assert parsed["plan_path"] == PROJECT
+
+    async def test_other_tool_names_not_short_circuited(self):
+        """Tools with names other than ledger_detect_project must still delegate to original."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)  # name = "test_tool"
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert len(seen) == 1, "Non-detect-project tools must reach the original ainvoke"
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_short_circuit_with_cwd_path_input_no_original_call(self):
+        """Even when caller passes cwd_path, the short-circuit fires and original is skipped."""
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"cwd_path": "/workspace"})
+
+        assert len(seen) == 0, "Short-circuit must fire regardless of what input contains"
+
+    async def test_short_circuit_idempotent_double_wrap(self):
+        """Double-wrapping a ledger_detect_project tool must not stack closures."""
+        import json
+
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        assert len(seen) == 0
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
+
+# ===========================================================================
+# _make_tool_response — helper unit tests
+# ===========================================================================
+
+from src.utils.tool_wrappers import _make_tool_response  # noqa: E402
+
+
+class TestMakeToolResponse:
+    """Unit tests for the _make_tool_response helper function."""
+
+    def test_plain_dict_without_id_returns_string(self):
+        """A plain dict (no 'id' key) must return the content string as-is."""
+        result = _make_tool_response("some error", {"args": {}}, "my_tool")
+        assert isinstance(result, str)
+        assert result == "some error"
+
+    def test_dict_with_id_returns_tool_message(self):
+        """A dict with 'id' key must return a ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response(
+            "bad input", {"id": "call-123", "args": {}}, "ledger_begin_work"
+        )
+        assert isinstance(result, ToolMessage)
+        assert result.content == "bad input"
+        assert result.tool_call_id == "call-123"
+        assert result.name == "ledger_begin_work"
+        assert result.status == "error"
+
+    def test_non_dict_input_returns_string(self):
+        """Non-dict input (e.g. a string) must return the content string as-is."""
+        result = _make_tool_response("hello", "raw string", "tool")
+        assert isinstance(result, str)
+        assert result == "hello"
+
+    def test_none_input_returns_string(self):
+        """None input must return the content string as-is."""
+        result = _make_tool_response("content", None, "tool")
+        assert isinstance(result, str)
+        assert result == "content"
+
+    def test_status_error_default(self):
+        """Default status must be 'error'."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response("err", {"id": "c1"}, "t")
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+
+    def test_status_success_forwarded(self):
+        """Explicit status='success' must be forwarded to ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response("ok", {"id": "c2"}, "t", status="success")
+        assert isinstance(result, ToolMessage)
+        assert result.status == "success"
+
+    def test_dict_with_id_none_returns_string(self):
+        """A dict with 'id' set to None must return a plain string."""
+        result = _make_tool_response("msg", {"id": None}, "tool")
+        assert isinstance(result, str)
+        assert result == "msg"
+
+
+# ===========================================================================
+# ledger_detect_project short-circuit — ToolMessage wrapping tests
+# ===========================================================================
+
+
+class TestLedgerDetectProjectToolMessage:
+    """Verify that the ledger_detect_project short-circuit returns ToolMessage
+    when called with a ToolCall dict (containing 'id')."""
+
+    async def test_toolcall_returns_tool_message(self):
+        """ToolCall input with 'id' must produce a ToolMessage with status='success'."""
+        import json
+        
+        from langchain_core.messages import ToolMessage
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/some/workspace"},
+            "id": "call-detect-tm",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "success"
+        assert result.tool_call_id == "call-detect-tm"
+        assert result.name == "ledger_detect_project"
+
+        parsed = json.loads(result.content)
+        assert parsed["plan_path"] == PROJECT
+        assert "slug" in parsed
+        assert "title" in parsed
+        assert "status" in parsed
+
+    async def test_flat_dict_returns_string(self):
+        """Flat dict input (no 'id') must still return a plain JSON string."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        assert isinstance(result, str), (
+            f"Expected str for flat dict, got {type(result).__name__}"
+        )
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
+
+# ===========================================================================
+# restrict_to_wp — ToolMessage wrapping tests
+# ===========================================================================
+
+
+class TestRestrictToWpToolMessage:
+    """Verify that restrict_to_wp soft-fail returns ToolMessage when called
+    with a ToolCall dict (containing 'id')."""
+
+    async def test_toolcall_soft_fail_returns_tool_message(self):
+        """First violation with ToolCall input must return ToolMessage with status='error'."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-wp-tm",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "error"
+        assert result.tool_call_id == "call-wp-tm"
+        assert result.name == "guard_tool"
+        assert "ERROR" in result.content
+        assert "WP-007" in result.content
+        assert ACTIVE_WP in result.content
+
+    async def test_toolcall_second_violation_returns_tool_message(self):
+        """Second violation with ToolCall input must also return ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # First violation
+        await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-v1",
+            "type": "tool_call",
+        })
+
+        # Second violation
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-v2",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert result.tool_call_id == "call-v2"
+
+    async def test_flat_dict_soft_fail_returns_string(self):
+        """Flat dict input (no 'id') must still return a plain error string."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), (
+            f"Expected str for flat dict, got {type(result).__name__}"
+        )
+        assert "ERROR" in result
+
+    async def test_toolcall_third_violation_still_raises(self):
+        """Third violation with ToolCall input must still raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Exhaust soft-fail allowance with ToolCall inputs.
+        for i in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": f"call-exhaust-{i}",
+                "type": "tool_call",
+            })
+
+        with pytest.raises(ValueError, match="WP-007"):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-hard-kill",
+                "type": "tool_call",
+            })
 
 
 ```

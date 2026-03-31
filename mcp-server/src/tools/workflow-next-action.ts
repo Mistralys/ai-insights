@@ -603,7 +603,7 @@ export async function getDeveloperAction(rootIndex: RootIndex, store: LedgerStor
 
     // P6: IMPLEMENT (IN_PROGRESS, no implementation pipeline started yet)
     if (wpDetail.status === 'IN_PROGRESS') {
-      const hasImplPipeline = wpDetail.pipelines.some((p) => p.type === 'implementation');
+      const hasImplPipeline = wpDetail.pipelines.some((p) => p.type === 'implementation' && !p.auto_cancelled);
       if (!hasImplPipeline) {
         const handoffNotes = getHandoffNotesForAgent(wpDetail, 'Developer');
         return {

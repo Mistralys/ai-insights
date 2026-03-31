@@ -261,7 +261,7 @@ export async function getNextActionsCollector(
       if (
         (wpDetail.status === 'READY' || wpDetail.status === 'IN_PROGRESS') &&
         !hasDependencyBlocked(wpDetail) &&
-        !wpDetail.pipelines.some((p) => p.type === 'implementation')
+        !wpDetail.pipelines.some((p) => p.type === 'implementation' && !p.auto_cancelled)
       ) {
         const handoffNotes = wpDetail.assigned_to === 'Developer'
           ? (getHandoffNotesForAgent(wpDetail, 'Developer') ?? undefined)

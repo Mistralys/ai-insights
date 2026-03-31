@@ -115,6 +115,7 @@ const orchestrateCmd = path.join(WORKSPACE_ROOT, 'orchestrator', '.venv', venvBi
 const result = spawnSync(orchestrateCmd, forwardedArgs, {
   stdio: 'inherit',
   shell: false,
+  env: { ...process.env, PYTHONUTF8: '1' },
 });
 
 process.exit(result.status ?? 1);

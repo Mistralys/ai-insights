@@ -5,8 +5,14 @@ import { planFolderBasename } from './path-validator.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Package root: from src/utils/ up two levels
+// Package root: from src/utils/ up two levels → mcp-server/
 const serverDir = join(__dirname, '..', '..');
+
+// Workspace root: from mcp-server/ up one level → ai-insights/
+const workspaceRoot = join(serverDir, '..');
+
+/** Absolute path to the orchestrator's live logs directory. */
+export const ORCHESTRATOR_LOGS_DIR = join(workspaceRoot, 'orchestrator', 'logs');
 
 /**
  * Returns the absolute path to the central ledger root directory.

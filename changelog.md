@@ -1,5 +1,25 @@
 # AI Insights Changelog
 
+## v1.15.0 - Cross-Platform Hardening
+> mcp v1.22.0 · orchestrator v0.13.0 · personas v3.10.8
+
+- Orchestrator: Cross-WP guard now soft-fails before hard kill; read-only tools exempt.
+- Orchestrator: Error-path dialogue capture preserves partial transcripts on crashes.
+- Orchestrator: Windows subprocess encoding support added.
+- MCP: Path traversal checks use platform-native separator.
+- MCP: Auto-cancelled pipelines no longer block developer action recommendations.
+- Personas: Added Standalone Developer and Ledger Workflow Doctor personas.
+- Personas: Subagent invocations now use agent name variables.
+
+## v1.14.0 - Template-Driven Prompts
+> mcp v1.21.1 · orchestrator v0.12.0
+
+- Orchestrator: Stage prompts now use a Markdown template engine with partials and conditionals, replacing inline Python.
+- Orchestrator: Simplified all stage prompts to project-path-only; WP details and scope restrictions removed.
+- MCP: GUI renders `tool_call` events with debug severity and cross-WP badges.
+- MCP: `max_handoff_depth` default raised from 50 to 100.
+- Scripts: Added `preview-prompts` command for rendering and reviewing stage templates.
+
 ## v1.13.0 - Tool-Call Visibility
 > orchestrator v0.11.0
 

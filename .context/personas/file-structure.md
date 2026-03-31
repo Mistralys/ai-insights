@@ -108,6 +108,7 @@ _SOURCE: Directory tree_
             ├── composer-curator.md
             ├── ctx-architect.md
             ├── dependency-sequencer.md
+            ├── developer-standalone.md
             ├── ledger-bootstrapper.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
@@ -117,6 +118,7 @@ _SOURCE: Directory tree_
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
+            ├── workflow-doctor.md
             ├── workflow-orchestrator.md
             ├── wp-decomposer.md
         └── src/
@@ -126,6 +128,7 @@ _SOURCE: Directory tree_
             │   ├── composer-curator.md
             │   ├── ctx-architect.md
             │   ├── dependency-sequencer.md
+            │   ├── developer.md
             │   ├── ledger-bootstrapper.md
             │   ├── manifest-curator.md
             │   ├── module-intent-architect.md
@@ -135,6 +138,7 @@ _SOURCE: Directory tree_
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
             │   ├── whatsnew-curator.md
+            │   ├── workflow-doctor.md
             │   ├── workflow-orchestrator.md
             │   ├── wp-decomposer.md
             ├── meta/
@@ -144,6 +148,7 @@ _SOURCE: Directory tree_
             │   └── composer-curator.yaml
             │   └── ctx-architect.yaml
             │   └── dependency-sequencer.yaml
+            │   └── developer.yaml
             │   └── ledger-bootstrapper.yaml
             │   └── manifest-curator.yaml
             │   └── module-intent-architect.yaml
@@ -153,6 +158,7 @@ _SOURCE: Directory tree_
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
             │   └── whatsnew-curator.yaml
+            │   └── workflow-doctor.yaml
             │   └── workflow-orchestrator.yaml
             │   └── wp-decomposer.yaml
         └── vs-code/
@@ -161,6 +167,7 @@ _SOURCE: Directory tree_
             └── composer-curator.agent.md
             └── ctx-architect.agent.md
             └── dependency-sequencer.agent.md
+            └── developer-standalone.agent.md
             └── ledger-bootstrapper.agent.md
             └── manifest-curator.agent.md
             └── module-intent-architect.agent.md
@@ -170,6 +177,7 @@ _SOURCE: Directory tree_
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
             └── whatsnew-curator.agent.md
+            └── workflow-doctor.agent.md
             └── workflow-orchestrator.agent.md
             └── wp-decomposer.agent.md
 

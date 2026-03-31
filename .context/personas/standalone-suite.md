@@ -70,7 +70,7 @@ Each step is a separate agent invocation. The PM passes structured output from o
 
 ## Persona Catalog
 
-All 15 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
+All 16 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 
 ### PM Sub-Agent Cluster
 
@@ -94,6 +94,7 @@ All 15 standalone personas, sourced from `personas/standalone/src/meta/*.yaml`:
 | `orchestrator-runner` | Orchestrator Runner | Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document. | `orchestrator-runner.agent.md` | `orchestrator-runner.md` |
 | `readme-curator` | README Curator | Produces a human-optimized README.md that follows a landing-page funnel: Hook → Features → Requirements → Quick Start → Learn More. | `readme-curator.agent.md` | `readme-curator.md` |
 | `researcher` | Researcher | Research solutions to complex problems through known patterns or creative thinking. | `researcher.agent.md` | `researcher.md` |
+| `standalone-developer` | Standalone Developer | Implement scoped plan documents without ledger workflow, including code insights and a `synthesis.md` output in the plan folder. | `standalone-developer.agent.md` | `standalone-developer.md` |
 | `unit-test-auditor` | Unit Test Auditor | Audit specific codebase parts. | `unit-test-auditor.agent.md` | `unit-test-auditor.md` |
 | `whatsnew-curator` | WHATSNEW Curator | Write bilingual WHATSNEW.xml release note entries from the developer changelog, filtering to user-facing changes only. | `whatsnew-curator.agent.md` | `whatsnew-curator.md` |
 

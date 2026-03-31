@@ -529,6 +529,7 @@ class TestRouteToSynthesis:
         cmd = await node(base_state())
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_routes_to_synthesis_when_all_wps_mix_of_complete_and_cancelled(self):
         """WPs that are a mix of COMPLETE and CANCELLED should route to synthesis."""
@@ -543,6 +544,7 @@ class TestRouteToSynthesis:
         cmd = await node(base_state())
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_pending_count_excludes_cancelled_wps(self):
         """CANCELLED WPs must not be counted as pending (pending_count should be 0)."""
@@ -557,6 +559,7 @@ class TestRouteToSynthesis:
 
         assert cmd.goto == "synthesis"
         assert cmd.update["pending_wp_count"] == 0
+        assert cmd.update.get("current_wp_id") == ""
 
     async def test_all_pipelines_pass_routes_to_synthesis(self):
         """All six pipelines PASS → WP considered done → synthesis."""
@@ -580,6 +583,45 @@ class TestRouteToSynthesis:
         cmd = await node(base_state())
 
         assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
+
+    async def test_synthesis_all_terminal_clears_stale_wp_id(self):
+        """All-WPs-terminal synthesis path clears a stale current_wp_id."""
+        tools = make_mcp_tools(
+            wp_list=[
+                wp_summary("WP-001", "COMPLETE"),
+                wp_summary("WP-002", "COMPLETE"),
+            ]
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-STALE"
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
+
+    async def test_synthesis_all_wait_clears_stale_wp_id(self):
+        """All-roles-WAIT synthesis path clears a stale current_wp_id.
+
+        WP-001 is IN_PROGRESS but circuit-broken (3 consecutive failures),
+        so all roles skip it and the supervisor falls through to the
+        all-roles-WAIT synthesis route.
+        """
+        tools = make_mcp_tools(
+            wp_list=[wp_summary("WP-001", "IN_PROGRESS")],
+            wp_details={"WP-001": wp_with_pipelines("WP-001", [])},
+        )
+        node = make_supervisor_node(tools)
+        state = base_state()
+        state["current_wp_id"] = "WP-STALE"
+        state["consecutive_failures"] = {"WP-001": 3}  # circuit-breaks WP-001 → all roles WAIT
+
+        cmd = await node(state)
+
+        assert cmd.goto == "synthesis"
+        assert cmd.update.get("current_wp_id") == ""
 
 
 # ---------------------------------------------------------------------------

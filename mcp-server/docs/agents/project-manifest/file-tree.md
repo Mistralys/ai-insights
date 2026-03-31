@@ -79,14 +79,17 @@ mcp-server/
 │   └── utils/                   # Utility functions
 │       ├── workflow-helpers.ts  # Shared constants and stateless helpers
 │       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs
+│       ├── client-info.ts       # Module-level MCP server reference for extracting client info
 │       ├── constants.ts         # Shared constants derived from shared/workflow-manifest.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
 │       ├── path-validator.ts    # Project path validation
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
 │       ├── project-reset.ts     # Semi-intelligent project reset
-│       ├── timestamp.ts         # Timestamp formatting
+│       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
+│       ├── server-version.ts    # Reads MCP server version from package.json
+│       ├── timestamp.ts         # Timestamp formatting
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
@@ -96,18 +99,28 @@ mcp-server/
     │   └── test-utils.ts        # injectLedgerDir(), nowFloor()
     │
     ├── gui/                     # GUI and config module tests
-    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── api-client.test.ts
     │   ├── api-reset.test.ts    # Integration tests for handleResetProject (13 tests)
     │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
-    │   ├── config.test.ts       # Unit tests for src/gui/config.ts
     │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
-    │   └── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
+    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── client-rendering.test.ts
+    │   ├── config.test.ts       # Unit tests for src/gui/config.ts
+    │   ├── dialogue-qa.test.ts
+    │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
+    │   ├── log-resolver.test.ts
+    │   ├── project-detail-runs.test.ts
+    │   ├── run-log-handlers.test.ts
+    │   ├── run-log-server.test.ts
+    │   ├── run-log.test.ts
+    │   └── security-headers.test.ts
     │
     ├── integration/             # End-to-end workflow tests
     │   ├── auto-handoff.test.ts
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
+    │   ├── project-archiving-schema.test.ts
     │   ├── project-meta-runner.test.ts  # 10 backward-compatibility tests (WP-005 verification of WP-001 AC5): ProjectMetaSchema and RootIndexSchema accept runner fields when present (orchestrator, vscode, claude-code), accept empty strings for runner_client/runner_version, reject invalid enum values, and parse cleanly without runner fields (legacy fixture and full real-world legacy project-ledger.json simulation)
     │   ├── root-index.test.ts   # RootIndexSchema and WorkPackageSummarySchema tests (20 tests)
     │   ├── validators.test.ts
@@ -118,18 +131,28 @@ mcp-server/
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
+    │   ├── begin-work.test.ts
     │   ├── cancelled-status.test.ts
     │   ├── cascade-reblock.test.ts
     │   ├── claim-guard.test.ts
+    │   ├── complete-pipeline-guards.test.ts
+    │   ├── enrichment-resilience.test.ts
+    │   ├── list-projects.test.ts
+    │   ├── meta-enrichment.test.ts
+    │   ├── observations.test.ts
+    │   ├── pipeline-duration.test.ts
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts
     │   ├── rework-circuit-breaker.test.ts
+    │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   ├── schema-integrity.test.ts
+    │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
+    │   ├── version-freshness.test.ts
     │   ├── work-package.test.ts
+    │   ├── workflow-batch-actions.test.ts
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts
-    │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
     │   └── workflow-rework-loop.test.ts
     │
     └── utils/                   # Utility function tests

@@ -25,10 +25,12 @@
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| `tsx` | ^4.19.2 | TypeScript execution for development |
-| `vitest` | ^2.1.8 | Unit and integration testing framework |
-| `typescript` | ^5.7.2 | TypeScript compiler |
 | `@types/node` | ^22.10.5 | Node.js type definitions |
+| `@types/proper-lockfile` | ^4.1.4 | Type definitions for proper-lockfile |
+| `jsdom` | ^29.0.0 | DOM implementation for GUI tests |
+| `tsx` | ^4.19.2 | TypeScript execution for development |
+| `typescript` | ^5.7.2 | TypeScript compiler |
+| `vitest` | ^4.0.18 | Unit and integration testing framework |
 
 ---
 
@@ -38,7 +40,7 @@
 
 The application is structured as an **MCP (Model Context Protocol) server** that:
 - Runs as a standalone process communicating via STDIO
-- Registers multiple tools (17 total) that agents can invoke
+- Registers multiple tools (22 total) that agents can invoke
 - Returns structured JSON responses conforming to MCP specification
 - Logs diagnostics to `stderr` (never `stdout`, which is reserved for protocol)
 
@@ -199,11 +201,15 @@ function resolveStore(
 
 | Script | Command | Purpose |
 |--------|---------|----------|
+| **sync-version** | `npm run sync-version` | Sync version from changelog.md to package.json |
+| **predev** | *(auto)* | Runs sync-version before dev |
 | **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
 | **dev** | `npm run dev` | Run server in development mode with tsx |
 | **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js --check` before every test run — exits 1 if any generated persona file is stale, blocking the test run. This is **one of two** enforcement layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
 | **test** | `npm test` | Run all tests once (pretest fires first) |
 | **test:watch** | `npm run test:watch` | Run tests in watch mode |
+| **check:roles** | `npm run check:roles` | Validate workflow manifest roles via `scripts/check-known-roles.js` |
+| **gui** | `npm run gui` | Start the GUI dashboard server (`tsx gui/server.ts`) |
 
 No explicit build step is required for development (tsx handles TypeScript on-the-fly).
 For production or CI, run `npm run build` — compilation fails immediately on any type error (`noEmitOnError: true`) and no output is written to `dist/`.

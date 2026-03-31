@@ -11,10 +11,9 @@ Slim prompt strategy
 containing only immediate runtime context:
 
 - ``project_path`` — concrete path for every MCP tool call.
-- ``wp_id`` — active work package identifier.
 
-The prompt is assembled by :func:`~src.nodes.build_stage_prompt`, the
-single source of truth for user-turn prompt structure. Identity declarations,
+The prompt is assembled by :func:`~src.nodes.prompt_renderer.render_prompt`
+using the ``release_engineer`` Markdown template.  Identity declarations,
 workflow steps, and MCP tool call guidance live in the Release Engineer
 persona system prompt loaded from ``personas/ledger/claude-code/``.
 
@@ -31,15 +30,17 @@ if TYPE_CHECKING:
     from src.config import Config
     from src.state import WorkflowState
 
-from . import build_stage_prompt, create_stage_node
+from . import create_stage_node
+from .prompt_renderer import load_template, render_prompt
+
+_TEMPLATE = load_template("release_engineer")
 
 
 def _build_release_engineer_prompt(state: WorkflowState) -> str:
     """Construct the Release Engineer agent's user-turn prompt."""
-    return build_stage_prompt(
-        state["project_path"],
-        wp_id=state.get("current_wp_id", ""),  # type: ignore[call-overload]
-    )
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+    })
 
 
 def make_release_engineer_node(config: Config, mcp_tools: list[Any]):

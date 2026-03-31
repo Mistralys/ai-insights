@@ -22,6 +22,7 @@ A headless, deterministic alternative to IDE-based agent workflows. The orchestr
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
+  - [Developer utilities](#developer-utilities)
 - [Architecture](#architecture)
 - [Folder Overview](#folder-overview)
 - [Documentation Index](#documentation-index)
@@ -185,6 +186,37 @@ orchestrate plan.md --interrupt-on pm,fail,synthesis
 orchestrate plan.md --log-level DEBUG
 ```
 
+### Developer utilities
+
+#### Previewing stage prompts
+
+`scripts/preview-prompts.py` is a standalone developer utility that renders all orchestrator stage prompt templates with representative placeholder values and writes the fully-resolved Markdown files to `orchestrator/dist/stage-prompts/` (gitignored). Use it to inspect the exact prompt each stage will receive without running the full orchestrator pipeline — useful when editing or optimising templates.
+
+```bash
+# Render all 14 output files (pm.md, synthesis.md, and
+# {stage}-with-wp.md / {stage}-without-wp.md for each WP-scoped stage)
+node scripts/cli.js preview-prompts
+
+# Render a single stage (2 files for WP-scoped stages, 1 for pm/synthesis)
+node scripts/cli.js preview-prompts --stage developer
+node scripts/cli.js preview-prompts --stage pm
+
+# List the 8 available stage names and exit (no files written)
+node scripts/cli.js preview-prompts --list
+```
+
+You can also invoke the script directly:
+
+```bash
+python scripts/preview-prompts.py
+python scripts/preview-prompts.py --stage reviewer
+python scripts/preview-prompts.py --list
+```
+
+No `.env` file or LLM credentials are required — the script imports only `prompt_renderer` and the Python standard library.
+
+---
+
 ### Locating a run's thread ID
 
 The thread ID is printed at the start of every run and in the run summary under `Thread ID`. It looks like a UUID: `3fa85f64-5717-4562-b3fc-2c963f66afa6`.
@@ -263,9 +295,12 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/config.py` | `.env` loading, provider auto-detection, `capture_dialogues` flag, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
+| `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
+| `src/nodes/templates/` | Per-stage Markdown prompt templates (one `.md` per stage, e.g. `developer.md`). Editable without touching Python. |
 | `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`) |
 | `tests/` | 374 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
+| `dist/stage-prompts/` | Gitignored build output — rendered stage prompt previews written by `scripts/preview-prompts.py` |
 
 ---
 

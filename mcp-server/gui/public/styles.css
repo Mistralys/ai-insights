@@ -1742,6 +1742,15 @@ th[data-sort="total_work_packages"] {
 /* Success — green accent */
 .run-event--success { border-left-color: var(--color-complete); }
 
+/* Debug — muted, for high-frequency events like tool_call */
+.run-event--debug {
+  border-left-color: var(--color-border);
+  opacity: 0.75;
+  font-size: 12px;
+  padding: 6px 14px;
+  margin-bottom: 4px;
+}
+
 /* ── WP badge (shown in event card header) ─────────────── */
 
 .run-wp-badge {
@@ -1860,6 +1869,7 @@ th[data-sort="total_work_packages"] {
 [data-theme="dark"] .run-event--warning { border-left-color: var(--color-in-progress); }
 [data-theme="dark"] .run-event--error   { border-left-color: var(--color-blocked); }
 [data-theme="dark"] .run-event--success { border-left-color: var(--color-complete); }
+[data-theme="dark"] .run-event--debug   { border-left-color: var(--color-border); }
 
 [data-theme="dark"] .badge-pass {
   background: #14532d;

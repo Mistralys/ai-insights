@@ -933,6 +933,143 @@ class TestDialogueCaptured:
 
 
 # ---------------------------------------------------------------------------
+# Tests: error-path dialogue capture (WP-002)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorPathDialogueCapture:
+    """Error-path dialogue capture: partial dialogue written when stage crashes
+    after agent.ainvoke() populates _msgs."""
+
+    class _BrokenMsg:
+        """Message stub whose .content access raises, simulating a post-ainvoke crash."""
+
+        @property
+        def content(self) -> str:
+            raise RuntimeError("Simulated failure in success path after ainvoke")
+
+        usage_metadata = None
+
+    async def _invoke_with_post_ainvoke_error(
+        self, capture: bool = True, wp_id: str = "WP-001"
+    ) -> dict:
+        """Invoke developer node where agent.ainvoke() returns messages but
+        subsequent .content access raises, driving the except path."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig() if capture else _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            return await node_fn(base_state(current_wp_id=wp_id))
+
+    async def test_dialogue_captured_when_msgs_populated(self):
+        """dialogue_captured must appear in run_log (partial=True) on the error
+        path when _msgs contains messages collected before the crash."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert dc_entries, (
+            "dialogue_captured must appear in run_log when _msgs is non-empty on error path"
+        )
+        entry = dc_entries[0]
+        assert entry.get("partial") is True, (
+            "Error-path dialogue_captured entry must have partial=True"
+        )
+        assert entry.get("level") == "INFO"
+        assert entry.get("wp_id") == "WP-001"
+        assert entry.get("file_path"), "file_path must be a non-empty string"
+
+    async def test_stage_fails_even_when_partial_dialogue_written(self):
+        """Stage must still return stage_success=False when error-path dialogue is written."""
+        result = await self._invoke_with_post_ainvoke_error()
+
+        assert result["stage_success"] is False
+
+    async def test_no_dialogue_when_msgs_empty(self):
+        """No dialogue_captured when exception occurs before agent.ainvoke()
+        (empty _msgs — e.g. create_deep_agent raises)."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        with _patch_persona(), \
+             patch(
+                 "deepagents.create_deep_agent",
+                 side_effect=RuntimeError("Pre-ainvoke crash"),
+             ), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must NOT appear when _msgs is empty (exception before ainvoke)"
+        )
+        assert result["stage_success"] is False
+
+    async def test_error_path_dialogue_failure_is_non_fatal(self):
+        """write_dialogue failure on the error path must not crash the stage or
+        change the returned stage_success or error values."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _CaptureConfig()
+        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
+
+        agent_mock = MagicMock()
+        agent_mock.ainvoke = AsyncMock(
+            return_value={"messages": [self._BrokenMsg()]}
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=agent_mock), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch(
+                 "src.nodes.write_dialogue",
+                 side_effect=PermissionError("disk full"),
+             ), \
+             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+            result = await node_fn(base_state(current_wp_id="WP-001"))
+
+        # Stage must still return stage_success=False (original error preserved).
+        assert result["stage_success"] is False
+        # No dialogue_captured entry because write_dialogue raised.
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when write_dialogue raises on error path"
+        )
+
+    async def test_no_dialogue_when_capture_flag_false(self):
+        """Error-path dialogue capture must respect capture_dialogues=False."""
+        result = await self._invoke_with_post_ainvoke_error(capture=False)
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when capture_dialogues=False"
+        )
+
+    async def test_no_dialogue_when_wp_id_empty(self):
+        """Error-path dialogue capture must not fire when wp_id is empty."""
+        result = await self._invoke_with_post_ainvoke_error(wp_id="")
+
+        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
+        assert not dc_entries, (
+            "dialogue_captured must not appear when wp_id is empty"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Tests: slug derivation uses Path(...).name (WP-002)
 # ---------------------------------------------------------------------------
 
@@ -1057,15 +1194,11 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_developer_prompt_has_slim_fields(self):
-        """_build_developer_prompt must include project_path, wp_id,
-        pipeline_type, and project_path reminder."""
+        """_build_developer_prompt must include project_path and project_path reminder."""
         from src.nodes.developer import _build_developer_prompt
 
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
-        assert "implementation" in prompt, (
-            "Pipeline-type line must contain 'implementation'"
-        )
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_developer_prompt_has_no_identity_declarations(self):
         """_build_developer_prompt must not contain identity/role declaration text."""
@@ -1074,66 +1207,16 @@ class TestSlimPromptContent:
         prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "developer")
 
-    def test_developer_prompt_contains_ledger_begin_work_instruction(self):
-        """_build_developer_prompt extra must contain 'ledger_begin_work'
-        and 'type=\"implementation\"'."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "ledger_begin_work" in prompt, (
-            "Developer prompt must contain 'ledger_begin_work' in the extra instruction"
-        )
-        assert 'type="implementation"' in prompt, (
-            "Developer prompt must contain 'type=\"implementation\"' in the extra instruction"
-        )
-
-    def test_developer_prompt_wp_id_is_dynamic(self):
-        """The wp_id in the ledger_begin_work instruction must be substituted from state."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt_a = _build_developer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_developer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a, "wp_id WP-001 must appear in prompt"
-        assert "WP-042" in prompt_b, "wp_id WP-042 must appear in prompt"
-        # Cross-check: the wrong WP ID must not appear in each prompt.
-        assert "WP-042" not in prompt_a, "WP-042 must not appear in prompt built for WP-001"
-        assert "WP-001" not in prompt_b, "WP-001 must not appear in prompt built for WP-042"
-
-    def test_developer_prompt_step1_is_bold_markdown(self):
-        """The Step 1 instruction must use bold markdown for visual prominence."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "**Step 1" in prompt, (
-            "Developer prompt must contain a bold '**Step 1' instruction"
-        )
-
-    def test_developer_prompt_contains_scope_restriction(self):
-        """Developer prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.developer import _build_developer_prompt
-
-        prompt = _build_developer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "Developer prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "Developer prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"Developer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
     # ------------------------------------------------------------------
     # QA node
     # ------------------------------------------------------------------
 
     def test_qa_prompt_has_slim_fields(self):
-        """_build_qa_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_qa_prompt must include project_path and project_path reminder."""
         from src.nodes.qa import _build_qa_prompt
 
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_qa_prompt_has_no_identity_declarations(self):
         """_build_qa_prompt must not contain identity/role declaration text."""
@@ -1142,43 +1225,16 @@ class TestSlimPromptContent:
         prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "qa")
 
-    def test_qa_prompt_contains_scope_restriction(self):
-        """_build_qa_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.qa import _build_qa_prompt
-
-        prompt = _build_qa_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "QA prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "QA prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"QA prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
-    def test_qa_prompt_scope_restriction_is_dynamic(self):
-        """QA scope restriction must substitute wp_id dynamically from state."""
-        from src.nodes.qa import _build_qa_prompt
-
-        prompt_a = _build_qa_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_qa_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a
-        assert "WP-042" in prompt_b
-        assert "WP-042" not in prompt_a
-        assert "WP-001" not in prompt_b
-
     # ------------------------------------------------------------------
     # Reviewer node
     # ------------------------------------------------------------------
 
     def test_reviewer_prompt_has_slim_fields(self):
-        """_build_reviewer_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_reviewer_prompt must include project_path and project_path reminder."""
         from src.nodes.reviewer import _build_reviewer_prompt
 
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_reviewer_prompt_has_no_identity_declarations(self):
         """_build_reviewer_prompt must not contain identity/role declaration text."""
@@ -1187,44 +1243,17 @@ class TestSlimPromptContent:
         prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
         self._assert_no_identity_phrases(prompt, "reviewer")
 
-    def test_reviewer_prompt_contains_scope_restriction(self):
-        """_build_reviewer_prompt must contain the SCOPE RESTRICTION block with dynamic wp_id."""
-        from src.nodes.reviewer import _build_reviewer_prompt
-
-        prompt = _build_reviewer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        assert "SCOPE RESTRICTION" in prompt, (
-            "Reviewer prompt must contain 'SCOPE RESTRICTION'"
-        )
-        assert "work_package_id" in prompt, (
-            "Reviewer prompt scope restriction must mention 'work_package_id'"
-        )
-        assert _SLIM_WP_ID in prompt, (
-            f"Reviewer prompt scope restriction must contain the active wp_id {_SLIM_WP_ID!r}"
-        )
-
-    def test_reviewer_prompt_scope_restriction_is_dynamic(self):
-        """Reviewer scope restriction must substitute wp_id dynamically from state."""
-        from src.nodes.reviewer import _build_reviewer_prompt
-
-        prompt_a = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-001"))  # type: ignore[arg-type]
-        prompt_b = _build_reviewer_prompt(_build_slim_state(current_wp_id="WP-042"))  # type: ignore[arg-type]
-
-        assert "WP-001" in prompt_a
-        assert "WP-042" in prompt_b
-        assert "WP-042" not in prompt_a
-        assert "WP-001" not in prompt_b
-
     # ------------------------------------------------------------------
     # Security Auditor node
     # ------------------------------------------------------------------
 
     def test_security_auditor_prompt_has_slim_fields(self):
-        """_build_security_auditor_prompt must include project_path, wp_id,
+        """_build_security_auditor_prompt must include project_path
         and project_path reminder."""
         from src.nodes.security_auditor import _build_security_auditor_prompt
 
         prompt = _build_security_auditor_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_security_auditor_prompt_has_no_identity_declarations(self):
         """_build_security_auditor_prompt must not contain identity/role declaration text."""
@@ -1238,12 +1267,12 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_release_engineer_prompt_has_slim_fields(self):
-        """_build_release_engineer_prompt must include project_path, wp_id,
+        """_build_release_engineer_prompt must include project_path
         and project_path reminder."""
         from src.nodes.release_engineer import _build_release_engineer_prompt
 
         prompt = _build_release_engineer_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_release_engineer_prompt_has_no_identity_declarations(self):
         """_build_release_engineer_prompt must not contain identity/role declaration text."""
@@ -1257,11 +1286,11 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_docs_prompt_has_slim_fields(self):
-        """_build_docs_prompt must include project_path, wp_id, and project_path reminder."""
+        """_build_docs_prompt must include project_path and project_path reminder."""
         from src.nodes.docs import _build_docs_prompt
 
         prompt = _build_docs_prompt(_build_slim_state())  # type: ignore[arg-type]
-        self._assert_slim_fields_present(prompt, expect_wp=True)
+        self._assert_slim_fields_present(prompt, expect_wp=False)
 
     def test_docs_prompt_has_no_identity_declarations(self):
         """_build_docs_prompt must not contain identity/role declaration text."""
@@ -1275,7 +1304,13 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_pm_prompt_has_slim_fields(self, tmp_path):
-        """_build_pm_prompt must include project_path and project_path reminder (no wp_id)."""
+        """_build_pm_prompt must embed plan_file reference and plan content.
+
+        The PM is the first agent in the chain — it determines the project
+        path from the plan's location rather than consuming it from the
+        prompt.  Therefore the prompt intentionally omits project_path and
+        the project-path-reminder partial.
+        """
         from src.nodes.pm import _build_pm_prompt
 
         plan_file = tmp_path / "plan.md"
@@ -1284,10 +1319,8 @@ class TestSlimPromptContent:
         state = _build_slim_state(project_path=str(tmp_path), plan_file="plan.md")
         prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
 
-        assert str(tmp_path) in prompt, "project_path must be present in PM prompt"
-        assert "ledger tool calls" in prompt, (
-            "project_path reminder must be present in PM prompt"
-        )
+        assert "plan.md" in prompt, "plan_file reference must be present in PM prompt"
+        assert "# Plan" in prompt, "plan content must be embedded in PM prompt"
 
     def test_pm_prompt_has_no_identity_declarations(self, tmp_path):
         """_build_pm_prompt must not contain identity/role declaration text."""
@@ -1568,3 +1601,38 @@ class TestCreateStageNodeWiring:
             f"log_tool_calls called with non-empty wp_id for synthesis: {args[2]!r}"
         )
         assert args[3] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: LocalShellBackend receives inherit_env=True
+# ---------------------------------------------------------------------------
+
+
+class TestLocalShellBackendInheritEnv:
+    """LocalShellBackend must be constructed with inherit_env=True so that
+    agent subprocesses can access host CLI tools (python, npm, git, etc.)."""
+
+    async def test_stage_node_passes_inherit_env_true(self):
+        """create_stage_node must call LocalShellBackend(inherit_env=True)."""
+        from src.nodes import create_stage_node
+
+        node_fn = create_stage_node(
+            stage="developer",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        backend_cls_mock = MagicMock(return_value=MagicMock())
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", return_value=_make_agent_mock()), \
+             patch("deepagents.backends.LocalShellBackend", backend_cls_mock):
+            await node_fn(base_state())
+
+        backend_cls_mock.assert_called_once()
+        _, kwargs = backend_cls_mock.call_args
+        assert kwargs.get("inherit_env") is True, (
+            f"LocalShellBackend must be called with inherit_env=True, "
+            f"got kwargs={kwargs!r}"
+        )

@@ -13,6 +13,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── composer-curator.yaml
                 └── ctx-architect.yaml
                 └── dependency-sequencer.yaml
+                └── developer.yaml
                 └── ledger-bootstrapper.yaml
                 └── manifest-curator.yaml
                 └── module-intent-architect.yaml
@@ -22,6 +23,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
                 └── whatsnew-curator.yaml
+                └── workflow-doctor.yaml
                 └── workflow-orchestrator.yaml
                 └── wp-decomposer.yaml
 
@@ -166,6 +168,35 @@ tools:
   - read
   - edit
   - search
+
+```
+###  Path: `/personas/standalone/src/meta/developer.yaml`
+
+```yaml
+slug: developer-standalone
+name: "Developer (Standalone)"
+description: "Implement scoped plan documents without ledger workflow, including code insights and end-of-plan synthesis."
+vs_file_name: developer-standalone.agent.md
+id: developer-standalone
+cc_file_name: developer-standalone.md
+version: "1.0.0"
+last_updated: "2026-03-29"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - todo
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Grep
+  - TodoRead
+  - TodoWrite
 
 ```
 ###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`
@@ -384,6 +415,41 @@ tools:
   - search
   - agent
   - todo
+
+```
+###  Path: `/personas/standalone/src/meta/workflow-doctor.yaml`
+
+```yaml
+slug: workflow-doctor
+name: "Workflow Doctor"
+description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix state corruption, unlock stalled pipelines, and resolve technical issues."
+vs_file_name: workflow-doctor.agent.md
+id: standalone-workflow-doctor
+cc_file_name: workflow-doctor.md
+version: "1.0.0"
+last_updated: "2026-03-28"
+mcp_server_name: central_pm
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - mcp
+  - todo
+  - central_pm/*
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - WebFetch
+  - TodoRead
+  - TodoWrite
 
 ```
 ###  Path: `/personas/standalone/src/meta/workflow-orchestrator.yaml`

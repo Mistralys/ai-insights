@@ -121,7 +121,7 @@
   "constants": {
     "max_rework_count": 5,
     "stale_pipeline_hours": 24,
-    "max_handoff_depth": 50,
+    "max_handoff_depth": 100,
     "handoff_depth_multiplier": 30
   }
 }

@@ -72,7 +72,6 @@ _SOURCE: Directory tree_
         ├── storage/
         │   ├── atomic-writer.ts
         │   ├── file-lock.ts
-        │   ├── ledger-store-copy.txt
         │   ├── ledger-store.ts
         ├── tools/
         │   ├── begin-work.ts

@@ -140,7 +140,7 @@ For complete signatures and full field descriptions see the linked documents abo
 
 ## JSONL Event Types — Logging Module (`src/utils/logging.py`)
 
-The schema supports **21 event types** across three emitters. For the full field reference,
+The schema supports **23 event types** across three emitters. For the full field reference,
 duration conventions, JSON examples, and backward-compatibility notes see
 [jsonl-log-schema.md](../../jsonl-log-schema.md).
 
@@ -198,6 +198,29 @@ All duration values are floats rounded to 1 decimal place.
 
 ---
 
+## Template Renderer (`src/nodes/prompt_renderer.py`)
+
+Shared by all stage node modules to assemble user-turn prompts from `.md` templates.
+Template files live at `src/nodes/templates/<stage>.md`.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `load_template` | `load_template(stage: str) -> str` | Reads and caches the Markdown template for *stage* from `src/nodes/templates/{stage}.md`. *stage* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process; subsequent calls for the same stage bypass disk I/O. |
+| `render_prompt` | `render_prompt(template: str, variables: dict[str, str]) -> str` | Four-step pipeline: (0) resolve `{{> partial-name}}` include directives — partials are expanded with one additional pass for nested `{{> ...}}` within partial content (one level deep; directives inside second-level partials are not resolved); (1) evaluate `{{#if var}}`…`{{/if}}` conditional blocks; (2) substitute `{variable}` placeholders (`defaultdict(str)` fallback for missing keys); (3) collapse 3+ consecutive newlines to one blank line. |
+| `clear_template_cache` | `clear_template_cache() -> None` | Resets the in-memory cache. For test use only. |
+| `load_partial` | `load_partial(name: str) -> str` | Reads and caches a Markdown partial for *name* from `src/nodes/templates/partials/{name}.md`. *name* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process alongside templates. |
+
+### Template Partials (`src/nodes/templates/partials/`)
+
+Shared Markdown fragments included in stage templates via `{{> partial-name}}`. Variables
+listed are resolved from the enclosing template's variable dict after inlining.
+
+| Partial file | Placeholder variables | Used by |
+|---|---|---|
+| `project-path-reminder.md` | _(none)_ | All WP-scoped templates + `synthesis` (7 of 8; `pm` inlines its content) |
+
+---
+
 ## Utilities
 
 ### `src/utils/logging.py`
@@ -229,7 +252,7 @@ All three functions are **idempotent** (sentinel attributes prevent closure stac
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
 | `inject_project_path` | `inject_project_path(tools: list[Any], project_path: str) -> list[Any]` | **Layer 2 safety net.** Auto-injects `project_path` into every tool call when absent. Uses `setdefault` semantics — explicit `project_path` values are never overwritten. Strips redundant `cwd_path` from call arguments. Sentinel: `_orig_ainvoke`. |
-| `restrict_to_wp` | `restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]` | **Layer 3 safety net.** Auto-injects `work_package_id` when absent; raises `ValueError` on explicit cross-WP calls. No-op when `wp_id` is empty (synthesis stages). Sentinel: `_orig_ainvoke_wp`. |
+| `restrict_to_wp` | `restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]` | **Layer 3 safety net (write tools only).** Auto-injects `work_package_id` when absent; soft-fails cross-WP calls (2 strikes) before raising `ValueError`. Read-only tools (in `_READ_ONLY_TOOLS`) are exempt — no wrapping, no injection, no rejection. No-op when `wp_id` is empty (synthesis stages). Sentinel: `_orig_ainvoke_wp`. |
 | `log_tool_calls` | `log_tool_calls(tools: list[Any], stage: str, wp_id: str, logger: WorkflowLogger \| None) -> list[Any]` | Emits a `tool_call` JSONL event (`level: "DEBUG"`) before each `ainvoke` call. Records `stage`, `wp_id`, `tool_name`, and `tool_wp_id`; full argument payload excluded (privacy constraint). Returns tools unchanged when `logger` is `None`. Sentinel: `_orig_ainvoke_log`. |
 
 ### Writing a New Tool Wrapper
@@ -323,42 +346,45 @@ New constraint entries should follow this structure:
 
 ### 1. Persona Files Are the Source of Truth for Agent Behaviour
 
-**Rule:** All identity declarations, workflow step enumerations, and MCP tool-call instructions live exclusively in persona system prompts (`personas/ledger/claude-code/`). User-turn prompts in `_build_*_prompt()` functions must contain only runtime context that the persona file cannot know: concrete `project_path`, `wp_id`, and plan content. All prompt builders delegate to the centralized :func:`build_stage_prompt` in `src/nodes/__init__.py`. Any change to agent behaviour must be made in the persona source files, **not** in prompt builder functions.
+**Rule:** All identity declarations, workflow step enumerations, and MCP tool-call instructions live exclusively in persona system prompts (`personas/ledger/claude-code/`). User-turn prompts in `_build_*_prompt()` functions must contain only runtime context that the persona file cannot know: concrete `project_path`, `wp_id`, and plan content. Each prompt builder assembles a variables dict and calls the template renderer — it must not embed workflow logic or behavioural instructions in Python string literals. Any change to agent behaviour must be made in the persona source files or the stage template (`.md`), **not** in Python `_build_*_prompt()` function bodies.
 
-**Rationale:** Splitting identity from runtime context keeps persona files reviewable, versionable, and reusable across different orchestration surfaces without coupling them to Python implementation details.
+**Rationale:** Splitting identity from runtime context keeps persona files reviewable, versionable, and reusable across different orchestration surfaces without coupling them to Python implementation details. Template files (`.md`) make runtime context editable without touching Python.
 
 **Anti-pattern:**
 ```python
 # ❌ WRONG — workflow instructions embedded in the user-turn prompt
-def _build_developer_prompt(project_path: str, wp_id: str) -> str:
+def _build_developer_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
     return f"""
-    CRITICAL — EVERY MCP TOOL CALL MUST include `project_path='{project_path}'`.
+    CRITICAL — EVERY MCP TOOL CALL MUST include `project_path='{state["project_path"]}'`.
 
     Your workflow:
     1. Call ledger_get_next_action with agent_role: "Developer"
     2. Read the WP spec
     3. Implement the changes
-    ...
     """
 ```
 
 **Correct pattern:**
 ```python
-# ✅ CORRECT — delegate to the centralized helper
-from . import build_stage_prompt
+# ✅ CORRECT — cache template at module level, assemble variables and delegate to the renderer
+from src.nodes.prompt_renderer import load_template, render_prompt
+
+_TEMPLATE = load_template("developer")
 
 def _build_developer_prompt(state: WorkflowState) -> str:
-    return build_stage_prompt(
-        state["project_path"],
-        wp_id=state.get("current_wp_id", ""),
-    )
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
 ```
 
 ---
 
 ### 2. The `project_path` Reminder Is Permanent
 
-**Rule:** The user-turn prompt must always include a reminder to use the specified `project_path` for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`) and must never be removed. Persona Markdown files are static and cannot contain runtime values, so this runtime reminder lives in the user-turn prompt.
+**Rule:** The user-turn prompt must always include a reminder to use the specified `project_path` for all ledger tool calls. The reminder text lives in `templates/partials/project-path-reminder.md` and is included in every stage template via `{{> project-path-reminder}}`. Persona Markdown files are static and cannot contain runtime values, so this text lives in the user-turn prompt layer. The `{{> project-path-reminder}}` include in each stage template must never be removed.
 
 **Rationale:** Without the reminder the agent may omit `project_path` from MCP tool calls, causing every ledger operation to fail.
 
@@ -366,9 +392,26 @@ def _build_developer_prompt(state: WorkflowState) -> str:
 
 ### 3. Prompt Templates Are Structurally Uniform Within Their Category
 
-**Rule:** The six WP-scoped prompt builder functions (`_build_developer_prompt`, `_build_qa_prompt`, `_build_security_auditor_prompt`, `_build_reviewer_prompt`, `_build_release_engineer_prompt`, `_build_docs_prompt`) must all delegate to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`. Any change to the minimal prompt pattern must be applied in that single helper. The PM and synthesis templates are documented exceptions with justified divergences (PM adds plan content via the `preamble`/`extra` parameters; synthesis omits `wp_id`).
+**Rule:** The six WP-scoped prompt builder functions (`_build_developer_prompt`, `_build_qa_prompt`, `_build_security_auditor_prompt`, `_build_reviewer_prompt`, `_build_release_engineer_prompt`, `_build_docs_prompt`) must each call `render_prompt(load_template("<stage>"), variables)` from `src.nodes.prompt_renderer`. The variables dict must include `project_path` and `wp_id` (at minimum). Shared text fragments — path reminders, scope enforcement, and stage-specific instructions — are embedded in templates via `{{> partial-name}}` directives rather than passed as Python variables. Any change to what the six WP-scoped prompts share must be made in the shared template structure or the relevant partial file, not in individual Python function bodies. The PM and synthesis builders are documented exceptions (no `wp_id` block; PM adds plan content; synthesis omits WP scope).
 
-**Rationale:** Structural uniformity makes the prompt layer auditable at a glance and prevents silent divergence between nodes that should behave identically.
+**Rationale:** Structural uniformity makes the prompt layer auditable at a glance and prevents silent divergence between nodes that should behave identically. Template files (`.md`) are the canonical source — editing Python string literals in `_build_*_prompt()` bodies is the anti-pattern.
+
+---
+
+### 3a. Template Syntax Rules
+
+**Rule:** All stage templates MUST follow these constraints:
+
+1. **Location:** `orchestrator/src/nodes/templates/<stage>.md` — one file per stage, named exactly as the stage identifier (e.g. `developer.md`).
+2. **Variable substitution:** Use `{variable}` placeholders. Missing keys resolve to empty string — do not rely on this as a feature; always pass expected variables explicitly.
+3. **Conditional blocks:** Use `{{#if variable}}` … `{{/if}}`. Both markers must appear **on their own line** — inline markers are not treated as conditionals (they are consumed as Python format-string double-brace escapes instead, producing `{#if variable}` in the output).
+4. **No nesting:** Nested `{{#if}}` blocks are not supported.
+5. **No `{{else}}`:** Absent from the renderer — factor into two separate `{{#if}}` / `{{#if not}}` blocks (or pre-process in Python).
+6. **No external template engines:** Do not add Jinja2, Mako, or similar libraries. The renderer uses Python stdlib only (`re`, `pathlib`, `collections.defaultdict`).
+7. **Double-brace escaping:** `{{variable}}` is **not** a valid syntax marker — only `{{#if}}` / `{{/if}}` are recognised by the renderer. A literal `{{...}}` in output cannot be produced via the current renderer.
+8. **Include directives:** Stage templates may reference shared Markdown fragments in `templates/partials/` using `{{> partial-name}}` (filename without `.md` extension). Includes are expanded **before** `{{#if}}` evaluation and variable substitution, so included content participates fully in all downstream processing steps. Partials may themselves contain one level of `{{> ...}}` includes — these are expanded (the partial's partial is inlined), but any `{{> ...}}` directives inside that second-level partial are **not** further resolved. Fully recursive expansion is not supported.
+
+**Rationale:** The minimal syntax keeps prompts editable by non-developers and prevents the template layer from growing into a Turing-complete DSL that defeats the "runtime context only" principle.
 
 ---
 
@@ -470,9 +513,51 @@ async def node(state: WorkflowState, config: Optional[RunnableConfig] = None) ->
 
 ---
 
+### 11. Cross-WP Guard Exempts Read-Only Tools
+
+**Rule:** `restrict_to_wp()` in `src/utils/tool_wrappers.py` must only guard *write* tools. Read-only MCP tools — those listed in the `_READ_ONLY_TOOLS` frozenset — must be completely exempt: no `ainvoke` wrapper, no WP-ID injection, no cross-WP rejection. The exemption set must be maintained as a module-level constant in `tool_wrappers.py` and covered by dedicated tests.
+
+**Rationale:** Agents legitimately need to read other work packages for context (pipeline comments, handoff notes, dependency status). When read operations triggered the guard, stages failed spuriously. Combined with the circuit-breaker (constraint 6), this caused false cancellation of work packages whose pipelines had actually completed successfully.
+
+**Current read-only tools:** `ledger_get_work_package`, `ledger_list_work_packages`, `ledger_get_next_action`, `ledger_get_project_status`, `ledger_get_handoff_status`, `ledger_detect_project`, `ledger_list_projects`, `ledger_help`.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — guard applied uniformly to all tools, blocking cross-WP reads
+for tool in tools:
+    object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — read-only tools skip the guard entirely
+for tool in tools:
+    if getattr(tool, "name", "") in _READ_ONLY_TOOLS:
+        continue
+    object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+```
+
+---
+
+### 12. Cross-WP Guard Soft-Fails Before Hard Kill
+
+**Rule:** `restrict_to_wp()` in `src/utils/tool_wrappers.py` must use a soft-fail strategy for cross-WP write attempts before escalating to a hard exception. The first two violations return a descriptive error string to the agent; the third violation raises `ValueError` (hard kill). The strike counter must be shared across all tool closures within a single `restrict_to_wp` invocation.
+
+**Rationale:** LLM agents sometimes hallucinate or reuse tool call templates with incorrect WP IDs. Throwing a hard exception immediately bypasses the agent's ability to see the error and self-correct, often resulting in dialogue loss if safety nets are not in place. Soft-failing gives the agent two chances to fix the ID; the hard kill on the third strike prevents infinite retry loops.
+
+---
+
+### 13. Error-Path Dialogue Capture Must Be Non-Fatal
+
+**Rule:** When an agent invocation crashes (e.g. from context overflow or token limits) after partial messages have been collected, `create_stage_node()` in `src/nodes/__init__.py` must attempt to write those messages to a Markdown file. This capture must execute inside a broad `except Exception` block that silently swallows any filesystem errors, ensuring the original pipeline exception is re-raised and preserved.
+
+**Rationale:** If writing the partial dialogue to disk triggers a secondary error (e.g. `PermissionError`), it would overshadow the original exception that broke the stage, destroying critical debugging context.
+
+---
+
 ## MCP Server Dependency
 
-### 11. MCP Server Must Be Pre-Built
+### 14. MCP Server Must Be Pre-Built
 
 **Rule:** The orchestrator spawns the MCP server as a subprocess. `mcp-server/dist/index.js` must exist before any orchestration run begins. Use `node scripts/run-orchestrator.js` for automatic build-freshness checks rather than launching `orchestrator` directly.
 

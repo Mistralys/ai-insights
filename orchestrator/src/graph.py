@@ -35,6 +35,7 @@ Public API
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -68,11 +69,52 @@ _LOOP_STAGES = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Dry-run stub factory
+# ---------------------------------------------------------------------------
+
+def _make_dryrun_node(stage: str):
+    """
+    Return a no-op LangGraph node for ``--dry-run`` mode.
+
+    The stub logs the stage name and returns a state update indicating
+    success without invoking the Deep Agent.
+    """
+    from src.utils.logging import get_run_logger
+
+    def _stub(state: Any, config: Any = None) -> dict:
+        ts = datetime.now(UTC).isoformat()
+        wp_id = state.get("current_wp_id", "") if hasattr(state, "get") else ""
+        log.info("[DRY-RUN] Stage %r would execute (WP=%s).", stage, wp_id or "\u2014")
+        _em = "\u2014"
+        print(f"  [dry-run] {stage}: WP={wp_id or _em}")
+        log_entry = {
+            "timestamp": ts,
+            "stage": stage,
+            "wp_id": wp_id,
+            "action": "dry_run",
+            "result": "SKIP",
+        }
+        run_logger = get_run_logger(config)
+        if run_logger:
+            run_logger.stream_entry(log_entry)
+        return {
+            "stage_result": f"[dry-run] {stage} stub",
+            "stage_success": True,
+            "run_log": [log_entry],
+        }
+
+    _stub.__name__ = f"{stage}_dryrun"
+    _stub.__qualname__ = f"{stage}_dryrun"
+    return _stub
+
+
 async def build_graph(
     config: Config,
     mcp_tools: list[Any],
     *,
     interrupt_before: list[str] | None = None,
+    dry_run: bool = False,
 ):
     """
     Build and compile the hub-and-spoke LangGraph ``StateGraph``.
@@ -92,50 +134,65 @@ async def build_graph(
         for human review (passed to ``compile(interrupt_before=...)``).
         Typical values: ``["pm"]``, ``["synthesis"]``, ``["developer"]``.
         ``None`` (default) compiles without any interrupts.
+    dry_run:
+        When ``True``, replace all pipeline-stage nodes with lightweight stubs
+        that log routing decisions without invoking Deep Agents.  The supervisor
+        receives ``dry_run=True`` so it tolerates missing ledger state.  The
+        SQLite checkpoint backend is still wired identically to a live run.
 
     Returns
     -------
-    CompiledGraph
-        The compiled LangGraph state graph, ready to invoke or stream.
+    tuple[CompiledGraph, aiosqlite.Connection]
+        The compiled LangGraph state graph, ready to invoke or stream, and
+        the open ``aiosqlite`` connection that backs the checkpointer.  The
+        caller is responsible for awaiting ``conn.close()`` after the graph
+        run completes so the background worker thread shuts down cleanly.
     """
+    # Heavy deps are imported here rather than at module level so that CLI
+    # commands that do not call build_graph() (e.g. --help, kill, preflight)
+    # do not pay the langgraph / aiosqlite startup cost.
     import aiosqlite
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
     from langgraph.graph import END, START, StateGraph
 
-    from src.nodes.developer import make_developer_node
-    from src.nodes.docs import make_docs_node
-    from src.nodes.pm import make_pm_node
-    from src.nodes.qa import make_qa_node
-    from src.nodes.release_engineer import make_release_engineer_node
-    from src.nodes.reviewer import make_reviewer_node
-    from src.nodes.security_auditor import make_security_auditor_node
-    from src.nodes.synthesis import make_synthesis_node
     from src.state import WorkflowState
     from src.supervisor import make_supervisor_node
 
     # ── Instantiate nodes ──────────────────────────────────────────────────
-    supervisor_node = make_supervisor_node(mcp_tools)
-    pm_node = make_pm_node(config, mcp_tools)
-    developer_node = make_developer_node(config, mcp_tools)
-    qa_node = make_qa_node(config, mcp_tools)
-    security_auditor_node = make_security_auditor_node(config, mcp_tools)
-    reviewer_node = make_reviewer_node(config, mcp_tools)
-    release_engineer_node = make_release_engineer_node(config, mcp_tools)
-    docs_node = make_docs_node(config, mcp_tools)
-    synthesis_node = make_synthesis_node(config, mcp_tools)
+    supervisor_node = make_supervisor_node(mcp_tools, dry_run=dry_run)
+
+    if dry_run:
+        # Replace every pipeline stage with a no-op stub; skip real agent imports.
+        stage_nodes = {
+            stage: _make_dryrun_node(stage)
+            for stage in (*_LOOP_STAGES, _STAGE_SYNTHESIS)
+        }
+    else:
+        from src.nodes.developer import make_developer_node
+        from src.nodes.docs import make_docs_node
+        from src.nodes.pm import make_pm_node
+        from src.nodes.qa import make_qa_node
+        from src.nodes.release_engineer import make_release_engineer_node
+        from src.nodes.reviewer import make_reviewer_node
+        from src.nodes.security_auditor import make_security_auditor_node
+        from src.nodes.synthesis import make_synthesis_node
+
+        stage_nodes = {
+            _STAGE_PM: make_pm_node(config, mcp_tools),
+            _STAGE_DEVELOPER: make_developer_node(config, mcp_tools),
+            _STAGE_QA: make_qa_node(config, mcp_tools),
+            _STAGE_SECURITY_AUDITOR: make_security_auditor_node(config, mcp_tools),
+            _STAGE_REVIEWER: make_reviewer_node(config, mcp_tools),
+            _STAGE_RELEASE_ENGINEER: make_release_engineer_node(config, mcp_tools),
+            _STAGE_DOCS: make_docs_node(config, mcp_tools),
+            _STAGE_SYNTHESIS: make_synthesis_node(config, mcp_tools),
+        }
 
     # ── Build graph ────────────────────────────────────────────────────────
     builder = StateGraph(WorkflowState)
-
     builder.add_node(_STAGE_SUPERVISOR, supervisor_node)
-    builder.add_node(_STAGE_PM, pm_node)
-    builder.add_node(_STAGE_DEVELOPER, developer_node)
-    builder.add_node(_STAGE_QA, qa_node)
-    builder.add_node(_STAGE_SECURITY_AUDITOR, security_auditor_node)
-    builder.add_node(_STAGE_REVIEWER, reviewer_node)
-    builder.add_node(_STAGE_RELEASE_ENGINEER, release_engineer_node)
-    builder.add_node(_STAGE_DOCS, docs_node)
-    builder.add_node(_STAGE_SYNTHESIS, synthesis_node)
+    for stage, node in stage_nodes.items():
+        builder.add_node(stage, node)
 
     # START → supervisor (always enter via the router).
     builder.add_edge(START, _STAGE_SUPERVISOR)
@@ -155,8 +212,11 @@ async def build_graph(
     checkpointer = AsyncSqliteSaver(conn)
     await checkpointer.setup()
 
+    mode = "dry-run" if dry_run else "live"
     log.info(
-        "Building graph: 9 nodes, %d loop edges, checkpoint=%s",
+        "Building graph (%s): %d nodes, %d loop edges, checkpoint=%s",
+        mode,
+        len(stage_nodes) + 1,  # +1 for supervisor
         len(_LOOP_STAGES),
         db_path,
     )
@@ -164,4 +224,4 @@ async def build_graph(
     return builder.compile(
         checkpointer=checkpointer,
         interrupt_before=interrupt_before if interrupt_before else None,
-    )
+    ), conn

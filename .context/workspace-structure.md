@@ -16,8 +16,7 @@ _SOURCE: Top-level directory tree_
     ├── prompt-clarity.md
 └── docs/
     ├── agents/
-    │   └── bug-reports/
-    │       ├── chat.json
+    │   └── deferred-topics.md
     │   └── implementation-history/
     │       ├── README.md
     │   └── project-manifest/
@@ -65,7 +64,6 @@ _SOURCE: Top-level directory tree_
     │   ├── storage/
     │   │   ├── atomic-writer.ts
     │   │   ├── file-lock.ts
-    │   │   ├── ledger-store-copy.txt
     │   │   ├── ledger-store.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
@@ -170,7 +168,6 @@ _SOURCE: Top-level directory tree_
     ├── vitest.config.ts
 └── orchestrator/
     ├── README.md
-    ├── _test_config.py
     ├── ai_insights_orchestrator.egg-info/
     │   ├── PKG-INFO/
     │   ├── SOURCES.txt
@@ -199,6 +196,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── developer.py
     │   │   ├── docs.py
     │   │   ├── pm.py
+    │   │   ├── prompt_renderer.py
     │   │   ├── qa.py
     │   │   ├── release_engineer.py
     │   │   ├── reviewer.py
@@ -214,6 +212,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── mcp_parse.py
     │   │   └── persona.py
     │   │   └── plan_parser.py
+    │   │   └── subprocess_encoding.py
     │   │   └── tool_wrappers.py
     ├── tests/
     │   └── __init__.py
@@ -227,7 +226,9 @@ _SOURCE: Top-level directory tree_
     │   └── test_mcp_parse.py
     │   └── test_nodes.py
     │   └── test_plan_parser.py
+    │   └── test_prompt_renderer.py
     │   └── test_state.py
+    │   └── test_subprocess_encoding.py
     │   └── test_supervisor.py
     │   └── test_tool_wrappers.py
 └── package-lock.json
@@ -292,6 +293,7 @@ _SOURCE: Top-level directory tree_
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
     │       ├── dependency-sequencer.md
+    │       ├── developer-standalone.md
     │       ├── ledger-bootstrapper.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
@@ -301,6 +303,7 @@ _SOURCE: Top-level directory tree_
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
+    │       ├── workflow-doctor.md
     │       ├── workflow-orchestrator.md
     │       ├── wp-decomposer.md
     │   └── vs-code/
@@ -309,6 +312,7 @@ _SOURCE: Top-level directory tree_
     │       └── composer-curator.agent.md
     │       └── ctx-architect.agent.md
     │       └── dependency-sequencer.agent.md
+    │       └── developer-standalone.agent.md
     │       └── ledger-bootstrapper.agent.md
     │       └── manifest-curator.agent.md
     │       └── module-intent-architect.agent.md
@@ -318,6 +322,7 @@ _SOURCE: Top-level directory tree_
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md
     │       └── whatsnew-curator.agent.md
+    │       └── workflow-doctor.agent.md
     │       └── workflow-orchestrator.agent.md
     │       └── wp-decomposer.agent.md
 └── scripts/
@@ -334,6 +339,7 @@ _SOURCE: Top-level directory tree_
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-orchestrator.js
+    ├── preview-prompts.py
     ├── read-log.js
     ├── run-gui.js
     ├── run-orchestrator.js

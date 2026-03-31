@@ -13,6 +13,7 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
             └── mcp_parse.py
             └── persona.py
             └── plan_parser.py
+            └── subprocess_encoding.py
             └── tool_wrappers.py
 
 ```
@@ -1206,13 +1207,73 @@ def _extract_summary(body: str, title_match: re.Match[str] | None) -> str:
     return ""
 
 ```
+###  Path: `/orchestrator/src/utils/subprocess_encoding.py`
+
+```py
+"""
+subprocess_encoding — Windows subprocess text-mode encoding fix.
+
+On Windows, ``subprocess.Popen(text=True)`` defaults to the system codepage
+(e.g. CP1252) with ``errors='strict'``.  When the child process outputs bytes
+that are invalid in that codepage — or invalid UTF-8 when ``PYTHONUTF8=1`` is
+set — the internal ``_readerthread`` used by ``Popen.communicate()`` crashes
+with ``UnicodeDecodeError``, silently breaking the communication pipe.
+
+This module monkeypatches ``subprocess.Popen.__init__`` to inject
+``errors='replace'`` whenever text mode is requested and no explicit ``errors``
+parameter was provided.  This ensures undecodable bytes are replaced with the
+Unicode replacement character (U+FFFD) instead of crashing the reader thread.
+
+The patch is **idempotent** and **no-op on non-Windows** platforms.
+
+Typical usage — import once at the top of the CLI entry point::
+
+    import src.utils.subprocess_encoding  # noqa: F401  # side-effect: patches subprocess
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+
+_PATCHED = False
+
+
+def _apply_patch() -> None:
+    """Monkeypatch ``subprocess.Popen.__init__`` with safe text-mode defaults."""
+    global _PATCHED  # noqa: PLW0603
+    if _PATCHED or sys.platform != "win32":
+        return
+
+    _orig_init = subprocess.Popen.__init__
+
+    def _patched_init(self: subprocess.Popen, *args: object, **kwargs: object) -> None:  # type: ignore[type-arg]
+        # Only inject errors='replace' when text mode is active and no
+        # explicit errors= was provided by the caller.
+        text_mode = kwargs.get("text") or kwargs.get("universal_newlines")
+        encoding = kwargs.get("encoding")
+        # text=True, OR an explicit encoding= both enable text mode in Popen.
+        if (text_mode or encoding is not None) and "errors" not in kwargs:
+            kwargs["errors"] = "replace"
+        _orig_init(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    subprocess.Popen.__init__ = _patched_init  # type: ignore[assignment]
+    _PATCHED = True
+
+
+# Apply the patch on import.
+_apply_patch()
+
+```
 ###  Path: `/orchestrator/src/utils/tool_wrappers.py`
 
 ```py
 """
 tool_wrappers — MCP tool call safety-net utilities.
 
-This module provides three defensive wrapper functions:
+This module provides three defensive wrapper functions (compatible with
+langchain-core >= 1.2.x and LangGraph >= 1.0.x, which require ``ainvoke``
+to return ``ToolMessage`` objects when invoked via ``ToolNode``):
 
 :func:`inject_project_path`
     Auto-injects ``project_path`` into every MCP tool call when the argument is
@@ -1222,10 +1283,12 @@ This module provides three defensive wrapper functions:
     server.
 
 :func:`restrict_to_wp`
-    Guards against hallucinated cross-WP tool calls by raising ``ValueError``
-    when a tool argument contains a ``work_package_id`` that does not match the
-    active work package.  This is a **Layer 3 safety net** that prevents a
-    confused LLM from accidentally operating on a different work package.
+    Guards against hallucinated cross-WP tool calls using a **soft-fail with
+    strike counter**.  The first two cross-WP write attempts return a
+    descriptive ``"ERROR: …"`` string to the agent (giving it a chance to
+    self-correct); the third violation raises :class:`ValueError` (hard kill).
+    This is a **Layer 3 safety net** that prevents a confused LLM from
+    accidentally operating on a different work package.
 
 :func:`log_tool_calls`
     Emits a ``tool_call`` JSONL event (via :class:`~src.utils.logging.WorkflowLogger`)
@@ -1234,67 +1297,56 @@ This module provides three defensive wrapper functions:
     work package each call targets, without logging argument payloads (privacy
     constraint).
 
+Internal architecture
+---------------------
+**Frozen dataclass contexts:** Each wrapper defines a frozen ``@dataclass``
+(``_InjectCtx``, ``_GuardCtx``, ``_LogCtx``) that groups the per-tool
+closure state previously captured via multiple default-argument parameters.
+This pattern is more readable, enables IDE autocompletion, and makes it easy
+to add state without changing the closure signature.
+
+**``_patch_tool()`` helper:** LangChain tools extend Pydantic ``BaseModel``,
+which validates ``__setattr__``.  All attribute monkeypatching in this module
+is funnelled through :func:`_patch_tool`, the **only** function that calls
+``object.__setattr__``.  This centralises the bypass for auditing and future
+migration.
+
 Design notes — :func:`inject_project_path`
 -------------------------------------------
-- A sentinel attribute ``_orig_ainvoke`` is stored on the tool object the first
-  time it is wrapped.  Subsequent calls to :func:`inject_project_path` on the
-  same tool objects (e.g. because ``list(mcp_tools)`` is a shallow copy and the
-  same tool instances are re-used across node invocations) always delegate to
-  the *original* ``ainvoke``, making the function **idempotent** and preventing
-  unbounded wrapper stacking.
-- Only ``ainvoke`` is monkeypatched; all other attributes (``name``,
-  ``description``, ``args_schema``, etc.) remain untouched so that tool
-  discovery and schema introspection work as normal.
+- **Idempotent:** A sentinel attribute ``_orig_ainvoke`` prevents wrapper
+  stacking when the same tool objects are passed multiple times.
+- Only ``ainvoke`` is monkeypatched; all other attributes remain untouched.
 - Injection uses ``setdefault`` semantics: an explicitly-provided
-  ``project_path`` is never overwritten.  If the LLM passes ``cwd_path``
-  (following persona instructions meant for IDE agents), the wrapper
-  strips it for efficiency — the MCP server now handles both gracefully
-  (``project_path`` takes precedence), but stripping avoids sending
-  redundant data.
-- The wrapper handles both dict-style and plain-string input gracefully — if
-  the input is not a dict no injection is attempted.
+  ``project_path`` is never overwritten.  ``cwd_path`` (IDE-only) is
+  stripped — ``project_path`` takes precedence.
+- ``ledger_detect_project`` is short-circuited with a synthetic response
+  (no MCP round-trip) because ``project_path`` is always known.
+- Both dict-style and plain-string input are handled gracefully.
 
 Design notes — :func:`restrict_to_wp`
 --------------------------------------
-- A sentinel attribute ``_orig_ainvoke_wp`` is stored on each tool on the first
-  wrap; subsequent calls are idempotent and never stack closures.
-- If ``wp_id`` is the empty string the function returns the tools list unchanged
-  (no wrapping).
-- When a tool call **omits** ``work_package_id``, the wrapper **injects** the
-  active WP ID automatically.  This prevents the common LLM failure mode of
-  forgetting to pass ``work_package_id`` and silently operating on the server's
-  default WP instead of the intended one.
-- When a tool call **explicitly passes** a ``work_package_id`` that differs from
-  the active WP, a ``ValueError`` is raised immediately.  Explicit cross-WP
-  calls are unambiguous intent; injection would mask the mismatch.
-- Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected,
-  mirroring the pattern used by :func:`inject_project_path`.
-- **Single-WP-per-tool-instance invariant:** Because the sentinel
-  (``_orig_ainvoke_wp``) captures the *original* ``ainvoke`` on the first
-  wrap, any subsequent call to :func:`restrict_to_wp` on the same tool
-  object with a *different* ``wp_id`` will replace the active closure but
-  still delegate to the same original — it will not stack guards.  As a
-  result, only the *most recent* guard's ``wp_id`` is enforced.  This is
-  safe in the current pipeline design where each tool instance is created
-  fresh per stage node invocation; tool instances **must not** be shared
-  across concurrent pipeline stages that target different work packages.
-  If that invariant is ever violated, the earlier guard's ``wp_id`` would
-  be silently bypassed.
+- **Idempotent:** A ``_wp_guard_ref`` sentinel prevents double-stacking.
+  If inner wrappers were re-applied since the last call, the delegation
+  target is updated to the fresh inner chain.
+- Empty ``wp_id`` → no wrapping (stages without an active WP).
+- **Read-only tools are exempt** (``_READ_ONLY_TOOLS``).
+- Missing ``work_package_id`` → auto-injected with the active WP ID.
+- Mismatched ``work_package_id`` → soft-fail (violations 1–2 return an
+  error string); hard kill on violation 3+ (:class:`ValueError`).
+- The strike counter (``_GuardCtx.counter``) is a ``list[int]`` shared
+  across all tool closures; it resets on each :func:`restrict_to_wp` call.
+- Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected.
+- **Shared-tool-instance safe:** sentinels are overwritten on every call.
 
 Design notes — :func:`log_tool_calls`
 --------------------------------------
-- A sentinel attribute ``_orig_ainvoke_log`` is stored on each tool on the first
-  wrap; subsequent calls are idempotent and never stack closures.
-- When *logger* is ``None`` (e.g. in unit tests or stages without an active
-  logger), the function returns the tool list unchanged — no wrapping is applied.
-- Only ``tool.name`` and the ``work_package_id`` argument (if present) are
-  captured; the full argument payload is deliberately **excluded** to avoid
-  logging sensitive plan content or large data.
-- Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected when
-  extracting ``work_package_id``, mirroring the pattern used by the other
-  wrappers.
-- The emitted event uses ``level: "DEBUG"`` so it can be filtered out of
-  normal console output; the ``read-log.js`` script can filter by action type.
+- **Idempotent:** A ``_log_wrapper_ref`` sentinel prevents double-stacking,
+  mirroring the pattern in :func:`restrict_to_wp`.
+- ``logger is None`` → no wrapping (unit tests, loggerless stages).
+- Only ``tool.name`` and ``work_package_id`` are captured; the full
+  argument payload is deliberately **excluded** (privacy constraint).
+- Both flat-dict and ``{"args": {...}}`` ToolCall structures are inspected.
+- Events use ``level: "DEBUG"`` for filtering.
 
 Context
 -------
@@ -1303,10 +1355,106 @@ Tests for this module live in ``orchestrator/tests/test_tool_wrappers.py``.
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+from langchain_core.messages import ToolMessage
 
 if TYPE_CHECKING:
     from src.utils.logging import WorkflowLogger
+
+# MCP tools that perform read-only operations.  These are exempt from
+# the cross-WP guard in :func:`restrict_to_wp` so that agents can read
+# other work packages for context (pipeline comments, handoff notes, etc.)
+# without triggering a stage-level error.
+_READ_ONLY_TOOLS: frozenset[str] = frozenset({
+    "ledger_get_work_package",
+    "ledger_list_work_packages",
+    "ledger_get_next_action",
+    "ledger_get_project_status",
+    "ledger_get_handoff_status",
+    "ledger_detect_project",  # also short-circuited by inject_project_path
+    "ledger_list_projects",
+    "ledger_help",
+})
+
+
+def _patch_tool(tool: Any, **attrs: Any) -> None:
+    """Set attributes on a tool object, bypassing Pydantic's ``__setattr__``.
+
+    LangChain tools extend Pydantic ``BaseModel`` which validates attribute
+    assignment.  This helper centralises the ``object.__setattr__`` bypass
+    so the pattern appears exactly once in the module and can be audited
+    (or migrated) in a single place.
+    """
+    for name, value in attrs.items():
+        object.__setattr__(tool, name, value)
+
+
+# ---------------------------------------------------------------------------
+# Frozen dataclass contexts — one per wrapper — group the per-tool closure
+# state that was previously captured via multiple default-argument parameters.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class _InjectCtx:
+    """Per-tool closure state for :func:`inject_project_path`."""
+
+    orig: Any
+    project_path: str
+    tool_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class _GuardCtx:
+    """Per-tool closure state for :func:`restrict_to_wp`."""
+
+    orig: Any
+    active_wp: str
+    counter: list[int] = field(hash=False)
+    max_soft: int
+    tool_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class _LogCtx:
+    """Per-tool closure state for :func:`log_tool_calls`."""
+
+    orig: Any
+    tool_name: str
+    stage: str
+    wp_id: str
+    logger: Any
+
+
+def _make_tool_response(
+    content: str,
+    input: Any,
+    tool_name: str,
+    status: str = "error",
+) -> ToolMessage | str:
+    """Wrap *content* in a ``ToolMessage`` when running inside LangGraph's ToolNode.
+
+    LangGraph >= 1.0.9 enforces ``isinstance(response, ToolMessage)`` on the
+    return value of ``tool.ainvoke``.  Short-circuit return paths that bypass
+    the normal ``BaseTool.ainvoke → _format_output`` chain must therefore
+    produce a ``ToolMessage`` when a ``tool_call_id`` (input dict key ``"id"``)
+    is present.
+
+    When the input is a plain dict without ``"id"`` (unit tests, direct
+    invocations), the raw string is returned for backward compatibility.
+    """
+    if isinstance(input, dict):
+        tool_call_id = input.get("id")
+        if tool_call_id is not None:
+            return ToolMessage(
+                content=content,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+                status=status,
+            )
+    return content
 
 
 def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
@@ -1340,16 +1488,36 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
         # This prevents wrapper stacking when the same tool object is passed
         # to inject_project_path more than once (shallow-copy scenario).
         if not hasattr(tool, "_orig_ainvoke"):
-            object.__setattr__(tool, "_orig_ainvoke", tool.ainvoke)
+            _patch_tool(tool, _orig_ainvoke=tool.ainvoke)
         _original_ainvoke = tool._orig_ainvoke  # type: ignore[attr-defined]
+
+        ctx = _InjectCtx(
+            orig=_original_ainvoke,
+            project_path=project_path,
+            tool_name=tool.name,
+        )
 
         async def _wrapped_ainvoke(
             input: Any,
             *args: Any,
-            _orig: Any = _original_ainvoke,
-            _proj: str = project_path,
+            _ctx: _InjectCtx = ctx,
             **kwargs: Any,
         ) -> Any:
+            # Short-circuit: ledger_detect_project is an IDE-facing tool that
+            # cross-references cwd_path against stored project roots.  In the
+            # orchestrator, project_path is always known, so we return a
+            # synthetic response immediately — no MCP round-trip needed.
+            if _ctx.tool_name == "ledger_detect_project":
+                slug = _ctx.project_path.rstrip("/").rsplit("/", 1)[-1]
+                title = slug.replace("-", " ").replace("_", " ").title()
+                payload = json.dumps({
+                    "plan_path": _ctx.project_path,
+                    "slug": slug,
+                    "title": title,
+                    "status": "active",
+                    "note": "Short-circuited by orchestrator — project_path is already known.",
+                })
+                return _make_tool_response(payload, input, _ctx.tool_name, status="success")
             if isinstance(input, dict):
                 # LangGraph ToolNode passes a ToolCall dict with args nested
                 # inside input["args"], while direct invocations pass a flat
@@ -1369,21 +1537,30 @@ def inject_project_path(tools: list[Any], project_path: str) -> list[Any]:
                 # present, but removing it avoids unnecessary ambiguity.
                 if "cwd_path" in target:
                     del target["cwd_path"]
-                target.setdefault("project_path", _proj)
-            return await _orig(input, *args, **kwargs)
+                target.setdefault("project_path", _ctx.project_path)
+            return await _ctx.orig(input, *args, **kwargs)
 
-        object.__setattr__(tool, "ainvoke", _wrapped_ainvoke)
+        _patch_tool(tool, ainvoke=_wrapped_ainvoke)
 
     return tools
 
 
 def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
-    """Wrap each tool's ``ainvoke`` to reject calls targeting a different WP.
+    """Wrap each tool's ``ainvoke`` to guard against cross-WP write calls.
 
-    If a tool call includes a ``work_package_id`` argument whose value does not
-    match *wp_id*, a :class:`ValueError` is raised before the call is forwarded
-    to the underlying MCP server.  Tool calls that do not include
-    ``work_package_id`` are passed through unmodified.
+    When a tool call includes a ``work_package_id`` argument that does not
+    match *wp_id*, the guard applies a **soft-fail with strike counter**:
+
+    * **Violations 1–2** — returns a descriptive ``"ERROR: …"`` string so the
+      agent can self-correct without aborting the stage.
+    * **Violation 3+** — raises :class:`ValueError` (hard kill) to prevent
+      infinite retry loops.
+
+    The strike counter is shared across *all* tools wrapped in a single call
+    so any two cross-WP violations in the same stage trigger the hard kill.
+
+    Tool calls that do not include ``work_package_id`` are passed through
+    unmodified; the active WP ID is auto-injected instead.
 
     The function is **idempotent**: a sentinel attribute ``_orig_ainvoke_wp``
     prevents closure stacking when the same tool objects are wrapped more than
@@ -1409,17 +1586,44 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
     if not wp_id:
         return tools
 
+    # Shared strike counter for all tools in this restrict_to_wp invocation.
+    # A single-element list acts as a mutable counter so each closure can
+    # increment it without a ``nonlocal`` statement.  The counter resets
+    # automatically when restrict_to_wp is called again for a new stage
+    # (a fresh list is created on each call).
+    _strikes: list[int] = [0]
+    _MAX_SOFT_FAILS: int = 2
+
     for tool in tools:
-        # Idempotency: use the sentinel to find the true original ainvoke.
-        if not hasattr(tool, "_orig_ainvoke_wp"):
-            object.__setattr__(tool, "_orig_ainvoke_wp", tool.ainvoke)
-        _original_ainvoke_wp = tool._orig_ainvoke_wp  # type: ignore[attr-defined]
+        # Read-only tools are exempt from the guard — agents need to read
+        # other WPs for context (pipeline comments, handoff notes, etc.).
+        tool_name = getattr(tool, "name", "")
+        if tool_name in _READ_ONLY_TOOLS:
+            continue
+
+        # If the current ainvoke is our own guard from a previous call
+        # (identity check), reuse the saved delegation target (idempotent
+        # double-call scenario).  Otherwise the inner layers were re-wrapped
+        # since our last call — capture the fresh inner wrapper.
+        _prev = getattr(tool, "_wp_guard_ref", None)
+        if _prev is not None and tool.ainvoke is _prev:
+            _original_ainvoke_wp = tool._orig_ainvoke_wp  # type: ignore[attr-defined]
+        else:
+            _patch_tool(tool, _orig_ainvoke_wp=tool.ainvoke)
+            _original_ainvoke_wp = tool.ainvoke
+
+        ctx = _GuardCtx(
+            orig=_original_ainvoke_wp,
+            active_wp=wp_id,
+            counter=_strikes,
+            max_soft=_MAX_SOFT_FAILS,
+            tool_name=tool_name,
+        )
 
         async def _guarded_ainvoke(
             input: Any,
             *args: Any,
-            _orig: Any = _original_ainvoke_wp,
-            _active_wp: str = wp_id,
+            _ctx: _GuardCtx = ctx,
             **kwargs: Any,
         ) -> Any:
             if isinstance(input, dict):
@@ -1435,16 +1639,30 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
                     # prevents cross-WP contamination from forgotten parameters
                     # without raising an error — tools that don't use WP IDs
                     # will simply ignore the extra argument.
-                    target["work_package_id"] = _active_wp
-                elif call_wp_id != _active_wp:
+                    target["work_package_id"] = _ctx.active_wp
+                elif call_wp_id != _ctx.active_wp:
+                    _ctx.counter[0] += 1
+                    if _ctx.counter[0] <= _ctx.max_soft:
+                        # Soft-fail: return an error message so the agent can
+                        # self-correct without aborting the stage.
+                        error_msg = (
+                            f"ERROR: Tool call targets work_package_id={call_wp_id!r} "
+                            f"but the active work package is {_ctx.active_wp!r}. "
+                            f"You MUST retry this call with "
+                            f"work_package_id={_ctx.active_wp!r}. "
+                            f"(violation {_ctx.counter[0]} of {_ctx.max_soft} "
+                            f"allowed before hard abort)"
+                        )
+                        return _make_tool_response(error_msg, input, _ctx.tool_name)
+                    # Hard kill — third+ violation; prevent infinite retry loops.
                     raise ValueError(
                         f"Tool call targets work_package_id={call_wp_id!r} but "
-                        f"the active work package is {_active_wp!r}. "
+                        f"the active work package is {_ctx.active_wp!r}. "
                         "Refusing to forward this call to prevent cross-WP contamination."
                     )
-            return await _orig(input, *args, **kwargs)
+            return await _ctx.orig(input, *args, **kwargs)
 
-        object.__setattr__(tool, "ainvoke", _guarded_ainvoke)
+        _patch_tool(tool, ainvoke=_guarded_ainvoke, _wp_guard_ref=_guarded_ainvoke)
 
     return tools
 
@@ -1501,23 +1719,28 @@ def log_tool_calls(
         return tools
 
     for tool in tools:
-        # Idempotency: use the sentinel to find the true original ainvoke.
-        # This prevents wrapper stacking when the same tool object is passed
-        # to log_tool_calls more than once.
-        if not hasattr(tool, "_orig_ainvoke_log"):
-            object.__setattr__(tool, "_orig_ainvoke_log", tool.ainvoke)
-        _original_ainvoke_log = tool._orig_ainvoke_log  # type: ignore[attr-defined]
+        # If the current ainvoke is our own log wrapper from a previous call
+        # (identity check), reuse the saved delegation target.  Otherwise
+        # the inner layers were re-wrapped — capture the fresh inner wrapper.
+        _prev_log = getattr(tool, "_log_wrapper_ref", None)
+        if _prev_log is not None and tool.ainvoke is _prev_log:
+            _original_ainvoke_log = tool._orig_ainvoke_log  # type: ignore[attr-defined]
+        else:
+            _patch_tool(tool, _orig_ainvoke_log=tool.ainvoke)
+            _original_ainvoke_log = tool.ainvoke
 
-        _tool_name: str = getattr(tool, "name", "")
+        ctx = _LogCtx(
+            orig=_original_ainvoke_log,
+            tool_name=getattr(tool, "name", ""),
+            stage=stage,
+            wp_id=wp_id,
+            logger=logger,
+        )
 
         async def _logged_ainvoke(
             input: Any,
             *args: Any,
-            _orig: Any = _original_ainvoke_log,
-            _name: str = _tool_name,
-            _stage: str = stage,
-            _stage_wp_id: str = wp_id,
-            _log: Any = logger,
+            _ctx: _LogCtx = ctx,
             **kwargs: Any,
         ) -> Any:
             # Extract work_package_id from the call arguments without
@@ -1532,17 +1755,17 @@ def log_tool_calls(
                     # Flat dict of tool arguments
                     tool_wp_id = input.get("work_package_id", "") or ""
 
-            _log.stream_entry({
-                "stage": _stage,
-                "wp_id": _stage_wp_id,
+            _ctx.logger.stream_entry({
+                "stage": _ctx.stage,
+                "wp_id": _ctx.wp_id,
                 "action": "tool_call",
-                "tool_name": _name,
+                "tool_name": _ctx.tool_name,
                 "tool_wp_id": tool_wp_id,
                 "level": "DEBUG",
             })
-            return await _orig(input, *args, **kwargs)
+            return await _ctx.orig(input, *args, **kwargs)
 
-        object.__setattr__(tool, "ainvoke", _logged_ainvoke)
+        _patch_tool(tool, ainvoke=_logged_ainvoke, _log_wrapper_ref=_logged_ainvoke)
 
     return tools
 

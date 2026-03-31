@@ -1,5 +1,17 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.22.0 - Cross-Platform Paths & Config Cleanup
+- GUI: Path traversal checks use platform-native separator instead of hardcoded `/`.
+- Config: Removed `orchestrator_logs_dir` setting; logs directory derived from workspace layout.
+- NextAction: Auto-cancelled implementation pipelines no longer block developer work recommendations.
+- Cleanup: Deleted stale `ledger-store-copy.txt`.
+- Tests: 1,735 passing.
+
+## v1.21.1 - Tool-Call GUI & Config Tweaks
+- GUI: Added `tool_call` event rendering with debug severity and cross-WP warning badge.
+- GUI: Added dark-mode variant for the debug severity class.
+- Config: Raised `max_handoff_depth` default from 50 to 100.
+
 ## v1.21.0 - Orphaned Pipeline Recovery
 - CancelPipeline: Added optional `auto_cancelled` flag to `ledger_cancel_pipeline`; crash-recovery cancellations set `pipeline.auto_cancelled = true` and are excluded from rework budget.
 - ProjectReset: `applyProjectReset` now auto-cancels all IN_PROGRESS pipelines (status FAIL, auto_cancelled true) before applying the WP status reset.

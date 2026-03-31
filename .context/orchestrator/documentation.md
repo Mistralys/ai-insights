@@ -30,8 +30,8 @@ Each stage node follows a uniform lifecycle managed by `create_stage_node()` in 
 1. **Emit `stage_start`** — records `timestamp`, `stage`, `wp_id`, and `iteration` before any LLM work begins.
 2. **Load persona** — reads the persona Markdown from `personas/ledger/claude-code/<N>-<role>.md` (cached in memory after first load).
 3. **Build prompt** — a stage-specific prompt builder assembles the user message from `WorkflowState` fields (e.g. `current_wp_id`, plan content).
-4. **Wrap tools** — Four wrappers are applied in sequence: (a) `inject_project_path(list(mcp_tools), project_path)` auto-injects `project_path` as a Layer 2 safety net. (b) `restrict_to_wp(wrapped_tools, _wp_id)` enforces WP scope as a Layer 3 safety net (no-op when `_wp_id` is empty). (c) `_install_begin_work_tracker(wrapped_tools, _begin_work_state)` mounts a tracker around `ledger_begin_work` to record when it fires and which pipeline type was requested (enables **Pipeline Rollback** on error; skipped when `_wp_id` is empty). (d) `log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)` applies the outermost wrapper, emitting a `tool_call` JSONL event before each invocation. See **MCP Tool Wrapping** below for full descriptions.
-5. **Create Deep Agent** — `create_deep_agent(model, backend, system_prompt, tools)` with a `LocalShellBackend(root_dir=target_project_path)`.
+4. **Wrap tools** — Four wrappers are applied in sequence: (a) `inject_project_path(list(mcp_tools), project_path)` auto-injects `project_path` as a Layer 2 safety net. (b) `restrict_to_wp(wrapped_tools, _wp_id)` enforces WP scope as a Layer 3 safety net — guards write tools only; read-only tools are exempt (no-op when `_wp_id` is empty). (c) `_install_begin_work_tracker(wrapped_tools, _begin_work_state)` mounts a tracker around `ledger_begin_work` to record when it fires and which pipeline type was requested (enables **Pipeline Rollback** on error; skipped when `_wp_id` is empty). (d) `log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)` applies the outermost wrapper, emitting a `tool_call` JSONL event before each invocation. See **MCP Tool Wrapping** below for full descriptions.
+5. **Create Deep Agent** — `create_deep_agent(model, backend, system_prompt, tools)` with a `LocalShellBackend(root_dir=target_project_path, inherit_env=True)`.
 6. **Invoke** — `agent.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})`.
 7. **Emit `stage_complete`** — records `result="PASS"`, `tokens_used`, and `duration_s` (wallclock seconds from step 1). On exception, emits **`stage_error`** with `result="FAIL"`, `error`, and `duration_s`, then runs the **pipeline rollback** path if `ledger_begin_work` was called (see **Pipeline Rollback** below).
 8. **Best-effort `pipeline_result` read-back** — calls `ledger_get_work_package` using `wrapped_tools` to emit a `pipeline_result` event with `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, and `duration_s`. Any failure is caught silently at `DEBUG` level; stage success is never affected.
@@ -86,50 +86,93 @@ There are three structurally distinct user-turn prompt templates, one for each c
 
 **WP-scoped template** (6 nodes: `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs`)
 
-All six nodes share the minimal WP-scoped template. Each `_build_*_prompt()` function delegates to the centralized `build_stage_prompt()` helper in `src/nodes/__init__.py`:
+All six nodes use the same minimal Python pattern. Each module caches its template at import time with `_TEMPLATE = load_template("<stage>")` and passes only `project_path` and `wp_id` to `render_prompt`. Scope reminders, the path reminder text, and stage-specific instructions (e.g. the `ledger_begin_work` call reminder for `developer`) are embedded in the respective template files via `{{> partial-name}}` includes — they are not passed as Python variables.
 
 ```python
-from . import build_stage_prompt
+from src.nodes.prompt_renderer import load_template, render_prompt
 
-def _build_developer_prompt(state: WorkflowState) -> str:
-    return build_stage_prompt(
-        state["project_path"],
-        wp_id=state.get("current_wp_id", ""),
-    )
+_TEMPLATE = load_template("security_auditor")
+
+def _build_security_auditor_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
 ```
 
-Which produces:
-
-```
-**Project:** `/path/to/project`
-**Work package:** WP-001
-
-Always use the project path above for all ledger tool calls.
-```
+This pattern applies identically to all six WP-scoped nodes — only the string passed to `load_template` differs. Template-level differences (e.g. the scope-restriction block in `developer`, `qa`, `reviewer`, `docs`; the begin-work reminder in `developer`) are expressed as different `{{> partial-name}}` includes in the respective `.md` template files, not as different Python variable dicts.
 
 **PM template** (`pm` node)
 
-The PM template is a documented exception: it embeds the full plan document content so the PM agent has the complete spec before creating work packages. It includes all WP-scoped fields plus a `# Plan Document` section with the full plan file text read from disk at invocation time.
+The PM template is a documented exception. It omits `wp_id` entirely (the PM stage initialises a project, not a WP). The `{{> pm-preamble}}` partial provides the static preamble text and plan file reference; `plan_file` and `extra` (the full plan document content read from disk at invocation time) are the only runtime variables passed.
 
 **Synthesis template** (`synthesis` node)
 
-The synthesis template is the other documented exception: it omits `wp_id` entirely because synthesis is project-scoped and operates across all completed work packages rather than a single WP.
+The synthesis template is the other documented exception: it omits `wp_id`, `plan_file`, and `extra` — only `project_path` is passed. Synthesis is project-scoped and operates across all completed work packages rather than a single WP.
 
 ### Field Reference
 
-| Template | `project_path` | `wp_id` | `project_path` reminder | Plan document content |
-|----------|:--------------:|:-------:|:------------------------:|:---------------------:|
-| WP-scoped (×6) | ✅ | ✅ | ✅ | ❌ |
-| PM | ✅ | ❌ | ✅ | ✅ |
-| Synthesis | ✅ | ❌ | ✅ | ❌ |
+**Key:** ✅ = always passed · opt = optional · — = not used by this template
+
+| Template | `project_path` | `wp_id` | `plan_file` | `extra` |
+|---|:---:|:---:|:---:|:---:|
+| `developer`, `qa`, `security_auditor`, `reviewer`, `release_engineer`, `docs` | ✅ | opt | — | — |
+| `pm` | ✅ | — | ✅ | ✅ |
+| `synthesis` | ✅ | — | — | — |
+
+`wp_id` in WP-scoped templates: when non-empty, the template's `{{#if wp_id}}` blocks render the work package header, scope reminders, and stage-specific partials; when empty, those blocks are omitted.
+
+For accepted values and usage patterns, see [`src/nodes/templates/VARIABLES.md`](../src/nodes/templates/VARIABLES.md).
 
 ### `project_path` Reminder
 
-Every user-turn prompt includes a reminder to use the specified project path for all ledger tool calls. The reminder text is defined once in `build_stage_prompt()` (`src/nodes/__init__.py`), so changes only need to happen in one place.
+Every user-turn prompt includes a reminder to use the specified project path for all ledger tool calls. The reminder text lives in `templates/partials/project-path-reminder.md` and is injected into every stage template via `{{> project-path-reminder}}`.
 
 **Why it exists:** Persona Markdown files are static and cannot embed runtime values like the concrete `project_path` for a given run. The user-turn prompt is the only place this runtime value can appear.
 
 **Why it's permanent:** Removing the reminder risks the agent omitting `project_path` from MCP tool calls, causing every ledger operation to fail. The Layer 2 `inject_project_path()` tool wrapper (see **MCP Tool Wrapping** below) provides a fallback injection mechanism, but the user-turn reminder is the primary guide.
+
+The reminder text is embedded directly in each template file via a partial include — it is not a Python constant and must not be added back to variable dicts.
+
+### Template Partials
+
+Shared prompt fragments live in `templates/partials/` and are included in stage templates using `{{> partial-name}}` syntax (filename without the `.md` extension). The renderer expands all includes before evaluating `{{#if}}` blocks and substituting variables, so partial content participates fully in all downstream processing.
+
+One partial is currently defined:
+
+| Partial file | Content | Included by |
+|---|---|---|
+| `project-path-reminder.md` | "Always use the project path above for all ledger tool calls." | All WP-scoped templates + `synthesis` (7 of 8 stage templates; `pm` inlines its preamble content directly) |
+
+> **Note:** Earlier documentation described additional partials (`wp-scope-reminder.md`, `scope-restriction.md`, `begin-work-developer.md`, `pm-preamble.md`) that were planned but never created. The PM preamble and scope-restriction text are embedded directly in their respective template `.md` files rather than extracted into partial files.
+
+To edit a shared fragment, change its partial file. To add new shared content, create a new file under `templates/partials/` and reference it with `{{> your-partial-name}}` in the relevant template(s).
+
+---
+
+### Module-Level Template Caching
+
+Each stage node module caches its compiled template at import time using a module-level constant named `_TEMPLATE`:
+
+```python
+_TEMPLATE = load_template("security_auditor")
+```
+
+`load_template` reads the template file once per Python process (it maintains an internal cache). Assigning the result to `_TEMPLATE` at module scope makes the caching intent explicit and provides a consistent, greppable entry point in every stage module. The `_build_*_prompt()` function references `_TEMPLATE` directly:
+
+```python
+def _build_security_auditor_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
+```
+
+**Convention:** the constant must always be named `_TEMPLATE`. Storing it under a stage-specific name (e.g. `_SECURITY_AUDITOR_TEMPLATE`) or calling `load_template` inside `_build_*_prompt()` are both anti-patterns — the former breaks grep consistency, the latter obscures the caching intent even though `load_template` itself caches internally.
+
+---
 
 ### Relationship to Persona Files
 
@@ -153,13 +196,17 @@ Each wrapper is **idempotent** (sentinel attributes prevent closure stacking) an
 
 `inject_project_path(tools, project_path)` monkeypatches each tool's `ainvoke` to auto-inject `project_path` when the argument is absent from the tool call. It acts as a **Layer 2 safety net**: even if the LLM-driven agent ignores explicit prompt instructions to supply `project_path`, the argument still reaches the MCP server.
 
-`restrict_to_wp(tools, wp_id)` is a **Layer 3 safety net** applied in WP-scoped stage nodes. It auto-injects the active `work_package_id` into any tool call that omits it, and raises `ValueError` on any tool call that explicitly passes a *different* `work_package_id`. This prevents a confused LLM from accidentally operating on the wrong work package. Passing an empty `wp_id` is a no-op (synthesis stages, which operate at project scope, are unaffected).
+`restrict_to_wp(tools, wp_id)` is a **Layer 3 safety net** applied in WP-scoped stage nodes. For **write tools** it auto-injects the active `work_package_id` into any tool call that omits it, and guards against explicit cross-WP calls via a **2-strike soft-fail**: the first two cross-WP write attempts return a descriptive error string to the agent so it can self-correct, while the third violation raises `ValueError` (hard kill). This prevents a confused LLM from accidentally writing to the wrong work package while enabling self-healing. Passing an empty `wp_id` is a no-op (synthesis stages, which operate at project scope, are unaffected).
+
+**Read-only tools are exempt.** Tools listed in `_READ_ONLY_TOOLS` (e.g. `ledger_get_work_package`, `ledger_list_work_packages`, `ledger_get_project_status`) skip the guard entirely — no `ainvoke` wrapper is installed, no WP ID is injected, and no cross-WP rejection occurs. This allows agents to read other work packages for context (pipeline comments, handoff notes, dependency status) without triggering a stage-level error. Only *write* operations (e.g. `ledger_begin_work`, `ledger_complete_pipeline`, `ledger_add_observation`) are guarded.
 
 > **Single-WP-per-tool-instance invariant:** `restrict_to_wp` stores the original `ainvoke` on first wrap (sentinel `_orig_ainvoke_wp`). Tool instances **must not** be shared across concurrent pipeline stages that target different work packages — only the most recent guard's `wp_id` would be enforced. In the current pipeline design each tool instance is created fresh per stage node invocation, satisfying this invariant.
 
 `log_tool_calls(tools, stage, wp_id, logger)` emits a `tool_call` JSONL event (via `WorkflowLogger.stream_entry()`) before forwarding each `ainvoke` call to the underlying MCP tool. Records `stage`, `wp_id` (stage-level), `tool_name`, and `tool_wp_id` (extracted from call arguments) at `level: "DEBUG"`. Full argument payloads are deliberately **excluded** (privacy constraint). When `logger` is `None` the function returns tools unchanged — no wrapping is applied (e.g. in unit tests).
 
-The **Layer 3 prompt companion** is `_WP_SCOPE_REMINDER` (in `src/nodes/__init__.py`). `build_stage_prompt()` appends a `CRITICAL` scope line (`Every MCP tool call MUST use work_package_id={wp_id}`) to the user-turn prompt for any stage that has a non-empty `wp_id`. It reinforces the wrapper guard at the prompt level.
+**Prompt scope reinforcement** operates alongside the `restrict_to_wp` wrapper:
+
+The `restrict_to_wp` tool wrapper (Layer 3 safety net) handles WP-scope enforcement at the tool level. The persona files themselves contain scope guidance as part of the agent's static instructions. The user-turn prompt adds only the `{{> project-path-reminder}}` partial to remind the agent of the concrete project path for this run. No additional scope partials are included in user-turn prompts — the persona file's static instructions provide scope awareness, and the tool wrapper enforces it programmatically.
 
 ### Design Properties
 
@@ -178,6 +225,7 @@ The full state is defined as a `TypedDict` in `src/state.py`. Key fields for und
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `current_wp_id` | `str` | ID of the work package currently being processed (e.g. `"WP-003"`). Empty string when no WP is active — specifically cleared to `""` by both synthesis routing paths in `supervisor.py` so that the `restrict_to_wp` guard does not activate during the project-scoped synthesis stage. |
 | `consecutive_failures` | `dict` | Per-WP consecutive failure counter (`{wp_id: count}`). Reset on success. The supervisor halts a WP after ≥ 3 consecutive failures. |
 | `run_log` | `list` (append-only) | JSONL-style log entries. Each entry carries a `level` field: `"INFO"` for normal routing, `"WARNING"` for safety/circuit-breaker halts, `"ERROR"` for MCP or stage errors. |
 | `wps_completed_this_run` | `int` | Running total of work packages completed during this execution. Printed in the run summary. |
@@ -238,7 +286,7 @@ For the complete per-field type table, see [jsonl-log-schema.md](jsonl-log-schem
 
 > **Parent:** [orchestrator/README.md](../README.md) · **Sources:** `orchestrator/src/utils/logging.py` (logger), `orchestrator/src/nodes/__init__.py` (stage events), `orchestrator/src/supervisor.py` (routing events), `orchestrator/src/cli.py` (run lifecycle events)
 
-Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **21 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
+Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **23 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
 
 > **Streaming guarantee:** Graph nodes call `stream_entry()` to persist events in real time via the `WorkflowLogger` instance passed through LangGraph's `configurable` dict (key: `run_logger`). For LangGraph to inject this, node functions must annotate their `config` parameter as `Optional[RunnableConfig]` — using `RunnableConfig | None` with `from __future__ import annotations` produces a string annotation that LangGraph's signature inspector does not recognise. When the logger is successfully injected, events appear in the JSONL file immediately as they occur. If the `WorkflowLogger` is unreachable inside graph nodes (e.g. incorrect annotation or the configurable key was stripped), events accumulate only in the LangGraph state's `run_log` list. At run exit, `cli.py` calls `flush_unstreamed(run_log)` to write any un-persisted entries as a batch before the `run_end` sentinel. In this fallback scenario, stage and supervisor events appear immediately before `run_end` rather than interleaved with heartbeats.
 
@@ -284,6 +332,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `total_duration_s` | `run_end` (optional) | float | Wall-clock duration of the run in seconds (rounded to 1 decimal place). Omitted when `run_start_ts` is unavailable or could not be parsed. |
 | `silence_s` | `heartbeat` | float | Seconds elapsed since the last log entry was emitted (rounded to 1 decimal place) |
 | `file_path` | `dialogue_captured` | string | Absolute path to the Markdown dialogue file written to disk (non-empty when capture succeeds) |
+| `partial` | `dialogue_captured` | boolean | (Optional) `true` if the dialogue capture occurred during an error-path rollback (crash before stage completed). |
 | `tool_name` | `tool_call` | string | The MCP tool name from `tool.name` (e.g. `"ledger_create_work_package"`) |
 | `tool_wp_id` | `tool_call` | string | The `work_package_id` argument extracted from the call arguments; empty string when absent. **Never** includes the full argument payload (privacy constraint). |
 | `detail` | `dry_run_no_ledger` | string | The underlying error message from the missing ledger (logged at INFO, not treated as an error) |
@@ -301,7 +350,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
 | `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
 | `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `action="tool_call"`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy constraint) |
-| `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `level="INFO"` — emitted by default; suppressed when `capture_dialogues=False` |
+| `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `partial` (optional boolean, `true` for error-path captures), `level="INFO"` — emitted by default; suppressed when `capture_dialogues=False` |
 | `wp_status_change` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `old_status`, `new_status`, `level="INFO"` |
 | `wp_complete` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `level="INFO"` |
 | `progress_snapshot` | `supervisor.py` | `stage="supervisor"`, `total_wps`, `status_breakdown`, `pending`, `wps_completed_this_run`, `iteration`, `max_iterations`, `elapsed_s` (optional), `run_start_ts` |
@@ -327,7 +376,7 @@ For every stage invocation, three to five entries are written in order:
 2. **`tool_call`** *(0–N)* — emitted once before each MCP tool `ainvoke`; high-frequency at `level: "DEBUG"` (one per tool call during the stage); never includes argument payloads
 3. **`stage_complete`** (or **`stage_error`** on exception) — emitted after the agent finishes
 4. **`pipeline_result`** *(optional)* — emitted after `stage_complete` when the WP still exists and carries at least one pipeline record; omitted on read-back failure or when `wp_id` is empty
-5. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. A write failure is caught silently and this entry is omitted.
+5. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. Includes `partial: true` if captured in the error path after a crash. A write failure is caught silently and this entry is omitted.
 
 `pipeline_result.duration_s` will be `null` until `ledger_complete_pipeline` stores `duration_ms` in the WP record (separate MCP server work package).
 
@@ -534,7 +583,7 @@ High-level list of the primary functions and classes meant for external use or e
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `build_graph(config, mcp_tools, *, interrupt_before=None)` | `src.graph` | Assembles the 7-node LangGraph `StateGraph`, compiles with SQLite or in-memory checkpointer. Returns `CompiledGraph`. |
+| `build_graph(config, mcp_tools, *, interrupt_before=None)` | `src.graph` | Assembles the 9-node LangGraph `StateGraph`, compiles with SQLite or in-memory checkpointer. Returns `CompiledGraph`. |
 
 ---
 
@@ -560,6 +609,21 @@ All follow the same pattern via `create_stage_node()`:
 | `make_release_engineer_node(config, mcp_tools)` | `src.nodes.release_engineer` | `release_engineer` |
 | `make_docs_node(config, mcp_tools)` | `src.nodes.docs` | `docs` |
 | `make_synthesis_node(config, mcp_tools)` | `src.nodes.synthesis` | `synthesis` |
+
+---
+
+## Template Renderer
+
+Shared by all stage node modules to assemble user-turn prompts from `.md` templates.
+
+| Symbol | Module | Description |
+|--------|--------|-------------|
+| `load_template(stage)` | `src.nodes.prompt_renderer` | Reads and caches the Markdown template for *stage* from `src/nodes/templates/{stage}.md`. Raises `FileNotFoundError` if the template does not exist. Cached in-process; subsequent calls for the same stage return the cached string. |
+| `render_prompt(template, variables)` | `src.nodes.prompt_renderer` | Processes `{{#if var}}`…`{{/if}}` conditional blocks, substitutes `{variable}` placeholders (missing keys → empty string via `defaultdict(str)`), and collapses 3+ consecutive newlines to a single blank line. Returns the rendered string. |
+| `clear_template_cache()` | `src.nodes.prompt_renderer` | Resets the in-memory template cache. Intended for test support only. |
+| `load_partial(name)` | `src.nodes.prompt_renderer` | Reads and caches a Markdown partial for *name* from `src/nodes/templates/partials/{name}.md`. *name* must match `[\w-]+`; raises `ValueError` for invalid names (empty string, path separators, dots, spaces). Raises `FileNotFoundError` if the file is missing. Cached in-process alongside templates. |
+
+For the expected `variables` dict for each template (required vs optional fields, conditional rules, and usage examples), see [`src/nodes/templates/VARIABLES.md`](../src/nodes/templates/VARIABLES.md).
 
 ---
 
@@ -597,7 +661,7 @@ All follow the same pattern via `create_stage_node()`:
 | Symbol | Module | Description |
 |--------|--------|-------------|
 | `inject_project_path(tools, project_path)` | `src.utils.tool_wrappers` | Monkeypatches `ainvoke` on each tool to auto-inject `project_path`. |
-| `restrict_to_wp(tools, wp_id)` | `src.utils.tool_wrappers` | Layer 3 WP-scope guard: auto-injects `work_package_id` when absent; raises `ValueError` on explicit cross-WP calls. No-op when `wp_id` is empty (synthesis stages). |
+| `restrict_to_wp(tools, wp_id)` | `src.utils.tool_wrappers` | Layer 3 WP-scope guard for **write tools only**: auto-injects `work_package_id` when absent; soft-fails cross-WP calls (2 strikes) before raising `ValueError`. Read-only tools (listed in `_READ_ONLY_TOOLS`) are exempt — no injection, no rejection. No-op when `wp_id` is empty (synthesis stages). |
 | `log_tool_calls(tools, stage, wp_id, logger)` | `src.utils.tool_wrappers` | Emits a `tool_call` JSONL event before each `ainvoke` call. Records `stage`, `wp_id`, `tool_name`, and `tool_wp_id`; argument payload excluded (privacy). No-op when `logger` is `None`. Apply last in the wrapper chain: `inject_project_path → restrict_to_wp → log_tool_calls`. |
 | `load_persona(stage)` | `src.utils.persona` | Reads and caches the persona Markdown for a given stage. |
 | `parse_plan(path)` | `src.utils.plan_parser` | Extracts title, summary, and content from a plan `.md` file. Returns `PlanMetadata`. |
@@ -722,6 +786,8 @@ supervisor_node
   └─ All WPs terminal (COMPLETE or CANCELLED)         → synthesis  (final report)
 ```
 
+> **State clearing on synthesis routes:** Both synthesis routing paths (all-WPs-terminal and all-roles-WAIT) explicitly set `"current_wp_id": ""` in their `Command` update dicts. This ensures the `restrict_to_wp` tool wrapper does not activate in the synthesis stage, which is project-scoped and must not be constrained to a single WP. A stale `current_wp_id` (left over from the preceding stage) would otherwise cause every MCP tool call in synthesis to trigger cross-WP violations.
+
 ### Dry-Run Mode
 
 When `make_supervisor_node(mcp_tools, dry_run=True)` is used (set automatically by `--dry-run`), the supervisor tolerates missing ledger state:
@@ -761,6 +827,10 @@ For each role in priority order:
 
 All roles returned WAIT/skip          → synthesis
 ```
+
+> **State clearing on synthesis fall-through:** Like the all-WPs-terminal path, this path also sets `"current_wp_id": ""` in the `Command` update dict to prevent the `restrict_to_wp` guard from activating in synthesis.
+
+> **Test coverage gap (known):** The existing `test_supervisor.py` synthesis routing tests assert `goto == "synthesis"` but do not assert `current_wp_id == ""` in the Command update dict. Dedicated assertions verifying both synthesis paths clear `current_wp_id` (including with a stale non-empty value in input state) are missing and should be added in a follow-up task.
 
 > `_SKIP_ACTIONS`, `_DISPATCH_ACTIONS`, and `_ROLE_STAGE_MAP` in
 > `orchestrator/src/supervisor.py` are the source of truth for the action-to-stage

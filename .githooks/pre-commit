@@ -1,11 +1,28 @@
 #!/bin/sh
-/usr/local/bin/node scripts/build-personas.js --check
+node scripts/build-personas.js --check
 
 # Run ruff on staged orchestrator Python files
 STAGED_PY=$(git diff --cached --name-only | grep '^orchestrator/src/.*\.py$')
 if [ -n "$STAGED_PY" ]; then
-  echo "Running ruff on staged orchestrator files..."
-  orchestrator/.venv/bin/ruff check orchestrator/src/ || exit 1
+  # Resolve ruff: venv (Unix/Windows layouts), .exe variant, then PATH
+  RUFF=""
+  if [ -f "orchestrator/.venv/bin/ruff" ]; then
+    RUFF="orchestrator/.venv/bin/ruff"
+  elif [ -f "orchestrator/.venv/Scripts/ruff.exe" ]; then
+    RUFF="orchestrator/.venv/Scripts/ruff.exe"
+  elif [ -f "orchestrator/.venv/Scripts/ruff" ]; then
+    RUFF="orchestrator/.venv/Scripts/ruff"
+  elif command -v ruff > /dev/null 2>&1; then
+    RUFF="ruff"
+  fi
+
+  if [ -z "$RUFF" ]; then
+    echo "WARNING: ruff not found — skipping Python lint check."
+    echo "  Install it with: pip install ruff  (inside orchestrator/.venv)"
+  else
+    echo "Running ruff on staged orchestrator files..."
+    "$RUFF" check orchestrator/src/ || exit 1
+  fi
 fi
 
 # Warn if a sub-project changelog changed without the root changelog

@@ -60,7 +60,7 @@ describe('gui/config.ts', () => {
     const cfg = getConfig();
     expect(cfg).toEqual(DEFAULT_CONFIG);
     expect(cfg.auto_handoff_enabled).toBe(true);
-    expect(cfg.max_handoff_depth).toBe(50);
+    expect(cfg.max_handoff_depth).toBe(100);
   });
 
   // ─── readConfigFromDisk — missing file ───────────────────────────────────
@@ -74,7 +74,7 @@ describe('gui/config.ts', () => {
     const raw = await readFile(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
     expect(parsed.auto_handoff_enabled).toBe(true);
-    expect(parsed.max_handoff_depth).toBe(50);
+    expect(parsed.max_handoff_depth).toBe(100);
   });
 
   // ─── readConfigFromDisk — valid file ─────────────────────────────────────
@@ -264,7 +264,7 @@ describe('gui/config.ts', () => {
 
     // Other fields must retain their defaults.
     expect(result.auto_handoff_enabled).toBe(true);
-    expect(result.max_handoff_depth).toBe(50);
+    expect(result.max_handoff_depth).toBe(100);
     expect(result.auto_archive_days).toBe(6);
   });
 

@@ -171,15 +171,21 @@ Orchestrates a full build-and-deploy cycle to one or both AI IDEs.
   │ (if requested)   │   │ (if requested)                   │
   └────────┬─────────┘   └──────────┬───────────────────────┘
            │                        │
-           ▼              ┌─────────┴────────────────────────┐
-  Read ledger/vs-code/    ▼                                  ▼
-  Extract vs_file_name   Read ledger/claude-code/   Read standalone/claude-code/
-  Copy → prompts dir     Extract name + .md         Extract name + .md
-  Validate frontmatter   Copy → ~/.claude/agents/   Copy → ~/.claude/agents/
-  (role, name,           Validate frontmatter       Validate frontmatter
-   vs_file_name)         (name: N-kebab prefix,     (name: plain kebab,
-                          role, permissionMode,      permissionMode, model,
-                          model, memory)             memory; no role required)
+  ┌────────┴─────────┐   ┌─────────┴────────────────────────┐
+  ▼                  ▼   ▼                                   ▼
+  Read ledger/       Read standalone/   Read ledger/         Read standalone/
+  vs-code/           vs-code/           claude-code/         claude-code/
+  Extract            Extract            Extract name         Extract name
+  vs_file_name       vs_file_name       + .md                + .md
+  Copy → prompts     Copy → prompts     Copy → ~/            Copy → ~/
+  dir                dir                .claude/agents/      .claude/agents/
+  Validate           Validate           Validate             Validate
+  frontmatter        frontmatter        frontmatter          frontmatter
+  (role, name,       (name,             (name: N-kebab       (name: plain
+   vs_file_name)      vs_file_name,      prefix, role,        kebab,
+                      id; no role)       permissionMode,      permissionMode,
+                                         model, memory)       model, memory;
+                                                              no role)
 ```
 
 ---

@@ -1,0 +1,30 @@
+slug: workflow-doctor
+name: "Workflow Doctor"
+description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix state corruption, unlock stalled pipelines, and resolve technical issues."
+vs_file_name: workflow-doctor.agent.md
+id: standalone-workflow-doctor
+cc_file_name: workflow-doctor.md
+version: "1.0.0"
+last_updated: "2026-03-28"
+mcp_server_name: central_pm
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - mcp
+  - todo
+  - central_pm/*
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - WebFetch
+  - TodoRead
+  - TodoWrite

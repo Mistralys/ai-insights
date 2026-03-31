@@ -803,10 +803,17 @@ class TestRestrictToWpMatchingWpId:
 
 class TestRestrictToWpMismatchRaises:
     async def test_mismatching_wp_id_raises_value_error(self):
-        """A call with a work_package_id that differs from the active WP must raise ValueError."""
+        """Third cross-WP call (after two soft-fails) must raise ValueError."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # First two violations return error strings (soft-fail).
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str)
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str)
+
+        # Third violation must raise ValueError.
         with pytest.raises(ValueError, match="WP-002"):
             await tool.ainvoke({"work_package_id": "WP-002"})
 
@@ -815,14 +822,26 @@ class TestRestrictToWpMismatchRaises:
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance first.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError, match=ACTIVE_WP):
             await tool.ainvoke({"work_package_id": "WP-999"})
 
     async def test_toolcall_mismatch_raises_value_error(self):
-        """ToolCall structure with mismatching work_package_id must raise ValueError."""
+        """ToolCall structure with mismatching work_package_id
+        raises ValueError on third violation."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-bad",
+                "type": "tool_call",
+            })
         with pytest.raises(ValueError):
             await tool.ainvoke({
                 "name": "ledger_begin_work",
@@ -830,6 +849,131 @@ class TestRestrictToWpMismatchRaises:
                 "id": "call-bad",
                 "type": "tool_call",
             })
+
+
+# ---------------------------------------------------------------------------
+# 12b. Soft-fail strike counter behavior (WP-001 acceptance criteria)
+# ---------------------------------------------------------------------------
+
+
+class TestRestrictToWpSoftFail:
+    """Full behavior of the 2-strike soft-fail counter in restrict_to_wp."""
+
+    async def test_first_violation_returns_error_string(self):
+        """First cross-WP call must return a descriptive error string, not raise."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), "First violation must return a string, not raise"
+        assert "ERROR" in result
+
+    async def test_first_violation_error_string_contains_both_wp_ids(self):
+        """The returned error string must mention both the wrong and the expected WP ID."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert "WP-002" in result, "Error string must mention the rejected WP ID"
+        assert ACTIVE_WP in result, "Error string must mention the active WP ID"
+
+    async def test_second_violation_returns_error_string(self):
+        """Second cross-WP call must also return an error string (still within soft-fail limit)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result1 = await tool.ainvoke({"work_package_id": "WP-002"})
+        result2 = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result1, str) and "ERROR" in result1
+        assert isinstance(result2, str) and "ERROR" in result2
+
+    async def test_third_violation_raises_value_error(self):
+        """Third cross-WP call must raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+        with pytest.raises(ValueError):
+            await tool.ainvoke({"work_package_id": "WP-002"})  # strike 3 → hard kill
+
+    async def test_strike_counter_shared_across_tools(self):
+        """Violations from different tools must count toward the same shared counter."""
+        tool_a = _make_guard_tool()
+        tool_b = _make_guard_tool()
+        tool_a.name = "tool_a"
+        tool_b.name = "tool_b"
+        restrict_to_wp([tool_a, tool_b], ACTIVE_WP)
+
+        # Strike 1 from tool_a.
+        result1 = await tool_a.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result1, str) and "ERROR" in result1
+
+        # Strike 2 from tool_b.
+        result2 = await tool_b.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result2, str) and "ERROR" in result2
+
+        # Strike 3 from tool_a — shared counter is at 2, so this must hard-kill.
+        with pytest.raises(ValueError):
+            await tool_a.ainvoke({"work_package_id": "WP-002"})
+
+    async def test_correct_calls_do_not_increment_counter(self):
+        """Successful calls (matching WP ID) must not affect the strike counter."""
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Many correct calls — counter must not advance.
+        for _ in range(10):
+            await tool.ainvoke({"work_package_id": ACTIVE_WP})
+
+        # After 10 correct calls, the first violation must still be a soft-fail.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Correct calls must not increment the strike counter"
+        )
+        assert len(seen) == 10, "Only correct calls must reach the underlying tool"
+
+    async def test_toolcall_structure_first_violation_returns_tool_message(self):
+        """ToolCall nested-dict structure: first violation must return ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-soft",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "error"
+        assert "ERROR" in result.content
+
+    async def test_counter_resets_on_new_restrict_call(self):
+        """Calling restrict_to_wp again creates a fresh counter (simulating new stage)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Use up both soft-fail allowances.
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 1
+        await tool.ainvoke({"work_package_id": "WP-002"})  # strike 2
+
+        # Re-wrap (simulating a new stage invocation).
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Counter should have reset — first violation is soft-fail again.
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Counter must reset when restrict_to_wp is called again"
+        )
 
 
 class TestRestrictToWpIdempotency:
@@ -856,19 +1000,112 @@ class TestRestrictToWpIdempotency:
         )
 
     async def test_double_wrap_still_guards(self):
-        """After double-wrap, the guard must still fire on mismatch."""
+        """After double-wrap, the guard must still fire: first mismatch returns an error string."""
         tool = _make_guard_tool()
         restrict_to_wp([tool], ACTIVE_WP)
         restrict_to_wp([tool], ACTIVE_WP)
 
-        with pytest.raises(ValueError):
-            await tool.ainvoke({"work_package_id": "WP-bad"})
+        result = await tool.ainvoke({"work_package_id": "WP-bad"})
+        assert isinstance(result, str), (
+            "Guard must return error string on first mismatch after double-wrap"
+        )
+        assert "ERROR" in result
 
     def test_double_wrap_returns_same_list(self):
         """restrict_to_wp must return the same list object (in-place mutation)."""
         tools = [_make_guard_tool()]
         result = restrict_to_wp(tools, ACTIVE_WP)
         assert result is tools
+
+
+class TestRestrictToWpReadOnlyExemption:
+    """Read-only tools (e.g. ledger_get_work_package) must be exempt from
+    the cross-WP guard so agents can read other work packages for context."""
+
+    def _make_read_tool(
+        self,
+        seen: list[Any] | None = None,
+        name: str = "ledger_get_work_package",
+    ) -> _GuardTool:
+        tool = _make_guard_tool(seen)
+        tool.name = name
+        return tool
+
+    async def test_read_tool_with_different_wp_passes(self):
+        """A read-only tool targeting a different WP must NOT raise ValueError."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # WP-002 ≠ ACTIVE_WP ("WP-001") — must pass for read-only tools.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert len(seen) == 1
+        assert seen[0]["work_package_id"] == "WP-002"
+
+    async def test_read_tool_does_not_get_wp_injected(self):
+        """A read-only tool that omits work_package_id must NOT have it auto-injected."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({"agent_role": "Developer"})
+
+        assert len(seen) == 1
+        assert "work_package_id" not in seen[0]
+
+    async def test_read_tool_ainvoke_not_replaced(self):
+        """A read-only tool's ainvoke must not be wrapped at all."""
+        tool = self._make_read_tool()
+        original = tool.ainvoke
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        assert tool.ainvoke is original
+
+    async def test_write_tool_still_guarded(self):
+        """A write tool in the same call must still be guarded; read tool passes freely."""
+        read_tool = self._make_read_tool()
+        write_tool = _make_guard_tool()
+        write_tool.name = "ledger_begin_work"
+
+        restrict_to_wp([read_tool, write_tool], ACTIVE_WP)
+
+        # Read tool — cross-WP passes without restriction.
+        await read_tool.ainvoke({"work_package_id": "WP-002"})
+
+        # Write tool — first cross-WP call returns error string (soft-fail guard is active).
+        result = await write_tool.ainvoke({"work_package_id": "WP-002"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Write tool must be guarded — first violation must return error string"
+        )
+
+    async def test_all_read_only_tools_exempt(self):
+        """Every tool in _READ_ONLY_TOOLS must be exempt from the guard."""
+        from src.utils.tool_wrappers import _READ_ONLY_TOOLS
+
+        for tool_name in _READ_ONLY_TOOLS:
+            tool = self._make_read_tool(name=tool_name)
+            original = tool.ainvoke
+            restrict_to_wp([tool], ACTIVE_WP)
+            assert tool.ainvoke is original, (
+                f"{tool_name} should be exempt but ainvoke was replaced"
+            )
+
+    async def test_toolcall_structure_read_tool_passes(self):
+        """ToolCall nested-dict with a different WP must pass for read-only tools."""
+        seen: list[Any] = []
+        tool = self._make_read_tool(seen)
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        await tool.ainvoke({
+            "name": "ledger_get_work_package",
+            "args": {"work_package_id": "WP-003"},
+            "id": "call-read",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 1
+        assert seen[0]["args"]["work_package_id"] == "WP-003"
 
 
 class TestRestrictToWpIntegrationWithInjectProjectPath:
@@ -887,13 +1124,72 @@ class TestRestrictToWpIntegrationWithInjectProjectPath:
         assert seen[0]["project_path"] == PROJECT
 
     async def test_chained_wrappers_mismatch_raises(self):
-        """inject_project_path followed by restrict_to_wp — mismatch raises ValueError."""
+        """inject_project_path followed by restrict_to_wp — third mismatch raises ValueError."""
         tool = _make_guard_tool()
         inject_project_path([tool], PROJECT)
         restrict_to_wp([tool], ACTIVE_WP)
 
+        # Exhaust soft-fail allowance.
+        for _ in range(2):
+            await tool.ainvoke({"work_package_id": "WP-999"})
         with pytest.raises(ValueError):
             await tool.ainvoke({"work_package_id": "WP-999"})
+
+
+class TestSharedToolReWrapAcrossWPs:
+    """Regression: shared tool objects re-wrapped for a different WP must
+    enforce the *new* WP, not the stale one from the previous invocation.
+
+    This reproduces the production bug where the full wrapper chain
+    (inject → restrict → log) captured stale sentinel targets, causing
+    the outermost wrapper to bypass the updated WP guard.
+    """
+
+    async def test_full_chain_rewrap_enforces_new_wp(self):
+        """Simulate two node invocations on the same tool objects with different WPs."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        seen: list[Any] = []
+        tool = _make_guard_tool(seen)
+
+        # --- First node invocation (WP-001) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+        assert len(seen) == 1
+
+        # --- Second node invocation (WP-002) ---
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # Must succeed — the guard should now enforce WP-002, not WP-001.
+        await tool.ainvoke({"work_package_id": "WP-002"})
+        assert len(seen) == 2
+
+    async def test_full_chain_rewrap_rejects_old_wp(self):
+        """After re-wrapping for WP-002, calls targeting WP-001 must be rejected."""
+        from src.utils.tool_wrappers import log_tool_calls
+
+        tool = _make_guard_tool()
+
+        # First invocation (WP-001)
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-001")
+        log_tool_calls([tool], stage="developer", wp_id="WP-001", logger=_MockLogger())
+
+        # Second invocation (WP-002) — counter resets because restrict_to_wp is re-called.
+        inject_project_path([tool], PROJECT)
+        restrict_to_wp([tool], "WP-002")
+        log_tool_calls([tool], stage="developer", wp_id="WP-002", logger=_MockLogger())
+
+        # First WP-001 call after re-wrap is soft-fail (returns error string).
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+        assert isinstance(result, str) and "ERROR" in result, (
+            "Cross-WP call must return error string on first violation after re-wrap"
+        )
 
 
 def _make_stage_node_state(*, current_wp_id: str = "WP-001") -> dict:
@@ -1498,4 +1794,404 @@ class TestLogToolCallsEdgeCases:
         assert order == ["log", "original"], (
             f"Expected log before original, got: {order}"
         )
+
+
+# ===========================================================================
+# 13. ledger_detect_project short-circuit
+# ===========================================================================
+
+
+class _DetectProjectTool:
+    """Tool stub with name='ledger_detect_project' to trigger the short-circuit."""
+
+    def __init__(self, seen: list[Any] | None = None) -> None:
+        _seen: list[Any] = seen if seen is not None else []
+        self.name = "ledger_detect_project"
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> str:
+            _seen.append(input)
+            return "mcp_result"
+
+        self.ainvoke = _ainvoke
+
+
+class TestDetectProjectShortCircuit:
+    """Verify that ledger_detect_project calls are short-circuited by
+    inject_project_path without forwarding to the MCP server.
+
+    ledger_detect_project is an IDE-facing tool that cross-references
+    cwd_path against stored project roots.  In the orchestrator
+    project_path is always known, so the wrapper returns a synthetic
+    JSON response immediately.
+    """
+
+    async def test_original_ainvoke_not_called(self):
+        """When tool is ledger_detect_project, the original ainvoke must NOT be called."""
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({})
+
+        assert len(seen) == 0, (
+            "Original ainvoke must not be called for ledger_detect_project"
+        )
+
+    async def test_returns_valid_json(self):
+        """The short-circuit result must be valid JSON."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        # Must not raise
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
+
+    async def test_response_contains_plan_path(self):
+        """The synthetic response must contain 'plan_path' equal to project_path."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["plan_path"] == PROJECT
+
+    async def test_response_contains_slug(self):
+        """The synthetic response must contain 'slug' derived from the last path segment."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["slug"] == "my-project"
+
+    async def test_response_contains_title(self):
+        """The synthetic response must contain 'title' derived from the slug."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["title"] == "My Project"
+
+    async def test_title_with_underscores(self):
+        """Underscores in the slug must also be replaced when deriving title."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my_project")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["title"] == "My Project"
+
+    async def test_response_contains_active_status(self):
+        """The synthetic response must contain 'status' equal to 'active'."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["status"] == "active"
+
+    async def test_slug_with_trailing_slash(self):
+        """A project_path with a trailing slash must still produce the correct slug."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], "/ledger/my-project/")
+
+        result = await tool.ainvoke({})
+        parsed = json.loads(result)
+
+        assert parsed["slug"] == "my-project"
+
+    async def test_toolcall_structure_also_short_circuited(self):
+        """Short-circuit must also apply when input has ToolCall {'args': {...}} structure."""
+        import json
+
+        from langchain_core.messages import ToolMessage
+
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/some/workspace"},
+            "id": "call-detect",
+            "type": "tool_call",
+        })
+
+        assert len(seen) == 0, "Original ainvoke must not be called for ToolCall input either"
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage for ToolCall input, got {type(result).__name__}"
+        )
+        parsed = json.loads(result.content)
+        assert parsed["plan_path"] == PROJECT
+
+    async def test_other_tool_names_not_short_circuited(self):
+        """Tools with names other than ledger_detect_project must still delegate to original."""
+        seen: list[Any] = []
+        tool = _make_tool(seen)  # name = "test_tool"
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert len(seen) == 1, "Non-detect-project tools must reach the original ainvoke"
+        assert seen[0]["project_path"] == PROJECT
+
+    async def test_short_circuit_with_cwd_path_input_no_original_call(self):
+        """Even when caller passes cwd_path, the short-circuit fires and original is skipped."""
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+
+        await tool.ainvoke({"cwd_path": "/workspace"})
+
+        assert len(seen) == 0, "Short-circuit must fire regardless of what input contains"
+
+    async def test_short_circuit_idempotent_double_wrap(self):
+        """Double-wrapping a ledger_detect_project tool must not stack closures."""
+        import json
+
+        seen: list[Any] = []
+        tool = _DetectProjectTool(seen)
+        inject_project_path([tool], PROJECT)
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        assert len(seen) == 0
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
+
+# ===========================================================================
+# _make_tool_response — helper unit tests
+# ===========================================================================
+
+from src.utils.tool_wrappers import _make_tool_response  # noqa: E402
+
+
+class TestMakeToolResponse:
+    """Unit tests for the _make_tool_response helper function."""
+
+    def test_plain_dict_without_id_returns_string(self):
+        """A plain dict (no 'id' key) must return the content string as-is."""
+        result = _make_tool_response("some error", {"args": {}}, "my_tool")
+        assert isinstance(result, str)
+        assert result == "some error"
+
+    def test_dict_with_id_returns_tool_message(self):
+        """A dict with 'id' key must return a ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response(
+            "bad input", {"id": "call-123", "args": {}}, "ledger_begin_work"
+        )
+        assert isinstance(result, ToolMessage)
+        assert result.content == "bad input"
+        assert result.tool_call_id == "call-123"
+        assert result.name == "ledger_begin_work"
+        assert result.status == "error"
+
+    def test_non_dict_input_returns_string(self):
+        """Non-dict input (e.g. a string) must return the content string as-is."""
+        result = _make_tool_response("hello", "raw string", "tool")
+        assert isinstance(result, str)
+        assert result == "hello"
+
+    def test_none_input_returns_string(self):
+        """None input must return the content string as-is."""
+        result = _make_tool_response("content", None, "tool")
+        assert isinstance(result, str)
+        assert result == "content"
+
+    def test_status_error_default(self):
+        """Default status must be 'error'."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response("err", {"id": "c1"}, "t")
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+
+    def test_status_success_forwarded(self):
+        """Explicit status='success' must be forwarded to ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        result = _make_tool_response("ok", {"id": "c2"}, "t", status="success")
+        assert isinstance(result, ToolMessage)
+        assert result.status == "success"
+
+    def test_dict_with_id_none_returns_string(self):
+        """A dict with 'id' set to None must return a plain string."""
+        result = _make_tool_response("msg", {"id": None}, "tool")
+        assert isinstance(result, str)
+        assert result == "msg"
+
+
+# ===========================================================================
+# ledger_detect_project short-circuit — ToolMessage wrapping tests
+# ===========================================================================
+
+
+class TestLedgerDetectProjectToolMessage:
+    """Verify that the ledger_detect_project short-circuit returns ToolMessage
+    when called with a ToolCall dict (containing 'id')."""
+
+    async def test_toolcall_returns_tool_message(self):
+        """ToolCall input with 'id' must produce a ToolMessage with status='success'."""
+        import json
+        
+        from langchain_core.messages import ToolMessage
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({
+            "name": "ledger_detect_project",
+            "args": {"cwd_path": "/some/workspace"},
+            "id": "call-detect-tm",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "success"
+        assert result.tool_call_id == "call-detect-tm"
+        assert result.name == "ledger_detect_project"
+
+        parsed = json.loads(result.content)
+        assert parsed["plan_path"] == PROJECT
+        assert "slug" in parsed
+        assert "title" in parsed
+        assert "status" in parsed
+
+    async def test_flat_dict_returns_string(self):
+        """Flat dict input (no 'id') must still return a plain JSON string."""
+        import json
+
+        tool = _DetectProjectTool()
+        inject_project_path([tool], PROJECT)
+
+        result = await tool.ainvoke({})
+
+        assert isinstance(result, str), (
+            f"Expected str for flat dict, got {type(result).__name__}"
+        )
+        parsed = json.loads(result)
+        assert parsed["plan_path"] == PROJECT
+
+
+# ===========================================================================
+# restrict_to_wp — ToolMessage wrapping tests
+# ===========================================================================
+
+
+class TestRestrictToWpToolMessage:
+    """Verify that restrict_to_wp soft-fail returns ToolMessage when called
+    with a ToolCall dict (containing 'id')."""
+
+    async def test_toolcall_soft_fail_returns_tool_message(self):
+        """First violation with ToolCall input must return ToolMessage with status='error'."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-wp-tm",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage), (
+            f"Expected ToolMessage, got {type(result).__name__}"
+        )
+        assert result.status == "error"
+        assert result.tool_call_id == "call-wp-tm"
+        assert result.name == "guard_tool"
+        assert "ERROR" in result.content
+        assert "WP-007" in result.content
+        assert ACTIVE_WP in result.content
+
+    async def test_toolcall_second_violation_returns_tool_message(self):
+        """Second violation with ToolCall input must also return ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # First violation
+        await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-v1",
+            "type": "tool_call",
+        })
+
+        # Second violation
+        result = await tool.ainvoke({
+            "name": "ledger_begin_work",
+            "args": {"work_package_id": "WP-007"},
+            "id": "call-v2",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert result.tool_call_id == "call-v2"
+
+    async def test_flat_dict_soft_fail_returns_string(self):
+        """Flat dict input (no 'id') must still return a plain error string."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        result = await tool.ainvoke({"work_package_id": "WP-002"})
+
+        assert isinstance(result, str), (
+            f"Expected str for flat dict, got {type(result).__name__}"
+        )
+        assert "ERROR" in result
+
+    async def test_toolcall_third_violation_still_raises(self):
+        """Third violation with ToolCall input must still raise ValueError (hard kill)."""
+        tool = _make_guard_tool()
+        restrict_to_wp([tool], ACTIVE_WP)
+
+        # Exhaust soft-fail allowance with ToolCall inputs.
+        for i in range(2):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": f"call-exhaust-{i}",
+                "type": "tool_call",
+            })
+
+        with pytest.raises(ValueError, match="WP-007"):
+            await tool.ainvoke({
+                "name": "ledger_begin_work",
+                "args": {"work_package_id": "WP-007"},
+                "id": "call-hard-kill",
+                "type": "tool_call",
+            })
 
