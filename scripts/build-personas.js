@@ -11,9 +11,10 @@ const fs               = require('fs');
 const path             = require('path');
 const { execFileSync } = require('child_process');
 
-const ROOT   = path.join(__dirname, '..');
-const CONFIG = path.join(ROOT, 'personas', 'persona-build.config.js');
-const CLI    = path.join(ROOT, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'cli.js');
+const ROOT     = path.join(__dirname, '..');
+const PERSONAS = path.join(ROOT, 'personas');
+const CONFIG   = path.join(PERSONAS, 'persona-build.config.js');
+const CLI      = path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'cli.js');
 
 // --dry-run is accepted as a convenience alias for --check (same behaviour)
 const CHECK  = process.argv.includes('--check') || process.argv.includes('--dry-run');
