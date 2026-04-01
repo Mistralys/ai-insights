@@ -22,7 +22,7 @@
 
 | Package | Version | Scope | Purpose |
 |---------|---------|-------|---------|
-| `@mistralys/persona-builder` | ^0.2.0 (installed: 1.0.0) | workspace-root `devDependencies` | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
+| `@mistralys/persona-builder` | ^2.1.0 | workspace-root `devDependencies` | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
 | `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner — no longer used for persona-build tests post-migration; retained for other workspace test suites |
 
 The thin wrapper `build-personas.js` delegates all build logic to `@mistralys/persona-builder` via its CLI binary (`dist/cli.js`). The wrapper itself only resolves paths and forwards CLI flags (`--check`, `--strict`) to the library.

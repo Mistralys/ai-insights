@@ -217,9 +217,6 @@ content/3-developer.md
 ├── {{#if has_detect_project}}       (true for Agent 3)
 │   └── {{> mcp-preflight-detect}}      → partials/mcp-preflight-detect.md
 │
-├── {{#if has_detect_project}}       (true — second guard for verify step)
-│   └── {{> mcp-preflight-verify-with-detect}}  → partials/mcp-preflight-verify-with-detect.md
-│
 ├── {{> mcp-unavailable}}        → partials/mcp-unavailable.md
 │   └── {{mcp_server_name}}          → "central_pm"
 │

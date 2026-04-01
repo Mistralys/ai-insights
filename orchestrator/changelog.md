@@ -1,51 +1,17 @@
 # Orchestrator Changelog
 
-## v0.14.0 - Post-Completion Cross-WP Escape Fix
-- Nodes: Added `_install_complete_pipeline_tracker` — wraps `ledger_complete_pipeline`
-  to set a `completed` flag after a successful pipeline completion call.
-- Nodes: Added `_install_post_completion_guard` — wraps `ledger_get_next_action` to
-  return a synthetic `{"action": "WAIT"}` response when the completion flag is set,
-  preventing the agent from escaping to the next work package after completing its own.
-- Nodes: Both new wrappers installed in `create_stage_node` between the begin-work
-  tracker and `log_tool_calls`; guarded by `_wp_id` check (WP-scoped stages only).
-- Nodes: Rollback guard now checks `not _complete_pipeline_state["completed"]` before
-  attempting `ledger_cancel_pipeline`, eliminating the spurious rollback-failure warning
-  when an exception fires after a successful pipeline completion.
-- Constraints: Added constraints 15 and 16 documenting the post-completion guard pattern
-  and explicitly rejecting user-turn prompt WP-scoping as an alternative mechanism.
-- Tests: +26 unit tests in `tests/test_post_completion_guard.py` covering tracker,
-  guard, combined flow, and rollback suppression contracts.
-
-## v0.13.0 - Cross-WP Authorization & Windows Support
-- ToolWrappers: Cross-WP write violations soft-fail for the first two attempts; hard kill on the third.
-- ToolWrappers: Read-only tools exempt from WP guard, enabling cross-WP context reads.
-- ToolWrappers: Extracted closure state into frozen dataclasses; centralised `_patch_tool()` helper.
-- Nodes: Error-path dialogue capture writes partial dialogues on stage crashes.
-- Supervisor: Tool calls bypass stage wrappers via bare `ainvoke` references.
-- Utils: Added `subprocess_encoding` for safe text-mode defaults on Windows.
+## v0.11.0 - Template Engine, Cross-WP Guards & Windows Support
+- Nodes: Stage prompts migrated to a Markdown template engine with partials
+  and variable substitution.
+- Nodes: Post-completion guard prevents cross-WP escape after pipeline
+  completion.
+- Nodes: Error-path dialogue capture preserves partial transcripts on crash.
 - Nodes: All agent nodes now inherit the machine environment.
-- Supervisor: Fixed an unnecessary exception.
-- Fixed a type error with the new langchain package version.
-- Extracted complex functions into dataclasses.
-- Aiosql handling fixed and fully documented.
-- Added ruff checks to constraints.
-
-## v0.12.0 - Stage Prompt Templating
-- PromptRenderer: Added Markdown template engine with partial includes, conditionals, and variable substitution.
-- Nodes: Migrated all eight stage prompts from inline Python to Markdown templates.
-- Nodes: Simplified stage prompts — stripped WP details and scope restrictions; project path is the only runtime variable.
-- Nodes: Removed `build_stage_prompt()` helper; template renderer replaces it.
-- Supervisor: Clears `current_wp_id` when routing to synthesis.
-- Deps: Bumped `langchain-core` minimum from `0.3.45` to `1.2.22`.
-- Tests: Added prompt renderer and supervisor test suites.
-
-## v0.11.0 - Tool-Call Activity Logging
-- ToolWrappers: Added `log_tool_calls()` — emits a `tool_call` JSONL event per MCP tool call.
-- ToolWrappers: Events capture stage, tool name, and WP ID; argument payloads excluded for privacy.
-- Logging: Added `tool_call` console rendering with stage, tool name, and WP ID.
-- Nodes: All stage nodes now emit real-time tool-call events via `log_tool_calls()`.
-- Docs: Documented `tool_call` event type in the JSONL log schema.
-- Tests: +46 unit tests; 572 passing.
+- ToolWrappers: Added real-time tool-call JSONL event logging.
+- ToolWrappers: Cross-WP writes soft-fail twice then hard-kill; reads exempt.
+- Utils: Added Windows subprocess-encoding support.
+- Supervisor: Clears active WP when routing to synthesis.
+- Fixed langchain type compatibility and aiosql handling issues.
 
 ## v0.10.0 - Resilience Overhaul
 - Nodes: Stage crash triggers pipeline rollback and emits a `pipeline_rollback` event.

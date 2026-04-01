@@ -32,37 +32,16 @@ Generated persona files are consumed in two ways:
 
 ## Quick Reference
 
-**Build ledger suite (default — backward compat):**
+**Build all suites and targets (default):**
 ```bash
 node scripts/build-personas.js
 ```
 
-**Build a specific suite:**
-```bash
-node scripts/build-personas.js --suite standalone
-```
-
-**Build multiple suites (comma-separated or shorthand):**
-```bash
-node scripts/build-personas.js --suite ledger,standalone
-node scripts/build-personas.js --suite all       # ledger + standalone
-```
-
-**Build for a specific target only:**
-```bash
-node scripts/build-personas.js --target vscode
-node scripts/build-personas.js --target claude-code
-```
-
-**Flags can be combined:**
-```bash
-node scripts/build-personas.js --suite standalone --target vscode
-```
+> Suite and target selection is controlled by `personas/persona-build.config.js`, not by CLI flags. The wrapper always builds all suites (`ledger`, `standalone`) for both targets (`vscode`, `claude-code`).
 
 **Check for stale output (CI-friendly):**
 ```bash
 node scripts/build-personas.js --check
-node scripts/build-personas.js --suite all --check
 ```
 
 **Preview without writing:**
@@ -73,10 +52,9 @@ node scripts/build-personas.js --dry-run
 **Validate generated output for unresolved markers (strict mode):**
 ```bash
 node scripts/build-personas.js --strict
-node scripts/build-personas.js --strict --suite all
 ```
 
-Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers. Safe to combine with `--suite` and `--target`.
+Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers.
 
 **Build + sync to both IDEs (VS Code + Claude Code):**
 ```bash

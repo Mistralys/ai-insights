@@ -403,14 +403,10 @@ This table is the **normative reference** for which MCP tools belong in each per
 ### `KNOWN_ROLES` Constant
 
 ```javascript
-const KNOWN_ROLES = [
-  'Planner', 'Project Manager', 'Developer', 'QA',
-  'Security Auditor', 'Reviewer', 'Release Engineer',
-  'Documentation', 'Synthesis',
-];
+const KNOWN_ROLES = require('../shared/workflow-manifest.json').roles.map(r => r.name);
 ```
 
-Must be kept in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts`.
+Derived at runtime from the shared workflow manifest. Always in sync with `AGENT_ROLES` in `mcp-server/src/utils/constants.ts` (both are manifest-derived).
 
 ---
 
@@ -452,7 +448,6 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 | `mcp-preflight-header-vscode.md` | Agents 2–9 (VS Code target) | `{{mcp_server_name}}` |
 | `mcp-preflight-header-claude-code.md` | Agents 2–9 (Claude Code target) | `{{mcp_server_name}}` |
 | `mcp-preflight-detect.md` | Agents 3–9 | *(none)* |
-| `mcp-preflight-verify-with-detect.md` | Agents 3–9 | *(none)* |
 | `mcp-preflight-verify-no-detect.md` | Agent 2 only | *(none)* |
 | `mcp-unavailable.md` | Agents 2–9 | `{{mcp_server_name}}` |
 | `handoff-block-vscode.md` | Agents 2–8 (VS Code target) | `{{role}}` |
