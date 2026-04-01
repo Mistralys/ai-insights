@@ -16,6 +16,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_mcp_parse.py
         └── test_nodes.py
         └── test_plan_parser.py
+        └── test_post_completion_guard.py
         └── test_prompt_renderer.py
         └── test_state.py
         └── test_subprocess_encoding.py
@@ -263,7 +264,7 @@ class TestPrintRunSummary:
 
 class TestDryRunNode:
     def _make(self, stage: str):
-        from src.cli import _make_dryrun_node
+        from src.graph import _make_dryrun_node
         return _make_dryrun_node(stage)
 
     def test_returns_callable(self):
@@ -327,13 +328,13 @@ class TestMainMissingPlan:
 class TestDryRunNodeEdgeCases:
     def test_missing_wp_id_handled(self):
         """Node must not crash when state has no current_wp_id."""
-        from src.cli import _make_dryrun_node
+        from src.graph import _make_dryrun_node
         node = _make_dryrun_node("pm")
         result = node({})  # Empty state
         assert result["stage_success"] is True
 
     def test_run_log_result_is_skip(self):
-        from src.cli import _make_dryrun_node
+        from src.graph import _make_dryrun_node
         node = _make_dryrun_node("synthesis")
         result = node({"current_wp_id": ""})
         assert result["run_log"][0]["result"] == "SKIP"
@@ -1224,6 +1225,10 @@ from unittest.mock import patch
 
 import pytest
 
+aiosqlite = pytest.importorskip(
+    "aiosqlite", reason="aiosqlite not installed — run: pip install -e '.[dev]'"
+)
+
 # ---------------------------------------------------------------------------
 # Mock config fixture
 # ---------------------------------------------------------------------------
@@ -1263,7 +1268,7 @@ def _apply_patches(test_fn):
         with (
             patch(
                 "src.supervisor.make_supervisor_node",
-                side_effect=lambda tools: _noop_node("supervisor"),
+                side_effect=lambda tools, *, dry_run=False: _noop_node("supervisor"),
             ),
             patch("src.nodes.pm.make_pm_node", side_effect=lambda cfg, tools: _noop_node("pm")),
             patch(
@@ -1303,80 +1308,140 @@ def _apply_patches(test_fn):
 
 class TestBuildGraphReturnType:
     @_apply_patches
-    async def test_build_graph_returns_object(self):
+    async def test_build_graph_returns_object(self, tmp_path):
         """build_graph() returns a non-None compiled graph."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        assert graph is not None
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            assert graph is not None
+        finally:
+            await conn.close()
 
     @_apply_patches
-    async def test_compiled_graph_is_callable(self):
+    async def test_compiled_graph_is_callable(self, tmp_path):
         """The compiled graph exposes an invoke() method."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        assert callable(getattr(graph, "invoke", None))
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            assert callable(getattr(graph, "invoke", None))
+        finally:
+            await conn.close()
+
+    @_apply_patches
+    async def test_conn_is_aiosqlite_connection(self, tmp_path):
+        """build_graph() second return value is an aiosqlite.Connection."""
+        import aiosqlite
+
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            assert isinstance(conn, aiosqlite.Connection), (
+                f"Expected aiosqlite.Connection, got {type(conn).__name__}"
+            )
+        finally:
+            await conn.close()
 
 
 class TestGraphNodes:
     @_apply_patches
-    async def test_graph_has_nine_nodes(self):
+    async def test_graph_has_nine_nodes(self, tmp_path):
         """Graph topology must contain exactly 9 nodes."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
-        nodes = set(graph.nodes)
-        expected_nodes = {
-            "supervisor", "pm", "developer", "qa", "reviewer",
-            "security_auditor", "docs", "release_engineer", "synthesis",
-        }
-        # START and END are pseudo-nodes added by LangGraph; remove them for comparison.
-        nodes.discard("__start__")
-        nodes.discard("__end__")
-        assert nodes == expected_nodes
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            # LangGraph 1.x: CompiledStateGraph exposes .nodes directly.
+            nodes = set(graph.nodes)
+            expected_nodes = {
+                "supervisor", "pm", "developer", "qa", "reviewer",
+                "security_auditor", "docs", "release_engineer", "synthesis",
+            }
+            # START and END are pseudo-nodes added by LangGraph; remove them for comparison.
+            nodes.discard("__start__")
+            nodes.discard("__end__")
+            assert nodes == expected_nodes
+        finally:
+            await conn.close()
 
 
 class TestGraphEdges:
     @_apply_patches
-    async def test_start_edges_to_supervisor(self):
+    async def test_start_edges_to_supervisor(self, tmp_path):
         """START must edge to 'supervisor'."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        edges = graph.builder.edges
-        start_targets = {edge[1] for edge in edges if edge[0] == "__start__"}
-        assert "supervisor" in start_targets
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            edges = graph.builder.edges
+            start_targets = {edge[1] for edge in edges if edge[0] == "__start__"}
+            assert "supervisor" in start_targets
+        finally:
+            await conn.close()
 
     @_apply_patches
-    async def test_loop_stages_edge_to_supervisor(self):
+    async def test_loop_stages_edge_to_supervisor(self, tmp_path):
         """pm, developer, qa, reviewer, docs must each edge back to supervisor."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        edges = graph.builder.edges  # set of (source, target) tuples
-        # Build a mapping: source → set of targets
-        edge_map: dict = {}
-        for edge in edges:
-            src, dst = edge[0], edge[1]
-            edge_map.setdefault(src, set()).add(dst)
 
-        loop_stages = ("pm", "developer", "qa", "reviewer", "docs")
-        for stage in loop_stages:
-            assert "supervisor" in edge_map.get(stage, set()), (
-                f"Stage {stage!r} must have an edge back to supervisor"
-            )
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            edges = graph.builder.edges  # set of (source, target) tuples
+            # Build a mapping: source → set of targets
+            edge_map: dict = {}
+            for edge in edges:
+                src, dst = edge[0], edge[1]
+                edge_map.setdefault(src, set()).add(dst)
+
+            loop_stages = ("pm", "developer", "qa", "reviewer", "docs")
+            for stage in loop_stages:
+                assert "supervisor" in edge_map.get(stage, set()), (
+                    f"Stage {stage!r} must have an edge back to supervisor"
+                )
+        finally:
+            await conn.close()
 
     @_apply_patches
-    async def test_synthesis_edges_to_end(self):
+    async def test_synthesis_edges_to_end(self, tmp_path):
         """synthesis must edge to END (not back to supervisor)."""
         from src.graph import build_graph
-        graph = await build_graph(MOCK_CONFIG, MOCK_TOOLS)
-        edges = graph.builder.edges  # set of (source, target) tuples
-        edge_map: dict = {}
-        for edge in edges:
-            src, dst = edge[0], edge[1]
-            edge_map.setdefault(src, set()).add(dst)
 
-        synthesis_targets = edge_map.get("synthesis", set())
-        assert "__end__" in synthesis_targets
-        assert "supervisor" not in synthesis_targets
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            edges = graph.builder.edges  # set of (source, target) tuples
+            edge_map: dict = {}
+            for edge in edges:
+                src, dst = edge[0], edge[1]
+                edge_map.setdefault(src, set()).add(dst)
+
+            synthesis_targets = edge_map.get("synthesis", set())
+            assert "__end__" in synthesis_targets
+            assert "supervisor" not in synthesis_targets
+        finally:
+            await conn.close()
 
 
 class TestCheckpointerCreated:
@@ -1390,8 +1455,11 @@ class TestCheckpointerCreated:
 
         cfg = _TmpConfig()
         assert not cfg.checkpoint_dir.exists()
-        await build_graph(cfg, MOCK_TOOLS)
-        assert cfg.checkpoint_dir.exists()
+        graph, conn = await build_graph(cfg, MOCK_TOOLS)
+        try:
+            assert cfg.checkpoint_dir.exists()
+        finally:
+            await conn.close()
 
 
 class TestCheckpointerIsAsync:
@@ -1410,11 +1478,14 @@ class TestCheckpointerIsAsync:
         class _TmpConfig(_MockConfig):
             checkpoint_dir = tmp_path / "checkpoints"
 
-        graph = await build_graph(_TmpConfig(), MOCK_TOOLS)
-        checkpointer = graph.checkpointer
-        assert isinstance(checkpointer, AsyncSqliteSaver), (
-            f"Checkpointer must be AsyncSqliteSaver, got {type(checkpointer).__name__}"
-        )
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        try:
+            checkpointer = graph.checkpointer
+            assert isinstance(checkpointer, AsyncSqliteSaver), (
+                f"Checkpointer must be AsyncSqliteSaver, got {type(checkpointer).__name__}"
+            )
+        finally:
+            await conn.close()
 
     @_apply_patches
     async def test_graph_ainvoke_does_not_raise_not_implemented(self, tmp_path):
@@ -1428,7 +1499,7 @@ class TestCheckpointerIsAsync:
         class _TmpConfig(_MockConfig):
             checkpoint_dir = tmp_path / "checkpoints"
 
-        graph = await build_graph(_TmpConfig(), MOCK_TOOLS)
+        graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS)
         initial_state = {
             "plan_text": "test",
             "project_slug": "test-project",
@@ -1438,17 +1509,72 @@ class TestCheckpointerIsAsync:
             "supervisor_iteration": 0,
             "run_log": [],
         }
-        # The supervisor stub will route somewhere that may fail, but the
-        # important thing is that the checkpointer itself does NOT raise
-        # NotImplementedError.  We catch any other exception and let it pass.
         try:
-            await graph.ainvoke(
-                initial_state,
-                {"configurable": {"thread_id": "test-async-compat"}},
-            )
-        except NotImplementedError as exc:
-            if "async" in str(exc).lower():
-                pytest.fail(f"Checkpointer does not support async: {exc}")
+            # The supervisor stub will route somewhere that may fail, but the
+            # important thing is that the checkpointer itself does NOT raise
+            # NotImplementedError.  We catch any other exception and let it pass.
+            try:
+                await graph.ainvoke(
+                    initial_state,
+                    {"configurable": {"thread_id": "test-async-compat"}},
+                )
+            except NotImplementedError as exc:
+                if "async" in str(exc).lower():
+                    pytest.fail(f"Checkpointer does not support async: {exc}")
+        finally:
+            await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Tests: build_graph(dry_run=True)
+# ---------------------------------------------------------------------------
+
+class TestDryRunGraph:
+    """Verify that dry_run=True produces a structurally correct 9-node graph."""
+
+    async def test_dry_run_returns_graph_and_conn(self, tmp_path):
+        """build_graph(dry_run=True) returns a compiled graph + connection."""
+        import aiosqlite
+
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        with patch(
+            "src.supervisor.make_supervisor_node",
+            side_effect=lambda tools, *, dry_run=False: _noop_node("supervisor"),
+        ):
+            graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS, dry_run=True)
+        try:
+            assert graph is not None
+            assert isinstance(conn, aiosqlite.Connection)
+        finally:
+            await conn.close()
+
+    async def test_dry_run_has_nine_nodes(self, tmp_path):
+        """dry_run graph must have the same 9-node topology as a live graph."""
+        from src.graph import build_graph
+
+        class _TmpConfig(_MockConfig):
+            checkpoint_dir = tmp_path / "checkpoints"
+
+        with patch(
+            "src.supervisor.make_supervisor_node",
+            side_effect=lambda tools, *, dry_run=False: _noop_node("supervisor"),
+        ):
+            graph, conn = await build_graph(_TmpConfig(), MOCK_TOOLS, dry_run=True)
+        try:
+            nodes = set(graph.nodes)
+            nodes.discard("__start__")
+            nodes.discard("__end__")
+            expected = {
+                "supervisor", "pm", "developer", "qa", "reviewer",
+                "security_auditor", "release_engineer", "docs", "synthesis",
+            }
+            assert nodes == expected, f"Node mismatch: {nodes ^ expected}"
+        finally:
+            await conn.close()
 
 ```
 ###  Path: `/orchestrator/tests/test_integration.py`
@@ -4486,7 +4612,13 @@ class TestSlimPromptContent:
     # ------------------------------------------------------------------
 
     def test_pm_prompt_has_slim_fields(self, tmp_path):
-        """_build_pm_prompt must include project_path and project_path reminder (no wp_id)."""
+        """_build_pm_prompt must embed plan_file reference and plan content.
+
+        The PM is the first agent in the chain — it determines the project
+        path from the plan's location rather than consuming it from the
+        prompt.  Therefore the prompt intentionally omits project_path and
+        the project-path-reminder partial.
+        """
         from src.nodes.pm import _build_pm_prompt
 
         plan_file = tmp_path / "plan.md"
@@ -4495,10 +4627,8 @@ class TestSlimPromptContent:
         state = _build_slim_state(project_path=str(tmp_path), plan_file="plan.md")
         prompt = _build_pm_prompt(state)  # type: ignore[arg-type]
 
-        assert str(tmp_path) in prompt, "project_path must be present in PM prompt"
-        assert "ledger tool calls" in prompt, (
-            "project_path reminder must be present in PM prompt"
-        )
+        assert "plan.md" in prompt, "plan_file reference must be present in PM prompt"
+        assert "# Plan" in prompt, "plan content must be embedded in PM prompt"
 
     def test_pm_prompt_has_no_identity_declarations(self, tmp_path):
         """_build_pm_prompt must not contain identity/role declaration text."""
@@ -4960,6 +5090,457 @@ class TestEdgeCases:
         assert meta.summary == "Line one Line two Line three."
 
 ```
+###  Path: `/orchestrator/tests/test_post_completion_guard.py`
+
+```py
+"""
+test_post_completion_guard.py — Unit tests for the post-completion cross-WP escape fix.
+
+Tests cover the two new wrapper functions introduced in ``src/nodes/__init__.py``:
+
+- :func:`_install_complete_pipeline_tracker` — Wraps ``ledger_complete_pipeline``.
+  Sets ``tracker["completed"] = True`` after a successful call. A raised exception
+  must leave the flag ``False``.
+
+- :func:`_install_post_completion_guard` — Wraps ``ledger_get_next_action``.
+  Returns a synthetic ``{"action": "WAIT"}`` ToolMessage when
+  ``completion_tracker["completed"]`` is ``True``; delegates transparently when ``False``.
+
+AC coverage:
+1. Post-completion interception — WAIT response after successful complete.
+2. Pre-completion passthrough — normal delegation before completion.
+3. Failed completion does not trigger interception.
+4. Synthetic response shape — valid JSON with "action": "WAIT" and "reason".
+5. Idempotency — multiple installs on the same tools do not stack wrappers.
+6. Rollback suppression — ``_complete_pipeline_state["completed"]`` prevents
+   ``ledger_cancel_pipeline`` from being invoked.
+
+No LLM calls or MCP server required — all tests run in < 1 second.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+from langchain_core.messages import ToolMessage
+
+from src.nodes import _install_complete_pipeline_tracker, _install_post_completion_guard
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+class _SimpleTool:
+    """Minimal plain-Python tool stub.
+
+    Unlike ``MagicMock``, plain objects do **not** auto-create attributes on
+    access, so sentinel checks (``hasattr``) work correctly before the first wrap.
+    """
+
+    def __init__(self, name: str, result: Any = "ok", seen: list[Any] | None = None) -> None:
+        self.name = name
+        _seen: list[Any] = seen if seen is not None else []
+        _result = result
+
+        async def _ainvoke(input: Any, *args: Any, **kwargs: Any) -> Any:
+            _seen.append(input)
+            if isinstance(_result, type) and issubclass(_result, Exception):
+                raise _result("simulated failure")
+            if callable(_result) and not isinstance(_result, type):
+                return _result(input)
+            return _result
+
+        self.ainvoke = _ainvoke
+        self._seen = _seen
+
+
+def _make_cp_tool(seen: list[Any] | None = None) -> _SimpleTool:
+    """Return a ``ledger_complete_pipeline`` stub."""
+    return _SimpleTool("ledger_complete_pipeline", result="completed_ok", seen=seen)
+
+
+def _make_cp_tool_raises(exc_type: type = RuntimeError) -> _SimpleTool:
+    """Return a ``ledger_complete_pipeline`` stub that raises on invocation."""
+    return _SimpleTool("ledger_complete_pipeline", result=exc_type)
+
+
+def _make_gna_tool(response: Any = '{"action": "NEXT", "wp_id": "WP-002"}') -> _SimpleTool:
+    """Return a ``ledger_get_next_action`` stub."""
+    return _SimpleTool("ledger_get_next_action", result=response)
+
+
+def _make_cancel_tool(seen: list[Any] | None = None) -> _SimpleTool:
+    """Return a ``ledger_cancel_pipeline`` stub."""
+    return _SimpleTool("ledger_cancel_pipeline", result="cancelled", seen=seen)
+
+
+# ---------------------------------------------------------------------------
+# 1. Complete-pipeline tracker: flag set after success
+# ---------------------------------------------------------------------------
+
+class TestCompletePipelineTrackerSuccess:
+    async def test_flag_false_before_invocation(self):
+        """Tracker starts at False before any tool call."""
+        tracker: dict = {"completed": False}
+        tool = _make_cp_tool()
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        assert tracker["completed"] is False
+
+    async def test_flag_true_after_successful_invocation(self):
+        """Tracker is set to True after a successful ledger_complete_pipeline call."""
+        tracker: dict = {"completed": False}
+        tool = _make_cp_tool()
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        await tool.ainvoke({"work_package_id": "WP-001", "type": "implementation"})
+
+        assert tracker["completed"] is True
+
+    async def test_original_ainvoke_result_preserved(self):
+        """The wrapper must return the original result unchanged."""
+        tracker: dict = {"completed": False}
+        tool = _make_cp_tool()
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        result = await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert result == "completed_ok"
+
+    async def test_non_cp_tool_not_wrapped(self):
+        """A different tool in the list must not be wrapped."""
+        tracker: dict = {"completed": False}
+        other = _SimpleTool("ledger_begin_work")
+        orig_ainvoke = other.ainvoke
+        _install_complete_pipeline_tracker([other], tracker)
+
+        assert other.ainvoke is orig_ainvoke
+
+
+# ---------------------------------------------------------------------------
+# 2. Complete-pipeline tracker: flag NOT set on exception
+# ---------------------------------------------------------------------------
+
+class TestCompletePipelineTrackerFailure:
+    async def test_flag_stays_false_on_exception(self):
+        """If ledger_complete_pipeline raises, the flag must stay False."""
+        tracker: dict = {"completed": False}
+        tool = _make_cp_tool_raises(RuntimeError)
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        with pytest.raises(RuntimeError, match="simulated failure"):
+            await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert tracker["completed"] is False
+
+    async def test_flag_stays_false_on_value_error(self):
+        """ValueError also leaves the flag False (MCP validation failure path)."""
+        tracker: dict = {"completed": False}
+        tool = _make_cp_tool_raises(ValueError)
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        with pytest.raises(ValueError, match="simulated failure"):
+            await tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert tracker["completed"] is False
+
+
+# ---------------------------------------------------------------------------
+# 3. Complete-pipeline tracker: idempotency
+# ---------------------------------------------------------------------------
+
+class TestCompletePipelineTrackerIdempotency:
+    async def test_double_install_does_not_stack(self):
+        """Installing the tracker twice on the same tool must not double-wrap."""
+        tracker: dict = {"completed": False}
+        seen: list[Any] = []
+        tool = _make_cp_tool(seen=seen)
+
+        _install_complete_pipeline_tracker([tool], tracker)
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        await tool.ainvoke({"work_package_id": "WP-001"})
+
+        # The original ainvoke should have been called exactly once.
+        assert len(seen) == 1
+        assert tracker["completed"] is True
+
+    async def test_sentinel_set_after_install(self):
+        """The sentinel attribute ``_tracking_cp`` must exist after install."""
+        tracker: dict = {"completed": False}
+        tool = _make_cp_tool()
+        assert not hasattr(tool, "_tracking_cp")
+
+        _install_complete_pipeline_tracker([tool], tracker)
+
+        assert hasattr(tool, "_tracking_cp")
+        assert tool._tracking_cp is True  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# 4. Post-completion guard: passthrough before completion
+# ---------------------------------------------------------------------------
+
+class TestPostCompletionGuardPassthrough:
+    async def test_delegates_when_not_completed(self):
+        """Before completion, ledger_get_next_action must delegate to the original."""
+        tracker: dict = {"completed": False}
+        gna_seen: list[Any] = []
+        gna = _SimpleTool("ledger_get_next_action", result='{"action": "NEXT"}', seen=gna_seen)
+
+        _install_post_completion_guard([gna], tracker)
+
+        result = await gna.ainvoke({"agent_role": "Developer"})
+
+        assert len(gna_seen) == 1
+        assert result == '{"action": "NEXT"}'
+
+    async def test_non_gna_tool_not_wrapped(self):
+        """A non ledger_get_next_action tool in the list must not be wrapped."""
+        tracker: dict = {"completed": False}
+        other = _SimpleTool("ledger_begin_work")
+        orig_ainvoke = other.ainvoke
+        _install_post_completion_guard([other], tracker)
+
+        assert other.ainvoke is orig_ainvoke
+
+
+# ---------------------------------------------------------------------------
+# 5. Post-completion guard: interception after completion
+# ---------------------------------------------------------------------------
+
+class TestPostCompletionGuardInterception:
+    async def test_returns_synthetic_wait_after_completion(self):
+        """After completion flag is True, the synthetic WAIT response is returned."""
+        tracker: dict = {"completed": True}
+        gna_seen: list[Any] = []
+        gna = _SimpleTool("ledger_get_next_action", result='{"action": "NEXT"}', seen=gna_seen)
+
+        _install_post_completion_guard([gna], tracker)
+
+        result = await gna.ainvoke({"agent_role": "Developer"})
+
+        # Original ainvoke must NOT have been called.
+        assert len(gna_seen) == 0
+        # Result is a plain string (no tool_call_id in flat dict input).
+        assert isinstance(result, str)
+        parsed = json.loads(result)
+        assert parsed["action"] == "WAIT"
+        assert "reason" in parsed
+
+    async def test_synthetic_response_contains_reason_text(self):
+        """The synthetic WAIT response must mention the orchestrator."""
+        tracker: dict = {"completed": True}
+        gna = _SimpleTool("ledger_get_next_action", result="irrelevant")
+
+        _install_post_completion_guard([gna], tracker)
+
+        result = await gna.ainvoke({})
+
+        parsed = json.loads(result)
+        assert "orchestrator" in parsed["reason"].lower()
+
+    async def test_synthetic_response_shape_with_tool_call_id(self):
+        """With a ToolCall-style input (has 'id'), the response is a ToolMessage."""
+        tracker: dict = {"completed": True}
+        gna = _SimpleTool("ledger_get_next_action", result="irrelevant")
+
+        _install_post_completion_guard([gna], tracker)
+
+        result = await gna.ainvoke({
+            "name": "ledger_get_next_action",
+            "args": {"agent_role": "Developer"},
+            "id": "call-abc123",
+            "type": "tool_call",
+        })
+
+        assert isinstance(result, ToolMessage)
+        assert result.tool_call_id == "call-abc123"
+        assert result.status == "success"
+        parsed = json.loads(result.content)
+        assert parsed["action"] == "WAIT"
+        assert "reason" in parsed
+
+    async def test_original_not_called_after_completion(self):
+        """After completion, the original gna ainvoke is bypassed."""
+        tracker: dict = {"completed": True}
+        gna_seen: list[Any] = []
+        gna = _SimpleTool("ledger_get_next_action", result="should-not-appear", seen=gna_seen)
+
+        _install_post_completion_guard([gna], tracker)
+
+        # Call three times to ensure interception is consistent.
+        for _ in range(3):
+            await gna.ainvoke({"agent_role": "Developer"})
+
+        assert len(gna_seen) == 0
+
+
+# ---------------------------------------------------------------------------
+# 6. Post-completion guard: idempotency
+# ---------------------------------------------------------------------------
+
+class TestPostCompletionGuardIdempotency:
+    async def test_double_install_does_not_stack(self):
+        """Installing the guard twice on the same tool must not double-wrap."""
+        tracker: dict = {"completed": False}
+        gna_seen: list[Any] = []
+        gna = _SimpleTool("ledger_get_next_action", result="normal", seen=gna_seen)
+
+        _install_post_completion_guard([gna], tracker)
+        _install_post_completion_guard([gna], tracker)
+
+        await gna.ainvoke({})
+
+        # Original invoked exactly once (no stacking).
+        assert len(gna_seen) == 1
+
+    async def test_sentinel_set_after_install(self):
+        """The sentinel attribute ``_post_completion_guard`` must exist after install."""
+        tracker: dict = {"completed": False}
+        gna = _SimpleTool("ledger_get_next_action", result="normal")
+        assert not hasattr(gna, "_post_completion_guard")
+
+        _install_post_completion_guard([gna], tracker)
+
+        assert hasattr(gna, "_post_completion_guard")
+        assert gna._post_completion_guard is True  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# 7. Combined flow: tracker + guard working together
+# ---------------------------------------------------------------------------
+
+class TestCombinedTrackerAndGuard:
+    async def test_gna_passes_through_before_complete_pipeline(self):
+        """Before ledger_complete_pipeline fires, gna must delegate normally."""
+        tracker: dict = {"completed": False}
+        gna_seen: list[Any] = []
+        cp = _make_cp_tool()
+        gna = _SimpleTool("ledger_get_next_action", result='{"action": "CONTINUE"}', seen=gna_seen)
+
+        _install_complete_pipeline_tracker([cp], tracker)
+        _install_post_completion_guard([gna], tracker)
+
+        result = await gna.ainvoke({"agent_role": "Developer"})
+
+        assert result == '{"action": "CONTINUE"}'
+        assert len(gna_seen) == 1
+
+    async def test_gna_intercepted_after_complete_pipeline(self):
+        """After ledger_complete_pipeline succeeds, gna must return WAIT."""
+        tracker: dict = {"completed": False}
+        gna_seen: list[Any] = []
+        cp = _make_cp_tool()
+        gna = _SimpleTool("ledger_get_next_action", result='{"action": "NEXT"}', seen=gna_seen)
+
+        _install_complete_pipeline_tracker([cp], tracker)
+        _install_post_completion_guard([gna], tracker)
+
+        # Simulate pipeline completion.
+        await cp.ainvoke({"work_package_id": "WP-001", "type": "implementation"})
+
+        # Now gna should be intercepted.
+        result = await gna.ainvoke({"agent_role": "Developer"})
+
+        assert len(gna_seen) == 0
+        parsed = json.loads(result)
+        assert parsed["action"] == "WAIT"
+
+    async def test_failed_complete_pipeline_does_not_intercept_gna(self):
+        """If ledger_complete_pipeline raises, gna must continue to delegate normally."""
+        tracker: dict = {"completed": False}
+        gna_seen: list[Any] = []
+        cp = _make_cp_tool_raises(RuntimeError)
+        gna = _SimpleTool("ledger_get_next_action", result='{"action": "NEXT"}', seen=gna_seen)
+
+        _install_complete_pipeline_tracker([cp], tracker)
+        _install_post_completion_guard([gna], tracker)
+
+        with pytest.raises(RuntimeError):
+            await cp.ainvoke({"work_package_id": "WP-001"})
+
+        # gna should still delegate normally.
+        result = await gna.ainvoke({"agent_role": "Developer"})
+
+        assert len(gna_seen) == 1
+        assert result == '{"action": "NEXT"}'
+
+
+# ---------------------------------------------------------------------------
+# 8. Rollback suppression
+# ---------------------------------------------------------------------------
+
+class TestRollbackSuppression:
+    async def test_cancel_not_called_when_complete_pipeline_succeeded(self):
+        """When _complete_pipeline_state["completed"] is True, rollback must be skipped.
+
+        This is a behavioural contract test: the rollback guard condition in
+        create_stage_node is:
+            if _begin_work_state["called"] and not _complete_pipeline_state["completed"] ...
+
+        We verify the combined condition logic independently from the node wiring.
+        """
+        begin_work_state = {"called": True, "pipeline_type": "implementation"}
+        complete_pipeline_state = {"completed": True}
+        cancel_seen: list[Any] = []
+        cancel_tool = _make_cancel_tool(seen=cancel_seen)
+
+        # Simulate the rollback guard condition.
+        should_rollback = (
+            begin_work_state["called"]
+            and not complete_pipeline_state["completed"]
+            and bool(cancel_tool)
+        )
+
+        if should_rollback:
+            await cancel_tool.ainvoke({"work_package_id": "WP-001"})
+
+        assert len(cancel_seen) == 0, "cancel must not be called when pipeline completed"
+
+    async def test_cancel_called_when_begin_work_without_complete(self):
+        """When pipeline started but did not complete, rollback must proceed."""
+        begin_work_state = {"called": True, "pipeline_type": "implementation"}
+        complete_pipeline_state = {"completed": False}
+        cancel_seen: list[Any] = []
+        cancel_tool = _make_cancel_tool(seen=cancel_seen)
+        wp_id = "WP-001"
+
+        should_rollback = (
+            begin_work_state["called"]
+            and not complete_pipeline_state["completed"]
+            and wp_id
+            and bool(cancel_tool)
+        )
+
+        if should_rollback:
+            await cancel_tool.ainvoke({"work_package_id": wp_id})
+
+        assert len(cancel_seen) == 1, "cancel must be called when pipeline did not complete"
+
+    async def test_cancel_not_called_when_begin_work_not_called(self):
+        """When begin_work was never called, rollback must be skipped."""
+        begin_work_state = {"called": False, "pipeline_type": None}
+        complete_pipeline_state = {"completed": False}
+        cancel_seen: list[Any] = []
+        cancel_tool = _make_cancel_tool(seen=cancel_seen)
+        wp_id = "WP-001"
+
+        should_rollback = (
+            begin_work_state["called"]
+            and not complete_pipeline_state["completed"]
+            and wp_id
+            and bool(cancel_tool)
+        )
+
+        if should_rollback:  # pragma: no branch
+            await cancel_tool.ainvoke({"work_package_id": wp_id})
+
+        assert len(cancel_seen) == 0
+
+```
 ###  Path: `/orchestrator/tests/test_prompt_renderer.py`
 
 ```py
@@ -4991,7 +5572,6 @@ from src.nodes.prompt_renderer import (
     load_template,
     render_prompt,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -5680,10 +6260,8 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # 1. Patch application

@@ -21,8 +21,9 @@ Generated persona files are consumed in two ways:
 | Section | Description |
 |---------|-------------|
 | [Tech Stack & Patterns](tech-stack.md) | Runtime, dependencies, build tools, and architectural patterns |
-| [Public API Surface](api-surface.md) | Build script functions, template syntax, metadata schema, and MCP tool allocation matrix |
-| [Key Data Flows](data-flows.md) | Build pipeline, template resolution, and sync flows |
+| [Public API Surface](api-surface.md) | CLI interface, config shape, template syntax, metadata schema, and MCP tool allocation matrix |
+| [Key Data Flows](data-flows.md) | Build pipeline (wrapper → library → plugin hooks → output), template resolution, and sync flows |
+| [File Tree](file-tree.md) | Annotated directory structure — source templates, generated output, and build scripts |
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
@@ -31,37 +32,16 @@ Generated persona files are consumed in two ways:
 
 ## Quick Reference
 
-**Build ledger suite (default — backward compat):**
+**Build all suites and targets (default):**
 ```bash
 node scripts/build-personas.js
 ```
 
-**Build a specific suite:**
-```bash
-node scripts/build-personas.js --suite standalone
-```
-
-**Build multiple suites (comma-separated or shorthand):**
-```bash
-node scripts/build-personas.js --suite ledger,standalone
-node scripts/build-personas.js --suite all       # ledger + standalone
-```
-
-**Build for a specific target only:**
-```bash
-node scripts/build-personas.js --target vscode
-node scripts/build-personas.js --target claude-code
-```
-
-**Flags can be combined:**
-```bash
-node scripts/build-personas.js --suite standalone --target vscode
-```
+> Suite and target selection is controlled by `personas/persona-build.config.js`, not by CLI flags. The wrapper always builds all suites (`ledger`, `standalone`) for both targets (`vscode`, `claude-code`).
 
 **Check for stale output (CI-friendly):**
 ```bash
 node scripts/build-personas.js --check
-node scripts/build-personas.js --suite all --check
 ```
 
 **Preview without writing:**
@@ -72,10 +52,9 @@ node scripts/build-personas.js --dry-run
 **Validate generated output for unresolved markers (strict mode):**
 ```bash
 node scripts/build-personas.js --strict
-node scripts/build-personas.js --strict --suite all
 ```
 
-Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers. Safe to combine with `--suite` and `--target`.
+Passes exit 0 if all markers resolved; exits 1 with `[STRICT]` log line(s) on any unresolved `{{variable}}` or `{{> partial}}` markers. Use in CI pipelines or pre-commit hooks to gate on zero unresolved markers.
 
 **Build + sync to both IDEs (VS Code + Claude Code):**
 ```bash

@@ -41,6 +41,7 @@ Stage prompts are assembled by each module using ``render_prompt`` and
 
 from __future__ import annotations
 
+import json as _json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -52,7 +53,12 @@ from langchain_core.runnables import RunnableConfig
 from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
-from src.utils.tool_wrappers import inject_project_path, log_tool_calls, restrict_to_wp
+from src.utils.tool_wrappers import (
+    _make_tool_response,
+    inject_project_path,
+    log_tool_calls,
+    restrict_to_wp,
+)
 
 if TYPE_CHECKING:
     from src.config import Config
@@ -72,24 +78,50 @@ _STAGE_PIPELINE_TYPE: dict[str, str] = {
 }
 
 
-def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
-    """Wrap ``ledger_begin_work`` to record when it is invoked and which pipeline type was used.
+def _install_tracker(
+    tools: list[Any],
+    tool_name: str,
+    prefix: str,
+    tracker: dict,
+    *,
+    on_call: Callable[[Any, dict], None] | None = None,
+    on_success: Callable[[Any, dict], None] | None = None,
+) -> None:
+    """Generic tool invocation tracker installer.
 
-    Sets ``tracker["called"] = True`` and ``tracker["pipeline_type"] = <type>`` on
-    the first invocation.  Idempotent: a sentinel attribute ``_tracking_begin_work``
-    prevents double-wrapping when called multiple times on the same tool objects.
+    Wraps the named tool's ``ainvoke`` with a sentinel-guarded idempotent wrapper.
+
+    Parameters
+    ----------
+    tools:
+        The list of tool objects to scan.
+    tool_name:
+        The ``tool.name`` value that identifies the target tool.
+    prefix:
+        Short string used to derive the sentinel attribute names, e.g. ``"bw"``
+        produces ``_orig_ainvoke_bw``, ``_bw_wrapper_ref``, ``_tracking_bw``.
+    tracker:
+        Mutable dict shared with the caller; callbacks may update it.
+    on_call:
+        Optional ``(input, tracker) -> None`` called synchronously *before*
+        ``await _orig(…)``.  Useful for recording inputs or pre-call state.
+    on_success:
+        Optional ``(result, tracker) -> None`` called synchronously *after*
+        a successful return of ``_orig``.  A raised exception prevents this
+        callback from running.
     """
+    orig_attr = f"_orig_ainvoke_{prefix}"
+    ref_attr = f"_{prefix}_wrapper_ref"
+    sentinel_attr = f"_tracking_{prefix}"
+
     for tool in tools:
-        if tool.name != "ledger_begin_work":
+        if tool.name != tool_name:
             continue
-        # If the current ainvoke is our own tracker from a previous call,
-        # reuse the saved delegation target.  Otherwise inner layers were
-        # re-wrapped — capture the fresh inner wrapper.
-        _prev_bw = getattr(tool, "_bw_wrapper_ref", None)
-        if _prev_bw is not None and tool.ainvoke is _prev_bw:
-            _orig = tool._orig_ainvoke_bw  # type: ignore[attr-defined]
+        _prev = getattr(tool, ref_attr, None)
+        if _prev is not None and tool.ainvoke is _prev:
+            _orig = getattr(tool, orig_attr)  # type: ignore[attr-defined]
         else:
-            object.__setattr__(tool, "_orig_ainvoke_bw", tool.ainvoke)
+            object.__setattr__(tool, orig_attr, tool.ainvoke)
             _orig = tool.ainvoke
 
         async def _tracked_ainvoke(
@@ -97,23 +129,105 @@ def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
             *args: Any,
             _orig: Any = _orig,
             _tracker: dict = tracker,
+            _on_call: Any = on_call,
+            _on_success: Any = on_success,
             **kwargs: Any,
         ) -> Any:
-            if isinstance(input, dict):
-                target = (
-                    input["args"]
-                    if "args" in input and isinstance(input["args"], dict)
-                    else input
-                )
-                pipeline_type = target.get("type")
-                if pipeline_type:
-                    _tracker["pipeline_type"] = pipeline_type
-            _tracker["called"] = True
-            return await _orig(input, *args, **kwargs)
+            if _on_call is not None:
+                _on_call(input, _tracker)
+            result = await _orig(input, *args, **kwargs)
+            if _on_success is not None:
+                _on_success(result, _tracker)
+            return result
 
         object.__setattr__(tool, "ainvoke", _tracked_ainvoke)
-        object.__setattr__(tool, "_bw_wrapper_ref", _tracked_ainvoke)
-        object.__setattr__(tool, "_tracking_begin_work", True)
+        object.__setattr__(tool, ref_attr, _tracked_ainvoke)
+        object.__setattr__(tool, sentinel_attr, True)
+        break
+
+
+def _install_begin_work_tracker(tools: list[Any], tracker: dict) -> None:
+    """Wrap ``ledger_begin_work`` to record when it is invoked and which pipeline type was used.
+
+    Sets ``tracker["called"] = True`` and ``tracker["pipeline_type"] = <type>`` on
+    the first invocation.  Idempotent: a sentinel attribute ``_tracking_bw``
+    prevents double-wrapping when called multiple times on the same tool objects.
+    """
+
+    def _on_call(input: Any, tracker: dict) -> None:
+        if isinstance(input, dict):
+            target = (
+                input["args"]
+                if "args" in input and isinstance(input["args"], dict)
+                else input
+            )
+            if pipeline_type := target.get("type"):
+                tracker["pipeline_type"] = pipeline_type
+        tracker["called"] = True
+
+    _install_tracker(tools, "ledger_begin_work", "bw", tracker, on_call=_on_call)
+
+
+def _install_complete_pipeline_tracker(tools: list[Any], tracker: dict) -> None:
+    """Wrap ``ledger_complete_pipeline`` to record when it completes successfully.
+
+    Sets ``tracker["completed"] = True`` after the first successful invocation.
+    Idempotent: a sentinel attribute ``_tracking_cp`` prevents double-wrapping
+    when called multiple times on the same tool objects.  The flag is only set
+    *after* the underlying call succeeds; a raised exception leaves it ``False``.
+    """
+
+    def _on_success(result: Any, tracker: dict) -> None:
+        tracker["completed"] = True
+
+    _install_tracker(tools, "ledger_complete_pipeline", "cp", tracker, on_success=_on_success)
+
+
+def _install_post_completion_guard(tools: list[Any], completion_tracker: dict) -> None:
+    """Wrap ``ledger_get_next_action`` to return a synthetic WAIT after pipeline completion.
+
+    After ``_install_complete_pipeline_tracker`` sets ``completion_tracker["completed"]``
+    to ``True``, every subsequent call to ``ledger_get_next_action`` is intercepted and
+    returns a synthetic ``{"action": "WAIT"}`` response.  This prevents the agent from
+    self-routing to the next work package after completing the active one.
+
+    Pre-completion calls are delegated transparently to the original ``ainvoke``.
+    Idempotent: a sentinel attribute ``_post_completion_guard`` prevents double-wrapping.
+    """
+    for tool in tools:
+        if tool.name != "ledger_get_next_action":
+            continue
+        _prev_pcg = getattr(tool, "_pcg_wrapper_ref", None)
+        if _prev_pcg is not None and tool.ainvoke is _prev_pcg:
+            _orig = tool._orig_ainvoke_pcg  # type: ignore[attr-defined]
+        else:
+            object.__setattr__(tool, "_orig_ainvoke_pcg", tool.ainvoke)
+            _orig = tool.ainvoke
+
+        _tool_name = tool.name
+
+        async def _guarded_gna_ainvoke(
+            input: Any,
+            *args: Any,
+            _orig: Any = _orig,
+            _tracker: dict = completion_tracker,
+            _name: str = _tool_name,
+            **kwargs: Any,
+        ) -> Any:
+            if _tracker["completed"]:
+                payload = _json.dumps({
+                    "action": "WAIT",
+                    "reason": (
+                        "Pipeline completed for the active work package. "
+                        "The orchestrator will route the next work package."
+                    ),
+                })
+                return _make_tool_response(payload, input, _name, status="success")
+            return await _orig(input, *args, **kwargs)
+
+        object.__setattr__(tool, "ainvoke", _guarded_gna_ainvoke)
+        object.__setattr__(tool, "_pcg_wrapper_ref", _guarded_gna_ainvoke)
+        object.__setattr__(tool, "_post_completion_guard", True)
         break
 
 
@@ -197,6 +311,10 @@ def create_stage_node(
         # Populated by the tracker installed in _install_begin_work_tracker below.
         # Declared before `try` so it is accessible in the `except` rollback path.
         _begin_work_state: dict = {"called": False, "pipeline_type": None}
+        # Tracks whether ledger_complete_pipeline completed successfully.
+        # When True, the rollback path is skipped (no orphaned IN_PROGRESS pipeline)
+        # and ledger_get_next_action returns a synthetic WAIT response.
+        _complete_pipeline_state: dict = {"completed": False}
         wrapped_tools: list[Any] = []
         # Pre-declared before `try` so that messages collected before a crash are
         # accessible in the `except` block for error-path dialogue capture.
@@ -235,6 +353,8 @@ def create_stage_node(
             # ledger_begin_work was called before the error occurred.
             if _wp_id:
                 _install_begin_work_tracker(wrapped_tools, _begin_work_state)
+                _install_complete_pipeline_tracker(wrapped_tools, _complete_pipeline_state)
+                _install_post_completion_guard(wrapped_tools, _complete_pipeline_state)
 
             # Wire tool-call logging as the outermost wrapper (applied last).
             # Being outermost, _logged_ainvoke executes first on every call,
@@ -394,7 +514,12 @@ def create_stage_node(
             # blocked by a stale pipeline. auto_cancelled=True prevents the
             # cancellation from counting toward the rework budget (§21.27).
             rollback_log_entries: list[dict] = []
-            if _begin_work_state["called"] and _wp_id and wrapped_tools:
+            if (
+                _begin_work_state["called"]
+                and not _complete_pipeline_state["completed"]
+                and _wp_id
+                and wrapped_tools
+            ):
                 _pipeline_type = (
                     _begin_work_state.get("pipeline_type") or _STAGE_PIPELINE_TYPE.get(stage)
                 )

@@ -1,11 +1,12 @@
 # Personas Changelog
 
-## v3.10.8 - Standalone Developer Persona
-- New Agent: Standalone Developer.
-- New Agent: Ledger Workflow Doctor.
-- Project Manager: Fixed subagent calls not using custom agents.
-- Release Engineer: Now using agent name variables.
-- Added agent name variables, e.g. `{{agent_researcher}}`.
+## v3.11.0 - New Personas & Local Ledger Plugin
+- Core: Extracted the persona building into the node library `@mistralys/persona-builder`.
+- New Agent: Standalone Developer persona.
+- New Agent: Ledger Workflow Doctor persona.
+- Build: Migrated ledger plugin to local `personas/plugins/ledger/`.
+- Build: Added agent name variables (e.g. `{{agent_researcher}}`).
+- Project Manager: Fixed subagent calls not using custom agent names.
 
 ## v3.10.7 - Orchestrator Runner: Document --depth N Flag
 - Orchestrator Runner v1.5.1 — troubleshooting table now mentions `--depth N`

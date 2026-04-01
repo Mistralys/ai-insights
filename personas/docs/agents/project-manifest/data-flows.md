@@ -2,22 +2,61 @@
 
 ## 1. Build Pipeline (`scripts/build-personas.js`)
 
-The primary data flow: transform source templates into final persona Markdown files. A single `build-personas.js` run executes **one or more suite × target combinations** controlled by the `--suite` and `--target` CLI flags.
+The primary data flow: transform source templates into final persona Markdown files.
+
+### Top-Level Flow
 
 ```
-CLI flags:
-  --suite  ledger | standalone | all | comma-separated  [default: ledger]
-  --target vscode | claude-code | all                             [default: all]
-         │
-         ▼
-   expandSuites() resolves SUITES_TO_BUILD (deduplicated list)
-         │
-   For each suite in SUITES_TO_BUILD AND each active target:
-         ▼
-   buildForTarget(suite, target) called once per suite + target pair
+  ┌──────────────────────────────────┐
+  │  node scripts/build-personas.js  │  --check | --dry-run | --strict
+  └─────────────────┬────────────────┘
+                    │  resolves paths to:
+                    │    personas/persona-build.config.js
+                    │    node_modules/@mistralys/persona-builder/dist/cli.js
+                    │  forwards flags; spawns library CLI via execFileSync
+                    ▼
+  ┌──────────────────────────────────┐
+  │  @mistralys/persona-builder CLI  │
+  │  (dist/cli.js)                   │
+  └─────────────────┬────────────────┘
+                    │  loads persona-build.config.js
+                    │  runs ledgerPlugin (role validation)
+                    │  iterates suites × targets from config
+                    ▼
+  ┌──────────────────────────────────┐
+  │  For each suite + target:        │
+  │  Template Engine (see below)     │
+  └─────────────────┬────────────────┘
+                    │
+                    ▼
+  ┌──────────────────────────────────┐
+  │  Plugin hooks (ledgerPlugin)     │
+  │  - Validates persona `role`      │
+  │    against manifestRoles[]       │
+  │  - Emits warn on unknown role    │
+  └─────────────────┬────────────────┘
+                    │
+                    ▼
+  ┌──────────────────────────────────────────┐
+  │ Write to suite-specific output dirs      │
+  │  ledger    + vscode:                     │
+  │    personas/ledger/vs-code/              │
+  │  ledger    + claude-code:                │
+  │    personas/ledger/claude-code/          │
+  │  standalone + vscode:                    │
+  │    personas/standalone/vs-code/          │
+  │  standalone + claude-code:               │
+  │    personas/standalone/claude-code/      │
+  └──────────────────────────────────────────┘
+```
+
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs.
+
+### Template Engine Detail (inside the library)
 
 For each suite + target AND each per-persona YAML:
 
+```
   ┌──────────────────┐     ┌────────────────────────┐
   │  _shared.yaml    │     │  N-name.yaml /         │
   │  (shared meta)   │     │  slug.yaml             │
@@ -44,7 +83,7 @@ For each suite + target AND each per-persona YAML:
                       │                │
                       │                ▼
                       │       ┌──────────────────┐    ┌──────────────────────────┐
-                      │       │ 1. resolvePartials│◄───│ loadPartials(suiteConfig)│
+                      │       │ 1. resolvePartials│◄───│ Load partials            │
                       │       └────────┬──────────┘    │ Base: shared/partials/  │
                       │                ▼               │ Override: src/partials/ │
                       │       ┌──────────────────┐    └──────────────────────────┘
@@ -69,17 +108,7 @@ For each suite + target AND each per-persona YAML:
               │ body                     │
               └──────────────┬───────────┘
                              ▼
-        ┌────────────────────────────────────────┐
-        │ Write to suite-specific output dir     │
-        │  ledger    + vscode:                   │
-        │    personas/ledger/vs-code/            │
-        │  ledger    + claude-code:              │
-        │    personas/ledger/claude-code/        │
-        │  standalone + vscode:                  │
-        │    personas/standalone/vs-code/        │
-        │  standalone + claude-code:             │
-        │    personas/standalone/claude-code/    │
-        └────────────────────────────────────────┘
+                     Write output file
 ```
 
 ### Merge Context Details
@@ -112,7 +141,7 @@ context = {
   cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation") — ledger
   cc_model,            // persona.cc_model !== undefined ? persona.cc_model : resolved model  (resolved model already incorporates _shared.cc_model as a fallback step)
 
-  // Layer 4: Target-pass flags (set by buildForTarget)
+  // Layer 4: Target-pass flags (set by the library per target pass)
   target_vscode,       // true when target = 'vscode'
   target_claude_code,  // true when target = 'claude-code'
 }
@@ -187,9 +216,6 @@ content/3-developer.md
 │
 ├── {{#if has_detect_project}}       (true for Agent 3)
 │   └── {{> mcp-preflight-detect}}      → partials/mcp-preflight-detect.md
-│
-├── {{#if has_detect_project}}       (true — second guard for verify step)
-│   └── {{> mcp-preflight-verify-with-detect}}  → partials/mcp-preflight-verify-with-detect.md
 │
 ├── {{> mcp-unavailable}}        → partials/mcp-unavailable.md
 │   └── {{mcp_server_name}}          → "central_pm"
