@@ -226,6 +226,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_mcp_parse.py
     │   └── test_nodes.py
     │   └── test_plan_parser.py
+    │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
     │   └── test_state.py
     │   └── test_subprocess_encoding.py
@@ -263,6 +264,14 @@ _SOURCE: Top-level directory tree_
     ├── module-context.yaml
     ├── package-lock.json
     ├── package.json
+    ├── persona-build.config.js
+    ├── plugins/
+    │   ├── ledger/
+    │   │   └── frontmatter-templates.js
+    │   │   └── index.js
+    │   │   └── mcp-tools-renderer.js
+    │   │   └── role-validator.js
+    │   │   └── roster-renderer.js
     ├── shared/
     │   ├── partials/
     │   │   └── agent-roster.md
@@ -334,8 +343,6 @@ _SOURCE: Top-level directory tree_
     ├── extract-changelog-entry.js
     ├── install-hooks.js
     ├── kill-orchestrator.js
-    ├── lib/
-    │   ├── persona-helpers.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-orchestrator.js
@@ -345,7 +352,8 @@ _SOURCE: Top-level directory tree_
     ├── run-orchestrator.js
     ├── sync-personas.js
     ├── tests/
-    │   ├── persona-helpers.test.js
+    │   ├── README.md
+    │   ├── ledger-plugin.test.js
     ├── validate-workflow-manifest.js
 └── shared/
     ├── workflow-manifest.json

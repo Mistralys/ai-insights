@@ -15,6 +15,7 @@ _SOURCE: Directory tree_
         │   │   ├── constraints-cross-system.md
         │   │   ├── constraints.md
         │   │   ├── data-flows.md
+        │   │   ├── file-tree.md
         │   │   ├── tech-stack.md
         │   ├── research/
         │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
@@ -78,6 +79,14 @@ _SOURCE: Directory tree_
     └── module-context.yaml
     └── package-lock.json
     └── package.json
+    └── persona-build.config.js
+    └── plugins/
+        ├── ledger/
+        │   └── frontmatter-templates.js
+        │   └── index.js
+        │   └── mcp-tools-renderer.js
+        │   └── role-validator.js
+        │   └── roster-renderer.js
     └── shared/
         ├── partials/
         │   └── agent-roster.md

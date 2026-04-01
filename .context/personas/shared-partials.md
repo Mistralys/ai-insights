@@ -83,6 +83,7 @@ Update the **Project Ledger** via MCP tools as described in the Workflow section
 2. **Check Reviewer Forwards:** Examine the **Code-Review** pipeline comments for items tagged `documentation-forward`. These are documentation gaps the Reviewer identified during code review — treat them as additional inputs alongside the implementation artifacts. Address each forwarded item or explain in your pipeline comments why it was not applicable.
 3. **Gap Analysis:** Check if `README.md` or `docs/` are outdated based on the code changes and any reviewer-forwarded items.
 4. **Update:** Rewrite outdated sections, add missing configuration steps, or document new APIs.
+5. **Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified in `artifacts.files_modified` — include documentation files, READMEs, and any other files touched during this pipeline, even ancillary changes.
 
 ```
 ###  Path: `/personas/shared/partials/docs-output-format.md`
@@ -312,6 +313,8 @@ Eligible fixes — all must be **non-behavioral** (QA's validation remains intac
 * Minor formatting or style corrections
 
 **Hard boundary:** If a change alters what the program *does* — even slightly — it is not Fix-Forward. Treat it as Blocking and bounce to the Developer.
+
+**Declare All Artifacts:** When calling `ledger_complete_pipeline`, declare ALL files you modified (including Fix-Forward edits) in `artifacts.files_modified`. Even if you made no changes, declare the files you actively reviewed. This maintains a complete audit trail.
 
 After applying each fix, record it as a pipeline comment with type `reviewer-applied-fix` and a brief description of what you changed and why. This maintains a full audit trail.
 

@@ -563,4 +563,63 @@ for tool in tools:
 
 **Rationale:** The orchestrator has no fallback if the MCP server subprocess fails to start — all ledger operations will fail silently or with unhelpful errors.
 
+---
+
+## Cross-WP Escape Prevention
+
+### 15. Post-Completion Guard Is the Authoritative Cross-WP Escape Mechanism
+
+**Rule:** When `ledger_complete_pipeline` succeeds for the active work package, all subsequent `ledger_get_next_action` calls within the same stage turn must be intercepted and must return a synthetic `{"action": "WAIT"}` response. This interception is implemented programmatically in `_install_post_completion_guard` / `_install_complete_pipeline_tracker` (in `src/nodes/__init__.py`) and must not be replicated or replaced by prompt-based mechanisms.
+
+**Rationale:** Without interception, the LLM agent receives cross-WP routing instructions from `ledger_get_next_action` immediately after completing the active pipeline, causing it to escape to the next work package within the same stage turn. The programmatic guard is a hard guarantee that the LLM cannot ignore.
+
+---
+
+### 16. Rejected Pattern: User-Turn Prompt WP-Scoping
+
+**Rule:** Do not add `wp_id` template variables or explicit WP-scope instructions to stage prompts with the intent of preventing cross-WP escape. Do not emit "you are scoped to WP-XXX" strings in user-turn prompts or persona system prompts for this purpose.
+
+**Rationale:** Both the supervisor and the implementing agent use the ledger to determine the current work package — they are always in sync. Prior experience with WP-scoping in prompts created agent confusion without providing meaningful safety. The programmatic post-completion guard in `nodes/__init__.py` (constraint 15) is the sole authoritative mechanism for preventing cross-WP escape. Adding prompt-based scoping alongside it does not improve safety; it introduces redundant, fragile instructions that the LLM may misinterpret.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — prompt-based WP scoping to prevent cross-WP escape
+def _build_developer_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+        "scope_warning": f"You are ONLY permitted to work on {wp_id}.",  # ← rejected
+    })
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — runtime context only; scope enforcement is programmatic
+def _build_developer_prompt(state: WorkflowState) -> str:
+    wp_id = state.get("current_wp_id", "")
+    return render_prompt(_TEMPLATE, {
+        "project_path": state["project_path"],
+        "wp_id": wp_id,
+    })
+```
+
+---
+
+## Code Quality
+
+### 17. Run `ruff check` After Every Code Change
+
+**Rule:** After making any change to Python source files in `orchestrator/`, run `python3 -m ruff check .` from the `orchestrator/` directory and resolve all reported violations before considering the task complete. This applies to every change — including single-line edits, refactors, and new files.
+
+**Rationale:** Ruff is the project's linter and catches style violations, unused imports, undefined names, and common bugs at near-zero cost. Skipping the check after a change allows lint errors to accumulate silently and compounds the cleanup burden for future agents.
+
+**How to run:**
+```bash
+cd orchestrator
+python3 -m ruff check .
+```
+
+**Forbidden shortcut:** Do not mark a coding task complete, write a changelog entry, or hand off to the next pipeline stage without a clean ruff output.
+
 ```

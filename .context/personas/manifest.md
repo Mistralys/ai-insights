@@ -13,6 +13,7 @@ _SOURCE: Project manifest (tech stack, constraints, API surface, data flows, fil
                 └── constraints-cross-system.md
                 └── constraints.md
                 └── data-flows.md
+                └── file-tree.md
                 └── tech-stack.md
 
 ```
@@ -42,8 +43,9 @@ Generated persona files are consumed in two ways:
 | Section | Description |
 |---------|-------------|
 | [Tech Stack & Patterns](tech-stack.md) | Runtime, dependencies, build tools, and architectural patterns |
-| [Public API Surface](api-surface.md) | Build script functions, template syntax, metadata schema, and MCP tool allocation matrix |
-| [Key Data Flows](data-flows.md) | Build pipeline, template resolution, and sync flows |
+| [Public API Surface](api-surface.md) | CLI interface, config shape, template syntax, metadata schema, and MCP tool allocation matrix |
+| [Key Data Flows](data-flows.md) | Build pipeline (wrapper → library → plugin hooks → output), template resolution, and sync flows |
+| [File Tree](file-tree.md) | Annotated directory structure — source templates, generated output, and build scripts |
 | [Constraints & Conventions](constraints.md) | Core rules: source editing, naming, versioning, and safety guards |
 | [Build System Constraints](constraints-build-system.md) | Template engine behavior, build flags, log conventions, and sync script rules |
 | [Cross-System Constraints](constraints-cross-system.md) | Synchronization contracts with the MCP server, Agent Registry, and historical differences |
@@ -115,72 +117,63 @@ node scripts/sync-personas.js --target claude-code
 ```md
 # Public API Surface
 
-## Build Scripts
+## Build System
 
-The persona build system is split across two files:
+The persona build system consists of two files in this workspace:
 
 | File | Role |
 |------|------|
-| `scripts/build-personas.js` | CLI entry point — handles flags, suite/target selection, file I/O, and assembly |
-| `scripts/lib/persona-helpers.js` | Pure helper module — 12 stateless functions imported by `build-personas.js` and the test suite |
+| `scripts/build-personas.js` | Thin CLI wrapper — resolves paths, reads flags, and delegates to the `@mistralys/persona-builder` library CLI |
+| `personas/persona-build.config.js` | Build configuration — declares suite directories, output paths, and plugins |
 
-### `scripts/build-personas.js`
+All template engine logic (partial resolution, conditionals, variable interpolation, frontmatter assembly) is implemented inside the `@mistralys/persona-builder` library.
 
-### CLI Flags
+### `scripts/build-personas.js` — CLI Interface
 
-| Flag | Values | Default | Description |
-|------|--------|---------|-------------|
-| `--suite` | `ledger \| standalone \| all` or comma-separated | `ledger` | Select which persona suite(s) to build. `all` expands to `ledger,standalone`. Comma-separated values run suites in order without duplication (e.g. `--suite ledger,standalone`). |
-| `--target` | `vscode \| claude-code \| all` | `all` | Select which IDE target to generate. Can be combined with `--suite`. |
-| `--check` | *(flag)* | off | Verify output is up-to-date without writing. Exits 1 if any file is stale or if any `note_only: true` tool entry appears as a rendered table row in generated output (`[note_only-violation]`). Suite-aware: use `--suite all --check` to check all suites. |
-| `--dry-run` | *(flag)* | off | Preview build without writing files. |
-| `--strict` | *(flag)* | off | After building, scan all generated output for unresolved `{{variable}}` or `{{> partial}}` markers. Exits 1 with a `[STRICT]` log line if any are found. Safe to combine with `--suite` and `--target`. Compatible with `--check` and `--dry-run`; does not alter their output behaviour. **Known limitations:** (1) The scan regex would produce false positives if a template body contained literal `{{…}}` inside a Markdown fenced-code block — fenced blocks are stripped before scanning (WP-002), eliminating this risk (see [constraint 6 GN-4](constraints-build-system.md#c10)); (2) When `--check` fires first and exits 1, `[STRICT]` scan output is skipped — run `--check` as a separate CI step if strict failure details are needed (see [constraint 6 GN-5](constraints-build-system.md#c10)). |
+The wrapper accepts three flags. Suite and target selection are controlled by the config file.
 
-### Constants
+| Flag | Effect |
+|------|--------|
+| *(none)* | Delegate full build to `@mistralys/persona-builder` for all suites and targets in the config |
+| `--check` | Forward `--check` to the library CLI — compare generated output against existing files; exit 1 if stale |
+| `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
+| `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
 
-| Constant | Value | Description |
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs.
+
+### `personas/persona-build.config.js` — Config Interface
+
+The config file is loaded by the library CLI. It exports an object with the following shape:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `sharedPartialsDir` | `string` | Absolute path to `personas/shared/partials/` — base partial layer shared across all suites |
+| `suites` | `Object.<string, SuiteConfig>` | Suite definitions keyed by suite name (`ledger`, `standalone`) |
+| `plugins` | `Array` | Plugin instances — currently `[ledgerPlugin({...})]` for role validation |
+
+**Suite Configuration**
+
+Each suite entry (`suites.ledger`, `suites.standalone`) has this shape:
+
+| Property | Value | Description |
 |----------|-------|-------------|
-| `VALID_SUITES` | `['ledger', 'standalone', 'all']` | Accepted values for the `--suite` CLI flag. `expandSuites()` validates against this list and exits with `[ERROR]` on unknown values. `'all'` is a shorthand that expands to both concrete suite names. |
-
-### Suite Configuration (`SUITE_CONFIGS`)
-
-The `SUITE_CONFIGS` map defines directories and persona mode for each suite:
-
-| Suite | `srcDir` | `outVscode` | `outCC` | `personaMode` |
-|-------|----------|-------------|---------|---------------|
-| `ledger` | `personas/ledger/src/` | `personas/ledger/vs-code/` | `personas/ledger/claude-code/` | `numbered` |
-| `standalone` | `personas/standalone/src/` | `personas/standalone/vs-code/` | `personas/standalone/claude-code/` | `standalone` |
+| `srcDir` | `personas/<suite>/src/` | Source templates directory |
+| `outVscode` | `personas/<suite>/vs-code/` | VS Code output directory |
+| `outClaudeCode` | `personas/<suite>/claude-code/` | Claude Code output directory |
+| `personaMode` | `'numbered'` \| `'standalone'` | Persona discovery and frontmatter mode |
 
 `personaMode: 'numbered'` uses `N-name.yaml` discovery and number-prefixed frontmatter fields. `personaMode: 'standalone'` uses slug-based YAML discovery and slug-derived frontmatter.
 
-### Template Functions
+**`ledgerPlugin` options**
 
-> **Module split (WP-001/WP-002):** 14 of the functions below are defined in `scripts/lib/persona-helpers.js` and imported by `build-personas.js`. The remaining functions — `expandSuites`, `loadPartials`, `discoverPersonaYamls`, `ccFrontmatterFields`, and `buildForTarget` — are defined directly in `build-personas.js` (they require filesystem I/O, process.exit, or CLI state). The `scripts/tests/persona-helpers.test.js` vitest suite covers the 14 extracted functions.
-
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `expandSuites` | `(suiteArg: string) → string[]` | Expands a `--suite` CLI argument (possibly comma-separated, possibly containing `"all"`) to a deduplicated ordered list of concrete suite names. |
-| `loadPartials` | `(suiteConfig: Object) → Object.<string, string>` | Loads the merged partials map for a suite. Base layer: `personas/shared/partials/`. Override layer: `personas/<suite>/src/partials/`. Suite-local entries shadow same-named shared entries. Returns a name→content map. |
-| `discoverPersonaYamls` | `(suiteConfig: Object) → string[]` | Discovers per-persona YAML files in `suiteConfig.srcDir/meta/`, excluding `_shared.yaml`. Returns sorted filenames. |
-| `resolvePartials` | `(text: string, partialsMap: Object, depth?: number) → string` | Replaces `{{> name}}` markers with content from `partialsMap`. Recursive to depth 2. Warns and leaves marker as-is on missing partial. |
-| `resolveConditionals` | `(text: string, context: Object) → string` | Processes `{{#if flag}}…{{/if}}` blocks. Truthy = keep inner content; falsy = remove block. |
-| `resolveVariables` | `(text: string, context: Object, filename: string) → string` | Replaces `{{variable}}` with `String(context[variable])`. Warns on unresolved variables. |
-| `collapseBlankLines` | `(text: string) → string` | Reduces 3+ consecutive blank lines to 2. Post-processing step. |
-| `ensureBlankLineBeforeHeadings` | `(text: string) → string` | Inserts a blank line before Markdown headings (`#`) when one is not already present. Post-processing step applied after `collapseBlankLines`. |
-| `normalizeNewlines` | `(text: string) → string` | Normalizes CRLF and CR line endings to LF. Applied during partial loading and content reading for cross-platform consistency. |
-| `renderRoster` | `(roster: Array, activeNumber: number) → string` | Renders the 9-agent roster as a numbered Markdown list, tagging the current agent with `(YOU)`. |
-| `renderMcpToolsTable` | `(tools: Array) → string` | Renders MCP tool entries as Markdown table rows (`| \`tool\` | purpose |`). |
-| `serializeTools` | `(tools: string[]) → string` | Serializes a tools array to YAML flow format **with** outer brackets: `['vscode', 'execute', ...]`. Used in ledger frontmatter. |
-| `serializeToolsList` | `(tools: string[]) → string` | Serializes a tools array **without** outer brackets: `'vscode', 'execute', ...`. Used inside `[…]` literals in standalone frontmatter templates. |
-| `validateFileName` | `(persona: Object, fieldName: 'cc_file_name' \| 'vs_file_name', suite: string) → void` | Validates that a persona object has the specified filename field set. Exits with code 1 and prints an error if the field is missing. Replaces the former `validateCcFileName` / `validateVsFileName` pair (WP-002). |
-| `ccFrontmatterFields` | `() → string` | Returns the three shared Claude Code frontmatter fields (`permissionMode`, `model`, `memory`) as a YAML fragment string with no leading or trailing newlines. Interpolated into both `FRONTMATTER_LEDGER_CC` and `FRONTMATTER_STANDALONE_CC` template literals to eliminate verbatim duplication. |
-| `loadStandaloneAgentNames` | `() → Object.<string, string>` | Reads all standalone persona YAML metadata and returns a map of template variables to VS Code agent display names. Key convention: `agent_` + slug with hyphens→underscores (e.g. `agent_wp_decomposer`). Value: `"<name> v<version>"` (e.g. `"WP Decomposer v1.0.0"`). |
-| `getStandaloneAgentNames` | `() → Object.<string, string>` | Lazy-initialised wrapper around `loadStandaloneAgentNames()` — computes the map once per process and caches the result. Called during ledger builds to inject cross-suite agent name variables into the template context. |
-| `buildForTarget` | `(suite: string, target: 'vscode' \| 'claude-code') → void` | Executes one complete build pass for the given suite + target combination. Loads suite config, reads `_shared.yaml`, loads merged partials, discovers persona YAMLs, selects the correct frontmatter template, and writes all persona files to the appropriate output directory. |
+| Option | Type | Description |
+|--------|------|-------------|
+| `manifestRoles` | `string[]` | Array of role name strings from `shared/workflow-manifest.json` — used to validate persona `role` fields |
+| `warnOnUnknownRole` | `boolean` | Controls severity when a persona `role` is not in `manifestRoles`. `true` (default): emits a `warning` — build continues. `false`: escalates to `error` — hard failure. |
 
 ### Template Processing Order
 
-Phases execute in strict order — each phase sees the output of the previous phase:
+Phases execute in strict order inside the library — each phase sees the output of the previous phase:
 
 ```
 1. resolvePartials()       →  embed shared fragments
@@ -201,7 +194,7 @@ Phases execute in strict order — each phase sees the output of the previous ph
 
 Embeds a partial from the merged partials registry. Recursive to depth 2 (partials can include other partials). Unknown partials emit a warning and are left as-is in the output.
 
-**Two-layer loading:** The build script loads partials in two passes:
+**Two-layer loading:** The library loads partials in two passes:
 1. **Base layer** — `personas/shared/partials/` (suite-agnostic content shared across all suites)
 2. **Override layer** — `personas/<suite>/src/partials/` (suite-specific partials; same-named entries shadow the base layer)
 
@@ -237,7 +230,7 @@ Replaced with `String(context[variable])`. Unknown variables emit a warning and 
 
 ### Computed Variables
 
-These are generated by the build script — they cannot be set in YAML files:
+These are generated by the library — they cannot be set in YAML files:
 
 | Variable | Suite | Source | Output |
 |----------|-------|--------|--------|
@@ -251,7 +244,7 @@ These are generated by the build script — they cannot be set in YAML files:
 | `{{cc_description}}` | ledger | `_shared.yaml` → `roster[]` `title` + `short` | Human-readable description for Claude Code's auto-delegation display |
 | `{{model}}` | ledger | `persona.model` → `_shared.default_model` → `_shared.cc_model` → `'inherit'` | AI model name for VS Code frontmatter (e.g. `"Claude Opus 4.6"` or `"Claude Sonnet 4.6"`). Resolution uses `||` not `??` for the shared fallbacks, so falsy values are skipped. |
 | `{{cc_model}}` | all | `persona.cc_model` (if present) → resolved `model` | AI model name for Claude Code frontmatter. Inherits the full model resolution chain when no per-persona `cc_model` is set. |
-| `{{agent_<slug>}}` | ledger | standalone persona YAML `name` + `version` | VS Code display name for a standalone agent (e.g. `{{agent_wp_decomposer}}` → `"WP Decomposer v1.0.0"`). One variable per standalone persona, keyed by `agent_` + slug with hyphens replaced by underscores. Computed by `getStandaloneAgentNames()` and injected only into ledger contexts. Used in templates that invoke standalone sub-agents via `runSubagent`. |
+| `{{agent_<slug>}}` | all | persona YAML `name` + `version` (all suites) | Display name for any agent across all configured suites (e.g. `{{agent_wp_decomposer}}` → `"WP Decomposer v1.0.0"`). One variable per persona, keyed by `agent_` + slug with hyphens replaced by underscores. Computed automatically by the `@mistralys/persona-builder` library's pre-scan phase in `build()` — available in every persona's context across all suites. Used in templates that invoke sub-agents via `runSubagent`. |
 
 ### Platform Feature Flags
 
@@ -281,7 +274,7 @@ Use these flags in content templates to write platform-conditional blocks:
 |-------|------|-------------|
 | `author` | `string` | Author name embedded in generated frontmatter |
 | `last_updated` | `string` | ISO-style date string (e.g. `"2026-02-21 18:30"`) |
-| `default_version` | `string` | **Required.** Default version string (e.g. `"3.4.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `default_version` | `string` | **Required.** Default version string (e.g. `"3.4.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `default_model` | `string` | Default AI model for generated frontmatter (e.g. `"Claude Sonnet 4.6"`). Per-persona `model` overrides this. |
 | `mcp_server_name` | `string` | MCP server name used in tool patterns and references (e.g. `"central_pm"`) |
 | `roster` | `Array<{number, title, short}>` | 9-entry list of agent identities |
@@ -299,7 +292,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `model` | `string` | no | AI model override — replaces `default_model` for this persona (e.g. `"Claude Opus 4.6"`) |
 | `id` | `string` | yes | Stable VS Code routing identifier for `@id` subagent routing. Pattern: `ledger-{vs_file_name stem}` (e.g. `ledger-3-dev` for `3-dev.agent.md`). Must be lowercase, no spaces, and stable across version bumps. |
 | `vs_file_name` | `string` | yes | Output filename when synced to VS Code prompts dir |
-| `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `cc_file_name` | `string` | yes | Output filename when synced to Claude Code projects dir (e.g. `"3-developer.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `version` | `string` | no | Overrides `default_version` for this persona |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` when present (e.g. `["Bash", "Read", "Edit", ...]`) |
@@ -307,7 +300,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
 | `has_incident_logging` | `bool` | yes | Inject environment incident logging instructions |
-| `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, `renderMcpToolsTable` excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
+| `mcp_tools` | `Array<{tool, purpose, note_only?}>` | no | MCP tool entries for the tools table; omitted for Agent 1. When `note_only: true` is set on an entry, the library excludes it from the rendered table — the tool is mentioned only in prose content. Use this flag when a tool should be acknowledged in context (e.g. help-text prose) but must not appear as a first-class table row in the generated persona output. |
 
 ---
 
@@ -334,7 +327,7 @@ tools: {{tools_json}}
 
 ### Ledger — Claude Code (`FRONTMATTER_LEDGER_CC`)
 
-Written to `personas/ledger/claude-code/`. The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
+Written to `personas/ledger/claude-code/`.
 
 ```yaml
 ---
@@ -345,7 +338,9 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: {{cc_tools_json}}
-${ccFrontmatterFields()}
+permissionMode: {{cc_permission_mode}}
+model: {{cc_model}}
+memory: {{cc_memory}}
 mcpServers:
   - {{mcp_server_name}}
 ---
@@ -370,7 +365,7 @@ tools: [{{tools_list}}]
 
 ### Standalone — Claude Code (`FRONTMATTER_STANDALONE_CC`)
 
-Written to `personas/standalone/claude-code/`. No `role`; optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix). The three shared CC fields are supplied by `${ccFrontmatterFields()}`.
+Written to `personas/standalone/claude-code/`. No `role`; optional `mcpServers` via `{{#if mcp_server_name}}`. `cc_name` is the plain kebab slug (no numeric prefix).
 
 ```yaml
 ---
@@ -380,7 +375,9 @@ author: {{author}}
 version: {{version}}
 last_updated: {{last_updated}}
 tools: [{{cc_tools_list}}]
-${ccFrontmatterFields()}
+permissionMode: {{cc_permission_mode}}
+model: {{cc_model}}
+memory: {{cc_memory}}
 {{#if mcp_server_name}}
 mcpServers:
   - {{mcp_server_name}}
@@ -388,7 +385,7 @@ mcpServers:
 ---
 ```
 
-When a per-persona YAML sets `mcp_server_name`, the `{{#if mcp_server_name}}` block resolves to include the `mcpServers` entry. Personas without `mcp_server_name` produce no `mcpServers` block — the conditional is stripped and blank lines are normalized by `collapseBlankLines()`.
+When a per-persona YAML sets `mcp_server_name`, the `{{#if mcp_server_name}}` block resolves to include the `mcpServers` entry. Personas without `mcp_server_name` produce no `mcpServers` block — the conditional is stripped and blank lines are normalized by the library's post-processing step.
 
 Every generated file is prefixed with `<!-- AUTO-GENERATED — do not edit. Source: personas/<suite>/src/ -->` immediately after the frontmatter. The source path reflects the actual suite (e.g. `personas/ledger/src/` for ledger builds).
 
@@ -402,7 +399,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 |-------|------|-------------|
 | `author` | `string` | Author name |
 | `last_updated` | `string` | ISO-style date string |
-| `default_version` | `string` | **Required.** Default version string (e.g. `"1.0.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `default_version` | `string` | **Required.** Default version string (e.g. `"1.0.0"`) unless overridden per-persona. Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `cc_permission_mode` | `string` | Claude Code permission mode (e.g. `"acceptEdits"`) |
 | `cc_model` | `string` | Claude Code model override |
 | `cc_memory` | `string` | Claude Code memory scope |
@@ -419,7 +416,7 @@ The standalone suite (`personas/standalone/src/`) uses a slug-based schema for s
 | `name` | `string` | yes | Human-readable display name including version (e.g. `"Researcher v1.0.1"`) |
 | `description` | `string` | yes | Short description of the persona's purpose |
 | `vs_file_name` | `string` | yes | Output filename for VS Code sync (e.g. `"researcher.agent.md"`) |
-| `cc_file_name` | `string` | yes | Output filename for Claude Code sync (e.g. `"researcher.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in `buildForTarget()`. |
+| `cc_file_name` | `string` | yes | Output filename for Claude Code sync (e.g. `"researcher.md"`). **Required.** Absence causes `[ERROR]` + `process.exit(1)` in the library build. |
 | `version` | `string` | yes | Per-persona version string |
 | `last_updated` | `string` | no | Per-persona last-updated date |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
@@ -585,7 +582,7 @@ Partials are organised into two layers. **Shared partials** (`personas/shared/pa
 ```md
 # Constraints — Build System & Sync
 
-> **Scope:** Template engine behavior, build script flags, log conventions, and sync script rules. Consult this document when modifying `scripts/build-personas.js`, `scripts/lib/persona-helpers.js`, or `scripts/sync-personas.js`.
+> **Scope:** Template engine behavior, build script flags, log conventions, and sync script rules. Consult this document when modifying `scripts/build-personas.js`, `personas/persona-build.config.js`, or `scripts/sync-personas.js`.
 >
 > See also: [Core Constraints](constraints.md) · [Cross-System Constraints](constraints-cross-system.md)
 
@@ -792,7 +789,7 @@ When the build system was introduced, the generated output differs from the orig
 7. **Standalone YAML files are slug-based, not number-prefixed.** Standalone persona filenames match their `slug` field (e.g. `researcher.yaml`, `manifest-curator.yaml`). The `slug` must be a valid kebab-case identifier with no numeric prefix.
 
 <a name="c13"></a>
-8. **All VS Code output files use the `.agent.md` extension.** This applies to both ledger (e.g. `3-dev.agent.md`) and standalone (e.g. `researcher.agent.md`) suites. The output filename is YAML-declared via `vs_file_name` and written directly by `buildForTarget()` — it is not derived from the content template basename. Claude Code output uses plain `.md` (e.g. `researcher.md`), declared via `cc_file_name`.
+8. **All VS Code output files use the `.agent.md` extension.** This applies to both ledger (e.g. `3-dev.agent.md`) and standalone (e.g. `researcher.agent.md`) suites. The output filename is YAML-declared via `vs_file_name` and written by the library — it is not derived from the content template basename. Claude Code output uses plain `.md` (e.g. `researcher.md`), declared via `cc_file_name`.
 
 <a name="c14"></a>
 9. **`cc_name` is derived from `cc_file_name`.** The computed `cc_name` variable is `persona.cc_file_name.replace(/\.md$/, '')`, producing identifiers like `3-developer` or `2-project-manager`. This naming is required for Claude Code slash commands, which do not allow spaces. The `cc_file_name` YAML field (e.g., `2-project-manager.md`) is the authoritative source — `cc_name` always equals that filename without the `.md` extension.
@@ -851,7 +848,7 @@ When the build system was introduced, the generated output differs from the orig
 22. **`cc_model` resolution chain:** The Claude Code `model` frontmatter value is resolved in Layer 3 as: `persona.cc_model → persona.model → _shared.default_model → _shared.cc_model`. This means a per-persona `cc_model` takes highest priority, followed by the persona's VS Code `model` override, then the shared default model, and finally the shared `cc_model` value (typically `"inherit"`).
 
 <a name="c28"></a>
-23. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — `buildForTarget()` emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to both suites (ledger, standalone).
+23. **`default_version` is required in all `_shared.yaml` files.** Its absence is a **fatal build error** — the library emits `[ERROR] Missing 'default_version' in <suite>/_shared.yaml` and exits with code 1. Without this field, the generated output would contain the string `"undefined"` as the version, a silent corruption that is hard to detect post-build. This check applies to both suites (ledger, standalone).
 
 <a name="c29"></a>
 <a name="c38"></a>
@@ -885,6 +882,19 @@ When the build system was introduced, the generated output differs from the orig
 <a name="c50"></a>
 28. **Build scripts must run on Windows, macOS, and Linux.** The personas build system runs on Node.js (inherently cross-platform), but scripts must not assume Unix-only utilities or path separators. Use `path.join()` / `path.resolve()` — never hardcode `/` or `\`. See root `AGENTS.md` → Cross-Platform Policy for the full workspace-wide policy.
 
+---
+
+## Plugin Module Convention
+
+<a name="c51"></a>
+29. **`personas/plugins/` uses CommonJS.** All modules under `personas/plugins/` use `module.exports` / `require()` syntax. This is required because the build config loader (`personas/persona-build.config.js`) is itself CommonJS and loads plugins via `require()`. Do not convert these modules to ESM.
+
+<a name="c52"></a>
+30. **Test files use the `createRequire` bridge for CJS imports.** Test suites in `scripts/tests/` run under Vitest (ESM). To import CJS plugins, they use `createRequire(import.meta.url)` to create a Node.js `require()` function scoped to the test file's directory. See `scripts/tests/README.md` for the full pattern and rationale.
+
+<a name="c53"></a>
+31. **New plugins must follow the CJS convention.** Any future plugin added to `personas/plugins/` should use CommonJS (`module.exports`) and be imported via `require()` in the build config. Corresponding tests should use the `createRequire` bridge pattern.
+
 ```
 ###  Path: `/personas/docs/agents/project-manifest/data-flows.md`
 
@@ -893,22 +903,61 @@ When the build system was introduced, the generated output differs from the orig
 
 ## 1. Build Pipeline (`scripts/build-personas.js`)
 
-The primary data flow: transform source templates into final persona Markdown files. A single `build-personas.js` run executes **one or more suite × target combinations** controlled by the `--suite` and `--target` CLI flags.
+The primary data flow: transform source templates into final persona Markdown files.
+
+### Top-Level Flow
 
 ```
-CLI flags:
-  --suite  ledger | standalone | all | comma-separated  [default: ledger]
-  --target vscode | claude-code | all                             [default: all]
-         │
-         ▼
-   expandSuites() resolves SUITES_TO_BUILD (deduplicated list)
-         │
-   For each suite in SUITES_TO_BUILD AND each active target:
-         ▼
-   buildForTarget(suite, target) called once per suite + target pair
+  ┌──────────────────────────────────┐
+  │  node scripts/build-personas.js  │  --check | --dry-run | --strict
+  └─────────────────┬────────────────┘
+                    │  resolves paths to:
+                    │    personas/persona-build.config.js
+                    │    node_modules/@mistralys/persona-builder/dist/cli.js
+                    │  forwards flags; spawns library CLI via execFileSync
+                    ▼
+  ┌──────────────────────────────────┐
+  │  @mistralys/persona-builder CLI  │
+  │  (dist/cli.js)                   │
+  └─────────────────┬────────────────┘
+                    │  loads persona-build.config.js
+                    │  runs ledgerPlugin (role validation)
+                    │  iterates suites × targets from config
+                    ▼
+  ┌──────────────────────────────────┐
+  │  For each suite + target:        │
+  │  Template Engine (see below)     │
+  └─────────────────┬────────────────┘
+                    │
+                    ▼
+  ┌──────────────────────────────────┐
+  │  Plugin hooks (ledgerPlugin)     │
+  │  - Validates persona `role`      │
+  │    against manifestRoles[]       │
+  │  - Emits warn on unknown role    │
+  └─────────────────┬────────────────┘
+                    │
+                    ▼
+  ┌──────────────────────────────────────────┐
+  │ Write to suite-specific output dirs      │
+  │  ledger    + vscode:                     │
+  │    personas/ledger/vs-code/              │
+  │  ledger    + claude-code:                │
+  │    personas/ledger/claude-code/          │
+  │  standalone + vscode:                    │
+  │    personas/standalone/vs-code/          │
+  │  standalone + claude-code:               │
+  │    personas/standalone/claude-code/      │
+  └──────────────────────────────────────────┘
+```
+
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper reads `personas/changelog.md`, extracts the latest version, and updates `personas/package.json` if it differs.
+
+### Template Engine Detail (inside the library)
 
 For each suite + target AND each per-persona YAML:
 
+```
   ┌──────────────────┐     ┌────────────────────────┐
   │  _shared.yaml    │     │  N-name.yaml /         │
   │  (shared meta)   │     │  slug.yaml             │
@@ -935,7 +984,7 @@ For each suite + target AND each per-persona YAML:
                       │                │
                       │                ▼
                       │       ┌──────────────────┐    ┌──────────────────────────┐
-                      │       │ 1. resolvePartials│◄───│ loadPartials(suiteConfig)│
+                      │       │ 1. resolvePartials│◄───│ Load partials            │
                       │       └────────┬──────────┘    │ Base: shared/partials/  │
                       │                ▼               │ Override: src/partials/ │
                       │       ┌──────────────────┐    └──────────────────────────┘
@@ -960,17 +1009,7 @@ For each suite + target AND each per-persona YAML:
               │ body                     │
               └──────────────┬───────────┘
                              ▼
-        ┌────────────────────────────────────────┐
-        │ Write to suite-specific output dir     │
-        │  ledger    + vscode:                   │
-        │    personas/ledger/vs-code/            │
-        │  ledger    + claude-code:              │
-        │    personas/ledger/claude-code/        │
-        │  standalone + vscode:                  │
-        │    personas/standalone/vs-code/        │
-        │  standalone + claude-code:             │
-        │    personas/standalone/claude-code/    │
-        └────────────────────────────────────────┘
+                     Write output file
 ```
 
 ### Merge Context Details
@@ -1003,7 +1042,7 @@ context = {
   cc_description,      // roster entry title + short (e.g. "Technical Writing Manager — Docs & README curation") — ledger
   cc_model,            // persona.cc_model !== undefined ? persona.cc_model : resolved model  (resolved model already incorporates _shared.cc_model as a fallback step)
 
-  // Layer 4: Target-pass flags (set by buildForTarget)
+  // Layer 4: Target-pass flags (set by the library per target pass)
   target_vscode,       // true when target = 'vscode'
   target_claude_code,  // true when target = 'claude-code'
 }
@@ -1141,6 +1180,169 @@ How generated personas reach end users and the MCP server:
 ```
 
 ```
+###  Path: `/personas/docs/agents/project-manifest/file-tree.md`
+
+```md
+# File Tree — Ledger Personas Build System
+
+Annotated directory structure for the persona build system. Auto-generated files (output of the build) are marked with `[generated]`.
+
+---
+
+## `personas/` — Build System Root
+
+```
+personas/
+├── README.md                          # Overview and quick-start guide
+├── changelog.md                       # Version history; version synced to package.json by build-personas.js
+├── package.json                       # Package metadata; version field kept in sync with changelog.md
+├── package-lock.json
+├── module-context.yaml
+│
+├── persona-build.config.js            # ← Build configuration for @mistralys/persona-builder
+│                                      #   Declares suites (ledger, standalone), output dirs, and plugins
+│
+├── docs/
+│   └── agents/
+│       └── project-manifest/
+│           ├── README.md              # Manifest hub — links to all sub-documents
+│           ├── tech-stack.md          # Runtime, dependencies, build tools, patterns
+│           ├── api-surface.md         # CLI interface, config shape, template syntax, metadata schema
+│           ├── data-flows.md          # Build pipeline, sync pipeline, template resolution
+│           ├── constraints.md         # Core editing and naming rules
+│           ├── constraints-build-system.md   # Template engine constraints and build flags
+│           ├── constraints-cross-system.md   # Sync contracts with MCP server and Agent Registry
+│           └── file-tree.md           # This document
+│
+├── ledger/                            # Ledger suite — 9 workflow-agent personas
+│   ├── README.md
+│   ├── src/                           # Source templates (hand-edited)
+│   │   ├── meta/
+│   │   │   ├── _shared.yaml           # Shared YAML: author, version, roster, MCP server name
+│   │   │   ├── 1-planner.yaml
+│   │   │   ├── 2-project-manager.yaml
+│   │   │   ├── 3-developer.yaml
+│   │   │   ├── 4-qa.yaml
+│   │   │   ├── 5-security-auditor.yaml
+│   │   │   ├── 6-reviewer.yaml
+│   │   │   ├── 7-release-engineer.yaml
+│   │   │   ├── 8-documentation.yaml
+│   │   │   └── 9-synthesis.yaml
+│   │   ├── content/
+│   │   │   ├── 1-planner.md
+│   │   │   ├── 2-project-manager.md
+│   │   │   ├── 3-developer.md
+│   │   │   ├── 4-qa.md
+│   │   │   ├── 5-security-auditor.md
+│   │   │   ├── 6-reviewer.md
+│   │   │   ├── 7-release-engineer.md
+│   │   │   ├── 8-documentation.md
+│   │   │   └── 9-synthesis.md
+│   │   └── partials/                  # Suite-specific partials (override shared/partials/)
+│   │       ├── handoff-block-claude-code.md
+│   │       ├── handoff-block-vscode.md
+│   │       ├── incident-logging.md
+│   │       ├── mcp-intro.md
+│   │       ├── mcp-preflight-detect.md
+│   │       ├── mcp-preflight-header-claude-code.md
+│   │       ├── mcp-preflight-header-vscode.md
+│   │       ├── mcp-preflight-verify-no-detect.md
+│   │       ├── mcp-tools-note.md
+│   │       ├── mcp-unavailable.md
+│   │       └── role-boundaries.md
+│   ├── vs-code/                       # [generated] VS Code persona files (.agent.md)
+│   │   ├── 1-planner.agent.md
+│   │   ├── 2-pm.agent.md
+│   │   ├── 3-dev.agent.md
+│   │   ├── 4-qa.agent.md
+│   │   ├── 5-security-auditor.agent.md
+│   │   ├── 6-reviewer.agent.md
+│   │   ├── 7-release-engineer.agent.md
+│   │   ├── 8-docs.agent.md
+│   │   └── 9-synthesis.agent.md
+│   └── claude-code/                   # [generated] Claude Code persona files (.md)
+│       ├── 1-planner.md
+│       ├── 2-project-manager.md
+│       ├── 3-developer.md
+│       ├── 4-qa.md
+│       ├── 5-security-auditor.md
+│       ├── 6-reviewer.md
+│       ├── 7-release-engineer.md
+│       ├── 8-documentation.md
+│       └── 9-synthesis.md
+│
+├── standalone/                        # Standalone suite — special-purpose personas
+│   ├── README.md
+│   ├── src/                           # Source templates (hand-edited)
+│   │   ├── meta/                      # Per-persona YAML files (slug.yaml)
+│   │   └── content/                   # Per-persona content templates (slug.md)
+│   ├── vs-code/                       # [generated] VS Code persona files (.agent.md)
+│   └── claude-code/                   # [generated] Claude Code persona files (.md)
+│
+├── plugins/
+│   └── ledger/                        # Local ledger plugin (migrated from @mistralys/persona-builder)
+│       ├── index.js                   # Factory — assembles plugin hooks; exports ledgerPlugin()
+│       ├── frontmatter-templates.js   # FRONTMATTER_LEDGER_VSCODE and FRONTMATTER_LEDGER_CC templates
+│       ├── mcp-tools-renderer.js      # renderMcpToolsTable() — builds the MCP tools markdown table
+│       ├── role-validator.js          # validateRole() + validateNoteOnlyGuard() validators
+│       └── roster-renderer.js         # renderRoster() — builds the agent roster markdown list
+│
+└── shared/
+    └── partials/                      # Base partial layer — shared across all suites
+        ├── agent-roster.md
+        ├── developer-operational-protocol.md
+        ├── developer-output-format.md
+        ├── developer-strict-constraints.md
+        ├── docs-operational-protocol.md
+        ├── docs-output-format.md
+        ├── incident-logging.md
+        ├── planner-core-rules.md
+        ├── planner-output-template.md
+        ├── pm-output-format.md
+        ├── qa-operational-protocol.md
+        ├── qa-output-format.md
+        ├── release-engineer-operational-protocol.md
+        ├── release-engineer-output-format.md
+        ├── reviewer-operational-protocol.md
+        ├── reviewer-output-format.md
+        ├── security-auditor-operational-protocol.md
+        ├── security-auditor-output-format.md
+        ├── synthesis-operational-protocol.md
+        └── synthesis-output-format.md
+```
+
+---
+
+## `scripts/` — Workspace Build Scripts
+
+Only the persona-build–related scripts are annotated here.
+
+```
+scripts/
+├── build-personas.js                  # Thin wrapper: delegates build to @mistralys/persona-builder
+│                                      #   Accepts: --check | --dry-run | --strict
+│                                      #   Post-build: syncs personas/package.json version from changelog
+├── sync-personas.js                   # Orchestrator: builds then copies output to VS Code / Claude Code dirs
+└── …                                  # Other workspace scripts (unrelated to persona build)
+```
+
+> **Removed (post-migration):** `scripts/lib/persona-helpers.js` and `scripts/tests/persona-helpers.test.js` no longer exist. All build logic previously in `persona-helpers.js` is now inside the `@mistralys/persona-builder` library.
+
+---
+
+## Key Relationships
+
+| Source file | Consumed by | Output |
+|-------------|-------------|--------|
+| `personas/persona-build.config.js` | `@mistralys/persona-builder` CLI (via `build-personas.js`) | — |
+| `personas/ledger/src/meta/*.yaml` | Library template engine | Frontmatter context for each persona |
+| `personas/ledger/src/content/*.md` | Library template engine | Persona body content |
+| `personas/ledger/src/partials/*.md` | Library template engine (override layer) | Embedded partial content |
+| `personas/shared/partials/*.md` | Library template engine (base layer) | Embedded partial content |
+| `personas/ledger/vs-code/*.agent.md` | `sync-personas.js` → VS Code prompts dir | Deployed agent file |
+| `personas/ledger/claude-code/*.md` | `sync-personas.js` → `~/.claude/agents/` | Deployed agent file |
+
+```
 ###  Path: `/personas/docs/agents/project-manifest/tech-stack.md`
 
 ```md
@@ -1164,13 +1366,14 @@ How generated personas reach end users and the MCP server:
 |---------|---------|---------|
 | `js-yaml` | ^4.1.0 | Parse YAML metadata files (`_shared.yaml`, per-persona YAMLs) |
 
-### Development / Tooling
+### Workspace-level Dependencies
 
 | Package | Version | Scope | Purpose |
 |---------|---------|-------|---------|
-| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner for `scripts/tests/` — exercises pure helpers in `scripts/lib/persona-helpers.js` |
+| `@mistralys/persona-builder` | ^0.2.0 (installed: 1.0.0) | workspace-root `devDependencies` | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
+| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner — no longer used for persona-build tests post-migration; retained for other workspace test suites |
 
-The build script (`build-personas.js`) itself has no dev dependencies — plain Node.js + `js-yaml`. The scripts test suite uses vitest declared at the workspace root (`package.json`). Run with `npm run test:scripts` from the workspace root, or `npx vitest run scripts/tests/` directly.
+The thin wrapper `build-personas.js` delegates all build logic to `@mistralys/persona-builder` via its CLI binary (`dist/cli.js`). The wrapper itself only resolves paths and forwards CLI flags (`--check`, `--strict`) to the library.
 
 ---
 
@@ -1178,21 +1381,20 @@ The build script (`build-personas.js`) itself has no dev dependencies — plain 
 
 | Tool | Invocation | Purpose |
 |------|-----------|---------|
-| `build-personas.js` | `node scripts/build-personas.js` | Core build: assembles persona files from `src/` templates |
+| `build-personas.js` | `node scripts/build-personas.js` | Thin wrapper: resolves paths to `personas/persona-build.config.js` and the library CLI binary, then delegates the full build to `@mistralys/persona-builder` |
+| `persona-build.config.js` | *(loaded by the library CLI)* | Config file in `personas/persona-build.config.js` — declares suite directories, output paths, and the `ledgerPlugin` that validates persona role names against the workflow manifest |
 | `sync-personas.js` | `node scripts/sync-personas.js` | Orchestrator: runs build, copies output to VS Code prompts dir and/or Claude Code agents dir, validates frontmatter |
-| `persona-helpers.js` | *(imported — not invoked directly)* | Pure helper module containing 13 stateless functions; source of truth for build helper logic and test coverage |
-| `vitest` | `npm run test:scripts` (root) | Unit test runner for the 13 extracted helpers; 35 test cases in `scripts/tests/persona-helpers.test.js` |
 
 ### CLI Flags (`build-personas.js`)
 
+The thin wrapper recognises three flags and forwards the relevant ones to the library CLI. Suite and target selection are defined in `personas/persona-build.config.js`.
+
 | Flag | Effect |
 |------|--------|
-| *(none)* | Build all personas for both targets — write to `personas/ledger/vs-code/` and `personas/ledger/claude-code/` |
-| `--target vscode` | Build VS Code target only — write to `personas/ledger/vs-code/` |
-| `--target claude-code` | Build Claude Code target only — write to `personas/ledger/claude-code/` |
-| `--target all` | Explicit default — same as no `--target` |
-| `--check` | Compare generated output against existing files; exit 1 if stale |
-| `--dry-run` | Preview first 300 chars of each output; no disk writes |
+| *(none)* | Delegate build to `@mistralys/persona-builder` for all suites and targets declared in the config |
+| `--check` | Forward `--check` to the library CLI — compare generated output against existing files; exit 1 if stale |
+| `--dry-run` | Treated as `--check` by the wrapper (no disk writes) |
+| `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
 
 ### CLI Flags (`sync-personas.js`)
 
@@ -1211,7 +1413,7 @@ The build script (`build-personas.js`) itself has no dev dependencies — plain 
 
 ### 1. Template Engine (3-Phase Pipeline)
 
-The build script implements a minimal template engine with three sequential phases:
+The template engine is implemented inside the `@mistralys/persona-builder` library and executed when `build-personas.js` invokes the library CLI. The phases remain unchanged from the pre-migration design:
 
 1. **Partial resolution** — `{{> name}}` embeds content from `src/partials/name.md` (recursive, max depth 2)
 2. **Conditional blocks** — `{{#if flag}} … {{/if}}` includes or strips blocks based on YAML boolean flags
@@ -1231,7 +1433,7 @@ _shared.yaml          (base: author, version, roster)
       └─ computed      (derived: tools_json, roster_rendered, mcp_tools_table)
 ```
 
-Per-persona values override shared values. Computed values are generated by the build script and cannot be overridden via YAML.
+Per-persona values override shared values. Computed values are generated by the library and cannot be overridden via YAML.
 
 ### 3. Source/Output Separation
 
