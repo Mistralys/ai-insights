@@ -173,6 +173,36 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
         new_iteration: int = state.get("iteration", 0) + 1  # type: ignore[call-overload]
         max_iterations: int = state.get("max_iterations", 100)  # type: ignore[call-overload]
 
+        # ── Fatal error — immediate termination ──────────────────────
+        fatal_error: str = state.get("fatal_error", "")  # type: ignore[call-overload]
+        if fatal_error:
+            ts = datetime.now(UTC).isoformat()
+            log.error("Fatal error detected — terminating run: %s", fatal_error)
+            log_entry = _log_entry(
+                stage="supervisor",
+                wp_id="",
+                action="fatal_error",
+                destination=str(END),
+                error=fatal_error,
+                level="ERROR",
+            )
+            if run_logger:
+                run_logger.stream_entry(log_entry)
+            return Command(
+                goto=END,
+                update={
+                    "iteration": new_iteration,
+                    "current_stage": "supervisor",
+                    "run_log": [log_entry],
+                    "errors": [
+                        {
+                            "timestamp": ts,
+                            "message": f"Fatal error: {fatal_error}",
+                        }
+                    ],
+                },
+            )
+
         # ── Update consecutive-failure circuit breaker ────────────────
         # Each supervisor iteration checks the result of the previous stage.
         # If the same WP failed, increment its counter; reset it on success.

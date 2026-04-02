@@ -43,6 +43,32 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Fatal error detection
+# ---------------------------------------------------------------------------
+# HTTP status codes that indicate an unrecoverable authentication/authorisation
+# failure.  When an LLM provider raises one of these, the orchestrator should
+# terminate immediately instead of burning through all remaining iterations.
+_FATAL_HTTP_STATUSES: frozenset[int] = frozenset({401, 403})
+
+
+def _is_fatal_error(exc: BaseException) -> bool:
+    """Return True when *exc* is an unrecoverable error that should stop the run.
+
+    Detects authentication / permission errors from any LLM provider library
+    (Anthropic, OpenAI, Google, generic HTTP clients) by inspecting the
+    ``status_code`` attribute that all major SDKs attach to their error classes.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is not None and int(status) in _FATAL_HTTP_STATUSES:
+        return True
+    # Walk the exception chain — the SDK error may be wrapped.
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and cause is not exc:
+        return _is_fatal_error(cause)
+    return False
+
+
 # Maps orchestrator stage names to the MCP pipeline type used by ledger_begin_work.
 # Used to determine which pipeline type to cancel during error-path rollback.
 _STAGE_PIPELINE_TYPE: dict[str, str] = {
@@ -572,7 +598,7 @@ def create_stage_node(
                         "Error-path dialogue capture failed for %s", stage, exc_info=True
                     )
 
-            return {
+            result_dict: dict = {
                 "stage_result": "",
                 "stage_success": False,
                 "errors": [
@@ -585,6 +611,18 @@ def create_stage_node(
                 ],
                 "run_log": [start_entry, log_entry] + rollback_log_entries,
             }
+
+            # Mark fatal errors so the supervisor terminates immediately
+            # instead of burning through remaining iterations.
+            if _is_fatal_error(exc):
+                result_dict["fatal_error"] = str(exc)
+                log.error(
+                    "Fatal error detected (stage %s) — run will terminate: %s",
+                    stage,
+                    exc,
+                )
+
+            return result_dict
 
     node_fn.__name__ = f"{stage}_node"
     node_fn.__qualname__ = f"{stage}_node"

@@ -304,6 +304,13 @@ def _print_run_summary(
         print("=" * 60)
         return EXIT_SUCCESS
 
+    fatal_error: str = final_state.get("fatal_error", "")
+    if fatal_error:
+        print("  Result     : FATAL ERROR")
+        print(f"               {fatal_error[:120]}")
+        print("=" * 60)
+        return EXIT_ERROR
+
     if max_iterations and iteration >= max_iterations:
         print("  Result     : SAFETY LIMIT REACHED")
         print(f"               iteration={iteration} >= max_iterations={max_iterations}")

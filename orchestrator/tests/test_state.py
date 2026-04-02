@@ -24,7 +24,7 @@ class TestWorkflowStateFields:
     MUTABLE_FIELDS = {"current_stage", "current_wp_id", "iteration", "max_iterations"}
     STAGE_OUTPUT_FIELDS = {"stage_result", "stage_success"}
     LEDGER_FIELDS = {"project_status", "wp_summaries", "pending_wp_count"}
-    CIRCUIT_BREAKER_FIELDS = {"consecutive_failures"}
+    CIRCUIT_BREAKER_FIELDS = {"consecutive_failures", "fatal_error"}
     DELTA_COUNTER_FIELDS = {"wps_completed_this_run"}
     PROGRESS_TRACKING_FIELDS = {"prev_wp_summaries", "run_start_ts"}
     APPEND_ONLY_FIELDS = {"run_log", "errors"}

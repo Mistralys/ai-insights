@@ -98,6 +98,9 @@ class WorkflowState(TypedDict):
     # --- Circuit-breaker tracking ---
     consecutive_failures: dict  # wp_id → consecutive failure count; plain dict (no reducer)
 
+    # --- Fatal error (immediate termination, bypasses iteration loop) ---
+    fatal_error: str  # Non-empty when an unrecoverable error occurred (e.g. auth failure)
+
     # --- Progress tracking ---
     prev_wp_summaries: list  # Previous iteration's WP list for status-change diffing (WP-003)
     run_start_ts: str        # ISO timestamp of run start, set once by CLI (WP-001)

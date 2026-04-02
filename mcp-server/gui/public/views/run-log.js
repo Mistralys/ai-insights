@@ -194,6 +194,10 @@ function buildRunEventContent(entry) {
     }
 
     // ── Safety & errors ──────────────────────────────────────────────
+    case 'fatal_error': {
+      const errMsg = entry.error ? escapeHtml(String(entry.error)) : 'Unknown fatal error';
+      return '<strong>Fatal error — run terminated:</strong> ' + errMsg;
+    }
     case 'safety_limit': {
       const iter = entry.iteration ? escapeHtml(String(entry.iteration)) : '?';
       return '<strong>Safety limit reached</strong> at iteration ' + iter;
