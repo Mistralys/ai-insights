@@ -1,5 +1,8 @@
 #!/bin/sh
-node scripts/build-personas.js --check
+node scripts/build-personas.js --check || exit 1
+
+# Check version sync (changelog vs package manifest) — blocking
+node scripts/check-version-sync.js || exit 1
 
 # Run ruff on staged orchestrator Python files
 STAGED_PY=$(git diff --cached --name-only | grep '^orchestrator/src/.*\.py$')
@@ -25,8 +28,19 @@ if [ -n "$STAGED_PY" ]; then
   fi
 fi
 
-# Warn if a sub-project changelog changed without the root changelog
+# Warn if source files changed but .context/ was not updated — advisory only
 STAGED=$(git diff --cached --name-only)
+SRC_CHANGED=$(echo "$STAGED" | grep -cE '^(mcp-server/src/|orchestrator/src/|personas/|scripts/|shared/)' || true)
+CTX_CHANGED=$(echo "$STAGED" | grep -c '^\.context/' || true)
+
+if [ "$SRC_CHANGED" -gt 0 ] && [ "$CTX_CHANGED" -eq 0 ]; then
+  echo ""
+  echo "WARNING: Source files changed but .context/ was not updated."
+  echo "  Consider running: node scripts/cli.js build-maintain"
+  echo ""
+fi
+
+# Warn if a sub-project changelog changed without the root changelog
 SUB_CHANGED=0
 ROOT_CHANGED=0
 
