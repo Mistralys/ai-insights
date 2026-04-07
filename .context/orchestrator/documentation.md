@@ -257,9 +257,9 @@ Each run writes a JSONL file to `orchestrator/logs/` during execution. At run co
 
 | `action` value | Emitted by | Key fields |
 |---|---|---|
-| `stage_start` | `nodes/__init__.py` | `stage`, `wp_id`, `iteration` (int), `level="INFO"` |
-| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used` (dict or `null`), `duration_s` (float) |
-| `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s` (float), `level="ERROR"` |
+| `stage_start` | `nodes/__init__.py` | `stage`, `wp_id`, `iteration` (int), `model` (str), `level="INFO"` |
+| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used` (dict or `null`), `duration_s` (float), `model` (str) |
+| `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s` (float), `model` (str), `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified` (list), `metrics` (dict or null), `summary` (list), `duration_s` (float or null) |
 | `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
 | `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy) |
@@ -269,6 +269,7 @@ Each run writes a JSONL file to `orchestrator/logs/` during execution. At run co
 | `rework_detected` | `supervisor.py` | `wp_id`, `agent_role`, `pipeline_type`, `rework_count`, `level="INFO"` |
 | `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination`, `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
 | `route` | `supervisor.py` | `destination`, `prev_stage`, `prev_wp_id`, `prev_result`, `level` (`"INFO"` / `"WARNING"`) |
+| `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts`, `stage_models` (dict) |
 | `run_error` | `cli.py` | `stage="cli"`, `level="ERROR"`, `error` (message string), `thread_id` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `level` (`"INFO"` / `"ERROR"`), `thread_id`, `total_duration_s` (float, optional — omitted if `run_start_ts` unavailable) |
 
@@ -333,6 +334,8 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `silence_s` | `heartbeat` | float | Seconds elapsed since the last log entry was emitted (rounded to 1 decimal place) |
 | `file_path` | `dialogue_captured` | string | Absolute path to the Markdown dialogue file written to disk (non-empty when capture succeeds) |
 | `partial` | `dialogue_captured` | boolean | (Optional) `true` if the dialogue capture occurred during an error-path rollback (crash before stage completed). |
+| `model` | `stage_start`, `stage_complete`, `stage_error` | string | API model slug used for this stage invocation (e.g. `"claude-sonnet-4-6"`). Sourced from `Config.stage_models`. |
+| `stage_models` | `run_start` | dict | Map of stage name → model slug for the entire run (e.g. `{"developer": "claude-sonnet-4-6", ...}`). Mirrors `Config.stage_models`. |
 | `tool_name` | `tool_call` | string | The MCP tool name from `tool.name` (e.g. `"ledger_create_work_package"`) |
 | `tool_wp_id` | `tool_call` | string | The `work_package_id` argument extracted from the call arguments; empty string when absent. **Never** includes the full argument payload (privacy constraint). |
 | `detail` | `dry_run_no_ledger` | string | The underlying error message from the missing ledger (logged at INFO, not treated as an error) |
@@ -344,9 +347,9 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 
 | `action` | Emitted by | Key fields added |
 |----------|-----------|------------------|
-| `stage_start` | `nodes/__init__.py` | `stage`, `wp_id`, `iteration`, `level="INFO"` |
-| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, `duration_s` |
-| `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `level="ERROR"` |
+| `stage_start` | `nodes/__init__.py` | `stage`, `wp_id`, `iteration`, `model`, `level="INFO"` |
+| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, `duration_s`, `model` |
+| `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `model`, `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
 | `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
 | `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `action="tool_call"`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy constraint) |
@@ -364,7 +367,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `halted_repeated_failure` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination=END`, `consecutive_failures`, `level="WARNING"` |
 | `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination` (synthesis), `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
 | `heartbeat` | `utils/logging.py` | `stage="heartbeat"`, `silence_s`, `level="INFO"` |
-| `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts` |
+| `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts`, `stage_models` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `thread_id`, `total_duration_s` |
 | `run_error` | `cli.py` | `stage="cli"`, `error`, `thread_id`, `level="ERROR"` |
 
@@ -439,19 +442,19 @@ when `run_start_ts` was never stored in state or is unparseable.
 ### `stage_start`
 
 ```json
-{"timestamp": "2026-03-22T10:05:00.123Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_start", "level": "INFO", "iteration": 4}
+{"timestamp": "2026-03-22T10:05:00.123Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_start", "level": "INFO", "iteration": 4, "model": "claude-sonnet-4-6"}
 ```
 
 ### `stage_complete` (with `duration_s`)
 
 ```json
-{"timestamp": "2026-03-22T10:08:24.456Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_complete", "result": "PASS", "level": "INFO", "tokens_used": {"input_tokens": 12500, "output_tokens": 3400, "total_tokens": 15900}, "duration_s": 204.3}
+{"timestamp": "2026-03-22T10:08:24.456Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_complete", "result": "PASS", "level": "INFO", "tokens_used": {"input_tokens": 12500, "output_tokens": 3400, "total_tokens": 15900}, "duration_s": 204.3, "model": "claude-sonnet-4-6"}
 ```
 
 ### `stage_error` (with `duration_s`)
 
 ```json
-{"timestamp": "2026-03-22T10:07:11.789Z", "stage": "qa", "wp_id": "WP-003", "action": "stage_error", "result": "FAIL", "level": "ERROR", "error": "MCP server returned unexpected response", "duration_s": 71.6}
+{"timestamp": "2026-03-22T10:07:11.789Z", "stage": "qa", "wp_id": "WP-003", "action": "stage_error", "result": "FAIL", "level": "ERROR", "error": "MCP server returned unexpected response", "duration_s": 71.6, "model": "claude-sonnet-4-6"}
 ```
 
 ### `pipeline_result`
@@ -641,20 +644,24 @@ For the expected `variables` dict for each template (required vs optional fields
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `Config` | `src.config` | Dataclass holding all runtime settings (model, provider, paths, limits). Includes `capture_dialogues: bool` (default `True`) — set `CAPTURE_DIALOGUES=false` (or `0`/`no`) in the environment to disable dialogue capture. |
-| `load_config(*, workspace_root=None)` | `src.config` | Loads `.env`, resolves provider, returns `Config`. |
-| `get_chat_model()` | `src.config` | Returns the configured LangChain `BaseChatModel` instance. || `PIPELINE_PREREQUISITES` | `src.config` | `dict[str, str \| None]` — enforced pipeline execution order (prerequisite chain). Derived from `shared/workflow-manifest.json`. |
+| `Config` | `src.config` | Dataclass holding all runtime settings (paths, limits, stage model slugs). Includes `stage_models: dict[str, str]` (per-stage model slugs sourced from persona metadata) and `capture_dialogues: bool` (default `True`) — set `CAPTURE_DIALOGUES=false` (or `0`/`no`) in the environment to disable. |
+| `Config.stage_models` | `src.config` | `dict[str, str]` — maps each stage name (e.g. `"developer"`) to its API model slug (e.g. `"claude-sonnet-4-6"`). Populated by `load_config()` via `extract_persona_model_slugs()`. |
+| `Config.resolve_model_for_stage(stage)` | `src.config` | Returns the model slug for *stage*. Raises `KeyError` for unknown stage names (programming error — all valid stages are populated at config load time). |
+| `load_config(*, workspace_root=None)` | `src.config` | Loads `.env`, reads per-stage model slugs from persona metadata via `extract_persona_model_slugs()`, validates API keys, returns `Config`. |
+| `extract_persona_model_slugs(workspace_root)` | `src.utils.persona_models` | Scans `personas/ledger/src/meta/` YAML files and returns `{stage_id: model_slug}`. Per-persona `model_slug` takes precedence over `default_model_slug` from `_shared.yaml`. Used by `load_config()`. |
+| `get_default_config()` | `src.config` | Returns (and lazily initialises) the module-level default `Config`. Prefer passing `Config` explicitly in testable code. |
+| `PIPELINE_PREREQUISITES` | `src.config` | `dict[str, str \| None]` — enforced pipeline execution order (prerequisite chain). Derived from `shared/workflow-manifest.json`. |
 | `PIPELINE_AGENT_MAP` | `src.config` | `dict[str, str]` — pipeline type → owning agent role name. Derived from manifest. |
 | `FAIL_ROUTING_AGENT_MAP` | `src.config` | `dict[str, str]` — pipeline type → agent role name responsible for FAIL rework. Derived from `pipelines.fail_routing` in `shared/workflow-manifest.json`. |
 | `PIPELINE_ROLE_NAMES` | `src.config` | `list[str]` — non-orchestrating role names in manifest order. Used by the supervisor to derive `_ROLES` and `_ROLE_STAGE_MAP`. |
 | `ROLE_IDS` | `src.config` | `dict[str, str]` — role name → role ID for every role (e.g. `'Project Manager'` → `'pm'`). Used by the supervisor to derive `_DEST_*` constants. |
 | `WP_TERMINAL_STATUSES` | `src.config` | `frozenset[str]` — work-package statuses requiring no further agent action (`COMPLETE`, `CANCELLED`). Derived from manifest. |
+| `VALID_STAGES` | `src.config` | `frozenset[str]` — all non-orchestrating stage IDs. Used to guard stage resolution at config load time. |
 | `NEXT_STAGE_MAP` | `src.config` | `dict[str, str]` — graph stage → next stage in sequential order (e.g. `'developer'` → `'qa'`). Derived from manifest. |
 | `STAGE_TO_PIPELINE` | `src.config` | `dict[str, str]` — graph stage name → pipeline type it owns. Derived from manifest. |
 | `PIPELINE_TO_STAGE` | `src.config` | `dict[str, str]` — inverse of `STAGE_TO_PIPELINE`. Derived from manifest. |
 | `PERSONA_FILES` | `src.config` | `dict[str, str]` — stage ID → relative path to persona Markdown. Derived from manifest. |
 | `PIPELINE_TYPES` | `src.config` | `tuple[str, ...]` — valid pipeline type names in canonical execution order. Derived from manifest. |
----
 
 ## Utilities
 
