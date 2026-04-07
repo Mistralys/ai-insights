@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.11.1 - Model Slug Metadata
+- Build: Added `model_slug` and `default_model_slug` metadata fields.
+- Build: Ledger plugin now exposes `model_slug` as a template variable.
+
 ## v3.11.0 - New Personas & Local Ledger Plugin
 - Core: Extracted the persona building into the node library `@mistralys/persona-builder`.
 - New Agent: Standalone Developer persona.
