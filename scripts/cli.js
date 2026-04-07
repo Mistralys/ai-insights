@@ -94,6 +94,14 @@ function readSubVersion(subDir) {
   } catch { return 'unknown'; }
 }
 
+function readPyprojectVersion(subDir) {
+  try {
+    const content = fs.readFileSync(path.join(subDir, 'pyproject.toml'), 'utf8');
+    const m = content.match(/^version\s*=\s*"([^"]+)"/m);
+    return m ? `v${m[1]}` : 'unknown';
+  } catch { return 'unknown'; }
+}
+
 // ─── Script runners ───────────────────────────────────────────────────────────
 
 /**
@@ -238,12 +246,12 @@ function scaffoldMcpJson(force = false) {
     return false;
   }
 
-  const indexTs     = path.join(MCP_SERVER_DIR, 'src', 'index.ts');
-  const PLACEHOLDER = '/Users/path/to/repo/ai-insights/mcp-server/src/index.ts';
+  const PLACEHOLDER_BASE = '/Users/path/to/repo/ai-insights/mcp-server';
 
   // Walk every string value in the parsed JSON and replace the placeholder
+  // base path with the real MCP_SERVER_DIR
   function replaceInObj(obj) {
-    if (typeof obj === 'string')  return obj === PLACEHOLDER ? indexTs : obj;
+    if (typeof obj === 'string')  return obj.replaceAll(PLACEHOLDER_BASE, MCP_SERVER_DIR);
     if (Array.isArray(obj))       return obj.map(replaceInObj);
     if (obj && typeof obj === 'object') {
       const out = {};
@@ -254,7 +262,7 @@ function scaffoldMcpJson(force = false) {
   }
 
   fs.writeFileSync(MCP_JSON, JSON.stringify(replaceInObj(template), null, 2) + '\n', 'utf8');
-  log(`  ✓ .mcp.json written → ${indexTs}`, 'green');
+  log(`  ✓ .mcp.json written → ${MCP_SERVER_DIR}`, 'green');
   return true;
 }
 
@@ -429,6 +437,9 @@ function cmdBuildMaintain(args) {
 
   // 4. Check role parity (persona ↔ MCP server roles)
   runScript('check-known-roles.js');
+
+  // 5. Regenerate CTX context documentation
+  cmdCtxGenerate(args);
 }
 function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
 function cmdPreflight(args)       { runScript('preflight-orchestrator.js', args); }
@@ -440,6 +451,7 @@ function cmdPreviewPrompts(args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 function cmdCheckRoles()          { runScript('check-known-roles.js'); }
+function cmdCheckVersions()       { runScript('check-version-sync.js'); }
 function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
 function cmdCtxGenerate(args) {
   const ctxDir = path.join(WORKSPACE_ROOT, '.context');
@@ -516,7 +528,7 @@ const COMMANDS = [
     key:            'b',
     label:          'Build & Maintain',
     category:       'Validation & Utilities',
-    description:    'Sync versions & build personas',
+    description:    'Sync versions, build personas & CTX generate',
     // In printHelp(), render this command after setup's first helpVariant (setup --all)
     // to reproduce the original canonical help output order.
     interleaveAfter: { command: 'setup', variant: 0 },
@@ -538,7 +550,7 @@ const COMMANDS = [
     key:         'o',
     label:       'Install git hooks',
     category:    'Setup & Configuration',
-    description: 'Install git hooks (pre-commit persona guard)',
+    description: 'Install git hooks (pre-commit build & version guards)',
     run:         cmdGitHooks,
   },
   {
@@ -599,14 +611,14 @@ const COMMANDS = [
   },
   {
     id:           'read-log',
-    key:          'l',
+    key:          null,
     label:        'Read orchestrator log',
     category:     'Orchestrator',
     description:  'Query & filter JSONL run logs',
     helpVariants: [
       ['read-log --summary', 'One-line run overview with token totals'],
     ],
-    // Not shown in printHelp() — was absent from original help output
+    hidden:       true,
     helpHidden:   true,
     run:          cmdReadLog,
   },
@@ -633,11 +645,21 @@ const COMMANDS = [
   },
   {
     id:          'ctx-generate',
-    key:         'c',
+    key:         null,
     label:       'CTX generate',
     category:    'Validation & Utilities',
     description: 'Generate context documentation (ctx generate)',
+    hidden:      true,
     run:         cmdCtxGenerate,
+  },
+  {
+    id:          'check-versions',
+    key:         null,
+    label:       'Check version sync',
+    category:    'Validation & Utilities',
+    description: 'Verify changelog vs manifest versions',
+    hidden:      true,
+    run:         cmdCheckVersions,
   },
 ];
 
@@ -898,8 +920,9 @@ function renderMenu(version) {
   console.log(C.dim(`  Workspace CLI  ${version}\n`));
 
   const catVersions = {
-    'MCP Server': readSubVersion(MCP_SERVER_DIR),
-    'Personas':   readSubVersion(PERSONAS_DIR),
+    'MCP Server':   readSubVersion(MCP_SERVER_DIR),
+    'Personas':     readSubVersion(PERSONAS_DIR),
+    'Orchestrator': readPyprojectVersion(ORCHESTRATOR_DIR),
   };
 
   // Group commands by category (preserving insertion order)
