@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.22.1 - Fatal Error Rendering
+- GUI: Added `fatal_error` event rendering in the run log view.
+
 ## v1.22.0 - GUI Polish & Config Cleanup
 - GUI: Added tool-call event rendering with debug severity and cross-WP badge.
 - GUI: Path traversal checks now use platform-native separator.

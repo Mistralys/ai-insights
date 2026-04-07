@@ -1,5 +1,20 @@
 # AI Insights Changelog
 
+## v1.14.0 - Per-Stage Model Configuration
+> mcp v1.22.1 · orchestrator v0.12.0
+
+- Orchestrator: Model selection is now persona-metadata-driven — each stage
+  resolves its own model slug from persona YAML, replacing the global
+  `MODEL_NAME` env var and `--model` CLI flag.
+- Orchestrator: Startup validates that all 9 manifest roles have a resolved
+  model slug; missing persona YAML files fail loudly.
+- Orchestrator: JSONL stage events (`stage_start`, `stage_complete`,
+  `stage_error`) now include a `model` field for observability.
+- Scripts: Preflight check no longer requires `MODEL_NAME` in `.env`.
+- Orchestrator: Fatal exceptions now correctly halt the iteration loop.
+- Orchestrator: Removed noisy cross-WP guard trace from logs.
+- MCP: GUI renders `fatal_error` events in the run log view.
+
 ## v1.13.0 - Template Engine & Cross-WP Hardening
 > mcp v1.22.0 · orchestrator v0.11.0 · personas v3.11.0
 
