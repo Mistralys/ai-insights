@@ -7,7 +7,7 @@
  *
  * Checks that the orchestrator environment is ready to run:
  *   - Python venv exists with `orchestrate` binary
- *   - .env is configured with MODEL_NAME + at least one API key
+ *   - .env is configured with at least one API key
  *   - MCP server dist is up to date
  *   - No conflicting orchestrator process is already running
  *   - (Optional) Plan file exists (when --plan <path> is given)
@@ -103,7 +103,7 @@ function checkVenv() {
   return { name: 'venv', pass: true, detail: 'orchestrate binary found' };
 }
 
-/** Check that .env exists and contains MODEL_NAME + at least one API key. */
+/** Check that .env exists and contains at least one API key. */
 function checkEnv() {
   if (!fs.existsSync(ENV_FILE)) {
     return {
@@ -129,15 +129,6 @@ function checkEnv() {
     if (val) vars[key] = true;
   }
 
-  if (!vars.MODEL_NAME) {
-    return {
-      name: 'env',
-      pass: false,
-      detail: 'MODEL_NAME not set in .env',
-      fix: 'Set MODEL_NAME in orchestrator/.env (e.g. claude-sonnet-4-6)',
-    };
-  }
-
   if (!vars.ANTHROPIC_API_KEY && !vars.GOOGLE_API_KEY) {
     return {
       name: 'env',
@@ -147,7 +138,7 @@ function checkEnv() {
     };
   }
 
-  return { name: 'env', pass: true, detail: 'MODEL_NAME + API key configured' };
+  return { name: 'env', pass: true, detail: 'API key configured' };
 }
 
 /** Check that MCP server dist is up to date. */

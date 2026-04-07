@@ -336,6 +336,11 @@ function formatEntry(entry) {
   }
   if (details.length > 0) parts.push(`(${details.join(', ')})`);
 
+  // Model tag for stage_start (mirrors logging.py _build_stream_console_line)
+  if (action === 'stage_start' && entry.model) {
+    parts.push(C.dim(`[${entry.model}]`));
+  }
+
   let line = parts.filter(Boolean).join(' ');
 
   // Level-based coloring (applied to whole line)
