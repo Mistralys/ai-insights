@@ -2,6 +2,7 @@
 
 ## v0.11.1 - Fatal Error handling
 - CLI: Fixed exceptions not recognized as fatal running through all iterations.
+- Orchestrator: Removed the overly verbose cross-WP guard exception trace.
 
 ## v0.11.0 - Template Engine, Cross-WP Guards & Windows Support
 - Nodes: Stage prompts migrated to a Markdown template engine with partials

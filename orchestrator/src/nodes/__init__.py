@@ -69,6 +69,16 @@ def _is_fatal_error(exc: BaseException) -> bool:
     return False
 
 
+def _is_cross_wp_error(exc: BaseException) -> bool:
+    """Return True when *exc* is the cross-WP contamination guard error.
+
+    These are expected errors raised by the WP-ID guard in tool_wrappers
+    when an agent targets the wrong work package. They do not warrant a
+    full traceback in the log output.
+    """
+    return isinstance(exc, ValueError) and "cross-WP contamination" in str(exc)
+
+
 # Maps orchestrator stage names to the MCP pipeline type used by ledger_begin_work.
 # Used to determine which pipeline type to cancel during error-path rollback.
 _STAGE_PIPELINE_TYPE: dict[str, str] = {
@@ -497,7 +507,7 @@ def create_stage_node(
             stage_end_time = datetime.now(UTC)
             ts = stage_end_time.isoformat()
             duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
-            log.error("Stage %s failed: %s", stage, exc, exc_info=True)
+            log.error("Stage %s failed: %s", stage, exc, exc_info=not _is_cross_wp_error(exc))
             log_entry = {
                 "timestamp": ts,
                 "stage": stage,
