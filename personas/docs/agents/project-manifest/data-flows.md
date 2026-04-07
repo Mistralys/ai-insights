@@ -130,6 +130,7 @@ context = {
   // Layer 3: Computed values (cannot be overridden by YAML)
   version,             // persona.version ?? _shared.default_version
   model,               // persona.model !== undefined ? persona.model : (_shared.default_model || _shared.cc_model || 'inherit')
+  model_slug,          // persona.model_slug || _shared.default_model_slug  — ledger only
   total,               // _shared.roster.length (ledger: 9; standalone: not used)
   tools_json,          // serializeTools(persona.tools)         — ledger only
   tools_list,          // serializeToolsList(persona.tools)     — standalone

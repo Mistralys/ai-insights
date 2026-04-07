@@ -118,6 +118,11 @@ function ledgerPlugin(options) {
         updated['model'] = updated['default_model'];
       }
 
+      // --- model_slug (orchestrator API identifier) — fallback to default_model_slug
+      if (!updated['model_slug'] && updated['default_model_slug']) {
+        updated['model_slug'] = updated['default_model_slug'];
+      }
+
       // --- cc_name (Claude Code identifier) — alias for cc_file_name_stem ----
       if (!updated['cc_name'] && updated['cc_file_name_stem']) {
         updated['cc_name'] = updated['cc_file_name_stem'];
