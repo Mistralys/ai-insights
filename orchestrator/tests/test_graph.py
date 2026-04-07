@@ -28,13 +28,18 @@ aiosqlite = pytest.importorskip(
 # ---------------------------------------------------------------------------
 
 class _MockConfig:
-    model_name = "claude-test"
-    provider = "anthropic"
+    stage_models = {"developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+                    "reviewer": "claude-test", "security_auditor": "claude-test",
+                    "docs": "claude-test", "release_engineer": "claude-test",
+                    "synthesis": "claude-test", "planner": "claude-test"}
     max_iterations = 10
     workspace_root = Path(__file__).resolve().parent.parent.parent
     checkpoint_dir = Path(__file__).resolve().parent.parent / "checkpoints" / "test"
     mcp_server_cmd = ["node", "fake-server.js"]
     log_level = "INFO"
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 MOCK_CONFIG = _MockConfig()

@@ -218,12 +218,11 @@ class TestPersonaFilesExist:
 
 # Minimum valid env required by load_config() so we can isolate the flag.
 _BASE_ENV = {
-    "MODEL_NAME": "claude-test",
     "ANTHROPIC_API_KEY": "sk-test",
 }
 
 
-def _load(extra_env: dict | None = None) -> Config:  # noqa: F821 – forward ref ok
+def _load(extra_env: dict | None = None):
     """Call load_config() with a clean environment plus *extra_env* overrides."""
     env = {**_BASE_ENV, **(extra_env or {})}
     # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.
@@ -246,7 +245,6 @@ class TestCaptureDialogues:
         with patch.dict(os.environ, env, clear=True):
             cfg = load_config()
         assert cfg.capture_dialogues is True
-
     def test_true_when_env_var_is_empty_string(self):
         assert _load({"CAPTURE_DIALOGUES": ""}).capture_dialogues is True
 
@@ -300,3 +298,140 @@ class TestCaptureDialogues:
     def test_field_is_bool_type_when_false(self):
         cfg = _load()
         assert isinstance(cfg.capture_dialogues, bool)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Config.stage_models and Config.resolve_model_for_stage
+# ---------------------------------------------------------------------------
+
+class TestStageModels:
+    """Tests for Config.stage_models populated from persona metadata."""
+
+    def test_stage_models_is_dict(self):
+        cfg = _load()
+        assert isinstance(cfg.stage_models, dict)
+
+    def test_stage_models_non_empty(self):
+        cfg = _load()
+        assert len(cfg.stage_models) > 0
+
+    def test_stage_models_contains_developer(self):
+        cfg = _load()
+        assert "developer" in cfg.stage_models
+
+    def test_stage_models_contains_planner(self):
+        cfg = _load()
+        assert "planner" in cfg.stage_models
+
+    def test_stage_models_contains_all_nine_stages(self):
+        """All 9 non-orchestrating stages must have a model slug."""
+        cfg = _load()
+        # Non-orchestrating stages from the manifest (planner and synthesis are
+        # orchestrating but still present in stage_models from persona metadata).
+        expected = {
+            "planner", "pm", "developer", "qa", "security_auditor",
+            "reviewer", "release_engineer", "docs", "synthesis",
+        }
+        assert expected.issubset(cfg.stage_models.keys()), (
+            f"Missing stages: {expected - cfg.stage_models.keys()}"
+        )
+
+    def test_stage_models_values_are_strings(self):
+        cfg = _load()
+        for stage, slug in cfg.stage_models.items():
+            assert isinstance(slug, str), f"stage_models[{stage!r}] must be a str"
+            assert slug, f"stage_models[{stage!r}] must not be empty"
+
+    def test_planner_has_opus_slug(self):
+        """Planner has a model_slug override in persona metadata."""
+        cfg = _load()
+        assert cfg.stage_models["planner"] == "claude-opus-4-6"
+
+    def test_pm_has_opus_slug(self):
+        """Project Manager has a model_slug override in persona metadata."""
+        cfg = _load()
+        assert cfg.stage_models["pm"] == "claude-opus-4-6"
+
+    def test_developer_has_default_slug(self):
+        """Developer inherits default_model_slug."""
+        cfg = _load()
+        assert cfg.stage_models["developer"] == "claude-sonnet-4-6"
+
+
+class TestResolveModelForStage:
+    """Tests for Config.resolve_model_for_stage()."""
+
+    def test_returns_correct_slug_for_known_stage(self):
+        cfg = _load()
+        slug = cfg.resolve_model_for_stage("developer")
+        assert slug == cfg.stage_models["developer"]
+
+    def test_returns_correct_slug_for_planner(self):
+        cfg = _load()
+        assert cfg.resolve_model_for_stage("planner") == "claude-opus-4-6"
+
+    def test_raises_key_error_for_unknown_stage(self):
+        cfg = _load()
+        with pytest.raises(KeyError):
+            cfg.resolve_model_for_stage("nonexistent_stage")
+
+
+class TestApiKeyValidation:
+    """Tests for per-model API key presence validation in load_config()."""
+
+    def test_raises_when_no_api_keys_set(self):
+        """load_config() must raise OSError when no API keys are present."""
+        with patch.dict(os.environ, {"CAPTURE_DIALOGUES": "false"}, clear=True):
+            with pytest.raises(OSError):
+                load_config()
+
+    def test_passes_with_anthropic_key_only(self):
+        """load_config() succeeds when all stages use Anthropic and key is set."""
+        cfg = _load()
+        assert cfg.stage_models  # populated successfully
+
+    def test_missing_google_key_when_google_slug_used(self):
+        """OSError raised when a Google model slug is used but GOOGLE_API_KEY is absent."""
+        from unittest.mock import patch as _patch
+
+        fake_stage_models = {
+            "planner": "claude-opus-4-6", "pm": "claude-opus-4-6",
+            "developer": "gemini-2.5-pro", "qa": "claude-sonnet-4-6",
+            "security_auditor": "claude-sonnet-4-6", "reviewer": "claude-sonnet-4-6",
+            "release_engineer": "claude-sonnet-4-6", "docs": "claude-sonnet-4-6",
+            "synthesis": "claude-sonnet-4-6",
+        }
+        with _patch(
+            "src.utils.persona_models.extract_persona_model_slugs",
+            return_value=fake_stage_models,
+        ):
+            env = {"ANTHROPIC_API_KEY": "sk-test", "CAPTURE_DIALOGUES": "false"}
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(OSError, match="GOOGLE_API_KEY"):
+                    load_config()
+
+    def test_model_name_env_var_is_ignored(self):
+        """MODEL_NAME in the environment must not cause a crash or affect stage_models."""
+        env = {**_BASE_ENV, "MODEL_NAME": "some-old-model", "CAPTURE_DIALOGUES": "false"}
+        with patch.dict(os.environ, env, clear=True):
+            cfg = load_config()
+        # stage_models must be populated from persona metadata, not MODEL_NAME.
+        assert cfg.stage_models
+        # developer should still have the persona-metadata slug.
+        assert cfg.stage_models.get("developer") == "claude-sonnet-4-6"
+
+    def test_raises_when_stage_models_incomplete(self):
+        """load_config() must raise OSError when persona YAML files are missing."""
+        from unittest.mock import patch as _patch
+
+        # Only 2 of 9 stages — the count guard must fire.
+        partial_models = {"planner": "claude-opus-4-6", "developer": "claude-sonnet-4-6"}
+        with _patch(
+            "src.utils.persona_models.extract_persona_model_slugs",
+            return_value=partial_models,
+        ):
+            env = {"ANTHROPIC_API_KEY": "sk-test", "CAPTURE_DIALOGUES": "false"}
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(OSError, match="Expected 9 stage model slugs"):
+                    load_config()
+

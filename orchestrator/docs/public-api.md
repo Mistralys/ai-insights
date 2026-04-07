@@ -76,20 +76,24 @@ For the expected `variables` dict for each template (required vs optional fields
 
 | Symbol | Module | Description |
 |--------|--------|-------------|
-| `Config` | `src.config` | Dataclass holding all runtime settings (model, provider, paths, limits). Includes `capture_dialogues: bool` (default `True`) — set `CAPTURE_DIALOGUES=false` (or `0`/`no`) in the environment to disable dialogue capture. |
-| `load_config(*, workspace_root=None)` | `src.config` | Loads `.env`, resolves provider, returns `Config`. |
-| `get_chat_model()` | `src.config` | Returns the configured LangChain `BaseChatModel` instance. || `PIPELINE_PREREQUISITES` | `src.config` | `dict[str, str \| None]` — enforced pipeline execution order (prerequisite chain). Derived from `shared/workflow-manifest.json`. |
+| `Config` | `src.config` | Dataclass holding all runtime settings (paths, limits, stage model slugs). Includes `stage_models: dict[str, str]` (per-stage model slugs sourced from persona metadata) and `capture_dialogues: bool` (default `True`) — set `CAPTURE_DIALOGUES=false` (or `0`/`no`) in the environment to disable. |
+| `Config.stage_models` | `src.config` | `dict[str, str]` — maps each stage name (e.g. `"developer"`) to its API model slug (e.g. `"claude-sonnet-4-6"`). Populated by `load_config()` via `extract_persona_model_slugs()`. |
+| `Config.resolve_model_for_stage(stage)` | `src.config` | Returns the model slug for *stage*. Raises `KeyError` for unknown stage names (programming error — all valid stages are populated at config load time). |
+| `load_config(*, workspace_root=None)` | `src.config` | Loads `.env`, reads per-stage model slugs from persona metadata via `extract_persona_model_slugs()`, validates API keys, returns `Config`. |
+| `extract_persona_model_slugs(workspace_root)` | `src.utils.persona_models` | Scans `personas/ledger/src/meta/` YAML files and returns `{stage_id: model_slug}`. Per-persona `model_slug` takes precedence over `default_model_slug` from `_shared.yaml`. Used by `load_config()`. |
+| `get_default_config()` | `src.config` | Returns (and lazily initialises) the module-level default `Config`. Prefer passing `Config` explicitly in testable code. |
+| `PIPELINE_PREREQUISITES` | `src.config` | `dict[str, str \| None]` — enforced pipeline execution order (prerequisite chain). Derived from `shared/workflow-manifest.json`. |
 | `PIPELINE_AGENT_MAP` | `src.config` | `dict[str, str]` — pipeline type → owning agent role name. Derived from manifest. |
 | `FAIL_ROUTING_AGENT_MAP` | `src.config` | `dict[str, str]` — pipeline type → agent role name responsible for FAIL rework. Derived from `pipelines.fail_routing` in `shared/workflow-manifest.json`. |
 | `PIPELINE_ROLE_NAMES` | `src.config` | `list[str]` — non-orchestrating role names in manifest order. Used by the supervisor to derive `_ROLES` and `_ROLE_STAGE_MAP`. |
 | `ROLE_IDS` | `src.config` | `dict[str, str]` — role name → role ID for every role (e.g. `'Project Manager'` → `'pm'`). Used by the supervisor to derive `_DEST_*` constants. |
 | `WP_TERMINAL_STATUSES` | `src.config` | `frozenset[str]` — work-package statuses requiring no further agent action (`COMPLETE`, `CANCELLED`). Derived from manifest. |
+| `VALID_STAGES` | `src.config` | `frozenset[str]` — all non-orchestrating stage IDs. Used to guard stage resolution at config load time. |
 | `NEXT_STAGE_MAP` | `src.config` | `dict[str, str]` — graph stage → next stage in sequential order (e.g. `'developer'` → `'qa'`). Derived from manifest. |
 | `STAGE_TO_PIPELINE` | `src.config` | `dict[str, str]` — graph stage name → pipeline type it owns. Derived from manifest. |
 | `PIPELINE_TO_STAGE` | `src.config` | `dict[str, str]` — inverse of `STAGE_TO_PIPELINE`. Derived from manifest. |
 | `PERSONA_FILES` | `src.config` | `dict[str, str]` — stage ID → relative path to persona Markdown. Derived from manifest. |
 | `PIPELINE_TYPES` | `src.config` | `tuple[str, ...]` — valid pipeline type names in canonical execution order. Derived from manifest. |
----
 
 ## Utilities
 

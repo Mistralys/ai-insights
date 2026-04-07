@@ -17,9 +17,9 @@ duration conventions, JSON examples, and backward-compatibility notes see
 
 | `action` | Key fields | Notes |
 |----------|-----------|-------|
-| `stage_start` | `stage`, `wp_id`, `iteration` | **New.** Emitted before Deep Agent creation. Always first entry in a stage's log sequence. |
-| `stage_complete` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, **`duration_s`** | `duration_s` — wallclock seconds from `stage_start` to completion (float, 1 dp). |
-| `stage_error` | `stage`, `wp_id`, `result="FAIL"`, `error`, **`duration_s`** | `duration_s` — time elapsed before the exception was raised. |
+| `stage_start` | `stage`, `wp_id`, `iteration`, `model` | **New.** Emitted before Deep Agent creation. Always first entry in a stage's log sequence. |
+| `stage_complete` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, **`duration_s`**, `model` | `duration_s` — wallclock seconds from `stage_start` to completion (float, 1 dp). |
+| `stage_error` | `stage`, `wp_id`, `result="FAIL"`, `error`, **`duration_s`**, `model` | `duration_s` — time elapsed before the exception was raised. |
 | `pipeline_result` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` | **New.** Best-effort read-back of latest WP pipeline after success. `duration_s` derived from `pipeline.duration_ms`; `null` when absent. Omitted on read-back failure. |
 | `pipeline_rollback` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` | Emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline after an unhandled stage exception. Only fires when `ledger_begin_work` was called before the crash. |
 
@@ -52,7 +52,7 @@ duration conventions, JSON examples, and backward-compatibility notes see
 
 | `action` | Key fields | Notes |
 |----------|-----------|-------|
-| `run_start` | `thread_id`, `dry_run`, `plan`, **`run_start_ts`** | Enriched: `run_start_ts` — ISO 8601 UTC timestamp stored in state for elapsed-time math. `plan` — resolved path of the plan file passed as `--plan`. |
+| `run_start` | `thread_id`, `dry_run`, `plan`, **`run_start_ts`**, `stage_models` | Enriched: `run_start_ts` — ISO 8601 UTC timestamp stored in state for elapsed-time math. `plan` — resolved path of the plan file passed as `--plan`. `stage_models` — snapshot of `Config.stage_models` at run start (dict of stage name → model slug). |
 | `run_end` | `result`, `thread_id`, **`total_duration_s`** | Enriched: `total_duration_s` — wallclock seconds for the full run (float, 1 dp); omitted when `run_start_ts` unavailable. |
 
 ### Duration field conventions
@@ -106,7 +106,25 @@ listed are resolved from the enclosing template's variable dict after inlining.
 |--------|-----------|-------------|
 | `parse_tool_response` | `parse_tool_response(raw: Any) -> dict \| list \| str \| None` | Parses an MCP tool response into a usable Python object. Handles `langchain-mcp-adapters` content-block lists, JSON strings, `ToolMessage` objects, and direct dicts. Used by the supervisor's `_call_tool` helper and the node factory's `pipeline_result` read-back. |
 
-### `src/utils/tool_wrappers.py`
+### `src/utils/persona_models.py`
+
+Stdlib-only utility that reads persona YAML metadata and returns the API model slug for
+each orchestrator stage. Uses hand-rolled `_extract_yaml_scalar()` / `_strip_inline_comment()`
+helpers to avoid a PyYAML dependency.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `extract_persona_model_slugs` | `extract_persona_model_slugs(workspace_root: Path \| str) -> dict[str, str]` | Resolves the API model slug for every orchestrator stage. Resolution order: (1) per-persona `model_slug` field if present; (2) `default_model_slug` from `_shared.yaml`. Scans `personas/ledger/src/meta/[1-9]-*.yaml` files and cross-references role numbers against `shared/workflow-manifest.json`. **Constraint:** the glob pattern `[1-9]-*.yaml` only matches single-digit numeric prefixes (roles 1–9); a role file with prefix `10-` or higher would be silently skipped. Update the pattern if the role count ever exceeds 9. Returns a `{stage_id: model_slug}` mapping — one entry per manifest role that has a matching YAML file; roles with no YAML file are skipped with a `WARNING` log. Raises `OSError` if the metadata directory does not exist; `FileNotFoundError` if `_shared.yaml` or `workflow-manifest.json` is missing; `ValueError` if `default_model_slug` is absent from `_shared.yaml` or the `roles` key is missing from the manifest. |
+
+---
+
+### `src/config.py`
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `Config` | `@dataclass Config` | Immutable configuration bundle populated by `load_config()`. Key fields: `stage_models` (`dict[str, str]`) — map of stage name → model slug for the run (populated from persona YAML by `extract_persona_model_slugs()`); `max_iterations`, `checkpoint_dir`, `mcp_server_cmd`, `workspace_root`, `log_level`, `heartbeat_interval_s`, `capture_dialogues`. |
+| `Config.resolve_model_for_stage` | `resolve_model_for_stage(stage: str) -> str` | Returns the model slug for *stage* from `Config.stage_models`. Raises `KeyError` when *stage* is not present — this is a programming error (all valid stages must be populated at config load time by `extract_persona_model_slugs()`). Called by `create_stage_node()` **before** the try block so that an unrecognised stage name fails loudly rather than producing a silent `stage_error` log entry. |
+
 
 Three defensive wrappers applied to every MCP tool in a stage node. **Canonical application order:**
 

@@ -136,6 +136,9 @@ def _build_stream_console_line(entry: dict[str, Any]) -> str:
         if wp_id:
             parts.append(wp_id)
         parts.append("▶ stage_start")
+        model = entry.get("model") or ""
+        if model:
+            parts.append(f"[{model}]")
         return " ".join(parts)
 
     if action == "stage_complete":

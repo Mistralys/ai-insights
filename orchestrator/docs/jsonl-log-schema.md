@@ -49,6 +49,8 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `silence_s` | `heartbeat` | float | Seconds elapsed since the last log entry was emitted (rounded to 1 decimal place) |
 | `file_path` | `dialogue_captured` | string | Absolute path to the Markdown dialogue file written to disk (non-empty when capture succeeds) |
 | `partial` | `dialogue_captured` | boolean | (Optional) `true` if the dialogue capture occurred during an error-path rollback (crash before stage completed). |
+| `model` | `stage_start`, `stage_complete`, `stage_error` | string | API model slug used for this stage invocation (e.g. `"claude-sonnet-4-6"`). Sourced from `Config.stage_models`. |
+| `stage_models` | `run_start` | dict | Map of stage name → model slug for the entire run (e.g. `{"developer": "claude-sonnet-4-6", ...}`). Mirrors `Config.stage_models`. |
 | `tool_name` | `tool_call` | string | The MCP tool name from `tool.name` (e.g. `"ledger_create_work_package"`) |
 | `tool_wp_id` | `tool_call` | string | The `work_package_id` argument extracted from the call arguments; empty string when absent. **Never** includes the full argument payload (privacy constraint). |
 | `detail` | `dry_run_no_ledger` | string | The underlying error message from the missing ledger (logged at INFO, not treated as an error) |
@@ -60,9 +62,9 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 
 | `action` | Emitted by | Key fields added |
 |----------|-----------|------------------|
-| `stage_start` | `nodes/__init__.py` | `stage`, `wp_id`, `iteration`, `level="INFO"` |
-| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, `duration_s` |
-| `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `level="ERROR"` |
+| `stage_start` | `nodes/__init__.py` | `stage`, `wp_id`, `iteration`, `model`, `level="INFO"` |
+| `stage_complete` | `nodes/__init__.py` | `stage`, `wp_id`, `result="PASS"`, `tokens_used`, `duration_s`, `model` |
+| `stage_error` | `nodes/__init__.py` | `stage`, `wp_id`, `result="FAIL"`, `error`, `duration_s`, `model`, `level="ERROR"` |
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
 | `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
 | `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `action="tool_call"`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy constraint) |
@@ -80,7 +82,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `halted_repeated_failure` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination=END`, `consecutive_failures`, `level="WARNING"` |
 | `halted_wp_cancelled` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `destination` (synthesis), `reason`, `level="WARNING"` — emitted for each halted WP cancelled before synthesis dispatch |
 | `heartbeat` | `utils/logging.py` | `stage="heartbeat"`, `silence_s`, `level="INFO"` |
-| `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts` |
+| `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts`, `stage_models` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `thread_id`, `total_duration_s` |
 | `run_error` | `cli.py` | `stage="cli"`, `error`, `thread_id`, `level="ERROR"` |
 
@@ -155,19 +157,19 @@ when `run_start_ts` was never stored in state or is unparseable.
 ### `stage_start`
 
 ```json
-{"timestamp": "2026-03-22T10:05:00.123Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_start", "level": "INFO", "iteration": 4}
+{"timestamp": "2026-03-22T10:05:00.123Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_start", "level": "INFO", "iteration": 4, "model": "claude-sonnet-4-6"}
 ```
 
 ### `stage_complete` (with `duration_s`)
 
 ```json
-{"timestamp": "2026-03-22T10:08:24.456Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_complete", "result": "PASS", "level": "INFO", "tokens_used": {"input_tokens": 12500, "output_tokens": 3400, "total_tokens": 15900}, "duration_s": 204.3}
+{"timestamp": "2026-03-22T10:08:24.456Z", "stage": "developer", "wp_id": "WP-003", "action": "stage_complete", "result": "PASS", "level": "INFO", "tokens_used": {"input_tokens": 12500, "output_tokens": 3400, "total_tokens": 15900}, "duration_s": 204.3, "model": "claude-sonnet-4-6"}
 ```
 
 ### `stage_error` (with `duration_s`)
 
 ```json
-{"timestamp": "2026-03-22T10:07:11.789Z", "stage": "qa", "wp_id": "WP-003", "action": "stage_error", "result": "FAIL", "level": "ERROR", "error": "MCP server returned unexpected response", "duration_s": 71.6}
+{"timestamp": "2026-03-22T10:07:11.789Z", "stage": "qa", "wp_id": "WP-003", "action": "stage_error", "result": "FAIL", "level": "ERROR", "error": "MCP server returned unexpected response", "duration_s": 71.6, "model": "claude-sonnet-4-6"}
 ```
 
 ### `pipeline_result`

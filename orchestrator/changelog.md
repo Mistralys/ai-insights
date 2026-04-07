@@ -1,8 +1,22 @@
 # Orchestrator Changelog
 
-## v0.11.1 - Fatal Error handling
-- CLI: Fixed exceptions not recognized as fatal running through all iterations.
-- Orchestrator: Removed the overly verbose cross-WP guard exception trace.
+## v0.12.0 - Per-Stage Model Configuration
+- Config: Replaced global `MODEL_NAME` env var with persona-metadata-driven
+  per-stage model selection via `Config.stage_models`.
+- Config: `load_config()` validates that all 9 manifest roles have a resolved
+  model slug at startup; raises `OSError` on mismatch.
+- Config: API key env reads now `.strip()` whitespace before validation.
+- Utils: Added `extract_persona_model_slugs()` — reads `model_slug` from
+  per-persona YAML and `default_model_slug` from `_shared.yaml`.
+- Nodes: `resolve_model_for_stage()` called before `create_deep_agent()` in
+  every stage node; resolved model logged in `stage_start`, `stage_complete`,
+  and `stage_error` JSONL entries.
+- CLI: Removed `--model` flag (superseded by persona metadata).
+- Tests: +25 net new tests (770 total, 0 failures).
+
+## v0.11.1 - Fatal Error Handling
+- CLI: Fixed fatal exceptions not halting iteration loop.
+- Nodes: Removed cross-WP guard exception trace from logs.
 
 ## v0.11.0 - Template Engine, Cross-WP Guards & Windows Support
 - Nodes: Stage prompts migrated to a Markdown template engine with partials

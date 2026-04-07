@@ -262,7 +262,7 @@ def create_stage_node(
         Callable ``(state) -> str`` that produces the user-turn prompt for
         this stage.  Receives the full :class:`~src.state.WorkflowState`.
     config:
-        Application config (provides ``model_name``, ``workspace_root``).
+        Application config (provides ``stage_models``, ``workspace_root``).
     mcp_tools:
         LangChain tool objects from the shared :class:`~src.mcp_client.MCPToolkit`.
 
@@ -335,12 +335,17 @@ def create_stage_node(
 
         # ── stage_start ───────────────────────────────────────────────
         stage_start_time = datetime.now(UTC)
+        # Intentionally called before `try`: an unrecognised stage name raises
+        # KeyError here (programming error) and must propagate as-is, not be
+        # swallowed and converted into a stage_error log entry.
+        resolved_model: str = _app_config.resolve_model_for_stage(stage)
         start_entry: dict = {
             "timestamp": stage_start_time.isoformat(),
             "stage": stage,
             "wp_id": _wp_id,
             "action": "stage_start",
             "level": "INFO",
+            "model": resolved_model,
             "iteration": state.get("iteration", 0),  # type: ignore[call-overload]
         }
         if run_logger:
@@ -376,7 +381,7 @@ def create_stage_node(
             log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)
 
             agent = create_deep_agent(
-                model=_app_config.model_name,
+                model=resolved_model,
                 backend=backend,
                 system_prompt=persona_prompt,
                 tools=wrapped_tools,
@@ -437,6 +442,7 @@ def create_stage_node(
                 "action": "stage_complete",
                 "result": "PASS",
                 "level": "INFO",
+                "model": resolved_model,
                 "tokens_used": tokens_used,
                 "duration_s": duration_s,
             }
@@ -516,6 +522,7 @@ def create_stage_node(
                 "result": "FAIL",
                 "error": str(exc),
                 "level": "ERROR",
+                "model": resolved_model,
                 "duration_s": duration_s,
             }
             if run_logger:

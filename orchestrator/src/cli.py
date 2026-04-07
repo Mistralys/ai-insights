@@ -108,13 +108,6 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--model",
-        metavar="MODEL",
-        default=None,
-        help="LLM model identifier. Overrides MODEL_NAME from .env.",
-    )
-
-    parser.add_argument(
         "--resume",
         metavar="THREAD_ID",
         default=None,
@@ -480,6 +473,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             dry_run=args.dry_run,
             plan=str(plan_path),
             run_start_ts=run_start_ts,
+            stage_models=dict(config.stage_models),
         )
         # ── Parse --interrupt-on ────────────────────────────────────────
         interrupt_before: list[str] = []
@@ -670,8 +664,6 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     # ── Apply CLI overrides before loading config ───────────────────────────
-    if args.model:
-        os.environ["MODEL_NAME"] = args.model
     if args.max_iterations is not None:
         os.environ["MAX_ITERATIONS"] = str(args.max_iterations)
 

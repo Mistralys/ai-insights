@@ -4,7 +4,9 @@ config.py — Configuration module for the AI Insights Orchestrator.
 Loads environment variables, derives pipeline routing constants from
 ``shared/workflow-manifest.json`` (the single source of truth for all
 role and pipeline definitions across the workspace), and exposes a
-validated ``Config`` dataclass with auto-detected LLM provider."""
+validated ``Config`` dataclass with per-stage model slugs sourced from
+persona YAML metadata via :func:`src.utils.persona_models.extract_persona_model_slugs`.
+"""
 
 from __future__ import annotations
 
@@ -148,11 +150,8 @@ WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
 
 
 # ---------------------------------------------------------------------------
-# LLM provider detection helpers
+# API key validation helper
 # ---------------------------------------------------------------------------
-
-_ANTHROPIC_PREFIXES = ("claude",)
-_GOOGLE_PREFIXES = ("gemini", "models/gemini")
 
 #: Environment variable values that disable ``capture_dialogues`` (matched after
 #: ``.strip().lower()``). Kept as a module-level constant so it is visible
@@ -160,37 +159,17 @@ _GOOGLE_PREFIXES = ("gemini", "models/gemini")
 _CAPTURE_DIALOGUES_FALSY: frozenset[str] = frozenset({"false", "0", "no"})
 
 
-def _model_is_anthropic(model_name: str) -> bool:
-    """Return True if *model_name* looks like an Anthropic model."""
-    lower = model_name.lower()
-    return any(lower.startswith(p) for p in _ANTHROPIC_PREFIXES)
-
-
-def _model_is_google(model_name: str) -> bool:
-    """Return True if *model_name* looks like a Google model."""
-    lower = model_name.lower()
-    return any(lower.startswith(p) for p in _GOOGLE_PREFIXES)
-
-
-def _resolve_provider(model_name: str) -> str:
+def _validate_model_api_keys(stage_models: dict[str, str]) -> None:
     """
-    Determine the LLM provider from *model_name* and available API keys.
+    Verify that API keys are present for every model slug in *stage_models*.
 
-    Resolution rules (in priority order):
-    1. If only one API key is set, use its provider (regardless of model name).
-    2. If both keys are set, use the provider that matches the model name prefix:
-       - ``claude-*`` → ``anthropic``
-       - ``gemini-*`` → ``google``
-    3. If both keys are set and the model name is ambiguous, raise ``ValueError``.
-    4. If no keys are set, raise ``EnvironmentError``.
-
-    Returns
-    -------
-    str
-        One of ``"anthropic"`` or ``"google"``.
+    Raises
+    ------
+    OSError
+        If one or more required API keys are absent from the environment.
     """
-    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    has_google = bool(os.environ.get("GOOGLE_API_KEY"))
+    has_anthropic = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+    has_google = bool(os.environ.get("GOOGLE_API_KEY", "").strip())
 
     if not has_anthropic and not has_google:
         raise OSError(
@@ -201,25 +180,30 @@ def _resolve_provider(model_name: str) -> str:
             "pip install -e '.[google]'."
         )
 
-    if has_anthropic and not has_google:
-        return "anthropic"
+    missing: list[str] = []
+    seen: set[str] = set()
+    for stage, model_slug in stage_models.items():
+        if model_slug in seen:
+            continue
+        seen.add(model_slug)
+        lower = model_slug.lower()
+        if lower.startswith("claude") and not has_anthropic:
+            missing.append(
+                f"ANTHROPIC_API_KEY (stage {stage!r}, model {model_slug!r})"
+            )
+        elif (
+            lower.startswith("gemini") or lower.startswith("models/gemini")
+        ) and not has_google:
+            missing.append(
+                f"GOOGLE_API_KEY (stage {stage!r}, model {model_slug!r})"
+            )
 
-    if has_google and not has_anthropic:
-        return "google"
-
-    # Both keys present — use model name prefix as the tiebreaker.
-    if _model_is_anthropic(model_name):
-        return "anthropic"
-    if _model_is_google(model_name):
-        return "google"
-
-    raise ValueError(
-        f"Both ANTHROPIC_API_KEY and GOOGLE_API_KEY are set, but MODEL_NAME "
-        f"'{model_name}' does not start with a recognised prefix "
-        f"({', '.join(_ANTHROPIC_PREFIXES + _GOOGLE_PREFIXES)}). "
-        "Set MODEL_NAME to a model from one provider (e.g. 'claude-sonnet-4-6-20250929' "
-        "or 'gemini-2.5-pro') to select the provider unambiguously."
-    )
+    if missing:
+        raise OSError(
+            "Missing API key(s) for the following stage models:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+            + "\nSet the required API key(s) in your .env file."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -237,10 +221,10 @@ class Config:
 
     Attributes
     ----------
-    model_name:
-        LLM model identifier (e.g. ``"claude-sonnet-4-6-20250929"``).
-    provider:
-        Auto-detected LLM provider: ``"anthropic"`` or ``"google"``.
+    stage_models:
+        Per-stage LLM model identifiers. Keys are stage names (e.g.
+        ``"developer"``); values are API-compatible model slugs sourced from
+        persona YAML metadata (e.g. ``"claude-sonnet-4-6"``).
     max_iterations:
         Safety ceiling on the total number of supervisor iterations.
     checkpoint_dir:
@@ -261,8 +245,7 @@ class Config:
         ``True``.
     """
 
-    model_name: str
-    provider: str
+    stage_models: dict[str, str]
     max_iterations: int
     checkpoint_dir: Path
     mcp_server_cmd: list[str]
@@ -271,45 +254,17 @@ class Config:
     heartbeat_interval_s: int = 120
     capture_dialogues: bool = True
 
-    def get_chat_model(self):
+    def resolve_model_for_stage(self, stage: str) -> str:
         """
-        Return a provider-agnostic LangChain chat model instance.
-
-        Uses ``langchain.chat_models.init_chat_model`` when available
-        (LangChain >= 0.2), falling back to direct provider imports.
+        Return the model slug for *stage*.
 
         Raises
         ------
-        ImportError
-            If the required provider package is not installed.
+        KeyError
+            If *stage* is not in :attr:`stage_models`. This is a programming
+            error — all valid stages must be populated at config load time.
         """
-        try:
-            from langchain.chat_models import init_chat_model  # type: ignore[import]
-            return init_chat_model(self.model_name)
-        except ImportError:
-            pass
-
-        if self.provider == "anthropic":
-            try:
-                from langchain_anthropic import ChatAnthropic  # type: ignore[import]
-                return ChatAnthropic(model=self.model_name)  # type: ignore[call-arg]
-            except ImportError as exc:
-                raise ImportError(
-                    "langchain-anthropic is not installed. "
-                    "Run: pip install -e '.[anthropic]'"
-                ) from exc
-
-        if self.provider == "google":
-            try:
-                from langchain_google_genai import ChatGoogleGenerativeAI  # type: ignore[import]
-                return ChatGoogleGenerativeAI(model=self.model_name)  # type: ignore[call-arg]
-            except ImportError as exc:
-                raise ImportError(
-                    "langchain-google-genai is not installed. "
-                    "Run: pip install -e '.[google]'"
-                ) from exc
-
-        raise ValueError(f"Unknown provider: {self.provider!r}")  # pragma: no cover
+        return self.stage_models[stage]
 
 
 def load_config(
@@ -329,24 +284,38 @@ def load_config(
     EnvironmentError
         If required environment variables are missing or invalid.
     ValueError
-        If configuration values are logically inconsistent.
+        If configuration values are logically inconsistent. The primary source
+        of ``ValueError`` is :func:`src.utils.persona_models.extract_persona_model_slugs`
+        raising when ``default_model_slug`` is absent from ``_shared.yaml``.
     """
     # Determine the workspace root: two levels above this file
     # (orchestrator/src/config.py → orchestrator/ → workspace root).
     if workspace_root is None:
         workspace_root = _ORCHESTRATOR_ROOT.parent
 
-    # --- model_name ---
-    model_name = os.environ.get("MODEL_NAME", "").strip()
-    if not model_name:
+    # --- stage_models (per-stage model slugs from persona metadata) ---
+    from src.utils.persona_models import extract_persona_model_slugs
+    try:
+        stage_models = extract_persona_model_slugs(workspace_root)
+    except OSError as exc:
         raise OSError(
-            "MODEL_NAME is not set. "
-            "Add MODEL_NAME=<model-id> to your .env file. "
-            "Examples: claude-sonnet-4-6-20250929, gemini-2.5-pro."
+            f"Failed to read persona model metadata: {exc}\n"
+            "Ensure the persona YAML files in personas/ledger/src/meta/ are present."
+        ) from exc
+
+    # Guard: every role in the manifest must have a resolved model slug.
+    expected_count = len(_roles)
+    actual_count = len(stage_models)
+    if actual_count != expected_count:
+        raise OSError(
+            f"Expected {expected_count} stage model slugs (one per manifest role), "
+            f"got {actual_count}. Missing stages: "
+            f"{sorted(set(r['id'] for r in _roles) - set(stage_models))}. "
+            "Ensure all persona YAML files in personas/ledger/src/meta/ are present."
         )
 
-    # --- provider (auto-detected) ---
-    provider = _resolve_provider(model_name)
+    # Validate that API keys are present for every model slug in use.
+    _validate_model_api_keys(stage_models)
 
     # --- max_iterations ---
     raw_max_iter = os.environ.get("MAX_ITERATIONS", "100").strip()
@@ -395,8 +364,7 @@ def load_config(
         ) from exc
 
     return Config(
-        model_name=model_name,
-        provider=provider,
+        stage_models=stage_models,
         max_iterations=max_iterations,
         checkpoint_dir=checkpoint_dir,
         mcp_server_cmd=mcp_server_cmd,

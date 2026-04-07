@@ -1222,9 +1222,16 @@ class TestRestrictToWpInCreateStageNode:
         from src.nodes import create_stage_node
 
         class _FakeConfig:
-            model_name = "claude-test"
+            stage_models = {
+                "developer": "claude-test",
+                **{s: "claude-test" for s in ("pm", "qa", "reviewer", "security_auditor",
+                                               "docs", "release_engineer", "synthesis", "planner")},
+            }
             workspace_root = __import__("pathlib").Path(__file__).resolve().parent.parent.parent
             capture_dialogues = False
+
+            def resolve_model_for_stage(self, stage: str) -> str:
+                return self.stage_models.get(stage, "claude-test")
 
         restrict_calls: list[dict] = []
 
@@ -1264,9 +1271,16 @@ class TestRestrictToWpInCreateStageNode:
         from src.nodes import create_stage_node
 
         class _FakeConfig:
-            model_name = "claude-test"
+            stage_models = {
+                "developer": "claude-test",
+                **{s: "claude-test" for s in ("pm", "qa", "reviewer", "security_auditor",
+                                               "docs", "release_engineer", "synthesis", "planner")},
+            }
             workspace_root = __import__("pathlib").Path(__file__).resolve().parent.parent.parent
             capture_dialogues = False
+
+            def resolve_model_for_stage(self, stage: str) -> str:
+                return self.stage_models.get(stage, "claude-test")
 
         restrict_calls: list[dict] = []
 

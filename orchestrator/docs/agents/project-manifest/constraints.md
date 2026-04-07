@@ -295,3 +295,32 @@ python3 -m ruff check .
 ```
 
 **Forbidden shortcut:** Do not mark a coding task complete, write a changelog entry, or hand off to the next pipeline stage without a clean ruff output.
+
+---
+
+## Model Configuration Constraints
+
+### 18. Model Selection Is Persona-Driven — No MODEL_NAME
+
+**Rule:** The orchestrator must never read a `MODEL_NAME` environment variable or accept a `--model` CLI flag for LLM model selection. Each stage's model slug is resolved exclusively via `Config.resolve_model_for_stage(stage)`, which reads from `Config.stage_models`. That dict is populated once at startup by `extract_persona_model_slugs()` from `personas/ledger/src/meta/` YAML files (`model_slug` per-persona, falling back to `default_model_slug` in `_shared.yaml`). The resolved model is passed directly to `create_deep_agent()` and logged in every `stage_start`, `stage_complete`, and `stage_error` JSONL entry.
+
+**Rationale:** Persona YAML files are the single source of truth for which model each agent role uses. Centralising model resolution there ensures that swapping models for a specific role requires only a one-field change in the persona metadata — no environment overrides or command-line flags to remember. A global `MODEL_NAME` override would silently apply to all stages, invalidating the per-stage selection.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — reading MODEL_NAME from environment
+model = os.environ.get("MODEL_NAME", "claude-sonnet-4-6")
+agent = create_deep_agent(model=model, ...)
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — resolve from Config.stage_models via Config.resolve_model_for_stage
+resolved_model: str = _app_config.resolve_model_for_stage(stage)
+agent = create_deep_agent(model=resolved_model, ...)
+```
+
+**Forbidden patterns:**
+- `os.environ.get("MODEL_NAME", ...)` anywhere in the orchestrator source
+- `argparse` / `click` flags for `--model` that override per-stage selection
+- Hardcoding a model slug string in `create_stage_node()` or any node factory

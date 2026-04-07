@@ -24,9 +24,17 @@ import pytest
 
 class _FakeConfig:
     """Minimal Config-like object for test injection."""
-    model_name = "claude-test"
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
     workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
     capture_dialogues = False  # Default off; override in specific test classes
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 FAKE_CONFIG = _FakeConfig()
@@ -202,6 +210,40 @@ class TestNodeSuccessPath:
         assert "stage" in entry
         assert "timestamp" in entry
 
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_start_contains_model_field(self, module_name, factory_name):
+        """stage_start log entry must contain the resolved model identifier."""
+        result = await self._invoke_node(module_name, factory_name)
+        start_entries = [e for e in result["run_log"] if e.get("action") == "stage_start"]
+        assert start_entries, "run_log must contain a stage_start entry"
+        entry = start_entries[0]
+        assert "model" in entry, "stage_start entry must have a 'model' field"
+        assert entry["model"], "stage_start model field must be non-empty"
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_complete_contains_model_field(self, module_name, factory_name):
+        """stage_complete log entry must contain the resolved model identifier."""
+        result = await self._invoke_node(module_name, factory_name)
+        complete_entries = [e for e in result["run_log"] if e.get("action") == "stage_complete"]
+        assert complete_entries, "run_log must contain a stage_complete entry"
+        entry = complete_entries[0]
+        assert "model" in entry, "stage_complete entry must have a 'model' field"
+        assert entry["model"], "stage_complete model field must be non-empty"
+
 
 # ---------------------------------------------------------------------------
 # Tests: error handling
@@ -259,6 +301,23 @@ class TestNodeErrorHandling:
         # Calling _invoke_with_error should complete without raising.
         result = await self._invoke_with_error(module_name, factory_name)
         assert result is not None
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_error_log_contains_model_field(self, module_name, factory_name):
+        """stage_error log entry must contain the resolved model identifier."""
+        result = await self._invoke_with_error(module_name, factory_name)
+        error_entries = [e for e in result["run_log"] if e.get("action") == "stage_error"]
+        assert error_entries, "run_log must contain a stage_error entry"
+        entry = error_entries[0]
+        assert "model" in entry, "stage_error entry must have a 'model' field"
+        assert entry["model"], "stage_error model field must be non-empty"
 
 
 # ---------------------------------------------------------------------------
@@ -842,16 +901,32 @@ class TestPipelineResult:
 
 class _CaptureConfig:
     """Config stub with capture_dialogues=True."""
-    model_name = "claude-test"
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
     workspace_root = Path(__file__).resolve().parent.parent.parent
     capture_dialogues = True
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 class _NoCaptureConfig:
     """Config stub with capture_dialogues=False."""
-    model_name = "claude-test"
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
     workspace_root = Path(__file__).resolve().parent.parent.parent
     capture_dialogues = False
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 class TestDialogueCaptured:

@@ -44,9 +44,11 @@ class TestArgumentParser:
         args = self._parse("plan.md", "--max-iterations", "50")
         assert args.max_iterations == 50
 
-    def test_model_option(self):
-        args = self._parse("plan.md", "--model", "claude-opus-4")
-        assert args.model == "claude-opus-4"
+    def test_model_rejected(self):
+        """--model flag is removed; passing it must produce a parser error."""
+        from src.cli import _build_parser
+        with pytest.raises(SystemExit):
+            _build_parser().parse_args(["plan.md", "--model", "claude-opus-4"])
 
     def test_resume_option(self):
         args = self._parse("plan.md", "--resume", "abc-123")
@@ -77,7 +79,6 @@ class TestArgumentParser:
         args = self._parse("plan.md")
         assert args.project_path is None
         assert args.max_iterations is None
-        assert args.model is None
         assert args.resume is None
         assert args.log_level is None
         assert args.interrupt_on is None

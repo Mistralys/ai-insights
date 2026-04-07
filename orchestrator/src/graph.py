@@ -125,7 +125,7 @@ async def build_graph(
     Parameters
     ----------
     config:
-        Application configuration (provides ``checkpoint_dir``, ``model_name``).
+        Application configuration (provides ``checkpoint_dir``, ``stage_models``).
     mcp_tools:
         LangChain Tool objects returned by
         :class:`~src.mcp_client.MCPToolkit`.get_tools().
