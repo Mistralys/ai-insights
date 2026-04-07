@@ -48,3 +48,17 @@ No deferred topics.
 ## Personas
 
 No deferred topics.
+
+---
+
+## Root Scripts
+
+### Shared Version-Reading Utility (`lib/version-utils.js`)
+
+| Field | Detail |
+|-------|--------|
+| **Topic** | Extract duplicated version-reading logic into a shared module |
+| **Current State** | `scripts/cli.js` (`readSubVersion()`, `readPyprojectVersion()`, lines 90-103) and `scripts/check-version-sync.js` (`readManifestVersion()` methods, lines 33-57) each implement their own version-reading helpers for `package.json` and `pyproject.toml`. The changelog regex is similarly duplicated. |
+| **Target State** | A shared `scripts/lib/version-utils.js` module exporting `readPackageJsonVersion()`, `readPyprojectVersion()`, and `readChangelogVersion()`, consumed by both `cli.js` and `check-version-sync.js`. |
+| **Trigger / Timeline** | When a third consumer of version-reading logic is added. Two call sites do not justify the indirection. |
+| **Reference** | `docs/agents/plans/2026-04-07-pre-commit-build-maintain-guard/synthesis.md` → Code Insights (second bullet). |
