@@ -316,6 +316,7 @@ def create_stage_node(
         from deepagents.backends import LocalShellBackend  # type: ignore[import]
 
         from src.utils.persona import load_persona
+        from src.utils.subagents import load_subagents
 
         run_logger = get_run_logger(config)
         _wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
@@ -380,11 +381,16 @@ def create_stage_node(
             # them — before inner wrappers inject project_path or wp_id.
             log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)
 
+            # Load subagent definitions for stages that delegate sub-tasks.
+            # Returns an empty list (→ None) for stages with no subagent config.
+            stage_subagents = load_subagents(stage, workspace_root=_app_config.workspace_root)
+
             agent = create_deep_agent(
                 model=resolved_model,
                 backend=backend,
                 system_prompt=persona_prompt,
                 tools=wrapped_tools,
+                subagents=stage_subagents or None,
             )
 
             # Use ainvoke so LangGraph's inner ToolNode takes the async path

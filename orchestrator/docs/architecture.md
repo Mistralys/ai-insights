@@ -35,6 +35,26 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 | `src/nodes/docs.py` | `make_docs_node` | Calls `ledger_begin_work`, updates docs, handles auto-finalize |
 | `src/nodes/synthesis.py` | `make_synthesis_node` | Calls `ledger_complete_synthesis`, writes `synthesis.md` |
 
+### Subagent Configuration
+
+The `pm` stage is the only stage that delegates sub-tasks to specialised subagents. Subagent support is wired through `create_stage_node()` via three components:
+
+- **`STAGE_SUBAGENT_FILES`** in `src/config.py` — a statically-maintained map of graph stage name → list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to a deep-agents persona Markdown file), `name` (display name used by the main agent when calling the task tool), and `description` (delegation guidance). It is not derived from `workflow-manifest.json` — add entries manually when a stage requires subagent delegation.
+
+- **`load_subagents(stage, workspace_root)`** in `src/utils/subagents.py` — reads and caches the persona content from each configured `persona_file` and returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt`). Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Applies a path containment guard; raises `FileNotFoundError` for missing files. Results are cached per `(stage, name)` for the process lifetime.
+
+- **`create_stage_node()` call site** — `load_subagents()` is called inside every `node_fn` before `create_deep_agent()`. When the returned list is non-empty, it is forwarded as `subagents=list`; when empty it is forwarded as `subagents=None`. This means non-PM stages are not affected by the subagent mechanism — they simply receive `subagents=None`.
+
+**Currently configured subagents:**
+
+| Stage | Subagent | Persona file |
+|-------|----------|-------------|
+| `pm` | WP Decomposer | `personas/standalone/deep-agents/wp-decomposer.md` |
+
+**To add a subagent to a stage:** append an entry to `STAGE_SUBAGENT_FILES` in `src/config.py`. The orchestrator picks it up automatically on the next run — no other Python changes needed. Ensure the referenced persona file exists in the `personas/*/deep-agents/` directory; the build system generates these from source templates in `personas/*/src/`.
+
+> **Note:** `STAGE_SUBAGENT_FILES` does not mirror the manifest pattern used by `PERSONA_FILES`. A future improvement would be to add a `"subagents"` array to each role entry in `shared/workflow-manifest.json` so the config derives automatically — see Constraint 18 in `orchestrator/docs/agents/project-manifest/constraints.md`.
+
 ### Pipeline Rollback (Orphaned Pipeline Cleanup)
 
 When a stage node raises an exception *after* `ledger_begin_work` was called, the MCP ledger contains an orphaned `IN_PROGRESS` pipeline. Without cleanup, the next run attempt for the same WP receives a "duplicate in-progress pipeline" error from the MCP server.

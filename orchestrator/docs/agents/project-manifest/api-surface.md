@@ -124,7 +124,22 @@ helpers to avoid a PyYAML dependency.
 |--------|-----------|-------------|
 | `Config` | `@dataclass Config` | Immutable configuration bundle populated by `load_config()`. Key fields: `stage_models` (`dict[str, str]`) — map of stage name → model slug for the run (populated from persona YAML by `extract_persona_model_slugs()`); `max_iterations`, `checkpoint_dir`, `mcp_server_cmd`, `workspace_root`, `log_level`, `heartbeat_interval_s`, `capture_dialogues`. |
 | `Config.resolve_model_for_stage` | `resolve_model_for_stage(stage: str) -> str` | Returns the model slug for *stage* from `Config.stage_models`. Raises `KeyError` when *stage* is not present — this is a programming error (all valid stages must be populated at config load time by `extract_persona_model_slugs()`). Called by `create_stage_node()` **before** the try block so that an unrecognised stage name fails loudly rather than producing a silent `stage_error` log entry. |
+| `STAGE_SUBAGENT_FILES` | `dict[str, list[dict[str, str]]]` | Module-level constant. Maps graph stage names to a list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to the subagent's persona Markdown file), `name` (display name passed to `create_deep_agent()`), and `description` (delegation guidance). Stages absent from the map receive `subagents=None`. **Statically maintained** — not derived from `workflow-manifest.json`. See [Constraint 18](#18-stage_subagent_files-is-manually-maintained-not-manifest-derived) for the rationale and future improvement path. Currently defines one entry: `"pm"` → WP Decomposer. |
 
+
+---
+
+### `src/utils/subagents.py`
+
+Builds SubAgent spec dicts for stages that delegate sub-tasks to specialised subagents.
+Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()` is called.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `load_subagents` | `load_subagents(stage: str, workspace_root: Path \| str) -> list[dict[str, Any]]` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt` keys) for *stage*. Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Reads persona file content and joins it as `system_prompt`. Applies a path containment guard: raises `ValueError` if the resolved persona path escapes *workspace_root*. Raises `FileNotFoundError` if a configured persona file is missing. Results cached per `(stage, name)` pair for the process lifetime — repeated calls within a run (e.g. multi-plan PM runs) skip disk I/O. |
+| `clear_cache` | `clear_cache() -> None` | Clears the in-memory `(stage, name)` cache. For test use only. |
+
+---
 
 Three defensive wrappers applied to every MCP tool in a stage node. **Canonical application order:**
 

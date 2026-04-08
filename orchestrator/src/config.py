@@ -120,9 +120,38 @@ STAGE_TO_PIPELINE: dict[str, str] = {
 #: Inverse of STAGE_TO_PIPELINE: pipeline type → graph stage name.
 PIPELINE_TO_STAGE: dict[str, str] = {v: k for k, v in STAGE_TO_PIPELINE.items()}
 
-#: Map of graph stage name → relative path to persona Markdown file.
+#: Map of graph stage name → relative path to the deep-agents persona Markdown file.
 #: Paths are relative to the workspace root (two levels above orchestrator/).
-PERSONA_FILES: dict[str, str] = {r["id"]: r["persona_file"] for r in _roles}
+#: Uses the ``persona_file_deep_agents`` manifest field, which points to
+#: ``personas/ledger/deep-agents/`` persona files optimised for the headless
+#: LangGraph / Deep Agents pipeline executor.
+#:
+#: Schema note: ``persona_file_deep_agents`` is marked optional in
+#: workflow-manifest.schema.json (for backward-compat with older manifests),
+#: but *all 9 current roles must have this field* — a missing field raises
+#: ``KeyError`` at startup. Enforce presence at the schema level if adding
+#: a new role without a deep-agents persona.
+PERSONA_FILES: dict[str, str] = {r["id"]: r["persona_file_deep_agents"] for r in _roles}
+
+#: Map of graph stage name → list of subagent spec dicts.
+#: Each spec must have three string keys:
+#:   - ``persona_file``: workspace-relative path to the subagent persona file.
+#:   - ``name``: unique identifier used by the main agent when calling the task() tool.
+#:   - ``description``: delegation guidance — what the subagent does and when to use it.
+#: Only stages that require subagent delegation are listed here; stages absent from
+#: this map receive no subagents (``create_deep_agent`` is called with ``subagents=None``).
+STAGE_SUBAGENT_FILES: dict[str, list[dict[str, str]]] = {
+    "pm": [
+        {
+            "persona_file": "personas/standalone/deep-agents/wp-decomposer.md",
+            "name": "WP Decomposer",
+            "description": (
+                "Analyze a plan document and decompose it into atomic, "
+                "actionable Work Package definitions."
+            ),
+        },
+    ],
+}
 
 #: All valid graph stage names — the set of all non-orchestrating role IDs.
 VALID_STAGES: frozenset[str] = frozenset(
