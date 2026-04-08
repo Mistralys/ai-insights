@@ -328,8 +328,3 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
 }
 
 ```
----
-**File Statistics**
-- **Size**: 11.22 KB
-- **Lines**: 330
-File: `shared-manifest.md`

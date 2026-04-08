@@ -173,8 +173,3 @@ _SOURCE: Directory tree_
     └── vitest.config.ts
 
 ```
----
-**File Statistics**
-- **Size**: 6.65 KB
-- **Lines**: 175
-File: `mcp-server/file-structure.md`

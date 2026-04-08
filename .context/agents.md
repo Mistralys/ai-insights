@@ -653,8 +653,3 @@ If you are operating in a **specific agent role**, consult the relevant persona 
 **Last Updated:** 2026-02-23  
 **Maintained By:** Manifest Curator Agent
 ```
----
-**File Statistics**
-- **Size**: 43.53 KB
-- **Lines**: 655
-File: `agents.md`

@@ -1476,8 +1476,3 @@ def make_synthesis_node(config: Config, mcp_tools: list[Any]):
     return create_stage_node("synthesis", _build_synthesis_prompt, config, mcp_tools)
 
 ```
----
-**File Statistics**
-- **Size**: 54.24 KB
-- **Lines**: 1478
-File: `orchestrator/source-nodes.md`

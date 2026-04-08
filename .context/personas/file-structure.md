@@ -191,8 +191,3 @@ _SOURCE: Directory tree_
             └── wp-decomposer.agent.md
 
 ```
----
-**File Statistics**
-- **Size**: 8.21 KB
-- **Lines**: 193
-File: `personas/file-structure.md`

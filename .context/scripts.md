@@ -4399,8 +4399,3 @@ if (errors.length === 0) {
 }
 
 ```
----
-**File Statistics**
-- **Size**: 152.59 KB
-- **Lines**: 4401
-File: `scripts.md`

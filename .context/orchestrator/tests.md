@@ -11068,8 +11068,3 @@ class TestRestrictToWpToolMessage:
 
 
 ```
----
-**File Statistics**
-- **Size**: 414.86 KB
-- **Lines**: 11070
-File: `orchestrator/tests.md`

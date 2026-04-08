@@ -670,8 +670,3 @@ agent = create_deep_agent(model=resolved_model, ...)
 - Hardcoding a model slug string in `create_stage_node()` or any node factory
 
 ```
----
-**File Statistics**
-- **Size**: 42.43 KB
-- **Lines**: 672
-File: `orchestrator/manifest.md`

@@ -1455,8 +1455,3 @@ export type DetectProjectResult =
   | { status: 'AMBIGUOUS'; best: ProjectMeta[]; unlikely: ProjectMeta[] };
 
 ```
----
-**File Statistics**
-- **Size**: 52.57 KB
-- **Lines**: 1457
-File: `mcp-server/source-storage.md`

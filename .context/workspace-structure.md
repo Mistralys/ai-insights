@@ -367,8 +367,3 @@ _SOURCE: Top-level directory tree_
 └── vitest.config.ts
 
 ```
----
-**File Statistics**
-- **Size**: 14.17 KB
-- **Lines**: 369
-File: `workspace-structure.md`

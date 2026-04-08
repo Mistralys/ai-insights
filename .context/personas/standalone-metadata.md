@@ -498,8 +498,3 @@ tools:
   - search
 
 ```
----
-**File Statistics**
-- **Size**: 10.88 KB
-- **Lines**: 500
-File: `personas/standalone-metadata.md`

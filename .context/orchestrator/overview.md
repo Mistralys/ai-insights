@@ -501,8 +501,3 @@ The project maintains a zero-warning `ruff` baseline. The active rule set is def
 
 
 ```
----
-**File Statistics**
-- **Size**: 24.69 KB
-- **Lines**: 503
-File: `orchestrator/overview.md`

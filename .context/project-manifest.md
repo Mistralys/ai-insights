@@ -156,8 +156,3 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | Get a full codebase snapshot | `.context/` (run `node scripts/cli.js ctx-generate`) |
 
 ```
----
-**File Statistics**
-- **Size**: 9.68 KB
-- **Lines**: 158
-File: `project-manifest.md`
