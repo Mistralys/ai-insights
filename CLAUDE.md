@@ -244,7 +244,8 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Version (MCP server) | `mcp-server/changelog.md` | `mcp-server/package.json` (via `npm run sync-version`) |
 | Version (Personas) | `personas/changelog.md` | `personas/ledger/src/meta/_shared.yaml` → `default_version` |
 | Orchestrator MCP server command | `orchestrator/.env` → `MCP_SERVER_CMD` (or default in `config.py`) | Matches `mcp-server/` build output (`dist/index.js`) |
-| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/claude-code/` generated output filenames |
+| Orchestrator persona files | `orchestrator/src/config.py` → `PERSONA_FILES` dict | `personas/ledger/deep-agents/` generated output filenames (via `persona_file_deep_agents` in `shared/workflow-manifest.json` roles) |
+| Orchestrator subagent files | `orchestrator/src/config.py` → `STAGE_SUBAGENT_FILES` map | `personas/standalone/deep-agents/` (and `personas/ledger/deep-agents/`) generated output filenames; **statically configured** — not manifest-derived; update `STAGE_SUBAGENT_FILES` manually when subagent delegation changes |
 | Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
 | `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
 | `release-engineering` pipeline → Release Engineer role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['release-engineering']` | `personas/ledger/src/meta/7-release-engineer.yaml` → `role: Release Engineer`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
