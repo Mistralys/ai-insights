@@ -127,8 +127,8 @@ description: "Design, generate, and maintain CTX Generator context documentation
 vs_file_name: ctx-architect.agent.md
 id: standalone-ctx-architect
 cc_file_name: ctx-architect.md
-version: "1.1.0"
-last_updated: "2026-03-20"
+version: "1.1.1"
+last_updated: "2026-04-08"
 
 tools:
   - vscode

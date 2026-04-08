@@ -168,6 +168,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── wp-id.test.ts
     ├── tsconfig.json
     ├── vitest.config.ts
+└── menu.cmd
+└── menu.sh
 └── orchestrator/
     ├── README.md
     ├── ai_insights_orchestrator.egg-info/
