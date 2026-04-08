@@ -20,7 +20,9 @@ _SOURCE: Top-level directory tree_
     │   └── implementation-history/
     │       ├── README.md
     │   └── project-manifest/
-    │       └── README.md
+    │       ├── README.md
+    │   └── references/
+    │       └── langgraph-deep-agents-subagent-handbook.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
@@ -166,6 +168,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── wp-id.test.ts
     ├── tsconfig.json
     ├── vitest.config.ts
+└── menu.cmd
+└── menu.sh
 └── orchestrator/
     ├── README.md
     ├── ai_insights_orchestrator.egg-info/
@@ -211,6 +215,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── logging.py
     │   │   └── mcp_parse.py
     │   │   └── persona.py
+    │   │   └── persona_models.py
     │   │   └── plan_parser.py
     │   │   └── subprocess_encoding.py
     │   │   └── tool_wrappers.py
@@ -225,6 +230,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_logging.py
     │   └── test_mcp_parse.py
     │   └── test_nodes.py
+    │   └── test_persona_models.py
     │   └── test_plan_parser.py
     │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
@@ -338,7 +344,7 @@ _SOURCE: Top-level directory tree_
     ├── build-personas.js
     ├── bundle-docs.js
     ├── check-known-roles.js
-    ├── cli-original.js
+    ├── check-version-sync.js
     ├── cli.js
     ├── extract-changelog-entry.js
     ├── install-hooks.js

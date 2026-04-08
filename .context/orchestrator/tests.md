@@ -15,6 +15,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_logging.py
         └── test_mcp_parse.py
         └── test_nodes.py
+        └── test_persona_models.py
         └── test_plan_parser.py
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
@@ -81,9 +82,11 @@ class TestArgumentParser:
         args = self._parse("plan.md", "--max-iterations", "50")
         assert args.max_iterations == 50
 
-    def test_model_option(self):
-        args = self._parse("plan.md", "--model", "claude-opus-4")
-        assert args.model == "claude-opus-4"
+    def test_model_rejected(self):
+        """--model flag is removed; passing it must produce a parser error."""
+        from src.cli import _build_parser
+        with pytest.raises(SystemExit):
+            _build_parser().parse_args(["plan.md", "--model", "claude-opus-4"])
 
     def test_resume_option(self):
         args = self._parse("plan.md", "--resume", "abc-123")
@@ -114,7 +117,6 @@ class TestArgumentParser:
         args = self._parse("plan.md")
         assert args.project_path is None
         assert args.max_iterations is None
-        assert args.model is None
         assert args.resume is None
         assert args.log_level is None
         assert args.interrupt_on is None
@@ -710,12 +712,11 @@ class TestPersonaFilesExist:
 
 # Minimum valid env required by load_config() so we can isolate the flag.
 _BASE_ENV = {
-    "MODEL_NAME": "claude-test",
     "ANTHROPIC_API_KEY": "sk-test",
 }
 
 
-def _load(extra_env: dict | None = None) -> Config:  # noqa: F821 – forward ref ok
+def _load(extra_env: dict | None = None):
     """Call load_config() with a clean environment plus *extra_env* overrides."""
     env = {**_BASE_ENV, **(extra_env or {})}
     # Remove CAPTURE_DIALOGUES from the base environment so tests start clean.
@@ -738,7 +739,6 @@ class TestCaptureDialogues:
         with patch.dict(os.environ, env, clear=True):
             cfg = load_config()
         assert cfg.capture_dialogues is True
-
     def test_true_when_env_var_is_empty_string(self):
         assert _load({"CAPTURE_DIALOGUES": ""}).capture_dialogues is True
 
@@ -792,6 +792,143 @@ class TestCaptureDialogues:
     def test_field_is_bool_type_when_false(self):
         cfg = _load()
         assert isinstance(cfg.capture_dialogues, bool)
+
+
+# ---------------------------------------------------------------------------
+# Tests: Config.stage_models and Config.resolve_model_for_stage
+# ---------------------------------------------------------------------------
+
+class TestStageModels:
+    """Tests for Config.stage_models populated from persona metadata."""
+
+    def test_stage_models_is_dict(self):
+        cfg = _load()
+        assert isinstance(cfg.stage_models, dict)
+
+    def test_stage_models_non_empty(self):
+        cfg = _load()
+        assert len(cfg.stage_models) > 0
+
+    def test_stage_models_contains_developer(self):
+        cfg = _load()
+        assert "developer" in cfg.stage_models
+
+    def test_stage_models_contains_planner(self):
+        cfg = _load()
+        assert "planner" in cfg.stage_models
+
+    def test_stage_models_contains_all_nine_stages(self):
+        """All 9 non-orchestrating stages must have a model slug."""
+        cfg = _load()
+        # Non-orchestrating stages from the manifest (planner and synthesis are
+        # orchestrating but still present in stage_models from persona metadata).
+        expected = {
+            "planner", "pm", "developer", "qa", "security_auditor",
+            "reviewer", "release_engineer", "docs", "synthesis",
+        }
+        assert expected.issubset(cfg.stage_models.keys()), (
+            f"Missing stages: {expected - cfg.stage_models.keys()}"
+        )
+
+    def test_stage_models_values_are_strings(self):
+        cfg = _load()
+        for stage, slug in cfg.stage_models.items():
+            assert isinstance(slug, str), f"stage_models[{stage!r}] must be a str"
+            assert slug, f"stage_models[{stage!r}] must not be empty"
+
+    def test_planner_has_opus_slug(self):
+        """Planner has a model_slug override in persona metadata."""
+        cfg = _load()
+        assert cfg.stage_models["planner"] == "claude-opus-4-6"
+
+    def test_pm_has_opus_slug(self):
+        """Project Manager has a model_slug override in persona metadata."""
+        cfg = _load()
+        assert cfg.stage_models["pm"] == "claude-opus-4-6"
+
+    def test_developer_has_default_slug(self):
+        """Developer inherits default_model_slug."""
+        cfg = _load()
+        assert cfg.stage_models["developer"] == "claude-sonnet-4-6"
+
+
+class TestResolveModelForStage:
+    """Tests for Config.resolve_model_for_stage()."""
+
+    def test_returns_correct_slug_for_known_stage(self):
+        cfg = _load()
+        slug = cfg.resolve_model_for_stage("developer")
+        assert slug == cfg.stage_models["developer"]
+
+    def test_returns_correct_slug_for_planner(self):
+        cfg = _load()
+        assert cfg.resolve_model_for_stage("planner") == "claude-opus-4-6"
+
+    def test_raises_key_error_for_unknown_stage(self):
+        cfg = _load()
+        with pytest.raises(KeyError):
+            cfg.resolve_model_for_stage("nonexistent_stage")
+
+
+class TestApiKeyValidation:
+    """Tests for per-model API key presence validation in load_config()."""
+
+    def test_raises_when_no_api_keys_set(self):
+        """load_config() must raise OSError when no API keys are present."""
+        with patch.dict(os.environ, {"CAPTURE_DIALOGUES": "false"}, clear=True):
+            with pytest.raises(OSError):
+                load_config()
+
+    def test_passes_with_anthropic_key_only(self):
+        """load_config() succeeds when all stages use Anthropic and key is set."""
+        cfg = _load()
+        assert cfg.stage_models  # populated successfully
+
+    def test_missing_google_key_when_google_slug_used(self):
+        """OSError raised when a Google model slug is used but GOOGLE_API_KEY is absent."""
+        from unittest.mock import patch as _patch
+
+        fake_stage_models = {
+            "planner": "claude-opus-4-6", "pm": "claude-opus-4-6",
+            "developer": "gemini-2.5-pro", "qa": "claude-sonnet-4-6",
+            "security_auditor": "claude-sonnet-4-6", "reviewer": "claude-sonnet-4-6",
+            "release_engineer": "claude-sonnet-4-6", "docs": "claude-sonnet-4-6",
+            "synthesis": "claude-sonnet-4-6",
+        }
+        with _patch(
+            "src.utils.persona_models.extract_persona_model_slugs",
+            return_value=fake_stage_models,
+        ):
+            env = {"ANTHROPIC_API_KEY": "sk-test", "CAPTURE_DIALOGUES": "false"}
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(OSError, match="GOOGLE_API_KEY"):
+                    load_config()
+
+    def test_model_name_env_var_is_ignored(self):
+        """MODEL_NAME in the environment must not cause a crash or affect stage_models."""
+        env = {**_BASE_ENV, "MODEL_NAME": "some-old-model", "CAPTURE_DIALOGUES": "false"}
+        with patch.dict(os.environ, env, clear=True):
+            cfg = load_config()
+        # stage_models must be populated from persona metadata, not MODEL_NAME.
+        assert cfg.stage_models
+        # developer should still have the persona-metadata slug.
+        assert cfg.stage_models.get("developer") == "claude-sonnet-4-6"
+
+    def test_raises_when_stage_models_incomplete(self):
+        """load_config() must raise OSError when persona YAML files are missing."""
+        from unittest.mock import patch as _patch
+
+        # Only 2 of 9 stages — the count guard must fire.
+        partial_models = {"planner": "claude-opus-4-6", "developer": "claude-sonnet-4-6"}
+        with _patch(
+            "src.utils.persona_models.extract_persona_model_slugs",
+            return_value=partial_models,
+        ):
+            env = {"ANTHROPIC_API_KEY": "sk-test", "CAPTURE_DIALOGUES": "false"}
+            with patch.dict(os.environ, env, clear=True):
+                with pytest.raises(OSError, match="Expected 9 stage model slugs"):
+                    load_config()
+
 
 ```
 ###  Path: `/orchestrator/tests/test_dialogue_writer.py`
@@ -1234,13 +1371,18 @@ aiosqlite = pytest.importorskip(
 # ---------------------------------------------------------------------------
 
 class _MockConfig:
-    model_name = "claude-test"
-    provider = "anthropic"
+    stage_models = {"developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+                    "reviewer": "claude-test", "security_auditor": "claude-test",
+                    "docs": "claude-test", "release_engineer": "claude-test",
+                    "synthesis": "claude-test", "planner": "claude-test"}
     max_iterations = 10
     workspace_root = Path(__file__).resolve().parent.parent.parent
     checkpoint_dir = Path(__file__).resolve().parent.parent / "checkpoints" / "test"
     mcp_server_cmd = ["node", "fake-server.js"]
     log_level = "INFO"
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 MOCK_CONFIG = _MockConfig()
@@ -3332,9 +3474,17 @@ import pytest
 
 class _FakeConfig:
     """Minimal Config-like object for test injection."""
-    model_name = "claude-test"
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
     workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
     capture_dialogues = False  # Default off; override in specific test classes
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 FAKE_CONFIG = _FakeConfig()
@@ -3510,6 +3660,40 @@ class TestNodeSuccessPath:
         assert "stage" in entry
         assert "timestamp" in entry
 
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_start_contains_model_field(self, module_name, factory_name):
+        """stage_start log entry must contain the resolved model identifier."""
+        result = await self._invoke_node(module_name, factory_name)
+        start_entries = [e for e in result["run_log"] if e.get("action") == "stage_start"]
+        assert start_entries, "run_log must contain a stage_start entry"
+        entry = start_entries[0]
+        assert "model" in entry, "stage_start entry must have a 'model' field"
+        assert entry["model"], "stage_start model field must be non-empty"
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_complete_contains_model_field(self, module_name, factory_name):
+        """stage_complete log entry must contain the resolved model identifier."""
+        result = await self._invoke_node(module_name, factory_name)
+        complete_entries = [e for e in result["run_log"] if e.get("action") == "stage_complete"]
+        assert complete_entries, "run_log must contain a stage_complete entry"
+        entry = complete_entries[0]
+        assert "model" in entry, "stage_complete entry must have a 'model' field"
+        assert entry["model"], "stage_complete model field must be non-empty"
+
 
 # ---------------------------------------------------------------------------
 # Tests: error handling
@@ -3567,6 +3751,23 @@ class TestNodeErrorHandling:
         # Calling _invoke_with_error should complete without raising.
         result = await self._invoke_with_error(module_name, factory_name)
         assert result is not None
+
+    @pytest.mark.parametrize("module_name,factory_name", [
+        ("src.nodes.pm", "make_pm_node"),
+        ("src.nodes.developer", "make_developer_node"),
+        ("src.nodes.qa", "make_qa_node"),
+        ("src.nodes.reviewer", "make_reviewer_node"),
+        ("src.nodes.docs", "make_docs_node"),
+        ("src.nodes.synthesis", "make_synthesis_node"),
+    ])
+    async def test_stage_error_log_contains_model_field(self, module_name, factory_name):
+        """stage_error log entry must contain the resolved model identifier."""
+        result = await self._invoke_with_error(module_name, factory_name)
+        error_entries = [e for e in result["run_log"] if e.get("action") == "stage_error"]
+        assert error_entries, "run_log must contain a stage_error entry"
+        entry = error_entries[0]
+        assert "model" in entry, "stage_error entry must have a 'model' field"
+        assert entry["model"], "stage_error model field must be non-empty"
 
 
 # ---------------------------------------------------------------------------
@@ -4150,16 +4351,32 @@ class TestPipelineResult:
 
 class _CaptureConfig:
     """Config stub with capture_dialogues=True."""
-    model_name = "claude-test"
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
     workspace_root = Path(__file__).resolve().parent.parent.parent
     capture_dialogues = True
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 class _NoCaptureConfig:
     """Config stub with capture_dialogues=False."""
-    model_name = "claude-test"
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
     workspace_root = Path(__file__).resolve().parent.parent.parent
     capture_dialogues = False
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
 
 
 class TestDialogueCaptured:
@@ -4944,6 +5161,306 @@ class TestLocalShellBackendInheritEnv:
             f"LocalShellBackend must be called with inherit_env=True, "
             f"got kwargs={kwargs!r}"
         )
+
+```
+###  Path: `/orchestrator/tests/test_persona_models.py`
+
+```py
+"""
+tests/test_persona_models.py — Tests for utils/persona_models.
+
+Covers:
+- extract_persona_model_slugs() returns {stage: model_slug} for all 9 roles
+- Per-persona model_slug overrides default_model_slug
+- Missing metadata directory raises OSError
+- Inline YAML comments are stripped correctly
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from src.utils.persona_models import (
+    _extract_yaml_scalar,
+    _strip_inline_comment,
+    extract_persona_model_slugs,
+)
+
+# Workspace root: two levels above orchestrator/tests/.
+_WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+
+# -------------------------------------------------------------------
+# Minimal manifest used in unit-test fixtures (3 roles for brevity).
+# -------------------------------------------------------------------
+_FIXTURE_MANIFEST = {
+    "roles": [
+        {"id": "planner", "number": 1, "name": "Planner"},
+        {"id": "developer", "number": 2, "name": "Developer"},
+        {"id": "synthesis", "number": 3, "name": "Synthesis"},
+    ]
+}
+
+
+# ---------------------------------------------------------------------------
+# Fixture helpers
+# ---------------------------------------------------------------------------
+
+def _build_workspace(
+    tmp_path: Path,
+    personas: list[tuple[int, str | None]],
+    *,
+    default_slug: str = "claude-sonnet-4-6",
+    manifest: dict | None = None,
+) -> Path:
+    """Create a minimal workspace tree under *tmp_path*.
+
+    *personas* is a list of ``(number, model_slug_or_None)`` tuples.
+    One YAML file named ``{number}-persona.yaml`` is created per entry.
+    When *model_slug* is ``None`` the persona YAML has no ``model_slug``
+    field, mirroring a persona that inherits the default.
+    """
+    meta_dir = tmp_path / "personas" / "ledger" / "src" / "meta"
+    meta_dir.mkdir(parents=True)
+    shared_dir = tmp_path / "shared"
+    shared_dir.mkdir()
+
+    (meta_dir / "_shared.yaml").write_text(
+        f'default_model_slug: "{default_slug}"\n',
+        encoding="utf-8",
+    )
+
+    m = manifest if manifest is not None else _FIXTURE_MANIFEST
+    (shared_dir / "workflow-manifest.json").write_text(
+        json.dumps(m),
+        encoding="utf-8",
+    )
+
+    for number, model_slug in personas:
+        lines = [f"number: {number}\n"]
+        if model_slug is not None:
+            lines.append(f'model_slug: "{model_slug}"\n')
+        (meta_dir / f"{number}-persona.yaml").write_text(
+            "".join(lines),
+            encoding="utf-8",
+        )
+
+    return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — internal helpers
+# ---------------------------------------------------------------------------
+
+class TestStripInlineComment:
+    def test_no_comment_unchanged(self):
+        assert _strip_inline_comment('"claude-sonnet-4-6"') == '"claude-sonnet-4-6"'
+
+    def test_comment_after_quoted_value_stripped(self):
+        raw = '"claude-sonnet-4-6"  # API-compatible slug'
+        assert _strip_inline_comment(raw) == '"claude-sonnet-4-6"'
+
+    def test_hash_inside_double_quotes_not_stripped(self):
+        raw = '"model#name"'
+        assert _strip_inline_comment(raw) == '"model#name"'
+
+    def test_hash_inside_single_quotes_not_stripped(self):
+        raw = "'model#name'"
+        assert _strip_inline_comment(raw) == "'model#name'"
+
+    def test_unquoted_value_with_comment(self):
+        raw = "3  # number"
+        assert _strip_inline_comment(raw) == "3"
+
+    def test_empty_string(self):
+        assert _strip_inline_comment("") == ""
+
+
+class TestExtractYamlScalar:
+    def test_double_quoted_value(self):
+        text = 'default_model_slug: "claude-sonnet-4-6"\n'
+        assert _extract_yaml_scalar(text, "default_model_slug") == "claude-sonnet-4-6"
+
+    def test_single_quoted_value(self):
+        text = "model_slug: 'claude-opus-4-6'\n"
+        assert _extract_yaml_scalar(text, "model_slug") == "claude-opus-4-6"
+
+    def test_unquoted_integer(self):
+        text = "number: 3\n"
+        assert _extract_yaml_scalar(text, "number") == "3"
+
+    def test_missing_key_returns_none(self):
+        text = "role: Developer\n"
+        assert _extract_yaml_scalar(text, "model_slug") is None
+
+    def test_inline_comment_stripped(self):
+        text = 'default_model_slug: "claude-sonnet-4-6"  # some comment\n'
+        assert _extract_yaml_scalar(text, "default_model_slug") == "claude-sonnet-4-6"
+
+    def test_comment_lines_skipped(self):
+        text = "# model_slug: should-be-ignored\nmodel_slug: \"target\"\n"
+        assert _extract_yaml_scalar(text, "model_slug") == "target"
+
+    def test_first_match_returned(self):
+        text = 'key: "first"\nkey: "second"\n'
+        assert _extract_yaml_scalar(text, "key") == "first"
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — extract_persona_model_slugs (tmp_path fixtures)
+# ---------------------------------------------------------------------------
+
+class TestExtractPersonaModelSlugs:
+    def test_returns_dict(self, tmp_path):
+        ws = _build_workspace(tmp_path, [(1, None), (2, None), (3, None)])
+        result = extract_persona_model_slugs(ws)
+        assert isinstance(result, dict)
+
+    def test_all_fixture_stages_present(self, tmp_path):
+        """Result contains exactly the stage IDs from the fixture manifest."""
+        ws = _build_workspace(tmp_path, [(1, None), (2, None), (3, None)])
+        result = extract_persona_model_slugs(ws)
+        assert set(result.keys()) == {"planner", "developer", "synthesis"}
+
+    def test_default_slug_used_when_no_override(self, tmp_path):
+        """A persona without model_slug falls back to default_model_slug."""
+        ws = _build_workspace(
+            tmp_path,
+            [(1, None), (2, None), (3, None)],
+            default_slug="claude-sonnet-4-6",
+        )
+        result = extract_persona_model_slugs(ws)
+        assert result["developer"] == "claude-sonnet-4-6"
+        assert result["synthesis"] == "claude-sonnet-4-6"
+
+    def test_per_persona_override_takes_precedence(self, tmp_path):
+        """A persona with model_slug uses it instead of the default."""
+        ws = _build_workspace(
+            tmp_path,
+            [(1, "claude-opus-4-6"), (2, None), (3, None)],
+            default_slug="claude-sonnet-4-6",
+        )
+        result = extract_persona_model_slugs(ws)
+        assert result["planner"] == "claude-opus-4-6"
+
+    def test_override_does_not_bleed_into_other_stages(self, tmp_path):
+        """An override for one stage does not affect sibling stages."""
+        ws = _build_workspace(
+            tmp_path,
+            [(1, "claude-opus-4-6"), (2, None), (3, "claude-opus-4-6")],
+            default_slug="claude-sonnet-4-6",
+        )
+        result = extract_persona_model_slugs(ws)
+        assert result["planner"] == "claude-opus-4-6"
+        assert result["developer"] == "claude-sonnet-4-6"
+        assert result["synthesis"] == "claude-opus-4-6"
+
+    def test_all_values_are_non_empty_strings(self, tmp_path):
+        ws = _build_workspace(
+            tmp_path,
+            [(1, "claude-opus-4-6"), (2, None), (3, None)],
+        )
+        result = extract_persona_model_slugs(ws)
+        for stage, slug in result.items():
+            assert isinstance(slug, str), f"Stage {stage!r}: expected str, got {type(slug)}"
+            assert slug, f"Stage {stage!r}: slug is empty"
+
+    def test_missing_meta_dir_raises_os_error(self, tmp_path):
+        """OSError is raised when the persona metadata directory is absent."""
+        (tmp_path / "shared").mkdir()
+        (tmp_path / "shared" / "workflow-manifest.json").write_text(
+            json.dumps(_FIXTURE_MANIFEST),
+            encoding="utf-8",
+        )
+        # No personas/ledger/src/meta/ directory created.
+        with pytest.raises(OSError, match="Persona metadata directory not found"):
+            extract_persona_model_slugs(tmp_path)
+
+    def test_inline_comment_in_shared_yaml_does_not_corrupt_value(self, tmp_path):
+        """Inline comment in _shared.yaml (as in the real file) is ignored."""
+        meta_dir = tmp_path / "personas" / "ledger" / "src" / "meta"
+        meta_dir.mkdir(parents=True)
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        # Mirrors the real _shared.yaml comment style.
+        (meta_dir / "_shared.yaml").write_text(
+            'default_model_slug: "claude-sonnet-4-6"  '
+            "# API-compatible slug; override per-persona via `model_slug:` field\n",
+            encoding="utf-8",
+        )
+        (shared_dir / "workflow-manifest.json").write_text(
+            json.dumps(_FIXTURE_MANIFEST),
+            encoding="utf-8",
+        )
+        (meta_dir / "1-persona.yaml").write_text("number: 1\n", encoding="utf-8")
+        result = extract_persona_model_slugs(tmp_path)
+        assert result["planner"] == "claude-sonnet-4-6"
+
+    def test_accepts_path_string(self, tmp_path):
+        """workspace_root may be passed as a str, not only a Path."""
+        ws = _build_workspace(tmp_path, [(1, None)])
+        result = extract_persona_model_slugs(str(ws))
+        assert "planner" in result
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — real workspace files
+# ---------------------------------------------------------------------------
+
+class TestRealWorkspace:
+    """Validate against the committed persona metadata in the repository."""
+
+    def test_all_nine_stages_present(self):
+        """The real metadata produces exactly the 9 roles from the manifest."""
+        result = extract_persona_model_slugs(_WORKSPACE_ROOT)
+        expected = {
+            "planner",
+            "pm",
+            "developer",
+            "qa",
+            "security_auditor",
+            "reviewer",
+            "release_engineer",
+            "docs",
+            "synthesis",
+        }
+        assert set(result.keys()) == expected
+
+    def test_planner_uses_opus_slug(self):
+        """1-planner.yaml carries model_slug: claude-opus-4-6 (set by WP-001)."""
+        result = extract_persona_model_slugs(_WORKSPACE_ROOT)
+        assert result["planner"] == "claude-opus-4-6"
+
+    def test_pm_uses_opus_slug(self):
+        """2-project-manager.yaml carries model_slug: claude-opus-4-6 (set by WP-001)."""
+        result = extract_persona_model_slugs(_WORKSPACE_ROOT)
+        assert result["pm"] == "claude-opus-4-6"
+
+    def test_remaining_stages_use_default_sonnet_slug(self):
+        """Stages without an explicit model_slug fall back to claude-sonnet-4-6."""
+        result = extract_persona_model_slugs(_WORKSPACE_ROOT)
+        default_stages = (
+            "developer",
+            "qa",
+            "security_auditor",
+            "reviewer",
+            "release_engineer",
+            "docs",
+            "synthesis",
+        )
+        for stage in default_stages:
+            assert result[stage] == "claude-sonnet-4-6", (
+                f"Stage {stage!r}: expected 'claude-sonnet-4-6', got {result[stage]!r}"
+            )
+
+    def test_all_slugs_are_non_empty_strings(self):
+        result = extract_persona_model_slugs(_WORKSPACE_ROOT)
+        for stage, slug in result.items():
+            assert isinstance(slug, str) and slug, (
+                f"Stage {stage!r} has invalid slug: {slug!r}"
+            )
 
 ```
 ###  Path: `/orchestrator/tests/test_plan_parser.py`
@@ -6156,7 +6673,7 @@ class TestWorkflowStateFields:
     MUTABLE_FIELDS = {"current_stage", "current_wp_id", "iteration", "max_iterations"}
     STAGE_OUTPUT_FIELDS = {"stage_result", "stage_success"}
     LEDGER_FIELDS = {"project_status", "wp_summaries", "pending_wp_count"}
-    CIRCUIT_BREAKER_FIELDS = {"consecutive_failures"}
+    CIRCUIT_BREAKER_FIELDS = {"consecutive_failures", "fatal_error"}
     DELTA_COUNTER_FIELDS = {"wps_completed_this_run"}
     PROGRESS_TRACKING_FIELDS = {"prev_wp_summaries", "run_start_ts"}
     APPEND_ONLY_FIELDS = {"run_log", "errors"}
@@ -9562,9 +10079,16 @@ class TestRestrictToWpInCreateStageNode:
         from src.nodes import create_stage_node
 
         class _FakeConfig:
-            model_name = "claude-test"
+            stage_models = {
+                "developer": "claude-test",
+                **{s: "claude-test" for s in ("pm", "qa", "reviewer", "security_auditor",
+                                               "docs", "release_engineer", "synthesis", "planner")},
+            }
             workspace_root = __import__("pathlib").Path(__file__).resolve().parent.parent.parent
             capture_dialogues = False
+
+            def resolve_model_for_stage(self, stage: str) -> str:
+                return self.stage_models.get(stage, "claude-test")
 
         restrict_calls: list[dict] = []
 
@@ -9604,9 +10128,16 @@ class TestRestrictToWpInCreateStageNode:
         from src.nodes import create_stage_node
 
         class _FakeConfig:
-            model_name = "claude-test"
+            stage_models = {
+                "developer": "claude-test",
+                **{s: "claude-test" for s in ("pm", "qa", "reviewer", "security_auditor",
+                                               "docs", "release_engineer", "synthesis", "planner")},
+            }
             workspace_root = __import__("pathlib").Path(__file__).resolve().parent.parent.parent
             capture_dialogues = False
+
+            def resolve_model_for_stage(self, stage: str) -> str:
+                return self.stage_models.get(stage, "claude-test")
 
         restrict_calls: list[dict] = []
 

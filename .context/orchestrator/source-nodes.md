@@ -66,6 +66,42 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Fatal error detection
+# ---------------------------------------------------------------------------
+# HTTP status codes that indicate an unrecoverable authentication/authorisation
+# failure.  When an LLM provider raises one of these, the orchestrator should
+# terminate immediately instead of burning through all remaining iterations.
+_FATAL_HTTP_STATUSES: frozenset[int] = frozenset({401, 403})
+
+
+def _is_fatal_error(exc: BaseException) -> bool:
+    """Return True when *exc* is an unrecoverable error that should stop the run.
+
+    Detects authentication / permission errors from any LLM provider library
+    (Anthropic, OpenAI, Google, generic HTTP clients) by inspecting the
+    ``status_code`` attribute that all major SDKs attach to their error classes.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is not None and int(status) in _FATAL_HTTP_STATUSES:
+        return True
+    # Walk the exception chain — the SDK error may be wrapped.
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and cause is not exc:
+        return _is_fatal_error(cause)
+    return False
+
+
+def _is_cross_wp_error(exc: BaseException) -> bool:
+    """Return True when *exc* is the cross-WP contamination guard error.
+
+    These are expected errors raised by the WP-ID guard in tool_wrappers
+    when an agent targets the wrong work package. They do not warrant a
+    full traceback in the log output.
+    """
+    return isinstance(exc, ValueError) and "cross-WP contamination" in str(exc)
+
+
 # Maps orchestrator stage names to the MCP pipeline type used by ledger_begin_work.
 # Used to determine which pipeline type to cancel during error-path rollback.
 _STAGE_PIPELINE_TYPE: dict[str, str] = {
@@ -249,7 +285,7 @@ def create_stage_node(
         Callable ``(state) -> str`` that produces the user-turn prompt for
         this stage.  Receives the full :class:`~src.state.WorkflowState`.
     config:
-        Application config (provides ``model_name``, ``workspace_root``).
+        Application config (provides ``stage_models``, ``workspace_root``).
     mcp_tools:
         LangChain tool objects from the shared :class:`~src.mcp_client.MCPToolkit`.
 
@@ -322,12 +358,17 @@ def create_stage_node(
 
         # ── stage_start ───────────────────────────────────────────────
         stage_start_time = datetime.now(UTC)
+        # Intentionally called before `try`: an unrecognised stage name raises
+        # KeyError here (programming error) and must propagate as-is, not be
+        # swallowed and converted into a stage_error log entry.
+        resolved_model: str = _app_config.resolve_model_for_stage(stage)
         start_entry: dict = {
             "timestamp": stage_start_time.isoformat(),
             "stage": stage,
             "wp_id": _wp_id,
             "action": "stage_start",
             "level": "INFO",
+            "model": resolved_model,
             "iteration": state.get("iteration", 0),  # type: ignore[call-overload]
         }
         if run_logger:
@@ -363,7 +404,7 @@ def create_stage_node(
             log_tool_calls(wrapped_tools, stage, _wp_id, run_logger)
 
             agent = create_deep_agent(
-                model=_app_config.model_name,
+                model=resolved_model,
                 backend=backend,
                 system_prompt=persona_prompt,
                 tools=wrapped_tools,
@@ -424,6 +465,7 @@ def create_stage_node(
                 "action": "stage_complete",
                 "result": "PASS",
                 "level": "INFO",
+                "model": resolved_model,
                 "tokens_used": tokens_used,
                 "duration_s": duration_s,
             }
@@ -494,7 +536,7 @@ def create_stage_node(
             stage_end_time = datetime.now(UTC)
             ts = stage_end_time.isoformat()
             duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
-            log.error("Stage %s failed: %s", stage, exc, exc_info=True)
+            log.error("Stage %s failed: %s", stage, exc, exc_info=not _is_cross_wp_error(exc))
             log_entry = {
                 "timestamp": ts,
                 "stage": stage,
@@ -503,6 +545,7 @@ def create_stage_node(
                 "result": "FAIL",
                 "error": str(exc),
                 "level": "ERROR",
+                "model": resolved_model,
                 "duration_s": duration_s,
             }
             if run_logger:
@@ -595,7 +638,7 @@ def create_stage_node(
                         "Error-path dialogue capture failed for %s", stage, exc_info=True
                     )
 
-            return {
+            result_dict: dict = {
                 "stage_result": "",
                 "stage_success": False,
                 "errors": [
@@ -608,6 +651,18 @@ def create_stage_node(
                 ],
                 "run_log": [start_entry, log_entry] + rollback_log_entries,
             }
+
+            # Mark fatal errors so the supervisor terminates immediately
+            # instead of burning through remaining iterations.
+            if _is_fatal_error(exc):
+                result_dict["fatal_error"] = str(exc)
+                log.error(
+                    "Fatal error detected (stage %s) — run will terminate: %s",
+                    stage,
+                    exc,
+                )
+
+            return result_dict
 
     node_fn.__name__ = f"{stage}_node"
     node_fn.__qualname__ = f"{stage}_node"

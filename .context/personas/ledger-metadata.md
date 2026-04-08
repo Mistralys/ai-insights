@@ -25,6 +25,7 @@ _SOURCE: YAML metadata for all 9 ledger personas (shared defaults + per-persona 
 number: 1
 role: Planner
 model: "Claude Opus 4.6"
+model_slug: "claude-opus-4-6"
 vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
@@ -52,6 +53,7 @@ has_incident_logging: false
 number: 2
 role: Project Manager
 model: "Claude Opus 4.6"
+model_slug: "claude-opus-4-6"
 vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
@@ -414,7 +416,8 @@ mcp_tools:
 author: Sebastian Mordziol
 last_updated: "2026-03-01 12:00"
 default_version: "3.5.0"
-default_model: "Claude Sonnet 4.6"    # Override per-persona via `model:` field
+default_model: "Claude Sonnet 4.6"    # Human-readable model name; override per-persona via `model:` field
+default_model_slug: "claude-sonnet-4-6"  # API-compatible slug; override per-persona via `model_slug:` field
 mcp_server_name: "central_pm"
 cc_permission_mode: "acceptEdits"    # Autonomous workflow default
 cc_model: "inherit"                  # Defer to user's configured model

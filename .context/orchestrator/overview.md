@@ -84,15 +84,16 @@ cd ../orchestrator
 Copy `.env.example` to `.env` and fill in your values:
 
 ```dotenv
-# === LLM Provider (choose ONE) ===
+# === LLM Provider API Keys ===
+# Model selection is driven by persona metadata (personas/ledger/src/meta/).
+# Each stage's model slug is read from `model_slug` / `default_model_slug`
+# fields in the YAML source files. No MODEL_NAME env var is needed.
 
-# Option A: Anthropic (pip install -e ".[anthropic]")
+# Anthropic (pip install -e ".[anthropic]")
 ANTHROPIC_API_KEY=sk-ant-...
-MODEL_NAME=claude-sonnet-4-6
 
-# Option B: Google AI Studio (pip install -e ".[google]")
+# Google AI Studio (pip install -e ".[google]")
 # GOOGLE_API_KEY=AIza...
-# MODEL_NAME=gemini-2.5-pro
 
 # === General settings ===
 MAX_ITERATIONS=100        # Safety ceiling on supervisor loop iterations
@@ -105,7 +106,6 @@ HEARTBEAT_INTERVAL_S=120  # Heartbeat interval in seconds (0 = disabled)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `MODEL_NAME` | **yes** | — | LLM model identifier (e.g. `claude-sonnet-4-6`) |
 | `ANTHROPIC_API_KEY` | one of | — | API key for Anthropic Chat models |
 | `GOOGLE_API_KEY` | one of | — | API key for Google AI Studio / Gemini models |
 | `MAX_ITERATIONS` | no | `100` | Maximum supervisor loop iterations before abort |
@@ -114,7 +114,7 @@ HEARTBEAT_INTERVAL_S=120  # Heartbeat interval in seconds (0 = disabled)
 | `HEARTBEAT_INTERVAL_S` | no | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled) |
 | `CAPTURE_DIALOGUES` | no | `true` | Capture full agent dialogue exchanges (enabled by default); set to `false`, `0`, or `no` (case-insensitive) to disable |
 
-The provider is **auto-detected** from which API key is set. If both are set, the `MODEL_NAME` prefix is used as a tiebreaker (`claude-*` → Anthropic, `gemini-*` → Google).
+The LLM model for each stage is read from the persona YAML metadata (`personas/ledger/src/meta/`). At startup, `load_config()` calls `extract_persona_model_slugs()` to build the `stage_models` map — one model slug per stage — sourced from `model_slug` (per-persona) or `default_model_slug` (from `_shared.yaml`). The provider is **auto-detected** from which API key is set (`ANTHROPIC_API_KEY` for `claude-*` slugs, `GOOGLE_API_KEY` for `gemini-*` slugs). `MODEL_NAME` is not read and has no effect.
 
 ---
 
@@ -130,7 +130,7 @@ node scripts/preflight-orchestrator.js --plan path/to/plan.md  # also verify pla
 node scripts/preflight-orchestrator.js --json       # machine-readable output
 ```
 
-This validates: venv + `orchestrate` binary, `.env` configuration (MODEL_NAME + API key), MCP server dist freshness, and no conflicting orchestrator process. It is also available via `node scripts/cli.js preflight`.
+This validates: venv + `orchestrate` binary, `.env` configuration (API key), MCP server dist freshness, and no conflicting orchestrator process. It is also available via `node scripts/cli.js preflight`.
 
 Then use `node scripts/run-orchestrator.js` as the canonical way to launch the orchestrator.
 It performs a **build freshness check** — if any file under `mcp-server/src/`
@@ -167,8 +167,8 @@ orchestrate path/to/plan.md
 ### Common examples
 
 ```bash
-# Specify model and iteration limit
-orchestrate plan.md --model claude-sonnet-4-6 --max-iterations 50
+# Override iteration limit
+orchestrate plan.md --max-iterations 50
 
 # Override the target project path
 orchestrate plan.md --project-path /path/to/my-project
@@ -292,7 +292,7 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/graph.py` | LangGraph `StateGraph` assembly and compilation |
 | `src/state.py` | `WorkflowState` TypedDict with annotated reducers |
 | `src/cli.py` | CLI entry point (`orchestrate` command) |
-| `src/config.py` | `.env` loading, provider auto-detection, `capture_dialogues` flag, pipeline routing constants derived from `shared/workflow-manifest.json` |
+| `src/config.py` | `.env` loading, `stage_models` population from persona metadata, API key validation, `capture_dialogues` flag, pipeline routing constants derived from `shared/workflow-manifest.json` |
 | `src/mcp_client.py` | MCP server subprocess lifecycle (`MCPToolkit`) |
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
 | `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
@@ -329,7 +329,6 @@ Options:
   --project-path PATH   Override target codebase path
                         (default: workspace root inferred from plan directory)
   --max-iterations N    Override MAX_ITERATIONS from .env
-  --model MODEL         Override MODEL_NAME from .env
   --resume THREAD_ID    Resume from a previous checkpoint
                         (requires the `checkpoint` extra: pip install -e ".[checkpoint]")
   --dry-run             Print routing decisions without calling agents
@@ -377,18 +376,10 @@ node --version   # should print v18 or higher
 ```
 On macOS with Homebrew: `brew install node`. On Windows: use the Node.js installer from nodejs.org.
 
-### `configuration error: MODEL_NAME is not set`
-
-Add `MODEL_NAME=<model-id>` to `orchestrator/.env`.
-
 ### `No LLM provider API key found`
 
 Add `ANTHROPIC_API_KEY=sk-ant-...` or `GOOGLE_API_KEY=AIza...` to `orchestrator/.env`.
 Install the matching extra: `pip install -e ".[anthropic]"` or `pip install -e ".[google]"`.
-
-### `Both ANTHROPIC_API_KEY and GOOGLE_API_KEY are set`
-
-Use a `MODEL_NAME` with a clear prefix (`claude-*` or `gemini-*`) so the provider can be auto-detected, or remove the unused key from `.env`.
 
 ### Checkpoint corruption (Windows)
 

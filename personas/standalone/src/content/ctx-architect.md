@@ -49,6 +49,7 @@ This agent owns the full lifecycle: bootstrapping a project's root `context.yaml
   ```
 * **`array()` syntax in PHP.** If writing or modifying PHP files (e.g., examples in READMEs), always use `array()` — never `[]`. This is a hard project rule in all known consumer projects.
 * **Ask before creating submodules.** If a subdirectory could be a standalone module or a submodule nested under a parent, ask the user for their preference.
+* **No `./` prefix on import glob patterns.** Import paths that contain glob wildcards (`*`, `**`) must **not** start with `./`. The `./` prefix silently breaks glob resolution — zero files are matched and no error is reported. Explicit (non-glob) file paths like `"./gui/module-context.yaml"` are unaffected. Write `"src/**/module-context.yaml"`, not `"./src/**/module-context.yaml"`.
 * **Exclude package manager artifacts.** Every `type: tree` source must use `notPath` to exclude directories that contain third-party installed packages or build output. These are never useful in context documents and can inflate output by orders of magnitude. Common exclusions by ecosystem:
   - **Node.js:** `node_modules/`, `dist/`, `.next/`, `.nuxt/`
   - **PHP:** `vendor/`
@@ -83,9 +84,9 @@ project:
   alias: "project-slug"
 
 import:
-  # Auto-discover all module configs
-  - path: "./src/classes/**/module-context.yaml"
-  # Import from a dependency (with path prefix)
+  # Auto-discover all module configs (NO ./ prefix on globs!)
+  - path: "src/classes/**/module-context.yaml"
+  # Explicit paths may use ./ (no glob wildcards here)
   - path: "./vendor/org/package/context.yaml"
     pathPrefix: "framework"
 
