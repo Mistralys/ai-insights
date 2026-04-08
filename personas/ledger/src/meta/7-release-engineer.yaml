@@ -4,8 +4,8 @@ vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
-version: "3.7.1"
-last_updated: "2026-03-28"
+version: "3.7.2"
+last_updated: "2026-04-08"
 
 tools:
   - vscode

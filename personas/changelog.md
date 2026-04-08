@@ -9,8 +9,16 @@
 - Engine: Fixed nested `{{#if}}` resolution — innermost-first multi-pass algorithm replaces
   single-pass regex, producing correct output for all three targets without stray tokens.
 
-## v3.11.2 - CTX Architect
+## v3.11.2 - Persona Tweaks
 - CTX Architect v1.1.1: Fixed import glob syntax for newer CTX versions.
+- Security Auditor v3.6.2: Deep agent handoff block.
+- Reviewer v3.6.1: Deep agent handoff block.
+- Release engineer v3.7.2: Deep agent handoff block.
+- Documentation v3.6.1: CTX generation, deep agent handoff block.
+- QA v3.6.1: Deep agent handoff block.
+- Project Manager v3.6.2: Deep agent handoff block.
+- Ledger personas: Tweaked handoff block wording.
+- Dependencies: Updated persona builder to [v2.2.0](https://github.com/Mistralys/ai-persona-builder/releases/tag/2.2.0).
 
 ## v3.11.1 - Model Slug Metadata
 - Build: Added `model_slug` and `default_model_slug` metadata fields.

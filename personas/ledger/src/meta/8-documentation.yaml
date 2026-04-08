@@ -4,8 +4,8 @@ vs_file_name: 8-docs.agent.md
 id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
-version: "3.6.0"
-last_updated: "2026-03-04"
+version: "3.6.1"
+last_updated: "2026-04-08"
 
 tools:
   - vscode

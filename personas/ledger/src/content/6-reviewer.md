@@ -87,8 +87,12 @@ Evaluate the submission based on these four criteria:
 7. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_REVIEW` (full review), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 8. {{> handoff-block-vscode}}
-{{else}}
+{{/if}}
+{{#if target_claude_code}}
 8. {{> handoff-block-claude-code}}
+{{/if}}
+{{#if target_deep_agents}}
+8. {{> handoff-block-deep-agents}}
 {{/if}}
 
 

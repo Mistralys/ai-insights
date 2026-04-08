@@ -142,6 +142,10 @@ The ledger tools are self-documenting: each action response includes a `next_ste
 5. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `IMPLEMENT` (new WP), `REWORK` (fix issues flagged by QA or the Reviewer), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 6. {{> handoff-block-vscode}}
-{{else}}
+{{/if}}
+{{#if target_claude_code}}
 6. {{> handoff-block-claude-code}}
+{{/if}}
+{{#if target_deep_agents}}
+6. {{> handoff-block-deep-agents}}
 {{/if}}

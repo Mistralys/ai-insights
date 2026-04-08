@@ -57,8 +57,8 @@ model_slug: "claude-opus-4-6"
 vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
-version: "3.6.1"
-last_updated: "2026-03-28"
+version: "3.6.2"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
@@ -95,8 +95,8 @@ role: Developer
 vs_file_name: 3-dev.agent.md
 id: ledger-3-dev
 cc_file_name: 3-developer.md
-version: "3.6.1"
-last_updated: "2026-03-05"
+version: "3.6.2"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
@@ -142,8 +142,8 @@ role: QA
 vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
-version: "3.6.0"
-last_updated: "2026-03-04"
+version: "3.6.1"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
@@ -187,8 +187,8 @@ role: Security Auditor
 vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
-version: "3.6.1"
-last_updated: "2026-03-14"
+version: "3.6.2"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
@@ -232,8 +232,8 @@ role: Reviewer
 vs_file_name: 6-reviewer.agent.md
 id: ledger-5-reviewer
 cc_file_name: 6-reviewer.md
-version: "3.6.0"
-last_updated: "2026-03-04"
+version: "3.6.1"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
@@ -277,8 +277,8 @@ role: Release Engineer
 vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
-version: "3.7.1"
-last_updated: "2026-03-28"
+version: "3.7.2"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
@@ -322,8 +322,8 @@ role: Documentation
 vs_file_name: 8-docs.agent.md
 id: ledger-6-docs
 cc_file_name: 8-documentation.md
-version: "3.6.0"
-last_updated: "2026-03-04"
+version: "3.6.1"
+last_updated: "2026-04-08"
 
 tools:
   - vscode
