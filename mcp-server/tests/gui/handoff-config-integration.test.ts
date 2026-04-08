@@ -26,6 +26,7 @@ import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
 import { now } from '../../src/utils/timestamp.js';
 import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
+import { AGENT_NAMES } from '../../src/utils/constants.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 
 // ---------------------------------------------------------------------------
@@ -130,6 +131,9 @@ describe('handoff-config integration: runtime config monitoring', () => {
       expect(payload.status).toBe('READY_FOR_QA');
       expect(payload.auto_handoff).toBeDefined();
       expect(payload.auto_handoff.agent_name).toContain('QA');
+      expect(payload.auto_handoff.cc_agent_name).toBe(AGENT_NAMES['QA'].claude_code.agent_name);
+      expect(payload.auto_handoff.vs_agent_name).toBe(AGENT_NAMES['QA'].vscode.agent_name);
+      expect(payload.auto_handoff.da_agent_name).toBe(AGENT_NAMES['QA'].deep_agents.agent_name);
     });
 
     it('auto_handoff is absent after writing auto_handoff_enabled: false to config', async () => {

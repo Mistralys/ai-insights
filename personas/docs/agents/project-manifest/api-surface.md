@@ -22,7 +22,7 @@ The wrapper accepts three flags. Suite and target selection are controlled by th
 | `--dry-run` | Treated as `--check` (sets `CHECK=true`); no disk writes |
 | `--strict` | Forward `--strict` to the library CLI — exit 1 if unresolved `{{variable}}` or `{{> partial}}` markers remain in output |
 
-Post-build (real builds only, not `--check`/`--dry-run`): the wrapper reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs.
+Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version`, and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`.
 
 ### `personas/persona-build.config.js` — Config Interface
 

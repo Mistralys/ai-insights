@@ -214,8 +214,12 @@ The MCP server is designed to work with the [Ledger-Enabled Agent Workflow](../p
      "next_agent": "QA",
      "status": "HANDOFF",
      "auto_handoff": {
-       "agent_name": "4-qa.agent.md",
-       "prompt": "Project path: /path/to/plan"
+       "agent_name": "4 - QA v3.6.1",
+       "agent_id": "ledger-4-qa",
+       "cc_agent_name": "4-qa",
+       "vs_agent_name": "4 - QA v3.6.1",
+       "da_agent_name": "4-qa",
+       "prompt": "@ledger-4-qa\nProject path: /path/to/plan"
      }
    }
    ```

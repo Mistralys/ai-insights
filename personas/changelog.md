@@ -1,5 +1,14 @@
 # Personas Changelog
 
+## v3.13.0 - Name Mapping File and CC Handoff Simplification
+
+- Build: Added `personas/name-mapping.json` post-build generation to
+  `scripts/build-personas.js`; emits 9 entries with per-target agent names for
+  `vscode`, `claude_code`, and `deep_agents`; skipped in `--check`/`--dry-run` modes.
+- CC Handoff: Simplified `handoff-block-claude-code.md` partial — replaced brittle
+  regex/string-manipulation derivation with `auto_handoff.cc_agent_name` reference;
+  all 7 Claude Code ledger personas rebuilt.
+
 ## v3.12.0 - Deep-Agents Build Target
 - Build: Added `deep-agents` as a third persona output target; 81 files now built across
   3 targets (vs-code, claude-code, deep-agents).
