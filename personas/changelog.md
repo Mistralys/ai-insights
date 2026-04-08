@@ -1,5 +1,14 @@
 # Personas Changelog
 
+## v3.12.0 - Deep-Agents Build Target
+- Build: Added `deep-agents` as a third persona output target; 81 files now built across
+  3 targets (vs-code, claude-code, deep-agents).
+- Build: Added `da_file_name` metadata field to all 9 ledger persona YAMLs.
+- Project Manager: Target-specific subagent syntax — deep-agents output uses
+  `task(subagent: ...)` calls; VS Code and Claude Code outputs unchanged.
+- Engine: Fixed nested `{{#if}}` resolution — innermost-first multi-pass algorithm replaces
+  single-pass regex, producing correct output for all three targets without stray tokens.
+
 ## v3.11.1 - Model Slug Metadata
 - Build: Added `model_slug` and `default_model_slug` metadata fields.
 - Build: Ledger plugin now exposes `model_slug` as a template variable.

@@ -43,10 +43,14 @@ The primary data flow: transform source templates into final persona Markdown fi
   │    personas/ledger/vs-code/              │
   │  ledger    + claude-code:                │
   │    personas/ledger/claude-code/          │
+  │  ledger    + deep-agents:                │
+  │    personas/ledger/deep-agents/          │
   │  standalone + vscode:                    │
   │    personas/standalone/vs-code/          │
   │  standalone + claude-code:               │
   │    personas/standalone/claude-code/      │
+  │  standalone + deep-agents:               │
+  │    personas/standalone/deep-agents/      │
   └──────────────────────────────────────────┘
 ```
 
@@ -66,13 +70,14 @@ For each suite + target AND each per-persona YAML:
                       ▼
               ┌───────────────┐
               │ Merge Context │  shared + persona + computed variables
-              │               │  + target_vscode / target_claude_code flags
-              └───────┬───────┘
+              │               │  + target_vscode / target_claude_code / target_deep_agents flags
+              └───────┼───────┘
                       │
-                      ▼
+                      │
               ┌───────────────┐   Based on suite + target:
               │ Select        │   ledger   + vscode      → FRONTMATTER_LEDGER_VSCODE
               │ Frontmatter   │   ledger   + claude-code → FRONTMATTER_LEDGER_CC
+              │               │   ledger   + deep-agents → FRONTMATTER_DA
               └───────┬───────┘
                       │
                       │       ┌─────────────────┐   standalone + vscode → FRONTMATTER_STANDALONE_VSCODE
@@ -145,6 +150,7 @@ context = {
   // Layer 4: Target-pass flags (set by the library per target pass)
   target_vscode,       // true when target = 'vscode'
   target_claude_code,  // true when target = 'claude-code'
+  target_deep_agents,  // true when target = 'deep-agents'
 }
 ```
 
@@ -252,14 +258,14 @@ How generated personas reach end users and the MCP server:
        │
        ▼  scripts/build-personas.js
   Generated files:
-  ledger/vs-code/*.agent.md     ledger/claude-code/*.md
-  standalone/vs-code/*.agent.md standalone/claude-code/*.md
-       │                          │
-       ├──────────────────────────┼─────────────────────────────────────┐
-       │                          │                                     │
-       ▼  scripts/sync-personas.js  (--target vscode)                  │
-  VS Code User/prompts/            ▼  scripts/sync-personas.js  ▼  Manual copy-paste
-  (*.agent.md)              ~/.claude/agents/          AI IDE chat session
+  ledger/vs-code/*.agent.md     ledger/claude-code/*.md     ledger/deep-agents/*.md
+  standalone/vs-code/*.agent.md standalone/claude-code/*.md standalone/deep-agents/*.md
+       │                          │                           │
+       ├────────────────────────┼───────────────────────────┐│
+       │                          │                         │ │
+       ▼  scripts/sync-personas.js  (--target vscode)          │ ▼  Orchestrator (reads directly from disk)
+  VS Code User/prompts/            ▼  scripts/sync-personas.js  ▼  orchestrator/src/config.py
+  (*.agent.md)              ~/.claude/agents/            PERSONA_FILES / STAGE_SUBAGENT_FILES
   (*.agent.md)                    │
        │                          │
        ▼                          ▼
