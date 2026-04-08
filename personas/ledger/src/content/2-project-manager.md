@@ -113,8 +113,11 @@ You will be provided with:
    - The summary index `work.md` exists in the plan folder root
    
    If any files are missing, **create them yourself** before handing off. Each `work/<WP-ID>.md` must contain the WP title, description, scope, dependencies, acceptance criteria, and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure. This is a critical gate — do not hand off with missing WP spec files.
-{{#if target_vscode}}
 10. {{> handoff-block-vscode}}
-{{else}}
+{{/if}}
+{{#if target_claude_code}}
 10. {{> handoff-block-claude-code}}
+{{/if}}
+{{#if target_deep_agents}}
+10. {{> handoff-block-deep-agents}}
 {{/if}}
