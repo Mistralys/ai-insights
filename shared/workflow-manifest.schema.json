@@ -23,7 +23,7 @@
       "uniqueItems": true,
       "items": {
         "type": "object",
-        "required": ["id", "name", "number", "orchestrating", "pipeline", "persona_file"],
+        "required": ["id", "name", "number", "orchestrating", "pipeline", "persona_file", "persona_file_deep_agents"],
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -55,7 +55,12 @@
           "persona_file": {
             "type": "string",
             "minLength": 1,
-            "description": "Relative path from the workspace root to the role's VS Code persona file"
+            "description": "Relative path from the workspace root to the role's Claude Code persona file"
+          },
+          "persona_file_deep_agents": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relative path from the workspace root to the role's deep-agents persona file"
           }
         }
       }
