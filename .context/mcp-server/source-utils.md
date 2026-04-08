@@ -2437,3 +2437,8 @@ export function parseWpId(id: string): number {
 }
 
 ```
+---
+**File Statistics**
+- **Size**: 88.59 KB
+- **Lines**: 2439
+File: `mcp-server/source-utils.md`

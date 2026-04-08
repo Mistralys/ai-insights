@@ -8089,3 +8089,8 @@ export function register(server: McpServer): void {
 }
 
 ```
+---
+**File Statistics**
+- **Size**: 320.03 KB
+- **Lines**: 8091
+File: `mcp-server/source-tools.md`

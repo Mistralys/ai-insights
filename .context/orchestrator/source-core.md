@@ -2449,3 +2449,8 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
 
 
 ```
+---
+**File Statistics**
+- **Size**: 91.46 KB
+- **Lines**: 2451
+File: `orchestrator/source-core.md`

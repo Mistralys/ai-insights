@@ -645,3 +645,8 @@ For the full build system documentation — source layout, metadata schema, temp
 For questions or improvements, refer to the main project [README.md](../../README.md).
 
 ```
+---
+**File Statistics**
+- **Size**: 32.2 KB
+- **Lines**: 647
+File: `personas/ledger-suite.md`

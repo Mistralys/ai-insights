@@ -439,3 +439,8 @@ Review the ledger's `pipelines`, `metrics`, and `project_comments` retrieved via
 2. **Ledger Finalization:** After writing `synthesis.md`, call `ledger_complete_synthesis` to archive the document, set `synthesis_generated: true`, and transition the project to `COMPLETE`. The server validates that all WPs are complete before allowing this call.
 
 ```
+---
+**File Statistics**
+- **Size**: 26.58 KB
+- **Lines**: 441
+File: `personas/shared-partials.md`

@@ -636,3 +636,8 @@ For developers and curious users who want to understand the internals:
 
 Same as the parent ai-insights project.
 ```
+---
+**File Statistics**
+- **Size**: 32.19 KB
+- **Lines**: 638
+File: `mcp-server/overview.md`

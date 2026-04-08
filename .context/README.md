@@ -144,3 +144,8 @@ When preparing a release, run the [changelog prompt](.github/prompts/changelog.p
 | `.context/` | Auto-generated codebase snapshots via [CTX Generator](https://github.com/context-hub/generator) — run `node scripts/cli.js ctx-generate` |
 
 ```
+---
+**File Statistics**
+- **Size**: 7.05 KB
+- **Lines**: 146
+File: `README.md`

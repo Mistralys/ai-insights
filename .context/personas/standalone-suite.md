@@ -133,3 +133,8 @@ node scripts/sync-personas.js --suite standalone
 ```
 
 ```
+---
+**File Statistics**
+- **Size**: 8.56 KB
+- **Lines**: 135
+File: `personas/standalone-suite.md`

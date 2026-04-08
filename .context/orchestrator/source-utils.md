@@ -1972,3 +1972,8 @@ def log_tool_calls(
 
 
 ```
+---
+**File Statistics**
+- **Size**: 69.03 KB
+- **Lines**: 1974
+File: `orchestrator/source-utils.md`
