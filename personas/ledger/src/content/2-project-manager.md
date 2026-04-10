@@ -56,12 +56,14 @@ You will be provided with:
    - `agentName`: `"{{agent_wp_decomposer}}"`
    - `description`: `"Decompose plan into work packages"`
    - `prompt`: the full plan document content, project name, and any explicit scope/phasing notes
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: Use the custom agent "{{agent_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_wp_decomposer}}"`
    - `task`: the full plan document content, project name, and any explicit scope/phasing notes.
 {{else}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Call the **{{agent_wp_decomposer}}** subagent with: the full plan document content, project name, and any explicit scope/phasing notes.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
@@ -73,12 +75,14 @@ You will be provided with:
    - `agentName`: `"{{agent_dependency_sequencer}}"`
    - `description`: `"Map WP dependencies and execution order"`
    - `prompt`: the WP definitions received from the WP Decomposer
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: Use the custom agent "{{agent_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_dependency_sequencer}}"`
    - `task`: the WP definitions received from the WP Decomposer.
 {{else}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
+   Call the **{{agent_dependency_sequencer}}** subagent with: the WP definitions received from the WP Decomposer.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
@@ -90,14 +94,14 @@ You will be provided with:
    - `agentName`: `"{{agent_pipeline_configurator}}"`
    - `description`: `"Configure pipeline stages per work package"`
    - `prompt`: the WP definitions and dependency graph from prior sub-agents
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: Use the custom agent "{{agent_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_pipeline_configurator}}"`
    - `task`: the WP definitions and dependency graph from prior sub-agents.
-   Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
 {{else}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
-   Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
+   Call the **{{agent_pipeline_configurator}}** subagent with: the WP definitions and dependency graph from prior sub-agents.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
@@ -109,12 +113,14 @@ You will be provided with:
    - `agentName`: `"{{agent_ledger_bootstrapper}}"`
    - `description`: `"Initialize project ledger with all work packages"`
    - `prompt`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_bootstrapper}}"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_ledger_bootstrapper}}"`
    - `task`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
 {{else}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_bootstrapper}}"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Call the **{{agent_ledger_bootstrapper}}** subagent with: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
