@@ -25,18 +25,22 @@ else:
 
 #### Developer Handoff
 
+Only considers non-terminal WPs that include `implementation` in their `active_pipeline_stages` for pipeline-specific conditions (FAIL routing, QA readiness). The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // FAIL conditions first (§13.2 short-circuit semantics)
 // Temporal guard: only signal rework when the downstream agent has re-engaged
 // since the Developer's latest fix (hasDownstreamReengagedSince §14.13).
 // Without this, auto-handoff stalls after Developer delivers a fix — the handoff
 // returns IN_PROGRESS (Developer "must rework") while getNextAction returns
 // WAIT_FOR_DOWNSTREAM, preventing any agent from being routed to QA.
-if any non-terminal, non-dependency-blocked WP has a FAIL routed to Developer
+if any non-terminal, non-dependency-blocked WP with "implementation" in activeStages
+   has a FAIL routed to Developer
    AND hasDownstreamReengagedSince(wp.pipelines, "implementation") is true:
   // Downstream validated the current fix and FAILed again — Developer must rework
   return IN_PROGRESS               (Developer must rework)
-if any non-terminal, non-dependency-blocked WP needs QA:
+if any non-terminal, non-dependency-blocked WP with "implementation" in activeStages needs QA:
   // "Needs QA" means: PASS implementation AND (no QA started yet
   // OR hasNewUpstreamPassSince("implementation", "qa") — i.e., QA needs
   // to run or re-run after upstream rework)
@@ -54,23 +58,28 @@ return WAIT                        (no actionable work for Developer)
 
 #### QA Handoff
 
+Only considers non-terminal WPs that include `qa` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `qa` in their active stages are invisible to QA's pipeline checks. The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // Re-engagement check (before FAIL short-circuit — see rationale below)
 // If QA previously FAILed but Developer has since re-PASSed implementation,
 // QA should re-engage rather than routing back to Developer.
-if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline
+if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
+   has a FAIL QA pipeline
    AND hasNewUpstreamPassSince(wp.pipelines, "implementation", "qa") is true:
   return IN_PROGRESS             (QA should re-engage after upstream rework)
 
 // FAIL conditions (§13.2 short-circuit semantics)
 // Only reached when upstream has NOT re-PASSed since the QA FAIL.
-if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline routed to Developer:
+if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
+   has a FAIL QA pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
 
 // Dynamic next-stage routing after PASS QA
 // nextAgent = resolveNextAgent("qa", wp.active_pipeline_stages)
 //   → "Security Auditor" when security-audit is active, "Reviewer" otherwise
-if WPs with PASS QA but next stage not started:
+if WPs with "qa" in activeStages have PASS QA but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
@@ -88,26 +97,31 @@ return WAIT                      (no actionable work for QA)
 
 #### Reviewer Handoff
 
+Only considers non-terminal WPs that include `code-review` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `code-review` in their active stages are invisible to Reviewer's pipeline checks. The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // Re-engagement check (before FAIL short-circuit — see QA handoff rationale)
 // If Reviewer previously FAILed but the effective upstream has since re-PASSed,
 // Reviewer should re-engage rather than routing back to Developer.
 // effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)
 //   → "security-audit" when active, "qa" otherwise, or null for first-active-stage compositions
 //   When null (code-review is the first active stage), skip this re-engagement check entirely
-if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline
+if any non-terminal, non-dependency-blocked WP with "code-review" in activeStages
+   has a FAIL code-review pipeline
    AND hasNewUpstreamPassSince(wp.pipelines, effectiveUpstream, "code-review") is true:
   return IN_PROGRESS             (Reviewer should re-engage after upstream rework)
 
 // FAIL conditions (§13.2 short-circuit semantics)
 // Only reached when upstream has NOT re-PASSed since the review FAIL.
-if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline routed to Developer:
+if any non-terminal, non-dependency-blocked WP with "code-review" in activeStages
+   has a FAIL code-review pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
 
 // Dynamic next-stage routing after PASS code-review
 // nextAgent = resolveNextAgent("code-review", wp.active_pipeline_stages)
 //   → "Release Engineer" when release-engineering is active, "Documentation" otherwise
-if WPs with PASS code-review but next stage not started:
+if WPs with "code-review" in activeStages have PASS code-review but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
@@ -190,14 +204,26 @@ return WAIT
 
 #### Documentation Handoff
 
+Only considers non-terminal WPs that include `documentation` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `documentation` in their active stages are invisible to Documentation's pipeline checks. The "all WPs terminal" check applies to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // WPs ready for documentation — the effective upstream stage is determined
-// dynamically: "release-engineering" if active, otherwise "code-review".
-readyForDocs = non-terminal WPs where hasPassEffectiveUpstream AND (
+// dynamically: "release-engineering" if active, otherwise "code-review",
+// or null when documentation is the first (or only) active stage.
+readyForDocs = non-terminal WPs with "documentation" in activeStages where
+  hasPassEffectiveUpstream AND (
   no documentation pipeline yet OR hasNewUpstreamPassSince(effectiveUpstream, "documentation")
 )
 // Where effectiveUpstream = resolvePrerequisite("documentation", wp.active_pipeline_stages)
-// Where hasPassEffectiveUpstream = most recent pipeline of effectiveUpstream type is PASS
+// Where hasPassEffectiveUpstream:
+//   - When effectiveUpstream is not null: most recent pipeline of effectiveUpstream type is PASS
+//   - When effectiveUpstream is null (documentation is the first or only active stage):
+//     vacuously true — no prerequisite needed, consistent with canStartPipeline (§8.2)
+// Note: hasNewUpstreamPassSince(null, "documentation") returns false per §14.6
+// (no pipeline of type null exists), so first-active-stage WPs only match via
+// "no documentation pipeline yet" — once a documentation pipeline exists,
+// there is no upstream to re-engage from.
 if readyForDocs is not empty:
   if all readyForDocs are dependency-blocked:
     skip                           (fall through to check earlier-stage WPs)
@@ -205,7 +231,8 @@ if readyForDocs is not empty:
     return IN_PROGRESS             (Documentation continues documenting)
 
 // Documentation FAIL → self-rework (not forwarded to Developer)
-if any non-terminal, non-dependency-blocked WP has FAIL documentation pipeline (most recent):
+if any non-terminal, non-dependency-blocked WP with "documentation" in activeStages
+   has FAIL documentation pipeline (most recent):
   return IN_PROGRESS               (Documentation self-reworks)
 
 // WPs still in earlier pipeline stages — defer to orchestrator polling
@@ -242,8 +269,8 @@ for each WP with status == "READY":
     // Post auto-unblock: route to the assigned agent
     return readyStatusForAgent(wp.assigned_to)
   else:
-    // Unassigned: route to Developer (first pipeline owner in workflow)
-    return READY_FOR_DEVELOPER
+    // Unassigned: route to the agent owning the WP's first active stage
+    return readyStatusForAgent(PIPELINE_AGENT_MAP[firstActiveStage(wp)])
 
 // All WPs terminal
 if all WPs have terminal status:
@@ -254,6 +281,8 @@ return WAIT
 ```
 
 > **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Security Auditor"` → `READY_FOR_SECURITY_AUDIT`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Release Engineer"` → `READY_FOR_RELEASE_ENGINEERING`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
+
+> **Dynamic routing for unassigned WPs (v2.4.2):** Prior to v2.4.2, unassigned READY WPs were hardcoded to route to `READY_FOR_DEVELOPER`. This caused misrouting for WPs with non-default `active_pipeline_stages` — a documentation-only WP (`["documentation"]`) would be routed to Developer, whose `getNextAction` returns `WAIT` (no implementation work), stalling auto-handoff. The routing now uses `firstActiveStage` (§6.2.1) to dynamically determine the correct starting agent for the WP's composition.
 
 ### 13.2 Handoff Evaluation Order
 
