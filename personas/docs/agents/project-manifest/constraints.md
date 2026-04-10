@@ -11,8 +11,8 @@
 <a name="c1"></a>
 <a name="c45"></a>
 1. **Never edit generated files directly.** All persona files in the following directories are auto-generated and must not be hand-edited:
-   - `personas/ledger/vs-code/` and `personas/ledger/claude-code/`
-   - `personas/standalone/vs-code/` and `personas/standalone/claude-code/`
+   - `personas/ledger/vs-code/`, `personas/ledger/claude-code/`, and `personas/ledger/deep-agents/`
+   - `personas/standalone/vs-code/`, `personas/standalone/claude-code/`, and `personas/standalone/deep-agents/`
 
    All changes must be made in the corresponding `src/` directory and rebuilt. Generated files carry an `<!-- AUTO-GENERATED — do not edit. Source: personas/<suite>/src/ -->` header as a guard. The generated output directories are fully overwritten on every build.
 
@@ -26,8 +26,10 @@
    |-----------|-----------|----------|
    | `personas/ledger/vs-code/` | Yes | VS Code target output |
    | `personas/ledger/claude-code/` | Yes | Claude Code target output |
+   | `personas/ledger/deep-agents/` | Yes | Deep-agents target output |
    | `personas/standalone/vs-code/` | Yes | VS Code target output (standalone) |
    | `personas/standalone/claude-code/` | Yes | Claude Code target output (standalone) |
+   | `personas/standalone/deep-agents/` | Yes | Deep-agents target output (standalone) |
    | `personas/ledger/src/meta/` | No | YAML metadata: identity, feature flags, tool lists |
    | `personas/ledger/src/content/` | No | Per-persona body templates |
    | `personas/ledger/src/partials/` | No | Ledger-suite Markdown fragments (override layer; MCP-specific partials live here) |
@@ -36,7 +38,7 @@
    | `personas/shared/partials/` | No | Suite-agnostic shared Markdown fragments (base layer; no MCP content) |
 
 <a name="c3"></a>
-4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` for a single IDE target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild both suites in one pass.
+4. **Edit → Build → Sync workflow.** After modifying any source file in `src/`, run `node scripts/build-personas.js` (or add `--suite` to target a specific suite and `--target vscode` / `--target claude-code` / `--target deep-agents` for a single target) to regenerate output, then `node scripts/sync-personas.js` to deploy to both VS Code and Claude Code. Use `--suite all` to rebuild both suites in one pass.
 
 ---
 
@@ -50,7 +52,7 @@
 ## Naming & File Conventions
 
 <a name="c11"></a>
-6. **Ledger persona output filenames differ by IDE target.** VS Code target files use `N-name.agent.md` (e.g., `3-dev.agent.md`); Claude Code target files use `N-name.md` (e.g., `3-developer.md`). The number prefix matches the agent's `number` field (1–9). The VS Code filename is declared in the YAML `vs_file_name` field; the Claude Code filename is declared in `cc_file_name`.
+6. **Ledger persona output filenames differ by target.** VS Code target files use `N-name.agent.md` (e.g., `3-dev.agent.md`); Claude Code and deep-agents target files both use `N-name.md` (e.g., `3-developer.md`). The number prefix matches the agent's `number` field (1–9). The VS Code filename is declared in the YAML `vs_file_name` field; the Claude Code filename in `cc_file_name`; the deep-agents filename in `da_file_name`. The `da_file_name` field follows the same `N-<role-slug>.md` pattern as `cc_file_name` and is intentionally absent from standalone YAMLs — the deep-agents target falls back to the content file basename (e.g. `researcher.md`) for standalone personas.
 
 <a name="c12"></a>
 7. **Standalone YAML files are slug-based, not number-prefixed.** Standalone persona filenames match their `slug` field (e.g. `researcher.yaml`, `manifest-curator.yaml`). The `slug` must be a valid kebab-case identifier with no numeric prefix.
@@ -82,6 +84,20 @@
 
 <a name="c20"></a>
 15. **Platform-specific partials use a `-vscode` / `-claude-code` suffix** (e.g., `handoff-block-vscode.md`, `handoff-block-claude-code.md`, `mcp-preflight-header-vscode.md`, `mcp-preflight-header-claude-code.md`). Content templates include them via a top-level `{{#if target_vscode}}…{{else}}…{{/if}}` conditional block — never inline platform-specific content directly in a content template.
+
+   When a content section must produce **different inline text for all three targets**, use nested conditionals instead of named partials:
+   ```
+   {{#if target_vscode}}
+   … VS Code–specific inline content …
+   {{else}}
+   {{#if target_deep_agents}}
+   … Deep Agents–specific inline content …
+   {{else}}
+   … Claude Code–specific inline content …
+   {{/if}}
+   {{/if}}
+   ```
+   This pattern is used in `personas/ledger/src/content/2-project-manager.md` for sub-agent invocation steps 3–6.
 
 <a name="c21"></a>
 16. **`9-synthesis.md` omits the handoff-block partial by design.** The Synthesis agent always prints its handoff block verbatim (never auto-handoffs), so its content template does not include `{{> handoff-block-vscode}}` or `{{> handoff-block-claude-code}}`. This is intentional — do not add the partial to this template.

@@ -1,8 +1,9 @@
 number: 9
 role: Synthesis
 vs_file_name: 9-synthesis.agent.md
-id: ledger-7-synthesis
+id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
+da_file_name: 9-synthesis.md
 version: "3.5.3"
 last_updated: "2026-03-04"
 

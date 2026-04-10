@@ -1711,3 +1711,132 @@ class TestLocalShellBackendInheritEnv:
             f"LocalShellBackend must be called with inherit_env=True, "
             f"got kwargs={kwargs!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests: subagent wiring (WP-013)
+# ---------------------------------------------------------------------------
+
+class TestSubagentWiring:
+    """Verify that create_stage_node passes subagents to create_deep_agent for
+    stages that have subagent configuration, and passes None for those that do
+    not (WP-013 acceptance criteria)."""
+
+    async def test_pm_node_passes_subagents_to_create_deep_agent(self):
+        """AC-1: PM agent's create_deep_agent() call includes subagents with
+        at least WP Decomposer."""
+        from src.nodes import create_stage_node
+
+        fake_subagent = {
+            "name": "WP Decomposer",
+            "description": "Analyze a plan document and decompose it into Work Packages.",
+            "system_prompt": "# WP Decomposer\nYou decompose plans into WPs.",
+        }
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[fake_subagent]):
+            await node_fn(base_state(current_wp_id=""))
+
+        assert captured.get("subagents") is not None, (
+            "create_deep_agent must receive subagents for the pm stage"
+        )
+        assert isinstance(captured["subagents"], list), (
+            "subagents must be a list"
+        )
+        assert len(captured["subagents"]) >= 1, (
+            "subagents list must contain at least one entry (WP Decomposer)"
+        )
+        names = [s["name"] for s in captured["subagents"]]
+        assert "WP Decomposer" in names, (
+            f"WP Decomposer must be in subagents; got {names!r}"
+        )
+
+    async def test_pm_subagent_definition_contains_system_prompt(self):
+        """AC-2: Subagent definition includes persona content (system_prompt field)."""
+        from src.nodes import create_stage_node
+
+        persona_content = "# WP Decomposer\nYou analyze plans and decompose them."
+        fake_subagent = {
+            "name": "WP Decomposer",
+            "description": "Decompose plan into WPs.",
+            "system_prompt": persona_content,
+        }
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[fake_subagent]):
+            await node_fn(base_state(current_wp_id=""))
+
+        subagents = captured.get("subagents") or []
+        assert subagents, "subagents must be non-empty for pm stage"
+        wp_decomposer = next((s for s in subagents if s["name"] == "WP Decomposer"), None)
+        assert wp_decomposer is not None, "WP Decomposer entry must be present"
+        assert "system_prompt" in wp_decomposer, (
+            "SubAgent dict must contain system_prompt"
+        )
+        assert wp_decomposer["system_prompt"] == persona_content, (
+            "system_prompt must match the loaded persona content"
+        )
+
+    @pytest.mark.parametrize("module_name,factory_name,stage", [
+        ("src.nodes.developer", "make_developer_node", "developer"),
+        ("src.nodes.qa", "make_qa_node", "qa"),
+        ("src.nodes.reviewer", "make_reviewer_node", "reviewer"),
+        ("src.nodes.docs", "make_docs_node", "docs"),
+        ("src.nodes.synthesis", "make_synthesis_node", "synthesis"),
+    ])
+    async def test_non_subagent_stages_pass_none(
+        self, module_name: str, factory_name: str, stage: str
+    ):
+        """AC-4: Stages without subagent config receive subagents=None."""
+        import importlib
+        mod = importlib.import_module(module_name)
+        factory = getattr(mod, factory_name)
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = factory(FAKE_CONFIG, FAKE_TOOLS)
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[]):
+            await node_fn(base_state(current_wp_id=""))
+
+        assert captured.get("subagents") is None, (
+            f"Stage {stage!r} must pass subagents=None to create_deep_agent; "
+            f"got {captured.get('subagents')!r}"
+        )

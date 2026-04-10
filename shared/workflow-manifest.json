@@ -9,7 +9,8 @@
       "number": 1,
       "orchestrating": true,
       "pipeline": null,
-      "persona_file": "personas/ledger/claude-code/1-planner.md"
+      "persona_file": "personas/ledger/claude-code/1-planner.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/1-planner.md"
     },
     {
       "id": "pm",
@@ -17,7 +18,8 @@
       "number": 2,
       "orchestrating": false,
       "pipeline": null,
-      "persona_file": "personas/ledger/claude-code/2-project-manager.md"
+      "persona_file": "personas/ledger/claude-code/2-project-manager.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/2-project-manager.md"
     },
     {
       "id": "developer",
@@ -25,7 +27,8 @@
       "number": 3,
       "orchestrating": false,
       "pipeline": "implementation",
-      "persona_file": "personas/ledger/claude-code/3-developer.md"
+      "persona_file": "personas/ledger/claude-code/3-developer.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/3-developer.md"
     },
     {
       "id": "qa",
@@ -33,7 +36,8 @@
       "number": 4,
       "orchestrating": false,
       "pipeline": "qa",
-      "persona_file": "personas/ledger/claude-code/4-qa.md"
+      "persona_file": "personas/ledger/claude-code/4-qa.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/4-qa.md"
     },
     {
       "id": "security_auditor",
@@ -41,7 +45,8 @@
       "number": 5,
       "orchestrating": false,
       "pipeline": "security-audit",
-      "persona_file": "personas/ledger/claude-code/5-security-auditor.md"
+      "persona_file": "personas/ledger/claude-code/5-security-auditor.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/5-security-auditor.md"
     },
     {
       "id": "reviewer",
@@ -49,7 +54,8 @@
       "number": 6,
       "orchestrating": false,
       "pipeline": "code-review",
-      "persona_file": "personas/ledger/claude-code/6-reviewer.md"
+      "persona_file": "personas/ledger/claude-code/6-reviewer.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/6-reviewer.md"
     },
     {
       "id": "release_engineer",
@@ -57,7 +63,8 @@
       "number": 7,
       "orchestrating": false,
       "pipeline": "release-engineering",
-      "persona_file": "personas/ledger/claude-code/7-release-engineer.md"
+      "persona_file": "personas/ledger/claude-code/7-release-engineer.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/7-release-engineer.md"
     },
     {
       "id": "docs",
@@ -65,7 +72,8 @@
       "number": 8,
       "orchestrating": false,
       "pipeline": "documentation",
-      "persona_file": "personas/ledger/claude-code/8-documentation.md"
+      "persona_file": "personas/ledger/claude-code/8-documentation.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/8-documentation.md"
     },
     {
       "id": "synthesis",
@@ -73,7 +81,8 @@
       "number": 9,
       "orchestrating": true,
       "pipeline": null,
-      "persona_file": "personas/ledger/claude-code/9-synthesis.md"
+      "persona_file": "personas/ledger/claude-code/9-synthesis.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/9-synthesis.md"
     }
   ],
 

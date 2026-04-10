@@ -1,5 +1,15 @@
 # Orchestrator Changelog
 
+## v0.13.0 - Deep-Agents Persona Files & Subagent Wiring
+- Config: `PERSONA_FILES` now derives from `persona_file_deep_agents` in `workflow-manifest.json`,
+  loading deep-agents persona files for all 9 orchestrator stages.
+- Config: Added `STAGE_SUBAGENT_FILES` map defining per-stage subagent persona file paths.
+- Utils: Added `subagents.py` — `load_subagents()` reads deep-agents persona content and returns
+  `SubAgent` spec dicts; results cached per `(stage, name)` pair with `clear_cache()` for tests.
+- Nodes: PM stage node passes loaded subagents to `create_deep_agent()`; all other stages
+  receive `subagents=None` with no change to their behaviour.
+- Tests: +19 net new tests (783 total, 0 failures).
+
 ## v0.12.0 - Per-Stage Model Configuration
 - Config: Replaced global `MODEL_NAME` env var with persona-metadata-driven
   per-stage model selection via `Config.stage_models`.

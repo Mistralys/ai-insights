@@ -80,7 +80,7 @@ mcp-server/
 │       ├── workflow-helpers.ts  # Shared constants and stateless helpers
 │       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs
 │       ├── client-info.ts       # Module-level MCP server reference for extracting client info
-│       ├── constants.ts         # Shared constants derived from shared/workflow-manifest.json
+│       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; loads AGENT_NAMES (TargetNames, NameMappingEntry) from personas/name-mapping.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
 │       ├── path-validator.ts    # Project path validation

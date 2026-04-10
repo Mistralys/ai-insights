@@ -58,26 +58,48 @@ mcpServers:
 {{/if}}
 ---`;
 
+// ---------------------------------------------------------------------------
+// Deep Agents frontmatter template
+// ---------------------------------------------------------------------------
+// Minimal frontmatter for headless LangGraph / Deep Agents pipeline executors.
+// Uses the persona id (machine-readable identifier present in all personas)
+// and cc_description (computed by the ledger plugin from the roster for ledger
+// personas, or from the description YAML field for standalone personas).
+
+const FRONTMATTER_DA = `---
+name: {{id}}
+description: '{{cc_description}}'
+---`;
+
 module.exports = {
   sharedPartialsDir: path.join(ROOT, 'personas', 'shared', 'partials'),
+
+  targets: ['vscode', 'claude-code', 'deep-agents'],
 
   frontmatter: {
     vscode: FRONTMATTER_STANDALONE_VSCODE,
     'claude-code': FRONTMATTER_STANDALONE_CC,
+    'deep-agents': FRONTMATTER_DA,
   },
 
   suites: {
     ledger: {
-      srcDir:       path.join(ROOT, 'personas', 'ledger', 'src'),
-      outVscode:    path.join(ROOT, 'personas', 'ledger', 'vs-code'),
+      srcDir:        path.join(ROOT, 'personas', 'ledger', 'src'),
+      outVscode:     path.join(ROOT, 'personas', 'ledger', 'vs-code'),
       outClaudeCode: path.join(ROOT, 'personas', 'ledger', 'claude-code'),
-      personaMode:  'numbered',
+      outputDirs: {
+        'deep-agents': path.join(ROOT, 'personas', 'ledger', 'deep-agents'),
+      },
+      personaMode:   'numbered',
     },
     standalone: {
-      srcDir:       path.join(ROOT, 'personas', 'standalone', 'src'),
-      outVscode:    path.join(ROOT, 'personas', 'standalone', 'vs-code'),
+      srcDir:        path.join(ROOT, 'personas', 'standalone', 'src'),
+      outVscode:     path.join(ROOT, 'personas', 'standalone', 'vs-code'),
       outClaudeCode: path.join(ROOT, 'personas', 'standalone', 'claude-code'),
-      personaMode:  'standalone',
+      outputDirs: {
+        'deep-agents': path.join(ROOT, 'personas', 'standalone', 'deep-agents'),
+      },
+      personaMode:   'standalone',
     },
   },
 

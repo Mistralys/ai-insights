@@ -803,7 +803,7 @@ Return array of recommendations:
 
 **Context:** `auto_handoff_depth` is a safeguard against infinite agent-chain loops. `buildHandoffResponse` in `src/tools/workflow-handoff.ts` manages the increment on every handoff-status response. The reset to `0` is performed by `completeSynthesis` in `src/tools/project-lifecycle.ts` per §18.4.
 
-**Ceiling:** `effectiveMaxDepth(root.total_work_packages ?? 0)` — dynamic per §18.2.1: `max(configMax, totalWorkPackages × 20)`, where `configMax = getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`). The floor ensures small projects still get a meaningful ceiling (50+ handoffs); larger projects scale proportionally.
+**Ceiling:** `effectiveMaxDepth(root.total_work_packages ?? 0)` — dynamic per §18.2.1: `max(configMax, totalWorkPackages × 30)`, where `configMax = getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`). The floor ensures small projects still get a meaningful ceiling (50+ handoffs); larger projects scale proportionally.
 
 ### 13a: Storage Location
 
@@ -833,7 +833,17 @@ currentDepth = root.auto_handoff_depth ?? 0
   ↓
   [currentDepth < effectiveMaxDepth(root.total_work_packages ?? 0)?]
     YES → store.writeRootIndex({ ...root, auto_handoff_depth: currentDepth + 1 })
-          auto_handoff object is included in the response payload
+          agentId = getAgentId(nextAgent)          // null when persona has no id: frontmatter field
+          agentNames = AGENT_NAMES[nextAgent]       // loaded from personas/name-mapping.json at startup
+          auto_handoff object is included in the response payload:
+            {
+              agent_name:    agentHandle,                        // VS Code display name from Agent Registry
+              agent_id:      agentId ?? (omitted),               // omitted when null — not serialized
+              cc_agent_name: agentNames.claude_code.agent_name,  // e.g. "3-developer"
+              vs_agent_name: agentNames.vscode.agent_name,       // e.g. "3 - Developer v3.6.1"
+              da_agent_name: agentNames.deep_agents.agent_name,  // e.g. "3-developer"
+              prompt:        buildHandoffPrompt(projectPath, agentId)
+            }
     NO  → auto_handoff is omitted from the response (depth exceeded — see 13d)
 ```
 

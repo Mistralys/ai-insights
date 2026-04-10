@@ -3,6 +3,7 @@ role: Release Engineer
 vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
+da_file_name: 7-release-engineer.md
 version: "3.7.2"
 last_updated: "2026-04-08"
 
