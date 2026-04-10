@@ -58,7 +58,7 @@ You will be provided with:
    - `prompt`: the full plan document content, project name, and any explicit scope/phasing notes
 {{/if}}
 {{#if target_deep_agents}}
-   Use the `task` tool with:
+   Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_wp_decomposer}}"`
    - `task`: the full plan document content, project name, and any explicit scope/phasing notes.
 {{/if}}
@@ -77,7 +77,7 @@ You will be provided with:
    - `prompt`: the WP definitions received from the WP Decomposer
 {{/if}}
 {{#if target_deep_agents}}
-   Use the `task` tool with:
+   Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_dependency_sequencer}}"`
    - `task`: the WP definitions received from the WP Decomposer.
 {{/if}}
@@ -96,7 +96,7 @@ You will be provided with:
    - `prompt`: the WP definitions and dependency graph from prior sub-agents
 {{/if}}
 {{#if target_deep_agents}}
-   Use the `task` tool with:
+   Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_pipeline_configurator}}"`
    - `task`: the WP definitions and dependency graph from prior sub-agents.
    Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
@@ -117,7 +117,7 @@ You will be provided with:
    - `prompt`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path
 {{/if}}
 {{#if target_deep_agents}}
-   Use the `task` tool with:
+   Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_ledger_bootstrapper}}"`
    - `task`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
 {{/if}}
