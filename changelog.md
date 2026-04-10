@@ -1,16 +1,16 @@
 # AI Insights Changelog
 
-## v1.15.0 - Deep-Agents Target & PM Subagent Wiring
-> orchestrator v0.13.0 · personas v3.12.0
+## v1.15.0 - Deep-Agents Pipeline & Agent Name Resolution
+> mcp v1.23.0 · orchestrator v0.13.0 · personas v3.14.0
 
-- Personas: Added `deep-agents` as a third build target; ledger and standalone suites now
-  produce minimal-frontmatter output files for LangGraph/deep-agents consumption.
-- Personas: PM persona uses target-specific subagent syntax (`task(subagent: ...)`) in
-  deep-agents output; VS Code and Claude Code outputs are byte-identical to pre-change.
-- Orchestrator: All 9 stages now load deep-agents persona files via `persona_file_deep_agents`.
-- Orchestrator: PM stage wires standalone subagents (WP Decomposer et al.) via new
-  `load_subagents()` utility and `STAGE_SUBAGENT_FILES` config map.
-- Shared: `workflow-manifest.json` gains `persona_file_deep_agents` on all 9 roles.
+- Personas: Added `deep-agents` as a third build target for the orchestrator.
+- Personas: Added the generated name-mapping JSON file.
+- Personas: Now using `elseif` commands.
+- Orchestrator: All 9 stages load deep-agents persona files.
+- Orchestrator: The PM stage now uses subagents.
+- MCP: `auto_handoff` gains per-target agent name fields.
+- Scripts: Added `menu.sh` / `menu.cmd` convenience launcher scripts.
+- Scripts: Pre-commit hook now blocks commits when changelog versions drift.
 
 ## v1.14.0 - Per-Stage Model Configuration
 > mcp v1.22.1 · orchestrator v0.12.0 · personas v3.11.1

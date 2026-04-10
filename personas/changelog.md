@@ -1,33 +1,20 @@
 # Personas Changelog
 
-## v3.13.0 - Name Mapping File and CC Handoff Simplification
+## v3.14.0 - Deep-Agents, Elseif & Name Mapping
 
-- Build: Added `personas/name-mapping.json` post-build generation to
-  `scripts/build-personas.js`; emits 9 entries with per-target agent names for
-  `vscode`, `claude_code`, and `deep_agents`; skipped in `--check`/`--dry-run` modes.
-- CC Handoff: Simplified `handoff-block-claude-code.md` partial — replaced brittle
-  regex/string-manipulation derivation with `auto_handoff.cc_agent_name` reference;
-  all 7 Claude Code ledger personas rebuilt.
-
-## v3.12.0 - Deep-Agents Build Target
-- Build: Added `deep-agents` as a third persona output target; 81 files now built across
+- Build: Added `deep-agents` as a third persona output target; 81 files built across
   3 targets (vs-code, claude-code, deep-agents).
 - Build: Added `da_file_name` metadata field to all 9 ledger persona YAMLs.
-- Project Manager: Target-specific subagent syntax — deep-agents output uses
-  `task(subagent: ...)` calls; VS Code and Claude Code outputs unchanged.
-- Engine: Fixed nested `{{#if}}` resolution — innermost-first multi-pass algorithm replaces
-  single-pass regex, producing correct output for all three targets without stray tokens.
-
-## v3.11.2 - Persona Tweaks
-- CTX Architect v1.1.1: Fixed import glob syntax for newer CTX versions.
-- Security Auditor v3.6.2: Deep agent handoff block.
-- Reviewer v3.6.1: Deep agent handoff block.
-- Release engineer v3.7.2: Deep agent handoff block.
-- Documentation v3.6.1: CTX generation, deep agent handoff block.
-- QA v3.6.1: Deep agent handoff block.
-- Project Manager v3.6.2: Deep agent handoff block.
-- Ledger personas: Tweaked handoff block wording.
-- Dependencies: Updated persona builder to [v2.2.0](https://github.com/Mistralys/ai-persona-builder/releases/tag/2.2.0).
+- Build: Added `personas/name-mapping.json` generation with per-target agent names for
+  `vscode`, `claude_code`, and `deep_agents`.
+- Build: Updated persona builder to [v2.3.0](https://github.com/Mistralys/ai-persona-builder/releases/tag/2.3.0).
+- Engine: Fixed nested `{{#if}}` resolution with innermost-first multi-pass algorithm.
+- Project Manager: Deep-agents output uses `task(subagent: ...)` calls; subagent handoffs
+  now declare all targets explicitly.
+- CC Handoff: Simplified partial to use `auto_handoff.cc_agent_name` reference.
+- Personas: Added deep agent handoff blocks across all ledger personas.
+- Personas: Applied `elseif` to eliminate duplicate conditional branches.
+- CTX Architect: Fixed import glob syntax for newer CTX versions.
 
 ## v3.11.1 - Model Slug Metadata
 - Build: Added `model_slug` and `default_model_slug` metadata fields.
