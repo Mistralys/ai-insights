@@ -85,10 +85,8 @@ When `ledger_get_next_action` returns `REWORK`, a previous documentation pipelin
 7. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `WRITE_DOCS` (new documentation pass), `REWORK` (fix documentation issues — see Rework Handling), `FINALIZE_WP` (mark WP as COMPLETE — all criteria met), `UPDATE_CRITERIA` (update unmet acceptance criteria before completing), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 8. {{> handoff-block-vscode}}
-{{/if}}
-{{#if target_claude_code}}
+{{else if target_claude_code}}
 8. {{> handoff-block-claude-code}}
-{{/if}}
-{{#if target_deep_agents}}
-8. {{> handoff-block-deep-agents}}
+{{else}}
+8. {{> handoff-block-manual}}
 {{/if}}

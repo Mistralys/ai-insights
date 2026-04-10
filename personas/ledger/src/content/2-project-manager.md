@@ -56,13 +56,11 @@ You will be provided with:
    - `agentName`: `"{{agent_wp_decomposer}}"`
    - `description`: `"Decompose plan into work packages"`
    - `prompt`: the full plan document content, project name, and any explicit scope/phasing notes
-{{/if}}
-{{#if target_deep_agents}}
+{{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_wp_decomposer}}"`
    - `task`: the full plan document content, project name, and any explicit scope/phasing notes.
-{{/if}}
-{{#if target_claude_code}}
+{{else}}
    Use the `Task` tool with `description: Use the custom agent "{{agent_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
 {{/if}}
 
@@ -75,13 +73,11 @@ You will be provided with:
    - `agentName`: `"{{agent_dependency_sequencer}}"`
    - `description`: `"Map WP dependencies and execution order"`
    - `prompt`: the WP definitions received from the WP Decomposer
-{{/if}}
-{{#if target_deep_agents}}
+{{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_dependency_sequencer}}"`
    - `task`: the WP definitions received from the WP Decomposer.
-{{/if}}
-{{#if target_claude_code}}
+{{else}}
    Use the `Task` tool with `description: Use the custom agent "{{agent_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
 {{/if}}
 
@@ -94,14 +90,12 @@ You will be provided with:
    - `agentName`: `"{{agent_pipeline_configurator}}"`
    - `description`: `"Configure pipeline stages per work package"`
    - `prompt`: the WP definitions and dependency graph from prior sub-agents
-{{/if}}
-{{#if target_deep_agents}}
+{{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_pipeline_configurator}}"`
    - `task`: the WP definitions and dependency graph from prior sub-agents.
    Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
-{{/if}}
-{{#if target_claude_code}}
+{{else}}
    Use the `Task` tool with `description: Use the custom agent "{{agent_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
    Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
 {{/if}}
@@ -115,13 +109,11 @@ You will be provided with:
    - `agentName`: `"{{agent_ledger_bootstrapper}}"`
    - `description`: `"Initialize project ledger with all work packages"`
    - `prompt`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path
-{{/if}}
-{{#if target_deep_agents}}
+{{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent`: `"{{agent_slug_ledger_bootstrapper}}"`
    - `task`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
-{{/if}}
-{{#if target_claude_code}}
+{{else}}
    Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_bootstrapper}}"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
 {{/if}}
 
@@ -135,11 +127,10 @@ You will be provided with:
    - The summary index `work.md` exists in the plan folder root
    
    If any files are missing, **create them yourself** before handing off. Each `work/<WP-ID>.md` must contain the WP title, description, scope, dependencies, acceptance criteria, and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure. This is a critical gate — do not hand off with missing WP spec files.
+{{#if target_vscode}}
 10. {{> handoff-block-vscode}}
-{{/if}}
-{{#if target_claude_code}}
+{{else if target_claude_code}}
 10. {{> handoff-block-claude-code}}
-{{/if}}
-{{#if target_deep_agents}}
-10. {{> handoff-block-deep-agents}}
+{{else}}
+10. {{> handoff-block-manual}}
 {{/if}}

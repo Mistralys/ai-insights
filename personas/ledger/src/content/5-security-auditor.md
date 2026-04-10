@@ -72,10 +72,8 @@ You will be provided with:
 6. **Repeat:** Call `ledger_get_next_action` again. The server may return different actions — follow the `next_steps` guidance in each response. Common actions: `RUN_SECURITY_AUDIT` (full review), `REWORK` (re-audit after Developer remediation), `CLAIM_WP` (claim a READY WP), `CONTINUE_PIPELINE` (resume active work), `RESUME_OR_CANCEL` (handle a stale pipeline). Continue until the action is `WAIT`.
 {{#if target_vscode}}
 7. {{> handoff-block-vscode}}
-{{/if}}
-{{#if target_claude_code}}
+{{else if target_claude_code}}
 7. {{> handoff-block-claude-code}}
-{{/if}}
-{{#if target_deep_agents}}
-7. {{> handoff-block-deep-agents}}
+{{else}}
+7. {{> handoff-block-manual}}
 {{/if}}
