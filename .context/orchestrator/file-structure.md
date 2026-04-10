@@ -77,6 +77,7 @@ _SOURCE: Directory tree_
         │   └── persona.py
         │   └── persona_models.py
         │   └── plan_parser.py
+        │   └── subagents.py
         │   └── subprocess_encoding.py
         │   └── tool_wrappers.py
     └── tests/
@@ -95,6 +96,7 @@ _SOURCE: Directory tree_
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
         └── test_state.py
+        └── test_subagents.py
         └── test_subprocess_encoding.py
         └── test_supervisor.py
         └── test_tool_wrappers.py

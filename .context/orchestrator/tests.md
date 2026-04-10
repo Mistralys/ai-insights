@@ -20,6 +20,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
         └── test_state.py
+        └── test_subagents.py
         └── test_subprocess_encoding.py
         └── test_supervisor.py
         └── test_tool_wrappers.py
@@ -5162,6 +5163,135 @@ class TestLocalShellBackendInheritEnv:
             f"got kwargs={kwargs!r}"
         )
 
+
+# ---------------------------------------------------------------------------
+# Tests: subagent wiring (WP-013)
+# ---------------------------------------------------------------------------
+
+class TestSubagentWiring:
+    """Verify that create_stage_node passes subagents to create_deep_agent for
+    stages that have subagent configuration, and passes None for those that do
+    not (WP-013 acceptance criteria)."""
+
+    async def test_pm_node_passes_subagents_to_create_deep_agent(self):
+        """AC-1: PM agent's create_deep_agent() call includes subagents with
+        at least WP Decomposer."""
+        from src.nodes import create_stage_node
+
+        fake_subagent = {
+            "name": "WP Decomposer",
+            "description": "Analyze a plan document and decompose it into Work Packages.",
+            "system_prompt": "# WP Decomposer\nYou decompose plans into WPs.",
+        }
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "Test prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[fake_subagent]):
+            await node_fn(base_state(current_wp_id=""))
+
+        assert captured.get("subagents") is not None, (
+            "create_deep_agent must receive subagents for the pm stage"
+        )
+        assert isinstance(captured["subagents"], list), (
+            "subagents must be a list"
+        )
+        assert len(captured["subagents"]) >= 1, (
+            "subagents list must contain at least one entry (WP Decomposer)"
+        )
+        names = [s["name"] for s in captured["subagents"]]
+        assert "WP Decomposer" in names, (
+            f"WP Decomposer must be in subagents; got {names!r}"
+        )
+
+    async def test_pm_subagent_definition_contains_system_prompt(self):
+        """AC-2: Subagent definition includes persona content (system_prompt field)."""
+        from src.nodes import create_stage_node
+
+        persona_content = "# WP Decomposer\nYou analyze plans and decompose them."
+        fake_subagent = {
+            "name": "WP Decomposer",
+            "description": "Decompose plan into WPs.",
+            "system_prompt": persona_content,
+        }
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = create_stage_node(
+            stage="pm",
+            build_prompt=lambda state: "prompt",
+            config=FAKE_CONFIG,
+            mcp_tools=FAKE_TOOLS,
+        )
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[fake_subagent]):
+            await node_fn(base_state(current_wp_id=""))
+
+        subagents = captured.get("subagents") or []
+        assert subagents, "subagents must be non-empty for pm stage"
+        wp_decomposer = next((s for s in subagents if s["name"] == "WP Decomposer"), None)
+        assert wp_decomposer is not None, "WP Decomposer entry must be present"
+        assert "system_prompt" in wp_decomposer, (
+            "SubAgent dict must contain system_prompt"
+        )
+        assert wp_decomposer["system_prompt"] == persona_content, (
+            "system_prompt must match the loaded persona content"
+        )
+
+    @pytest.mark.parametrize("module_name,factory_name,stage", [
+        ("src.nodes.developer", "make_developer_node", "developer"),
+        ("src.nodes.qa", "make_qa_node", "qa"),
+        ("src.nodes.reviewer", "make_reviewer_node", "reviewer"),
+        ("src.nodes.docs", "make_docs_node", "docs"),
+        ("src.nodes.synthesis", "make_synthesis_node", "synthesis"),
+    ])
+    async def test_non_subagent_stages_pass_none(
+        self, module_name: str, factory_name: str, stage: str
+    ):
+        """AC-4: Stages without subagent config receive subagents=None."""
+        import importlib
+        mod = importlib.import_module(module_name)
+        factory = getattr(mod, factory_name)
+
+        captured: dict = {}
+
+        def _fake_create_deep_agent(**kwargs: Any) -> MagicMock:
+            captured["subagents"] = kwargs.get("subagents")
+            return _make_agent_mock()
+
+        node_fn = factory(FAKE_CONFIG, FAKE_TOOLS)
+
+        with _patch_persona(), \
+             patch("deepagents.create_deep_agent", side_effect=_fake_create_deep_agent), \
+             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
+             patch("src.utils.subagents.load_subagents", return_value=[]):
+            await node_fn(base_state(current_wp_id=""))
+
+        assert captured.get("subagents") is None, (
+            f"Stage {stage!r} must pass subagents=None to create_deep_agent; "
+            f"got {captured.get('subagents')!r}"
+        )
+
 ```
 ###  Path: `/orchestrator/tests/test_persona_models.py`
 
@@ -6755,6 +6885,195 @@ class TestStateGraphIntegration:
         # This is the primary acceptance criterion: no exception raised.
         graph = StateGraph(WorkflowState)
         assert graph is not None
+
+```
+###  Path: `/orchestrator/tests/test_subagents.py`
+
+```py
+"""Unit tests for orchestrator/src/utils/subagents.py.
+
+Covers:
+  - Known stage with subagent → returns populated list.
+  - Unknown stage → returns [].
+  - Cache hit → second call re-uses cached content.
+  - Cache clear → subsequent call re-reads file.
+  - Missing persona file → FileNotFoundError.
+  - Path traversal guard → ValueError.
+"""
+
+from __future__ import annotations
+
+import textwrap
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from src.utils.subagents import clear_cache, load_subagents
+
+
+@pytest.fixture(autouse=True)
+def _clean_cache():
+    """Ensure a clean subagent cache before and after each test."""
+    clear_cache()
+    yield
+    clear_cache()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _write_persona(tmp_path: Path, rel_path: str, content: str) -> Path:
+    """Write a persona file under *tmp_path* at *rel_path* and return its full path."""
+    full = tmp_path / rel_path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(content, encoding="utf-8")
+    return full
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+class TestLoadSubagentsHappyPath:
+    """Known stage with a configured subagent returns a populated list."""
+
+    def test_returns_list_with_expected_keys(self, tmp_path: Path):
+        persona_content = "# WP Decomposer\n\nI decompose work packages."
+        _write_persona(tmp_path, "personas/standalone/deep-agents/wp-decomposer.md", persona_content)
+
+        # Patch STAGE_SUBAGENT_FILES to point at our temp file
+        stage_files = {
+            "pm": [
+                {
+                    "persona_file": "personas/standalone/deep-agents/wp-decomposer.md",
+                    "name": "WP Decomposer",
+                    "description": "Analyze a plan and decompose it.",
+                },
+            ],
+        }
+
+        with patch("src.config.STAGE_SUBAGENT_FILES", stage_files):
+            result = load_subagents("pm", workspace_root=tmp_path)
+
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["name"] == "WP Decomposer"
+        assert entry["description"] == "Analyze a plan and decompose it."
+        assert entry["system_prompt"] == persona_content
+
+
+class TestUnknownStage:
+    """Stage with no subagent config returns an empty list."""
+
+    def test_returns_empty_list(self, tmp_path: Path):
+        with patch("src.config.STAGE_SUBAGENT_FILES", {}):
+            result = load_subagents("developer", workspace_root=tmp_path)
+
+        assert result == []
+
+
+class TestCacheHit:
+    """Second call returns cached content without re-reading the file."""
+
+    def test_second_call_uses_cache(self, tmp_path: Path):
+        persona_content = "Cached persona content."
+        _write_persona(tmp_path, "agents/persona.md", persona_content)
+
+        stage_files = {
+            "pm": [
+                {
+                    "persona_file": "agents/persona.md",
+                    "name": "Helper",
+                    "description": "A helper.",
+                },
+            ],
+        }
+
+        with patch("src.config.STAGE_SUBAGENT_FILES", stage_files):
+            first = load_subagents("pm", workspace_root=tmp_path)
+            # Overwrite the file on disk — the cache should still return the old content
+            (tmp_path / "agents/persona.md").write_text("CHANGED", encoding="utf-8")
+            second = load_subagents("pm", workspace_root=tmp_path)
+
+        assert first[0]["system_prompt"] == persona_content
+        assert second[0]["system_prompt"] == persona_content
+
+
+class TestCacheClear:
+    """After clear_cache(), the next load re-reads the file."""
+
+    def test_clear_causes_reread(self, tmp_path: Path):
+        _write_persona(tmp_path, "agents/persona.md", "v1")
+
+        stage_files = {
+            "pm": [
+                {
+                    "persona_file": "agents/persona.md",
+                    "name": "Helper",
+                    "description": "A helper.",
+                },
+            ],
+        }
+
+        with patch("src.config.STAGE_SUBAGENT_FILES", stage_files):
+            first = load_subagents("pm", workspace_root=tmp_path)
+            assert first[0]["system_prompt"] == "v1"
+
+            # Write new content and clear the cache
+            (tmp_path / "agents/persona.md").write_text("v2", encoding="utf-8")
+            clear_cache()
+
+            second = load_subagents("pm", workspace_root=tmp_path)
+            assert second[0]["system_prompt"] == "v2"
+
+
+class TestMissingPersonaFile:
+    """Configured persona file that doesn't exist raises FileNotFoundError."""
+
+    def test_raises_file_not_found(self, tmp_path: Path):
+        stage_files = {
+            "pm": [
+                {
+                    "persona_file": "nonexistent/missing.md",
+                    "name": "Ghost",
+                    "description": "Does not exist.",
+                },
+            ],
+        }
+
+        with patch("src.config.STAGE_SUBAGENT_FILES", stage_files):
+            with pytest.raises(FileNotFoundError, match="missing.md"):
+                load_subagents("pm", workspace_root=tmp_path)
+
+
+class TestPathTraversalGuard:
+    """Persona file path that escapes workspace root raises ValueError."""
+
+    def test_raises_value_error_for_traversal(self, tmp_path: Path):
+        # Create a nested workspace root so the traversal target stays within tmp_path
+        workspace = tmp_path / "workspace"
+        workspace.mkdir()
+
+        # Place the file one level above the workspace root but still inside tmp_path
+        outside = tmp_path / "outside.md"
+        outside.write_text("escaped", encoding="utf-8")
+
+        stage_files = {
+            "pm": [
+                {
+                    "persona_file": "../outside.md",
+                    "name": "Escaped",
+                    "description": "Path traversal attempt.",
+                },
+            ],
+        }
+
+        with patch("src.config.STAGE_SUBAGENT_FILES", stage_files):
+            with pytest.raises(ValueError, match="escapes workspace root"):
+                load_subagents("pm", workspace_root=workspace)
 
 ```
 ###  Path: `/orchestrator/tests/test_subprocess_encoding.py`

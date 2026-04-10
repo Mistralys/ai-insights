@@ -4030,6 +4030,7 @@ import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
 import { now } from '../../src/utils/timestamp.js';
 import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
+import { AGENT_NAMES } from '../../src/utils/constants.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 
 // ---------------------------------------------------------------------------
@@ -4134,6 +4135,9 @@ describe('handoff-config integration: runtime config monitoring', () => {
       expect(payload.status).toBe('READY_FOR_QA');
       expect(payload.auto_handoff).toBeDefined();
       expect(payload.auto_handoff.agent_name).toContain('QA');
+      expect(payload.auto_handoff.cc_agent_name).toBe(AGENT_NAMES['QA'].claude_code.agent_name);
+      expect(payload.auto_handoff.vs_agent_name).toBe(AGENT_NAMES['QA'].vscode.agent_name);
+      expect(payload.auto_handoff.da_agent_name).toBe(AGENT_NAMES['QA'].deep_agents.agent_name);
     });
 
     it('auto_handoff is absent after writing auto_handoff_enabled: false to config', async () => {
@@ -6649,6 +6653,7 @@ import { tmpdir } from 'os';
 import * as _internal from '../../src/tools/workflow.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
+import { AGENT_NAMES } from '../../src/utils/constants.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
@@ -7338,6 +7343,164 @@ describe('WP-005 R7: auto_handoff_depth lifecycle', () => {
     const after = await store.readRootIndex();
     expect(after.auto_handoff_depth).toBe(0); // reset on synthesis completion
     expect(after.synthesis_generated).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff payload
+// ---------------------------------------------------------------------------
+
+describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', () => {
+  let tempDir: string;
+  let agentDir: string;
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    resetRegistry();
+    tempDir = await mkdtemp(join(tmpdir(), '2026-04-08-wp003-'));
+    agentDir = await mkdtemp(join(tmpdir(), 'wp003-agents-'));
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'ledger-root-wp003-'));
+    store = new LedgerStore(tempDir, tempLedgerRoot);
+    await store.writeRootIndex(makeRoot({ auto_handoff_depth: 0 }));
+  });
+
+  afterEach(async () => {
+    resetRegistry();
+    await rm(tempDir, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('PM → Developer: auto_handoff includes cc_agent_name, vs_agent_name, da_agent_name (AC #1)', async () => {
+    await writeAgentFile(agentDir, '3-dev.agent.md', AGENT_NAMES['Developer'].vscode.agent_name, 'Developer');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+    );
+
+    const names = AGENT_NAMES['Developer'];
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.cc_agent_name).toBe(names.claude_code.agent_name);
+    expect(result.auto_handoff.vs_agent_name).toBe(names.vscode.agent_name);
+    expect(result.auto_handoff.da_agent_name).toBe(names.deep_agents.agent_name);
+  });
+
+  it('Developer → QA: auto_handoff includes cc_agent_name, vs_agent_name, da_agent_name (AC #1)', async () => {
+    await writeAgentFile(agentDir, '4-qa.agent.md', AGENT_NAMES['QA'].vscode.agent_name, 'QA');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getDeveloperHandoff(
+        [makeWp('WP-001', [{ type: 'implementation', status: 'PASS' }])],
+        tempDir,
+        store,
+      ),
+    );
+
+    const names = AGENT_NAMES['QA'];
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.cc_agent_name).toBe(names.claude_code.agent_name);
+    expect(result.auto_handoff.vs_agent_name).toBe(names.vscode.agent_name);
+    expect(result.auto_handoff.da_agent_name).toBe(names.deep_agents.agent_name);
+  });
+
+  it('QA → Reviewer: auto_handoff includes all three target-specific names (AC #1)', async () => {
+    await writeAgentFile(agentDir, '6-reviewer.agent.md', AGENT_NAMES['Reviewer'].vscode.agent_name, 'Reviewer');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getQaHandoff(
+        [makeWp('WP-001', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ])],
+        tempDir,
+        store,
+      ),
+    );
+
+    const names = AGENT_NAMES['Reviewer'];
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.cc_agent_name).toBe(names.claude_code.agent_name);
+    expect(result.auto_handoff.vs_agent_name).toBe(names.vscode.agent_name);
+    expect(result.auto_handoff.da_agent_name).toBe(names.deep_agents.agent_name);
+  });
+
+  it('existing agent_name is still present and equals the VS Code handle (AC #2)', async () => {
+    await writeAgentFile(agentDir, '3-dev.agent.md', AGENT_NAMES['Developer'].vscode.agent_name, 'Developer');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe(AGENT_NAMES['Developer'].vscode.agent_name);
+  });
+
+  it('existing agent_id is still present when agent file has an id field (AC #3)', async () => {
+    const agentId = 'ledger-3-dev';
+    const content = `---\nname: ${AGENT_NAMES['Developer'].vscode.agent_name}\nrole: Developer\nid: ${agentId}\n---\n\n# Agent`;
+    await writeFile(join(agentDir, '3-dev.agent.md'), content, 'utf8');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_id).toBe(agentId);
+  });
+
+  it('no existing fields removed — agent_name, agent_id, prompt, and three new names coexist (AC #4)', async () => {
+    const agentId = 'ledger-3-dev';
+    const content = `---\nname: ${AGENT_NAMES['Developer'].vscode.agent_name}\nrole: Developer\nid: ${agentId}\n---\n\n# Agent`;
+    await writeFile(join(agentDir, '3-dev.agent.md'), content, 'utf8');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    // Pre-existing fields
+    expect(result.auto_handoff.agent_name).toBeDefined();
+    expect(result.auto_handoff.agent_id).toBeDefined();
+    expect(result.auto_handoff.prompt).toBeDefined();
+    // New fields (WP-003)
+    expect(result.auto_handoff.cc_agent_name).toBeDefined();
+    expect(result.auto_handoff.vs_agent_name).toBeDefined();
+    expect(result.auto_handoff.da_agent_name).toBeDefined();
+  });
+
+  it('vs_agent_name differs from cc_agent_name and da_agent_name (structural sanity)', async () => {
+    await writeAgentFile(agentDir, '3-dev.agent.md', AGENT_NAMES['Developer'].vscode.agent_name, 'Developer');
+    await discoverAgents(agentDir);
+
+    const result = await parseResult(
+      getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+    );
+
+    expect(result.auto_handoff).toBeDefined();
+    // VS Code names include a version suffix ("3 - Developer v3.x.x") whereas
+    // Claude Code / Deep Agents names are slugified ("3-developer").
+    expect(result.auto_handoff.vs_agent_name).not.toBe(result.auto_handoff.cc_agent_name);
+    expect(result.auto_handoff.vs_agent_name).not.toBe(result.auto_handoff.da_agent_name);
+  });
+
+  it('three new fields are absent when auto_handoff is suppressed (registry not loaded)', async () => {
+    // Deliberately do NOT call discoverAgents — registry stays unloaded.
+    const result = await parseResult(
+      getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+    );
+
+    // auto_handoff itself will be absent; the new fields must not appear on the root payload either.
+    expect(result.auto_handoff).toBeUndefined();
+    expect(result.cc_agent_name).toBeUndefined();
+    expect(result.vs_agent_name).toBeUndefined();
+    expect(result.da_agent_name).toBeUndefined();
   });
 });
 

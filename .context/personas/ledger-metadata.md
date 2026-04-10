@@ -29,6 +29,7 @@ model_slug: "claude-opus-4-6"
 vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
+da_file_name: 1-planner.md
 version: "1.3.2"
 last_updated: "2026-03-04"
 tools:
@@ -57,6 +58,7 @@ model_slug: "claude-opus-4-6"
 vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
+da_file_name: 2-project-manager.md
 version: "3.6.2"
 last_updated: "2026-04-08"
 
@@ -95,6 +97,7 @@ role: Developer
 vs_file_name: 3-dev.agent.md
 id: ledger-3-dev
 cc_file_name: 3-developer.md
+da_file_name: 3-developer.md
 version: "3.6.2"
 last_updated: "2026-04-08"
 
@@ -142,6 +145,7 @@ role: QA
 vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
+da_file_name: 4-qa.md
 version: "3.6.1"
 last_updated: "2026-04-08"
 
@@ -187,6 +191,7 @@ role: Security Auditor
 vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
+da_file_name: 5-security-auditor.md
 version: "3.6.2"
 last_updated: "2026-04-08"
 
@@ -230,8 +235,9 @@ mcp_tools:
 number: 6
 role: Reviewer
 vs_file_name: 6-reviewer.agent.md
-id: ledger-5-reviewer
+id: ledger-6-reviewer
 cc_file_name: 6-reviewer.md
+da_file_name: 6-reviewer.md
 version: "3.6.1"
 last_updated: "2026-04-08"
 
@@ -277,6 +283,7 @@ role: Release Engineer
 vs_file_name: 7-release-engineer.agent.md
 id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
+da_file_name: 7-release-engineer.md
 version: "3.7.2"
 last_updated: "2026-04-08"
 
@@ -320,8 +327,9 @@ mcp_tools:
 number: 8
 role: Documentation
 vs_file_name: 8-docs.agent.md
-id: ledger-6-docs
+id: ledger-8-docs
 cc_file_name: 8-documentation.md
+da_file_name: 8-documentation.md
 version: "3.6.1"
 last_updated: "2026-04-08"
 
@@ -369,8 +377,9 @@ mcp_tools:
 number: 9
 role: Synthesis
 vs_file_name: 9-synthesis.agent.md
-id: ledger-7-synthesis
+id: ledger-9-synthesis
 cc_file_name: 9-synthesis.md
+da_file_name: 9-synthesis.md
 version: "3.5.3"
 last_updated: "2026-03-04"
 

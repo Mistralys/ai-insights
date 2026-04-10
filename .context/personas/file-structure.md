@@ -32,6 +32,16 @@ _SOURCE: Directory tree_
         │   ├── 7-release-engineer.md
         │   ├── 8-documentation.md
         │   ├── 9-synthesis.md
+        ├── deep-agents/
+        │   ├── 1-planner.md
+        │   ├── 2-project-manager.md
+        │   ├── 3-developer.md
+        │   ├── 4-qa.md
+        │   ├── 5-security-auditor.md
+        │   ├── 6-reviewer.md
+        │   ├── 7-release-engineer.md
+        │   ├── 8-documentation.md
+        │   ├── 9-synthesis.md
         ├── src/
         │   ├── content/
         │   │   ├── 1-planner.md
@@ -56,6 +66,7 @@ _SOURCE: Directory tree_
         │   │   ├── _shared.yaml
         │   ├── partials/
         │   │   └── handoff-block-claude-code.md
+        │   │   └── handoff-block-deep-agents.md
         │   │   └── handoff-block-vscode.md
         │   │   └── incident-logging.md
         │   │   └── mcp-intro.md
@@ -77,6 +88,7 @@ _SOURCE: Directory tree_
         │   └── 8-docs.agent.md
         │   └── 9-synthesis.agent.md
     └── module-context.yaml
+    └── name-mapping.json
     └── package-lock.json
     └── package.json
     └── persona-build.config.js
@@ -118,6 +130,25 @@ _SOURCE: Directory tree_
             ├── ctx-architect.md
             ├── dependency-sequencer.md
             ├── developer-standalone.md
+            ├── ledger-bootstrapper.md
+            ├── manifest-curator.md
+            ├── module-intent-architect.md
+            ├── orchestrator-runner.md
+            ├── pipeline-configurator.md
+            ├── readme-curator.md
+            ├── researcher.md
+            ├── unit-test-auditor.md
+            ├── whatsnew-curator.md
+            ├── workflow-doctor.md
+            ├── workflow-orchestrator.md
+            ├── wp-decomposer.md
+        └── deep-agents/
+            ├── agents-md-curator.md
+            ├── changelog-curator.md
+            ├── composer-curator.md
+            ├── ctx-architect.md
+            ├── dependency-sequencer.md
+            ├── developer.md
             ├── ledger-bootstrapper.md
             ├── manifest-curator.md
             ├── module-intent-architect.md

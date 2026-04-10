@@ -52,6 +52,26 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 | `src/nodes/docs.py` | `make_docs_node` | Calls `ledger_begin_work`, updates docs, handles auto-finalize |
 | `src/nodes/synthesis.py` | `make_synthesis_node` | Calls `ledger_complete_synthesis`, writes `synthesis.md` |
 
+### Subagent Configuration
+
+The `pm` stage is the only stage that delegates sub-tasks to specialised subagents. Subagent support is wired through `create_stage_node()` via three components:
+
+- **`STAGE_SUBAGENT_FILES`** in `src/config.py` — a statically-maintained map of graph stage name → list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to a deep-agents persona Markdown file), `name` (display name used by the main agent when calling the task tool), and `description` (delegation guidance). It is not derived from `workflow-manifest.json` — add entries manually when a stage requires subagent delegation.
+
+- **`load_subagents(stage, workspace_root)`** in `src/utils/subagents.py` — reads and caches the persona content from each configured `persona_file` and returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt`). Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Applies a path containment guard; raises `FileNotFoundError` for missing files. Results are cached per `(stage, name)` for the process lifetime.
+
+- **`create_stage_node()` call site** — `load_subagents()` is called inside every `node_fn` before `create_deep_agent()`. When the returned list is non-empty, it is forwarded as `subagents=list`; when empty it is forwarded as `subagents=None`. This means non-PM stages are not affected by the subagent mechanism — they simply receive `subagents=None`.
+
+**Currently configured subagents:**
+
+| Stage | Subagent | Persona file |
+|-------|----------|-------------|
+| `pm` | WP Decomposer | `personas/standalone/deep-agents/wp-decomposer.md` |
+
+**To add a subagent to a stage:** append an entry to `STAGE_SUBAGENT_FILES` in `src/config.py`. The orchestrator picks it up automatically on the next run — no other Python changes needed. Ensure the referenced persona file exists in the `personas/*/deep-agents/` directory; the build system generates these from source templates in `personas/*/src/`.
+
+> **Note:** `STAGE_SUBAGENT_FILES` does not mirror the manifest pattern used by `PERSONA_FILES`. A future improvement would be to add a `"subagents"` array to each role entry in `shared/workflow-manifest.json` so the config derives automatically — see Constraint 18 in `orchestrator/docs/agents/project-manifest/constraints.md`.
+
 ### Pipeline Rollback (Orphaned Pipeline Cleanup)
 
 When a stage node raises an exception *after* `ledger_begin_work` was called, the MCP ledger contains an orphaned `IN_PROGRESS` pipeline. Without cleanup, the next run attempt for the same WP receives a "duplicate in-progress pipeline" error from the MCP server.
@@ -660,7 +680,8 @@ For the expected `variables` dict for each template (required vs optional fields
 | `NEXT_STAGE_MAP` | `src.config` | `dict[str, str]` — graph stage → next stage in sequential order (e.g. `'developer'` → `'qa'`). Derived from manifest. |
 | `STAGE_TO_PIPELINE` | `src.config` | `dict[str, str]` — graph stage name → pipeline type it owns. Derived from manifest. |
 | `PIPELINE_TO_STAGE` | `src.config` | `dict[str, str]` — inverse of `STAGE_TO_PIPELINE`. Derived from manifest. |
-| `PERSONA_FILES` | `src.config` | `dict[str, str]` — stage ID → relative path to persona Markdown. Derived from manifest. |
+| `PERSONA_FILES` | `src.config` | `dict[str, str]` — stage ID → relative path to the deep-agents persona Markdown. Derived from `persona_file_deep_agents` in `shared/workflow-manifest.json` roles. All 9 roles are expected to carry this field; its optionality in the JSON Schema is for backward-compatibility only. |
+| `STAGE_SUBAGENT_FILES` | `src.config` | `dict[str, list[dict[str, str]]]` — maps graph stage names to a list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative deep-agents path), `name` (display name passed to `create_deep_agent()`), and `description` (delegation guidance). Stages absent from the map receive `subagents=None`. **Statically maintained** — not derived from `workflow-manifest.json`; update manually when a stage requires subagent delegation. Currently defines one entry: `"pm"` → WP Decomposer (`personas/standalone/deep-agents/wp-decomposer.md`). |
 | `PIPELINE_TYPES` | `src.config` | `tuple[str, ...]` — valid pipeline type names in canonical execution order. Derived from manifest. |
 
 ## Utilities
@@ -673,6 +694,8 @@ For the expected `variables` dict for each template (required vs optional fields
 | `load_persona(stage)` | `src.utils.persona` | Reads and caches the persona Markdown for a given stage. |
 | `parse_plan(path)` | `src.utils.plan_parser` | Extracts title, summary, and content from a plan `.md` file. Returns `PlanMetadata`. |
 | `parse_tool_response(raw)` | `src.utils.mcp_parse` | Parses an MCP tool response into a usable Python object. Handles `langchain-mcp-adapters` content-block lists, JSON strings, ToolMessage objects, and direct dicts. Returns `dict \| list \| str \| None`. |
+| `load_subagents(stage, workspace_root)` | `src.utils.subagents` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt`) for *stage* by reading persona content from the configured `persona_file` paths in `STAGE_SUBAGENT_FILES`. Returns `[]` for stages absent from the map. Applies a path containment guard (raises `ValueError` on traversal). Raises `FileNotFoundError` for missing persona files. Results cached per `(stage, name)` for the process lifetime. |
+| `clear_cache()` | `src.utils.subagents` | Clears the in-memory subagent `(stage, name)` cache. For test use only. |
 | `WorkflowLogger` | `src.utils.logging` | JSONL + console logger. Use `WorkflowLogger.create(label=...)` context manager. `stream_entry(entry)` writes a pre-built log-entry dict to the JSONL file and emits rich, event-type-specific console output for 9 named action types: `stage_start`, `stage_complete` (with duration + token count), `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`, `dialogue_captured` (formatted as `[{stage}] {wp_id} dialogue saved → {filename}`), and `tool_call` (formatted as `[{stage}] 🔧 {tool_name} ({tool_wp_id})`, parenthetical omitted when `tool_wp_id` is empty); all other event types fall through to the generic `action → result` format. `log(...)` writes a freeform entry and emits a generic console line. `flush_unstreamed(run_log)` compares the count of entries already persisted via `stream_entry` against the full `run_log` list from the LangGraph state, and writes any un-persisted tail entries — this is the end-of-run safety net called by `cli.py` to guarantee JSONL completeness even when `get_run_logger()` returned `None` inside graph nodes. |
 | `lock_exclusive(fd)` | `src.utils.filelock` | Acquire a non-blocking exclusive lock on an open file descriptor. Raises `OSError` on contention. Uses `msvcrt.locking` on Windows, `fcntl.flock` on Unix. **Windows invariant:** the lock file must be opened in `'w'` mode so the file pointer stays at 0. **Not re-entrant on Windows:** calling twice on the same fd without an intervening `unlock` raises `OSError(EACCES)`. |
 | `unlock(fd)` | `src.utils.filelock` | Release the lock on an open file descriptor. Silently swallows `OSError` if the fd is not locked (idempotent). |

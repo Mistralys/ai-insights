@@ -22,7 +22,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 1,
       "orchestrating": true,
       "pipeline": null,
-      "persona_file": "personas/ledger/claude-code/1-planner.md"
+      "persona_file": "personas/ledger/claude-code/1-planner.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/1-planner.md"
     },
     {
       "id": "pm",
@@ -30,7 +31,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 2,
       "orchestrating": false,
       "pipeline": null,
-      "persona_file": "personas/ledger/claude-code/2-project-manager.md"
+      "persona_file": "personas/ledger/claude-code/2-project-manager.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/2-project-manager.md"
     },
     {
       "id": "developer",
@@ -38,7 +40,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 3,
       "orchestrating": false,
       "pipeline": "implementation",
-      "persona_file": "personas/ledger/claude-code/3-developer.md"
+      "persona_file": "personas/ledger/claude-code/3-developer.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/3-developer.md"
     },
     {
       "id": "qa",
@@ -46,7 +49,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 4,
       "orchestrating": false,
       "pipeline": "qa",
-      "persona_file": "personas/ledger/claude-code/4-qa.md"
+      "persona_file": "personas/ledger/claude-code/4-qa.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/4-qa.md"
     },
     {
       "id": "security_auditor",
@@ -54,7 +58,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 5,
       "orchestrating": false,
       "pipeline": "security-audit",
-      "persona_file": "personas/ledger/claude-code/5-security-auditor.md"
+      "persona_file": "personas/ledger/claude-code/5-security-auditor.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/5-security-auditor.md"
     },
     {
       "id": "reviewer",
@@ -62,7 +67,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 6,
       "orchestrating": false,
       "pipeline": "code-review",
-      "persona_file": "personas/ledger/claude-code/6-reviewer.md"
+      "persona_file": "personas/ledger/claude-code/6-reviewer.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/6-reviewer.md"
     },
     {
       "id": "release_engineer",
@@ -70,7 +76,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 7,
       "orchestrating": false,
       "pipeline": "release-engineering",
-      "persona_file": "personas/ledger/claude-code/7-release-engineer.md"
+      "persona_file": "personas/ledger/claude-code/7-release-engineer.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/7-release-engineer.md"
     },
     {
       "id": "docs",
@@ -78,7 +85,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 8,
       "orchestrating": false,
       "pipeline": "documentation",
-      "persona_file": "personas/ledger/claude-code/8-documentation.md"
+      "persona_file": "personas/ledger/claude-code/8-documentation.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/8-documentation.md"
     },
     {
       "id": "synthesis",
@@ -86,7 +94,8 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "number": 9,
       "orchestrating": true,
       "pipeline": null,
-      "persona_file": "personas/ledger/claude-code/9-synthesis.md"
+      "persona_file": "personas/ledger/claude-code/9-synthesis.md",
+      "persona_file_deep_agents": "personas/ledger/deep-agents/9-synthesis.md"
     }
   ],
 
@@ -168,7 +177,7 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
       "uniqueItems": true,
       "items": {
         "type": "object",
-        "required": ["id", "name", "number", "orchestrating", "pipeline", "persona_file"],
+        "required": ["id", "name", "number", "orchestrating", "pipeline", "persona_file", "persona_file_deep_agents"],
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -200,7 +209,12 @@ _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuse
           "persona_file": {
             "type": "string",
             "minLength": 1,
-            "description": "Relative path from the workspace root to the role's VS Code persona file"
+            "description": "Relative path from the workspace root to the role's Claude Code persona file"
+          },
+          "persona_file_deep_agents": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relative path from the workspace root to the role's deep-agents persona file"
           }
         }
       }

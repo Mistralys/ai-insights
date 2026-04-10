@@ -11,6 +11,7 @@ _SOURCE: Top-level directory tree_
 └── discussions/
     ├── 2026-02-26-ui-agentic-techniques.md
     ├── 2026-03-01-future-without-libraries.md
+    ├── 2026-04-08-subagents-manifest-key-design.md
     ├── documentation-audit.md
     ├── loading-mcp-tools-explained.md
     ├── prompt-clarity.md
@@ -21,6 +22,9 @@ _SOURCE: Top-level directory tree_
     │       ├── README.md
     │   └── project-manifest/
     │       ├── README.md
+    │   └── projects/
+    │       ├── agent-name-map.md
+    │       ├── parallelization.md
     │   └── references/
     │       └── langgraph-deep-agents-subagent-handbook.md
 └── history/
@@ -217,6 +221,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── persona.py
     │   │   └── persona_models.py
     │   │   └── plan_parser.py
+    │   │   └── subagents.py
     │   │   └── subprocess_encoding.py
     │   │   └── tool_wrappers.py
     ├── tests/
@@ -235,6 +240,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
     │   └── test_state.py
+    │   └── test_subagents.py
     │   └── test_subprocess_encoding.py
     │   └── test_supervisor.py
     │   └── test_tool_wrappers.py
@@ -257,6 +263,16 @@ _SOURCE: Top-level directory tree_
     │   │   ├── 7-release-engineer.md
     │   │   ├── 8-documentation.md
     │   │   ├── 9-synthesis.md
+    │   ├── deep-agents/
+    │   │   ├── 1-planner.md
+    │   │   ├── 2-project-manager.md
+    │   │   ├── 3-developer.md
+    │   │   ├── 4-qa.md
+    │   │   ├── 5-security-auditor.md
+    │   │   ├── 6-reviewer.md
+    │   │   ├── 7-release-engineer.md
+    │   │   ├── 8-documentation.md
+    │   │   ├── 9-synthesis.md
     │   ├── vs-code/
     │   │   └── 1-planner.agent.md
     │   │   └── 2-pm.agent.md
@@ -268,6 +284,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── 8-docs.agent.md
     │   │   └── 9-synthesis.agent.md
     ├── module-context.yaml
+    ├── name-mapping.json
     ├── package-lock.json
     ├── package.json
     ├── persona-build.config.js
@@ -309,6 +326,25 @@ _SOURCE: Top-level directory tree_
     │       ├── ctx-architect.md
     │       ├── dependency-sequencer.md
     │       ├── developer-standalone.md
+    │       ├── ledger-bootstrapper.md
+    │       ├── manifest-curator.md
+    │       ├── module-intent-architect.md
+    │       ├── orchestrator-runner.md
+    │       ├── pipeline-configurator.md
+    │       ├── readme-curator.md
+    │       ├── researcher.md
+    │       ├── unit-test-auditor.md
+    │       ├── whatsnew-curator.md
+    │       ├── workflow-doctor.md
+    │       ├── workflow-orchestrator.md
+    │       ├── wp-decomposer.md
+    │   └── deep-agents/
+    │       ├── agents-md-curator.md
+    │       ├── changelog-curator.md
+    │       ├── composer-curator.md
+    │       ├── ctx-architect.md
+    │       ├── dependency-sequencer.md
+    │       ├── developer.md
     │       ├── ledger-bootstrapper.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md

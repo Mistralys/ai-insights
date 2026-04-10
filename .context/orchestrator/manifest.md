@@ -255,7 +255,22 @@ helpers to avoid a PyYAML dependency.
 |--------|-----------|-------------|
 | `Config` | `@dataclass Config` | Immutable configuration bundle populated by `load_config()`. Key fields: `stage_models` (`dict[str, str]`) — map of stage name → model slug for the run (populated from persona YAML by `extract_persona_model_slugs()`); `max_iterations`, `checkpoint_dir`, `mcp_server_cmd`, `workspace_root`, `log_level`, `heartbeat_interval_s`, `capture_dialogues`. |
 | `Config.resolve_model_for_stage` | `resolve_model_for_stage(stage: str) -> str` | Returns the model slug for *stage* from `Config.stage_models`. Raises `KeyError` when *stage* is not present — this is a programming error (all valid stages must be populated at config load time by `extract_persona_model_slugs()`). Called by `create_stage_node()` **before** the try block so that an unrecognised stage name fails loudly rather than producing a silent `stage_error` log entry. |
+| `STAGE_SUBAGENT_FILES` | `dict[str, list[dict[str, str]]]` | Module-level constant. Maps graph stage names to a list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to the subagent's persona Markdown file), `name` (display name passed to `create_deep_agent()`), and `description` (delegation guidance). Stages absent from the map receive `subagents=None`. **Statically maintained** — not derived from `workflow-manifest.json`. See [Constraint 18](#18-stage_subagent_files-is-manually-maintained-not-manifest-derived) for the rationale and future improvement path. Currently defines one entry: `"pm"` → WP Decomposer. |
 
+
+---
+
+### `src/utils/subagents.py`
+
+Builds SubAgent spec dicts for stages that delegate sub-tasks to specialised subagents.
+Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()` is called.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `load_subagents` | `load_subagents(stage: str, workspace_root: Path \| str) -> list[dict[str, Any]]` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt` keys) for *stage*. Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Reads persona file content and joins it as `system_prompt`. Applies a path containment guard: raises `ValueError` if the resolved persona path escapes *workspace_root*. Raises `FileNotFoundError` if a configured persona file is missing. Results cached per `(stage, name)` pair for the process lifetime — repeated calls within a run (e.g. multi-plan PM runs) skip disk I/O. |
+| `clear_cache` | `clear_cache() -> None` | Clears the in-memory `(stage, name)` cache. For test use only. |
+
+---
 
 Three defensive wrappers applied to every MCP tool in a stage node. **Canonical application order:**
 
@@ -642,9 +657,41 @@ python3 -m ruff check .
 
 ---
 
+### 18. `STAGE_SUBAGENT_FILES` Is Manually Maintained — Not Manifest-Derived
+
+**Rule:** `STAGE_SUBAGENT_FILES` in `src/config.py` is a static, hand-edited constant. Unlike `PERSONA_FILES`, `AGENT_ROLES`, and `PIPELINE_ROLE_NAMES` — which are all derived from `shared/workflow-manifest.json` at import time — `STAGE_SUBAGENT_FILES` has no counterpart in the manifest and must be updated manually whenever a new stage requires subagent delegation.
+
+**Rationale:** The workflow manifest currently has no `subagents` field on role entries. The manual constant is an explicit interim design decision made at WP-013 implementation time, chosen to avoid adding a new schema field prematurely. The Developer's own in-source comment acknowledges this.
+
+**To add a subagent to a new stage:** Append an entry to `STAGE_SUBAGENT_FILES` with the correct `persona_file`, `name`, and `description` keys. No manifest change is required.
+
+**Future improvement path:** Add a `"subagents"` array to each role entry in `shared/workflow-manifest.json` and derive `STAGE_SUBAGENT_FILES` from `_roles` at import time (consistent with how `PERSONA_FILES` is built). This would make the manifest the single source of truth for all per-stage agent configuration. Validate against `shared/workflow-manifest.schema.json` and regenerate `AGENT_ROLES` / `KNOWN_ROLES` via the existing validation scripts.
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — treating STAGE_SUBAGENT_FILES as manifest-derived (it is not)
+STAGE_SUBAGENT_FILES = {r["id"]: r["subagents"] for r in _roles}  # KeyError: no such field
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — static map; update manually when adding stages with subagent delegation
+STAGE_SUBAGENT_FILES: dict[str, list[dict[str, str]]] = {
+    "pm": [
+        {
+            "persona_file": "personas/standalone/deep-agents/wp-decomposer.md",
+            "name": "WP Decomposer",
+            "description": "Analyze a plan document and decompose it into atomic, actionable Work Package definitions.",
+        },
+    ],
+}
+```
+
+---
+
 ## Model Configuration Constraints
 
-### 18. Model Selection Is Persona-Driven — No MODEL_NAME
+### 19. Model Selection Is Persona-Driven — No MODEL_NAME
 
 **Rule:** The orchestrator must never read a `MODEL_NAME` environment variable or accept a `--model` CLI flag for LLM model selection. Each stage's model slug is resolved exclusively via `Config.resolve_model_for_stage(stage)`, which reads from `Config.stage_models`. That dict is populated once at startup by `extract_persona_model_slugs()` from `personas/ledger/src/meta/` YAML files (`model_slug` per-persona, falling back to `default_model_slug` in `_shared.yaml`). The resolved model is passed directly to `create_deep_agent()` and logged in every `stage_start`, `stage_complete`, and `stage_error` JSONL entry.
 
