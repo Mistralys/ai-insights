@@ -48,6 +48,7 @@ documents:
           - 'build/'
           - '.git/'
           - 'orchestrator/logs/'
+          - 'orchestrator/dist/'
           - 'orchestrator/checkpoints/'
 
   - description: 'AI Insights - Scripts'

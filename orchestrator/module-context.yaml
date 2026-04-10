@@ -58,6 +58,7 @@ documents:
           - 'checkpoints/'
           - '*.pyc'
           - 'logs/'
+          - 'dist/'
 
   - description: 'Orchestrator - Core Source'
     outputPath: 'orchestrator/source-core.md'

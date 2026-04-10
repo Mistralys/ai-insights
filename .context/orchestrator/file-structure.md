@@ -13,16 +13,6 @@ _SOURCE: Directory tree_
         ├── requires.txt
         ├── top_level.txt
     └── changelog.md
-    └── dist/
-        ├── stage-prompts/
-        │   └── developer.md
-        │   └── docs.md
-        │   └── pm.md
-        │   └── qa.md
-        │   └── release_engineer.md
-        │   └── reviewer.md
-        │   └── security_auditor.md
-        │   └── synthesis.md
     └── docs/
         ├── agents/
         │   ├── project-manifest/

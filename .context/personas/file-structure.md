@@ -66,7 +66,7 @@ _SOURCE: Directory tree_
         │   │   ├── _shared.yaml
         │   ├── partials/
         │   │   └── handoff-block-claude-code.md
-        │   │   └── handoff-block-deep-agents.md
+        │   │   └── handoff-block-manual.md
         │   │   └── handoff-block-vscode.md
         │   │   └── incident-logging.md
         │   │   └── mcp-intro.md
