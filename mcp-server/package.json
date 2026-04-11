@@ -12,6 +12,7 @@
     "pretest": "node ../scripts/build-personas.js && node ../scripts/build-personas.js --check",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "check:roles": "node ../scripts/check-known-roles.js",
     "gui": "tsx gui/server.ts"
   },
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/proper-lockfile": "^4.1.4",
+    "@vitest/coverage-v8": "^4.0.18",
     "jsdom": "^29.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

@@ -1,99 +1,93 @@
 # Orchestrator Changelog
 
+## v0.14.0 - Streaming Dialogue Capture
+- Utils: Added chunk writer for raw stream capture to JSONL files.
+- ChunkWriter: Versioned headers, immediate-flush writes, revision numbering.
+- Tests: +42 new tests (825 total, 0 failures).
+- Docs: Updated public API and README.
+
 ## v0.13.0 - Deep-Agents Persona Files & Subagent Wiring
-- Config: `PERSONA_FILES` now derives from `persona_file_deep_agents` in `workflow-manifest.json`,
-  loading deep-agents persona files for all 9 orchestrator stages.
-- Config: Added `STAGE_SUBAGENT_FILES` map defining per-stage subagent persona file paths.
-- Utils: Added `subagents.py` — `load_subagents()` reads deep-agents persona content and returns
-  `SubAgent` spec dicts; results cached per `(stage, name)` pair with `clear_cache()` for tests.
-- Nodes: PM stage node passes loaded subagents to `create_deep_agent()`; all other stages
-  receive `subagents=None` with no change to their behaviour.
+- Config: Persona files now derived from workflow manifest deep-agents paths.
+- Config: Added per-stage subagent file path mapping.
+- Utils: Added subagent loader with per-stage caching.
+- Nodes: PM stage passes loaded subagents to the deep agent creator.
 - Tests: +19 net new tests (783 total, 0 failures).
 
 ## v0.12.0 - Per-Stage Model Configuration
-- Config: Replaced global `MODEL_NAME` env var with persona-metadata-driven
-  per-stage model selection via `Config.stage_models`.
-- Config: `load_config()` validates that all 9 manifest roles have a resolved
-  model slug at startup; raises `OSError` on mismatch.
-- Config: API key env reads now `.strip()` whitespace before validation.
-- Utils: Added `extract_persona_model_slugs()` — reads `model_slug` from
-  per-persona YAML and `default_model_slug` from `_shared.yaml`.
-- Nodes: `resolve_model_for_stage()` called before `create_deep_agent()` in
-  every stage node; resolved model logged in `stage_start`, `stage_complete`,
-  and `stage_error` JSONL entries.
+- Config: Replaced global model setting with per-stage persona-driven selection.
+- Config: Startup validation ensures all 9 roles have a resolved model.
+- Config: API key values now trimmed of whitespace.
+- Utils: Added persona model slug extraction from YAML metadata.
+- Nodes: Resolved model logged in stage lifecycle events.
 - CLI: Removed `--model` flag (superseded by persona metadata).
 - Tests: +25 net new tests (770 total, 0 failures).
 
 ## v0.11.1 - Fatal Error Handling
-- CLI: Fixed fatal exceptions not halting iteration loop.
-- Nodes: Removed cross-WP guard exception trace from logs.
+- CLI: Fixed fatal exceptions not halting the iteration loop.
+- Nodes: Removed noisy cross-WP guard exception traces from logs.
 
 ## v0.11.0 - Template Engine, Cross-WP Guards & Windows Support
-- Nodes: Stage prompts migrated to a Markdown template engine with partials
-  and variable substitution.
-- Nodes: Post-completion guard prevents cross-WP escape after pipeline
-  completion.
+- Nodes: Stage prompts migrated to Markdown template engine with partials.
+- Nodes: Post-completion guard prevents cross-WP escape after pipeline ends.
 - Nodes: Error-path dialogue capture preserves partial transcripts on crash.
-- Nodes: All agent nodes now inherit the machine environment.
-- ToolWrappers: Added real-time tool-call JSONL event logging.
+- Nodes: Agent nodes now inherit the machine environment.
+- ToolWrappers: Added real-time tool-call event logging.
 - ToolWrappers: Cross-WP writes soft-fail twice then hard-kill; reads exempt.
 - Utils: Added Windows subprocess-encoding support.
 - Supervisor: Clears active WP when routing to synthesis.
-- Fixed langchain type compatibility and aiosql handling issues.
+- Fix: Resolved langchain type compatibility and aiosql handling issues.
 
 ## v0.10.0 - Resilience Overhaul
-- Nodes: Stage crash triggers pipeline rollback and emits a `pipeline_rollback` event.
-- Nodes: `restrict_to_wp()` auto-injects missing `work_package_id` instead of passing through silently.
-- Nodes: Stage prompts include a CRITICAL WP ID scope reminder.
-- Supervisor: Auto-cancels circuit-broken WPs (≥3 failures) before routing to synthesis.
-- CLI: Terminal marker prevents re-execution of completed runs via `--resume`.
-- CLI: UUID collision guard regenerates thread ID on checkpoint DB conflicts.
+- Nodes: Stage crash triggers pipeline rollback with a JSONL event.
+- Nodes: Missing work package ID now auto-injected on tool calls.
+- Nodes: Stage prompts include a critical WP ID scope reminder.
+- Supervisor: Auto-cancels circuit-broken WPs before routing to synthesis.
+- CLI: Terminal marker prevents re-execution of completed runs.
+- CLI: UUID collision guard on checkpoint DB conflicts.
 - Tests: +31 new tests; 526 passing.
 
 ## v0.9.7 - WP Guard & CLI Resilience
-- ToolWrappers: Added `restrict_to_wp()` — rejects tool calls targeting a different work package.
-- ToolWrappers: `inject_project_path()` strips `cwd_path` to avoid mutual-exclusivity errors.
+- ToolWrappers: Added cross-WP tool call rejection guard.
+- ToolWrappers: Fixed path injection mutual-exclusivity error.
 - ToolWrappers: Fixed tool call argument handling errors.
-- Nodes: Stage node factory applies `restrict_to_wp()` after `inject_project_path()`.
-- Nodes: Extracted shared `build_stage_prompt()` helper; all eight node builders now use it.
-- CLI: Fixed stale lock file left behind after a crashed or interrupted run.
+- Nodes: Consolidated stage prompt construction across all node builders.
+- CLI: Fixed stale lock file left behind after crashes.
 - CLI: Suppressed asyncio deprecation warning.
-- Supervisor: Removed noisy warning messages emitted during normal operation.
+- Supervisor: Removed noisy warnings during normal operation.
 - Tests: Expanded tool-wrapper and node test suites.
 
 ## v0.9.6 - Slim Orchestrator Node Prompts
-- Nodes: Removed redundant identity, workflow steps, and tool guidance from all eight node prompts.
-- Nodes: Each `_build_*_prompt()` now includes only runtime context the persona cannot know.
-- Tests: Updated assertions to reflect slim prompt format.
+- Nodes: Removed redundant identity and workflow guidance from prompts.
+- Nodes: Prompts now include only runtime context the persona cannot know.
+- Tests: Updated assertions for slim prompt format.
 
 ## v0.9.5 - Defaults & Heartbeat
-- Config: `capture_dialogues` default changed from `False` to `True`.
-- Config: Added `heartbeat_interval_s` setting (default 120 s).
-- Logging: Added heartbeat emitter — sends periodic alive signals during quiet periods.
-- Supervisor: Added `dry_run` mode for stub-based runs without a ledger.
-- Dialogues: Folder relocated to `{slug}/orchestrator/dialogues/`.
-- CLI: Run log archival now targets `{slug}/orchestrator/logs/`.
+- Config: Dialogue capture now enabled by default.
+- Config: Added heartbeat interval setting (default 120 s).
+- Logging: Added heartbeat emitter for periodic alive signals.
+- Supervisor: Added dry-run mode for stub-based runs.
+- Dialogues: Folder relocated to project storage directory.
+- CLI: Run log archival now targets project storage directory.
 
 ## v0.9.4 - Run Log Archival to Ledger Storage
-- CLI: Run logs moved into the project's ledger storage folder on completion.
-- Docs: Updated architecture and log-schema docs to reflect the new log location.
+- CLI: Run logs moved into the project ledger storage on completion.
+- Docs: Updated architecture and log-schema docs for new log location.
 
 ## v0.9.3 - Dialogue Capture Integration
-- Nodes: Agent dialogue exchanges serialised to Markdown and saved to ledger storage per stage.
-- Nodes: Emits a `dialogue_captured` JSONL event after each successful capture.
-- Logging: Added `dialogue_captured` console-line rendering.
-- Docs: Updated JSONL log schema with `file_path` field and `dialogue_captured` event.
+- Nodes: Agent dialogues serialised to Markdown and saved per stage.
+- Nodes: Emits a dialogue-captured event after each successful capture.
+- Logging: Added dialogue-captured console rendering.
+- Docs: Updated JSONL log schema with dialogue capture event.
 - Tests: +9 tests; 455 passing.
 
 ## v0.9.2 - Dialogue Writer Utility
-- Utils: Added dialogue writer — serialises LangChain message sequences to Markdown.
-- Tests: 39 tests covering all message types, revision numbering, and filesystem isolation.
-- Docs: Documented `CAPTURE_DIALOGUES` env var and dialogue writer public API.
+- Utils: Added dialogue writer for message sequence serialisation.
+- Tests: 39 tests covering all message types and revision numbering.
+- Docs: Documented dialogue capture env var and writer public API.
 
 ## v0.9.1 - Dialogue Capture Flag
-- Config: Added `capture_dialogues: bool` field to `Config` dataclass (default `False`).
-- Config: `CAPTURE_DIALOGUES` env var enables dialogue capture when set to `true`, `1`, or `yes` (case-insensitive).
-- Docs: Added `CAPTURE_DIALOGUES` to the environment variable reference and `.env.example`.
+- Config: Added dialogue capture toggle (default off).
+- Docs: Added env var reference and example configuration.
 
 ## v0.9.0 - Tool Wrapper Fix
 - Fix: Fixed tool wrapper input argument handling.
@@ -116,31 +110,28 @@
 - Tests: Added stage lifecycle and pipeline result test suites.
 
 ## v0.6.0 - Windows Cross-Platform Fix
-- Fix: Replaced `import fcntl` with a cross-platform `filelock` module; orchestrator now starts on Windows.
-- Core: Added stdlib-only `filelock` module with platform-specific locking for Unix and Windows.
-- Tests: Added 3 platform-agnostic file-lock unit tests.
+- Fix: Replaced Unix-only file locking with cross-platform module.
+- Core: Added stdlib-only file lock with per-platform implementations.
+- Tests: Added 3 platform-agnostic file-lock tests.
 - Docs: Created project manifest documentation.
 
 ## v0.5.0 - Checkpoint Support & Stability
 - Core: Added checkpoint support for resumable runs.
-- CLI: Added concurrency guard to prevent parallel runs against the same plan.
+- CLI: Added concurrency guard to prevent parallel runs.
 - CLI: Improved PM phase feedback.
-- Fix: Fixed sqlite imports.
-- Fix: Fixed a runtime bug in tool wrappers.
-- Fix: Fixed async runtime errors in graph builder and checkpointer.
+- Fix: Fixed sqlite imports, tool wrapper bug, and async runtime errors.
 - Tests: Added tool wrapper tests.
 
 ## v0.4.0 - Manifest-Driven Configuration
-- Config: Pipeline routing constants now derived from `shared/workflow-manifest.json` at startup.
-- Supervisor: Updated routing to align with manifest-defined role and pipeline definitions.
-- Tests: Added config test suite covering manifest-derived constants.
-- Tests: Expanded supervisor routing test coverage.
+- Config: Pipeline routing now derived from workflow manifest at startup.
+- Supervisor: Routing aligned with manifest-defined role and pipeline maps.
+- Tests: Added config and expanded supervisor routing test suites.
 - Docs: Added CTX Generator module context file.
 
 ## v0.3.0 - Nine-Stage Pipeline Support
-- Nodes: Added stub implementations for the security auditor and release engineer stages.
-- Config: Extended pipeline routing to include `security-audit` and `release-engineering` stages.
-- Docs: Updated README and architecture documentation to reflect the expanded 9-stage pipeline.
+- Nodes: Added security auditor and release engineer stage stubs.
+- Config: Extended pipeline routing for two new stages.
+- Docs: Updated README and architecture docs for 9-stage pipeline.
 
 ## v0.2.1 - Documentation Structure
 - Docs: Updated and split READMEs for clarity.
@@ -150,12 +141,11 @@
 - Scripts: Replaced the primary execution script.
 
 ### Breaking Changes
-This release moves all execution responsibility to the ledger. Previous local execution patterns are superseded.
+This release moves all execution responsibility to the ledger.
+Previous local execution patterns are superseded.
 
 ## v0.1.1 - Logic Cycle Stabilization
-- Logic: Fixed issues in the third logic cycle execution.
+- Core: Fixed issues in the third logic cycle execution.
 
 ## v0.1.0 - Initial Release
-- Core: Initial implementation of the LangGraph-based pipeline.
-- Core: Completed post-development rework and stabilization.
-- Config: Updated `.env.example`.
+- Core: Initial LangGraph-based pipeline implementation.

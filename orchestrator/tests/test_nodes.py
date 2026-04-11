@@ -14,9 +14,12 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessageChunk
+
+from src.utils.chunk_writer import ChunkWriter
 
 # ---------------------------------------------------------------------------
 # Minimal config stub
@@ -75,11 +78,25 @@ def base_state(
 # ---------------------------------------------------------------------------
 
 def _make_agent_mock(response: str = "Done.") -> MagicMock:
-    """Return a mock compiled Deep Agent that returns *response* as last message."""
-    msg = MagicMock()
-    msg.content = response
+    """Return a mock compiled Deep Agent that streams *response* as a single AIMessageChunk.
+
+    The node now uses ``astream(stream_mode="messages", subgraphs=True)`` which
+    yields ``(ns_tuple, (msg, metadata))`` 2-tuples.  Each ``AIMessageChunk``
+    carries a stable ``id`` so the accumulator merges fragments correctly.
+    """
+    chunk = AIMessageChunk(
+        content=response,
+        id="mock-msg-id",
+        usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+    )
+    stream_items = [((), (chunk, {"langgraph_node": "agent"}))]
+
+    async def _astream(*args: Any, **kwargs: Any):
+        for item in stream_items:
+            yield item
+
     agent = MagicMock()
-    agent.ainvoke = AsyncMock(return_value={"messages": [msg]})
+    agent.astream = _astream
     return agent
 
 
@@ -336,17 +353,16 @@ class TestPMNodePromptIncludesPlanContent:
 
         captured_prompt: list[str] = []
 
-        async def async_fake_invoke(inputs):
-            """Capture the prompt from the first message."""
-            captured_prompt.append(inputs["messages"][0]["content"])
-            msg = MagicMock()
-            msg.content = "PM done."
-            return {"messages": [msg]}
-
         def fake_agent(*args, **kwargs):
-            """Return a mock agent that captures prompt via ainvoke."""
+            """Return a mock agent that captures prompt via astream."""
+            async def _astream(inputs, *a, **kw):
+                """Capture the prompt from the first message and yield a chunk."""
+                captured_prompt.append(inputs["messages"][0]["content"])
+                chunk = AIMessageChunk(content="PM done.", id="pm-msg-id")
+                yield ((), (chunk, {"langgraph_node": "agent"}))
+
             agent = MagicMock()
-            agent.ainvoke = AsyncMock(side_effect=async_fake_invoke)
+            agent.astream = _astream
             return agent
 
         node_fn = make_pm_node(FAKE_CONFIG, FAKE_TOOLS)
@@ -563,7 +579,11 @@ class TestToolWrappingInNode:
         def _fake_create_agent(**kwargs: Any) -> MagicMock:
             tools_passed_to_agent.extend(kwargs.get("tools", []))
             agent = MagicMock()
-            agent.ainvoke = AsyncMock(return_value={"messages": [MagicMock(content="done")]})
+
+            async def _astream(inputs, *a, **kw):
+                yield ((), (AIMessageChunk(content="done", id="tid"), {"langgraph_node": "agent"}))
+
+            agent.astream = _astream
             return agent
 
         with _patch_persona(), \
@@ -899,38 +919,40 @@ class TestPipelineResult:
 # ---------------------------------------------------------------------------
 
 
-class _CaptureConfig:
-    """Config stub with capture_dialogues=True."""
-    stage_models = {
-        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
-        "reviewer": "claude-test", "security_auditor": "claude-test",
-        "docs": "claude-test", "release_engineer": "claude-test",
-        "synthesis": "claude-test", "planner": "claude-test",
-    }
-    workspace_root = Path(__file__).resolve().parent.parent.parent
-    capture_dialogues = True
-
-    def resolve_model_for_stage(self, stage: str) -> str:
-        return self.stage_models.get(stage, "claude-test")
+# _CaptureConfig and _NoCaptureConfig are defined in conftest.py;
+# imported explicitly below due to this directory being a Python package.
+from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
 
 
-class _NoCaptureConfig:
-    """Config stub with capture_dialogues=False."""
-    stage_models = {
-        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
-        "reviewer": "claude-test", "security_auditor": "claude-test",
-        "docs": "claude-test", "release_engineer": "claude-test",
-        "synthesis": "claude-test", "planner": "claude-test",
-    }
-    workspace_root = Path(__file__).resolve().parent.parent.parent
-    capture_dialogues = False
+def _make_mock_chunk_writer(path: Path = Path("/tmp/WP-001-developer-r0.jsonl")) -> MagicMock:
+    """Return a MagicMock ChunkWriter whose .path property returns *path*."""
+    mock_cw = MagicMock()
+    mock_cw.path = path
+    mock_cw.write_chunk = MagicMock()
+    mock_cw.close = MagicMock()
+    return mock_cw
 
-    def resolve_model_for_stage(self, stage: str) -> str:
-        return self.stage_models.get(stage, "claude-test")
+
+def _patch_chunk_writer(
+    path: Path = Path("/tmp/WP-001-developer-r0.jsonl"),
+) -> Any:
+    """Patch src.nodes.ChunkWriter to return a mock that avoids real I/O."""
+    mock_cw = _make_mock_chunk_writer(path)
+    return patch("src.nodes.ChunkWriter", return_value=mock_cw)
 
 
 class TestDialogueCaptured:
-    """dialogue_captured must appear in run_log when capture_dialogues=True."""
+    """dialogue_captured must appear in run_log when capture_dialogues=True.
+
+    Only one dialogue_captured event is emitted per successful stage:
+    format="chunks" — for the JSONL chunk file written during streaming.
+    The Markdown dialogue file render was removed; the chunk JSONL is the
+    sole durable source of truth.
+
+    ChunkWriter is patched in all sub-tests to avoid real filesystem I/O.
+    """
+
+    _CHUNK_PATH = Path("/tmp/WP-001-developer-r0.jsonl")
 
     async def _invoke_with_capture(self, capture: bool, wp_id: str = "WP-001") -> dict:
         from src.nodes.developer import make_developer_node
@@ -939,33 +961,49 @@ class TestDialogueCaptured:
         node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
         create_p, backend_p = _patch_deep_agent()
         with _patch_persona(), create_p, backend_p, \
-             patch(
-                 "src.nodes.write_dialogue",
-                 return_value=Path("/tmp/WP-001-developer-r0.md"),
-             ), \
-             patch(
-                 "src.nodes.serialize_messages_to_markdown",
-                 return_value="# Dialogue",
-             ):
+             _patch_chunk_writer(self._CHUNK_PATH):
             return await node_fn(base_state(current_wp_id=wp_id))
 
     async def test_dialogue_captured_emitted_when_flag_true(self):
-        """dialogue_captured must appear in run_log when capture_dialogues=True."""
+        """At least one dialogue_captured entry must appear when capture_dialogues=True."""
         result = await self._invoke_with_capture(capture=True)
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert dc_entries, "dialogue_captured entry expected in run_log when capture_dialogues=True"
 
+    async def test_chunk_dialogue_captured_has_format_chunks(self):
+        """The chunk dialogue_captured entry must carry format='chunks'."""
+        result = await self._invoke_with_capture(capture=True)
+        chunk_entries = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("format") == "chunks"
+        ]
+        assert chunk_entries, "chunk dialogue_captured entry (format='chunks') expected"
+        entry = chunk_entries[0]
+        assert entry.get("file_path"), "chunk dialogue_captured must have a non-empty file_path"
+        assert entry.get("level") == "INFO"
+        assert entry.get("wp_id") == "WP-001"
+
+    async def test_no_markdown_dialogue_captured(self):
+        """No Markdown dialogue_captured entry (without format key) must be emitted."""
+        result = await self._invoke_with_capture(capture=True)
+        md_entries = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and "format" not in e
+        ]
+        assert not md_entries, "Markdown dialogue_captured entry must NOT be emitted"
+
     async def test_dialogue_captured_has_required_fields(self):
-        """dialogue_captured entry must have action, stage, wp_id, file_path, level."""
+        """All dialogue_captured entries must have action, stage, wp_id, file_path, level."""
         result = await self._invoke_with_capture(capture=True)
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert dc_entries, "dialogue_captured entry missing"
-        entry = dc_entries[0]
-        assert entry["action"] == "dialogue_captured"
-        assert "stage" in entry
-        assert "wp_id" in entry
-        assert entry.get("file_path"), "file_path must be a non-empty string"
-        assert entry.get("level") == "INFO"
+        for entry in dc_entries:
+            assert entry["action"] == "dialogue_captured"
+            assert "stage" in entry
+            assert "wp_id" in entry
+            assert entry.get("file_path"), "file_path must be a non-empty string"
+            assert entry.get("level") == "INFO"
+            assert entry.get("format") == "chunks", "all dialogue_captured entries must have format='chunks'"
 
     async def test_dialogue_captured_not_emitted_when_flag_false(self):
         """No dialogue_captured entry when capture_dialogues=False."""
@@ -979,100 +1017,70 @@ class TestDialogueCaptured:
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
 
-    async def test_write_dialogue_failure_does_not_affect_stage_success(self):
-        """A PermissionError (or any exception) from write_dialogue must not
-        cause stage_success=False or propagate as an exception."""
-        from src.nodes.developer import make_developer_node
-
-        cfg = _CaptureConfig()
-        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
-        create_p, backend_p = _patch_deep_agent()
-        with _patch_persona(), create_p, backend_p, \
-             patch(
-                 "src.nodes.serialize_messages_to_markdown",
-                 return_value="# Dialogue",
-             ), \
-             patch(
-                 "src.nodes.write_dialogue",
-                 side_effect=PermissionError("disk full"),
-             ):
-            result = await node_fn(base_state(current_wp_id="WP-001"))
-
-        assert result["stage_success"] is True, (
-            "write_dialogue failure must not set stage_success=False"
-        )
-        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear in run_log when write_dialogue raises"
-        )
-
 
 # ---------------------------------------------------------------------------
-# Tests: error-path dialogue capture (WP-002)
+# Tests: error-path — no Markdown dialogue capture
 # ---------------------------------------------------------------------------
 
 
-class TestErrorPathDialogueCapture:
-    """Error-path dialogue capture: partial dialogue written when stage crashes
-    after agent.ainvoke() populates _msgs."""
+class TestErrorPathNoMarkdownDialogue:
+    """After removing the Markdown dialogue render, the error path must NOT
+    produce any Markdown dialogue_captured events.  The chunk file (already
+    on disk from streaming) is the sole capture artefact."""
 
     class _BrokenMsg:
-        """Message stub whose .content access raises, simulating a post-ainvoke crash."""
+        """Message stub whose .content access raises, simulating a post-stream crash."""
 
         @property
         def content(self) -> str:
-            raise RuntimeError("Simulated failure in success path after ainvoke")
+            raise RuntimeError("Simulated failure in success path after stream")
 
         usage_metadata = None
+
+        def model_dump(self) -> dict:
+            return {}
 
     async def _invoke_with_post_ainvoke_error(
         self, capture: bool = True, wp_id: str = "WP-001"
     ) -> dict:
-        """Invoke developer node where agent.ainvoke() returns messages but
-        subsequent .content access raises, driving the except path."""
         from src.nodes.developer import make_developer_node
 
         cfg = _CaptureConfig() if capture else _NoCaptureConfig()
         node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
 
+        broken = self._BrokenMsg()
+
+        async def _astream(inputs, *args, **kwargs):
+            yield ((), (broken, {"langgraph_node": "agent"}))
+
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(
-            return_value={"messages": [self._BrokenMsg()]}
-        )
+        agent_mock.astream = _astream
 
         with _patch_persona(), \
              patch("deepagents.create_deep_agent", return_value=agent_mock), \
              patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
-             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+             _patch_chunk_writer():
             return await node_fn(base_state(current_wp_id=wp_id))
 
-    async def test_dialogue_captured_when_msgs_populated(self):
-        """dialogue_captured must appear in run_log (partial=True) on the error
-        path when _msgs contains messages collected before the crash."""
+    async def test_no_partial_markdown_on_error_path(self):
+        """No partial Markdown dialogue_captured event must appear on the error path."""
         result = await self._invoke_with_post_ainvoke_error()
-
-        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert dc_entries, (
-            "dialogue_captured must appear in run_log when _msgs is non-empty on error path"
+        partial_entries = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("partial") is True
+        ]
+        assert not partial_entries, (
+            "Error-path Markdown dialogue_captured (partial=True) must NOT appear "
+            "after Markdown render removal"
         )
-        entry = dc_entries[0]
-        assert entry.get("partial") is True, (
-            "Error-path dialogue_captured entry must have partial=True"
-        )
-        assert entry.get("level") == "INFO"
-        assert entry.get("wp_id") == "WP-001"
-        assert entry.get("file_path"), "file_path must be a non-empty string"
 
-    async def test_stage_fails_even_when_partial_dialogue_written(self):
-        """Stage must still return stage_success=False when error-path dialogue is written."""
+    async def test_stage_fails_on_error_path(self):
+        """Stage must still return stage_success=False on the error path."""
         result = await self._invoke_with_post_ainvoke_error()
-
         assert result["stage_success"] is False
 
     async def test_no_dialogue_when_msgs_empty(self):
-        """No dialogue_captured when exception occurs before agent.ainvoke()
-        (empty _msgs — e.g. create_deep_agent raises)."""
+        """No dialogue_captured when exception occurs before astream()."""
         from src.nodes.developer import make_developer_node
 
         cfg = _CaptureConfig()
@@ -1084,64 +1092,26 @@ class TestErrorPathDialogueCapture:
                  side_effect=RuntimeError("Pre-ainvoke crash"),
              ), \
              patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
-             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+             _patch_chunk_writer():
             result = await node_fn(base_state(current_wp_id="WP-001"))
 
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert not dc_entries, (
-            "dialogue_captured must NOT appear when _msgs is empty (exception before ainvoke)"
+            "dialogue_captured must NOT appear when _msgs is empty (exception before astream)"
         )
         assert result["stage_success"] is False
-
-    async def test_error_path_dialogue_failure_is_non_fatal(self):
-        """write_dialogue failure on the error path must not crash the stage or
-        change the returned stage_success or error values."""
-        from src.nodes.developer import make_developer_node
-
-        cfg = _CaptureConfig()
-        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
-
-        agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(
-            return_value={"messages": [self._BrokenMsg()]}
-        )
-
-        with _patch_persona(), \
-             patch("deepagents.create_deep_agent", return_value=agent_mock), \
-             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
-             patch(
-                 "src.nodes.write_dialogue",
-                 side_effect=PermissionError("disk full"),
-             ), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
-            result = await node_fn(base_state(current_wp_id="WP-001"))
-
-        # Stage must still return stage_success=False (original error preserved).
-        assert result["stage_success"] is False
-        # No dialogue_captured entry because write_dialogue raised.
-        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear when write_dialogue raises on error path"
-        )
 
     async def test_no_dialogue_when_capture_flag_false(self):
         """Error-path dialogue capture must respect capture_dialogues=False."""
         result = await self._invoke_with_post_ainvoke_error(capture=False)
-
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear when capture_dialogues=False"
-        )
+        assert not dc_entries, "dialogue_captured must not appear when capture_dialogues=False"
 
     async def test_no_dialogue_when_wp_id_empty(self):
         """Error-path dialogue capture must not fire when wp_id is empty."""
         result = await self._invoke_with_post_ainvoke_error(wp_id="")
-
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear when wp_id is empty"
-        )
+        assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
 
 
 # ---------------------------------------------------------------------------
@@ -1151,28 +1121,43 @@ class TestErrorPathDialogueCapture:
 
 class TestSlugDerivation:
     """create_stage_node must use Path(project_path_obj).name to derive the slug,
-    which handles trailing-slash paths and pathlib.Path-typed inputs correctly."""
+    which handles trailing-slash paths and pathlib.Path-typed inputs correctly.
+
+    Slug derivation is verified via the ChunkWriter constructor args, since
+    Markdown dialogue render was removed and ChunkWriter is the only consumer
+    of slug_dir in the node's success path.
+    """
 
     async def _invoke_and_capture_slug_dir(self, project_path: Any) -> list[Path]:
         """Invoke developer node with the given project_path; return every
-        slug_dir passed to write_dialogue."""
+        slug_dir passed to ChunkWriter."""
         from src.nodes.developer import make_developer_node
 
         captured_slug_dirs: list[Path] = []
 
-        # write_dialogue(content, slug_dir, wp_id, stage) — positional signature.
-        def _fake_write_dialogue(
-            content: str, slug_dir: Path, wp_id: str, stage: str
-        ) -> Path:
+        _original_init = ChunkWriter.__init__
+
+        def _tracking_init(self_cw, slug_dir, wp_id, stage):
             captured_slug_dirs.append(slug_dir)
-            return slug_dir / f"{wp_id}-{stage}-r0.md"
+            # Call the mock's path property setup
+            self_cw._path = Path("/tmp") / f"{wp_id}-{stage}-r0.jsonl"
+            self_cw._closed = False
+            self_cw._fh = None
+
+        mock_cw = MagicMock(spec=ChunkWriter)
+        mock_cw.path = Path("/tmp/WP-001-developer-r0.jsonl")
+
+        def _fake_chunk_writer(slug_dir, wp_id, stage):
+            captured_slug_dirs.append(slug_dir)
+            m = MagicMock()
+            m.path = Path("/tmp") / f"{wp_id}-{stage}-r0.jsonl"
+            return m
 
         cfg = _CaptureConfig()
         node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
         create_p, backend_p = _patch_deep_agent()
         with _patch_persona(), create_p, backend_p, \
-             patch("src.nodes.write_dialogue", side_effect=_fake_write_dialogue), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Dialogue"):
+             patch("src.nodes.ChunkWriter", side_effect=_fake_chunk_writer):
             await node_fn(base_state(project_path=project_path, current_wp_id="WP-001"))
 
         return captured_slug_dirs
@@ -1182,7 +1167,7 @@ class TestSlugDerivation:
         slug_dirs = await self._invoke_and_capture_slug_dir(
             "/some/ledger/root/2026-03-20-my-project/"
         )
-        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        assert slug_dirs, "ChunkWriter was not called (capture_dialogues must be True)"
         # slug_dir is workspace_root / "mcp-server" / "storage" / "ledger" / slug
         # — the last component must be the project slug, not an empty string.
         assert slug_dirs[0].name == "2026-03-20-my-project", (
@@ -1194,7 +1179,7 @@ class TestSlugDerivation:
         slug_dirs = await self._invoke_and_capture_slug_dir(
             Path("/some/ledger/root/2026-03-20-my-project")
         )
-        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        assert slug_dirs, "ChunkWriter was not called (capture_dialogues must be True)"
         assert slug_dirs[0].name == "2026-03-20-my-project", (
             f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
         )
@@ -1473,7 +1458,7 @@ class TestPipelineRollback:
 
         # Fake agent: calls ledger_begin_work (to trigger the tracker),
         # then raises RuntimeError to exercise the rollback path.
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             # Call begin_work via the tool reference which, after node_fn runs
             # inject_project_path + restrict_to_wp + _install_begin_work_tracker,
             # points to the tracker-wrapped ainvoke.
@@ -1481,9 +1466,11 @@ class TestPipelineRollback:
                 {"type": "implementation", "work_package_id": "WP-001"}
             )
             raise RuntimeError("Simulated agent crash after begin_work")
+            # unreachable — satisfies async generator requirement
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -1515,11 +1502,12 @@ class TestPipelineRollback:
         tools = [begin_work_tool, cancel_tool]
 
         # Fake agent: crashes immediately without calling begin_work.
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             raise RuntimeError("Simulated crash without begin_work")
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -1544,14 +1532,15 @@ class TestPipelineRollback:
         cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
         tools = [begin_work_tool, cancel_tool]
 
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             await begin_work_tool.ainvoke(
                 {"type": "implementation", "work_package_id": "WP-001"}
             )
             raise RuntimeError("crash")
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -1583,14 +1572,15 @@ class TestPipelineRollback:
         )
         tools = [begin_work_tool, cancel_tool]
 
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             await begin_work_tool.ainvoke(
                 {"type": "implementation", "work_package_id": "WP-001"}
             )
             raise RuntimeError("Original agent crash")
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",

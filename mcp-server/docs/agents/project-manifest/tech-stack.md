@@ -27,6 +27,7 @@
 |---------|---------|---------|
 | `@types/node` | ^22.10.5 | Node.js type definitions |
 | `@types/proper-lockfile` | ^4.1.4 | Type definitions for proper-lockfile |
+| `@vitest/coverage-v8` | ^4.0.18 | V8-based code coverage reporter for vitest |
 | `jsdom` | ^29.0.0 | DOM implementation for GUI tests |
 | `tsx` | ^4.19.2 | TypeScript execution for development |
 | `typescript` | ^5.7.2 | TypeScript compiler |

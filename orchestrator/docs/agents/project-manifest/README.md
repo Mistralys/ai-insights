@@ -38,7 +38,10 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Routing Logic** | [supervisor-routing.md](../../supervisor-routing.md) | Deterministic supervisor algorithm, special exits, action sets, circuit-breaker mechanics |
 | **Public API Surface** | [public-api.md](../../public-api.md) | CLI entry point, graph construction, supervisor factory, utility functions |
 | **Constraints & Conventions** | [project-manifest/constraints.md](constraints.md) | Numbered constraints and conventions governing orchestrator development: prompt architecture rules, LLM boundaries, circuit-breaker, cross-platform policy |
-| **API Surface (manifest)** | [project-manifest/api-surface.md](api-surface.md) | Quick-reference: 16 JSONL event types, enriched fields, `_format_duration`, `parse_tool_response`, progress-tracking state fields |
+| **API Surface (manifest)** | [project-manifest/api-surface.md](api-surface.md) | Quick-reference: JSONL event types, enriched fields, `ChunkWriter`, `_format_duration`, `parse_tool_response`, progress-tracking state fields |
+| **Data Flows** | [project-manifest/data-flows.md](data-flows.md) | Dialogue capture, chunk writing, chunk rendering, chunk discovery flows |
+| **File Tree** | [project-manifest/file-tree.md](file-tree.md) | Annotated file listing for all orchestrator source files |
+| **Tech Stack** | [project-manifest/tech-stack.md](tech-stack.md) | Runtime, dependencies (incl. `langgraph>=1.1,<2.0`), architectural patterns |
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
 
@@ -48,7 +51,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Graph framework | LangGraph ≥0.4 | StateGraph-based workflow with deterministic routing |
+| Graph framework | LangGraph ≥1.1,<2.0 | StateGraph-based workflow with deterministic routing |
 | Agent execution | Deep Agents ≥0.3 (via LangChain) | Coding-agent execution within each pipeline stage |
 | MCP integration | langchain-mcp-adapters ≥0.2 | Wraps MCP tools for LangChain tool interface |
 | LLM providers | langchain-anthropic / langchain-google-genai | Claude (Anthropic) or Gemini (Google) |
@@ -87,8 +90,11 @@ orchestrator/
 │   ├── agents/
 │   │   └── project-manifest/
 │   │       ├── README.md       # ← You are here
+│   │       ├── api-surface.md  # JSONL event types, enriched fields, ChunkWriter, utility refs
 │   │       ├── constraints.md  # Numbered constraint catalogue (11 rules)
-│   │       └── api-surface.md  # JSONL event types, enriched fields, utility refs
+│   │       ├── data-flows.md   # Dialogue capture, chunk writing, chunk rendering flows
+│   │       ├── file-tree.md    # Annotated file listing
+│   │       └── tech-stack.md   # Runtime, dependencies, architectural patterns
 │   ├── architecture.md         # Stage nodes, state management, log types
 │   ├── supervisor-routing.md   # Routing algorithm, exits, circuit-breaker
 │   ├── public-api.md           # Public functions and entry points
