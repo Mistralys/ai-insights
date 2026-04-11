@@ -143,8 +143,8 @@ PERSONA_FILES: dict[str, str] = {r["id"]: r["persona_file_deep_agents"] for r in
 STAGE_SUBAGENT_FILES: dict[str, list[dict[str, str]]] = {
     "pm": [
         {
-            "persona_file": "personas/standalone/deep-agents/wp-decomposer.md",
-            "name": "WP Decomposer",
+            "persona_file": "personas/standalone/deep-agents/ledger-wp-decomposer.md",
+            "name": "Ledger WP Decomposer",
             "description": (
                 "Analyze a plan document and decompose it into atomic, "
                 "actionable Work Package definitions."
