@@ -6,6 +6,8 @@
 
 You receive a plan document and break it down into atomic, well-scoped Work Package definitions. Each WP must be implementable in a single focused session by a single agent. You do not implement anything — you ONLY analyze and decompose.
 
+{{> pm-subagent-roster}}
+
 ---
 
 ## Inputs

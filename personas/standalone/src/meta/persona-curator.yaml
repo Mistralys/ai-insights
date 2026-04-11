@@ -1,0 +1,18 @@
+slug: persona-curator
+name: "Persona Curator"
+description: "Create, audit, and maintain AI agent personas according to the Persona Design Guide."
+vs_file_name: persona-curator.agent.md
+id: standalone-persona-curator
+cc_file_name: persona-curator.md
+version: "1.0.0"
+last_updated: "2026-04-11"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

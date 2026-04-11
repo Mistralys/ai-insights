@@ -53,17 +53,17 @@ You will be provided with:
 3. **Invoke WP Decomposer sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
-   - `agentName`: `"{{agent_wp_decomposer}}"`
+   - `agentName`: `"{{agent_ledger_wp_decomposer}}"`
    - `description`: `"Decompose plan into work packages"`
    - `prompt`: the full plan document content, project name, and any explicit scope/phasing notes
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
-   - `subagent`: `"{{agent_slug_wp_decomposer}}"`
+   - `subagent`: `"{{agent_slug_ledger_wp_decomposer}}"`
    - `task`: the full plan document content, project name, and any explicit scope/phasing notes.
 {{else}}
-   Call the **{{agent_wp_decomposer}}** subagent with: the full plan document content, project name, and any explicit scope/phasing notes.
+   Call the **{{agent_ledger_wp_decomposer}}** subagent with: the full plan document content, project name, and any explicit scope/phasing notes.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
@@ -72,17 +72,17 @@ You will be provided with:
 4. **Invoke Dependency Sequencer sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
-   - `agentName`: `"{{agent_dependency_sequencer}}"`
+   - `agentName`: `"{{agent_ledger_dependency_sequencer}}"`
    - `description`: `"Map WP dependencies and execution order"`
    - `prompt`: the WP definitions received from the WP Decomposer
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
-   - `subagent`: `"{{agent_slug_dependency_sequencer}}"`
+   - `subagent`: `"{{agent_slug_ledger_dependency_sequencer}}"`
    - `task`: the WP definitions received from the WP Decomposer.
 {{else}}
-   Call the **{{agent_dependency_sequencer}}** subagent with: the WP definitions received from the WP Decomposer.
+   Call the **{{agent_ledger_dependency_sequencer}}** subagent with: the WP definitions received from the WP Decomposer.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
@@ -91,17 +91,17 @@ You will be provided with:
 5. **Invoke Pipeline Configurator sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
-   - `agentName`: `"{{agent_pipeline_configurator}}"`
+   - `agentName`: `"{{agent_ledger_pipeline_configurator}}"`
    - `description`: `"Configure pipeline stages per work package"`
    - `prompt`: the WP definitions and dependency graph from prior sub-agents
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
-   - `subagent`: `"{{agent_slug_pipeline_configurator}}"`
+   - `subagent`: `"{{agent_slug_ledger_pipeline_configurator}}"`
    - `task`: the WP definitions and dependency graph from prior sub-agents.
 {{else}}
-   Call the **{{agent_pipeline_configurator}}** subagent with: the WP definitions and dependency graph from prior sub-agents.
+   Call the **{{agent_ledger_pipeline_configurator}}** subagent with: the WP definitions and dependency graph from prior sub-agents.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.

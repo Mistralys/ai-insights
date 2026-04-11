@@ -8,6 +8,8 @@ You receive fully-specified Work Package definitions (with dependencies and pipe
 
 You are the only PM sub-agent that calls MCP tools directly.
 
+{{> pm-subagent-roster}}
+
 ---
 
 ## Inputs
