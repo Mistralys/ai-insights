@@ -61,6 +61,6 @@ You will be provided with:
 8. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"` and `synthesis_file: "synthesis.md"`. This archives the synthesis document, sets `synthesis_generated: true`, and transitions the project to `COMPLETE`.
 9. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
     ```
-    CURRENT AGENT: <current_agent from response>
-    STATUS: <status from response>
+    CURRENT AGENT: {Current agent from response}
+    STATUS: {Status from response}
     ```
