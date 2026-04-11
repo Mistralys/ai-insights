@@ -153,18 +153,18 @@ Updated `AGENTS.md` (and `CLAUDE.md` if needed) in the project root. Briefly sum
 ```markdown
 # AGENTS.md Audit Report
 
-**Date:** YYYY-MM-DD
+**Date:** {YYYY-MM-DD}
 **File:** `/AGENTS.md`
 
 ## Summary
 
-- **Sections Audited:** <number>
-- **Discrepancies Found:** <number>
-- **Severity Breakdown:** <high / medium / low counts>
+- **Sections Audited:** {COUNT}
+- **Discrepancies Found:** {COUNT}
+- **Severity Breakdown:** {HIGH_COUNT} high, {MEDIUM_COUNT} medium & {LOW_COUNT} low.
 
 ## Discrepancies
 
-### <Section Name>
+### {SECTION_NAME}
 
 | # | Type | Severity | Description |
 |---|------|----------|-------------|
@@ -178,12 +178,12 @@ Updated `AGENTS.md` (and `CLAUDE.md` if needed) in the project root. Briefly sum
 
 ## Recommendation
 
-<Brief guidance, e.g., "Run an Update pass to reconcile the 3 discrepancies found.">
+{Brief guidance, e.g., "Run an Update pass to reconcile the 3 discrepancies found."}
 ```
 
 ### Output
 
-The report is saved to `/docs/agents/audits/agents-md-audit-YYYY-MM-DD.md` and presented in chat.
+The report is saved to `/docs/agents/audits/agents-md-audit-{YYYY-MM-DD}.md` and presented in chat.
 
 ---
 

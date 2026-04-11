@@ -118,40 +118,39 @@ The user wants to know whether the manifest is still accurate, without modifying
 ```markdown
 # Manifest Audit Report
 
-**Date:** YYYY-MM-DD
+**Date:** {YYYY-MM-DD}
 **Manifest Location:** `/docs/agents/project-manifest/`
 
 ## Summary
 
-- **Sections Audited:** <number>
-- **Discrepancies Found:** <number>
-- **Severity Breakdown:** <high / medium / low counts>
+- **Sections Audited:** {COUNT}
+- **Discrepancies Found:** {COUNT}
+- **Severity Breakdown:** {HIGH_COUNT} high, {MEDIUM_COUNT} medium & {LOW_COUNT} low.
 
 ## Discrepancies
 
-### <Section Name> (`<filename>`)
+### {SECTION_NAME} (`{FILENAME}`)
 
 | # | Type | Severity | Description |
 |---|------|----------|-------------|
-| 1 | Missing | High | `OrderService` class added in `src/services/` is not documented. |
-| 2 | Stale | Medium | `UserService.GetAll()` was renamed to `UserService.ListAsync()`. |
-| 3 | Removed | Low | `LegacyHelper` is documented but was deleted from the codebase. |
+| 1 | {Missing | Stale | Removed | ...} | {High | Medium | Low} | {What is wrong and where} |
 
-<repeat for each section with discrepancies>
+{Repeat for each section with discrepancies}
 
 ## Sections Without Issues
 
-- `tech-stack.md` — Up to date.
-- `constraints.md` — Up to date.
+- `{FILE_NAME}.md` — Up to date.
 
-## Recommendation
+{Repeat for each section that was up to date.}
 
-<Brief guidance: e.g., "Run an Update pass to reconcile the 7 discrepancies found.">
+## Recommendations
+
+- {List of brief guidance on next steps, e.g. whether to run an Update pass}
 ```
 
 ### Output
 
-The report is saved to `/docs/agents/project-manifest/audit-report-YYYY-MM-DD.md` and presented in chat.
+The report is saved to `/docs/agents/project-manifest/audit-report-{YYYY-MM-DD}.md`.
 
 ---
 

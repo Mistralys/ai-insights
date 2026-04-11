@@ -117,28 +117,29 @@ Write this section to `synthesis.md` in the same folder as the provided plan doc
 ## Synthesis
 
 ### Completion Status
+- Date: {YYYY-MM-DD}
 - Status: COMPLETE
 - Completed by: Standalone Developer Agent
 
 ### Implementation Summary
-- <brief summary of what was implemented>
-- <key behavior changes or delivered features>
+- {Brief summary of what was implemented}
+- {Key behavior changes or delivered features}
 
 ### Documentation Updates
-- <docs updated and why>
-- <if none: "No documentation updates were required because ...">
+- {Docs updated and why}
+- {if none: "No documentation updates were required because ..."}
 
 ### Verification Summary
-- Tests run: <list>
-- Static analysis run: <list>
-- Result: <pass/fail summary>
+- Tests run: {LIST}
+- Static analysis run: {LIST}
+- Result: {PASS_FAIL_SUMMARY}
 
 ### Code Insights
-- [<priority>] (<type>) <file/module>: <observation and suggested follow-up>
-- [<priority>] (<type>) <file/module>: <observation and suggested follow-up>
+- [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
+- [{PRIORITY}] ({TYPE}) {FILE_OR_MODULE}: {Observation and suggested follow-up}
 
 ### Additional Comments
-- <optional notes for future maintainers>
+- {Optional notes for future maintainers}
 ```
 
 ---
