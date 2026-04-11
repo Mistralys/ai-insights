@@ -75,6 +75,9 @@ The server exposes **22 MCP tools** that agents invoke to manage project state:
          │     WP-002.json       │ ← Work package 2
          │     plan.md           │ ← Archived plan document
          │     synthesis.md      │ ← Archived synthesis report
+         │     orchestrator/     │
+         │       dialogues/      │ ← Agent dialogue capture (.md)
+         │       chunks/         │ ← Streaming chunk capture (.jsonl)
          │     ...               │
          └──────────────────────┘
 ```
@@ -104,7 +107,11 @@ The server manages three types of files, all stored under the centralized ledger
    - Artifacts (files modified, commit hashes, test results)
    - Observations and technical debt notes
 
-4. **Archived Documents** (`storage/ledger/{slug}/plan.md`, `synthesis.md`): Read-only snapshots of key project documents
+4. **Orchestrator Capture Files** (`storage/ledger/{slug}/orchestrator/`): Files written by the orchestrator during a run
+   - `orchestrator/dialogues/` — Agent dialogue files (`{WP_ID}-{stage}-r{N}.md`), written by `write_dialogue()`; served by `handleListDialogues` / `handleGetDialogueFile`
+   - `orchestrator/chunks/` — Streaming chunk capture files (`{WP_ID}-{stage}-r{N}.jsonl`), written by `ChunkWriter`; served by `handleListChunks` / `handleGetChunkFile`
+
+5. **Archived Documents** (`storage/ledger/{slug}/plan.md`, `synthesis.md`): Read-only snapshots of key project documents
    - `plan.md` — copied from the project folder when `ledger_initialize_project` is called
    - `synthesis.md` — copied when `ledger_complete_synthesis` is called
    - Both are served as formatted HTML by the GUI (`#/projects/:slug/plan` and `#/projects/:slug/synthesis`)
@@ -307,7 +314,7 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - **Pipeline progression bar** — the WP Detail view renders a "Pipeline Progression" card above the Pipelines section, showing the WP's active stages as status-colored badges; derives all data from the already-fetched WP detail (no extra API call); all stages default to pending when no pipelines have run yet
 - **Per-pipeline duration badge** — each pipeline entry in the WP Detail view shows a duration badge (e.g. `2m 15s`) when `duration_ms` is present; pipelines without timing data render without a badge (backward-compatible with older pipeline records)
 - **WP aggregate timing** — the WP Detail view displays an "Active time" total (sum of all pipeline `duration_ms` values) and a "Wall-clock" span (time from first pipeline `started_at` to last `completed_at`); the section is shown conditionally only when at least one pipeline has timing data
-- **Dialogues card** — the WP Detail view fetches and displays agent dialogue files captured by the orchestrator; dialogues are grouped by stage name with one pill button per revision; the latest revision is visually highlighted; clicking a button fetches and renders the Markdown content inline (with collapse/toggle); errors are shown inline without crashing the rest of the view; the card appears after Handoff Notes at the bottom of the page
+- **Dialogues card** — the WP Detail view fetches and displays agent dialogue files captured by the orchestrator; **chunk files (streaming capture) are preferred over Markdown dialogue files** — the view issues parallel requests for both and uses chunk data when available, falling back to Markdown dialogues for older runs that predate streaming capture; dialogues are grouped by stage name with one pill button per revision; the latest revision is visually highlighted; clicking a button fetches and renders the Markdown content inline via the `/chunks/:filename/rendered` endpoint (chunk files) or the `/dialogues/:filename` endpoint (Markdown files); collapse/toggle and error handling follow the same pattern for both content types; the card appears after Handoff Notes at the bottom of the page
 - **Project-level timing** — the Project Detail page shows a "Duration" field (elapsed time since project creation) and an "Active time" field (aggregate of all pipeline durations across all WPs); computed server-side by `handleGetProject` reading all WP detail files in parallel
 - Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - Delete completed projects permanently
@@ -325,7 +332,9 @@ The GUI backend is composed of focused utility modules in `src/gui/`:
 | `config.ts` | Reads and watches `gui-config.json`; exposes typed configuration to the API layer |
 | `auto-archive.ts` | Background job that auto-archives completed projects after a configurable delay |
 | `log-resolver.ts` | Locates and reads orchestrator run log files (JSONL); provides `resolveOrchestratorLogsDir`, `findRunLogs`, and `readLogEntries` — see below |
-| `api.ts` (dialogue handlers) | `handleListDialogues` and `handleGetDialogueFile` serve the project's `dialogues/` directory — see below |
+| `api.ts` (dialogue handlers) | `handleListDialogues` and `handleGetDialogueFile` serve the project's `orchestrator/dialogues/` directory — see below |
+| `api.ts` (chunk handlers) | `handleListChunks` and `handleGetChunkFile` serve the project's `orchestrator/chunks/` directory — see below |
+| `chunk-renderer.ts` | Pure JSONL-to-Markdown renderer; exports `renderChunksToMarkdown(jsonlContent: string): string` — no I/O, no side effects; powers the `/chunks/:filename/rendered` endpoint — see below |
 
 #### `log-resolver.ts` — Orchestrator Run Log Resolver
 
@@ -374,6 +383,78 @@ The WP Detail view includes a **Dialogues card** rendered asynchronously after t
 7. `getDialogueContent` errors render an inline `.text-danger` message. `getDialogues` errors render a `.text-danger` message inside the Dialogues card. Neither error propagates to the surrounding WP view.
 
 > **Accessibility (future):** `.dialogue-btn` buttons do not set `aria-expanded`. A future pass should toggle it alongside `.dialogue-btn-active`.
+
+#### Chunk API handlers — `GET /api/projects/:slug/chunks[?wp=WP-001]` and `GET /api/projects/:slug/chunks/:filename`
+
+Two API handlers in `gui/api.ts` expose the streaming chunk files written by the orchestrator's `ChunkWriter`. They mirror the dialogue handlers exactly, differing only in directory path and file extension.
+
+**Exported types:**
+
+```typescript
+interface ChunkEntry {
+  filename: string;  // e.g. 'WP-001-implementation-r0.jsonl'
+  wp_id:    string;  // e.g. 'WP-001' (empty string when filename does not match the convention)
+  stage:    string;  // e.g. 'implementation' (empty string when filename does not match)
+}
+```
+
+**Handlers:**
+
+- **`handleListChunks(ledgerRoot, slug, wpId?): Promise<ChunkEntry[]>`** — Returns a sorted array of `ChunkEntry` objects from `storage/ledger/{slug}/orchestrator/chunks/`. Returns `[]` when the directory is absent (ENOENT/ENOTDIR), with no error thrown. The `wp_id` and `stage` fields are parsed from the filename convention `{WP_ID}-{stage}-r{N}.jsonl`; filenames that do not match the convention produce empty strings for those fields. The optional `wpId` argument must match `WP_ID_RE = /^WP-\d+$/`; invalid values (e.g. injection attempts) silently return `[]` rather than an error. When valid, only filenames starting with `{wpId}-` are returned.
+
+- **`handleGetChunkFile(ledgerRoot, slug, filename): Promise<{ content: string }>`** — Returns the raw JSONL content of a single chunk file. Throws `ApiError NOT_FOUND` (404) when the filename is rejected by the allowlist or the file does not exist.
+
+**Security:** `handleGetChunkFile` enforces the same dual-layer path-traversal defence as `handleGetDialogueFile`:
+1. **Filename allowlist** — `CHUNK_FILENAME_RE = /^[A-Za-z0-9_-]+\.jsonl$/` rejects any filename containing `.`, `/`, spaces, or other special characters (including `..` traversal attempts).
+2. **Resolved-path escape check** — `path.resolve()` verifies the resolved file path stays inside the project's `orchestrator/chunks/` directory (defence-in-depth against symlink and encoding escapes).
+
+Both layers throw `ApiError NOT_FOUND` on violation. Rejection events are written to `console.warn` (stderr only — STDIO discipline preserved).
+
+**Cross-language coupling:** `CHUNKS_DIR = 'orchestrator/chunks' as const` (exported from `src/utils/constants.ts`) must exactly match the path used by the Python orchestrator's `ChunkWriter`. Changing either side without updating the other will break chunk file discovery.
+
+#### `chunk-renderer.ts` — JSONL-to-Markdown renderer
+
+A pure TypeScript module (no I/O, no side effects) that converts a raw JSONL chunk file into rendered Markdown. Imported directly by `server.ts` to back the `/rendered` endpoint — there is no separate HTTP handler; the composition happens inline in the route dispatcher:
+
+```typescript
+handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
+  content: renderChunksToMarkdown(content),
+}))
+```
+
+**Public API:**
+
+- **`renderChunksToMarkdown(jsonlContent: string): string`** — Parses a JSONL chunk file produced by the Python `ChunkWriter`, merges token-level `AIMessageChunk` data into complete messages (accumulating `content`, `tool_calls`, and `usage_metadata`), groups messages by namespace (main agent first, then sub-agents under `### Subagent:` headings), and renders Markdown consistent with the orchestrator's `serialize_messages_to_markdown()` output format.
+
+**JSONL format (chunk_format: 1):**
+
+Each file begins with a header line (`{"chunk_format": 1, ...}`) followed by one event per line. Events may arrive in two equivalent wire shapes:
+- **Object shape:** `{"ns": namespace, "msg": AIMessageChunk.model_dump(), "metadata": {...}}`
+- **Array shape:** `[namespace, AIMessageChunk.model_dump(), metadata]`
+
+Both shapes are normalised to a common internal representation before processing.
+
+**Routing:** `GET /api/projects/:slug/chunks/:filename/rendered`
+- `rest.length === 5`, `rest[2] === 'chunks'`, `rest[4] === 'rendered'`
+- Placed before the `/:filename` route (rest.length 4) in `server.ts` for visual grouping; because the two routes have *different* `rest.length` values, the dispatcher can never confuse them — placement is purely cosmetic.
+- Returns `{ content: string }` — the rendered Markdown string.
+- Inherits all security guards from `handleGetChunkFile` (CHUNK_FILENAME_RE allowlist + path-prefix escape check).
+
+#### GUI Frontend — Chunks card (`views/work-package.js`)
+
+The WP Detail view's **Dialogues card** was updated in WP-006 to prefer streaming chunk files over Markdown dialogue files. Two new methods on the `API` object (in `api-client.js`) back the chunk path:
+
+- **`API.getChunks(slug, wpId)`** — `GET /api/projects/:slug/chunks?wp={wpId}`. Returns a parsed JSON array of `{ filename, stage, wp_id }` objects (`ChunkEntry[]`). Always appends `?wp=`, consistent with `getDialogues`.
+- **`API.getChunkRendered(slug, filename)`** — `GET /api/projects/:slug/chunks/{filename}/rendered`. Returns rendered Markdown text via `data.content` (JSON unwrap, same pattern as `getDialogueContent`).
+
+**Chunk-first rendering flow:**
+
+1. `renderWorkPackageDetail()` issues `Promise.all([API.getChunks(...).catch(() => []), API.getDialogues(...)])` in parallel. The `catch` on `getChunks` silently swallows errors (absent `chunks/` directory is expected for older runs that predate streaming capture).
+2. When `chunks.length > 0`, `useChunks = true` and `entries = chunks`; otherwise `entries = dialogues` (fallback path).
+3. Each entry button receives `data-use-chunks="1"` (chunk path) or `data-use-chunks="0"` (dialogue path). The `click` listener reads this attribute and calls `API.getChunkRendered()` or `API.getDialogueContent()` accordingly.
+4. The rendered Markdown is parsed with `marked.parse()` and injected into `.dialogue-content` as HTML. Error handling follows the same inline `.text-danger` pattern as the dialogue path.
+
+> **Backward compatibility:** Projects created before the streaming capture feature have no `orchestrator/chunks/` directory. The silent `catch(() => [])` on `getChunks` ensures these projects fall back cleanly to the existing Markdown dialogue display with no UI change.
 
 ---
 

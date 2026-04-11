@@ -11,6 +11,7 @@ A headless, deterministic alternative to IDE-based agent workflows. The orchestr
 - [Configuration](#configuration)
 - [Usage](#usage)
   - [Developer utilities](#developer-utilities)
+  - [Signal handling and resumable interrupts](#signal-handling-and-resumable-interrupts)
 - [Architecture](#architecture)
 - [Folder Overview](#folder-overview)
 - [Documentation Index](#documentation-index)
@@ -221,6 +222,23 @@ orchestrate: error: thread '3fa85f64-...' is a completed run
 
 Runs that stop at an `--interrupt-on` breakpoint are **not** marked terminal so they can be stepped and resumed normally.
 
+### Signal handling and resumable interrupts
+
+On Unix (Linux, macOS) the orchestrator registers handlers for **SIGTERM** and **SIGINT** using `loop.add_signal_handler()`. When a signal is received:
+
+1. The running graph task is cancelled cleanly.
+2. A `signal_shutdown` JSONL entry is written (`result: "INTERRUPTED"`).
+3. The process exits with code `1`.
+
+Because no terminal marker is written, a signal-interrupted run **can be resumed** from its last LangGraph checkpoint:
+
+```bash
+# Interrupted run — thread ID is printed at run start and in the summary
+orchestrate plan.md --resume <thread-id>
+```
+
+On **Windows**, `loop.add_signal_handler()` is unavailable. The handler falls back to `signal.signal()` for SIGTERM (a no-op on Windows but harmless), and SIGINT continues to be handled by the existing `KeyboardInterrupt` path.
+
 ---
 
 ## Architecture
@@ -285,8 +303,8 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
 | `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
 | `src/nodes/templates/` | Per-stage Markdown prompt templates (one `.md` per stage, e.g. `developer.md`). Editable without touching Python. |
-| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`) |
-| `tests/` | 374 tests — unit, integration (ScriptedLedger), and live marks |
+| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`), raw-chunk JSONL writer (`chunk_writer.py`) |
+| `tests/` | 825 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 | `dist/stage-prompts/` | Gitignored build output — rendered stage prompt previews written by `scripts/preview-prompts.py` |
 

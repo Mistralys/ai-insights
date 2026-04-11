@@ -1,6 +1,14 @@
 """
 dialogue_writer.py — Utilities for serialising agent dialogues to Markdown files.
 
+.. note::
+   **Manual-use only.**  This module is retained for scripted/manual inspection
+   of agent message histories.  As of the streaming-dialogue rework (rework-1,
+   2026-04-10) the automated pipeline no longer calls ``write_dialogue()``;
+   chunk JSONL files produced by
+   :class:`~src.utils.chunk_writer.ChunkWriter` are the sole durable output
+   from each stage run.
+
 Public API
 ----------
 serialize_messages_to_markdown(messages, stage, wp_id, timestamp) -> str
@@ -28,6 +36,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from src.utils._revision import next_revision
 
 # ---------------------------------------------------------------------------
 # Message serialisation
@@ -237,21 +247,7 @@ def write_dialogue(
     dialogues_dir.mkdir(parents=True, exist_ok=True)
 
     # Determine next revision number.
-    pattern = f"{wp_id}-{stage}-r*.md"
-    existing: list[Path] = sorted(dialogues_dir.glob(pattern))
-
-    revision = 0
-    if existing:
-        # Extract the revision number from the last (highest) filename.
-        for candidate in existing:
-            stem = candidate.stem  # e.g. "WP-001-developer-r3"
-            # The revision part is everything after the last "-r".
-            try:
-                rev_str = stem.rsplit("-r", 1)[1]
-                rev_num = int(rev_str)
-                revision = max(revision, rev_num + 1)
-            except (IndexError, ValueError):
-                pass
+    revision = next_revision(dialogues_dir, wp_id, stage, ".md")
 
     filename = f"{wp_id}-{stage}-r{revision}.md"
     dest = dialogues_dir / filename

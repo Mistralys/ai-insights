@@ -106,6 +106,19 @@ export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
 export const DIALOGUES_DIR = 'orchestrator/dialogues' as const;
 
 /**
+ * Subdirectory path used to store streaming chunk capture files, relative to
+ * the project's ledger storage root (`{ledgerRoot}/{slug}/`).
+ *
+ * The orchestrator's `ChunkWriter` writes JSONL files to
+ * `orchestrator/chunks/` inside the ledger folder.  This constant keeps
+ * the path in sync between the MCP server and the orchestrator.
+ *
+ * Usage: `path.join(ledgerRoot, slug, CHUNKS_DIR)`
+ * → `{ledgerRoot}/{slug}/orchestrator/chunks/`
+ */
+export const CHUNKS_DIR = 'orchestrator/chunks' as const;
+
+/**
  * Workflow specification version this MCP server implements.
  * Derived from the shared workflow manifest's `spec_version` field.
  */

@@ -27,10 +27,12 @@ import {
   handleUnarchiveProject,
   handleListDialogues,
   handleGetDialogueFile,
+  handleListChunks,
+  handleGetChunkFile,
   ApiError,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR } from '../../src/utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR, CHUNKS_DIR } from '../../src/utils/constants.js';
 import {
   readConfigFromDisk,
   writeConfig,
@@ -1413,6 +1415,186 @@ describe('gui/api.ts', () => {
         expect(warnSpy).toHaveBeenCalled();
         const logMsg: string = warnSpy.mock.calls[0]![0] as string;
         expect(logMsg).toContain('../secret.md');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
+
+  // ─── handleListChunks ────────────────────────────────────────────────────
+
+  describe('handleListChunks', () => {
+    const slug = '2026-04-10-chunk-capture';
+
+    async function createChunksDir(root: string, s: string): Promise<string> {
+      const dir = join(root, s, CHUNKS_DIR);
+      await mkdir(dir, { recursive: true });
+      return dir;
+    }
+
+    it('returns [] when the chunks/ directory is absent (no error thrown)', async () => {
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([]);
+    });
+
+    it('returns all .jsonl filenames sorted alphabetically when no wp filter given', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-002-qa-r0.jsonl'), 'content b');
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content a');
+      await writeFile(join(dir, 'WP-003-reviewer-r0.jsonl'), 'content c');
+
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-002-qa-r0.jsonl',        wp_id: 'WP-002', stage: 'qa' },
+        { filename: 'WP-003-reviewer-r0.jsonl',  wp_id: 'WP-003', stage: 'reviewer' },
+      ]);
+    });
+
+    it("returns only filenames starting with 'WP-001-' when wpId='WP-001'", async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content a');
+      await writeFile(join(dir, 'WP-001-qa-r0.jsonl'), 'content b');
+      await writeFile(join(dir, 'WP-002-developer-r0.jsonl'), 'content c');
+
+      const result = await handleListChunks(ledgerRoot, slug, 'WP-001');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-qa-r0.jsonl',        wp_id: 'WP-001', stage: 'qa' },
+      ]);
+      expect(result.map((r) => r.filename)).not.toContain('WP-002-developer-r0.jsonl');
+    });
+
+    it("throws ApiError NOT_FOUND for slug='..'", async () => {
+      await expect(handleListChunks(ledgerRoot, '..')).rejects.toThrow(ApiError);
+      await expect(handleListChunks(ledgerRoot, '..')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
+
+    it('excludes non-.jsonl files from results', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'jsonl file');
+      await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
+      await writeFile(join(dir, 'WP-001-developer-r0.md'), 'md file');
+
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+      ]);
+    });
+
+    it('returns [] for an invalid wpId that does not match /^WP-\\d+$/', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content');
+
+      for (const badWpId of ['../etc', 'WP-', 'WP-abc', 'not-a-wp-id', ' WP-001']) {
+        const result = await handleListChunks(ledgerRoot, slug, badWpId);
+        expect(result).toEqual([], `expected [] for wpId: ${JSON.stringify(badWpId)}`);
+      }
+    });
+
+    it('valid ?wp=WP-001 filter works after validation', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'match');
+      await writeFile(join(dir, 'WP-002-qa-r0.jsonl'), 'no-match');
+
+      const result = await handleListChunks(ledgerRoot, slug, 'WP-001');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+      ]);
+    });
+
+    it('returns entries with empty wp_id/stage for filenames that do not match the convention', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'unrecognised-file.jsonl'), 'data');
+
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([
+        { filename: 'unrecognised-file.jsonl', wp_id: '', stage: '' },
+      ]);
+    });
+  });
+
+  // ─── handleGetChunkFile ──────────────────────────────────────────────────
+
+  describe('handleGetChunkFile', () => {
+    const slug = '2026-04-10-chunk-capture';
+
+    async function createChunkFile(
+      root: string,
+      s: string,
+      filename: string,
+      content: string
+    ): Promise<void> {
+      const dir = join(root, s, CHUNKS_DIR);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, filename), content);
+    }
+
+    it('returns file content when the file exists', async () => {
+      const content = '{"role":"user","content":"hello"}\n{"role":"assistant","content":"hi"}';
+      await createChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl', content);
+
+      const result = await handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl');
+      expect(result).toEqual({ content });
+    });
+
+    it("throws ApiError NOT_FOUND for '../secret.jsonl' (traversal rejected by allowlist)", async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, '../secret.jsonl')
+      ).rejects.toThrow(ApiError);
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, '../secret.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it("throws ApiError NOT_FOUND for 'foo/bar.jsonl' (slash in filename)", async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'foo/bar.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('throws ApiError NOT_FOUND when file does not exist', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-999-developer-r0.jsonl')
+      ).rejects.toThrow(ApiError);
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-999-developer-r0.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it("throws ApiError NOT_FOUND for slug='..'", async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, '..', 'WP-001-developer-r0.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('returns content for a valid alphanumeric filename with underscores', async () => {
+      await createChunkFile(ledgerRoot, slug, 'WP_001_developer_r0.jsonl', 'underscore content');
+      const result = await handleGetChunkFile(ledgerRoot, slug, 'WP_001_developer_r0.jsonl');
+      expect(result).toEqual({ content: 'underscore content' });
+    });
+
+    it('rejects a .md extension (only .jsonl is allowed)', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.md')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a filename with no extension', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('logs a console.warn with filename when regex check rejects', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await handleGetChunkFile(ledgerRoot, slug, '../secret.jsonl').catch(() => {});
+        expect(warnSpy).toHaveBeenCalled();
+        const logMsg: string = warnSpy.mock.calls[0]![0] as string;
+        expect(logMsg).toContain('../secret.jsonl');
       } finally {
         warnSpy.mockRestore();
       }
