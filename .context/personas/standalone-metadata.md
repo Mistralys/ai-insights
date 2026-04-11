@@ -12,20 +12,21 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── changelog-curator.yaml
                 └── composer-curator.yaml
                 └── ctx-architect.yaml
-                └── dependency-sequencer.yaml
                 └── developer.yaml
                 └── ledger-bootstrapper.yaml
+                └── ledger-dependency-sequencer.yaml
+                └── ledger-pipeline-configurator.yaml
+                └── ledger-wp-decomposer.yaml
                 └── manifest-curator.yaml
                 └── module-intent-architect.yaml
                 └── orchestrator-runner.yaml
-                └── pipeline-configurator.yaml
+                └── persona-curator.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
                 └── whatsnew-curator.yaml
                 └── workflow-doctor.yaml
                 └── workflow-orchestrator.yaml
-                └── wp-decomposer.yaml
 
 ```
 ###  Path: `/personas/standalone/src/meta/_shared.yaml`
@@ -152,24 +153,6 @@ cc_tools:
   - WebSearch
 
 ```
-###  Path: `/personas/standalone/src/meta/dependency-sequencer.yaml`
-
-```yaml
-slug: dependency-sequencer
-name: "Dependency Sequencer"
-description: "Map dependencies between Work Packages, identify parallelization opportunities, and determine optimal execution ordering."
-vs_file_name: dependency-sequencer.agent.md
-id: standalone-dependency-sequencer
-cc_file_name: dependency-sequencer.md
-version: "1.0.0"
-last_updated: "2026-03-14"
-
-tools:
-  - read
-  - edit
-  - search
-
-```
 ###  Path: `/personas/standalone/src/meta/developer.yaml`
 
 ```yaml
@@ -219,6 +202,59 @@ tools:
   - edit
   - search
   - central_pm/*
+
+```
+###  Path: `/personas/standalone/src/meta/ledger-dependency-sequencer.yaml`
+
+```yaml
+slug: ledger-dependency-sequencer
+name: "Ledger Dependency Sequencer"
+description: "Map dependencies between Work Packages, identify parallelization opportunities, and determine optimal execution ordering."
+vs_file_name: ledger-dependency-sequencer.agent.md
+id: standalone-ledger-dependency-sequencer
+cc_file_name: ledger-dependency-sequencer.md
+version: "1.0.1"
+last_updated: "2026-04-11"
+
+tools:
+  - read
+  - search
+
+```
+###  Path: `/personas/standalone/src/meta/ledger-pipeline-configurator.yaml`
+
+```yaml
+slug: ledger-pipeline-configurator
+name: "Ledger Pipeline Configurator"
+description: "Determine which pipeline stages should be active for each Work Package based on the nature of the work."
+vs_file_name: ledger-pipeline-configurator.agent.md
+id: standalone-ledger-pipeline-configurator
+cc_file_name: ledger-pipeline-configurator.md
+version: "1.0.0"
+last_updated: "2026-03-14"
+
+tools:
+  - read
+  - edit
+  - search
+
+```
+###  Path: `/personas/standalone/src/meta/ledger-wp-decomposer.yaml`
+
+```yaml
+slug: ledger-wp-decomposer
+name: "Ledger WP Decomposer"
+description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
+vs_file_name: ledger-wp-decomposer.agent.md
+id: standalone-ledger-wp-decomposer
+cc_file_name: ledger-wp-decomposer.md
+version: "1.0.0"
+last_updated: "2026-03-14"
+
+tools:
+  - read
+  - edit
+  - search
 
 ```
 ###  Path: `/personas/standalone/src/meta/manifest-curator.yaml`
@@ -308,22 +344,27 @@ cc_tools:
   - TodoWrite
 
 ```
-###  Path: `/personas/standalone/src/meta/pipeline-configurator.yaml`
+###  Path: `/personas/standalone/src/meta/persona-curator.yaml`
 
 ```yaml
-slug: pipeline-configurator
-name: "Pipeline Configurator"
-description: "Determine which pipeline stages should be active for each Work Package based on the nature of the work."
-vs_file_name: pipeline-configurator.agent.md
-id: standalone-pipeline-configurator
-cc_file_name: pipeline-configurator.md
+slug: persona-curator
+name: "Persona Curator"
+description: "Create, audit, and maintain AI agent personas according to the Persona Design Guide."
+vs_file_name: persona-curator.agent.md
+id: standalone-persona-curator
+cc_file_name: persona-curator.md
 version: "1.0.0"
-last_updated: "2026-03-14"
+last_updated: "2026-04-11"
 
 tools:
+  - vscode
+  - execute
   - read
   - edit
   - search
+  - web
+  - agent
+  - todo
 
 ```
 ###  Path: `/personas/standalone/src/meta/readme-curator.yaml`
@@ -478,23 +519,5 @@ cc_tools:
   - Task
   - Read
   - Grep
-
-```
-###  Path: `/personas/standalone/src/meta/wp-decomposer.yaml`
-
-```yaml
-slug: wp-decomposer
-name: "WP Decomposer"
-description: "Analyze a plan document and decompose it into atomic, actionable Work Package definitions."
-vs_file_name: wp-decomposer.agent.md
-id: standalone-wp-decomposer
-cc_file_name: wp-decomposer.md
-version: "1.0.0"
-last_updated: "2026-03-14"
-
-tools:
-  - read
-  - edit
-  - search
 
 ```

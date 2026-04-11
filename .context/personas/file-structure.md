@@ -111,6 +111,7 @@ _SOURCE: Directory tree_
         │   └── planner-core-rules.md
         │   └── planner-output-template.md
         │   └── pm-output-format.md
+        │   └── pm-subagent-roster.md
         │   └── qa-operational-protocol.md
         │   └── qa-output-format.md
         │   └── release-engineer-operational-protocol.md
@@ -131,9 +132,13 @@ _SOURCE: Directory tree_
             ├── dependency-sequencer.md
             ├── developer-standalone.md
             ├── ledger-bootstrapper.md
+            ├── ledger-dependency-sequencer.md
+            ├── ledger-pipeline-configurator.md
+            ├── ledger-wp-decomposer.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── orchestrator-runner.md
+            ├── persona-curator.md
             ├── pipeline-configurator.md
             ├── readme-curator.md
             ├── researcher.md
@@ -150,9 +155,13 @@ _SOURCE: Directory tree_
             ├── dependency-sequencer.md
             ├── developer.md
             ├── ledger-bootstrapper.md
+            ├── ledger-dependency-sequencer.md
+            ├── ledger-pipeline-configurator.md
+            ├── ledger-wp-decomposer.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── orchestrator-runner.md
+            ├── persona-curator.md
             ├── pipeline-configurator.md
             ├── readme-curator.md
             ├── researcher.md
@@ -167,40 +176,42 @@ _SOURCE: Directory tree_
             │   ├── changelog-curator.md
             │   ├── composer-curator.md
             │   ├── ctx-architect.md
-            │   ├── dependency-sequencer.md
             │   ├── developer.md
             │   ├── ledger-bootstrapper.md
+            │   ├── ledger-dependency-sequencer.md
+            │   ├── ledger-pipeline-configurator.md
+            │   ├── ledger-wp-decomposer.md
             │   ├── manifest-curator.md
             │   ├── module-intent-architect.md
             │   ├── orchestrator-runner.md
-            │   ├── pipeline-configurator.md
+            │   ├── persona-curator.md
             │   ├── readme-curator.md
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
             │   ├── whatsnew-curator.md
             │   ├── workflow-doctor.md
             │   ├── workflow-orchestrator.md
-            │   ├── wp-decomposer.md
             ├── meta/
             │   └── _shared.yaml
             │   └── agents-md-curator.yaml
             │   └── changelog-curator.yaml
             │   └── composer-curator.yaml
             │   └── ctx-architect.yaml
-            │   └── dependency-sequencer.yaml
             │   └── developer.yaml
             │   └── ledger-bootstrapper.yaml
+            │   └── ledger-dependency-sequencer.yaml
+            │   └── ledger-pipeline-configurator.yaml
+            │   └── ledger-wp-decomposer.yaml
             │   └── manifest-curator.yaml
             │   └── module-intent-architect.yaml
             │   └── orchestrator-runner.yaml
-            │   └── pipeline-configurator.yaml
+            │   └── persona-curator.yaml
             │   └── readme-curator.yaml
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
             │   └── whatsnew-curator.yaml
             │   └── workflow-doctor.yaml
             │   └── workflow-orchestrator.yaml
-            │   └── wp-decomposer.yaml
         └── vs-code/
             └── agents-md-curator.agent.md
             └── changelog-curator.agent.md
@@ -209,9 +220,13 @@ _SOURCE: Directory tree_
             └── dependency-sequencer.agent.md
             └── developer-standalone.agent.md
             └── ledger-bootstrapper.agent.md
+            └── ledger-dependency-sequencer.agent.md
+            └── ledger-pipeline-configurator.agent.md
+            └── ledger-wp-decomposer.agent.md
             └── manifest-curator.agent.md
             └── module-intent-architect.agent.md
             └── orchestrator-runner.agent.md
+            └── persona-curator.agent.md
             └── pipeline-configurator.agent.md
             └── readme-curator.agent.md
             └── researcher.agent.md

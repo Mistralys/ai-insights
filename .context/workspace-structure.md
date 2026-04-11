@@ -26,7 +26,10 @@ _SOURCE: Top-level directory tree_
     │       ├── agent-name-map.md
     │       ├── parallelization.md
     │   └── references/
-    │       └── langgraph-deep-agents-subagent-handbook.md
+    │       ├── langgraph-deep-agents-subagent-handbook.md
+    │   └── research/
+    │       └── 2026-04-11-persona-design-guide-audit.md
+    │       └── 2026-04-11-persona-workflow-compliance-audit.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
@@ -307,6 +310,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── planner-core-rules.md
     │   │   └── planner-output-template.md
     │   │   └── pm-output-format.md
+    │   │   └── pm-subagent-roster.md
     │   │   └── qa-operational-protocol.md
     │   │   └── qa-output-format.md
     │   │   └── release-engineer-operational-protocol.md
@@ -327,9 +331,13 @@ _SOURCE: Top-level directory tree_
     │       ├── dependency-sequencer.md
     │       ├── developer-standalone.md
     │       ├── ledger-bootstrapper.md
+    │       ├── ledger-dependency-sequencer.md
+    │       ├── ledger-pipeline-configurator.md
+    │       ├── ledger-wp-decomposer.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── orchestrator-runner.md
+    │       ├── persona-curator.md
     │       ├── pipeline-configurator.md
     │       ├── readme-curator.md
     │       ├── researcher.md
@@ -346,9 +354,13 @@ _SOURCE: Top-level directory tree_
     │       ├── dependency-sequencer.md
     │       ├── developer.md
     │       ├── ledger-bootstrapper.md
+    │       ├── ledger-dependency-sequencer.md
+    │       ├── ledger-pipeline-configurator.md
+    │       ├── ledger-wp-decomposer.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── orchestrator-runner.md
+    │       ├── persona-curator.md
     │       ├── pipeline-configurator.md
     │       ├── readme-curator.md
     │       ├── researcher.md
@@ -365,9 +377,13 @@ _SOURCE: Top-level directory tree_
     │       └── dependency-sequencer.agent.md
     │       └── developer-standalone.agent.md
     │       └── ledger-bootstrapper.agent.md
+    │       └── ledger-dependency-sequencer.agent.md
+    │       └── ledger-pipeline-configurator.agent.md
+    │       └── ledger-wp-decomposer.agent.md
     │       └── manifest-curator.agent.md
     │       └── module-intent-architect.agent.md
     │       └── orchestrator-runner.agent.md
+    │       └── persona-curator.agent.md
     │       └── pipeline-configurator.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md
