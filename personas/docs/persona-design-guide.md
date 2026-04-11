@@ -93,14 +93,14 @@ The Mission is the persona's identity card. It answers: *Who is this agent, and 
 ```markdown
 ## Mission
 
-**Identity: <Professional Title>.**
+**Identity: {PROFESSIONAL_TITLE}.**
 
-<1–3 sentences describing the core responsibility. Focus on the outcome the agent produces, not the mechanics of how it works. Use active, imperative language.>
+{1–3 sentences describing the core responsibility. Focus on the outcome the agent produces, not the mechanics of how it works. Use active, imperative language.}
 ```
 
 **Design Rules:**
 
-- **Open with the Identity line.** Format: `**Identity: <Title>.**` — always bold, always a recognized professional role. This is not decoration; it anchors the agent's behavior throughout the session.
+- **Open with the Identity line.** Format: `**Identity: {TITLE}.**` — always bold, always a recognized professional role. This is not decoration; it anchors the agent's behavior throughout the session.
 - **Choose the identity carefully.** The title shapes how the agent approaches its work. "Staff Software Engineer" produces different behavior than "Junior Developer." "Chief Product Officer" thinks strategically; "Technical Writer" thinks about clarity. Pick the seniority and domain that match the persona's responsibilities.
 - **State the outcome, not the process.** "Produce a clear, actionable plan" is better than "Analyze requirements and write planning documents." The workflow section covers process — the mission covers purpose.
 - **One responsibility per persona.** If the mission statement requires "and" to connect two unrelated activities, you probably need two personas.
@@ -139,21 +139,21 @@ This section is optional but highly recommended for complex or judgment-heavy ro
 ```markdown
 ## Operating Philosophy
 
-- **<Principle Name>:** <One–two sentence explanation of the principle.>
-- **<Principle Name>:** <Explanation.>
+- **{PRINCIPLE_NAME}:** {One–two sentence explanation of the principle.}
+- **{PRINCIPLE_NAME}:** {Explanation.}
 ```
 
 Or, when a unifying metaphor applies:
 
 ```markdown
-## Operating Philosophy — The <Metaphor Name>
+## Operating Philosophy — The {METAPHOR_NAME}
 
-<Brief framing paragraph.>
+{Brief framing paragraph.}
 
 | # | Section | Goal |
 |---|---------|------|
-| 1 | **<Stage>** | <What this stage achieves> |
-| 2 | **<Stage>** | <What this stage achieves> |
+| 1 | **{STAGE}** | {What this stage achieves} |
+| 2 | **{STAGE}** | {What this stage achieves} |
 ```
 
 **Design Rules:**
@@ -185,9 +185,9 @@ The Inputs section defines what the agent receives before it starts working. Thi
 
 You will be provided with:
 
-- **<Input Name>:** <Brief description of what this is and where it comes from.>
-- **<Input Name>:** <Description.>
-- **Optional: <Input Name>:** <Description — mark clearly as optional.>
+- **{INPUT_NAME}:** {Brief description of what this is and where it comes from.}
+- **{INPUT_NAME}:** {Description.}
+- **Optional: {INPUT_NAME}:** {Description — mark clearly as optional.}
 ```
 
 **Design Rules:**
@@ -206,8 +206,8 @@ Use this when the agent needs explicit authorization to perform actions beyond p
 
 You will be provided with:
 
-- **<Data Input>:** <Description.>
-- **<Data Input>:** <Description.>
+- **{DATA_INPUT}:** {Description.}
+- **{DATA_INPUT}:** {Description.}
 
 ### Capabilities
 
@@ -229,11 +229,11 @@ The Outputs section defines what the agent produces. This is the "return type" o
 ```markdown
 ## Outputs
 
-<Brief overview of what is produced.>
+{Brief overview of what is produced.}
 
 ### Output Location
 
-<Where the output is saved — file path pattern, directory convention, etc.>
+{Where the output is saved — file path pattern, directory convention, etc.}
 ```
 
 For complex outputs, break them into named sub-sections:
@@ -241,14 +241,14 @@ For complex outputs, break them into named sub-sections:
 ```markdown
 ## Outputs
 
-### 1. <Primary Output>
-<Description of what it contains and its structure.>
+### 1. {PRIMARY_OUTPUT}
+{Description of what it contains and its structure.}
 
-### 2. <Secondary Output>
-<Description.>
+### 2. {SECONDARY_OUTPUT}
+{Description.}
 
 ### Output Location
-<Path conventions.>
+{Path conventions.}
 ```
 
 **Design Rules:**
@@ -277,8 +277,8 @@ Choose the style that matches the persona's nature. Action-oriented roles benefi
 ```markdown
 ## Strict Constraints
 
-- **<Constraint Name>:** <What the agent must or must not do, and why.>
-- **<Constraint Name>:** <Rule.>
+- **{CONSTRAINT_NAME}:** {What the agent must or must not do, and why.}
+- **{CONSTRAINT_NAME}:** {Rule.}
 ```
 
 **Categorized style (Core Rules):**
@@ -287,14 +287,14 @@ Choose the style that matches the persona's nature. Action-oriented roles benefi
 ## Core Rules
 
 ### Clarifying Questions
-<When and how the agent should ask for clarification.>
+{When and how the agent should ask for clarification.}
 
 ### Scope & Boundaries
-- <Rule about what is in scope.>
-- <Rule about what is out of scope.>
+- {Rule about what is in scope.}
+- {Rule about what is out of scope.}
 
 ### Strict Grounding & Verification
-- <Rule about accuracy and hallucination prevention.>
+- {Rule about accuracy and hallucination prevention.}
 ```
 
 **Design Rules:**
@@ -334,13 +334,13 @@ The Workflow is the agent's main execution loop. It provides a numbered, sequent
 ```markdown
 ## Workflow
 
-1. **<Step Name>:** <What to do in this step.>
-2. **<Step Name>:** <What to do.>
+1. **{STEP_NAME}:** {What to do in this step.}
+2. **{STEP_NAME}:** {What to do.}
 3. ...
 N. **Handoff:** End the response with:
    ```
-   AGENT: <Persona Name>
-   STATUS: <Terminal Status>
+   AGENT: {PERSONA_NAME}
+   STATUS: {TERMINAL_STATUS}
    ```
 ```
 
@@ -382,8 +382,8 @@ Every persona terminates with a handoff block — a machine-readable status sign
 ```markdown
 End the response with:
 ```
-AGENT: <Persona Name>
-STATUS: <Terminal Status>
+AGENT: {PERSONA_NAME}
+STATUS: {TERMINAL_STATUS}
 ```
 ```
 
@@ -454,8 +454,8 @@ Any persona that makes a judgment call (pass/fail, approve/reject) needs an expl
 ```markdown
 ## Decision Logic
 
-- **PASS:** <Precise criteria for approval.>
-- **FAIL (Bounce):** <Precise criteria for rejection. Specify what information must be provided in the failure report.>
+- **PASS:** {Precise criteria for approval.}
+- **FAIL (Bounce):** {Precise criteria for rejection. Specify what information must be provided in the failure report.}
 ```
 
 Being explicit about the pass/fail threshold prevents inconsistent behavior across sessions.
@@ -468,13 +468,13 @@ When the persona produces a structured document, include the literal template:
 ## Output Template
 
 ```markdown
-# <Document Title>
+# {DOCUMENT_TITLE}
 
 ## Section 1
-<what goes here>
+{what goes here}
 
 ## Section 2
-<what goes here>
+{what goes here}
 ```
 ```
 
@@ -496,9 +496,9 @@ Any persona that may receive bounced work needs a dedicated Rework section:
 ```markdown
 ## Rework Handling
 
-1. **Read the bounce feedback:** <Where to find it.>
-2. **Narrow your focus:** <Only address flagged issues.>
-3. **Reference the feedback:** <Explicitly note which issues were resolved.>
+1. **Read the bounce feedback:** {Where to find it.}
+2. **Narrow your focus:** {Only address flagged issues.}
+3. **Reference the feedback:** {Explicitly note which issues were resolved.}
 ```
 
 The key insight: rework should not re-run the full workflow. It focuses narrowly on the flagged issues. This prevents thrashing.
@@ -526,10 +526,10 @@ When a persona needs to invoke specialized sub-agents to complete part of its wo
 **Structure for each delegation step:**
 
 ```markdown
-5. **Delegate <Task Name>:**
-   Use `runSubagent` with the `@<sub-agent-name>` agent.
-   Pass: <exact inputs to provide>.
-   Expected output: <what the sub-agent should return>.
+5. **Delegate {TASK_NAME}:**
+   Use `runSubagent` with the `@{SUB_AGENT_NAME}` agent.
+   Pass: {exact inputs to provide}.
+   Expected output: {what the sub-agent should return}.
    Review the returned output for accuracy and completeness before proceeding.
 ```
 
@@ -577,16 +577,16 @@ When the output format involves transformation of input data and the Output Temp
 Given this input:
 
 ```
-<the raw input data>
+{the raw input data}
 ```
 
 The resulting output:
 
 ```
-<the transformed output>
+{the transformed output}
 ```
 
-**Excluded:** <explanation of what was filtered out and why.>
+**Excluded:** {explanation of what was filtered out and why.}
 ```
 
 Use this pattern when:
@@ -624,21 +624,21 @@ When a persona interacts with an external system (coordination server, test runn
 **Structure:**
 
 ```markdown
-## <Tool Name> Tools
+## {TOOL_NAME} Tools
 
-<Brief description of the tool and its role.>
+{Brief description of the tool and its role.}
 
 ### Available Commands
 
 | Command | Purpose |
 |---|---|
-| `<command>` | <What it does> |
-| `<command>` | <What it does> |
+| `{COMMAND}` | {What it does} |
+| `{COMMAND}` | {What it does} |
 
 ### Usage Notes
 
-- <Important behavioral note about the tool.>
-- <Error handling or fallback guidance.>
+- {Important behavioral note about the tool.}
+- {Error handling or fallback guidance.}
 ```
 
 **Design Rules:**
@@ -653,7 +653,7 @@ When a persona interacts with an external system (coordination server, test runn
 
 Before shipping a new persona, verify:
 
-- [ ] **Mission opens with `Identity: <Title>.`** — bold, professional role, period at the end.
+- [ ] **Mission opens with `Identity: {TITLE}.`** — bold, professional role, period at the end.
 - [ ] **Single responsibility.** The mission describes one clear outcome.
 - [ ] **Operating Philosophy is present** if the role requires judgment in ambiguous situations.
 - [ ] **Inputs are specific.** Each input names its source and format.
@@ -674,6 +674,7 @@ Before shipping a new persona, verify:
 - [ ] **Sub-agent delegations specify inputs, expected output, and a validation step.**
 - [ ] **No duplicated instructions.** Content shared across personas is extracted into reusable partials.
 - [ ] **Language is imperative, not suggestive.** "Do X" not "You might consider X."
+- [ ] **Placeholders use curly braces.** Named slots use `{SCREAMING_SNAKE}`, authoring instructions use `{Sentence case}`. Never `<angle brackets>`.
 - [ ] **Sections follow the recommended ordering.** Identity → knowledge → constraints → procedure.
 - [ ] **The persona can be read in 60 seconds.** If it takes longer, the structure is too dense — extract detail into sub-sections or operational protocols.
 
@@ -686,13 +687,13 @@ Before shipping a new persona, verify:
 Use this for simple, single-mode personas with a linear workflow:
 
 ```markdown
-# <Persona Display Name>
+# {PERSONA_DISPLAY_NAME}
 
 ## Mission
 
-**Identity: <Professional Title>.**
+**Identity: {PROFESSIONAL_TITLE}.**
 
-<1–3 sentences: what this agent does and what outcome it produces.>
+{1–3 sentences: what this agent does and what outcome it produces.}
 
 ---
 
@@ -700,37 +701,37 @@ Use this for simple, single-mode personas with a linear workflow:
 
 You will be provided with:
 
-- **<Input Name>:** <Description and source.>
-- **<Input Name>:** <Description.>
-- **Optional: <Input Name>:** <Description.>
+- **{INPUT_NAME}:** {Description and source.}
+- **{INPUT_NAME}:** {Description.}
+- **Optional: {INPUT_NAME}:** {Description.}
 
 ---
 
 ## Outputs
 
-<What the agent produces.>
+{What the agent produces.}
 
 ### Output Location
 
-<Where the output is saved — path pattern or convention.>
+{Where the output is saved — path pattern or convention.}
 
 ---
 
 ## Strict Constraints
 
-- **<Constraint>:** <Rule and rationale.>
-- **<Constraint>:** <Rule and rationale.>
+- **{CONSTRAINT}:** {Rule and rationale.}
+- **{CONSTRAINT}:** {Rule and rationale.}
 
 ---
 
 ## Workflow
 
-1. **<Step>:** <Action.>
-2. **<Step>:** <Action.>
-3. **<Step>:** <Action.>
+1. **{STEP}:** {Action.}
+2. **{STEP}:** {Action.}
+3. **{STEP}:** {Action.}
 4. **Handoff:** End the response with:
    ```
-   AGENT: <Persona Name>
+   AGENT: {PERSONA_NAME}
    STATUS: COMPLETE
    ```
 ```
@@ -740,21 +741,21 @@ You will be provided with:
 Use this for complex, judgment-heavy, or multi-agent personas. Remove sections that don't apply.
 
 ```markdown
-# <Persona Display Name>
+# {PERSONA_DISPLAY_NAME}
 
 ## Mission
 
-**Identity: <Professional Title>.**
+**Identity: {PROFESSIONAL_TITLE}.**
 
-<1–3 sentences: what this agent does and what outcome it produces.>
+{1–3 sentences: what this agent does and what outcome it produces.}
 
 ---
 
 ## Operating Philosophy
 
-- **<Principle Name>:** <Explanation of the guiding principle.>
-- **<Principle Name>:** <Explanation.>
-- **<Principle Name>:** <Explanation.>
+- **{PRINCIPLE_NAME}:** {Explanation of the guiding principle.}
+- **{PRINCIPLE_NAME}:** {Explanation.}
+- **{PRINCIPLE_NAME}:** {Explanation.}
 
 ---
 
@@ -762,29 +763,29 @@ Use this for complex, judgment-heavy, or multi-agent personas. Remove sections t
 
 You will be provided with:
 
-- **<Input Name>:** <Description and source.>
-- **<Input Name>:** <Description.>
-- **Optional: <Input Name>:** <Description.>
+- **{INPUT_NAME}:** {Description and source.}
+- **{INPUT_NAME}:** {Description.}
+- **Optional: {INPUT_NAME}:** {Description.}
 
 ### Capabilities
 
-- **<Capability>:** <What the agent is authorized to do.>
-- **<Capability>:** <Authorization.>
+- **{CAPABILITY}:** {What the agent is authorized to do.}
+- **{CAPABILITY}:** {Authorization.}
 
 ---
 
-## <Tool Name> Integration
+## {TOOL_NAME} Integration
 
-<How the agent interacts with an external tool or service.>
+{How the agent interacts with an external tool or service.}
 
 ---
 
 ## Operational Protocol
 
-<Detailed, reusable execution procedure for the core task.>
+{Detailed, reusable execution procedure for the core task.}
 
-1. **<Phase>:** <What to do.>
-2. **<Phase>:** <What to do.>
+1. **{PHASE}:** {What to do.}
+2. **{PHASE}:** {What to do.}
 
 ---
 
@@ -792,38 +793,38 @@ You will be provided with:
 
 Evaluate based on these dimensions:
 
-* **<Criterion>:** <What to assess.>
-* **<Criterion>:** <What to assess.>
+* **{CRITERION}:** {What to assess.}
+* **{CRITERION}:** {What to assess.}
 
 ---
 
 ## Rework Handling
 
-1. **Read the bounce feedback:** <Where to find it.>
-2. **Narrow your focus:** <Only address flagged issues.>
-3. **Reference the feedback:** <Explicitly note which issues were resolved.>
+1. **Read the bounce feedback:** {Where to find it.}
+2. **Narrow your focus:** {Only address flagged issues.}
+3. **Reference the feedback:** {Explicitly note which issues were resolved.}
 
 ---
 
 ## Decision Logic
 
-- **PASS:** <Precise criteria for approval.>
-- **FAIL (Bounce):** <Precise criteria for rejection and required information.>
+- **PASS:** {Precise criteria for approval.}
+- **FAIL (Bounce):** {Precise criteria for rejection and required information.}
 
 ---
 
 ## Output Template
 
 ```markdown
-<Literal output structure>
+{Literal output structure}
 ```
 
 ---
 
 ## Strict Constraints
 
-- **<Constraint>:** <Rule, rationale, and alternative action.>
-- **<Constraint>:** <Rule, rationale, and alternative action.>
+- **{CONSTRAINT}:** {Rule, rationale, and alternative action.}
+- **{CONSTRAINT}:** {Rule, rationale, and alternative action.}
 
 ---
 
@@ -831,20 +832,20 @@ Evaluate based on these dimensions:
 
 Before submitting, verify:
 
-- [ ] <Self-validation criterion>
-- [ ] <Self-validation criterion>
+- [ ] {Self-validation criterion}
+- [ ] {Self-validation criterion}
 
 ---
 
 ## Workflow
 
-1. **<Step>:** <Action.>
-2. **<Step>:** <Action.>
-3. **Delegate <Task>:** Use `runSubagent` with `@<agent>`. Pass: <inputs>. Expected: <output>.
-4. **<Step>:** <Action.>
+1. **{STEP}:** {Action.}
+2. **{STEP}:** {Action.}
+3. **Delegate {TASK}:** Use `runSubagent` with `@{AGENT}`. Pass: {inputs}. Expected: {output}.
+4. **{STEP}:** {Action.}
 5. **Handoff:** End the response with:
    ```
-   AGENT: <Persona Name>
+   AGENT: {PERSONA_NAME}
    STATUS: COMPLETE
    ```
 ```
@@ -861,6 +862,25 @@ Remove sections that don’t apply. The structural order should be preserved eve
 | **Identity Title** | Real-world professional title at senior+ level. Parenthetical abbreviations are acceptable. | `Release Communications Editor`, `Developer Experience (DX) Storyteller` |
 | **Handoff Agent Name** | Short form of the persona name | `AGENT: Changelog Writer` |
 | **Status Values** | `SCREAMING_SNAKE_CASE` | `READY_FOR_PM`, `AUDIT_COMPLETE` |
+
+### Placeholder Syntax
+
+Personas and templates use curly-brace placeholders — **never angle brackets** (`<...>`). Angle brackets are parsed as HTML in Markdown, causing placeholders to silently disappear in rendered output.
+
+Two tiers distinguish named slots from authoring instructions:
+
+| Tier | Style | Meaning | Examples |
+|------|-------|---------|----------|
+| **Named slot** | `{SCREAMING_SNAKE_CASE}` | Replace with a specific, concrete value | `{PERSONA_NAME}`, `{FILENAME}`, `{STATUS}`, `{COUNT}` |
+| **Authoring instruction** | `{Sentence case description}` | Write content matching this guidance | `{1–3 sentences describing the core responsibility}`, `{What the agent produces}` |
+
+**The litmus test:** Can you name this slot in ≤ 3 words? → `{SCREAMING_SNAKE}`. Do you need a phrase to explain what goes here? → `{Sentence case description}`.
+
+**Rules:**
+
+- Named slots use `SCREAMING_SNAKE_CASE` to signal "this is a variable."
+- Authoring instructions use sentence case to read naturally as fill-in-the-blank prompts.
+- The same convention applies inside inline code: `` `**Identity: {TITLE}.**` ``.
 
 ---
 
