@@ -6681,8 +6681,9 @@ function makeWp(
   id: string,
   pipelines: Array<{ type: string; status: string }> = [],
   status: string = 'IN_PROGRESS',
+  active_pipeline_stages?: string[],
 ): WorkPackageDetail {
-  return {
+  const wp: WorkPackageDetail = {
     work_package_id: id,
     work_package_file: `work/${id}.md`,
     status: status as any,
@@ -6696,6 +6697,10 @@ function makeWp(
       summary: [],
     })),
   };
+  if (active_pipeline_stages !== undefined) {
+    wp.active_pipeline_stages = active_pipeline_stages;
+  }
+  return wp;
 }
 
 /** Build a minimal RootIndex with optional field overrides. */
@@ -7501,6 +7506,248 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
     expect(result.cc_agent_name).toBeUndefined();
     expect(result.vs_agent_name).toBeUndefined();
     expect(result.da_agent_name).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-007: Mixed-composition WPs (active_pipeline_stages scoping)
+// ---------------------------------------------------------------------------
+
+describe('WP-007: Mixed-composition WPs (active_pipeline_stages scoping)', () => {
+  let tempDir: string;
+  let agentDir: string;
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    resetRegistry();
+    tempDir = await mkdtemp(join(tmpdir(), '2026-04-10-wp007-'));
+    agentDir = await mkdtemp(join(tmpdir(), 'wp007-agents-'));
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'ledger-root-wp007-'));
+    store = new LedgerStore(tempDir, tempLedgerRoot);
+    // Register all chain agents so auto_handoff assertions can be verified.
+    await writeAgentFile(agentDir, '2-pm.agent.md', '2 - Project Manager v1.0', 'Project Manager');
+    await writeAgentFile(agentDir, '3-dev.agent.md', '3 - Developer v3.1.2', 'Developer');
+    await writeAgentFile(agentDir, '4-qa.agent.md', '4 - QA v1.0', 'QA');
+    await writeAgentFile(agentDir, '5-reviewer.agent.md', '5 - Reviewer v1.0', 'Reviewer');
+    await writeAgentFile(agentDir, '6-docs.agent.md', '6 - Documentation v1.0', 'Documentation');
+    await writeAgentFile(agentDir, '7-synthesis.agent.md', '7 - Synthesis v1.0', 'Synthesis');
+    await discoverAgents(agentDir);
+    await store.writeRootIndex(makeRoot({ auto_handoff_depth: 0 }));
+  });
+
+  afterEach(async () => {
+    resetRegistry();
+    await rm(tempDir, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('T1: Developer handoff with impl-passed WP + doc-only WP returns READY_FOR_QA not IN_PROGRESS', async () => {
+    // WP-002 has active_pipeline_stages: ['documentation'] — should be invisible to the
+    // Developer scope filter (only WPs with 'implementation' in active stages count).
+    const result = await parseResult(
+      getDeveloperHandoff(
+        [
+          makeWp('WP-001', [{ type: 'implementation', status: 'PASS' }], 'IN_PROGRESS',
+            ['implementation', 'qa', 'code-review', 'documentation']),
+          makeWp('WP-002', [], 'IN_PROGRESS', ['documentation']),
+        ],
+        tempDir,
+        store,
+      ),
+    );
+
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('4 - QA v1.0');
+  });
+
+  it('T2: QA handoff with QA-passed WP + doc-only WP returns READY_FOR_REVIEW not IN_PROGRESS', async () => {
+    // WP-002 has active_pipeline_stages: ['documentation'] — should be invisible to the
+    // QA scope filter (only WPs with 'qa' in active stages count).
+    const result = await parseResult(
+      getQaHandoff(
+        [
+          makeWp('WP-001', [
+            { type: 'implementation', status: 'PASS' },
+            { type: 'qa', status: 'PASS' },
+          ], 'IN_PROGRESS', ['implementation', 'qa', 'code-review', 'documentation']),
+          makeWp('WP-002', [], 'IN_PROGRESS', ['documentation']),
+        ],
+        tempDir,
+        store,
+      ),
+    );
+
+    expect(result.status).toBe('READY_FOR_REVIEW');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('5 - Reviewer v1.0');
+  });
+
+  it('T3: Reviewer handoff with review-passed WP + doc-only WP returns READY_FOR_DOCUMENTATION not IN_PROGRESS', async () => {
+    // WP-002 has active_pipeline_stages: ['documentation'] — should be invisible to the
+    // Reviewer scope filter (only WPs with 'code-review' in active stages count).
+    const result = await parseResult(
+      getReviewerHandoff(
+        [
+          makeWp('WP-001', [
+            { type: 'implementation', status: 'PASS' },
+            { type: 'qa', status: 'PASS' },
+            { type: 'code-review', status: 'PASS' },
+          ], 'IN_PROGRESS', ['implementation', 'qa', 'code-review', 'documentation']),
+          makeWp('WP-002', [], 'IN_PROGRESS', ['documentation']),
+        ],
+        tempDir,
+        store,
+      ),
+    );
+
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('6 - Documentation v1.0');
+  });
+
+  it('T4: Documentation handoff with doc-only WP (no code-review required) returns IN_PROGRESS', async () => {
+    // WP-001 has active_pipeline_stages: ['documentation'] only.
+    // resolvePrerequisite('documentation', ['documentation']) returns null → vacuously satisfied.
+    // No documentation pipeline yet → readyForDocsList is non-empty → IN_PROGRESS.
+    const result = await parseResult(
+      getDocumentationHandoff(
+        [makeWp('WP-001', [], 'IN_PROGRESS', ['documentation'])],
+        tempDir,
+        store,
+      ),
+    );
+
+    expect(result.status).toBe('IN_PROGRESS');
+    // IN_PROGRESS does not emit auto_handoff (only READY_FOR_* statuses qualify per §18.6).
+    expect(result.auto_handoff).toBeUndefined();
+  });
+
+  it('T5: PM routing for unassigned doc-only WP returns READY_FOR_DOCUMENTATION not READY_FOR_DEVELOPER', async () => {
+    // When assigned_to is null, PM must route via firstActiveStage (§13.1 PM Handoff).
+    // firstActiveStage(['documentation']) = 'documentation' → PIPELINE_AGENT_MAP['documentation']
+    // = 'Documentation' → readyStatusForAgent('Documentation') = 'READY_FOR_DOCUMENTATION'.
+    const unassignedDocWp: WorkPackageDetail = {
+      ...makeWp('WP-001', [], 'READY', ['documentation']),
+      assigned_to: null,
+    };
+
+    const result = await parseResult(
+      getProjectManagerHandoff([unassignedDocWp], tempDir, store),
+    );
+
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('6 - Documentation v1.0');
+  });
+
+  it('T6: Full cycle regression — doc-only WP does not suppress auto_handoff at any stage transition', async () => {
+    const docOnlyWp = makeWp('WP-002', [], 'IN_PROGRESS', ['documentation']);
+
+    // Developer stage: impl PASS → READY_FOR_QA (doc-only WP excluded from impl scope).
+    const devResult = await parseResult(
+      getDeveloperHandoff(
+        [
+          makeWp('WP-001', [{ type: 'implementation', status: 'PASS' }], 'IN_PROGRESS',
+            ['implementation', 'qa', 'code-review', 'documentation']),
+          docOnlyWp,
+        ],
+        tempDir,
+        store,
+      ),
+    );
+    expect(devResult.status).toBe('READY_FOR_QA');
+    expect(devResult.auto_handoff).toBeDefined();
+
+    // QA stage: qa PASS → READY_FOR_REVIEW (doc-only WP excluded from qa scope).
+    const qaResult = await parseResult(
+      getQaHandoff(
+        [
+          makeWp('WP-001', [
+            { type: 'implementation', status: 'PASS' },
+            { type: 'qa', status: 'PASS' },
+          ], 'IN_PROGRESS', ['implementation', 'qa', 'code-review', 'documentation']),
+          docOnlyWp,
+        ],
+        tempDir,
+        store,
+      ),
+    );
+    expect(qaResult.status).toBe('READY_FOR_REVIEW');
+    expect(qaResult.auto_handoff).toBeDefined();
+
+    // Reviewer stage: code-review PASS → READY_FOR_DOCUMENTATION (doc-only WP excluded from review scope).
+    const reviewResult = await parseResult(
+      getReviewerHandoff(
+        [
+          makeWp('WP-001', [
+            { type: 'implementation', status: 'PASS' },
+            { type: 'qa', status: 'PASS' },
+            { type: 'code-review', status: 'PASS' },
+          ], 'IN_PROGRESS', ['implementation', 'qa', 'code-review', 'documentation']),
+          docOnlyWp,
+        ],
+        tempDir,
+        store,
+      ),
+    );
+    expect(reviewResult.status).toBe('READY_FOR_DOCUMENTATION');
+    expect(reviewResult.auto_handoff).toBeDefined();
+  });
+
+  it('T7: Legacy WP without active_pipeline_stages falls back to DEFAULT_PIPELINE_STAGES (backward compat)', async () => {
+    // makeWp called without the 4th arg → active_pipeline_stages is omitted from the object.
+    // The Developer handler uses `?? DEFAULT_PIPELINE_STAGES` which includes 'implementation',
+    // so the WP is processed identically to a full-pipeline WP.
+    const legacyWp = makeWp('WP-001', [{ type: 'implementation', status: 'PASS' }]);
+
+    const result = await parseResult(getDeveloperHandoff([legacyWp], tempDir, store));
+
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('4 - QA v1.0');
+  });
+
+  it('T8: QA handoff for qa+code-review-only WP does NOT return READY_FOR_DEVELOPER', async () => {
+    // WP with active_pipeline_stages: ['qa', 'code-review'] — no implementation stage.
+    // QA PASS should proceed to code-review (READY_FOR_REVIEW), not loop back to Developer.
+    // This verifies the wpsStillNeedingImpl guard checks active stages (§13.1).
+    const qaReviewOnlyWp = makeWp(
+      'WP-001',
+      [{ type: 'qa', status: 'PASS' }],
+      'IN_PROGRESS',
+      ['qa', 'code-review'],
+    );
+
+    const result = await parseResult(
+      getQaHandoff([qaReviewOnlyWp], tempDir, store),
+    );
+
+    // Must NOT be READY_FOR_DEVELOPER — the WP has no implementation stage.
+    expect(result.status).not.toBe('READY_FOR_DEVELOPER');
+    expect(result.status).toBe('READY_FOR_REVIEW');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('5 - Reviewer v1.0');
+  });
+
+  it('T9: QA handoff for qa+code-review-only WP without QA PASS does NOT route to READY_FOR_DEVELOPER', async () => {
+    // WP with active_pipeline_stages: ['qa', 'code-review'], no pipelines yet.
+    // Since implementation is not in active stages, wpsStillNeedingImpl must be empty.
+    // The WP must NOT be erroneously counted as "needing implementation."
+    const qaReviewOnlyWp = makeWp(
+      'WP-001',
+      [],
+      'IN_PROGRESS',
+      ['qa', 'code-review'],
+    );
+
+    const result = await parseResult(
+      getQaHandoff([qaReviewOnlyWp], tempDir, store),
+    );
+
+    expect(result.status).not.toBe('READY_FOR_DEVELOPER');
   });
 });
 
@@ -26030,7 +26277,7 @@ describe('Documentation action logic', () => {
 
   // Case 6: Doc PASS, all criteria met, doc completed_at > impl started_at → FINALIZE_WP
   it('returns FINALIZE_WP when doc PASS, all criteria met, and freshness check passes', async () => {
-    const wp: WorkPackageDetail = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+    const wp: WorkPackageDetail = makeWorkPackageDetail({ pipelines: [
         makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
         makePipeline('documentation',  'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
       ], acceptance_criteria: [{ criterion: 'All docs updated', met: true }], });
@@ -26043,7 +26290,7 @@ describe('Documentation action logic', () => {
 
   // Case 7: Doc PASS, freshness OK, one criterion met: false → UPDATE_CRITERIA
   it('returns UPDATE_CRITERIA when doc PASS and fresh but at least one criterion is not met', async () => {
-    const wp: WorkPackageDetail = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+    const wp: WorkPackageDetail = makeWorkPackageDetail({ pipelines: [
         makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
         makePipeline('documentation',  'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
       ], acceptance_criteria: [

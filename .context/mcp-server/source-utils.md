@@ -702,6 +702,7 @@ export function formatCandidateList(
 
 import { z } from 'zod';
 import { workflowManifest } from '../schema/workflow-manifest-schema.js';
+import type { WorkPackageDetail } from '../schema/work-package.js';
 
 // ---------------------------------------------------------------------------
 // Role ID → role name lookup (used to resolve fail_routing IDs to names)
@@ -1115,6 +1116,20 @@ export function validateActiveStages(stages: string[]): { errors: string[]; warn
   }
 
   return { errors, warnings };
+}
+
+/**
+ * Filter WP details to those whose active_pipeline_stages includes the given stage.
+ * Falls back to DEFAULT_PIPELINE_STAGES when the WP has no explicit stages.
+ */
+export function scopeToStage(
+  wpDetails: readonly WorkPackageDetail[],
+  stage: PipelineType,
+): WorkPackageDetail[] {
+  return wpDetails.filter((wp) =>
+    ((wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES)
+      .includes(stage)
+  );
 }
 
 ```
