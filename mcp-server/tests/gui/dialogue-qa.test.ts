@@ -191,6 +191,7 @@ describe('AC3 — Dialogues card rendered after Handoff Notes card', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -216,6 +217,7 @@ describe('AC4 — Empty dialogues array', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -240,6 +242,7 @@ describe('AC5 — Dialogue buttons with human-readable labels', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       {
         match: '/dialogues',
         body: [
@@ -269,6 +272,7 @@ describe('AC5 — Dialogue buttons with human-readable labels', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       {
         match: '/dialogues',
         body: [
@@ -303,6 +307,7 @@ describe('AC6 — Click fetches and renders via marked.parse()', () => {
 
     installFetchMock([
       { match: '/work-packages/',    body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,      body: [] },
       { match: /\/dialogues\?wp=/,   body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
       { match: /\/dialogues\//,      body: { content: markdownBody } },
     ]);
@@ -337,6 +342,7 @@ describe('AC7 — Clicking second dialogue collapses first', () => {
 
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,   body: [] },
       {
         match: /\/dialogues\?wp=/,
         body: [
@@ -388,6 +394,7 @@ describe('AC8 — Fetch error handling', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues', body: { error: { message: 'Server error', code: 'ERR' } }, status: 500 },
     ]);
 
@@ -409,6 +416,7 @@ describe('AC8 — Fetch error handling', () => {
 
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,    body: [] },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
       { match: /\/dialogues\//,    body: null, status: 403 },
     ]);
@@ -439,6 +447,7 @@ describe('AC9 — Dialogues card not above Pipelines card in DOM', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -470,6 +479,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     };
     installFetchMock([
       { match: '/work-packages/', body: wp },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -486,6 +496,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -499,6 +510,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -521,6 +533,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     };
     installFetchMock([
       { match: '/work-packages/', body: wp },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -542,6 +555,7 @@ describe('Edge cases', () => {
 
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,    body: [] },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
       { match: /\/dialogues\//,    body: { content: '# Hello' } },
     ]);
@@ -570,6 +584,7 @@ describe('Edge cases', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: null },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -601,6 +616,7 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
   async function renderWithDialogue(app: HTMLElement) {
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,    body: [] },
       {
         match: /\/dialogues\?wp=/,
         body: [
@@ -683,5 +699,137 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
     expect(btn2.getAttribute('aria-expanded')).toBe('true');
 
     document.body.removeChild(app);
+  });
+});
+
+// ============================================================
+// Chunk-priority path — getChunks returns data → useChunks=true
+// ============================================================
+
+describe('Chunk-priority path (useChunks=true)', () => {
+  it('uses chunks as data source when getChunks returns non-empty', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    installFetchMock([
+      { match: '/work-packages/', body: { ...baseWp } },
+      {
+        match: /\/chunks\?wp=/,
+        body: [
+          { filename: 'WP-016-developer-r0.jsonl', stage: 'developer' },
+        ],
+      },
+      { match: /\/dialogues\?wp=/, body: [{ filename: 'developer-r0.md', stage: 'developer' }] },
+      { match: /\/chunks\/.*\/rendered/, body: { content: '# Rendered from chunks' } },
+    ]);
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const buttons = section.querySelectorAll('button.dialogue-btn');
+    expect(buttons.length).toBe(1);
+    // Button must have data-use-chunks="1"
+    expect(buttons[0].getAttribute('data-use-chunks')).toBe('1');
+
+    document.body.removeChild(app);
+  });
+
+  it('clicking a chunk button calls getChunkRendered (not getDialogueContent)', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+
+    const renderedMd = '# Chunk Rendered Markdown';
+
+    installFetchMock([
+      { match: '/work-packages/', body: { ...baseWp } },
+      {
+        match: /\/chunks\?wp=/,
+        body: [{ filename: 'WP-016-developer-r0.jsonl', stage: 'developer' }],
+      },
+      { match: /\/dialogues\?wp=/, body: [] },
+      { match: /\/chunks\/.*\/rendered/, body: { content: renderedMd } },
+    ]);
+
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const btn = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+
+    btn.click();
+    await new Promise(r => setTimeout(r, WAIT));
+
+    // Verify the rendered content is displayed
+    const contentEl = section.querySelector('.dialogue-content')!;
+    expect(contentEl.style.display).not.toBe('none');
+    expect(contentEl.querySelector('.dialogue-markdown')).not.toBeNull();
+
+    // Verify the fetch URL hit the /rendered endpoint (chunks path)
+    const fetchCalls = (globalThis.fetch as any).mock.calls.map((c: any) => c[0] as string);
+    const renderedCalls = fetchCalls.filter((url: string) => url.includes('/rendered'));
+    expect(renderedCalls.length).toBeGreaterThan(0);
+
+    document.body.removeChild(app);
+  });
+
+  it('chunks take priority over dialogues when both return entries', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    installFetchMock([
+      { match: '/work-packages/', body: { ...baseWp } },
+      {
+        match: /\/chunks\?wp=/,
+        body: [{ filename: 'WP-016-qa-r0.jsonl', stage: 'qa' }],
+      },
+      {
+        match: /\/dialogues\?wp=/,
+        body: [
+          { filename: 'qa-r0.md', stage: 'qa' },
+          { filename: 'qa-r1.md', stage: 'qa' },
+        ],
+      },
+      { match: /\/chunks\/.*\/rendered/, body: { content: '# Chunk content' } },
+    ]);
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const buttons = section.querySelectorAll('button.dialogue-btn');
+    // Should have 1 button (from chunks), not 2 (from dialogues)
+    expect(buttons.length).toBe(1);
+    // All buttons must be chunk-backed
+    buttons.forEach(btn => {
+      expect(btn.getAttribute('data-use-chunks')).toBe('1');
+    });
+
+    document.body.removeChild(app);
+  });
+});
+
+// ============================================================
+// wpId=undefined guard — no ?wp=undefined in URL
+// ============================================================
+
+describe('wpId=undefined guard', () => {
+  it('getDialogues with undefined wpId does not produce ?wp=undefined', async () => {
+    const calls: string[] = [];
+    (globalThis as any).fetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    await globalThis.API.getDialogues('my-project', undefined);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain('wp=undefined');
+  });
+
+  it('getChunks with undefined wpId does not produce ?wp=undefined', async () => {
+    const calls: string[] = [];
+    (globalThis as any).fetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    await globalThis.API.getChunks('my-project', undefined);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain('wp=undefined');
   });
 });

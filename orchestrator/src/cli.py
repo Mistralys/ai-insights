@@ -22,6 +22,23 @@ Exit Codes
 - ``0`` — Workflow completed successfully with no errors.
 - ``1`` — One or more errors occurred during the run.
 - ``2`` — Safety limit reached (iteration counter exceeded ``max_iterations``).
+
+Signals / Shutdown
+------------------
+On Unix (Linux, macOS), both **SIGTERM** and **SIGINT** trigger a graceful
+shutdown: the running graph task is cancelled, a ``signal_shutdown`` JSONL
+entry is written with ``result="INTERRUPTED"``, and the process exits with
+code ``1``.
+
+On Windows, ``loop.add_signal_handler()`` is unavailable; the handler falls
+back to ``signal.signal()`` for SIGTERM (which is effectively a no-op on
+Windows but harmless).  SIGINT continues to be handled by the existing
+``KeyboardInterrupt`` mechanism at all three call sites.
+
+Signal-interrupted runs are **not** marked terminal, so they can be resumed
+from the last checkpoint via ``--resume <thread-id>`` once the underlying
+issue is resolved.  See :func:`_register_signal_handlers` for implementation
+details.
 """
 
 from __future__ import annotations
@@ -31,6 +48,7 @@ import asyncio
 import logging
 import os
 import shutil
+import signal
 import sys
 import time
 import uuid
@@ -67,6 +85,70 @@ _INTERRUPT_STAGE_MAP: dict[str, str] = {
     "synthesis": "synthesis",
     "fail": "developer",  # Developer node handles all rework loops.
 }
+
+
+# ---------------------------------------------------------------------------
+# Signal handling
+# ---------------------------------------------------------------------------
+
+def _register_signal_handlers(
+    loop: asyncio.AbstractEventLoop,
+    shutdown_event: asyncio.Event,
+    *,
+    thread_id: str = "",
+) -> None:
+    """Register SIGTERM and SIGINT handlers on *loop* for graceful shutdown.
+
+    On Unix (and macOS) the asyncio event-loop method
+    ``loop.add_signal_handler()`` is used so the callback fires inside the
+    running loop without disrupting ``await`` points.
+
+    On Windows ``loop.add_signal_handler()`` is not implemented (raises
+    ``NotImplementedError``).  We fall back to ``signal.signal()`` for
+    SIGTERM (which is a no-op on Windows but harmless) and leave SIGINT to
+    the existing ``KeyboardInterrupt`` mechanism.
+
+    The handler sets *shutdown_event*, which callers can ``await`` on, and
+    emits a WARNING-level log entry so the shutdown reason is always visible
+    in the log stream.
+
+    Parameters
+    ----------
+    loop:
+        The running asyncio event loop.
+    shutdown_event:
+        An ``asyncio.Event`` that will be set when a signal is received.
+    thread_id:
+        The current run's thread ID, included in the log entry.
+    """
+
+    def _on_signal(sig: signal.Signals) -> None:  # type: ignore[name-defined]
+        sig_name = sig.name if hasattr(sig, "name") else str(sig)
+        log.warning(
+            "Signal %s received — initiating graceful shutdown (thread_id=%s).",
+            sig_name,
+            thread_id or "<unknown>",
+        )
+        shutdown_event.set()
+
+    if sys.platform == "win32":
+        # add_signal_handler() is unavailable on Windows; use signal.signal()
+        # as a best-effort fallback.  SIGTERM is effectively a no-op on
+        # Windows but the registration itself must not crash.
+        try:
+            signal.signal(signal.SIGTERM, lambda signum, _frame: _on_signal(signal.SIGTERM))
+        except (OSError, ValueError):
+            # If even signal.signal() fails (e.g. not the main thread), swallow
+            # silently — signal handling is defence-in-depth, not a hard requirement.
+            log.debug("Could not register SIGTERM handler on Windows (non-main thread?).")
+    else:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _on_signal, sig)
+            except (OSError, RuntimeError, NotImplementedError):
+                # Catch-all for environments where add_signal_handler() is
+                # unavailable or we are not on the main thread.
+                log.debug("Could not register %s handler via event loop.", sig)
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +475,13 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     correct: the user may want to resume again from the last checkpoint.
     Future maintainers should preserve this invariant — only unconditional
     (non-interrupt) runs should write the terminal marker.
+
+    **Signal-interrupted runs** (SIGTERM / SIGINT via
+    :func:`_register_signal_handlers`) are also intentionally **not** marked
+    terminal.  The ``shutdown_event`` fires, the in-flight graph task is
+    cancelled, and the run exits with code ``1`` (COMPLETED WITH ERRORS).
+    Because no terminal marker is written, the same thread ID can be passed
+    to ``--resume`` to restart from the last LangGraph checkpoint.
     """
     from src.mcp_client import MCPToolkit
 
@@ -431,6 +520,11 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         run_logger = WorkflowLogger.create(label=plan_dir.name)
         log.info("JSONL log: %s", run_logger._path)
         await run_logger.start_heartbeat(config.heartbeat_interval_s)
+
+        # ── Register signal handlers (graceful shutdown) ─────────────────
+        # Create the shutdown event first; it will be populated with the
+        # thread_id once the ID is resolved below.
+        shutdown_event = asyncio.Event()
 
         # ── Generate or reuse thread ID ─────────────────────────────────
         if args.resume:
@@ -475,6 +569,16 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             run_start_ts=run_start_ts,
             stage_models=dict(config.stage_models),
         )
+        # ── Register signal handlers now that thread_id is known ────────
+        # Handlers set shutdown_event and emit a log entry; the graph
+        # execution loop is responsible for honouring the event.
+        # Registration is best-effort — failure never aborts the run.
+        try:
+            loop = asyncio.get_running_loop()
+            _register_signal_handlers(loop, shutdown_event, thread_id=thread_id)
+        except RuntimeError:
+            log.debug("No running event loop; signal handlers not registered.")
+
         # ── Parse --interrupt-on ────────────────────────────────────────
         interrupt_before: list[str] = []
         if args.interrupt_on:
@@ -531,18 +635,67 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
 
                 try:
                     try:
+                        # Wrap the graph invocation so that a signal-triggered
+                        # shutdown_event can cancel the task cleanly.
                         if args.resume:
                             # For resume: invoke without an initial state so
                             # the graph continues from the last checkpoint.
-                            result = await graph.ainvoke(None, run_config)
+                            invoke_coro = graph.ainvoke(None, run_config)
                         else:
-                            result = await graph.ainvoke(initial_state, run_config)
-                        final_state = result
-                        # Mark as terminal when the graph ran to completion with no
-                        # interrupt checkpoints configured.  Interrupted runs must
-                        # remain re-resumable, so we only write the marker here.
-                        if not interrupt_before:
-                            _mark_run_terminal(config.checkpoint_dir, thread_id)
+                            invoke_coro = graph.ainvoke(initial_state, run_config)
+
+                        graph_task = asyncio.ensure_future(invoke_coro)
+                        wait_task = asyncio.ensure_future(shutdown_event.wait())
+
+                        done, pending = await asyncio.wait(
+                            {graph_task, wait_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+
+                        # Cancel the task that didn't finish.
+                        for t in pending:
+                            t.cancel()
+                            try:
+                                await t
+                            except (asyncio.CancelledError, Exception):
+                                pass
+
+                        if shutdown_event.is_set():
+                            # Signal-triggered shutdown — log the final entry.
+                            log.warning(
+                                "Shutdown signal received. Run interrupted (thread_id=%s). "
+                                "Resume with: orchestrate --resume %s",
+                                thread_id,
+                                thread_id,
+                            )
+                            run_logger.log(
+                                stage="cli",
+                                action="signal_shutdown",
+                                result="INTERRUPTED",
+                                level="WARNING",
+                                thread_id=thread_id,
+                            )
+                            print(
+                                f"\n[signal] Graceful shutdown. "
+                                f"Resume with: orchestrate --resume {thread_id}"
+                            )
+                            outside_errors.append("Interrupted by signal.")
+                            # Retrieve any partial state from the graph task.
+                            if graph_task in done:
+                                try:
+                                    final_state = graph_task.result()
+                                except Exception:
+                                    pass
+                        else:
+                            # Normal completion — retrieve result from graph_task.
+                            result = graph_task.result()
+                            final_state = result
+                            # Mark as terminal when the graph ran to completion with no
+                            # interrupt checkpoints configured.  Interrupted runs must
+                            # remain re-resumable, so we only write the marker here.
+                            if not interrupt_before:
+                                _mark_run_terminal(config.checkpoint_dir, thread_id)
+
                     except KeyboardInterrupt:
                         log.info(
                             "Interrupted by user. Run can be resumed with --resume %s.",

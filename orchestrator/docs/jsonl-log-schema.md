@@ -2,7 +2,7 @@
 
 > **Parent:** [orchestrator/README.md](../README.md) · **Sources:** `orchestrator/src/utils/logging.py` (logger), `orchestrator/src/nodes/__init__.py` (stage events), `orchestrator/src/supervisor.py` (routing events), `orchestrator/src/cli.py` (run lifecycle events)
 
-Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **23 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
+Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **24 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
 
 > **Streaming guarantee:** Graph nodes call `stream_entry()` to persist events in real time via the `WorkflowLogger` instance passed through LangGraph's `configurable` dict (key: `run_logger`). For LangGraph to inject this, node functions must annotate their `config` parameter as `Optional[RunnableConfig]` — using `RunnableConfig | None` with `from __future__ import annotations` produces a string annotation that LangGraph's signature inspector does not recognise. When the logger is successfully injected, events appear in the JSONL file immediately as they occur. If the `WorkflowLogger` is unreachable inside graph nodes (e.g. incorrect annotation or the configurable key was stripped), events accumulate only in the LangGraph state's `run_log` list. At run exit, `cli.py` calls `flush_unstreamed(run_log)` to write any un-persisted entries as a batch before the `run_end` sentinel. In this fallback scenario, stage and supervisor events appear immediately before `run_end` rather than interleaved with heartbeats.
 
@@ -85,6 +85,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `run_start` | `cli.py` | `stage="cli"`, `thread_id`, `dry_run`, `plan`, `run_start_ts`, `stage_models` |
 | `run_end` | `cli.py` | `stage="cli"`, `result` (`"COMPLETE"` / `"ERROR"`), `thread_id`, `total_duration_s` |
 | `run_error` | `cli.py` | `stage="cli"`, `error`, `thread_id`, `level="ERROR"` |
+| `signal_shutdown` | `cli.py` | `stage="cli"`, `result="INTERRUPTED"`, `thread_id`, `level="WARNING"` — emitted when SIGTERM or SIGINT triggers graceful shutdown; the run exits with code `1` and is **not** marked terminal (resumable via `--resume`) |
 
 ### `stage_start` / `stage_complete` / `stage_error` ordering
 

@@ -25,6 +25,19 @@ var API = (function () {
     return res.json();
   }
 
+  /**
+   * Serialize *params* as a URL query string.
+   *
+   * Keys whose value is `undefined` or an empty string (`''`) are silently
+   * omitted from the output.  This is intentional: callers use `undefined` as
+   * a "no filter" sentinel (e.g. `{ wp: wpId }` where `wpId` may be
+   * `undefined`), and the omission prevents `?wp=undefined` from reaching
+   * the server.
+   *
+   * @param {Record<string, any>|null|undefined} params - Key/value pairs to encode.
+   * @returns {string} A `?key=value&…` string, or `''` when no params survive
+   *   the filter.
+   */
   function buildQueryString(params) {
     if (!params) return '';
     var parts = Object.keys(params)
@@ -61,10 +74,17 @@ var API = (function () {
       return request('GET', '/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename) + qs);
     },
     getDialogues: function (slug, wpId) {
-      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues?wp=' + encodeURIComponent(wpId));
+      return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues' + buildQueryString({ wp: wpId }));
     },
     getDialogueContent: function (slug, filename) {
       return request('GET', '/projects/' + encodeURIComponent(slug) + '/dialogues/' + encodeURIComponent(filename))
+        .then(function (data) { return data.content; });
+    },
+    getChunks: function (slug, wpId) {
+      return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks' + buildQueryString({ wp: wpId }));
+    },
+    getChunkRendered: function (slug, filename) {
+      return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
         .then(function (data) { return data.content; });
     },
   };

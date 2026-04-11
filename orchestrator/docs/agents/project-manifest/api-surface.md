@@ -23,6 +23,20 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `pipeline_result` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` | **New.** Best-effort read-back of latest WP pipeline after success. `duration_s` derived from `pipeline.duration_ms`; `null` when absent. Omitted on read-back failure. |
 | `pipeline_rollback` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` | Emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline after an unhandled stage exception. Only fires when `ledger_begin_work` was called before the crash. |
 
+#### Node factory private helpers (`src/nodes/__init__.py`)
+
+Module-level helper functions extracted from `node_fn()` for readability.
+All are private (prefixed `_`) but documented here for agent navigation.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `_build_start_log_entry` | `(stage, wp_id, model, iteration, timestamp) -> dict` | Constructs the `stage_start` JSONL log entry dict. |
+| `_build_success_log_entry` | `(stage, wp_id, model, tokens_used, duration_s, timestamp) -> dict` | Constructs the `stage_complete` JSONL log entry dict. |
+| `_build_error_log_entry` | `(stage, wp_id, model, exc, duration_s, timestamp) -> dict` | Constructs the `stage_error` JSONL log entry dict. |
+| `_accumulate_stream` | `async (agent, user_prompt, slug_dir, wp_id, stage) -> tuple[list, Path \| None]` | Runs the `astream()` loop, writes JSONL chunks via `ChunkWriter`, accumulates and reconstructs `msgs` in stream order. Returns `(msgs, chunk_file_path)`. Closes `ChunkWriter` in `finally` so partial messages survive stream errors. |
+| `_handle_rollback` | `async (begin_work_state, complete_pipeline_state, wp_id, wrapped_tools, stage, exc, run_logger) -> list[dict]` | Cancels any orphaned IN_PROGRESS pipeline using `ledger_cancel_pipeline` when `ledger_begin_work` fired before the error but `ledger_complete_pipeline` did not succeed. Returns zero or one `pipeline_rollback` log entry dicts. |
+| `_read_pipeline_result` | `async (wp_id, wrapped_tools, stage, project_path, run_logger) -> list[dict]` | Best-effort read-back of the latest WP pipeline via `ledger_get_work_package`. Swallows all exceptions (logged at DEBUG). Returns zero or one `pipeline_result` log entry dicts. |
+
 ### Tool wrapper events (`src/utils/tool_wrappers.py`)
 
 | `action` | Key fields | Notes |
@@ -53,6 +67,7 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `action` | Key fields | Notes |
 |----------|-----------|-------|
 | `run_start` | `thread_id`, `dry_run`, `plan`, **`run_start_ts`**, `stage_models` | Enriched: `run_start_ts` — ISO 8601 UTC timestamp stored in state for elapsed-time math. `plan` — resolved path of the plan file passed as `--plan`. `stage_models` — snapshot of `Config.stage_models` at run start (dict of stage name → model slug). |
+| `signal_shutdown` | `stage="cli"`, `result="INTERRUPTED"`, `level="WARNING"`, `thread_id` | Emitted when SIGTERM/SIGINT triggers the graceful shutdown race path in `_run()`. The graph task is cancelled, the run is **not** marked terminal (resumable via `--resume`), and the process exits with code `1`. Integration-tested by `TestSignalInterruptedRun` in `tests/test_cli.py` (Unix-only; skipped on Windows). |
 | `run_end` | `result`, `thread_id`, **`total_duration_s`** | Enriched: `total_duration_s` — wallclock seconds for the full run (float, 1 dp); omitted when `run_start_ts` unavailable. |
 
 ### Duration field conventions
@@ -98,6 +113,76 @@ listed are resolved from the enclosing template's variable dict after inlining.
 |--------|-----------|-------------|
 | `WorkflowLogger` | `WorkflowLogger.create(label)` → context manager | JSONL + console logger. `stream_entry(entry)` writes a log entry dict to JSONL and emits event-type-specific console output for 9 named action types: `stage_start`, `stage_complete` (with duration + token count), `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`, `dialogue_captured`, and `tool_call` (`[stage] 🔧 tool_name (tool_wp_id)`, parenthetical omitted when `tool_wp_id` is empty); all other event types fall through to the generic `action → result` format. `log(...)` writes a freeform entry. `flush_unstreamed(run_log)` writes any `run_log` entries not already persisted via `stream_entry` (safety net for when the logger is unreachable inside graph nodes). `start_heartbeat(interval_s)` / `stop_heartbeat()` — async methods managing a background heartbeat task. |
 | `_format_duration` | `_format_duration(seconds: float \| None) -> str` | Formats a float of seconds as a human-readable string. Examples: `"3m 24s"`, `"1h 12m"`, `"45s"`, `"0s"`. Returns `"0s"` for `None` or zero. Used internally by `stream_entry` for console output of `stage_complete`, `progress_snapshot`, and `pipeline_result` events. **Private** — not part of the public API but documented here as it drives all human-readable duration display. |
+
+---
+
+### `src/utils/_revision.py`
+
+Shared revision-numbering helper used by both `chunk_writer.py` and `dialogue_writer.py`.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `next_revision` | `next_revision(directory: Path, wp_id: str, stage: str, ext: str) -> int` | Globs `{wp_id}-{stage}-r*{ext}` in *directory*, parses revision numbers from matching filenames, and returns `max + 1` (or `0` when no prior files exist). `ext` includes the leading dot (e.g. `".jsonl"`, `".md"`). |
+
+---
+
+### `src/utils/chunk_writer.py`
+
+Writes raw LangGraph stream chunks to JSONL files in the project's `orchestrator/chunks/` subdirectory. Used during streaming stages to persist the full token-level stream for later GUI rendering via the MCP server's `chunk-renderer.ts`.
+
+**JSONL file layout**
+
+| Line | Content |
+|------|---------|
+| 0 (header) | `{"chunk_format": 1, "stream_mode": "messages", "langgraph_stream_version": "v2"}` |
+| 1–N (chunks) | One JSON object per streaming event (e.g. `{"type": "ai", "content": "…", …}`) |
+
+**File naming convention:** `{wp_id}-{stage}-r{N}.jsonl` (revision `N` auto-increments — mirrors `dialogue_writer.write_dialogue`). Files are written to `{slug_dir}/orchestrator/chunks/`.
+
+**Module-level constant**
+
+| Symbol | Value | Notes |
+|--------|-------|-------|
+| `_CHUNK_HEADER` | `MappingProxyType({"chunk_format": 1, "stream_mode": "messages", "langgraph_stream_version": "v2"})` | Written as line 0 of every chunk file. Immutable at runtime (`MappingProxyType`). Shared singleton across all `ChunkWriter` instances. |
+
+**`ChunkWriter` class**
+
+```python
+class ChunkWriter:
+    def __init__(self, slug_dir: Path, wp_id: str, stage: str) -> None: ...
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `slug_dir` | `Path` | Root directory for the project's ledger storage (e.g. `{workspace_root}/mcp-server/storage/ledger/{slug}`). |
+| `wp_id` | `str` | Work-package identifier (e.g. `"WP-001"`). |
+| `stage` | `str` | Pipeline stage name (e.g. `"developer"`). |
+
+Raises `OSError` if the `orchestrator/chunks/` directory cannot be created or the file cannot be opened. Opens (or creates) the JSONL file and writes the version-header line immediately on construction.
+
+**Public methods**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `path` *(property)* | `-> Path` | Absolute path to the JSONL file being written. |
+| `write_chunk` | `write_chunk(chunk: dict[str, Any]) -> None` | Appends *chunk* as a JSON line and flushes immediately. Both `OSError` (file I/O) and `TypeError` (non-serialisable values) are caught and logged at `DEBUG` — the caller is never interrupted. No-op when the writer is closed. |
+| `close` | `close() -> None` | Closes the underlying file handle. Idempotent — safe to call more than once. |
+
+**Context manager usage**
+
+```python
+from pathlib import Path
+from src.utils.chunk_writer import ChunkWriter
+
+with ChunkWriter(slug_dir=Path("/storage/my-project"), wp_id="WP-001", stage="developer") as cw:
+    for chunk in stream:
+        cw.write_chunk(chunk)
+
+# path property exposes the file that was written
+print(cw.path)
+```
+
+`__enter__` returns `self`; `__exit__` calls `close()`.
 | `get_run_logger` | `get_run_logger(config) -> WorkflowLogger \| None` | Extracts the `WorkflowLogger` instance from a LangGraph `RunnableConfig`. Returns `None` when no logger is attached (e.g. in unit tests). |
 
 ### `src/utils/mcp_parse.py`

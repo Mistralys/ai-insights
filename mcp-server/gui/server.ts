@@ -43,8 +43,11 @@ import {
   handleMarkProjectComplete,
   handleListDialogues,
   handleGetDialogueFile,
+  handleListChunks,
+  handleGetChunkFile,
   ApiError,
 } from './api.js';
+import { renderChunksToMarkdown } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
 // Path resolution (ESM-safe)
@@ -321,6 +324,57 @@ function matchRoute(
     const sp = new URLSearchParams(qStr);
     const wpId = sp.get('wp') ?? undefined;
     return () => handleListDialogues(ledgerRoot, slug, wpId);
+  }
+
+  // GET /api/projects/:slug/chunks
+  // rest.length === 3, rest[2] === 'chunks' — analogous to the dialogues list route
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'chunks'
+  ) {
+    const slug = rest[1]!;
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const wpId = sp.get('wp') ?? undefined;
+    return () => handleListChunks(ledgerRoot, slug, wpId);
+  }
+
+  // GET /api/projects/:slug/chunks/:filename/rendered
+  // rest.length === 5, rest[2] === 'chunks', rest[4] === 'rendered'
+  // Placement note: this route (rest.length === 5) and the raw-file route below
+  // (rest.length === 4) have different segment counts, so there is no ordering
+  // requirement between them — the dispatcher can never confuse the two.  This
+  // block is placed here (before the length-4 route) solely to keep all three
+  // chunk routes visually adjacent and in URL-specificity order.
+  if (
+    method === 'GET' &&
+    rest.length === 5 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'chunks' &&
+    rest[4] === 'rendered'
+  ) {
+    const slug = rest[1]!;
+    const filename = decodeURIComponent(rest[3]!);
+    return () =>
+      handleGetChunkFile(ledgerRoot, slug, filename).then(({ content }) => ({
+        content: renderChunksToMarkdown(content),
+      }));
+  }
+
+  // GET /api/projects/:slug/chunks/:filename
+  // rest.length === 4, rest[2] === 'chunks' — analogous to dialogues/:filename
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[2] === 'chunks'
+  ) {
+    const slug = rest[1]!;
+    const filename = decodeURIComponent(rest[3]!);
+    return () => handleGetChunkFile(ledgerRoot, slug, filename);
   }
 
   // GET /api/projects/:slug/runs

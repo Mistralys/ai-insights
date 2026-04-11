@@ -22,7 +22,7 @@ import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
 import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath } from '../src/utils/ledger-root.js';
 import { readProjectName } from '../src/utils/read-project-name.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX, DIALOGUES_DIR } from '../src/utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX, DIALOGUES_DIR, CHUNKS_DIR } from '../src/utils/constants.js';
 import {
   PIPELINE_AGENT_MAP,
   DEFAULT_PIPELINE_STAGES,
@@ -1342,6 +1342,135 @@ export async function handleGetDialogueFile(
   } catch (err: unknown) {
     if (isNodeError(err) && err.code === 'ENOENT') {
       notFound(`Dialogue file not found: '${filename}'.`);
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/chunks
+// ---------------------------------------------------------------------------
+
+/** Filename allowlist pattern for chunk files: only alphanumeric, hyphens, underscores + .jsonl */
+const CHUNK_FILENAME_RE = /^[A-Za-z0-9_-]+\.jsonl$/;
+
+/** Parse pattern for chunk filenames: `{WP_ID}-{stage}-r{N}.jsonl` */
+const CHUNK_PARSE_RE = /^(WP-\d+)-(.+)-r\d+\.jsonl$/;
+
+/**
+ * Parsed representation of a single chunk file.
+ * Derived from the filename convention `{WP_ID}-{stage}-r{N}.jsonl`.
+ */
+export interface ChunkEntry {
+  filename: string;
+  wp_id: string;
+  stage: string;
+}
+
+/** Parses a chunk filename into a structured entry. */
+function parseChunkFilename(filename: string): ChunkEntry {
+  const m = CHUNK_PARSE_RE.exec(filename);
+  if (m) {
+    return { filename, wp_id: m[1]!, stage: m[2]! };
+  }
+  return { filename, wp_id: '', stage: '' };
+}
+
+/**
+ * Returns an array of structured chunk entries from the project's
+ * orchestrator/chunks/ directory. Each entry includes the filename plus
+ * the wp_id and stage parsed from the filename convention
+ * `{WP_ID}-{stage}-r{N}.jsonl`.
+ *
+ * @param ledgerRoot  Root directory containing all project ledger folders.
+ * @param slug        Project slug — validated via assertSafeSlug().
+ * @param wpId        Optional WP ID prefix filter (e.g. 'WP-001').
+ *                    When provided, only filenames starting with '{wpId}-' are returned.
+ * @returns           Sorted array of ChunkEntry objects, or [] when the directory
+ *                    is absent (no error thrown).
+ */
+export async function handleListChunks(
+  ledgerRoot: string,
+  slug: string,
+  wpId?: string
+): Promise<ChunkEntry[]> {
+  assertSafeSlug(slug);
+
+  const chunksDir = join(ledgerRoot, slug, CHUNKS_DIR);
+
+  let entries: string[];
+  try {
+    entries = await readdir(chunksDir);
+  } catch (err: unknown) {
+    // Directory absent — return empty array rather than throwing.
+    if (isNodeError(err) && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      return [];
+    }
+    throw err;
+  }
+
+  // Filter to .jsonl files only.
+  let filenames = entries.filter((f) => f.endsWith('.jsonl'));
+
+  // Optional WP ID prefix filter — validate the value before using it.
+  if (wpId) {
+    if (!WP_ID_RE.test(wpId)) {
+      // Invalid wpId (e.g. injection attempt or malformed value): return empty list.
+      return [];
+    }
+    const prefix = `${wpId}-`;
+    filenames = filenames.filter((f) => f.startsWith(prefix));
+  }
+
+  return filenames.sort().map(parseChunkFilename);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:slug/chunks/:filename
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the raw JSONL content of a single chunk file.
+ *
+ * Security:
+ * - `slug` is validated via assertSafeSlug().
+ * - `filename` must match CHUNK_FILENAME_RE (alphanumeric + hyphens/underscores + .jsonl).
+ * - Resolved path must be inside the project's orchestrator/chunks/ directory (defence-in-depth).
+ *
+ * @param ledgerRoot  Root directory containing all project ledger folders.
+ * @param slug        Project slug.
+ * @param filename    Chunk file name (e.g. 'WP-001-developer-r0.jsonl').
+ * @returns           File content as a UTF-8 string.
+ * @throws            ApiError NOT_FOUND when filename is invalid or the file does not exist.
+ */
+export async function handleGetChunkFile(
+  ledgerRoot: string,
+  slug: string,
+  filename: string
+): Promise<{ content: string }> {
+  assertSafeSlug(slug);
+
+  // Allowlist check — rejects path traversal attempts like '../secret.jsonl'.
+  if (!CHUNK_FILENAME_RE.test(filename)) {
+    console.warn(`[handleGetChunkFile] Rejected filename (regex check): '${filename}'`);
+    notFound(`Chunk file not found: '${filename}'.`);
+  }
+
+  const chunksDir = resolve(join(ledgerRoot, slug, CHUNKS_DIR));
+  const filePath = resolve(join(chunksDir, filename));
+
+  // Defence-in-depth: ensure resolved path stays inside chunksDir.
+  if (!filePath.startsWith(chunksDir + sep) && filePath !== chunksDir) {
+    console.warn(`[handleGetChunkFile] Rejected filename (prefix check): '${filename}'`);
+    notFound(`Chunk file not found: '${filename}'.`);
+  }
+
+  try {
+    const content = await readFile(filePath, 'utf-8');
+    return { content };
+  } catch (err: unknown) {
+    if (isNodeError(err) && err.code === 'ENOENT') {
+      notFound(`Chunk file not found: '${filename}'.`);
     }
     throw err;
   }

@@ -155,11 +155,26 @@ function renderWorkPackageDetail(app, slug, wpId) {
       handoffHtml +
       '<div id="wp-dialogues-section"></div>';
 
-    // Fetch and render Dialogues card asynchronously (after DOM is set)
+    // Fetch and render Dialogues card asynchronously (after DOM is set).
+    // Strategy: prefer chunk JSONL files (streaming capture) when available;
+    // fall back to Markdown dialogue files for older runs that predate streaming capture.
     var dialoguesEl = document.getElementById('wp-dialogues-section');
-    API.getDialogues(slug, wpId).then(function (dialogues) {
+
+    Promise.all([
+      // getChunks errors are silently swallowed — absent chunks directory is
+      // expected for older runs that predate streaming capture.
+      API.getChunks(slug, wpId).catch(function () { return []; }),
+      API.getDialogues(slug, wpId),
+    ]).then(function (results) {
+      var chunks = results[0] || [];
+      var dialogues = results[1] || [];
       if (!dialoguesEl) return;
-      if (!dialogues || dialogues.length === 0) {
+
+      // Choose data source: chunks take priority over Markdown dialogue files.
+      var useChunks = chunks.length > 0;
+      var entries = useChunks ? chunks : dialogues;
+
+      if (!entries || entries.length === 0) {
         dialoguesEl.innerHTML =
           '<div class="card">' +
             '<div class="card-title">Dialogues</div>' +
@@ -171,7 +186,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
       // Group by stage, preserving insertion order
       var stageMap = {};
       var stageOrder = [];
-      dialogues.forEach(function (d) {
+      entries.forEach(function (d) {
         var stage = d.stage || 'unknown';
         if (!stageMap[stage]) {
           stageMap[stage] = [];
@@ -181,15 +196,16 @@ function renderWorkPackageDetail(app, slug, wpId) {
       });
 
       var stagesHtml = stageOrder.map(function (stage) {
-        var entries = stageMap[stage];
-        var buttonsHtml = entries.map(function (d, idx) {
-          var isLatest = (idx === entries.length - 1);
+        var stageEntries = stageMap[stage];
+        var buttonsHtml = stageEntries.map(function (d, idx) {
+          var isLatest = (idx === stageEntries.length - 1);
           // Human-readable label: stage-r{revision index}
           var label = escapeHtml(stage + '-r' + idx);
           return '<button class="dialogue-btn' + (isLatest ? ' dialogue-btn-latest' : '') + '" ' +
             'aria-expanded="false" ' +
             'data-slug="' + escapeHtml(slug) + '" ' +
-            'data-filename="' + escapeHtml(d.filename) + '">' +
+            'data-filename="' + escapeHtml(d.filename) + '" ' +
+            'data-use-chunks="' + (useChunks ? '1' : '0') + '">' +
             label +
           '</button>';
         }).join('');
@@ -243,6 +259,7 @@ function renderWorkPackageDetail(app, slug, wpId) {
 
         var dlgSlug = btn.getAttribute('data-slug');
         var dlgFilename = btn.getAttribute('data-filename');
+        var dlgUseChunks = btn.getAttribute('data-use-chunks') === '1';
         var stageEl = btn.closest('.dialogue-stage');
         var contentEl = stageEl ? stageEl.querySelector('.dialogue-content') : null;
         if (!contentEl) return;
@@ -250,7 +267,13 @@ function renderWorkPackageDetail(app, slug, wpId) {
         contentEl.innerHTML = '<em class="text-muted">Loading…</em>';
         contentEl.style.display = 'block';
 
-        API.getDialogueContent(dlgSlug, dlgFilename).then(function (md) {
+        // Fetch rendered Markdown: use the /rendered chunk endpoint for chunk
+        // files, or the plain dialogue content endpoint for Markdown files.
+        var fetchPromise = dlgUseChunks
+          ? API.getChunkRendered(dlgSlug, dlgFilename)
+          : API.getDialogueContent(dlgSlug, dlgFilename);
+
+        fetchPromise.then(function (md) {
           var rendered = (typeof marked !== 'undefined' && marked.parse)
             ? marked.parse(md)
             : '<pre>' + escapeHtml(md) + '</pre>';

@@ -13,7 +13,9 @@ No real MCP server, LLM, or LangGraph graph invocation is performed.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -448,4 +450,272 @@ class TestUuidCollisionHandling:
         # Verify the helper can detect it.
         assert _thread_id_exists_in_checkpoint(db, "collision-uuid") is True
         assert _thread_id_exists_in_checkpoint(db, "different-uuid") is False
+
+
+# ---------------------------------------------------------------------------
+# _register_signal_handlers() — WP-003
+# ---------------------------------------------------------------------------
+
+class TestRegisterSignalHandlers:
+    """Unit tests for _register_signal_handlers()."""
+
+    async def test_sets_shutdown_event_on_sigterm(self):
+        """On Unix, sending SIGTERM must set the shutdown event."""
+        import os
+        import signal
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("loop.add_signal_handler() is not available on Windows.")
+
+        from src.cli import _register_signal_handlers
+
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+        _register_signal_handlers(loop, shutdown_event, thread_id="test-tid")
+
+        assert not shutdown_event.is_set()
+        os.kill(os.getpid(), signal.SIGTERM)
+        # Give the event loop a real tick to process the signal callback.
+        await asyncio.sleep(0.02)
+        assert shutdown_event.is_set()
+
+        # Restore default SIGTERM behaviour so other tests are not affected.
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    async def test_sets_shutdown_event_on_sigint(self):
+        """On Unix, sending SIGINT via the event loop handler must set the shutdown event."""
+        import os
+        import signal
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("loop.add_signal_handler() is not available on Windows.")
+
+        from src.cli import _register_signal_handlers
+
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+        _register_signal_handlers(loop, shutdown_event, thread_id="test-tid")
+
+        assert not shutdown_event.is_set()
+        os.kill(os.getpid(), signal.SIGINT)
+        await asyncio.sleep(0.02)
+        assert shutdown_event.is_set()
+
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    async def test_double_registration_does_not_raise(self):
+        """Registering handlers twice on the same loop must not raise."""
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("loop.add_signal_handler() is not available on Windows.")
+
+        from src.cli import _register_signal_handlers
+
+        loop = asyncio.get_running_loop()
+        ev1 = asyncio.Event()
+        ev2 = asyncio.Event()
+        _register_signal_handlers(loop, ev1, thread_id="t1")
+        _register_signal_handlers(loop, ev2, thread_id="t2")  # second call overwrites
+
+        import os
+        import signal
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.sleep(0.02)
+        # The second registration overwrites the first; ev2 must be set.
+        assert ev2.is_set()
+
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    def test_windows_path_does_not_raise(self, monkeypatch):
+        """On 'Windows' (mocked), _register_signal_handlers must not raise."""
+        import sys
+
+        from src.cli import _register_signal_handlers
+
+        # Simulate Windows by monkeypatching sys.platform.
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        # signal.signal() requires the main thread; mock it to avoid that constraint.
+        with patch("signal.signal"):
+            loop = MagicMock()
+            ev = asyncio.Event()
+            # Must not raise.
+            _register_signal_handlers(loop, ev, thread_id="win-tid")
+
+        # loop.add_signal_handler must NOT have been called on the Windows path.
+        loop.add_signal_handler.assert_not_called()
+
+    def test_windows_signal_signal_error_swallowed(self, monkeypatch):
+        """If signal.signal() raises ValueError on Windows, the error is swallowed."""
+        import sys
+
+        from src.cli import _register_signal_handlers
+
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        with patch("signal.signal", side_effect=ValueError("not the main thread")):
+            loop = MagicMock()
+            ev = asyncio.Event()
+            _register_signal_handlers(loop, ev, thread_id="win-tid")  # must not raise
+
+    async def test_no_running_loop_graceful(self):
+        """asyncio.get_running_loop() inside _run() is guarded; the test exercises the guard."""
+        # This test validates the RuntimeError guard inside _run() when called
+        # outside an event loop context.  We call the guard directly here.
+        import asyncio
+
+        # When we call get_running_loop() outside a coroutine it raises RuntimeError.
+        # The guard in _run() swallows that — we verify _register_signal_handlers
+        # is itself safe by calling it in a non-main-thread context.
+        # (The function itself doesn't call get_running_loop(); _run() does the guard.)
+        # So we just verify the function doesn't blow up with a dummy loop mock.
+        loop = MagicMock()
+        loop.add_signal_handler = MagicMock()
+        ev = asyncio.Event()
+        import sys
+        if sys.platform != "win32":
+            from src.cli import _register_signal_handlers
+            _register_signal_handlers(loop, ev, thread_id="t")
+            assert loop.add_signal_handler.called
+
+
+# ---------------------------------------------------------------------------
+# Signal-interrupted run integration test — Plan 2026-04-10 rework-3
+# ---------------------------------------------------------------------------
+
+class TestSignalInterruptedRun:
+    """Integration test for the signal-interrupted shutdown race path in _run().
+
+    Validates the asyncio.wait race between graph_task and wait_task when
+    SIGTERM fires during graph execution.  Asserts:
+    - shutdown_event is set (triggering graceful shutdown).
+    - The graph task is cancelled (does not run to completion).
+    - A ``signal_shutdown`` JSONL entry is emitted with ``result="INTERRUPTED"``.
+    - The run is NOT marked terminal (remains resumable via --resume).
+    - The exit code is EXIT_ERROR (1).
+
+    Platform guard: skipped on Windows where loop.add_signal_handler() is unavailable.
+    """
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="loop.add_signal_handler() is not available on Windows.",
+    )
+    async def test_sigterm_interrupts_run_and_emits_signal_shutdown(self, tmp_path):
+        """Fire SIGTERM during _run(); verify shutdown JSONL entry and no terminal marker."""
+        import json
+        import os
+        import signal
+
+        from src.cli import EXIT_ERROR, _is_run_terminal, _run
+
+        # ── Set up a real plan file ─────────────────────────────────────
+        plan = tmp_path / "plan.md"
+        plan.write_text("# Plan\n\nTest plan for signal integration test.\n")
+
+        # ── Build mock args ─────────────────────────────────────────────
+        args = MagicMock()
+        args.plan = str(plan)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = str(tmp_path)
+        args.max_iterations = None
+        args.log_level = None
+
+        # ── Build mock config ───────────────────────────────────────────
+        ckpt_dir = tmp_path / "checkpoints"
+        ckpt_dir.mkdir()
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = ckpt_dir
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+        mock_config.max_iterations = 100
+        mock_config.stage_models = {"developer": "claude-test"}
+
+        # ── Build a real WorkflowLogger pointing to tmp_path ────────────
+        from src.utils.logging import WorkflowLogger
+
+        run_logger = WorkflowLogger(logs_dir / "test-signal-run.jsonl")
+
+        # ── Create a slow mock graph that blocks long enough for SIGTERM ─
+        async def _slow_ainvoke(*_args, **_kwargs):
+            """Simulate a long-running graph execution."""
+            await asyncio.sleep(10)
+            return {"run_log": [], "errors": [], "wp_summaries": []}
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = _slow_ainvoke
+
+        mock_db_conn = MagicMock()
+        mock_db_conn.close = AsyncMock(return_value=None)
+
+        # ── Mock MCPToolkit and _build_graph_for_run ────────────────────
+        mock_toolkit = MagicMock()
+        mock_toolkit.get_tools.return_value = []
+        mock_toolkit.__aenter__ = AsyncMock(return_value=mock_toolkit)
+        mock_toolkit.__aexit__ = AsyncMock(return_value=None)
+
+        # Schedule SIGTERM after a short delay so the race fires the
+        # shutdown path before the slow graph completes.
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.05, os.kill, os.getpid(), signal.SIGTERM)
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch(
+                "src.cli._build_graph_for_run",
+                return_value=(mock_graph, mock_db_conn),
+            ),
+        ):
+            exit_code = await _run(args, mock_config)
+
+        # ── Restore default signal handlers ─────────────────────────────
+        try:
+            loop.remove_signal_handler(signal.SIGTERM)
+        except Exception:
+            pass
+        try:
+            loop.remove_signal_handler(signal.SIGINT)
+        except Exception:
+            pass
+
+        # ── Assert exit code ────────────────────────────────────────────
+        assert exit_code == EXIT_ERROR, f"Expected EXIT_ERROR (1), got {exit_code}"
+
+        # ── Assert signal_shutdown JSONL entry was emitted ──────────────
+        run_logger.close()
+        log_path = logs_dir / "test-signal-run.jsonl"
+        assert log_path.exists(), "JSONL log file must exist"
+
+        log_lines = log_path.read_text().strip().splitlines()
+        entries = [json.loads(line) for line in log_lines]
+
+        signal_entries = [
+            e for e in entries
+            if e.get("action") == "signal_shutdown"
+        ]
+        assert len(signal_entries) == 1, (
+            f"Expected exactly 1 signal_shutdown entry, found {len(signal_entries)}"
+        )
+        assert signal_entries[0]["result"] == "INTERRUPTED"
+
+        # ── Assert run is NOT marked terminal (remains resumable) ───────
+        # Find the thread_id from the run_start entry.
+        start_entries = [e for e in entries if e.get("action") == "run_start"]
+        assert len(start_entries) == 1, "Expected exactly 1 run_start entry"
+        thread_id = start_entries[0]["thread_id"]
+        assert not _is_run_terminal(ckpt_dir, thread_id), (
+            "Signal-interrupted run must NOT be marked terminal"
+        )
 

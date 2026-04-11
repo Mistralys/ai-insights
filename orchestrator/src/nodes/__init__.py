@@ -25,9 +25,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import RunnableConfig
 
-from src.utils.dialogue_writer import serialize_messages_to_markdown, write_dialogue
+from src.utils.chunk_writer import ChunkWriter
 from src.utils.logging import get_run_logger
 from src.utils.mcp_parse import parse_tool_response
 from src.utils.tool_wrappers import (
@@ -77,6 +78,24 @@ def _is_cross_wp_error(exc: BaseException) -> bool:
     full traceback in the log output.
     """
     return isinstance(exc, ValueError) and "cross-WP contamination" in str(exc)
+
+
+def _derive_slug_dir(project_path: str, workspace_root: Path) -> Path | None:
+    """Return the ledger slug directory for *project_path*, or None on failure.
+
+    Computes ``workspace_root / "mcp-server" / "storage" / "ledger" / <slug>``
+    where ``<slug>`` is the last path segment (stem) of *project_path*.
+
+    Returns ``None`` when *project_path* is falsy or any path operation fails,
+    so callers can treat ``None`` as "capture disabled" without further guards.
+    """
+    try:
+        slug = Path(project_path).name
+        if not slug:
+            return None
+        return workspace_root / "mcp-server" / "storage" / "ledger" / slug
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # Maps orchestrator stage names to the MCP pipeline type used by ledger_begin_work.
@@ -244,6 +263,363 @@ def _install_post_completion_guard(tools: list[Any], completion_tracker: dict) -
         break
 
 
+# ---------------------------------------------------------------------------
+# Log-entry builders (pure dict constructors)
+# ---------------------------------------------------------------------------
+
+
+def _build_start_log_entry(
+    stage: str,
+    wp_id: str,
+    model: str,
+    iteration: int,
+    timestamp: datetime,
+) -> dict:
+    """Return the ``stage_start`` JSONL log entry dict."""
+    return {
+        "timestamp": timestamp.isoformat(),
+        "stage": stage,
+        "wp_id": wp_id,
+        "action": "stage_start",
+        "level": "INFO",
+        "model": model,
+        "iteration": iteration,
+    }
+
+
+def _build_success_log_entry(
+    stage: str,
+    wp_id: str,
+    model: str,
+    tokens_used: Any,
+    duration_s: float,
+    timestamp: datetime,
+) -> dict:
+    """Return the ``stage_complete`` JSONL log entry dict."""
+    return {
+        "timestamp": timestamp.isoformat(),
+        "stage": stage,
+        "wp_id": wp_id,
+        "action": "stage_complete",
+        "result": "PASS",
+        "level": "INFO",
+        "model": model,
+        "tokens_used": tokens_used,
+        "duration_s": duration_s,
+    }
+
+
+def _build_error_log_entry(
+    stage: str,
+    wp_id: str,
+    model: str,
+    exc: BaseException,
+    duration_s: float,
+    timestamp: datetime,
+) -> dict:
+    """Return the ``stage_error`` JSONL log entry dict."""
+    return {
+        "timestamp": timestamp.isoformat(),
+        "stage": stage,
+        "wp_id": wp_id,
+        "action": "stage_error",
+        "result": "FAIL",
+        "error": str(exc),
+        "level": "ERROR",
+        "model": model,
+        "duration_s": duration_s,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Stream accumulation
+# ---------------------------------------------------------------------------
+
+
+async def _accumulate_stream(
+    agent: Any,
+    user_prompt: str,
+    slug_dir: Path | None,
+    wp_id: str,
+    stage: str,
+) -> tuple[list, Path | None]:
+    """Run the ``astream()`` loop, accumulate messages, and write JSONL chunks.
+
+    Parameters
+    ----------
+    agent:
+        Deep Agent instance whose ``astream()`` is iterated.
+    user_prompt:
+        The user-turn content string.
+    slug_dir:
+        Ledger slug directory for ChunkWriter output.  When ``None``, chunk
+        capture is skipped.
+    wp_id:
+        Active work-package ID; passed to
+        :class:`~src.utils.chunk_writer.ChunkWriter`.
+    stage:
+        Stage name; used for logging and ChunkWriter file naming.
+
+    Returns
+    -------
+    tuple[list, Path | None]
+        ``(msgs, chunk_file_path)`` where *msgs* is the list of reconstructed
+        LangChain messages in stream order and *chunk_file_path* is the Path of
+        the written JSONL chunk file, or ``None`` if chunk capture was not active.
+
+        When the ``astream()`` loop raises an exception, the ``finally`` block
+        closes the ChunkWriter and reconstructs any partially collected messages
+        before the exception propagates to the caller.
+    """
+    _chunk_writer: ChunkWriter | None = None
+    _chunk_file_path: Path | None = None
+    _chunk_accumulator: dict[str, AIMessageChunk] = {}
+    _msg_order: list[Any] = []
+
+    try:
+        if slug_dir is not None:
+            try:
+                _chunk_writer = ChunkWriter(slug_dir=slug_dir, wp_id=wp_id, stage=stage)
+                _chunk_file_path = _chunk_writer.path
+            except OSError:
+                log.warning(
+                    "Could not open chunk file for %s/%s; "
+                    "chunk capture disabled for this run.",
+                    wp_id,
+                    stage,
+                )
+
+        async for _stream_item in agent.astream(
+            {"messages": [{"role": "user", "content": user_prompt}]},
+            stream_mode="messages",
+            subgraphs=True,
+        ):
+            # Unpack the (ns, (msg, metadata)) structure yielded by
+            # subgraph-aware message streaming.
+            _ns, _inner = _stream_item
+            _msg, _meta = _inner
+
+            # Write raw chunk to JSONL immediately (flush guaranteed
+            # by ChunkWriter.write_chunk).
+            if _chunk_writer is not None:
+                _chunk_writer.write_chunk({
+                    "ns": list(_ns),
+                    "msg": _msg.model_dump(),
+                    "metadata": _meta,
+                })
+
+            # Accumulate AIMessageChunk fragments; pass other types through.
+            if isinstance(_msg, AIMessageChunk):
+                _msg_id = _msg.id
+                # AIMessageChunk with id=None is rare (modern LangGraph
+                # always assigns IDs) and is safely dropped during
+                # message reconstruction in the `finally` block below.
+                if _msg_id is None:
+                    log.debug(
+                        "AIMessageChunk with id=None received (stage %s); "
+                        "chunk will be dropped during message reconstruction.",
+                        stage,
+                    )
+                if _msg_id and _msg_id in _chunk_accumulator:
+                    _chunk_accumulator[_msg_id] = (
+                        _chunk_accumulator[_msg_id] + _msg
+                    )
+                else:
+                    _chunk_accumulator[_msg_id] = _msg
+                    _msg_order.append(("chunk", _msg_id))
+            else:
+                _msg_order.append(("direct", _msg))
+
+    finally:
+        if _chunk_writer is not None:
+            _chunk_writer.close()
+
+        # Reconstruct msgs in stream order from accumulated chunks and
+        # direct (non-AI) messages.  Done in `finally` so that partial
+        # messages are available even when the stream loop raises.
+        msgs: list = []
+        for _entry in _msg_order:
+            if _entry[0] == "chunk":
+                _mid = _entry[1]
+                if _mid is not None and _mid in _chunk_accumulator:
+                    msgs.append(_chunk_accumulator[_mid])
+            else:
+                msgs.append(_entry[1])
+
+    return msgs, _chunk_file_path
+
+
+# ---------------------------------------------------------------------------
+# Error-path pipeline rollback
+# ---------------------------------------------------------------------------
+
+
+async def _handle_rollback(
+    begin_work_state: dict,
+    complete_pipeline_state: dict,
+    wp_id: str,
+    wrapped_tools: list,
+    stage: str,
+    exc: BaseException,
+    run_logger: Any,
+) -> list[dict]:
+    """Cancel any orphaned IN_PROGRESS pipeline on stage error.
+
+    Invokes ``ledger_cancel_pipeline`` when ``ledger_begin_work`` was called
+    before the error but ``ledger_complete_pipeline`` did not succeed.  The
+    cancellation uses ``auto_cancelled=True`` so it does not consume the rework
+    budget (§21.27).
+
+    Parameters
+    ----------
+    begin_work_state:
+        Mutable dict populated by :func:`_install_begin_work_tracker`;
+        ``{"called": bool, "pipeline_type": str | None}``.
+    complete_pipeline_state:
+        Mutable dict populated by :func:`_install_complete_pipeline_tracker`;
+        ``{"completed": bool}``.
+    wp_id:
+        Active work-package ID.
+    wrapped_tools:
+        Tool list with ``ledger_cancel_pipeline`` accessible by name.
+    stage:
+        Stage name; used for log entries and fallback pipeline-type lookup.
+    exc:
+        The exception that terminated the stage.
+    run_logger:
+        Optional run-scoped JSONL logger; may be ``None``.
+
+    Returns
+    -------
+    list[dict]
+        Zero or one ``pipeline_rollback`` log entry dicts.
+    """
+    rollback_log_entries: list[dict] = []
+    if (
+        begin_work_state["called"]
+        and not complete_pipeline_state["completed"]
+        and wp_id
+        and wrapped_tools
+    ):
+        _pipeline_type = (
+            begin_work_state.get("pipeline_type") or _STAGE_PIPELINE_TYPE.get(stage)
+        )
+        if _pipeline_type:
+            _cancel_tool = next(
+                (t for t in wrapped_tools if t.name == "ledger_cancel_pipeline"),
+                None,
+            )
+            if _cancel_tool:
+                try:
+                    await _cancel_tool.ainvoke({
+                        "work_package_id": wp_id,
+                        "type": _pipeline_type,
+                        "reason": f"Orchestrator stage error: {exc}",
+                        "auto_cancelled": True,
+                    })
+                    log.info(
+                        "Pipeline rollback: cancelled IN_PROGRESS %s pipeline for %s",
+                        _pipeline_type,
+                        wp_id,
+                    )
+                    rollback_entry: dict = {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "stage": stage,
+                        "wp_id": wp_id,
+                        "action": "pipeline_rollback",
+                        "pipeline_type": _pipeline_type,
+                        "level": "INFO",
+                    }
+                    rollback_log_entries.append(rollback_entry)
+                    if run_logger:
+                        run_logger.stream_entry(rollback_entry)
+                except Exception as rollback_exc:  # noqa: BLE001
+                    log.warning(
+                        "Pipeline rollback failed for %s %s: %s",
+                        wp_id,
+                        _pipeline_type,
+                        rollback_exc,
+                    )
+    return rollback_log_entries
+
+
+async def _read_pipeline_result(
+    wp_id: str,
+    wrapped_tools: list,
+    stage: str,
+    project_path: str,
+    run_logger: Any,
+) -> list[dict]:
+    """Read back the latest pipeline result from the ledger (best-effort).
+
+    Invokes ``ledger_get_work_package`` and extracts the most recent pipeline
+    entry.  Any exception is swallowed and logged at DEBUG so that a transient
+    read failure never masks a successful stage completion.
+
+    Parameters
+    ----------
+    wp_id:
+        Active work-package ID.
+    wrapped_tools:
+        Wrapped tool list; must contain ``ledger_get_work_package``.
+    stage:
+        Stage name; recorded in the emitted ``pipeline_result`` entry.
+    project_path:
+        Project path string; injected into the tool call.
+    run_logger:
+        Optional run-scoped JSONL logger; may be ``None``.
+
+    Returns
+    -------
+    list[dict]
+        Zero or one ``pipeline_result`` log entry dicts.
+    """
+    if not (wp_id and wrapped_tools):
+        return []
+    try:
+        get_wp_tool = next(
+            (t for t in wrapped_tools if t.name == "ledger_get_work_package"),
+            None,
+        )
+        if not get_wp_tool:
+            return []
+        raw = await get_wp_tool.ainvoke(
+            {"work_package_id": wp_id, "project_path": project_path}
+        )
+        wp_detail = parse_tool_response(raw)
+        if not isinstance(wp_detail, dict):
+            return []
+        pipelines = wp_detail.get("pipelines", [])
+        if not pipelines:
+            return []
+        latest = pipelines[-1]
+        pipeline_duration_s = None
+        if latest.get("duration_ms") is not None:
+            pipeline_duration_s = round(latest["duration_ms"] / 1000, 1)
+        entry: dict = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "stage": stage,
+            "wp_id": wp_id,
+            "action": "pipeline_result",
+            "level": "INFO",
+            "pipeline_type": latest.get("type", ""),
+            "pipeline_status": latest.get("status", ""),
+            "files_modified": (latest.get("artifacts") or {}).get("files_modified", []),
+            "metrics": latest.get("metrics"),
+            "summary": latest.get("summary", []),
+            "duration_s": pipeline_duration_s,
+        }
+        if run_logger:
+            run_logger.stream_entry(entry)
+        return [entry]
+    except Exception:  # noqa: BLE001
+        log.debug(
+            "Could not read back WP detail for pipeline_result event",
+            exc_info=True,
+        )
+        return []
+
+
 def create_stage_node(
     stage: str,
     build_prompt: Callable[[WorkflowState], str],
@@ -295,16 +671,14 @@ def create_stage_node(
        ``stage``, ``wp_id``, ``tool_name``, and ``tool_wp_id``; full argument
        payloads are never logging (privacy constraint).
 
-    Error-path dialogue capture
-    ---------------------------
-    When ``capture_dialogues=True``, dialogue capture acts as a debugging safety
-    net even when an exception interrupts the node (e.g. LLM context overflow or
-    MCP token limit). If the agent crash occurs *after* ``_msgs`` starts
-    collecting turns, the ``except`` block writes a partial dialogue file and
-    emits a ``dialogue_captured`` JSONL event tagged with ``partial: True``.
-    This operation is entirely non-fatal: any file-system failure during capture
-    is logged at DEBUG but swallowed so it never obscures the original exception
-    that took down the pipeline.
+    Error-path behaviour
+    --------------------
+    When an exception propagates out of the streaming loop,
+    :func:`_accumulate_stream` closes the ChunkWriter and reconstructs any
+    partially collected messages in its ``finally`` block before the exception
+    reaches the outer ``except`` handler.  The ``except`` block emits a
+    ``stage_error`` JSONL event and calls :func:`_handle_rollback` to cancel
+    any orphaned IN_PROGRESS pipeline.
     """
 
     # Capture the app-level Config in a closure variable so it doesn't clash
@@ -322,17 +696,12 @@ def create_stage_node(
         _wp_id: str = state.get("current_wp_id", "")  # type: ignore[call-overload]
 
         # Tracks whether ledger_begin_work was called during this stage invocation.
-        # Populated by the tracker installed in _install_begin_work_tracker below.
+        # Populated by the tracker installed via _install_begin_work_tracker below.
         # Declared before `try` so it is accessible in the `except` rollback path.
         _begin_work_state: dict = {"called": False, "pipeline_type": None}
         # Tracks whether ledger_complete_pipeline completed successfully.
-        # When True, the rollback path is skipped (no orphaned IN_PROGRESS pipeline)
-        # and ledger_get_next_action returns a synthetic WAIT response.
         _complete_pipeline_state: dict = {"completed": False}
         wrapped_tools: list[Any] = []
-        # Pre-declared before `try` so that messages collected before a crash are
-        # accessible in the `except` block for error-path dialogue capture.
-        _msgs: list = []
 
         # ── stage_start ───────────────────────────────────────────────
         stage_start_time = datetime.now(UTC)
@@ -340,15 +709,11 @@ def create_stage_node(
         # KeyError here (programming error) and must propagate as-is, not be
         # swallowed and converted into a stage_error log entry.
         resolved_model: str = _app_config.resolve_model_for_stage(stage)
-        start_entry: dict = {
-            "timestamp": stage_start_time.isoformat(),
-            "stage": stage,
-            "wp_id": _wp_id,
-            "action": "stage_start",
-            "level": "INFO",
-            "model": resolved_model,
-            "iteration": state.get("iteration", 0),  # type: ignore[call-overload]
-        }
+        start_entry = _build_start_log_entry(
+            stage, _wp_id, resolved_model,
+            state.get("iteration", 0),  # type: ignore[call-overload]
+            stage_start_time,
+        )
         if run_logger:
             run_logger.stream_entry(start_entry)
 
@@ -367,10 +732,6 @@ def create_stage_node(
             wrapped_tools = inject_project_path(list(mcp_tools), project_path)
             if _wp_id:
                 restrict_to_wp(wrapped_tools, _wp_id)
-
-            # Install tracker so the except block can detect whether
-            # ledger_begin_work was called before the error occurred.
-            if _wp_id:
                 _install_begin_work_tracker(wrapped_tools, _begin_work_state)
                 _install_complete_pipeline_tracker(wrapped_tools, _complete_pipeline_state)
                 _install_post_completion_guard(wrapped_tools, _complete_pipeline_state)
@@ -393,117 +754,68 @@ def create_stage_node(
                 subagents=stage_subagents or None,
             )
 
-            # Use ainvoke so LangGraph's inner ToolNode takes the async path
-            # (a_run) for MCP StructuredTools, which don't implement sync _run.
-            result = await agent.ainvoke({"messages": [{"role": "user", "content": user_prompt}]})
-            _msgs = result.get("messages") or []
+            # Derive slug_dir once; passed to _accumulate_stream for ChunkWriter.
+            _slug_dir: Path | None = None
+            if _app_config.capture_dialogues and _wp_id:
+                _slug_dir = _derive_slug_dir(
+                    state.get("project_path", ""),  # type: ignore[call-overload]
+                    _app_config.workspace_root,
+                )
+                if _slug_dir is None:
+                    log.debug(
+                        "Could not derive slug_dir for ChunkWriter (stage %s); "
+                        "chunk capture disabled for this run.",
+                        stage,
+                    )
+
+            _msgs, _chunk_file_path = await _accumulate_stream(
+                agent, user_prompt, _slug_dir, _wp_id, stage
+            )
+
             last_msg = _msgs[-1] if _msgs else None
             final_content: str = last_msg.content if last_msg is not None else ""  # type: ignore[union-attr]
             tokens_used = getattr(last_msg, "usage_metadata", None)
 
             # ── dialogue capture (optional, non-fatal) ────────────────
-            dialogue_captured_entry: dict | None = None
-            if _app_config.capture_dialogues and _wp_id:
+            chunk_captured_entry: dict | None = None
+            if _app_config.capture_dialogues and _wp_id and _chunk_file_path is not None:
                 try:
-                    # Derive slug_dir from workspace_root + mcp-server/storage/ledger/<slug>
-                    # where slug is the last path segment of the ledger plan directory.
-                    project_path_obj = state["project_path"]  # type: ignore[index]
-                    slug = Path(project_path_obj).name
-                    slug_dir = (
-                        _app_config.workspace_root
-                        / "mcp-server"
-                        / "storage"
-                        / "ledger"
-                        / slug
-                    )
-                    ts_str = stage_start_time.isoformat()
-                    content = serialize_messages_to_markdown(_msgs, stage, _wp_id, ts_str)
-                    written_path = write_dialogue(content, slug_dir, _wp_id, stage)
-                    dialogue_captured_entry = {
+                    chunk_captured_entry = {
                         "timestamp": datetime.now(UTC).isoformat(),
                         "action": "dialogue_captured",
                         "stage": stage,
                         "wp_id": _wp_id,
-                        "file_path": str(written_path),
+                        "file_path": str(_chunk_file_path),
+                        "format": "chunks",
                         "level": "INFO",
                     }
                     if run_logger:
-                        run_logger.stream_entry(dialogue_captured_entry)
+                        run_logger.stream_entry(chunk_captured_entry)
                 except Exception:  # noqa: BLE001
                     log.debug(
-                        "Dialogue capture failed for stage %s; continuing normally.",
+                        "Chunk capture event failed for stage %s; continuing normally.",
                         stage,
                         exc_info=True,
                     )
 
-            # ── duration ──────────────────────────────────────────────
+            # ── duration + stage_complete ──────────────────────────────
             stage_end_time = datetime.now(UTC)
             duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
-
             log.info("Stage %s completed successfully.", stage)
-            log_entry = {
-                "timestamp": stage_end_time.isoformat(),
-                "stage": stage,
-                "wp_id": _wp_id,
-                "action": "stage_complete",
-                "result": "PASS",
-                "level": "INFO",
-                "model": resolved_model,
-                "tokens_used": tokens_used,
-                "duration_s": duration_s,
-            }
+            log_entry = _build_success_log_entry(
+                stage, _wp_id, resolved_model, tokens_used, duration_s, stage_end_time
+            )
             if run_logger:
                 run_logger.stream_entry(log_entry)
 
             # ── pipeline_result read-back (best-effort) ───────────────
-            extra_log_entries: list = []
-            if _wp_id and wrapped_tools:
-                try:
-                    get_wp_tool = next(
-                        (t for t in wrapped_tools if t.name == "ledger_get_work_package"),
-                        None,
-                    )
-                    if get_wp_tool:
-                        raw = await get_wp_tool.ainvoke(
-                            {"work_package_id": _wp_id, "project_path": project_path}
-                        )
-                        wp_detail = parse_tool_response(raw)
-                        if isinstance(wp_detail, dict):
-                            pipelines = wp_detail.get("pipelines", [])
-                            if pipelines:
-                                latest = pipelines[-1]
-                                pipeline_duration_s = None
-                                if latest.get("duration_ms") is not None:
-                                    pipeline_duration_s = round(
-                                        latest["duration_ms"] / 1000, 1
-                                    )
-                                pipeline_result_entry: dict = {
-                                    "timestamp": datetime.now(UTC).isoformat(),
-                                    "stage": stage,
-                                    "wp_id": _wp_id,
-                                    "action": "pipeline_result",
-                                    "level": "INFO",
-                                    "pipeline_type": latest.get("type", ""),
-                                    "pipeline_status": latest.get("status", ""),
-                                    "files_modified": (
-                                        latest.get("artifacts") or {}
-                                    ).get("files_modified", []),
-                                    "metrics": latest.get("metrics"),
-                                    "summary": latest.get("summary", []),
-                                    "duration_s": pipeline_duration_s,
-                                }
-                                if run_logger:
-                                    run_logger.stream_entry(pipeline_result_entry)
-                                extra_log_entries.append(pipeline_result_entry)
-                except Exception:  # noqa: BLE001
-                    log.debug(
-                        "Could not read back WP detail for pipeline_result event",
-                        exc_info=True,
-                    )
+            extra_log_entries: list = await _read_pipeline_result(
+                _wp_id, wrapped_tools, stage, project_path, run_logger
+            )
 
-            # Append dialogue_captured to run_log when present.
-            if dialogue_captured_entry is not None:
-                extra_log_entries.append(dialogue_captured_entry)
+            # Append chunk_captured to run_log when present.
+            if chunk_captured_entry is not None:
+                extra_log_entries.append(chunk_captured_entry)
 
             return {
                 "stage_result": final_content,
@@ -517,116 +829,25 @@ def create_stage_node(
 
         except Exception as exc:  # noqa: BLE001
             stage_end_time = datetime.now(UTC)
-            ts = stage_end_time.isoformat()
             duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
             log.error("Stage %s failed: %s", stage, exc, exc_info=not _is_cross_wp_error(exc))
-            log_entry = {
-                "timestamp": ts,
-                "stage": stage,
-                "wp_id": _wp_id,
-                "action": "stage_error",
-                "result": "FAIL",
-                "error": str(exc),
-                "level": "ERROR",
-                "model": resolved_model,
-                "duration_s": duration_s,
-            }
+            log_entry = _build_error_log_entry(
+                stage, _wp_id, resolved_model, exc, duration_s, stage_end_time
+            )
             if run_logger:
                 run_logger.stream_entry(log_entry)
 
-            # ── pipeline rollback ─────────────────────────────────────
-            # If ledger_begin_work was called before the error, cancel the
-            # orphaned IN_PROGRESS pipeline so the next run attempt is not
-            # blocked by a stale pipeline. auto_cancelled=True prevents the
-            # cancellation from counting toward the rework budget (§21.27).
-            rollback_log_entries: list[dict] = []
-            if (
-                _begin_work_state["called"]
-                and not _complete_pipeline_state["completed"]
-                and _wp_id
-                and wrapped_tools
-            ):
-                _pipeline_type = (
-                    _begin_work_state.get("pipeline_type") or _STAGE_PIPELINE_TYPE.get(stage)
-                )
-                if _pipeline_type:
-                    _cancel_tool = next(
-                        (t for t in wrapped_tools if t.name == "ledger_cancel_pipeline"),
-                        None,
-                    )
-                    if _cancel_tool:
-                        try:
-                            await _cancel_tool.ainvoke({
-                                "work_package_id": _wp_id,
-                                "type": _pipeline_type,
-                                "reason": f"Orchestrator stage error: {exc}",
-                                "auto_cancelled": True,
-                            })
-                            log.info(
-                                "Pipeline rollback: cancelled IN_PROGRESS %s pipeline for %s",
-                                _pipeline_type,
-                                _wp_id,
-                            )
-                            rollback_entry: dict = {
-                                "timestamp": datetime.now(UTC).isoformat(),
-                                "stage": stage,
-                                "wp_id": _wp_id,
-                                "action": "pipeline_rollback",
-                                "pipeline_type": _pipeline_type,
-                                "level": "INFO",
-                            }
-                            rollback_log_entries.append(rollback_entry)
-                            if run_logger:
-                                run_logger.stream_entry(rollback_entry)
-                        except Exception as rollback_exc:  # noqa: BLE001
-                            log.warning(
-                                "Pipeline rollback failed for %s %s: %s",
-                                _wp_id,
-                                _pipeline_type,
-                                rollback_exc,
-                            )
-
-            # ── error-path dialogue capture (best-effort) ─────────────
-            # Write a partial dialogue file when the stage accumulated messages
-            # before the crash.  Non-fatal: any write failure is silently logged
-            # and the stage-error result is returned unchanged.
-            if _app_config.capture_dialogues and _wp_id and _msgs:
-                try:
-                    project_path_obj = state["project_path"]  # type: ignore[index]
-                    slug = Path(project_path_obj).name
-                    slug_dir = (
-                        _app_config.workspace_root
-                        / "mcp-server"
-                        / "storage"
-                        / "ledger"
-                        / slug
-                    )
-                    ts_str = stage_start_time.isoformat()
-                    err_content = serialize_messages_to_markdown(_msgs, stage, _wp_id, ts_str)
-                    written_path = write_dialogue(err_content, slug_dir, _wp_id, stage)
-                    err_dialogue_entry: dict = {
-                        "timestamp": datetime.now(UTC).isoformat(),
-                        "action": "dialogue_captured",
-                        "stage": stage,
-                        "wp_id": _wp_id,
-                        "file_path": str(written_path),
-                        "level": "INFO",
-                        "partial": True,
-                    }
-                    if run_logger:
-                        run_logger.stream_entry(err_dialogue_entry)
-                    rollback_log_entries.append(err_dialogue_entry)
-                except Exception:  # noqa: BLE001
-                    log.debug(
-                        "Error-path dialogue capture failed for %s", stage, exc_info=True
-                    )
+            rollback_log_entries = await _handle_rollback(
+                _begin_work_state, _complete_pipeline_state,
+                _wp_id, wrapped_tools, stage, exc, run_logger,
+            )
 
             result_dict: dict = {
                 "stage_result": "",
                 "stage_success": False,
                 "errors": [
                     {
-                        "timestamp": ts,
+                        "timestamp": stage_end_time.isoformat(),
                         "stage": stage,
                         "wp_id": _wp_id,
                         "message": str(exc),
