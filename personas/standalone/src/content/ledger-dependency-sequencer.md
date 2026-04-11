@@ -64,7 +64,7 @@ WP-001 → WP-003 → WP-005 (3 sequential stages)
 Save the analysis to:
 
 ```
-docs/agents/plans/{plan-folder}/dependency-analysis.md
+docs/agents/plans/{PLAN_FOLDER}/dependency-analysis.md
 ```
 
 ---
