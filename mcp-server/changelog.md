@@ -1,15 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.23.0 - Target-Specific Agent Names in Auto-Handoff
+## v1.23.1 - Workflow fixes
+- Handoff: Fixed auto-handoff failures in some stages.
+- Specification: Fixed a couple of small gaps in the spec.
 
-- Constants: Added `AGENT_NAMES` constant (`Record<AgentRole, NameMappingEntry>`) loaded
-  from `personas/name-mapping.json` via `createRequire`; provides per-target agent names
-  for all 9 ledger personas.
-- Handoff: `auto_handoff` now includes `cc_agent_name`, `vs_agent_name`, and
-  `da_agent_name` alongside `agent_name`; names sourced from `AGENT_NAMES` keyed by
-  next-agent role; additive — no existing fields changed.
-- Tests: Added 8 integration tests in `tests/integration/auto-handoff.test.ts`; suite
-  now at 1,743 passing.
+## v1.23.0 - Target-Specific Agent Names
+- Core: `personas/name-mapping.json` for per-target agent names.
+- Handoff: Added system-specific agent names (`cc_agent_name`) alongside `agent_name`.
 
 ## v1.22.1 - Fatal Error Rendering
 - GUI: Added `fatal_error` event rendering in the run log view.

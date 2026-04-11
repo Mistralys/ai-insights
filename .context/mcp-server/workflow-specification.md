@@ -27,12 +27,18 @@ _SOURCE: Workflow logic: state machines, routing, handoffs, edge cases_
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.4.1
-**Date:** 2026-03-18
+**Version:** 2.4.2
+**Date:** 2026-04-10
 
 ---
 
 ## Changelog
+
+### v2.4.2 - Handoff Handler Active-Stage Scoping
+- **Handoff scope filters (§13.1):** Added explicit `active_pipeline_stages` scoping to Developer, QA, Reviewer, and Documentation handoff functions. Pipeline-specific conditions now include `with "<type>" in activeStages`, matching the pattern established by Security Auditor and Release Engineer handlers in v2.4.0. Without this scoping, non-default WP compositions (e.g., documentation-only) were misclassified as `IN_PROGRESS` by pipeline handlers that have no work on those WPs, suppressing auto-handoff.
+- **Documentation handoff null-prerequisite (§13.1):** Defined `hasPassEffectiveUpstream` as vacuously true when `resolvePrerequisite` returns `null` (documentation is the first or only active stage), consistent with `canStartPipeline` (§8.2).
+- **PM handoff dynamic routing (§13.1):** Replaced hardcoded `READY_FOR_DEVELOPER` fallback for unassigned READY WPs with `readyStatusForAgent(PIPELINE_AGENT_MAP[firstActiveStage(wp)])`, routing to the agent owning the WP's first active stage.
+- **New edge case:** §21.69 (Handoff Handler Active-Stage Scoping) — documents the invariant, consequences of violation, and correct pattern.
 
 ### v2.4.1 - Spec-Implementation Sync Fixes
 - **Re-validation guard fix (§11.1):** Made the upstream rework check unconditional — it now fires regardless of whether the current pipeline type has prior runs. Previously, first-run scenarios were short-circuited, allowing stage-skipping (e.g., code-review starting for the first time while a new implementation pipeline is in progress). The two-layer guard structure is preserved: layer 1 (unconditional upstream rework) fires first, layer 2 (temporal consistency for same-type re-runs) handles self-rework allowance.
@@ -1808,6 +1814,17 @@ function recoverOrphanedPipeline(wp, pipelineType, reason):
 - **Multiple orphaned pipelines:** If an agent crashes repeatedly across multiple invocations (e.g., due to a persistent environment issue), each recovery call to `cancelPipeline` with `auto_cancelled = true` does not increment the rework count. The circuit breaker is therefore not a useful safeguard against repeated infrastructure crashes — a separate orchestrator-level retry limit (e.g., a maximum number of crash-recovery attempts per WP per run) is recommended for automated systems.
 - **Distinction from manual PM cancellation:** A PM calling `cancelPipeline` to abort a pipeline whose output is known to be incorrect is an operational decision (the pipeline represents a genuine failure), not crash recovery. In this case `auto_cancelled` SHOULD be `false` (default) so the rework budget accurately reflects the number of genuine failure cycles.
 
+### 21.69 Handoff Handler Active-Stage Scoping
+
+- **Invariant:** All per-role handoff functions (§13.1) MUST scope their pipeline-specific conditions to WPs that include the handler's owned pipeline type in `active_pipeline_stages`. Without this scoping, a WP with a non-default composition (e.g., `["documentation"]`) is visible to all handlers, and conditions that check for pipeline absence (e.g., "no implementation pipeline → needs work") incorrectly classify the WP as having pending work
+- **Consequence of violation:** The handler returns `IN_PROGRESS` for non-applicable WPs, suppressing auto-handoff (§18) — the `auto_handoff` block is only generated for `READY_FOR_*` statuses, not `IN_PROGRESS`
+- **Correct pattern:** Each pipeline-specific condition in the handoff pseudocode includes `with "<pipeline-type>" in activeStages`, matching the pattern established by the Security Auditor and Release Engineer handlers (§13.1). The `activeStages` variable defaults to `DEFAULT_PIPELINE_STAGES` when absent or null, preserving backward compatibility with WPs created before composable stages existed
+- **Non-scoped conditions:** The "all WPs terminal" check and `assigned_to` fallback apply to ALL WPs regardless of active stages — these are project-level completeness checks, not pipeline-specific
+- **Interaction with §21.60–§21.62:** Single-stage and restricted-composition WPs (documentation-only, verification-only) are the primary trigger for this issue. With correct scoping, a documentation-only WP is invisible to Developer/QA/Reviewer handoff logic, and only Documentation/PM handlers route it
+- **PM routing:** The Project Manager handoff uses `firstActiveStage(wp)` (§6.2.1) to route unassigned READY WPs to the correct agent, rather than hardcoding `READY_FOR_DEVELOPER`. This ensures documentation-only WPs are routed to `READY_FOR_DOCS` and other non-default compositions reach the correct starting agent
+- **Documentation null-prerequisite:** When `resolvePrerequisite("documentation", activeStages)` returns `null` (documentation is the first or only active stage), the `hasPassEffectiveUpstream` condition is vacuously true — no prerequisite is needed, consistent with `canStartPipeline` (§8.2). The `hasNewUpstreamPassSince(null, "documentation")` call returns `false` per §14.6 (no pipeline of type `null`), so first-active-stage documentation WPs only match via the "no documentation pipeline yet" branch
+- **Related sections:** [§13.1](handoff.md#131-per-agent-handoff-functions) (handoff functions), [§14.2–§14.5c](recommendations.md) (recommendation engine — correctly scoped since v2.4.0), [§18](auxiliary-systems.md#18-auto-handoff-depth-counter) (auto-handoff eligibility)
+
 **Related sections:** [§12.5](operations.md#125-pipeline-cancellation-cancelpipeline) (`cancelPipeline` operation and `auto_cancelled` semantics), [§21.27](#2127-auto-cancelled-pipelines) (auto-cancelled pipeline exclusion rules), [§16.3](dependencies-and-rework.md#163-circuit-breaker) (circuit breaker and rework budget), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators) (orchestrator escalation guidance)
 ```
 ###  Path: `/mcp-server/docs/agents/workflow-specification/handoff.md`
@@ -1840,18 +1857,22 @@ else:
 
 #### Developer Handoff
 
+Only considers non-terminal WPs that include `implementation` in their `active_pipeline_stages` for pipeline-specific conditions (FAIL routing, QA readiness). The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // FAIL conditions first (§13.2 short-circuit semantics)
 // Temporal guard: only signal rework when the downstream agent has re-engaged
 // since the Developer's latest fix (hasDownstreamReengagedSince §14.13).
 // Without this, auto-handoff stalls after Developer delivers a fix — the handoff
 // returns IN_PROGRESS (Developer "must rework") while getNextAction returns
 // WAIT_FOR_DOWNSTREAM, preventing any agent from being routed to QA.
-if any non-terminal, non-dependency-blocked WP has a FAIL routed to Developer
+if any non-terminal, non-dependency-blocked WP with "implementation" in activeStages
+   has a FAIL routed to Developer
    AND hasDownstreamReengagedSince(wp.pipelines, "implementation") is true:
   // Downstream validated the current fix and FAILed again — Developer must rework
   return IN_PROGRESS               (Developer must rework)
-if any non-terminal, non-dependency-blocked WP needs QA:
+if any non-terminal, non-dependency-blocked WP with "implementation" in activeStages needs QA:
   // "Needs QA" means: PASS implementation AND (no QA started yet
   // OR hasNewUpstreamPassSince("implementation", "qa") — i.e., QA needs
   // to run or re-run after upstream rework)
@@ -1869,23 +1890,28 @@ return WAIT                        (no actionable work for Developer)
 
 #### QA Handoff
 
+Only considers non-terminal WPs that include `qa` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `qa` in their active stages are invisible to QA's pipeline checks. The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // Re-engagement check (before FAIL short-circuit — see rationale below)
 // If QA previously FAILed but Developer has since re-PASSed implementation,
 // QA should re-engage rather than routing back to Developer.
-if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline
+if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
+   has a FAIL QA pipeline
    AND hasNewUpstreamPassSince(wp.pipelines, "implementation", "qa") is true:
   return IN_PROGRESS             (QA should re-engage after upstream rework)
 
 // FAIL conditions (§13.2 short-circuit semantics)
 // Only reached when upstream has NOT re-PASSed since the QA FAIL.
-if any non-terminal, non-dependency-blocked WP has a FAIL QA pipeline routed to Developer:
+if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
+   has a FAIL QA pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
 
 // Dynamic next-stage routing after PASS QA
 // nextAgent = resolveNextAgent("qa", wp.active_pipeline_stages)
 //   → "Security Auditor" when security-audit is active, "Reviewer" otherwise
-if WPs with PASS QA but next stage not started:
+if WPs with "qa" in activeStages have PASS QA but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
@@ -1903,26 +1929,31 @@ return WAIT                      (no actionable work for QA)
 
 #### Reviewer Handoff
 
+Only considers non-terminal WPs that include `code-review` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `code-review` in their active stages are invisible to Reviewer's pipeline checks. The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // Re-engagement check (before FAIL short-circuit — see QA handoff rationale)
 // If Reviewer previously FAILed but the effective upstream has since re-PASSed,
 // Reviewer should re-engage rather than routing back to Developer.
 // effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)
 //   → "security-audit" when active, "qa" otherwise, or null for first-active-stage compositions
 //   When null (code-review is the first active stage), skip this re-engagement check entirely
-if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline
+if any non-terminal, non-dependency-blocked WP with "code-review" in activeStages
+   has a FAIL code-review pipeline
    AND hasNewUpstreamPassSince(wp.pipelines, effectiveUpstream, "code-review") is true:
   return IN_PROGRESS             (Reviewer should re-engage after upstream rework)
 
 // FAIL conditions (§13.2 short-circuit semantics)
 // Only reached when upstream has NOT re-PASSed since the review FAIL.
-if any non-terminal, non-dependency-blocked WP has a FAIL code-review pipeline routed to Developer:
+if any non-terminal, non-dependency-blocked WP with "code-review" in activeStages
+   has a FAIL code-review pipeline routed to Developer:
   return READY_FOR_DEVELOPER     (Developer must rework)
 
 // Dynamic next-stage routing after PASS code-review
 // nextAgent = resolveNextAgent("code-review", wp.active_pipeline_stages)
 //   → "Release Engineer" when release-engineering is active, "Documentation" otherwise
-if WPs with PASS code-review but next stage not started:
+if WPs with "code-review" in activeStages have PASS code-review but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
@@ -2005,14 +2036,26 @@ return WAIT
 
 #### Documentation Handoff
 
+Only considers non-terminal WPs that include `documentation` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `documentation` in their active stages are invisible to Documentation's pipeline checks. The "all WPs terminal" check applies to all WPs regardless of active stages.
+
 ```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
 // WPs ready for documentation — the effective upstream stage is determined
-// dynamically: "release-engineering" if active, otherwise "code-review".
-readyForDocs = non-terminal WPs where hasPassEffectiveUpstream AND (
+// dynamically: "release-engineering" if active, otherwise "code-review",
+// or null when documentation is the first (or only) active stage.
+readyForDocs = non-terminal WPs with "documentation" in activeStages where
+  hasPassEffectiveUpstream AND (
   no documentation pipeline yet OR hasNewUpstreamPassSince(effectiveUpstream, "documentation")
 )
 // Where effectiveUpstream = resolvePrerequisite("documentation", wp.active_pipeline_stages)
-// Where hasPassEffectiveUpstream = most recent pipeline of effectiveUpstream type is PASS
+// Where hasPassEffectiveUpstream:
+//   - When effectiveUpstream is not null: most recent pipeline of effectiveUpstream type is PASS
+//   - When effectiveUpstream is null (documentation is the first or only active stage):
+//     vacuously true — no prerequisite needed, consistent with canStartPipeline (§8.2)
+// Note: hasNewUpstreamPassSince(null, "documentation") returns false per §14.6
+// (no pipeline of type null exists), so first-active-stage WPs only match via
+// "no documentation pipeline yet" — once a documentation pipeline exists,
+// there is no upstream to re-engage from.
 if readyForDocs is not empty:
   if all readyForDocs are dependency-blocked:
     skip                           (fall through to check earlier-stage WPs)
@@ -2020,7 +2063,8 @@ if readyForDocs is not empty:
     return IN_PROGRESS             (Documentation continues documenting)
 
 // Documentation FAIL → self-rework (not forwarded to Developer)
-if any non-terminal, non-dependency-blocked WP has FAIL documentation pipeline (most recent):
+if any non-terminal, non-dependency-blocked WP with "documentation" in activeStages
+   has FAIL documentation pipeline (most recent):
   return IN_PROGRESS               (Documentation self-reworks)
 
 // WPs still in earlier pipeline stages — defer to orchestrator polling
@@ -2057,8 +2101,8 @@ for each WP with status == "READY":
     // Post auto-unblock: route to the assigned agent
     return readyStatusForAgent(wp.assigned_to)
   else:
-    // Unassigned: route to Developer (first pipeline owner in workflow)
-    return READY_FOR_DEVELOPER
+    // Unassigned: route to the agent owning the WP's first active stage
+    return readyStatusForAgent(PIPELINE_AGENT_MAP[firstActiveStage(wp)])
 
 // All WPs terminal
 if all WPs have terminal status:
@@ -2069,6 +2113,8 @@ return WAIT
 ```
 
 > **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Security Auditor"` → `READY_FOR_SECURITY_AUDIT`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Release Engineer"` → `READY_FOR_RELEASE_ENGINEERING`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
+
+> **Dynamic routing for unassigned WPs (v2.4.2):** Prior to v2.4.2, unassigned READY WPs were hardcoded to route to `READY_FOR_DEVELOPER`. This caused misrouting for WPs with non-default `active_pipeline_stages` — a documentation-only WP (`["documentation"]`) would be routed to Developer, whose `getNextAction` returns `WAIT` (no implementation work), stalling auto-handoff. The routing now uses `firstActiveStage` (§6.2.1) to dynamically determine the correct starting agent for the WP's composition.
 
 ### 13.2 Handoff Evaluation Order
 

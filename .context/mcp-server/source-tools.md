@@ -4648,6 +4648,9 @@ import { now } from '../utils/timestamp.js';
 import {
   resolvePrerequisite,
   DEFAULT_PIPELINE_STAGES,
+  firstActiveStage,
+  PIPELINE_AGENT_MAP,
+  scopeToStage,
   type PipelineType,
 } from '../utils/pipeline-maps.js';
 import {
@@ -4982,13 +4985,21 @@ export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], p
   }
 
   // Step 2: READY WPs → route to the agent assigned to that work package.
+  // Unassigned WPs route to the agent owning the WP's first active stage (§13.1).
   for (const wp of wpDetails) {
     if (wp.status === 'READY') {
-      const status = readyStatusForAgent(wp.assigned_to ?? null);
+      const targetAgent =
+        wp.assigned_to ??
+        PIPELINE_AGENT_MAP[
+          firstActiveStage(
+            (wp.active_pipeline_stages as PipelineType[] | undefined) ?? null
+          )
+        ];
+      const status = readyStatusForAgent(targetAgent);
       return buildHandoffResponse(
         'Project Manager',
         status,
-        `Work package ${wp.work_package_id} is READY and assigned to ${wp.assigned_to ?? 'Developer (default)'}. Routing to the appropriate agent.`,
+        `Work package ${wp.work_package_id} is READY. Routing to ${targetAgent} (${wp.assigned_to ? 'assigned' : 'first active stage'}).`,
         undefined,
         projectPath,
         store
@@ -5046,12 +5057,17 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
     );
   }
 
+  // Scope filter (§13.1 §21.69): only WPs that include 'implementation' in their active
+  // stages are subject to pipeline-specific checks. Legacy WPs without the field fall
+  // back to DEFAULT_PIPELINE_STAGES (backward-compatible).
+  const implWps = scopeToStage(wpDetails, 'implementation');
+
   // Step 1 of §5.1: Temporal-guarded FAIL check.
   // Fire IN_PROGRESS only when a downstream agent has ALREADY started work after our
   // most recent implementation PASS. This prevents false rework loops: if Developer
   // has re-delivered (impl-2 PASS) but QA has not yet started, hasDownstreamReengagedSince
   // returns false and we fall through to READY_FOR_QA instead of re-triggering rework.
-  const activeWps = wpDetails.filter(
+  const activeWps = implWps.filter(
     (wp) => !isTerminalStatus(wp.status) && !isBlockedByDependencies(wp)
   );
   const failTypes = ['implementation', 'qa', 'code-review'] as const;
@@ -5080,10 +5096,10 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
     }
   }
 
-  // Only consider non-BLOCKED WPs for the remaining implementation progress checks.
+  // Only consider non-BLOCKED WPs (scoped to implWps) for the remaining checks.
   // BLOCKED WPs have no implementation pipeline yet (they're waiting on dependencies)
   // and must not be counted as "needing work" by the Developer right now.
-  const nonBlockedWps = wpDetails.filter((wp) => wp.status !== 'BLOCKED');
+  const nonBlockedWps = implWps.filter((wp) => wp.status !== 'BLOCKED');
 
   // Check if all non-BLOCKED WPs have PASS implementation pipelines
   const allImplemented = nonBlockedWps.length > 0 && nonBlockedWps.every((wp) =>
@@ -5168,10 +5184,15 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
     );
   }
 
+  // Scope filter (§13.1 §21.69): only WPs that include 'qa' in their active stages are
+  // subject to pipeline-specific checks. Legacy WPs without the field fall back to
+  // DEFAULT_PIPELINE_STAGES (backward-compatible).
+  const qaWps = scopeToStage(wpDetails, 'qa');
+
   // Step 1 of §5.2: Re-engagement check — MUST precede FAIL short-circuit.
   // If QA FAIL exists AND Developer has since re-delivered a PASS implementation,
   // QA must re-engage (IN_PROGRESS) rather than routing back to READY_FOR_DEVELOPER.
-  for (const wp of wpDetails) {
+  for (const wp of qaWps) {
     if (
       !isTerminalStatus(wp.status) &&
       !isBlockedByDependencies(wp) &&
@@ -5189,8 +5210,8 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
     }
   }
 
-  // Check if all WPs with implementation pipelines have PASS QA pipelines
-  const wpsWithImpl = wpDetails.filter((wp) =>
+  // Check if all WPs (scoped to qaWps) with implementation pipelines have PASS QA pipelines
+  const wpsWithImpl = qaWps.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
   );
 
@@ -5198,10 +5219,17 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
     wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
   );
 
-  // Check if there are WPs that still need implementation (BLOCKED, READY, or IN_PROGRESS without PASS impl)
-  const wpsStillNeedingImpl = wpDetails.filter(
-    (wp) => !wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
-  );
+  // Check if there are WPs (scoped to qaWps) that still need implementation.
+  // Only count WPs that actually have 'implementation' in their active stages (§13.1).
+  // WPs with e.g. active_pipeline_stages: ['qa', 'code-review'] are NOT "needing impl".
+  const wpsStillNeedingImpl = qaWps.filter((wp) => {
+    const activeStages =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    return (
+      activeStages.includes('implementation') &&
+      !wp.pipelines.some((p) => p.type === 'implementation' && p.status === 'PASS')
+    );
+  });
 
   if (allQaPassed && wpsWithImpl.length > 0) {
     // If there are still WPs that haven't been implemented, check if they're blocked or ready
@@ -5344,9 +5372,7 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
  */
 export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // Filter only WPs that include security-audit
-  const auditWps = wpDetails.filter((wp) =>
-    (wp.active_pipeline_stages as PipelineType[] | undefined ?? DEFAULT_PIPELINE_STAGES).includes('security-audit')
-  );
+  const auditWps = scopeToStage(wpDetails, 'security-audit');
 
   if (auditWps.length > 0 && auditWps.every((wp) => isTerminalStatus(wp.status))) {
     return buildHandoffResponse(
@@ -5476,9 +5502,13 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
     );
   }
 
+  // Scope filter (§13.1 §21.69): only WPs that include 'code-review' in their active stages
+  // are subject to pipeline-specific checks. Legacy WPs fall back to DEFAULT_PIPELINE_STAGES.
+  const reviewWps = scopeToStage(wpDetails, 'code-review');
+
   // Step 1 of §5.3: Re-engagement check — MUST precede FAIL short-circuit.
   // If code-review FAIL exists AND the effective upstream has since re-PASSed, Reviewer must re-engage.
-  for (const wp of wpDetails) {
+  for (const wp of reviewWps) {
     const reviewActiveStages: readonly PipelineType[] =
       (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
     const reviewUpstream = resolvePrerequisite('code-review', reviewActiveStages);
@@ -5500,8 +5530,8 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
     }
   }
 
-  // Check if all WPs with QA pipelines have PASS code-review pipelines
-  const wpsWithQa = wpDetails.filter((wp) =>
+  // Check if all WPs (scoped to reviewWps) with QA pipelines have PASS code-review pipelines
+  const wpsWithQa = reviewWps.filter((wp) =>
     wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
   );
 
@@ -5509,8 +5539,8 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
     wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
   );
 
-  // Check if there are WPs that haven't reached QA yet
-  const wpsNotYetQaPassed = wpDetails.filter(
+  // Check if there are WPs (scoped to reviewWps) that haven't reached QA yet
+  const wpsNotYetQaPassed = reviewWps.filter(
     (wp) => !wp.pipelines.some((p) => p.type === 'qa' && p.status === 'PASS')
   );
 
@@ -5653,9 +5683,7 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
  * Self-rework on FAIL. Only active for WPs that include "release-engineering".
  */
 export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  const releaseWps = wpDetails.filter((wp) =>
-    (wp.active_pipeline_stages as PipelineType[] | undefined ?? DEFAULT_PIPELINE_STAGES).includes('release-engineering')
-  );
+  const releaseWps = scopeToStage(wpDetails, 'release-engineering');
 
   if (releaseWps.length > 0 && releaseWps.every((wp) => isTerminalStatus(wp.status))) {
     return buildHandoffResponse(
@@ -5723,27 +5751,42 @@ export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], 
  * of the recommendation engine priority and is intentional for handoff routing.
  */
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  const wpsWithReview = wpDetails.filter((wp) =>
-    wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
-  );
+  // Scope filter (§13.1 §21.69): only WPs that include 'documentation' in their active
+  // stages are subject to pipeline-specific checks. Legacy WPs fall back to DEFAULT_PIPELINE_STAGES.
+  const docWps = scopeToStage(wpDetails, 'documentation');
 
-  const wpsNotYetReviewed = wpDetails.filter(
-    (wp) => !wp.pipelines.some((p) => p.type === 'code-review' && p.status === 'PASS')
-  );
+  // Dynamic upstream resolution (null-prerequisite rule §13.1):
+  // When resolvePrerequisite('documentation', activeStages) returns null (documentation is
+  // the first/only active stage), the prerequisite is vacuously satisfied.
+  const hasPassedEffectiveUpstream = (wp: WorkPackageDetail): boolean => {
+    const activeStages =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    const upstream = resolvePrerequisite('documentation', activeStages);
+    if (upstream === null) return true; // no prerequisite — vacuously true
+    return wp.pipelines.some((p) => p.type === upstream && p.status === 'PASS');
+  };
+
+  const wpsWithReview = docWps.filter(hasPassedEffectiveUpstream);
+
+  const wpsNotYetReviewed = docWps.filter((wp) => !hasPassedEffectiveUpstream(wp));
 
   // Step 1 of §5.4: Ready-for-docs check — new documentation OR re-engagement.
   // Per §14.5: this step comes BEFORE FAIL self-rework in handoff priority.
-  // Uses hasNewUpstreamPassSince to detect re-engagement: a new code-review PASS
+  // Uses hasNewUpstreamPassSince to detect re-engagement: a new effective-upstream PASS
   // after the most recent documentation run means docs must be re-run.
-  const readyForDocsList = wpsWithReview.filter(
-    (wp) =>
-      !isTerminalStatus(wp.status) &&
-      !isBlockedByDependencies(wp) &&
-      (
-        !wp.pipelines.some((p) => p.type === 'documentation') ||
-        hasNewUpstreamPassSince(wp.pipelines, 'code-review', 'documentation')
-      )
-  );
+  // When upstream is null (documentation-only WP), there is no upstream re-engagement
+  // signal — only check whether documentation has run yet.
+  const readyForDocsList = wpsWithReview.filter((wp) => {
+    if (isTerminalStatus(wp.status) || isBlockedByDependencies(wp)) return false;
+    // No documentation pipeline yet → ready for docs
+    if (!wp.pipelines.some((p) => p.type === 'documentation')) return true;
+    // Re-engagement: check if effective upstream has re-passed since last doc run
+    const activeStages =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES;
+    const upstream = resolvePrerequisite('documentation', activeStages);
+    // Documentation-only WPs have no upstream to trigger re-engagement
+    return upstream !== null && hasNewUpstreamPassSince(wp.pipelines, upstream, 'documentation');
+  });
   if (readyForDocsList.length > 0) {
     return buildHandoffResponse(
       'Documentation',

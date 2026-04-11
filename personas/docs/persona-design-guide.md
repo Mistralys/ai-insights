@@ -34,15 +34,16 @@ The ordering below is deliberate: identity and context come first, then domain k
 | 2 | **Operating Philosophy** | No | Guiding principles that shape how the agent thinks |
 | 3 | **Operating Modes** | No | Named modes with different triggers and workflows |
 | 4 | **Inputs** | Yes | What the agent receives to do its work |
-| 5 | **Tool Integration** | No | How the agent interacts with external tools or services |
-| 6 | **Operational Protocol** | No | Detailed execution procedure for the core task |
-| 7 | **Evaluation Criteria / Review Dimensions** | No | Named dimensions the agent evaluates before deciding |
-| 8 | **Rework Handling** | No | Focused re-entry procedure for bounced work |
-| 9 | **Decision Logic** | No | Explicit PASS/FAIL gate criteria |
-| 10 | **Output Template / Output Format** | No | Literal template or structure for the output |
-| 11 | **Rules & Constraints** | Yes | Hard boundaries the agent must not cross |
-| 12 | **Workflow** | Yes | Numbered step-by-step procedure from start to finish |
-| 13 | **Handoff** | Yes | Standardized terminal block signaling completion (final workflow step) |
+| 5 | **Outputs** | Yes | What the agent produces and where it goes |
+| 6 | **Tool Integration** | No | How the agent interacts with external tools or services |
+| 7 | **Operational Protocol** | No | Detailed execution procedure for the core task |
+| 8 | **Evaluation Criteria / Review Dimensions** | No | Named dimensions the agent evaluates before deciding |
+| 9 | **Rework Handling** | No | Focused re-entry procedure for bounced work |
+| 10 | **Decision Logic** | No | Explicit PASS/FAIL gate criteria |
+| 11 | **Output Template / Output Format** | No | Literal template or structure for the output |
+| 12 | **Rules & Constraints** | Yes | Hard boundaries the agent must not cross |
+| 13 | **Workflow** | Yes | Numbered step-by-step procedure from start to finish |
+| 14 | **Handoff** | Yes | Standardized terminal block signaling completion (final workflow step) |
 
 > **Why this order?** Mission and philosophy give the agent its identity. Inputs and tool sections provide the operating context. Protocol and criteria sections load domain knowledge. Constraints set the guardrails. The workflow is last because by the time the agent reaches it, it already understands *who it is*, *what it knows*, and *what it must not do* — it only needs to know *what to do next*.
 
