@@ -803,7 +803,7 @@ describe('Documentation action logic', () => {
 
   // Case 6: Doc PASS, all criteria met, doc completed_at > impl started_at → FINALIZE_WP
   it('returns FINALIZE_WP when doc PASS, all criteria met, and freshness check passes', async () => {
-    const wp: WorkPackageDetail = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+    const wp: WorkPackageDetail = makeWorkPackageDetail({ pipelines: [
         makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
         makePipeline('documentation',  'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
       ], acceptance_criteria: [{ criterion: 'All docs updated', met: true }], });
@@ -816,7 +816,7 @@ describe('Documentation action logic', () => {
 
   // Case 7: Doc PASS, freshness OK, one criterion met: false → UPDATE_CRITERIA
   it('returns UPDATE_CRITERIA when doc PASS and fresh but at least one criterion is not met', async () => {
-    const wp: WorkPackageDetail = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+    const wp: WorkPackageDetail = makeWorkPackageDetail({ pipelines: [
         makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
         makePipeline('documentation',  'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00'),
       ], acceptance_criteria: [

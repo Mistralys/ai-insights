@@ -1414,6 +1414,19 @@ function lastActiveStage(stages?: readonly PipelineType[] | null): PipelineType;
 // the previous ~60-line inline validation block.
 // Note: accepts string[] rather than PipelineType[] — validated internally.
 function validateActiveStages(stages: string[]): { errors: string[]; warnings: string[] };
+
+// Filters an array of WorkPackageDetail to those whose active_pipeline_stages includes
+// the given stage. Falls back to DEFAULT_PIPELINE_STAGES when a WP has no explicit stages.
+// Used by all 6 per-role handoff handlers in workflow-handoff.ts to scope pipeline-specific
+// checks to WPs that participate in that stage.
+// Exported from src/utils/pipeline-maps.ts.
+// Examples:
+//   scopeToStage(wpDetails, 'qa')             → WPs with 'qa' in active stages
+//   scopeToStage(wpDetails, 'documentation')  → WPs with 'documentation' in active stages
+function scopeToStage(
+  wpDetails: readonly WorkPackageDetail[],
+  stage: PipelineType,
+): WorkPackageDetail[];
 ```
 
 ### Project Name Resolution — `src/utils/read-project-name.ts`
@@ -2808,56 +2821,68 @@ export async function getNextActionsCollector(
 export async function getPlannerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getDeveloperHandoff (§5.1): short-circuit priority order:
-//   1. Temporal guard — for each non-terminal non-dep-blocked WP: if the most recent downstream
-//      pipeline (qa or code-review) is FAIL AND hasDownstreamReengagedSince('implementation') = true
-//      → IN_PROGRESS (Developer must rework; downstream has re-engaged since last impl PASS).
-//   2. Needs QA — for each non-dep-blocked WP: PASS impl exists AND
+//   Scope filter: pipeline-specific checks (steps 1, 2, 4) operate on implWps — WPs whose
+//   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'implementation'. The all-terminal
+//   check (step 3) and WAIT fallback remain unscoped (applied to full wpDetails list).
+//   1. Temporal guard — for each non-terminal non-dep-blocked WP in implWps: if the most recent
+//      downstream pipeline (qa or code-review) is FAIL AND hasDownstreamReengagedSince('implementation')
+//      = true → IN_PROGRESS (Developer must rework; downstream has re-engaged since last impl PASS).
+//   2. Needs QA — for each non-dep-blocked WP in implWps: PASS impl exists AND
 //      hasNewUpstreamPassSince('implementation','qa') = true → READY_FOR_QA.
 //   3. All terminal — all WPs COMPLETE or CANCELLED → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the temporal guard in source order; safe because activeWps
 //      is empty when all WPs are terminal, which would cause the guard to return READY_FOR_QA
 //      incorrectly. The guard must run on non-empty activeWps only.
-//   4. Active work — any WP is IN_PROGRESS with assigned_to === 'Developer' → IN_PROGRESS.
+//   4. Active work — any WP in implWps is IN_PROGRESS with assigned_to === 'Developer' → IN_PROGRESS.
 //   → WAIT
 export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getQaHandoff (§5.2): short-circuit priority order:
+//   Scope filter: pipeline-specific checks (steps 1, 2, 3, 5) operate on qaWps — WPs whose
+//   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'qa'. The all-terminal check
+//   (step 4) and WAIT fallback remain unscoped.
 //   1. Re-engagement (BEFORE FAIL) — most recent QA is FAIL AND
 //      hasNewUpstreamPassSince('implementation','qa') = true → IN_PROGRESS (re-engage QA).
 //   2. FAIL short-circuit — most recent QA is FAIL (step 1 guard false) → READY_FOR_DEVELOPER.
-//   3. READY_FOR_REVIEW — non-terminal WPs where PASS QA exists AND
+//   3. READY_FOR_REVIEW — non-terminal WPs in qaWps where PASS QA exists AND
 //      hasNewUpstreamPassSince('qa','code-review') = true; dep-blocked routing applies.
 //   4. All terminal → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the re-engagement and FAIL short-circuit checks in source
 //      order (lines 484-487 of workflow-handoff.ts). Added to match the same guard
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
-//   5. IN_PROGRESS assigned to QA → IN_PROGRESS.
+//   5. IN_PROGRESS assigned to QA (from qaWps) → IN_PROGRESS.
 //   → WAIT
 export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getReviewerHandoff (§5.3): mirror of getQaHandoff for code-review pipelines:
+//   Scope filter: pipeline-specific checks (steps 1, 2, 3, 5) operate on reviewWps — WPs whose
+//   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'code-review'. The all-terminal
+//   check (step 4) and WAIT fallback remain unscoped.
 //   1. Re-engagement (BEFORE FAIL) — most recent code-review is FAIL AND
 //      hasNewUpstreamPassSince('qa','code-review') = true → IN_PROGRESS.
 //   2. FAIL short-circuit — most recent code-review is FAIL (step 1 guard false) → READY_FOR_QA.
-//   3. READY_FOR_DOCUMENTATION — non-terminal WPs where PASS code-review exists AND
+//   3. READY_FOR_DOCUMENTATION — non-terminal WPs in reviewWps where PASS code-review exists AND
 //      hasNewUpstreamPassSince('code-review','documentation') = true; dep-blocked routing applies.
 //   4. All terminal → READY_FOR_SYNTHESIS.
 //      NOTE: this check precedes the re-engagement and FAIL short-circuit checks in source
 //      order (lines 671-674 of workflow-handoff.ts). Added to match the same guard
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
-//   5. IN_PROGRESS assigned to Reviewer → IN_PROGRESS.
+//   5. IN_PROGRESS assigned to Reviewer (from reviewWps) → IN_PROGRESS.
 //   → WAIT
 export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
 // getDocumentationHandoff (§5.4): §14.5 priority — ready-for-docs BEFORE self-rework:
-//   1. Ready-for-docs — non-terminal WPs where PASS code-review exists AND
+//   Scope filter: pipeline-specific checks (steps 1, 2) operate on docWps — WPs whose
+//   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'documentation'. Steps 3 and 4
+//   (allDocsPassed / wpsNotYetReviewed) also derive from docWps. The WAIT fallback is unscoped.
+//   1. Ready-for-docs — non-terminal WPs in docWps where PASS code-review exists AND
 //      (no documentation pipeline yet OR hasNewUpstreamPassSince('code-review','documentation') = true)
 //      → IN_PROGRESS (new docs or re-engagement; this step precedes FAIL to avoid FAIL shadowing).
 //   2. FAIL self-rework — most recent documentation is FAIL (step 1 guard false)
 //      → IN_PROGRESS (Documentation self-reworks; never forwarded to Developer).
-//   3. allDocsPassed — all non-dep-blocked WPs have PASS documentation:
+//   3. allDocsPassed — all non-dep-blocked WPs in docWps have PASS documentation:
 //        non-empty unblocked → READY_FOR_SYNTHESIS; all dep-blocked → WAIT.
 //   4. wpsNotYetReviewed remain — dep-blocked routing:
 //        not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS.
@@ -2867,8 +2892,13 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
 // getProjectManagerHandoff (§5.5): steps applied to full WP list:
 //   1. Non-dependency blockers — any WP is BLOCKED with technical/external/decision blocker
 //      → IN_PROGRESS (PM must intervene; dependency-blocked WPs fall through).
-//   2. READY WPs — readyStatusForAgent(wp.assigned_to) routes to READY_FOR_QA,
-//      READY_FOR_DEVELOPER, or READY_FOR_SYNTHESIS (private helper, not exported).
+//   2. READY WPs — routed to the first-stage owner:
+//        assigned WPs: readyStatusForAgent(wp.assigned_to) → READY_FOR_QA, READY_FOR_DEVELOPER, etc.
+//        unassigned WPs: PIPELINE_AGENT_MAP[firstActiveStage(active_pipeline_stages ?? null)]
+//          resolves the agent who owns the WP's first active stage (e.g. doc-only WP →
+//          firstActiveStage='documentation' → READY_FOR_DOCUMENTATION). Legacy WPs without
+//          active_pipeline_stages fall back to DEFAULT_PIPELINE_STAGES[0]='implementation'
+//          → READY_FOR_DEVELOPER (backward compatible).
 //   3. All terminal → READY_FOR_SYNTHESIS.
 //   → WAIT
 export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
