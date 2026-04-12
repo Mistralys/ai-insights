@@ -40,8 +40,25 @@ _SOURCE: Top-level directory tree_
     ├── AGENTS.md
     ├── README.md
     ├── changelog.md
+    ├── coverage/
+    │   ├── base.css
+    │   ├── block-navigation.js
+    │   ├── clover.xml
+    │   ├── coverage-final.json
+    │   ├── favicon.png
+    │   ├── gui/
+    │   │   ├── api.ts.html
+    │   │   ├── chunk-renderer.ts.html
+    │   │   ├── index.html
+    │   │   ├── server.ts.html
+    │   ├── index.html
+    │   ├── prettify.css
+    │   ├── prettify.js
+    │   ├── sort-arrow-sprite.png
+    │   ├── sorter.js
     ├── gui/
     │   ├── api.ts
+    │   ├── chunk-renderer.ts
     │   ├── public/
     │   │   ├── api-client.js
     │   │   ├── app.js
@@ -111,6 +128,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── api-wp-overview.test.ts
     │   │   ├── api.test.ts
     │   │   ├── auto-archive.test.ts
+    │   │   ├── chunk-renderer.test.ts
     │   │   ├── client-rendering.test.ts
     │   │   ├── config.test.ts
     │   │   ├── dialogue-qa.test.ts
@@ -217,6 +235,7 @@ _SOURCE: Top-level directory tree_
     │   ├── supervisor.py
     │   ├── utils/
     │   │   └── __init__.py
+    │   │   └── chunk_writer.py
     │   │   └── dialogue_writer.py
     │   │   └── filelock.py
     │   │   └── logging.py
@@ -229,6 +248,8 @@ _SOURCE: Top-level directory tree_
     │   │   └── tool_wrappers.py
     ├── tests/
     │   └── __init__.py
+    │   └── conftest.py
+    │   └── test_chunk_writer.py
     │   └── test_cli.py
     │   └── test_config.py
     │   └── test_dialogue_writer.py
@@ -242,7 +263,9 @@ _SOURCE: Top-level directory tree_
     │   └── test_plan_parser.py
     │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
+    │   └── test_revision.py
     │   └── test_state.py
+    │   └── test_streaming_capture.py
     │   └── test_subagents.py
     │   └── test_subprocess_encoding.py
     │   └── test_supervisor.py
@@ -328,70 +351,61 @@ _SOURCE: Top-level directory tree_
     │       ├── changelog-curator.md
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
-    │       ├── dependency-sequencer.md
     │       ├── developer-standalone.md
     │       ├── ledger-bootstrapper.md
+    │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
+    │       ├── ledger-doctor.md
+    │       ├── ledger-orchestrator-runner.md
     │       ├── ledger-pipeline-configurator.md
     │       ├── ledger-wp-decomposer.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
-    │       ├── orchestrator-runner.md
     │       ├── persona-curator.md
-    │       ├── pipeline-configurator.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
-    │       ├── workflow-doctor.md
-    │       ├── workflow-orchestrator.md
-    │       ├── wp-decomposer.md
     │   └── deep-agents/
     │       ├── agents-md-curator.md
     │       ├── changelog-curator.md
     │       ├── composer-curator.md
     │       ├── ctx-architect.md
-    │       ├── dependency-sequencer.md
     │       ├── developer.md
     │       ├── ledger-bootstrapper.md
+    │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
+    │       ├── ledger-doctor.md
+    │       ├── ledger-orchestrator-runner.md
     │       ├── ledger-pipeline-configurator.md
     │       ├── ledger-wp-decomposer.md
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
-    │       ├── orchestrator-runner.md
     │       ├── persona-curator.md
-    │       ├── pipeline-configurator.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
     │       ├── whatsnew-curator.md
-    │       ├── workflow-doctor.md
-    │       ├── workflow-orchestrator.md
-    │       ├── wp-decomposer.md
     │   └── vs-code/
     │       └── agents-md-curator.agent.md
     │       └── changelog-curator.agent.md
     │       └── composer-curator.agent.md
     │       └── ctx-architect.agent.md
-    │       └── dependency-sequencer.agent.md
     │       └── developer-standalone.agent.md
     │       └── ledger-bootstrapper.agent.md
+    │       └── ledger-claude-coordinator.agent.md
     │       └── ledger-dependency-sequencer.agent.md
+    │       └── ledger-doctor.agent.md
+    │       └── ledger-orchestrator-runner.agent.md
     │       └── ledger-pipeline-configurator.agent.md
     │       └── ledger-wp-decomposer.agent.md
     │       └── manifest-curator.agent.md
     │       └── module-intent-architect.agent.md
-    │       └── orchestrator-runner.agent.md
     │       └── persona-curator.agent.md
-    │       └── pipeline-configurator.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md
     │       └── whatsnew-curator.agent.md
-    │       └── workflow-doctor.agent.md
-    │       └── workflow-orchestrator.agent.md
-    │       └── wp-decomposer.agent.md
 └── scripts/
     ├── build-personas.js
     ├── bundle-docs.js
@@ -405,6 +419,7 @@ _SOURCE: Top-level directory tree_
     ├── package-personas.js
     ├── preflight-orchestrator.js
     ├── preview-prompts.py
+    ├── publish-locations.js
     ├── read-log.js
     ├── run-gui.js
     ├── run-orchestrator.js

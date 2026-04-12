@@ -11,6 +11,7 @@ _SOURCE: Test suite (unit, integration)_
             ├── api-wp-overview.test.ts
             ├── api.test.ts
             ├── auto-archive.test.ts
+            ├── chunk-renderer.test.ts
             ├── client-rendering.test.ts
             ├── config.test.ts
             ├── dialogue-qa.test.ts
@@ -1074,10 +1075,12 @@ import {
   handleUnarchiveProject,
   handleListDialogues,
   handleGetDialogueFile,
+  handleListChunks,
+  handleGetChunkFile,
   ApiError,
 } from '../../gui/api.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR } from '../../src/utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR, CHUNKS_DIR } from '../../src/utils/constants.js';
 import {
   readConfigFromDisk,
   writeConfig,
@@ -2465,6 +2468,186 @@ describe('gui/api.ts', () => {
       }
     });
   });
+
+  // ─── handleListChunks ────────────────────────────────────────────────────
+
+  describe('handleListChunks', () => {
+    const slug = '2026-04-10-chunk-capture';
+
+    async function createChunksDir(root: string, s: string): Promise<string> {
+      const dir = join(root, s, CHUNKS_DIR);
+      await mkdir(dir, { recursive: true });
+      return dir;
+    }
+
+    it('returns [] when the chunks/ directory is absent (no error thrown)', async () => {
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([]);
+    });
+
+    it('returns all .jsonl filenames sorted alphabetically when no wp filter given', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-002-qa-r0.jsonl'), 'content b');
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content a');
+      await writeFile(join(dir, 'WP-003-reviewer-r0.jsonl'), 'content c');
+
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-002-qa-r0.jsonl',        wp_id: 'WP-002', stage: 'qa' },
+        { filename: 'WP-003-reviewer-r0.jsonl',  wp_id: 'WP-003', stage: 'reviewer' },
+      ]);
+    });
+
+    it("returns only filenames starting with 'WP-001-' when wpId='WP-001'", async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content a');
+      await writeFile(join(dir, 'WP-001-qa-r0.jsonl'), 'content b');
+      await writeFile(join(dir, 'WP-002-developer-r0.jsonl'), 'content c');
+
+      const result = await handleListChunks(ledgerRoot, slug, 'WP-001');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+        { filename: 'WP-001-qa-r0.jsonl',        wp_id: 'WP-001', stage: 'qa' },
+      ]);
+      expect(result.map((r) => r.filename)).not.toContain('WP-002-developer-r0.jsonl');
+    });
+
+    it("throws ApiError NOT_FOUND for slug='..'", async () => {
+      await expect(handleListChunks(ledgerRoot, '..')).rejects.toThrow(ApiError);
+      await expect(handleListChunks(ledgerRoot, '..')).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+    });
+
+    it('excludes non-.jsonl files from results', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'jsonl file');
+      await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
+      await writeFile(join(dir, 'WP-001-developer-r0.md'), 'md file');
+
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+      ]);
+    });
+
+    it('returns [] for an invalid wpId that does not match /^WP-\\d+$/', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content');
+
+      for (const badWpId of ['../etc', 'WP-', 'WP-abc', 'not-a-wp-id', ' WP-001']) {
+        const result = await handleListChunks(ledgerRoot, slug, badWpId);
+        expect(result).toEqual([], `expected [] for wpId: ${JSON.stringify(badWpId)}`);
+      }
+    });
+
+    it('valid ?wp=WP-001 filter works after validation', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'match');
+      await writeFile(join(dir, 'WP-002-qa-r0.jsonl'), 'no-match');
+
+      const result = await handleListChunks(ledgerRoot, slug, 'WP-001');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+      ]);
+    });
+
+    it('returns entries with empty wp_id/stage for filenames that do not match the convention', async () => {
+      const dir = await createChunksDir(ledgerRoot, slug);
+      await writeFile(join(dir, 'unrecognised-file.jsonl'), 'data');
+
+      const result = await handleListChunks(ledgerRoot, slug);
+      expect(result).toEqual([
+        { filename: 'unrecognised-file.jsonl', wp_id: '', stage: '' },
+      ]);
+    });
+  });
+
+  // ─── handleGetChunkFile ──────────────────────────────────────────────────
+
+  describe('handleGetChunkFile', () => {
+    const slug = '2026-04-10-chunk-capture';
+
+    async function createChunkFile(
+      root: string,
+      s: string,
+      filename: string,
+      content: string
+    ): Promise<void> {
+      const dir = join(root, s, CHUNKS_DIR);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, filename), content);
+    }
+
+    it('returns file content when the file exists', async () => {
+      const content = '{"role":"user","content":"hello"}\n{"role":"assistant","content":"hi"}';
+      await createChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl', content);
+
+      const result = await handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl');
+      expect(result).toEqual({ content });
+    });
+
+    it("throws ApiError NOT_FOUND for '../secret.jsonl' (traversal rejected by allowlist)", async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, '../secret.jsonl')
+      ).rejects.toThrow(ApiError);
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, '../secret.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it("throws ApiError NOT_FOUND for 'foo/bar.jsonl' (slash in filename)", async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'foo/bar.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('throws ApiError NOT_FOUND when file does not exist', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-999-developer-r0.jsonl')
+      ).rejects.toThrow(ApiError);
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-999-developer-r0.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it("throws ApiError NOT_FOUND for slug='..'", async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, '..', 'WP-001-developer-r0.jsonl')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('returns content for a valid alphanumeric filename with underscores', async () => {
+      await createChunkFile(ledgerRoot, slug, 'WP_001_developer_r0.jsonl', 'underscore content');
+      const result = await handleGetChunkFile(ledgerRoot, slug, 'WP_001_developer_r0.jsonl');
+      expect(result).toEqual({ content: 'underscore content' });
+    });
+
+    it('rejects a .md extension (only .jsonl is allowed)', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.md')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a filename with no extension', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('logs a console.warn with filename when regex check rejects', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        await handleGetChunkFile(ledgerRoot, slug, '../secret.jsonl').catch(() => {});
+        expect(warnSpy).toHaveBeenCalled();
+        const logMsg: string = warnSpy.mock.calls[0]![0] as string;
+        expect(logMsg).toContain('../secret.jsonl');
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+  });
 });
 
 
@@ -2739,6 +2922,557 @@ describe('startAutoArchiveTimer / stopAutoArchiveTimer', () => {
     stopAutoArchiveTimer();
     // Calling stop again should be safe
     expect(() => stopAutoArchiveTimer()).not.toThrow();
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/chunk-renderer.test.ts`
+
+```ts
+/**
+ * Unit tests for gui/chunk-renderer.ts — renderChunksToMarkdown()
+ *
+ * Coverage:
+ *  - Empty input (no content, header only, whitespace-only)
+ *  - Single text message (main agent)
+ *  - Multi-turn conversation (human → assistant → tool result)
+ *  - Token-level chunk merging (multiple AIMessageChunks with same id)
+ *  - Sub-agent messages (identified by namespace)
+ *  - Tool calls (name + args + id rendering)
+ *  - Mixed content blocks (text + tool_use JSON fences)
+ *  - Malformed JSONL lines (graceful skip)
+ *  - Usage metadata aggregation (token-usage footer)
+ *  - Structural consistency with serialize_messages_to_markdown() format
+ */
+
+import { describe, it, expect } from 'vitest';
+import { renderChunksToMarkdown } from '../../gui/chunk-renderer.js';
+
+// ---------------------------------------------------------------------------
+// JSONL builder helpers
+// ---------------------------------------------------------------------------
+
+const HEADER = JSON.stringify({ chunk_format: 1, stream_mode: 'messages', langgraph_stream_version: 'v2' });
+
+/**
+ * Builds a chunk line in the object shape {ns, msg, metadata}.
+ */
+function chunkLine(
+  ns: string[],
+  msg: Record<string, unknown>,
+  metadata: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({ ns, msg, metadata });
+}
+
+/**
+ * Builds a chunk line in the array shape [ns, msg, metadata].
+ */
+function chunkLineArray(
+  ns: string[],
+  msg: Record<string, unknown>,
+  metadata: Record<string, unknown> = {},
+): string {
+  return JSON.stringify([ns, msg, metadata]);
+}
+
+/**
+ * Joins lines into a JSONL string (with trailing newline).
+ */
+function jsonl(...lines: string[]): string {
+  return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Fixture helpers
+// ---------------------------------------------------------------------------
+
+function humanMsg(id: string, text: string): Record<string, unknown> {
+  return { type: 'HumanMessage', id, content: text };
+}
+
+function aiChunk(id: string, text: string, usage?: Record<string, number>): Record<string, unknown> {
+  return {
+    type: 'AIMessageChunk',
+    id,
+    content: text,
+    tool_call_chunks: [],
+    ...(usage ? { usage_metadata: usage } : {}),
+  };
+}
+
+function aiChunkWithToolCall(
+  id: string,
+  toolName: string,
+  toolId: string,
+  argsPart: string,
+  index = 0,
+): Record<string, unknown> {
+  return {
+    type: 'AIMessageChunk',
+    id,
+    content: '',
+    tool_call_chunks: [{ index, id: toolId, name: toolName, args: argsPart }],
+  };
+}
+
+function toolResultMsg(id: string, content: string, toolCallId: string): Record<string, unknown> {
+  return { type: 'ToolMessage', id, content, tool_call_id: toolCallId };
+}
+
+// ---------------------------------------------------------------------------
+// Tests — empty input
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — empty input', () => {
+  it('returns minimal valid Markdown for completely empty string', () => {
+    const result = renderChunksToMarkdown('');
+    expect(result).toContain('# Dialogue');
+    expect(result).toContain('*No messages recorded.*');
+    expect(result.endsWith('\n')).toBe(true);
+  });
+
+  it('returns minimal valid Markdown for whitespace-only string', () => {
+    const result = renderChunksToMarkdown('   \n\n   \t  \n');
+    expect(result).toContain('*No messages recorded.*');
+  });
+
+  it('returns minimal valid Markdown for header-only file', () => {
+    const result = renderChunksToMarkdown(HEADER + '\n');
+    expect(result).toContain('# Dialogue');
+    expect(result).toContain('*No messages recorded.*');
+  });
+
+  it('includes the metadata table', () => {
+    const result = renderChunksToMarkdown('');
+    expect(result).toContain('| Format | `chunks` |');
+  });
+
+  it('always ends with a trailing newline', () => {
+    expect(renderChunksToMarkdown('').endsWith('\n')).toBe(true);
+    expect(renderChunksToMarkdown(HEADER).endsWith('\n')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — single message
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — single message', () => {
+  it('renders a single human message with correct role heading', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('msg-1', 'Hello, world!'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('## Human');
+    expect(result).toContain('Hello, world!');
+  });
+
+  it('renders a single AI message with correct role heading', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('msg-2', 'Hi there!'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('## Assistant');
+    expect(result).toContain('Hi there!');
+  });
+
+  it('renders a tool result message', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], toolResultMsg('msg-3', 'Tool output here.', 'call-abc'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('## Tool Result');
+    expect(result).toContain('Tool output here.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — multi-turn conversation
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — multi-turn conversation', () => {
+  it('renders messages in order', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'What is 2+2?'), {}),
+      chunkLine([], aiChunk('a1', 'It is 4.'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    const humanIdx = result.indexOf('## Human');
+    const assistantIdx = result.indexOf('## Assistant');
+    expect(humanIdx).toBeGreaterThanOrEqual(0);
+    expect(assistantIdx).toBeGreaterThan(humanIdx);
+  });
+
+  it('renders human → assistant → tool result in order', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'Search for cats.'), {}),
+      chunkLine([], aiChunkWithToolCall('a1', 'search', 'tc-1', '{"q":"cats"}'), {}),
+      chunkLine([], toolResultMsg('t1', 'Found: many cats.', 'tc-1'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result.indexOf('## Human')).toBeLessThan(result.indexOf('## Assistant'));
+    expect(result.indexOf('## Assistant')).toBeLessThan(result.indexOf('## Tool Result'));
+    expect(result).toContain('Found: many cats.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — token-level chunk merging
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — token-level chunk merging', () => {
+  it('merges string content from multiple chunks with the same id', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'Hello'), {}),
+      chunkLine([], aiChunk('a1', ', '), {}),
+      chunkLine([], aiChunk('a1', 'world!'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    // All three fragments merge into a single message.
+    expect(result).toContain('Hello, world!');
+    // Only one Assistant heading should appear.
+    const matches = result.match(/## Assistant/g);
+    expect(matches).toHaveLength(1);
+  });
+
+  it('keeps different message ids as separate messages', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'First.'), {}),
+      chunkLine([], aiChunk('a2', 'Second.'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('First.');
+    expect(result).toContain('Second.');
+    const matches = result.match(/## Assistant/g);
+    expect(matches).toHaveLength(2);
+  });
+
+  it('accumulates usage_metadata across chunks for the same message', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'Part 1', { input_tokens: 10 }), {}),
+      chunkLine([], aiChunk('a1', ' Part 2', { output_tokens: 5 }), {}),
+      chunkLine([], aiChunk('a1', ' Part 3', { output_tokens: 7 }), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('## Token Usage');
+    expect(result).toContain('| Input Tokens | 10 |');
+    expect(result).toContain('| Output Tokens | 12 |');
+  });
+
+  it('merges list-of-blocks content by index', () => {
+    const block1 = { type: 'text', text: 'Hello' };
+    const block2 = { type: 'text', text: ' world' };
+    const msg1: Record<string, unknown> = { type: 'AIMessageChunk', id: 'a1', content: [block1], tool_call_chunks: [] };
+    const msg2: Record<string, unknown> = { type: 'AIMessageChunk', id: 'a1', content: [block2], tool_call_chunks: [] };
+    const content = jsonl(HEADER, chunkLine([], msg1), chunkLine([], msg2));
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('Hello world');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — tool calls
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — tool calls', () => {
+  it('renders a tool call with name, id, and args', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunkWithToolCall('a1', 'my_tool', 'tc-123', '{"key":"val"}'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('**Tool call:** `my_tool`');
+    expect(result).toContain('(id: `tc-123`)');
+    expect(result).toContain('"key"');
+    expect(result).toContain('"val"');
+    expect(result).toContain('```json');
+  });
+
+  it('merges multi-fragment tool call args', () => {
+    // First chunk carries tool name + id + first args fragment.
+    const chunk1: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a1',
+      content: '',
+      tool_call_chunks: [{ index: 0, id: 'tc-1', name: 'get_weather', args: '{"city":' }],
+    };
+    // Second chunk carries the rest of the args fragment.
+    const chunk2: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a1',
+      content: '',
+      tool_call_chunks: [{ index: 0, id: null, name: null, args: '"Paris"}' }],
+    };
+    const content = jsonl(HEADER, chunkLine([], chunk1), chunkLine([], chunk2));
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('**Tool call:** `get_weather`');
+    // Args are reassembled as valid JSON.
+    expect(result).toContain('"city"');
+    expect(result).toContain('"Paris"');
+  });
+
+  it('renders a tool call without an id', () => {
+    const msg: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a1',
+      content: '',
+      tool_call_chunks: [{ index: 0, id: '', name: 'anon_tool', args: '{}' }],
+    };
+    const content = jsonl(HEADER, chunkLine([], msg));
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('**Tool call:** `anon_tool`');
+    // No id annotation when id is empty.
+    expect(result).not.toContain('(id:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — mixed content blocks (text + non-text)
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — mixed content blocks', () => {
+  it('renders text blocks as plain text', () => {
+    const msg: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a1',
+      content: [{ type: 'text', text: 'Plain text.' }],
+      tool_call_chunks: [],
+    };
+    const result = renderChunksToMarkdown(jsonl(HEADER, chunkLine([], msg)));
+    expect(result).toContain('Plain text.');
+    expect(result).not.toContain('```json');
+  });
+
+  it('renders non-text blocks as JSON fences', () => {
+    const msg: Record<string, unknown> = {
+      type: 'AIMessageChunk',
+      id: 'a1',
+      content: [
+        { type: 'text', text: 'Before.' },
+        { type: 'image', url: 'https://example.com/img.png' },
+      ],
+      tool_call_chunks: [],
+    };
+    const result = renderChunksToMarkdown(jsonl(HEADER, chunkLine([], msg)));
+    expect(result).toContain('Before.');
+    expect(result).toContain('```json');
+    expect(result).toContain('"type": "image"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — sub-agent messages
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — subagent messages', () => {
+  it('renders sub-agent messages under a Subagent heading', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'Main question'), {}),
+      chunkLine(['subgraph_a', 'node_1'], aiChunk('s1', 'Subagent reply'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('### Subagent: subgraph_a/node_1');
+    expect(result).toContain('Subagent reply');
+  });
+
+  it('renders main-agent messages before sub-agent messages', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine(['sub'], aiChunk('s1', 'Sub output'), {}),
+      chunkLine([], aiChunk('m1', 'Main output'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    // Main agent rendered first.
+    expect(result.indexOf('Main output')).toBeLessThan(result.indexOf('Sub output'));
+  });
+
+  it('groups messages from the same sub-agent namespace together', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine(['agent_x'], humanMsg('h1', 'Q1 from agent_x'), {}),
+      chunkLine(['agent_x'], aiChunk('a1', 'A1 from agent_x'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    // Should have exactly one Subagent heading for agent_x.
+    const headingCount = (result.match(/### Subagent: agent_x/g) ?? []).length;
+    expect(headingCount).toBe(1);
+    // Both messages under that namespace.
+    expect(result).toContain('Q1 from agent_x');
+    expect(result).toContain('A1 from agent_x');
+  });
+
+  it('renders multiple distinct sub-agent namespaces separately', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine(['agent_a'], aiChunk('a1', 'From A'), {}),
+      chunkLine(['agent_b'], aiChunk('b1', 'From B'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('### Subagent: agent_a');
+    expect(result).toContain('### Subagent: agent_b');
+    expect(result).toContain('From A');
+    expect(result).toContain('From B');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — malformed JSONL lines
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — malformed JSONL lines', () => {
+  it('skips completely unparseable lines', () => {
+    const content = jsonl(
+      HEADER,
+      'THIS IS NOT JSON !!!',
+      chunkLine([], humanMsg('h1', 'Valid message'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('Valid message');
+    expect(result).not.toContain('THIS IS NOT JSON');
+  });
+
+  it('skips lines that are valid JSON but wrong shape (scalar)', () => {
+    const content = jsonl(
+      HEADER,
+      '42',
+      chunkLine([], aiChunk('a1', 'After scalar'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('After scalar');
+  });
+
+  it('skips lines that are valid JSON but wrong shape (missing ns)', () => {
+    const bad = JSON.stringify({ msg: { type: 'AIMessageChunk', id: 'x', content: 'bad' } });
+    const content = jsonl(
+      HEADER,
+      bad,
+      chunkLine([], aiChunk('a1', 'After bad'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('After bad');
+  });
+
+  it('tolerates a mix of good and bad lines and renders all valid messages', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'First'), {}),
+      '{broken json',
+      chunkLine([], aiChunk('a1', 'Second'), {}),
+      'null',
+      chunkLine([], humanMsg('h2', 'Third'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('First');
+    expect(result).toContain('Second');
+    expect(result).toContain('Third');
+  });
+
+  it('handles a file with only malformed lines gracefully', () => {
+    const content = jsonl(HEADER, 'not-json', '!!!', '{}');
+    const result = renderChunksToMarkdown(content);
+    // Empty object {} has ns = undefined → should be skipped.
+    expect(result).toContain('# Dialogue');
+    // May contain *No messages recorded.* or at least not crash.
+    expect(typeof result).toBe('string');
+    expect(result.endsWith('\n')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — structural consistency with serialize_messages_to_markdown()
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — structural consistency', () => {
+  it('produces a document heading as the first non-blank line', () => {
+    const result = renderChunksToMarkdown(jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'Hello'), {}),
+    ));
+    const firstLine = result.trimStart().split('\n')[0] ?? '';
+    expect(firstLine.startsWith('# ')).toBe(true);
+  });
+
+  it('wraps each message in an h2 section', () => {
+    const result = renderChunksToMarkdown(jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'A'), {}),
+      chunkLine([], aiChunk('a1', 'B'), {}),
+    ));
+    expect(result).toMatch(/## Human/);
+    expect(result).toMatch(/## Assistant/);
+  });
+
+  it('renders the token usage footer with a horizontal rule separator', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'Text', { input_tokens: 5, output_tokens: 10 }), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('---');
+    expect(result).toContain('## Token Usage');
+    expect(result).toContain('| Metric | Count |');
+    expect(result).toContain('| Input Tokens | 5 |');
+    expect(result).toContain('| Output Tokens | 10 |');
+  });
+
+  it('omits the token usage footer when no usage data is present', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], humanMsg('h1', 'No tokens here'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).not.toContain('## Token Usage');
+  });
+
+  it('aggregates usage_metadata across multiple messages', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLine([], aiChunk('a1', 'First', { input_tokens: 3, output_tokens: 7 }), {}),
+      chunkLine([], aiChunk('a2', 'Second', { input_tokens: 2, output_tokens: 4 }), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('| Input Tokens | 5 |');
+    expect(result).toContain('| Output Tokens | 11 |');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — array-shape chunk lines
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — array-shape chunk lines', () => {
+  it('parses array-shape [ns, msg, metadata] chunk lines', () => {
+    const content = jsonl(
+      HEADER,
+      chunkLineArray([], aiChunk('a1', 'Array shape works'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('Array shape works');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — missing header
+// ---------------------------------------------------------------------------
+
+describe('renderChunksToMarkdown — missing header', () => {
+  it('renders data lines even when no valid header is present', () => {
+    // No header line — just data.
+    const content = jsonl(
+      chunkLine([], humanMsg('h1', 'No header present'), {}),
+    );
+    const result = renderChunksToMarkdown(content);
+    expect(result).toContain('No header present');
   });
 });
 
@@ -3503,6 +4237,7 @@ describe('AC3 — Dialogues card rendered after Handoff Notes card', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3528,6 +4263,7 @@ describe('AC4 — Empty dialogues array', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3552,6 +4288,7 @@ describe('AC5 — Dialogue buttons with human-readable labels', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       {
         match: '/dialogues',
         body: [
@@ -3581,6 +4318,7 @@ describe('AC5 — Dialogue buttons with human-readable labels', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       {
         match: '/dialogues',
         body: [
@@ -3615,6 +4353,7 @@ describe('AC6 — Click fetches and renders via marked.parse()', () => {
 
     installFetchMock([
       { match: '/work-packages/',    body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,      body: [] },
       { match: /\/dialogues\?wp=/,   body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
       { match: /\/dialogues\//,      body: { content: markdownBody } },
     ]);
@@ -3649,6 +4388,7 @@ describe('AC7 — Clicking second dialogue collapses first', () => {
 
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,   body: [] },
       {
         match: /\/dialogues\?wp=/,
         body: [
@@ -3700,6 +4440,7 @@ describe('AC8 — Fetch error handling', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues', body: { error: { message: 'Server error', code: 'ERR' } }, status: 500 },
     ]);
 
@@ -3721,6 +4462,7 @@ describe('AC8 — Fetch error handling', () => {
 
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,    body: [] },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
       { match: /\/dialogues\//,    body: null, status: 403 },
     ]);
@@ -3751,6 +4493,7 @@ describe('AC9 — Dialogues card not above Pipelines card in DOM', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3782,6 +4525,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     };
     installFetchMock([
       { match: '/work-packages/', body: wp },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3798,6 +4542,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3811,6 +4556,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     const app = document.createElement('div');
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3833,6 +4579,7 @@ describe('AC10 — Existing WP rendering preserved', () => {
     };
     installFetchMock([
       { match: '/work-packages/', body: wp },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: [] },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3854,6 +4601,7 @@ describe('Edge cases', () => {
 
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,    body: [] },
       { match: /\/dialogues\?wp=/, body: [{ filename: 'qa-r0.md', stage: 'qa' }] },
       { match: /\/dialogues\//,    body: { content: '# Hello' } },
     ]);
@@ -3882,6 +4630,7 @@ describe('Edge cases', () => {
     document.body.appendChild(app);
     installFetchMock([
       { match: '/work-packages/', body: { ...baseWp } },
+      { match: '/chunks',         body: [] },
       { match: '/dialogues',      body: null },
     ]);
     globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
@@ -3913,6 +4662,7 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
   async function renderWithDialogue(app: HTMLElement) {
     installFetchMock([
       { match: '/work-packages/',  body: { ...baseWp } },
+      { match: /\/chunks\?wp=/,    body: [] },
       {
         match: /\/dialogues\?wp=/,
         body: [
@@ -3995,6 +4745,138 @@ describe('WP-004 — aria-expanded behaviour on dialogue buttons', () => {
     expect(btn2.getAttribute('aria-expanded')).toBe('true');
 
     document.body.removeChild(app);
+  });
+});
+
+// ============================================================
+// Chunk-priority path — getChunks returns data → useChunks=true
+// ============================================================
+
+describe('Chunk-priority path (useChunks=true)', () => {
+  it('uses chunks as data source when getChunks returns non-empty', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    installFetchMock([
+      { match: '/work-packages/', body: { ...baseWp } },
+      {
+        match: /\/chunks\?wp=/,
+        body: [
+          { filename: 'WP-016-developer-r0.jsonl', stage: 'developer' },
+        ],
+      },
+      { match: /\/dialogues\?wp=/, body: [{ filename: 'developer-r0.md', stage: 'developer' }] },
+      { match: /\/chunks\/.*\/rendered/, body: { content: '# Rendered from chunks' } },
+    ]);
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const buttons = section.querySelectorAll('button.dialogue-btn');
+    expect(buttons.length).toBe(1);
+    // Button must have data-use-chunks="1"
+    expect(buttons[0].getAttribute('data-use-chunks')).toBe('1');
+
+    document.body.removeChild(app);
+  });
+
+  it('clicking a chunk button calls getChunkRendered (not getDialogueContent)', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+
+    const renderedMd = '# Chunk Rendered Markdown';
+
+    installFetchMock([
+      { match: '/work-packages/', body: { ...baseWp } },
+      {
+        match: /\/chunks\?wp=/,
+        body: [{ filename: 'WP-016-developer-r0.jsonl', stage: 'developer' }],
+      },
+      { match: /\/dialogues\?wp=/, body: [] },
+      { match: /\/chunks\/.*\/rendered/, body: { content: renderedMd } },
+    ]);
+
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const btn = section.querySelector('button.dialogue-btn') as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+
+    btn.click();
+    await new Promise(r => setTimeout(r, WAIT));
+
+    // Verify the rendered content is displayed
+    const contentEl = section.querySelector('.dialogue-content')!;
+    expect(contentEl.style.display).not.toBe('none');
+    expect(contentEl.querySelector('.dialogue-markdown')).not.toBeNull();
+
+    // Verify the fetch URL hit the /rendered endpoint (chunks path)
+    const fetchCalls = (globalThis.fetch as any).mock.calls.map((c: any) => c[0] as string);
+    const renderedCalls = fetchCalls.filter((url: string) => url.includes('/rendered'));
+    expect(renderedCalls.length).toBeGreaterThan(0);
+
+    document.body.removeChild(app);
+  });
+
+  it('chunks take priority over dialogues when both return entries', async () => {
+    const app = document.createElement('div');
+    document.body.appendChild(app);
+    installFetchMock([
+      { match: '/work-packages/', body: { ...baseWp } },
+      {
+        match: /\/chunks\?wp=/,
+        body: [{ filename: 'WP-016-qa-r0.jsonl', stage: 'qa' }],
+      },
+      {
+        match: /\/dialogues\?wp=/,
+        body: [
+          { filename: 'qa-r0.md', stage: 'qa' },
+          { filename: 'qa-r1.md', stage: 'qa' },
+        ],
+      },
+      { match: /\/chunks\/.*\/rendered/, body: { content: '# Chunk content' } },
+    ]);
+    globalThis.renderWorkPackageDetail(app, 'proj', 'WP-016');
+    await new Promise(r => setTimeout(r, WAIT));
+
+    const section = app.querySelector('#wp-dialogues-section')!;
+    const buttons = section.querySelectorAll('button.dialogue-btn');
+    // Should have 1 button (from chunks), not 2 (from dialogues)
+    expect(buttons.length).toBe(1);
+    // All buttons must be chunk-backed
+    buttons.forEach(btn => {
+      expect(btn.getAttribute('data-use-chunks')).toBe('1');
+    });
+
+    document.body.removeChild(app);
+  });
+});
+
+// ============================================================
+// wpId=undefined guard — no ?wp=undefined in URL
+// ============================================================
+
+describe('wpId=undefined guard', () => {
+  it('getDialogues with undefined wpId does not produce ?wp=undefined', async () => {
+    const calls: string[] = [];
+    (globalThis as any).fetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    await globalThis.API.getDialogues('my-project', undefined);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain('wp=undefined');
+  });
+
+  it('getChunks with undefined wpId does not produce ?wp=undefined', async () => {
+    const calls: string[] = [];
+    (globalThis as any).fetch = vi.fn(async (url: string) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    await globalThis.API.getChunks('my-project', undefined);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).not.toContain('wp=undefined');
   });
 });
 

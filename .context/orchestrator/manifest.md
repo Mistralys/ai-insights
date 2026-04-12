@@ -10,6 +10,9 @@ _SOURCE: Project manifest (overview, tech stack, constraints, API surface, archi
                 └── README.md
                 └── api-surface.md
                 └── constraints.md
+                └── data-flows.md
+                └── file-tree.md
+                └── tech-stack.md
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/README.md`
@@ -55,7 +58,10 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 | **Routing Logic** | [supervisor-routing.md](../../supervisor-routing.md) | Deterministic supervisor algorithm, special exits, action sets, circuit-breaker mechanics |
 | **Public API Surface** | [public-api.md](../../public-api.md) | CLI entry point, graph construction, supervisor factory, utility functions |
 | **Constraints & Conventions** | [project-manifest/constraints.md](constraints.md) | Numbered constraints and conventions governing orchestrator development: prompt architecture rules, LLM boundaries, circuit-breaker, cross-platform policy |
-| **API Surface (manifest)** | [project-manifest/api-surface.md](api-surface.md) | Quick-reference: 16 JSONL event types, enriched fields, `_format_duration`, `parse_tool_response`, progress-tracking state fields |
+| **API Surface (manifest)** | [project-manifest/api-surface.md](api-surface.md) | Quick-reference: JSONL event types, enriched fields, `ChunkWriter`, `_format_duration`, `parse_tool_response`, progress-tracking state fields |
+| **Data Flows** | [project-manifest/data-flows.md](data-flows.md) | Dialogue capture, chunk writing, chunk rendering, chunk discovery flows |
+| **File Tree** | [project-manifest/file-tree.md](file-tree.md) | Annotated file listing for all orchestrator source files |
+| **Tech Stack** | [project-manifest/tech-stack.md](tech-stack.md) | Runtime, dependencies (incl. `langgraph>=1.1,<2.0`), architectural patterns |
 | **Log Schema** | [jsonl-log-schema.md](../../jsonl-log-schema.md) | JSONL schema reference: 16 event types, full field reference, duration conventions, JSON examples |
 | **Smoke Testing** | [smoke-testing.md](../../smoke-testing.md) | Dispatch loop verification runbook |
 
@@ -65,7 +71,7 @@ The orchestrator's documentation lives in `orchestrator/docs/`. The documents be
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Graph framework | LangGraph ≥0.4 | StateGraph-based workflow with deterministic routing |
+| Graph framework | LangGraph ≥1.1,<2.0 | StateGraph-based workflow with deterministic routing |
 | Agent execution | Deep Agents ≥0.3 (via LangChain) | Coding-agent execution within each pipeline stage |
 | MCP integration | langchain-mcp-adapters ≥0.2 | Wraps MCP tools for LangChain tool interface |
 | LLM providers | langchain-anthropic / langchain-google-genai | Claude (Anthropic) or Gemini (Google) |
@@ -104,8 +110,11 @@ orchestrator/
 │   ├── agents/
 │   │   └── project-manifest/
 │   │       ├── README.md       # ← You are here
+│   │       ├── api-surface.md  # JSONL event types, enriched fields, ChunkWriter, utility refs
 │   │       ├── constraints.md  # Numbered constraint catalogue (11 rules)
-│   │       └── api-surface.md  # JSONL event types, enriched fields, utility refs
+│   │       ├── data-flows.md   # Dialogue capture, chunk writing, chunk rendering flows
+│   │       ├── file-tree.md    # Annotated file listing
+│   │       └── tech-stack.md   # Runtime, dependencies, architectural patterns
 │   ├── architecture.md         # Stage nodes, state management, log types
 │   ├── supervisor-routing.md   # Routing algorithm, exits, circuit-breaker
 │   ├── public-api.md           # Public functions and entry points
@@ -154,6 +163,20 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `pipeline_result` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` | **New.** Best-effort read-back of latest WP pipeline after success. `duration_s` derived from `pipeline.duration_ms`; `null` when absent. Omitted on read-back failure. |
 | `pipeline_rollback` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` | Emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline after an unhandled stage exception. Only fires when `ledger_begin_work` was called before the crash. |
 
+#### Node factory private helpers (`src/nodes/__init__.py`)
+
+Module-level helper functions extracted from `node_fn()` for readability.
+All are private (prefixed `_`) but documented here for agent navigation.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `_build_start_log_entry` | `(stage, wp_id, model, iteration, timestamp) -> dict` | Constructs the `stage_start` JSONL log entry dict. |
+| `_build_success_log_entry` | `(stage, wp_id, model, tokens_used, duration_s, timestamp) -> dict` | Constructs the `stage_complete` JSONL log entry dict. |
+| `_build_error_log_entry` | `(stage, wp_id, model, exc, duration_s, timestamp) -> dict` | Constructs the `stage_error` JSONL log entry dict. |
+| `_accumulate_stream` | `async (agent, user_prompt, slug_dir, wp_id, stage) -> tuple[list, Path \| None]` | Runs the `astream()` loop, writes JSONL chunks via `ChunkWriter`, accumulates and reconstructs `msgs` in stream order. Returns `(msgs, chunk_file_path)`. Closes `ChunkWriter` in `finally` so partial messages survive stream errors. |
+| `_handle_rollback` | `async (begin_work_state, complete_pipeline_state, wp_id, wrapped_tools, stage, exc, run_logger) -> list[dict]` | Cancels any orphaned IN_PROGRESS pipeline using `ledger_cancel_pipeline` when `ledger_begin_work` fired before the error but `ledger_complete_pipeline` did not succeed. Returns zero or one `pipeline_rollback` log entry dicts. |
+| `_read_pipeline_result` | `async (wp_id, wrapped_tools, stage, project_path, run_logger) -> list[dict]` | Best-effort read-back of the latest WP pipeline via `ledger_get_work_package`. Swallows all exceptions (logged at DEBUG). Returns zero or one `pipeline_result` log entry dicts. |
+
 ### Tool wrapper events (`src/utils/tool_wrappers.py`)
 
 | `action` | Key fields | Notes |
@@ -184,6 +207,7 @@ duration conventions, JSON examples, and backward-compatibility notes see
 | `action` | Key fields | Notes |
 |----------|-----------|-------|
 | `run_start` | `thread_id`, `dry_run`, `plan`, **`run_start_ts`**, `stage_models` | Enriched: `run_start_ts` — ISO 8601 UTC timestamp stored in state for elapsed-time math. `plan` — resolved path of the plan file passed as `--plan`. `stage_models` — snapshot of `Config.stage_models` at run start (dict of stage name → model slug). |
+| `signal_shutdown` | `stage="cli"`, `result="INTERRUPTED"`, `level="WARNING"`, `thread_id` | Emitted when SIGTERM/SIGINT triggers the graceful shutdown race path in `_run()`. The graph task is cancelled, the run is **not** marked terminal (resumable via `--resume`), and the process exits with code `1`. Integration-tested by `TestSignalInterruptedRun` in `tests/test_cli.py` (Unix-only; skipped on Windows). |
 | `run_end` | `result`, `thread_id`, **`total_duration_s`** | Enriched: `total_duration_s` — wallclock seconds for the full run (float, 1 dp); omitted when `run_start_ts` unavailable. |
 
 ### Duration field conventions
@@ -229,6 +253,76 @@ listed are resolved from the enclosing template's variable dict after inlining.
 |--------|-----------|-------------|
 | `WorkflowLogger` | `WorkflowLogger.create(label)` → context manager | JSONL + console logger. `stream_entry(entry)` writes a log entry dict to JSONL and emits event-type-specific console output for 9 named action types: `stage_start`, `stage_complete` (with duration + token count), `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`, `dialogue_captured`, and `tool_call` (`[stage] 🔧 tool_name (tool_wp_id)`, parenthetical omitted when `tool_wp_id` is empty); all other event types fall through to the generic `action → result` format. `log(...)` writes a freeform entry. `flush_unstreamed(run_log)` writes any `run_log` entries not already persisted via `stream_entry` (safety net for when the logger is unreachable inside graph nodes). `start_heartbeat(interval_s)` / `stop_heartbeat()` — async methods managing a background heartbeat task. |
 | `_format_duration` | `_format_duration(seconds: float \| None) -> str` | Formats a float of seconds as a human-readable string. Examples: `"3m 24s"`, `"1h 12m"`, `"45s"`, `"0s"`. Returns `"0s"` for `None` or zero. Used internally by `stream_entry` for console output of `stage_complete`, `progress_snapshot`, and `pipeline_result` events. **Private** — not part of the public API but documented here as it drives all human-readable duration display. |
+
+---
+
+### `src/utils/_revision.py`
+
+Shared revision-numbering helper used by both `chunk_writer.py` and `dialogue_writer.py`.
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `next_revision` | `next_revision(directory: Path, wp_id: str, stage: str, ext: str) -> int` | Globs `{wp_id}-{stage}-r*{ext}` in *directory*, parses revision numbers from matching filenames, and returns `max + 1` (or `0` when no prior files exist). `ext` includes the leading dot (e.g. `".jsonl"`, `".md"`). |
+
+---
+
+### `src/utils/chunk_writer.py`
+
+Writes raw LangGraph stream chunks to JSONL files in the project's `orchestrator/chunks/` subdirectory. Used during streaming stages to persist the full token-level stream for later GUI rendering via the MCP server's `chunk-renderer.ts`.
+
+**JSONL file layout**
+
+| Line | Content |
+|------|---------|
+| 0 (header) | `{"chunk_format": 1, "stream_mode": "messages", "langgraph_stream_version": "v2"}` |
+| 1–N (chunks) | One JSON object per streaming event (e.g. `{"type": "ai", "content": "…", …}`) |
+
+**File naming convention:** `{wp_id}-{stage}-r{N}.jsonl` (revision `N` auto-increments — mirrors `dialogue_writer.write_dialogue`). Files are written to `{slug_dir}/orchestrator/chunks/`.
+
+**Module-level constant**
+
+| Symbol | Value | Notes |
+|--------|-------|-------|
+| `_CHUNK_HEADER` | `MappingProxyType({"chunk_format": 1, "stream_mode": "messages", "langgraph_stream_version": "v2"})` | Written as line 0 of every chunk file. Immutable at runtime (`MappingProxyType`). Shared singleton across all `ChunkWriter` instances. |
+
+**`ChunkWriter` class**
+
+```python
+class ChunkWriter:
+    def __init__(self, slug_dir: Path, wp_id: str, stage: str) -> None: ...
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `slug_dir` | `Path` | Root directory for the project's ledger storage (e.g. `{workspace_root}/mcp-server/storage/ledger/{slug}`). |
+| `wp_id` | `str` | Work-package identifier (e.g. `"WP-001"`). |
+| `stage` | `str` | Pipeline stage name (e.g. `"developer"`). |
+
+Raises `OSError` if the `orchestrator/chunks/` directory cannot be created or the file cannot be opened. Opens (or creates) the JSONL file and writes the version-header line immediately on construction.
+
+**Public methods**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `path` *(property)* | `-> Path` | Absolute path to the JSONL file being written. |
+| `write_chunk` | `write_chunk(chunk: dict[str, Any]) -> None` | Appends *chunk* as a JSON line and flushes immediately. Both `OSError` (file I/O) and `TypeError` (non-serialisable values) are caught and logged at `DEBUG` — the caller is never interrupted. No-op when the writer is closed. |
+| `close` | `close() -> None` | Closes the underlying file handle. Idempotent — safe to call more than once. |
+
+**Context manager usage**
+
+```python
+from pathlib import Path
+from src.utils.chunk_writer import ChunkWriter
+
+with ChunkWriter(slug_dir=Path("/storage/my-project"), wp_id="WP-001", stage="developer") as cw:
+    for chunk in stream:
+        cw.write_chunk(chunk)
+
+# path property exposes the file that was written
+print(cw.path)
+```
+
+`__enter__` returns `self`; `__exit__` calls `close()`.
 | `get_run_logger` | `get_run_logger(config) -> WorkflowLogger \| None` | Extracts the `WorkflowLogger` instance from a LangGraph `RunnableConfig`. Returns `None` when no logger is attached (e.g. in unit tests). |
 
 ### `src/utils/mcp_parse.py`
@@ -715,5 +809,308 @@ agent = create_deep_agent(model=resolved_model, ...)
 - `os.environ.get("MODEL_NAME", ...)` anywhere in the orchestrator source
 - `argparse` / `click` flags for `--model` that override per-stage selection
 - Hardcoding a model slug string in `create_stage_node()` or any node factory
+
+```
+###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`
+
+```md
+# Orchestrator — Data Flows
+
+> **Parent:** [project-manifest/README.md](README.md)
+
+Describes the key interaction paths through the orchestrator.
+
+---
+
+## Flow 1: Dialogue Capture (Legacy Markdown — module only)
+
+> **Note:** As of the streaming-dialogue-capture rework, `node_fn()` no longer
+> calls `serialize_messages_to_markdown()` or `write_dialogue()`. The chunk JSONL
+> file (Flow 2) is the sole capture artefact for new runs. The `dialogue_writer`
+> module is retained for manual invocation but is not called during normal pipeline
+> execution.
+
+**Entry Point:** Direct call to `dialogue_writer.write_dialogue()` (manual / scripted use only)
+
+```
+dialogue_writer.write_dialogue(content, slug_dir, wp_id, stage)
+  ↓
+next_revision(dialogues_dir, wp_id, stage, ".md")  ← shared _revision.py helper
+  ↓
+Write {wp_id}-{stage}-r{N}.md
+  → {slug_dir}/orchestrator/dialogues/{wp_id}-{stage}-r{N}.md
+```
+
+**Result:** A human-readable Markdown file per stage run, stored in the project's `orchestrator/dialogues/` directory. Revision `N` auto-increments; the latest revision is the highest `r` suffix. Pre-existing files from older runs are still served by the GUI.
+
+---
+
+## Flow 2: Streaming Chunk Capture (JSONL)
+
+**Entry Point:** Stage node opens a `ChunkWriter` before iterating the LangGraph stream
+
+```
+Stage node
+  ↓
+ChunkWriter(slug_dir, wp_id, stage).__enter__()
+  ↓
+  Creates {slug_dir}/orchestrator/chunks/{wp_id}-{stage}-r{N}.jsonl
+  Writes header line: {"chunk_format": 1, "stream_mode": "messages", "langgraph_stream_version": "v2"}
+  ↓
+for chunk in graph.astream(…, stream_mode="messages"):
+    cw.write_chunk(chunk)          ← appends one JSON line per token/event, immediate flush
+  ↓
+ChunkWriter.__exit__()  →  cw.close()
+  ↓
+{slug_dir}/orchestrator/chunks/{wp_id}-{stage}-r{N}.jsonl complete
+```
+
+**Result:** A JSONL file capturing the raw LangGraph `AIMessageChunk` stream. One file per stage run; revision numbering uses the shared `next_revision()` helper from `_revision.py`. Both `OSError` and `TypeError` during write are caught and swallowed (logged at DEBUG) — the stage run is never interrupted.
+
+---
+
+## Flow 3: Chunk Rendering (JSONL → Markdown)
+
+**Entry Point:** GUI requests rendered Markdown for a chunk file
+
+```
+Browser → GET /api/projects/:slug/chunks/:filename/rendered
+  ↓
+gui/server.ts router
+  ↓
+handleGetChunkFile(ledgerRoot, slug, filename)   ← reads raw JSONL from disk
+  ↓
+renderChunksToMarkdown(jsonlContent)             ← gui/chunk-renderer.ts
+  ↓
+  1. Parse header line (validates chunk_format: 1)
+  2. Parse each chunk line — normalises object shape and array (tuple) shape
+  3. Accumulate AIMessageChunk objects by id (merge content, tool_calls, usage_metadata)
+  4. Group merged messages by namespace (main agent vs. sub-agents)
+  5. Render Markdown — document heading + metadata table, per-message sections,
+     tool-call blocks, token-usage footer
+  ↓
+Return { content: "<rendered Markdown string>" }
+  ↓
+Browser renders Markdown via marked.parse()
+```
+
+**Result:** Human-readable Markdown consistent with `serialize_messages_to_markdown()` output, generated on-the-fly from the raw JSONL chunk file. No disk write — pure in-memory transformation.
+
+---
+
+## Flow 4: Chunk File Discovery
+
+**Entry Point:** GUI requests list of chunk files for a project (or filtered by WP)
+
+```
+Browser → GET /api/projects/:slug/chunks[?wp=WP-001]
+  ↓
+handleListChunks(ledgerRoot, slug, wpId?)
+  ↓
+readdir({ledgerRoot}/{slug}/orchestrator/chunks/)
+  ↓
+Filter to *.jsonl filenames
+Optional: prefix-filter by "{wpId}-" (wpId validated against WP_ID_RE before use)
+  ↓
+Sort alphabetically → map parseChunkFilename()
+  → { filename, wp_id, stage } per entry
+  ↓
+Return ChunkEntry[]   ([] when directory is absent — no error)
+```
+
+**Result:** Sorted array of `ChunkEntry` objects. The GUI uses this list to populate the Dialogues card in the work-package detail view — chunk files take priority over Markdown dialogue files when both exist.
+
+---
+
+## Relationship: Chunks vs. Dialogues
+
+| Aspect | Chunks (`orchestrator/chunks/`) | Dialogues (`orchestrator/dialogues/`) |
+|--------|--------------------------------|--------------------------------------|
+| Format | JSONL (token-level stream) | Markdown (rendered prose) |
+| Producer | `ChunkWriter` (Python) | `dialogue_writer.write_dialogue` (Python) — manual use only; no longer called by `node_fn()` |
+| Consumer | `chunk-renderer.ts` (TypeScript) | Served directly as-is |
+| GUI priority | **Higher** (chunks override dialogues) | Fallback when no chunks (pre-streaming runs) |
+| Rendering | On-the-fly by GUI server | Pre-rendered at capture time |
+
+```
+###  Path: `/orchestrator/docs/agents/project-manifest/file-tree.md`
+
+```md
+# Orchestrator — File Tree
+
+> **Parent:** [project-manifest/README.md](README.md)
+
+Annotated listing of all source files in the orchestrator package.
+
+```
+orchestrator/
+├── pyproject.toml              # Package metadata, extras, scripts; langgraph>=1.1,<2.0 pin
+├── README.md                   # Full user-facing documentation
+├── requirements.txt            # Pinned dependencies
+├── changelog.md                # Version history
+├── module-context.yaml         # CTX Generator config
+│
+├── docs/
+│   ├── agents/
+│   │   └── project-manifest/
+│   │       ├── README.md           # Manifest hub
+│   │       ├── api-surface.md      # JSONL event types, enriched fields, ChunkWriter, utility refs
+│   │       ├── constraints.md      # Numbered constraint catalogue
+│   │       ├── data-flows.md       # Dialogue capture and chunk writing data flows
+│   │       ├── file-tree.md        # ← You are here
+│   │       └── tech-stack.md       # Runtime, dependencies, architectural patterns
+│   ├── architecture.md             # Stage nodes, state management, log types
+│   ├── supervisor-routing.md       # Routing algorithm, exits, circuit-breaker
+│   ├── public-api.md               # Public functions and entry points
+│   ├── jsonl-log-schema.md         # Run log field reference
+│   └── smoke-testing.md            # Dispatch loop verification
+│
+├── src/
+│   ├── __init__.py
+│   ├── cli.py                  # CLI entry point (orchestrate command)
+│   ├── config.py               # .env loading, provider detection, constants
+│   ├── graph.py                # StateGraph assembly and compilation
+│   ├── state.py                # WorkflowState TypedDict with reducers
+│   ├── supervisor.py           # Deterministic router (no LLM)
+│   ├── mcp_client.py           # MCP server subprocess lifecycle
+│   │
+│   ├── nodes/                  # Stage node factories (8 stages)
+│   │   ├── __init__.py         # Node factory — stage_start / stage_complete / stage_error / pipeline_result events
+│   │   ├── pm.py               # Project Manager stage node
+│   │   ├── developer.py        # Developer stage node
+│   │   ├── qa.py               # QA stage node
+│   │   ├── security_auditor.py # Security Auditor stage node
+│   │   ├── reviewer.py         # Reviewer stage node
+│   │   ├── release_engineer.py # Release Engineer stage node
+│   │   ├── docs.py             # Documentation stage node
+│   │   ├── synthesis.py        # Synthesis stage node
+│   │   ├── prompt_renderer.py  # load_template / render_prompt / load_partial / clear_template_cache
+│   │   └── templates/          # Per-stage Markdown prompt templates + partials/
+│   │
+│   └── utils/                  # Shared utilities
+│       ├── __init__.py
+│       ├── _revision.py        # next_revision() — shared revision-numbering helper for chunk and dialogue files
+│       ├── chunk_writer.py     # ChunkWriter — writes LangGraph stream chunks to JSONL files (orchestrator/chunks/)
+│       ├── dialogue_writer.py  # write_dialogue / serialize_messages_to_markdown
+│       ├── filelock.py         # Cross-platform file locking (msvcrt / fcntl)
+│       ├── logging.py          # WorkflowLogger — JSONL + console logger with heartbeat
+│       ├── mcp_parse.py        # parse_tool_response helper
+│       ├── persona.py          # load_persona — reads persona Markdown files
+│       ├── persona_models.py   # Persona model configuration types
+│       ├── plan_parser.py      # Plan document parser
+│       ├── subagents.py        # Deep Agent / subagent creation helpers
+│       ├── subprocess_encoding.py  # Cross-platform subprocess encoding fix
+│       └── tool_wrappers.py    # log_tool_calls() — tool_call JSONL event wrapper
+│
+└── tests/                      # pytest test suite
+    ├── conftest.py             # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig
+    └── checkpoints/            # SQLite checkpoint storage (runtime-generated)
+```
+
+```
+###  Path: `/orchestrator/docs/agents/project-manifest/tech-stack.md`
+
+```md
+# Orchestrator — Tech Stack & Patterns
+
+> **Parent:** [project-manifest/README.md](README.md)
+
+---
+
+## Runtime & Language
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| **Language** | Python 3.11+ | CPython runtime |
+| **Package Manager** | pip (setuptools) | Extras: `dev`, `anthropic` |
+| **Test Framework** | pytest + pytest-asyncio | Async-aware; `live` mark for API-key tests |
+| **Linter** | ruff | Line-length 100, target Python 3.11 |
+
+---
+
+## Core Dependencies
+
+### Production
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `langgraph` | `>=1.1,<2.0` | StateGraph-based workflow with deterministic routing |
+| `langgraph-checkpoint-sqlite` | *(unpinned)* | SQLite-backed run resume via `--resume` |
+| `langchain-mcp-adapters` | `>=0.2` | Wraps MCP tools for LangChain tool interface |
+| `langchain-anthropic` | *(unpinned)* | Claude (Anthropic) LLM provider |
+| `langchain-google-genai` | *(unpinned)* | Gemini (Google) LLM provider |
+| `python-dotenv` | *(unpinned)* | `.env`-based config with auto-detected LLM provider |
+
+### Development
+
+| Package | Purpose |
+|---------|---------|
+| `pytest` | Test runner |
+| `pytest-asyncio` | Async test support |
+| `ruff` | Linting and formatting |
+
+---
+
+## Architectural Patterns
+
+### 1. **LangGraph StateGraph**
+
+The orchestrator is built as a **LangGraph `StateGraph`** with:
+- A `WorkflowState` TypedDict carrying all inter-node state (thread ID, run log, WP ID, etc.)
+- Stage nodes as factory-generated async functions
+- A deterministic supervisor node that delegates all routing decisions to the MCP server's `ledger_get_next_action` tool — **no LLM calls in the router**
+
+**Key Files:**
+- `src/graph.py` — graph assembly and compilation
+- `src/supervisor.py` — deterministic router
+- `src/state.py` — `WorkflowState` TypedDict
+
+---
+
+### 2. **Stage Node Factories**
+
+Each of the 8 pipeline stages (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) is a **factory-generated async node** that:
+1. Loads a Markdown persona prompt via `load_template` / `render_prompt`
+2. Wraps MCP tools with `log_tool_calls()` for JSONL event emission
+3. Creates a Deep Agent (LangChain `create_react_agent` equivalent)
+4. Streams the agent run via `graph.astream(..., stream_mode="messages")`
+5. Writes raw chunks to a JSONL file via `ChunkWriter` (see `src/utils/chunk_writer.py`)
+6. Writes a rendered Markdown dialogue via `write_dialogue` (see `src/utils/dialogue_writer.py`)
+
+**Key Files:**
+- `src/nodes/__init__.py` — node factory + JSONL event emission
+- `src/nodes/{stage}.py` — per-stage node modules
+- `src/utils/chunk_writer.py` — `ChunkWriter` (JSONL streaming capture)
+- `src/utils/dialogue_writer.py` — `write_dialogue` / `serialize_messages_to_markdown`
+
+---
+
+### 3. **JSONL Run Log**
+
+All runtime events are written to a JSONL run log (one file per orchestrator invocation) by `WorkflowLogger`. The log supports structured events (23 types) for observability, progress tracking, and post-run analysis. See [api-surface.md](api-surface.md) for the full event type reference.
+
+**Cross-platform file locking:** `msvcrt` (Windows) / `fcntl` (Unix) prevents concurrent writes to the JSONL run log.
+
+**Key Files:**
+- `src/utils/logging.py` — `WorkflowLogger`
+- `src/utils/filelock.py` — cross-platform file lock
+
+---
+
+### 4. **Manifest-Derived Constants**
+
+Pipeline routing maps and role names are derived from `shared/workflow-manifest.json` at import time — never hard-coded. This ensures the orchestrator stays in sync with the MCP server's schema automatically.
+
+**Key Files:**
+- `src/config.py` — manifest loading and constant derivation
+
+---
+
+### 5. **Template Renderer**
+
+Stage prompts are assembled from `.md` template files at `src/nodes/templates/<stage>.md` via a four-step pipeline: partial resolution → conditional block evaluation → variable substitution → whitespace normalization.
+
+**Key Files:**
+- `src/nodes/prompt_renderer.py` — `load_template`, `render_prompt`, `load_partial`, `clear_template_cache`
 
 ```

@@ -6,6 +6,8 @@ _SOURCE: Test suite (unit, integration, live marks)_
 └── orchestrator/
     └── tests/
         └── __init__.py
+        └── conftest.py
+        └── test_chunk_writer.py
         └── test_cli.py
         └── test_config.py
         └── test_dialogue_writer.py
@@ -19,7 +21,9 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_plan_parser.py
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
+        └── test_revision.py
         └── test_state.py
+        └── test_streaming_capture.py
         └── test_subagents.py
         └── test_subprocess_encoding.py
         └── test_supervisor.py
@@ -32,6 +36,530 @@ _SOURCE: Test suite (unit, integration, live marks)_
 """
 tests — orchestrator test suite.
 """
+
+```
+###  Path: `/orchestrator/tests/conftest.py`
+
+```py
+"""
+conftest.py — Shared pytest fixtures and config stubs for the orchestrator test suite.
+
+Config stubs
+------------
+Three config stub classes are available to all test modules without import:
+
+_StreamCaptureConfig(workspace_root)
+    ``capture_dialogues=True``; ``workspace_root`` supplied at construction time
+    (typically via the ``tmp_path`` fixture).  Used in streaming and chunk-write
+    tests that need a real temp directory for JSONL output.
+
+_CaptureConfig
+    ``capture_dialogues=True``; ``workspace_root`` is the actual workspace root
+    (resolved from ``__file__``).  Used in tests that need to load real persona
+    files from the workspace.
+
+_NoCaptureConfig
+    ``capture_dialogues=False``; ``workspace_root`` is a non-existent temp path.
+    Used where capture is deliberately disabled.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+class _StreamCaptureConfig:
+    """Config stub with ``capture_dialogues=True`` and a caller-supplied workspace root."""
+
+    def __init__(self, workspace_root: Path) -> None:
+        self.workspace_root = workspace_root
+        self.capture_dialogues = True
+        self.stage_models = {
+            "developer": "claude-test",
+            "pm": "claude-test",
+            "qa": "claude-test",
+            "reviewer": "claude-test",
+            "security_auditor": "claude-test",
+            "docs": "claude-test",
+            "release_engineer": "claude-test",
+            "synthesis": "claude-test",
+            "planner": "claude-test",
+        }
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
+
+
+class _CaptureConfig:
+    """Config stub with ``capture_dialogues=True`` and the real workspace root."""
+
+    stage_models = {
+        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
+        "reviewer": "claude-test", "security_auditor": "claude-test",
+        "docs": "claude-test", "release_engineer": "claude-test",
+        "synthesis": "claude-test", "planner": "claude-test",
+    }
+    workspace_root = Path(__file__).resolve().parent.parent.parent
+    capture_dialogues = True
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
+
+
+class _NoCaptureConfig:
+    """Config stub with ``capture_dialogues=False``."""
+
+    workspace_root = Path("/tmp/no-capture-ws")
+    capture_dialogues = False
+    stage_models = {k: "claude-test" for k in [
+        "developer", "pm", "qa", "reviewer", "security_auditor",
+        "docs", "release_engineer", "synthesis", "planner",
+    ]}
+
+    def resolve_model_for_stage(self, stage: str) -> str:
+        return self.stage_models.get(stage, "claude-test")
+
+```
+###  Path: `/orchestrator/tests/test_chunk_writer.py`
+
+```py
+"""
+test_chunk_writer.py — Unit tests for orchestrator/src/utils/chunk_writer.py.
+
+All filesystem operations use pytest's ``tmp_path`` fixture or
+``tempfile.mkdtemp()`` for platform-agnostic temp directories.  No real files
+are created outside the temporary directory.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import tempfile
+from pathlib import Path
+from types import MappingProxyType
+from unittest.mock import MagicMock
+
+import pytest
+
+from src.utils.chunk_writer import _CHUNK_HEADER, ChunkWriter
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _chunks_dir(slug_dir: Path) -> Path:
+    return slug_dir / "orchestrator" / "chunks"
+
+
+def _make_writer(slug_dir: Path, wp_id: str = "WP-001", stage: str = "developer") -> ChunkWriter:
+    return ChunkWriter(slug_dir=slug_dir, wp_id=wp_id, stage=stage)
+
+
+def _read_lines(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+# ---------------------------------------------------------------------------
+# Directory creation and file naming
+# ---------------------------------------------------------------------------
+
+
+class TestDirectoryCreation:
+    """ChunkWriter creates {slug_dir}/orchestrator/chunks/ if absent."""
+
+    def test_chunks_dir_created(self, tmp_path: Path) -> None:
+        slug_dir = tmp_path / "my-project"
+        # Directory does not exist yet — ChunkWriter must create it.
+        assert not _chunks_dir(slug_dir).exists()
+        with _make_writer(slug_dir):
+            pass
+        assert _chunks_dir(slug_dir).is_dir()
+
+    def test_chunks_dir_already_exists(self, tmp_path: Path) -> None:
+        """No error raised when the directory already exists."""
+        _chunks_dir(tmp_path).mkdir(parents=True)
+        with _make_writer(tmp_path):
+            pass
+        assert _chunks_dir(tmp_path).is_dir()
+
+    def test_file_created(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.exists()
+
+    def test_file_extension_is_jsonl(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.suffix == ".jsonl"
+
+    def test_file_name_contains_wp_id(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path, wp_id="WP-007") as cw:
+            assert "WP-007" in cw.path.name
+
+    def test_file_name_contains_stage(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path, stage="qa") as cw:
+            assert "qa" in cw.path.name
+
+
+# ---------------------------------------------------------------------------
+# Revision numbering
+# ---------------------------------------------------------------------------
+
+
+class TestRevisionNumbering:
+    """Revision numbers auto-increment for the same wp_id/stage pair."""
+
+    def test_first_revision_is_r0(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.name.endswith("-r0.jsonl")
+
+    def test_second_revision_is_r1(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path):
+            pass
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.name.endswith("-r1.jsonl")
+
+    def test_third_revision_is_r2(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path):
+            pass
+        with _make_writer(tmp_path):
+            pass
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.name.endswith("-r2.jsonl")
+
+    def test_different_stage_starts_at_r0(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path, stage="developer"):
+            pass
+        with _make_writer(tmp_path, stage="qa") as cw:
+            assert cw.path.name.endswith("-r0.jsonl")
+
+    def test_different_wp_id_starts_at_r0(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path, wp_id="WP-001"):
+            pass
+        with _make_writer(tmp_path, wp_id="WP-002") as cw:
+            assert cw.path.name.endswith("-r0.jsonl")
+
+    def test_non_sequential_existing_revisions(self, tmp_path: Path) -> None:
+        """If existing files are r0 and r3, next revision should be r4."""
+        chunks_dir = _chunks_dir(tmp_path)
+        chunks_dir.mkdir(parents=True)
+        for rev in (0, 3):
+            (chunks_dir / f"WP-001-developer-r{rev}.jsonl").write_text("{}\n")
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.name.endswith("-r4.jsonl")
+
+
+# ---------------------------------------------------------------------------
+# Header line
+# ---------------------------------------------------------------------------
+
+
+class TestHeaderLine:
+    """The first line of every JSONL file is the version header."""
+
+    def test_header_is_first_line(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        lines = _read_lines(path)
+        assert lines[0] == _CHUNK_HEADER
+
+    def test_header_contains_chunk_format(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        header = _read_lines(path)[0]
+        assert "chunk_format" in header
+
+    def test_header_contains_stream_mode(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        header = _read_lines(path)[0]
+        assert "stream_mode" in header
+
+    def test_header_contains_langgraph_stream_version(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        header = _read_lines(path)[0]
+        assert "langgraph_stream_version" in header
+
+    def test_header_chunk_format_value(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        header = _read_lines(path)[0]
+        assert header["chunk_format"] == 1
+
+    def test_header_stream_mode_value(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        header = _read_lines(path)[0]
+        assert header["stream_mode"] == "messages"
+
+    def test_header_langgraph_stream_version_value(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        header = _read_lines(path)[0]
+        assert header["langgraph_stream_version"] == "v2"
+
+    def test_header_written_even_without_chunks(self, tmp_path: Path) -> None:
+        """Closing immediately still persists the header."""
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        lines = _read_lines(path)
+        assert len(lines) == 1
+        assert lines[0] == _CHUNK_HEADER
+
+    def test_header_is_immutable_mapping_proxy(self) -> None:
+        """_CHUNK_HEADER must be a MappingProxyType (read-only)."""
+        assert isinstance(_CHUNK_HEADER, MappingProxyType)
+
+    def test_header_mutation_raises_type_error(self) -> None:
+        """Attempting to mutate _CHUNK_HEADER must raise TypeError."""
+        with pytest.raises(TypeError):
+            _CHUNK_HEADER["foo"] = "bar"  # type: ignore[index]
+
+
+# ---------------------------------------------------------------------------
+# write_chunk
+# ---------------------------------------------------------------------------
+
+
+class TestWriteChunk:
+    """write_chunk appends one JSON line per call and flushes immediately."""
+
+    def test_single_chunk_appended(self, tmp_path: Path) -> None:
+        chunk = {"type": "ai", "content": "hello"}
+        with _make_writer(tmp_path) as cw:
+            cw.write_chunk(chunk)
+            path = cw.path
+        lines = _read_lines(path)
+        assert lines[1] == chunk
+
+    def test_multiple_chunks_appended_in_order(self, tmp_path: Path) -> None:
+        chunks = [{"index": i} for i in range(5)]
+        with _make_writer(tmp_path) as cw:
+            for c in chunks:
+                cw.write_chunk(c)
+            path = cw.path
+        lines = _read_lines(path)
+        # lines[0] is header; lines[1..5] are chunks
+        assert lines[1:] == chunks
+
+    def test_flush_called_after_each_write(self, tmp_path: Path) -> None:
+        """Verify flush() is invoked immediately on every write_chunk call."""
+        cw = _make_writer(tmp_path)
+        try:
+            mock_fh = MagicMock()
+            cw._fh = mock_fh
+            cw.write_chunk({"x": 1})
+            cw.write_chunk({"x": 2})
+        finally:
+            cw._closed = True  # skip real close since _fh is mocked
+        assert mock_fh.flush.call_count == 2
+
+    def test_write_chunk_after_close_is_silent(self, tmp_path: Path) -> None:
+        """write_chunk on a closed writer silently does nothing."""
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+        # Should not raise
+        cw.write_chunk({"late": "chunk"})
+        # File should only contain the header line (no late chunk)
+        lines = _read_lines(path)
+        assert len(lines) == 1
+
+    def test_chunk_is_valid_json_line(self, tmp_path: Path) -> None:
+        chunk = {"key": "value", "nested": {"a": 1}}
+        with _make_writer(tmp_path) as cw:
+            cw.write_chunk(chunk)
+            path = cw.path
+        raw = path.read_text(encoding="utf-8").splitlines()
+        # Every line must be valid JSON
+        for line in raw:
+            json.loads(line)  # raises if invalid
+
+    def test_non_serializable_chunk_suppressed(self, tmp_path: Path) -> None:
+        """A chunk containing non-serialisable values (e.g. set) must not raise."""
+        with _make_writer(tmp_path) as cw:
+            # set is not JSON-serialisable → TypeError
+            cw.write_chunk({"bad": {1, 2, 3}})  # type: ignore[dict-item]
+            path = cw.path
+        # File should only contain the header line (bad chunk was skipped)
+        lines = _read_lines(path)
+        assert len(lines) == 1
+
+    def test_non_serializable_chunk_does_not_corrupt_file(self, tmp_path: Path) -> None:
+        """A skipped non-serialisable chunk must not corrupt subsequent writes."""
+        with _make_writer(tmp_path) as cw:
+            cw.write_chunk({"good": 1})
+            cw.write_chunk({"bad": {1, 2, 3}})  # type: ignore[dict-item]
+            cw.write_chunk({"also_good": 2})
+            path = cw.path
+        lines = _read_lines(path)
+        # header + good + also_good = 3 lines (bad chunk skipped)
+        assert len(lines) == 3
+        assert lines[1] == {"good": 1}
+        assert lines[2] == {"also_good": 2}
+
+
+# ---------------------------------------------------------------------------
+# close() idempotency
+# ---------------------------------------------------------------------------
+
+
+class TestClose:
+    """close() is idempotent — multiple calls must not raise."""
+
+    def test_close_once(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        cw.close()  # should not raise
+
+    def test_close_twice(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        cw.close()
+        cw.close()  # should not raise
+
+    def test_close_many_times(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        for _ in range(10):
+            cw.close()  # should not raise
+
+    def test_closed_flag_set_after_close(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        assert not cw._closed
+        cw.close()
+        assert cw._closed
+
+    def test_fh_is_none_after_close(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        cw.close()
+        assert cw._fh is None
+
+
+# ---------------------------------------------------------------------------
+# Context manager protocol
+# ---------------------------------------------------------------------------
+
+
+class TestContextManager:
+    """ChunkWriter works as a context manager."""
+
+    def test_enter_returns_self(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        result = cw.__enter__()
+        assert result is cw
+        cw.close()
+
+    def test_with_statement_works(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            assert isinstance(cw, ChunkWriter)
+
+    def test_exit_calls_close(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            pass
+        assert cw._closed
+
+    def test_exit_on_exception_still_closes(self, tmp_path: Path) -> None:
+        cw_ref: ChunkWriter | None = None
+        try:
+            with _make_writer(tmp_path) as cw:
+                cw_ref = cw
+                raise RuntimeError("deliberate test error")
+        except RuntimeError:
+            pass
+        assert cw_ref is not None
+        assert cw_ref._closed
+
+    def test_write_chunks_inside_with_block(self, tmp_path: Path) -> None:
+        chunks = [{"i": 0}, {"i": 1}, {"i": 2}]
+        with _make_writer(tmp_path) as cw:
+            for c in chunks:
+                cw.write_chunk(c)
+            path = cw.path
+        lines = _read_lines(path)
+        assert lines[1:] == chunks
+
+
+# ---------------------------------------------------------------------------
+# Error handling — I/O errors are logged at DEBUG and swallowed
+# ---------------------------------------------------------------------------
+
+
+class TestErrorHandling:
+    """File I/O errors during write_chunk are logged at DEBUG and do not propagate."""
+
+    def test_oserror_does_not_propagate(self, tmp_path: Path) -> None:
+        cw = _make_writer(tmp_path)
+        try:
+            mock_fh = MagicMock()
+            mock_fh.write.side_effect = OSError("disk full")
+            cw._fh = mock_fh
+            # Must not raise
+            cw.write_chunk({"data": "value"})
+        finally:
+            cw._closed = True  # bypass real close
+
+    def test_oserror_logged_at_debug(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        cw = _make_writer(tmp_path)
+        try:
+            mock_fh = MagicMock()
+            mock_fh.write.side_effect = OSError("disk full")
+            cw._fh = mock_fh
+            with caplog.at_level(logging.DEBUG, logger="src.utils.chunk_writer"):
+                cw.write_chunk({"data": "value"})
+        finally:
+            cw._closed = True
+        assert any("error writing to" in record.message for record in caplog.records)
+
+    def test_partial_recovery_existing_header_retained(self, tmp_path: Path) -> None:
+        """Simulate crash mid-write: existing header is readable."""
+        with _make_writer(tmp_path) as cw:
+            path = cw.path
+            cw.write_chunk({"chunk": 1})
+            # Simulate a write failure for the next chunk
+            mock_fh = MagicMock()
+            mock_fh.write.side_effect = OSError("disk full")
+            cw._fh = mock_fh
+            cw.write_chunk({"chunk": 2})  # must not raise
+            cw._fh = None  # prevent real close from failing
+
+        # Header and first chunk should still be present
+        lines = _read_lines(path)
+        assert lines[0] == _CHUNK_HEADER
+        assert lines[1] == {"chunk": 1}
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform path handling (pathlib.Path)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossPlatformPaths:
+    """All paths are constructed with pathlib.Path for cross-platform safety."""
+
+    def test_slug_dir_as_string_is_coerced_to_path(self, tmp_path: Path) -> None:
+        """Passing slug_dir as a str should still work (Path() wraps it)."""
+        cw = ChunkWriter(slug_dir=str(tmp_path), wp_id="WP-001", stage="developer")
+        cw.close()
+        assert isinstance(cw.path, Path)
+
+    def test_path_property_is_pathlib_path(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            assert isinstance(cw.path, Path)
+
+    def test_using_tempfile_mkdtemp(self) -> None:
+        """Verify operation using tempfile.mkdtemp() (platform-agnostic temp dir)."""
+        tmp = tempfile.mkdtemp()
+        slug_dir = Path(tmp)
+        with ChunkWriter(slug_dir=slug_dir, wp_id="WP-001", stage="developer") as cw:
+            cw.write_chunk({"hello": "world"})
+            path = cw.path
+        lines = _read_lines(path)
+        assert lines[0] == _CHUNK_HEADER
+        assert lines[1] == {"hello": "world"}
+
+    def test_path_is_inside_chunks_subdir(self, tmp_path: Path) -> None:
+        with _make_writer(tmp_path) as cw:
+            assert cw.path.parent == _chunks_dir(tmp_path)
 
 ```
 ###  Path: `/orchestrator/tests/test_cli.py`
@@ -52,7 +580,9 @@ No real MCP server, LLM, or LangGraph graph invocation is performed.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -487,6 +1017,274 @@ class TestUuidCollisionHandling:
         # Verify the helper can detect it.
         assert _thread_id_exists_in_checkpoint(db, "collision-uuid") is True
         assert _thread_id_exists_in_checkpoint(db, "different-uuid") is False
+
+
+# ---------------------------------------------------------------------------
+# _register_signal_handlers() — WP-003
+# ---------------------------------------------------------------------------
+
+class TestRegisterSignalHandlers:
+    """Unit tests for _register_signal_handlers()."""
+
+    async def test_sets_shutdown_event_on_sigterm(self):
+        """On Unix, sending SIGTERM must set the shutdown event."""
+        import os
+        import signal
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("loop.add_signal_handler() is not available on Windows.")
+
+        from src.cli import _register_signal_handlers
+
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+        _register_signal_handlers(loop, shutdown_event, thread_id="test-tid")
+
+        assert not shutdown_event.is_set()
+        os.kill(os.getpid(), signal.SIGTERM)
+        # Give the event loop a real tick to process the signal callback.
+        await asyncio.sleep(0.02)
+        assert shutdown_event.is_set()
+
+        # Restore default SIGTERM behaviour so other tests are not affected.
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    async def test_sets_shutdown_event_on_sigint(self):
+        """On Unix, sending SIGINT via the event loop handler must set the shutdown event."""
+        import os
+        import signal
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("loop.add_signal_handler() is not available on Windows.")
+
+        from src.cli import _register_signal_handlers
+
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+        _register_signal_handlers(loop, shutdown_event, thread_id="test-tid")
+
+        assert not shutdown_event.is_set()
+        os.kill(os.getpid(), signal.SIGINT)
+        await asyncio.sleep(0.02)
+        assert shutdown_event.is_set()
+
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    async def test_double_registration_does_not_raise(self):
+        """Registering handlers twice on the same loop must not raise."""
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("loop.add_signal_handler() is not available on Windows.")
+
+        from src.cli import _register_signal_handlers
+
+        loop = asyncio.get_running_loop()
+        ev1 = asyncio.Event()
+        ev2 = asyncio.Event()
+        _register_signal_handlers(loop, ev1, thread_id="t1")
+        _register_signal_handlers(loop, ev2, thread_id="t2")  # second call overwrites
+
+        import os
+        import signal
+        os.kill(os.getpid(), signal.SIGTERM)
+        await asyncio.sleep(0.02)
+        # The second registration overwrites the first; ev2 must be set.
+        assert ev2.is_set()
+
+        loop.remove_signal_handler(signal.SIGTERM)
+        loop.remove_signal_handler(signal.SIGINT)
+
+    def test_windows_path_does_not_raise(self, monkeypatch):
+        """On 'Windows' (mocked), _register_signal_handlers must not raise."""
+        import sys
+
+        from src.cli import _register_signal_handlers
+
+        # Simulate Windows by monkeypatching sys.platform.
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        # signal.signal() requires the main thread; mock it to avoid that constraint.
+        with patch("signal.signal"):
+            loop = MagicMock()
+            ev = asyncio.Event()
+            # Must not raise.
+            _register_signal_handlers(loop, ev, thread_id="win-tid")
+
+        # loop.add_signal_handler must NOT have been called on the Windows path.
+        loop.add_signal_handler.assert_not_called()
+
+    def test_windows_signal_signal_error_swallowed(self, monkeypatch):
+        """If signal.signal() raises ValueError on Windows, the error is swallowed."""
+        import sys
+
+        from src.cli import _register_signal_handlers
+
+        monkeypatch.setattr(sys, "platform", "win32")
+
+        with patch("signal.signal", side_effect=ValueError("not the main thread")):
+            loop = MagicMock()
+            ev = asyncio.Event()
+            _register_signal_handlers(loop, ev, thread_id="win-tid")  # must not raise
+
+    async def test_no_running_loop_graceful(self):
+        """asyncio.get_running_loop() inside _run() is guarded; the test exercises the guard."""
+        # This test validates the RuntimeError guard inside _run() when called
+        # outside an event loop context.  We call the guard directly here.
+        import asyncio
+
+        # When we call get_running_loop() outside a coroutine it raises RuntimeError.
+        # The guard in _run() swallows that — we verify _register_signal_handlers
+        # is itself safe by calling it in a non-main-thread context.
+        # (The function itself doesn't call get_running_loop(); _run() does the guard.)
+        # So we just verify the function doesn't blow up with a dummy loop mock.
+        loop = MagicMock()
+        loop.add_signal_handler = MagicMock()
+        ev = asyncio.Event()
+        import sys
+        if sys.platform != "win32":
+            from src.cli import _register_signal_handlers
+            _register_signal_handlers(loop, ev, thread_id="t")
+            assert loop.add_signal_handler.called
+
+
+# ---------------------------------------------------------------------------
+# Signal-interrupted run integration test — Plan 2026-04-10 rework-3
+# ---------------------------------------------------------------------------
+
+class TestSignalInterruptedRun:
+    """Integration test for the signal-interrupted shutdown race path in _run().
+
+    Validates the asyncio.wait race between graph_task and wait_task when
+    SIGTERM fires during graph execution.  Asserts:
+    - shutdown_event is set (triggering graceful shutdown).
+    - The graph task is cancelled (does not run to completion).
+    - A ``signal_shutdown`` JSONL entry is emitted with ``result="INTERRUPTED"``.
+    - The run is NOT marked terminal (remains resumable via --resume).
+    - The exit code is EXIT_ERROR (1).
+
+    Platform guard: skipped on Windows where loop.add_signal_handler() is unavailable.
+    """
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="loop.add_signal_handler() is not available on Windows.",
+    )
+    async def test_sigterm_interrupts_run_and_emits_signal_shutdown(self, tmp_path):
+        """Fire SIGTERM during _run(); verify shutdown JSONL entry and no terminal marker."""
+        import json
+        import os
+        import signal
+
+        from src.cli import EXIT_ERROR, _is_run_terminal, _run
+
+        # ── Set up a real plan file ─────────────────────────────────────
+        plan = tmp_path / "plan.md"
+        plan.write_text("# Plan\n\nTest plan for signal integration test.\n")
+
+        # ── Build mock args ─────────────────────────────────────────────
+        args = MagicMock()
+        args.plan = str(plan)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = str(tmp_path)
+        args.max_iterations = None
+        args.log_level = None
+
+        # ── Build mock config ───────────────────────────────────────────
+        ckpt_dir = tmp_path / "checkpoints"
+        ckpt_dir.mkdir()
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = ckpt_dir
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+        mock_config.max_iterations = 100
+        mock_config.stage_models = {"developer": "claude-test"}
+
+        # ── Build a real WorkflowLogger pointing to tmp_path ────────────
+        from src.utils.logging import WorkflowLogger
+
+        run_logger = WorkflowLogger(logs_dir / "test-signal-run.jsonl")
+
+        # ── Create a slow mock graph that blocks long enough for SIGTERM ─
+        async def _slow_ainvoke(*_args, **_kwargs):
+            """Simulate a long-running graph execution."""
+            await asyncio.sleep(10)
+            return {"run_log": [], "errors": [], "wp_summaries": []}
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = _slow_ainvoke
+
+        mock_db_conn = MagicMock()
+        mock_db_conn.close = AsyncMock(return_value=None)
+
+        # ── Mock MCPToolkit and _build_graph_for_run ────────────────────
+        mock_toolkit = MagicMock()
+        mock_toolkit.get_tools.return_value = []
+        mock_toolkit.__aenter__ = AsyncMock(return_value=mock_toolkit)
+        mock_toolkit.__aexit__ = AsyncMock(return_value=None)
+
+        # Schedule SIGTERM after a short delay so the race fires the
+        # shutdown path before the slow graph completes.
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.05, os.kill, os.getpid(), signal.SIGTERM)
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch(
+                "src.cli._build_graph_for_run",
+                return_value=(mock_graph, mock_db_conn),
+            ),
+        ):
+            exit_code = await _run(args, mock_config)
+
+        # ── Restore default signal handlers ─────────────────────────────
+        try:
+            loop.remove_signal_handler(signal.SIGTERM)
+        except Exception:
+            pass
+        try:
+            loop.remove_signal_handler(signal.SIGINT)
+        except Exception:
+            pass
+
+        # ── Assert exit code ────────────────────────────────────────────
+        assert exit_code == EXIT_ERROR, f"Expected EXIT_ERROR (1), got {exit_code}"
+
+        # ── Assert signal_shutdown JSONL entry was emitted ──────────────
+        run_logger.close()
+        log_path = logs_dir / "test-signal-run.jsonl"
+        assert log_path.exists(), "JSONL log file must exist"
+
+        log_lines = log_path.read_text().strip().splitlines()
+        entries = [json.loads(line) for line in log_lines]
+
+        signal_entries = [
+            e for e in entries
+            if e.get("action") == "signal_shutdown"
+        ]
+        assert len(signal_entries) == 1, (
+            f"Expected exactly 1 signal_shutdown entry, found {len(signal_entries)}"
+        )
+        assert signal_entries[0]["result"] == "INTERRUPTED"
+
+        # ── Assert run is NOT marked terminal (remains resumable) ───────
+        # Find the thread_id from the run_start entry.
+        start_entries = [e for e in entries if e.get("action") == "run_start"]
+        assert len(start_entries) == 1, "Expected exactly 1 run_start entry"
+        thread_id = start_entries[0]["thread_id"]
+        assert not _is_run_terminal(ckpt_dir, thread_id), (
+            "Signal-interrupted run must NOT be marked terminal"
+        )
 
 
 ```
@@ -3465,9 +4263,12 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessageChunk
+
+from src.utils.chunk_writer import ChunkWriter
 
 # ---------------------------------------------------------------------------
 # Minimal config stub
@@ -3526,11 +4327,25 @@ def base_state(
 # ---------------------------------------------------------------------------
 
 def _make_agent_mock(response: str = "Done.") -> MagicMock:
-    """Return a mock compiled Deep Agent that returns *response* as last message."""
-    msg = MagicMock()
-    msg.content = response
+    """Return a mock compiled Deep Agent that streams *response* as a single AIMessageChunk.
+
+    The node now uses ``astream(stream_mode="messages", subgraphs=True)`` which
+    yields ``(ns_tuple, (msg, metadata))`` 2-tuples.  Each ``AIMessageChunk``
+    carries a stable ``id`` so the accumulator merges fragments correctly.
+    """
+    chunk = AIMessageChunk(
+        content=response,
+        id="mock-msg-id",
+        usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+    )
+    stream_items = [((), (chunk, {"langgraph_node": "agent"}))]
+
+    async def _astream(*args: Any, **kwargs: Any):
+        for item in stream_items:
+            yield item
+
     agent = MagicMock()
-    agent.ainvoke = AsyncMock(return_value={"messages": [msg]})
+    agent.astream = _astream
     return agent
 
 
@@ -3787,17 +4602,16 @@ class TestPMNodePromptIncludesPlanContent:
 
         captured_prompt: list[str] = []
 
-        async def async_fake_invoke(inputs):
-            """Capture the prompt from the first message."""
-            captured_prompt.append(inputs["messages"][0]["content"])
-            msg = MagicMock()
-            msg.content = "PM done."
-            return {"messages": [msg]}
-
         def fake_agent(*args, **kwargs):
-            """Return a mock agent that captures prompt via ainvoke."""
+            """Return a mock agent that captures prompt via astream."""
+            async def _astream(inputs, *a, **kw):
+                """Capture the prompt from the first message and yield a chunk."""
+                captured_prompt.append(inputs["messages"][0]["content"])
+                chunk = AIMessageChunk(content="PM done.", id="pm-msg-id")
+                yield ((), (chunk, {"langgraph_node": "agent"}))
+
             agent = MagicMock()
-            agent.ainvoke = AsyncMock(side_effect=async_fake_invoke)
+            agent.astream = _astream
             return agent
 
         node_fn = make_pm_node(FAKE_CONFIG, FAKE_TOOLS)
@@ -4014,7 +4828,11 @@ class TestToolWrappingInNode:
         def _fake_create_agent(**kwargs: Any) -> MagicMock:
             tools_passed_to_agent.extend(kwargs.get("tools", []))
             agent = MagicMock()
-            agent.ainvoke = AsyncMock(return_value={"messages": [MagicMock(content="done")]})
+
+            async def _astream(inputs, *a, **kw):
+                yield ((), (AIMessageChunk(content="done", id="tid"), {"langgraph_node": "agent"}))
+
+            agent.astream = _astream
             return agent
 
         with _patch_persona(), \
@@ -4350,38 +5168,40 @@ class TestPipelineResult:
 # ---------------------------------------------------------------------------
 
 
-class _CaptureConfig:
-    """Config stub with capture_dialogues=True."""
-    stage_models = {
-        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
-        "reviewer": "claude-test", "security_auditor": "claude-test",
-        "docs": "claude-test", "release_engineer": "claude-test",
-        "synthesis": "claude-test", "planner": "claude-test",
-    }
-    workspace_root = Path(__file__).resolve().parent.parent.parent
-    capture_dialogues = True
-
-    def resolve_model_for_stage(self, stage: str) -> str:
-        return self.stage_models.get(stage, "claude-test")
+# _CaptureConfig and _NoCaptureConfig are defined in conftest.py;
+# imported explicitly below due to this directory being a Python package.
+from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
 
 
-class _NoCaptureConfig:
-    """Config stub with capture_dialogues=False."""
-    stage_models = {
-        "developer": "claude-test", "pm": "claude-test", "qa": "claude-test",
-        "reviewer": "claude-test", "security_auditor": "claude-test",
-        "docs": "claude-test", "release_engineer": "claude-test",
-        "synthesis": "claude-test", "planner": "claude-test",
-    }
-    workspace_root = Path(__file__).resolve().parent.parent.parent
-    capture_dialogues = False
+def _make_mock_chunk_writer(path: Path = Path("/tmp/WP-001-developer-r0.jsonl")) -> MagicMock:
+    """Return a MagicMock ChunkWriter whose .path property returns *path*."""
+    mock_cw = MagicMock()
+    mock_cw.path = path
+    mock_cw.write_chunk = MagicMock()
+    mock_cw.close = MagicMock()
+    return mock_cw
 
-    def resolve_model_for_stage(self, stage: str) -> str:
-        return self.stage_models.get(stage, "claude-test")
+
+def _patch_chunk_writer(
+    path: Path = Path("/tmp/WP-001-developer-r0.jsonl"),
+) -> Any:
+    """Patch src.nodes.ChunkWriter to return a mock that avoids real I/O."""
+    mock_cw = _make_mock_chunk_writer(path)
+    return patch("src.nodes.ChunkWriter", return_value=mock_cw)
 
 
 class TestDialogueCaptured:
-    """dialogue_captured must appear in run_log when capture_dialogues=True."""
+    """dialogue_captured must appear in run_log when capture_dialogues=True.
+
+    Only one dialogue_captured event is emitted per successful stage:
+    format="chunks" — for the JSONL chunk file written during streaming.
+    The Markdown dialogue file render was removed; the chunk JSONL is the
+    sole durable source of truth.
+
+    ChunkWriter is patched in all sub-tests to avoid real filesystem I/O.
+    """
+
+    _CHUNK_PATH = Path("/tmp/WP-001-developer-r0.jsonl")
 
     async def _invoke_with_capture(self, capture: bool, wp_id: str = "WP-001") -> dict:
         from src.nodes.developer import make_developer_node
@@ -4390,33 +5210,49 @@ class TestDialogueCaptured:
         node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
         create_p, backend_p = _patch_deep_agent()
         with _patch_persona(), create_p, backend_p, \
-             patch(
-                 "src.nodes.write_dialogue",
-                 return_value=Path("/tmp/WP-001-developer-r0.md"),
-             ), \
-             patch(
-                 "src.nodes.serialize_messages_to_markdown",
-                 return_value="# Dialogue",
-             ):
+             _patch_chunk_writer(self._CHUNK_PATH):
             return await node_fn(base_state(current_wp_id=wp_id))
 
     async def test_dialogue_captured_emitted_when_flag_true(self):
-        """dialogue_captured must appear in run_log when capture_dialogues=True."""
+        """At least one dialogue_captured entry must appear when capture_dialogues=True."""
         result = await self._invoke_with_capture(capture=True)
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert dc_entries, "dialogue_captured entry expected in run_log when capture_dialogues=True"
 
+    async def test_chunk_dialogue_captured_has_format_chunks(self):
+        """The chunk dialogue_captured entry must carry format='chunks'."""
+        result = await self._invoke_with_capture(capture=True)
+        chunk_entries = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("format") == "chunks"
+        ]
+        assert chunk_entries, "chunk dialogue_captured entry (format='chunks') expected"
+        entry = chunk_entries[0]
+        assert entry.get("file_path"), "chunk dialogue_captured must have a non-empty file_path"
+        assert entry.get("level") == "INFO"
+        assert entry.get("wp_id") == "WP-001"
+
+    async def test_no_markdown_dialogue_captured(self):
+        """No Markdown dialogue_captured entry (without format key) must be emitted."""
+        result = await self._invoke_with_capture(capture=True)
+        md_entries = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and "format" not in e
+        ]
+        assert not md_entries, "Markdown dialogue_captured entry must NOT be emitted"
+
     async def test_dialogue_captured_has_required_fields(self):
-        """dialogue_captured entry must have action, stage, wp_id, file_path, level."""
+        """All dialogue_captured entries must have action, stage, wp_id, file_path, level."""
         result = await self._invoke_with_capture(capture=True)
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert dc_entries, "dialogue_captured entry missing"
-        entry = dc_entries[0]
-        assert entry["action"] == "dialogue_captured"
-        assert "stage" in entry
-        assert "wp_id" in entry
-        assert entry.get("file_path"), "file_path must be a non-empty string"
-        assert entry.get("level") == "INFO"
+        for entry in dc_entries:
+            assert entry["action"] == "dialogue_captured"
+            assert "stage" in entry
+            assert "wp_id" in entry
+            assert entry.get("file_path"), "file_path must be a non-empty string"
+            assert entry.get("level") == "INFO"
+            assert entry.get("format") == "chunks", "all dialogue_captured entries must have format='chunks'"
 
     async def test_dialogue_captured_not_emitted_when_flag_false(self):
         """No dialogue_captured entry when capture_dialogues=False."""
@@ -4430,100 +5266,70 @@ class TestDialogueCaptured:
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
 
-    async def test_write_dialogue_failure_does_not_affect_stage_success(self):
-        """A PermissionError (or any exception) from write_dialogue must not
-        cause stage_success=False or propagate as an exception."""
-        from src.nodes.developer import make_developer_node
-
-        cfg = _CaptureConfig()
-        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
-        create_p, backend_p = _patch_deep_agent()
-        with _patch_persona(), create_p, backend_p, \
-             patch(
-                 "src.nodes.serialize_messages_to_markdown",
-                 return_value="# Dialogue",
-             ), \
-             patch(
-                 "src.nodes.write_dialogue",
-                 side_effect=PermissionError("disk full"),
-             ):
-            result = await node_fn(base_state(current_wp_id="WP-001"))
-
-        assert result["stage_success"] is True, (
-            "write_dialogue failure must not set stage_success=False"
-        )
-        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear in run_log when write_dialogue raises"
-        )
-
 
 # ---------------------------------------------------------------------------
-# Tests: error-path dialogue capture (WP-002)
+# Tests: error-path — no Markdown dialogue capture
 # ---------------------------------------------------------------------------
 
 
-class TestErrorPathDialogueCapture:
-    """Error-path dialogue capture: partial dialogue written when stage crashes
-    after agent.ainvoke() populates _msgs."""
+class TestErrorPathNoMarkdownDialogue:
+    """After removing the Markdown dialogue render, the error path must NOT
+    produce any Markdown dialogue_captured events.  The chunk file (already
+    on disk from streaming) is the sole capture artefact."""
 
     class _BrokenMsg:
-        """Message stub whose .content access raises, simulating a post-ainvoke crash."""
+        """Message stub whose .content access raises, simulating a post-stream crash."""
 
         @property
         def content(self) -> str:
-            raise RuntimeError("Simulated failure in success path after ainvoke")
+            raise RuntimeError("Simulated failure in success path after stream")
 
         usage_metadata = None
+
+        def model_dump(self) -> dict:
+            return {}
 
     async def _invoke_with_post_ainvoke_error(
         self, capture: bool = True, wp_id: str = "WP-001"
     ) -> dict:
-        """Invoke developer node where agent.ainvoke() returns messages but
-        subsequent .content access raises, driving the except path."""
         from src.nodes.developer import make_developer_node
 
         cfg = _CaptureConfig() if capture else _NoCaptureConfig()
         node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
 
+        broken = self._BrokenMsg()
+
+        async def _astream(inputs, *args, **kwargs):
+            yield ((), (broken, {"langgraph_node": "agent"}))
+
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(
-            return_value={"messages": [self._BrokenMsg()]}
-        )
+        agent_mock.astream = _astream
 
         with _patch_persona(), \
              patch("deepagents.create_deep_agent", return_value=agent_mock), \
              patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
-             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+             _patch_chunk_writer():
             return await node_fn(base_state(current_wp_id=wp_id))
 
-    async def test_dialogue_captured_when_msgs_populated(self):
-        """dialogue_captured must appear in run_log (partial=True) on the error
-        path when _msgs contains messages collected before the crash."""
+    async def test_no_partial_markdown_on_error_path(self):
+        """No partial Markdown dialogue_captured event must appear on the error path."""
         result = await self._invoke_with_post_ainvoke_error()
-
-        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert dc_entries, (
-            "dialogue_captured must appear in run_log when _msgs is non-empty on error path"
+        partial_entries = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("partial") is True
+        ]
+        assert not partial_entries, (
+            "Error-path Markdown dialogue_captured (partial=True) must NOT appear "
+            "after Markdown render removal"
         )
-        entry = dc_entries[0]
-        assert entry.get("partial") is True, (
-            "Error-path dialogue_captured entry must have partial=True"
-        )
-        assert entry.get("level") == "INFO"
-        assert entry.get("wp_id") == "WP-001"
-        assert entry.get("file_path"), "file_path must be a non-empty string"
 
-    async def test_stage_fails_even_when_partial_dialogue_written(self):
-        """Stage must still return stage_success=False when error-path dialogue is written."""
+    async def test_stage_fails_on_error_path(self):
+        """Stage must still return stage_success=False on the error path."""
         result = await self._invoke_with_post_ainvoke_error()
-
         assert result["stage_success"] is False
 
     async def test_no_dialogue_when_msgs_empty(self):
-        """No dialogue_captured when exception occurs before agent.ainvoke()
-        (empty _msgs — e.g. create_deep_agent raises)."""
+        """No dialogue_captured when exception occurs before astream()."""
         from src.nodes.developer import make_developer_node
 
         cfg = _CaptureConfig()
@@ -4535,64 +5341,26 @@ class TestErrorPathDialogueCapture:
                  side_effect=RuntimeError("Pre-ainvoke crash"),
              ), \
              patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
-             patch("src.nodes.write_dialogue", return_value=Path("/tmp/partial.md")), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
+             _patch_chunk_writer():
             result = await node_fn(base_state(current_wp_id="WP-001"))
 
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
         assert not dc_entries, (
-            "dialogue_captured must NOT appear when _msgs is empty (exception before ainvoke)"
+            "dialogue_captured must NOT appear when _msgs is empty (exception before astream)"
         )
         assert result["stage_success"] is False
-
-    async def test_error_path_dialogue_failure_is_non_fatal(self):
-        """write_dialogue failure on the error path must not crash the stage or
-        change the returned stage_success or error values."""
-        from src.nodes.developer import make_developer_node
-
-        cfg = _CaptureConfig()
-        node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
-
-        agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(
-            return_value={"messages": [self._BrokenMsg()]}
-        )
-
-        with _patch_persona(), \
-             patch("deepagents.create_deep_agent", return_value=agent_mock), \
-             patch("deepagents.backends.LocalShellBackend", return_value=MagicMock()), \
-             patch(
-                 "src.nodes.write_dialogue",
-                 side_effect=PermissionError("disk full"),
-             ), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Partial"):
-            result = await node_fn(base_state(current_wp_id="WP-001"))
-
-        # Stage must still return stage_success=False (original error preserved).
-        assert result["stage_success"] is False
-        # No dialogue_captured entry because write_dialogue raised.
-        dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear when write_dialogue raises on error path"
-        )
 
     async def test_no_dialogue_when_capture_flag_false(self):
         """Error-path dialogue capture must respect capture_dialogues=False."""
         result = await self._invoke_with_post_ainvoke_error(capture=False)
-
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear when capture_dialogues=False"
-        )
+        assert not dc_entries, "dialogue_captured must not appear when capture_dialogues=False"
 
     async def test_no_dialogue_when_wp_id_empty(self):
         """Error-path dialogue capture must not fire when wp_id is empty."""
         result = await self._invoke_with_post_ainvoke_error(wp_id="")
-
         dc_entries = [e for e in result["run_log"] if e.get("action") == "dialogue_captured"]
-        assert not dc_entries, (
-            "dialogue_captured must not appear when wp_id is empty"
-        )
+        assert not dc_entries, "dialogue_captured must not appear when wp_id is empty"
 
 
 # ---------------------------------------------------------------------------
@@ -4602,28 +5370,43 @@ class TestErrorPathDialogueCapture:
 
 class TestSlugDerivation:
     """create_stage_node must use Path(project_path_obj).name to derive the slug,
-    which handles trailing-slash paths and pathlib.Path-typed inputs correctly."""
+    which handles trailing-slash paths and pathlib.Path-typed inputs correctly.
+
+    Slug derivation is verified via the ChunkWriter constructor args, since
+    Markdown dialogue render was removed and ChunkWriter is the only consumer
+    of slug_dir in the node's success path.
+    """
 
     async def _invoke_and_capture_slug_dir(self, project_path: Any) -> list[Path]:
         """Invoke developer node with the given project_path; return every
-        slug_dir passed to write_dialogue."""
+        slug_dir passed to ChunkWriter."""
         from src.nodes.developer import make_developer_node
 
         captured_slug_dirs: list[Path] = []
 
-        # write_dialogue(content, slug_dir, wp_id, stage) — positional signature.
-        def _fake_write_dialogue(
-            content: str, slug_dir: Path, wp_id: str, stage: str
-        ) -> Path:
+        _original_init = ChunkWriter.__init__
+
+        def _tracking_init(self_cw, slug_dir, wp_id, stage):
             captured_slug_dirs.append(slug_dir)
-            return slug_dir / f"{wp_id}-{stage}-r0.md"
+            # Call the mock's path property setup
+            self_cw._path = Path("/tmp") / f"{wp_id}-{stage}-r0.jsonl"
+            self_cw._closed = False
+            self_cw._fh = None
+
+        mock_cw = MagicMock(spec=ChunkWriter)
+        mock_cw.path = Path("/tmp/WP-001-developer-r0.jsonl")
+
+        def _fake_chunk_writer(slug_dir, wp_id, stage):
+            captured_slug_dirs.append(slug_dir)
+            m = MagicMock()
+            m.path = Path("/tmp") / f"{wp_id}-{stage}-r0.jsonl"
+            return m
 
         cfg = _CaptureConfig()
         node_fn = make_developer_node(cfg, FAKE_TOOLS)  # type: ignore[arg-type]
         create_p, backend_p = _patch_deep_agent()
         with _patch_persona(), create_p, backend_p, \
-             patch("src.nodes.write_dialogue", side_effect=_fake_write_dialogue), \
-             patch("src.nodes.serialize_messages_to_markdown", return_value="# Dialogue"):
+             patch("src.nodes.ChunkWriter", side_effect=_fake_chunk_writer):
             await node_fn(base_state(project_path=project_path, current_wp_id="WP-001"))
 
         return captured_slug_dirs
@@ -4633,7 +5416,7 @@ class TestSlugDerivation:
         slug_dirs = await self._invoke_and_capture_slug_dir(
             "/some/ledger/root/2026-03-20-my-project/"
         )
-        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        assert slug_dirs, "ChunkWriter was not called (capture_dialogues must be True)"
         # slug_dir is workspace_root / "mcp-server" / "storage" / "ledger" / slug
         # — the last component must be the project slug, not an empty string.
         assert slug_dirs[0].name == "2026-03-20-my-project", (
@@ -4645,7 +5428,7 @@ class TestSlugDerivation:
         slug_dirs = await self._invoke_and_capture_slug_dir(
             Path("/some/ledger/root/2026-03-20-my-project")
         )
-        assert slug_dirs, "write_dialogue was not called (capture_dialogues must be True)"
+        assert slug_dirs, "ChunkWriter was not called (capture_dialogues must be True)"
         assert slug_dirs[0].name == "2026-03-20-my-project", (
             f"Expected slug '2026-03-20-my-project', got '{slug_dirs[0].name}'"
         )
@@ -4924,7 +5707,7 @@ class TestPipelineRollback:
 
         # Fake agent: calls ledger_begin_work (to trigger the tracker),
         # then raises RuntimeError to exercise the rollback path.
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             # Call begin_work via the tool reference which, after node_fn runs
             # inject_project_path + restrict_to_wp + _install_begin_work_tracker,
             # points to the tracker-wrapped ainvoke.
@@ -4932,9 +5715,11 @@ class TestPipelineRollback:
                 {"type": "implementation", "work_package_id": "WP-001"}
             )
             raise RuntimeError("Simulated agent crash after begin_work")
+            # unreachable — satisfies async generator requirement
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -4966,11 +5751,12 @@ class TestPipelineRollback:
         tools = [begin_work_tool, cancel_tool]
 
         # Fake agent: crashes immediately without calling begin_work.
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             raise RuntimeError("Simulated crash without begin_work")
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -4995,14 +5781,15 @@ class TestPipelineRollback:
         cancel_tool = self._RecordingTool("ledger_cancel_pipeline")
         tools = [begin_work_tool, cancel_tool]
 
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             await begin_work_tool.ainvoke(
                 {"type": "implementation", "work_package_id": "WP-001"}
             )
             raise RuntimeError("crash")
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -5034,14 +5821,15 @@ class TestPipelineRollback:
         )
         tools = [begin_work_tool, cancel_tool]
 
-        async def _fake_agent_ainvoke(inputs: dict) -> dict:  # noqa: ARG001
+        async def _fake_agent_astream(inputs, *args, **kwargs):
             await begin_work_tool.ainvoke(
                 {"type": "implementation", "work_package_id": "WP-001"}
             )
             raise RuntimeError("Original agent crash")
+            yield  # makes this an async generator
 
         agent_mock = MagicMock()
-        agent_mock.ainvoke = AsyncMock(side_effect=_fake_agent_ainvoke)
+        agent_mock.astream = _fake_agent_astream
 
         node_fn = create_stage_node(
             stage="developer",
@@ -6774,6 +7562,86 @@ class TestNodeModuleImports:
         )
 
 ```
+###  Path: `/orchestrator/tests/test_revision.py`
+
+```py
+"""
+test_revision.py — Unit tests for orchestrator/src/utils/_revision.py.
+
+All filesystem operations use pytest's ``tmp_path`` fixture for
+platform-agnostic temp directories.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from src.utils._revision import next_revision
+
+
+class TestNextRevisionEmpty:
+    """next_revision returns 0 when no matching files exist."""
+
+    def test_empty_directory(self, tmp_path: Path) -> None:
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+    def test_empty_directory_md(self, tmp_path: Path) -> None:
+        assert next_revision(tmp_path, "WP-001", "developer", ".md") == 0
+
+    def test_non_matching_files_ignored(self, tmp_path: Path) -> None:
+        (tmp_path / "WP-002-developer-r0.jsonl").write_text("{}\n")
+        (tmp_path / "WP-001-qa-r0.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+
+class TestNextRevisionIncrement:
+    """next_revision returns max(existing) + 1."""
+
+    def test_single_existing_file(self, tmp_path: Path) -> None:
+        (tmp_path / "WP-001-developer-r0.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 1
+
+    def test_two_existing_files(self, tmp_path: Path) -> None:
+        (tmp_path / "WP-001-developer-r0.jsonl").write_text("{}\n")
+        (tmp_path / "WP-001-developer-r1.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 2
+
+    def test_gap_in_revisions(self, tmp_path: Path) -> None:
+        """If existing files are r0 and r3, next revision should be r4."""
+        (tmp_path / "WP-001-developer-r0.jsonl").write_text("{}\n")
+        (tmp_path / "WP-001-developer-r3.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 4
+
+    def test_md_extension(self, tmp_path: Path) -> None:
+        (tmp_path / "WP-001-developer-r0.md").write_text("# Dialogue\n")
+        (tmp_path / "WP-001-developer-r1.md").write_text("# Dialogue\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".md") == 2
+
+
+class TestNextRevisionEdgeCases:
+    """Edge cases: malformed filenames, mixed extensions."""
+
+    def test_malformed_filename_ignored(self, tmp_path: Path) -> None:
+        """Files that match the glob but have non-integer revision are ignored."""
+        (tmp_path / "WP-001-developer-rfoo.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+    def test_only_matching_extension_counted(self, tmp_path: Path) -> None:
+        """Files with a different extension are not counted."""
+        (tmp_path / "WP-001-developer-r5.md").write_text("# Dialogue\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+    def test_different_wp_id_not_counted(self, tmp_path: Path) -> None:
+        (tmp_path / "WP-999-developer-r10.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+    def test_different_stage_not_counted(self, tmp_path: Path) -> None:
+        (tmp_path / "WP-001-qa-r10.jsonl").write_text("{}\n")
+        assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+```
 ###  Path: `/orchestrator/tests/test_state.py`
 
 ```py
@@ -6885,6 +7753,599 @@ class TestStateGraphIntegration:
         # This is the primary acceptance criterion: no exception raised.
         graph = StateGraph(WorkflowState)
         assert graph is not None
+
+```
+###  Path: `/orchestrator/tests/test_streaming_capture.py`
+
+```py
+"""
+test_streaming_capture.py — Integration tests for the astream() + ChunkWriter
+integration added in WP-002.
+
+These tests verify:
+1. After a stage completes, a JSONL chunk file exists in
+   {slug_dir}/orchestrator/chunks/ containing one JSON line per stream chunk.
+2. final_content, tokens_used, and _msgs derived from the accumulated
+   AIMessageChunk stream match the expected values.
+3. Markdown dialogue render was removed — no serialize/write_dialogue calls.
+4. A dialogue_captured JSONL event with format="chunks" is emitted.
+5. ChunkWriter is always closed (via try/finally) even when the stream raises.
+
+No real LLM or MCP calls are made.  All agent interactions are mocked.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+from langchain_core.messages import AIMessageChunk
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+# _StreamCaptureConfig and _NoCaptureConfig are defined in conftest.py;
+# imported explicitly below due to this directory being a Python package.
+from tests.conftest import _NoCaptureConfig, _StreamCaptureConfig  # noqa: F401
+
+
+def _base_state(
+    project_path: str = "/some/ledger/root/2026-04-10-streaming-test",
+    current_wp_id: str = "WP-001",
+) -> dict:
+    return {
+        "project_path": project_path,
+        "plan_file": "plan.md",
+        "target_project_path": "/target",
+        "current_stage": "",
+        "current_wp_id": current_wp_id,
+        "iteration": 1,
+        "max_iterations": 10,
+        "stage_result": "",
+        "stage_success": True,
+        "project_status": "",
+        "wp_summaries": [],
+        "pending_wp_count": 0,
+        "run_log": [],
+        "errors": [],
+    }
+
+
+def _patch_persona():
+    return patch("src.utils.persona.load_persona", return_value="Test persona")
+
+
+def _patch_backend():
+    return patch("deepagents.backends.LocalShellBackend", return_value=MagicMock())
+
+
+def _make_stream_agent(chunks: list[tuple]) -> MagicMock:
+    """Return a mock agent whose astream() yields the provided (ns, (msg, meta)) items."""
+
+    async def _astream(inputs, *args, **kwargs):
+        for item in chunks:
+            yield item
+
+    agent = MagicMock()
+    agent.astream = _astream
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# Tests: JSONL chunk file creation
+# ---------------------------------------------------------------------------
+
+
+class TestChunkFileCreation:
+    """AC1: chunk file created in {slug_dir}/orchestrator/chunks/ with one
+    JSON line per stream chunk."""
+
+    async def test_chunk_file_created_after_stage(self, tmp_path: Path) -> None:
+        """A JSONL chunk file must exist after the stage completes."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="Hello", id="msg-1")
+        agent = _make_stream_agent([
+            ((), (chunk, {"langgraph_node": "agent"})),
+        ])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state(
+                project_path="/some/ledger/root/2026-04-10-streaming-test",
+                current_wp_id="WP-001",
+            ))
+
+        assert result["stage_success"] is True
+        # slug = Path(project_path).name
+        slug = "2026-04-10-streaming-test"
+        chunks_dir = (
+            tmp_path / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "chunks"
+        )
+        assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
+        jsonl_files = list(chunks_dir.glob("WP-001-developer-r*.jsonl"))
+        assert jsonl_files, f"No chunk JSONL file found in {chunks_dir}"
+
+    async def test_chunk_file_name_format(self, tmp_path: Path) -> None:
+        """Chunk file must follow {wp_id}-{stage}-r{N}.jsonl naming."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="chunk", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            await node_fn(_base_state(current_wp_id="WP-007"))
+
+        slug = "2026-04-10-streaming-test"
+        chunks_dir = (
+            tmp_path / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "chunks"
+        )
+        jsonl_files = list(chunks_dir.glob("*.jsonl"))
+        assert jsonl_files
+        name = jsonl_files[0].name
+        assert name.startswith("WP-007-developer-r"), f"Unexpected name: {name}"
+        assert name.endswith(".jsonl")
+
+    async def test_chunk_file_contains_header_and_chunks(self, tmp_path: Path) -> None:
+        """Chunk JSONL file must start with the version header followed by one
+        JSON line per stream chunk."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunk_a = AIMessageChunk(content="Hello", id="msg-1")
+        chunk_b = AIMessageChunk(content=" world", id="msg-1")
+        agent = _make_stream_agent([
+            ((), (chunk_a, {"langgraph_node": "agent"})),
+            ((), (chunk_b, {"langgraph_node": "agent"})),
+        ])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            await node_fn(_base_state(current_wp_id="WP-001"))
+
+        slug = "2026-04-10-streaming-test"
+        chunks_dir = (
+            tmp_path / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "chunks"
+        )
+        jsonl_file = next(chunks_dir.glob("WP-001-developer-r*.jsonl"))
+        lines = [json.loads(ln) for ln in jsonl_file.read_text().splitlines() if ln]
+
+        # Line 0 is the header
+        assert lines[0].get("chunk_format") == 1
+        assert lines[0].get("stream_mode") == "messages"
+        # Lines 1 and 2 are the chunk records (one per stream item)
+        assert len(lines) == 3, f"Expected 3 lines (header + 2 chunks), got {len(lines)}"
+        for line in lines[1:]:
+            assert "ns" in line
+            assert "msg" in line
+
+    async def test_no_chunk_file_when_capture_false(self, tmp_path: Path) -> None:
+        """When capture_dialogues=False, no chunk file must be written."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="text", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state(current_wp_id="WP-001"))
+
+        assert result["stage_success"] is True
+        # No chunks directory must exist under the NoCaptureConfig workspace.
+        chunks_dir = cfg.workspace_root / "mcp-server" / "storage" / "ledger"
+        assert not chunks_dir.exists() or not list(chunks_dir.rglob("*.jsonl"))
+
+    async def test_no_chunk_file_when_wp_id_empty(self, tmp_path: Path) -> None:
+        """When wp_id is empty (synthesis), no chunk file must be written."""
+        from src.nodes.synthesis import make_synthesis_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_synthesis_node(cfg, [])
+
+        chunk = AIMessageChunk(content="synthesis done", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state(current_wp_id=""))
+
+        assert result["stage_success"] is True
+        chunks_dir = tmp_path / "mcp-server" / "storage"
+        # No JSONL file under the tmp workspace
+        jsonl_files = list(chunks_dir.rglob("*.jsonl")) if chunks_dir.exists() else []
+        assert not jsonl_files, f"Unexpected chunk files: {jsonl_files}"
+
+
+# ---------------------------------------------------------------------------
+# Tests: AIMessageChunk accumulation — final_content, tokens_used, _msgs
+# ---------------------------------------------------------------------------
+
+
+class TestStreamAccumulation:
+    """AC2: final_content, tokens_used, and _msgs match expected values derived
+    from accumulated stream chunks."""
+
+    async def test_final_content_from_single_chunk(self, tmp_path: Path) -> None:
+        """final_content must equal the content of a single AIMessageChunk."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="Task complete.", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        assert result["stage_result"] == "Task complete."
+
+    async def test_final_content_from_multiple_chunks_same_id(self, tmp_path: Path) -> None:
+        """Fragments of the same message ID must be merged; final_content equals
+        the concatenated text."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunks = [
+            AIMessageChunk(content="Hello", id="msg-1"),
+            AIMessageChunk(content=" world", id="msg-1"),
+            AIMessageChunk(content="!", id="msg-1"),
+        ]
+        agent = _make_stream_agent([
+            ((), (c, {"langgraph_node": "agent"})) for c in chunks
+        ])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        assert result["stage_result"] == "Hello world!"
+
+    async def test_tokens_used_accumulated_from_usage_metadata(self, tmp_path: Path) -> None:
+        """tokens_used must reflect the merged usage_metadata from accumulated chunks."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        # First chunk carries input token count; last carries output count.
+        chunk1 = AIMessageChunk(
+            content="Answer",
+            id="msg-1",
+            usage_metadata={"input_tokens": 50, "output_tokens": 1, "total_tokens": 51},
+        )
+        chunk2 = AIMessageChunk(
+            content=" text",
+            id="msg-1",
+            usage_metadata={"input_tokens": 0, "output_tokens": 1, "total_tokens": 1},
+        )
+        agent = _make_stream_agent([
+            ((), (chunk1, {})),
+            ((), (chunk2, {})),
+        ])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        # Find stage_complete entry and check tokens_used
+        complete_entries = [e for e in result["run_log"] if e.get("action") == "stage_complete"]
+        assert complete_entries
+        tokens = complete_entries[0].get("tokens_used")
+        assert tokens is not None, "tokens_used must be present in stage_complete"
+        assert tokens.get("input_tokens") == 50
+        assert tokens.get("output_tokens") == 2
+
+    async def test_multiple_distinct_message_ids_ordered_correctly(self, tmp_path: Path) -> None:
+        """When two message IDs appear in the stream, _msgs must contain two
+        accumulated entries in order.  stage_result reflects the last message."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        # msg-1 interleaved with msg-2
+        items = [
+            ((), (AIMessageChunk(content="Msg1-part1", id="msg-1"), {})),
+            ((), (AIMessageChunk(content="Msg2-part1", id="msg-2"), {})),
+            ((), (AIMessageChunk(content="-part2", id="msg-1"), {})),
+            ((), (AIMessageChunk(content="-part2", id="msg-2"), {})),
+        ]
+        agent = _make_stream_agent(items)
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        # stage_result is content of the last message in stream order
+        assert result["stage_result"] == "Msg2-part1-part2"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Markdown dialogue removal verification
+# ---------------------------------------------------------------------------
+
+
+class TestNoMarkdownDialogue:
+    """AC3: Markdown dialogue render was removed — verify no
+    serialize_messages_to_markdown or write_dialogue calls occur."""
+
+    async def test_no_markdown_dialogue_on_success(self, tmp_path: Path) -> None:
+        """No Markdown dialogue capture must occur on the success path."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="done", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        assert result["stage_success"] is True
+        # No dialogue_captured event with format="markdown" must exist
+        md_events = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("format") == "markdown"
+        ]
+        assert not md_events, "No Markdown dialogue events expected after removal"
+
+
+# ---------------------------------------------------------------------------
+# Tests: dialogue_captured event with format="chunks"
+# ---------------------------------------------------------------------------
+
+
+class TestDialogueCapturedChunkEvent:
+    """AC4: dialogue_captured event with format='chunks' must be emitted
+    for the chunk file when capture_dialogues=True."""
+
+    async def test_chunk_event_emitted_in_run_log(self, tmp_path: Path) -> None:
+        """A dialogue_captured entry with format='chunks' must appear in run_log."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="done", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        chunk_events = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured" and e.get("format") == "chunks"
+        ]
+        assert chunk_events, "dialogue_captured with format='chunks' must appear in run_log"
+        event = chunk_events[0]
+        assert event.get("wp_id") == "WP-001"
+        assert event.get("stage") == "developer"
+        assert event.get("level") == "INFO"
+        assert event.get("file_path"), "file_path must be non-empty"
+        assert ".jsonl" in event["file_path"], "chunk file_path must end in .jsonl"
+
+    async def test_chunk_event_not_emitted_when_capture_false(self) -> None:
+        """No dialogue_captured event emitted when capture_dialogues=False."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="done", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        chunk_events = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured"
+        ]
+        assert not chunk_events, "No dialogue_captured events when capture=False"
+
+    async def test_chunk_event_not_emitted_when_wp_id_empty(self, tmp_path: Path) -> None:
+        """No dialogue_captured event emitted when wp_id is empty."""
+        from src.nodes.synthesis import make_synthesis_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_synthesis_node(cfg, [])
+
+        chunk = AIMessageChunk(content="synthesis", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state(current_wp_id=""))
+
+        chunk_events = [
+            e for e in result["run_log"]
+            if e.get("action") == "dialogue_captured"
+        ]
+        assert not chunk_events, "No dialogue_captured events when wp_id is empty"
+
+
+# ---------------------------------------------------------------------------
+# Tests: ChunkWriter always closed via try/finally
+# ---------------------------------------------------------------------------
+
+
+class TestChunkWriterAlwaysClosed:
+    """AC7: ChunkWriter.close() must be called even when the stream raises."""
+
+    async def test_chunk_writer_closed_on_stream_error(self, tmp_path: Path) -> None:
+        """ChunkWriter.close() must be called when astream() raises mid-stream."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        close_called: list[bool] = []
+
+        class _TrackingChunkWriter:
+            """ChunkWriter replacement that tracks close() calls."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.path = Path("/tmp/chunk.jsonl")
+
+            def write_chunk(self, chunk: dict) -> None:
+                pass
+
+            def close(self) -> None:
+                close_called.append(True)
+
+        async def _failing_astream(inputs, *args, **kwargs):
+            yield ((), (AIMessageChunk(content="partial", id="msg-1"), {}))
+            raise RuntimeError("Simulated stream failure mid-way")
+
+        agent = MagicMock()
+        agent.astream = _failing_astream
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent), \
+             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+            result = await node_fn(_base_state())
+
+        assert result["stage_success"] is False, "Stage must fail when stream raises"
+        assert close_called, "ChunkWriter.close() must have been called even on stream error"
+
+    async def test_chunk_writer_closed_on_success(self, tmp_path: Path) -> None:
+        """ChunkWriter.close() must be called on the normal success path."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        close_called: list[bool] = []
+
+        class _TrackingChunkWriter:
+            """ChunkWriter replacement that tracks close() calls."""
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.path = Path("/tmp/chunk.jsonl")
+
+            def write_chunk(self, chunk: dict) -> None:
+                pass
+
+            def close(self) -> None:
+                close_called.append(True)
+
+        chunk = AIMessageChunk(content="done", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent), \
+             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+            result = await node_fn(_base_state())
+
+        assert result["stage_success"] is True
+        assert close_called, "ChunkWriter.close() must have been called on success"
+
+    async def test_partial_chunks_written_before_stream_error(self, tmp_path: Path) -> None:
+        """Chunks accumulated before the stream error must have been written
+        to the ChunkWriter before close() is called."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _StreamCaptureConfig(workspace_root=tmp_path)
+        node_fn = make_developer_node(cfg, [])
+
+        written_chunks: list[dict] = []
+        close_called: list[bool] = []
+
+        class _TrackingChunkWriter:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                self.path = Path("/tmp/chunk.jsonl")
+
+            def write_chunk(self, chunk: dict) -> None:
+                written_chunks.append(chunk)
+
+            def close(self) -> None:
+                close_called.append(True)
+
+        async def _failing_stream(inputs, *args, **kwargs):
+            yield ((), (AIMessageChunk(content="partial content", id="msg-1"), {}))
+            raise RuntimeError("Mid-stream failure")
+
+        agent = MagicMock()
+        agent.astream = _failing_stream
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent), \
+             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+            result = await node_fn(_base_state())
+
+        assert result["stage_success"] is False
+        assert close_called, "ChunkWriter.close() must have been called on error path"
+        assert written_chunks, "Partial chunks must have been written before the error"
+
+
+# ---------------------------------------------------------------------------
+# Tests: stream items without ChunkWriter (capture_dialogues=False)
+# ---------------------------------------------------------------------------
+
+
+class TestStreamWithoutCapture:
+    """Verify streaming still works correctly when capture_dialogues=False
+    (no ChunkWriter instantiated)."""
+
+    async def test_stage_succeeds_without_chunk_writer(self) -> None:
+        """Stage must complete normally when capture_dialogues=False."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, [])
+
+        chunk = AIMessageChunk(content="Result text", id="msg-1")
+        agent = _make_stream_agent([((), (chunk, {}))])
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        assert result["stage_success"] is True
+        assert result["stage_result"] == "Result text"
+
+    async def test_empty_stream_returns_empty_content(self) -> None:
+        """An empty stream must yield stage_result='' without errors."""
+        from src.nodes.developer import make_developer_node
+
+        cfg = _NoCaptureConfig()
+        node_fn = make_developer_node(cfg, [])
+
+        async def _empty_astream(inputs, *args, **kwargs):
+            return
+            yield  # makes this an async generator
+
+        agent = MagicMock()
+        agent.astream = _empty_astream
+
+        with _patch_persona(), _patch_backend(), \
+             patch("deepagents.create_deep_agent", return_value=agent):
+            result = await node_fn(_base_state())
+
+        assert result["stage_success"] is True
+        assert result["stage_result"] == ""
 
 ```
 ###  Path: `/orchestrator/tests/test_subagents.py`

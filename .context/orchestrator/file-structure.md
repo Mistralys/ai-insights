@@ -19,6 +19,9 @@ _SOURCE: Directory tree_
         │   │   └── README.md
         │   │   └── api-surface.md
         │   │   └── constraints.md
+        │   │   └── data-flows.md
+        │   │   └── file-tree.md
+        │   │   └── tech-stack.md
         ├── architecture.md
         ├── jsonl-log-schema.md
         ├── public-api.md
@@ -60,6 +63,7 @@ _SOURCE: Directory tree_
         ├── supervisor.py
         ├── utils/
         │   └── __init__.py
+        │   └── chunk_writer.py
         │   └── dialogue_writer.py
         │   └── filelock.py
         │   └── logging.py
@@ -72,6 +76,8 @@ _SOURCE: Directory tree_
         │   └── tool_wrappers.py
     └── tests/
         └── __init__.py
+        └── conftest.py
+        └── test_chunk_writer.py
         └── test_cli.py
         └── test_config.py
         └── test_dialogue_writer.py
@@ -85,7 +91,9 @@ _SOURCE: Directory tree_
         └── test_plan_parser.py
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
+        └── test_revision.py
         └── test_state.py
+        └── test_streaming_capture.py
         └── test_subagents.py
         └── test_subprocess_encoding.py
         └── test_supervisor.py

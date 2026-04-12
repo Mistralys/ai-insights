@@ -14,19 +14,19 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── ctx-architect.yaml
                 └── developer.yaml
                 └── ledger-bootstrapper.yaml
+                └── ledger-claude-coordinator.yaml
                 └── ledger-dependency-sequencer.yaml
+                └── ledger-doctor.yaml
+                └── ledger-orchestrator-runner.yaml
                 └── ledger-pipeline-configurator.yaml
                 └── ledger-wp-decomposer.yaml
                 └── manifest-curator.yaml
                 └── module-intent-architect.yaml
-                └── orchestrator-runner.yaml
                 └── persona-curator.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
                 └── whatsnew-curator.yaml
-                └── workflow-doctor.yaml
-                └── workflow-orchestrator.yaml
 
 ```
 ###  Path: `/personas/standalone/src/meta/_shared.yaml`
@@ -204,6 +204,34 @@ tools:
   - central_pm/*
 
 ```
+###  Path: `/personas/standalone/src/meta/ledger-claude-coordinator.yaml`
+
+```yaml
+slug: ledger-claude-coordinator
+name: "Ledger Claude Coordinator"
+description: "Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent."
+vs_file_name: ledger-claude-coordinator.agent.md
+id: standalone-ledger-claude-coordinator
+cc_file_name: ledger-claude-coordinator.md
+version: "1.0.0"
+last_updated: "2026-03-19"
+mcp_server_name: central_pm
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - agent
+  - mcp
+
+cc_tools:
+  - Task
+  - Read
+  - Grep
+
+```
 ###  Path: `/personas/standalone/src/meta/ledger-dependency-sequencer.yaml`
 
 ```yaml
@@ -219,6 +247,72 @@ last_updated: "2026-04-11"
 tools:
   - read
   - search
+
+```
+###  Path: `/personas/standalone/src/meta/ledger-doctor.yaml`
+
+```yaml
+slug: ledger-doctor
+name: "Ledger Doctor"
+description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix state corruption, unlock stalled pipelines, and resolve technical issues."
+vs_file_name: ledger-doctor.agent.md
+id: standalone-ledger-doctor
+cc_file_name: ledger-doctor.md
+version: "1.0.0"
+last_updated: "2026-03-28"
+mcp_server_name: central_pm
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - mcp
+  - todo
+  - central_pm/*
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Grep
+  - Glob
+  - WebFetch
+  - TodoRead
+  - TodoWrite
+
+```
+###  Path: `/personas/standalone/src/meta/ledger-orchestrator-runner.yaml`
+
+```yaml
+slug: ledger-orchestrator-runner
+name: "Ledger Orchestrator Runner"
+description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document."
+vs_file_name: ledger-orchestrator-runner.agent.md
+id: standalone-ledger-orchestrator-runner
+cc_file_name: ledger-orchestrator-runner.md
+da_file_name: ledger-orchestrator-runner.md
+version: "1.5.1"
+last_updated: "2026-03-26"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - todo
+
+cc_tools:
+  - Bash
+  - Read
+  - Edit
+  - Grep
+  - Task
+  - TodoRead
+  - TodoWrite
 
 ```
 ###  Path: `/personas/standalone/src/meta/ledger-pipeline-configurator.yaml`
@@ -314,36 +408,6 @@ cc_tools:
   - WebSearch
 
 ```
-###  Path: `/personas/standalone/src/meta/orchestrator-runner.yaml`
-
-```yaml
-slug: orchestrator-runner
-name: "Orchestrator Runner"
-description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document."
-vs_file_name: orchestrator-runner.agent.md
-id: standalone-orchestrator-runner
-cc_file_name: orchestrator-runner.md
-version: "1.5.1"
-last_updated: "2026-03-26"
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - todo
-
-cc_tools:
-  - Bash
-  - Read
-  - Edit
-  - Grep
-  - Task
-  - TodoRead
-  - TodoWrite
-
-```
 ###  Path: `/personas/standalone/src/meta/persona-curator.yaml`
 
 ```yaml
@@ -376,8 +440,8 @@ description: "Produces a human‑optimized README.md that follows a landing‑pa
 vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
-version: "1.2.2"
-last_updated: "2026-03-04"
+version: "1.3.0"
+last_updated: "2026-04-12"
 
 tools:
   - vscode
@@ -456,68 +520,5 @@ tools:
   - search
   - agent
   - todo
-
-```
-###  Path: `/personas/standalone/src/meta/workflow-doctor.yaml`
-
-```yaml
-slug: workflow-doctor
-name: "Workflow Doctor"
-description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix state corruption, unlock stalled pipelines, and resolve technical issues."
-vs_file_name: workflow-doctor.agent.md
-id: standalone-workflow-doctor
-cc_file_name: workflow-doctor.md
-version: "1.0.0"
-last_updated: "2026-03-28"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - web
-  - mcp
-  - todo
-  - central_pm/*
-
-cc_tools:
-  - Bash
-  - Read
-  - Edit
-  - Grep
-  - Glob
-  - WebFetch
-  - TodoRead
-  - TodoWrite
-
-```
-###  Path: `/personas/standalone/src/meta/workflow-orchestrator.yaml`
-
-```yaml
-slug: workflow-orchestrator
-name: "Workflow Orchestrator"
-description: "Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent."
-vs_file_name: workflow-orchestrator.agent.md
-id: standalone-workflow-orchestrator
-cc_file_name: workflow-orchestrator.md
-version: "1.0.0"
-last_updated: "2026-03-19"
-mcp_server_name: central_pm
-
-tools:
-  - vscode
-  - execute
-  - read
-  - edit
-  - search
-  - agent
-  - mcp
-
-cc_tools:
-  - Task
-  - Read
-  - Grep
 
 ```

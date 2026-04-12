@@ -129,47 +129,41 @@ _SOURCE: Directory tree_
             ├── changelog-curator.md
             ├── composer-curator.md
             ├── ctx-architect.md
-            ├── dependency-sequencer.md
             ├── developer-standalone.md
             ├── ledger-bootstrapper.md
+            ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
+            ├── ledger-doctor.md
+            ├── ledger-orchestrator-runner.md
             ├── ledger-pipeline-configurator.md
             ├── ledger-wp-decomposer.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
-            ├── orchestrator-runner.md
             ├── persona-curator.md
-            ├── pipeline-configurator.md
             ├── readme-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
-            ├── workflow-doctor.md
-            ├── workflow-orchestrator.md
-            ├── wp-decomposer.md
         └── deep-agents/
             ├── agents-md-curator.md
             ├── changelog-curator.md
             ├── composer-curator.md
             ├── ctx-architect.md
-            ├── dependency-sequencer.md
             ├── developer.md
             ├── ledger-bootstrapper.md
+            ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
+            ├── ledger-doctor.md
+            ├── ledger-orchestrator-runner.md
             ├── ledger-pipeline-configurator.md
             ├── ledger-wp-decomposer.md
             ├── manifest-curator.md
             ├── module-intent-architect.md
-            ├── orchestrator-runner.md
             ├── persona-curator.md
-            ├── pipeline-configurator.md
             ├── readme-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
             ├── whatsnew-curator.md
-            ├── workflow-doctor.md
-            ├── workflow-orchestrator.md
-            ├── wp-decomposer.md
         └── src/
             ├── content/
             │   ├── agents-md-curator.md
@@ -178,19 +172,19 @@ _SOURCE: Directory tree_
             │   ├── ctx-architect.md
             │   ├── developer.md
             │   ├── ledger-bootstrapper.md
+            │   ├── ledger-claude-coordinator.md
             │   ├── ledger-dependency-sequencer.md
+            │   ├── ledger-doctor.md
+            │   ├── ledger-orchestrator-runner.md
             │   ├── ledger-pipeline-configurator.md
             │   ├── ledger-wp-decomposer.md
             │   ├── manifest-curator.md
             │   ├── module-intent-architect.md
-            │   ├── orchestrator-runner.md
             │   ├── persona-curator.md
             │   ├── readme-curator.md
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
             │   ├── whatsnew-curator.md
-            │   ├── workflow-doctor.md
-            │   ├── workflow-orchestrator.md
             ├── meta/
             │   └── _shared.yaml
             │   └── agents-md-curator.yaml
@@ -199,41 +193,38 @@ _SOURCE: Directory tree_
             │   └── ctx-architect.yaml
             │   └── developer.yaml
             │   └── ledger-bootstrapper.yaml
+            │   └── ledger-claude-coordinator.yaml
             │   └── ledger-dependency-sequencer.yaml
+            │   └── ledger-doctor.yaml
+            │   └── ledger-orchestrator-runner.yaml
             │   └── ledger-pipeline-configurator.yaml
             │   └── ledger-wp-decomposer.yaml
             │   └── manifest-curator.yaml
             │   └── module-intent-architect.yaml
-            │   └── orchestrator-runner.yaml
             │   └── persona-curator.yaml
             │   └── readme-curator.yaml
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
             │   └── whatsnew-curator.yaml
-            │   └── workflow-doctor.yaml
-            │   └── workflow-orchestrator.yaml
         └── vs-code/
             └── agents-md-curator.agent.md
             └── changelog-curator.agent.md
             └── composer-curator.agent.md
             └── ctx-architect.agent.md
-            └── dependency-sequencer.agent.md
             └── developer-standalone.agent.md
             └── ledger-bootstrapper.agent.md
+            └── ledger-claude-coordinator.agent.md
             └── ledger-dependency-sequencer.agent.md
+            └── ledger-doctor.agent.md
+            └── ledger-orchestrator-runner.agent.md
             └── ledger-pipeline-configurator.agent.md
             └── ledger-wp-decomposer.agent.md
             └── manifest-curator.agent.md
             └── module-intent-architect.agent.md
-            └── orchestrator-runner.agent.md
             └── persona-curator.agent.md
-            └── pipeline-configurator.agent.md
             └── readme-curator.agent.md
             └── researcher.agent.md
             └── unit-test-auditor.agent.md
             └── whatsnew-curator.agent.md
-            └── workflow-doctor.agent.md
-            └── workflow-orchestrator.agent.md
-            └── wp-decomposer.agent.md
 
 ```
