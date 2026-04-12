@@ -1,5 +1,15 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.24.0 - Streaming Chunks & Stage-Scoped Handoffs
+- GUI: Added chunk file browser and JSONL-to-Markdown renderer
+  for streaming dialogue capture.
+- Handoff: Stage-scoped WP filtering via `scopeToStage()` helper.
+- Handoff: Unassigned READY WPs now route to the first-active-stage
+  agent instead of defaulting to Developer.
+- Constants: Added `CHUNKS_DIR` for streaming chunk storage path.
+- Specification: Expanded handoff and edge-case documentation.
+- Tests: Added chunk-renderer, dialogue QA, and auto-handoff tests.
+
 ## v1.23.1 - Workflow fixes
 - Handoff: Fixed auto-handoff failures in some stages.
 - Specification: Fixed a couple of small gaps in the spec.

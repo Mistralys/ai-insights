@@ -1,5 +1,23 @@
 # Personas Changelog
 
+## v3.15.0 - Standalone Persona Overhaul
+- Standalone: Renamed 6 ledger-related personas with `ledger-` prefix.
+- Standalone: Added Persona Curator, Ledger Claude Coordinator,
+  and Ledger WP Decomposer personas.
+- Standalone: Removed legacy Workflow Orchestrator and WP Decomposer.
+- Standalone: Audited and improved all existing personas.
+- Standalone: Restructured PM subagents and updated roster partial.
+- Ledger: Brought subagents up to spec.
+- Ledger: Improved Project Manager and Synthesis persona content.
+- Build: Output directories pre-cleaned before each build.
+- Docs: Improved persona design guide; fixed guide contradiction.
+
+## v3.14.1 - Build Pre-Clean
+
+- Build: Output directories are now cleaned before each build, removing
+  stale files from renamed or deleted personas.
+- Build: Pre-clean is skipped in `--check` / `--dry-run` mode.
+
 ## v3.14.0 - Deep-Agents, Elseif & Name Mapping
 
 - Build: Added `deep-agents` as a third persona output target; 81 files built across

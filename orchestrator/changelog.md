@@ -1,5 +1,13 @@
 # Orchestrator Changelog
 
+## v0.15.0 - Streaming Capture & Signal Handling
+- Nodes: Real-time chunk capture via `ChunkWriter` during `astream()`.
+- CLI: Graceful shutdown on SIGTERM/SIGINT with `signal_shutdown` event.
+- CLI: Cross-platform signal handler (Unix event-loop, Windows fallback).
+- Config: Fixed incorrect agent name in stage configuration.
+- Tests: Added streaming capture, chunk writer, and revision tests.
+- Docs: Updated project manifest, public API, and README.
+
 ## v0.14.0 - Streaming Dialogue Capture
 - Utils: Added chunk writer for raw stream capture to JSONL files.
 - ChunkWriter: Versioned headers, immediate-flush writes, revision numbering.

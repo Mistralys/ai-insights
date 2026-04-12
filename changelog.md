@@ -1,5 +1,18 @@
 # AI Insights Changelog
 
+## v1.16.0 - Streaming Dialogue Capture
+> mcp v1.24.0 · orchestrator v0.15.0 · personas v3.15.0
+
+- Orchestrator: Real-time streaming chunk capture during agent runs.
+- Orchestrator: Graceful shutdown on SIGTERM/SIGINT (cross-platform).
+- MCP: GUI chunk browser renders captured dialogue as Markdown.
+- MCP: Stage-scoped handoff routing replaces global WP filtering.
+- Personas: Overhauled standalone suite with `ledger-` prefix naming.
+- Personas: Added Persona Curator, Claude Coordinator, and
+  WP Decomposer personas.
+- Scripts: Added `clean-agents` CLI command for persona file cleanup.
+- Scripts: Extracted shared publish-locations module.
+
 ## v1.15.0 - Deep-Agents Pipeline & Agent Name Resolution
 > mcp v1.23.0 · orchestrator v0.13.0 · personas v3.14.0
 
