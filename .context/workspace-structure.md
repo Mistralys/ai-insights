@@ -26,10 +26,7 @@ _SOURCE: Top-level directory tree_
     │       ├── agent-name-map.md
     │       ├── parallelization.md
     │   └── references/
-    │       ├── langgraph-deep-agents-subagent-handbook.md
-    │   └── research/
-    │       └── 2026-04-11-persona-design-guide-audit.md
-    │       └── 2026-04-11-persona-workflow-compliance-audit.md
+    │       └── langgraph-deep-agents-subagent-handbook.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
