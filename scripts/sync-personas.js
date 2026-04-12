@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
+const { getVSCodePromptsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } = require('./publish-locations');
 
 // Role names are loaded from the shared workflow manifest — the single source
 // of truth for all agent roles across the workspace.
@@ -33,42 +34,6 @@ const colors = {
   red: '\x1b[31m',
   cyan: '\x1b[36m',
 };
-
-/**
- * Determine the VS Code User prompts directory based on the platform
- */
-function getVSCodePromptsDir() {
-  const platform = os.platform();
-  const homeDir = os.homedir();
-
-  switch (platform) {
-    case 'win32':
-      return path.join(process.env.APPDATA || path.join(homeDir, 'AppData', 'Roaming'), 'Code', 'User', 'prompts');
-    case 'darwin':
-      return path.join(homeDir, 'Library', 'Application Support', 'Code', 'User', 'prompts');
-    case 'linux':
-      return path.join(homeDir, '.config', 'Code', 'User', 'prompts');
-    default:
-      throw new Error(`Unsupported platform: ${platform}`);
-  }
-}
-
-/**
- * Determine the Claude Code agents directory based on the platform.
- * Creates the directory if it does not exist.
- * @returns {string} - Path to ~/.claude/agents/
- */
-function getClaudeCodeAgentsDir() {
-  return path.join(os.homedir(), '.claude', 'agents');
-}
-
-/**
- * Determine the Claude Code global skills directory.
- * @returns {string} - Path to ~/.claude/skills/
- */
-function getClaudeCodeSkillsDir() {
-  return path.join(os.homedir(), '.claude', 'skills');
-}
 
 /**
  * Extract the VS File Name from a persona file's YAML frontmatter (vs_file_name field).

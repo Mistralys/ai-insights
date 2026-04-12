@@ -20,6 +20,29 @@ const CLI      = path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-buil
 const CHECK  = process.argv.includes('--check') || process.argv.includes('--dry-run');
 const STRICT = process.argv.includes('--strict');
 
+// Pre-build: clean output directories so stale/renamed files don't linger.
+// Skipped in --check / --dry-run mode (read-only).
+if (!CHECK) {
+  const config = require(CONFIG);
+  const outputDirs = [];
+  for (const suite of Object.values(config.suites)) {
+    if (suite.outVscode)     outputDirs.push(suite.outVscode);
+    if (suite.outClaudeCode) outputDirs.push(suite.outClaudeCode);
+    if (suite.outputDirs) {
+      for (const dir of Object.values(suite.outputDirs)) {
+        outputDirs.push(dir);
+      }
+    }
+  }
+  for (const dir of outputDirs) {
+    if (!fs.existsSync(dir)) continue;
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      fs.unlinkSync(path.join(dir, file));
+    }
+  }
+}
+
 // Delegate build to the library CLI
 const cliArgs = ['--config', CONFIG];
 if (CHECK)  cliArgs.push('--check');

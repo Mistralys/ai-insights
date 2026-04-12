@@ -24,6 +24,7 @@ const path     = require('path');
 const fs       = require('fs');
 const readline = require('readline');
 const { spawnSync, spawn } = require('child_process');
+const { getPublishLocations } = require('./publish-locations');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -421,6 +422,138 @@ const SETUP_COMPONENTS = [
 // ─── Delegating command functions ─────────────────────────────────────────────
 
 function cmdSyncPersonas(args)    { runScript('sync-personas.js', args); }
+
+/**
+ * Clean persona files from all publish locations (VS Code, Claude Code agents,
+ * Claude Code skills). Lists files per target and deletes after confirmation.
+ * Supports --force to skip the confirmation prompt.
+ */
+async function cmdCleanAgents(args) {
+  const force = args.includes('--force');
+
+  const allTargets = getPublishLocations();
+
+  // Collect files per target
+  for (const target of allTargets) {
+    if (fs.existsSync(target.dir)) {
+      target.files = fs.readdirSync(target.dir).filter(target.filter);
+    } else {
+      target.files = [];
+    }
+  }
+
+  const nonEmpty = allTargets.filter(t => t.files.length > 0);
+
+  if (nonEmpty.length === 0) {
+    log('\n  No persona files found in any publish location.', 'green');
+    for (const target of allTargets) {
+      log(C.dim(`    ${target.label}: ${target.dir}`));
+    }
+    return;
+  }
+
+  // ── Location selection (interactive only) ───────────────────────────────
+  let targets;
+  if (force) {
+    targets = nonEmpty;
+  } else {
+    console.log('');
+    log('  Select locations to clean:\n');
+    for (let i = 0; i < allTargets.length; i++) {
+      const t = allTargets[i];
+      const num = C.bold(`  [${i + 1}]`);
+      if (t.files.length === 0) {
+        log(`${num} ${C.dim(t.label + ' (empty)')}`);
+      } else {
+        log(`${num} ${t.label} ${C.dim(`(${t.files.length} file${t.files.length === 1 ? '' : 's'})`)}`);
+      }
+    }
+    log(C.dim(`\n  Enter numbers separated by commas, or ${C.bold('a')} for all.`));
+
+    const answer = await askCleanInput('  Selection: ');
+    const trimmed = answer.trim().toLowerCase();
+
+    if (!trimmed) {
+      log(C.dim('  Cancelled — no files deleted.'));
+      return;
+    }
+
+    if (trimmed === 'a') {
+      targets = nonEmpty;
+    } else {
+      const indices = trimmed.split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(n => !isNaN(n) && n >= 1 && n <= allTargets.length);
+
+      if (indices.length === 0) {
+        log('  Invalid selection — no files deleted.', 'red');
+        return;
+      }
+
+      targets = indices
+        .map(i => allTargets[i - 1])
+        .filter(t => t.files.length > 0);
+
+      if (targets.length === 0) {
+        log('\n  Selected locations are all empty — nothing to delete.', 'green');
+        return;
+      }
+    }
+  }
+
+  // ── Display files per selected target ───────────────────────────────────
+  let totalFiles = 0;
+  console.log('');
+  for (const target of targets) {
+    totalFiles += target.files.length;
+    log(`  ${C.bold(target.label)} ${C.dim('— ' + target.dir)}`);
+    log(`  ${target.files.length} file${target.files.length === 1 ? '' : 's'}:`);
+    for (const file of target.files) {
+      log(`    ${C.yellow('•')} ${file}`);
+    }
+    console.log('');
+  }
+
+  if (!force) {
+    const activeCount = targets.filter(t => t.files.length > 0).length;
+    const answer = await askCleanInput(
+      `  Delete all ${totalFiles} file${totalFiles === 1 ? '' : 's'} across ${activeCount} location${activeCount === 1 ? '' : 's'}? [y/N] `,
+    );
+    if (answer.trim().toLowerCase() !== 'y') {
+      log(C.dim('  Cancelled — no files deleted.'));
+      return;
+    }
+  }
+
+  let deleted = 0;
+  for (const target of targets) {
+    for (const file of target.files) {
+      try {
+        fs.unlinkSync(path.join(target.dir, file));
+        deleted++;
+      } catch (err) {
+        log(`  ✗ Failed to delete ${file}: ${err.message}`, 'red');
+      }
+    }
+  }
+
+  log(`\n  ${C.green('✓')} Deleted ${deleted} file${deleted === 1 ? '' : 's'} across all publish locations.`);
+}
+
+/**
+ * Prompt the user for text input.
+ * @param {string} question
+ * @returns {Promise<string>}
+ */
+function askCleanInput(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
 function cmdBuildPersonas(args)   { runScript('build-personas.js', args); }
 function cmdPackagePersonas(args) { runScript('package-personas.js', args); }
 function cmdGui(args)             { runLongScript('run-gui.js', args); }
@@ -568,6 +701,17 @@ const COMMANDS = [
     category:    'Personas',
     description: 'ZIP standalone personas',
     run:         cmdPackagePersonas,
+  },
+  {
+    id:           'clean-agents',
+    key:          'c',
+    label:        'Clean agent folder',
+    category:     'Personas',
+    description:  'Delete persona files from all publish locations',
+    helpVariants: [
+      ['clean-agents --force', 'Delete without confirmation (agent use)'],
+    ],
+    run:          cmdCleanAgents,
   },
   {
     id:          'gui',
