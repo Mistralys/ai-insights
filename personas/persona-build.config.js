@@ -33,7 +33,7 @@ const ROOT = path.join(__dirname, '..');
 
 const FRONTMATTER_STANDALONE_VSCODE = `---
 id: {{id}}
-name: '{{name}}'
+name: '{{name}} v{{version}}'
 description: '{{description}}'
 author: {{author}}
 version: {{version}}
