@@ -54,7 +54,7 @@ Stages not included in a WP's configuration are skipped automatically. **Common 
 
 ## Quick Reference
 
-> **Prefer automation?** Use the **Workflow Orchestrator** persona to run the full pipeline automatically — see [Automated Orchestration with the Workflow Orchestrator](#automated-orchestration-with-the-workflow-orchestrator) below.
+> **Prefer automation?** Use the **Ledger Claude Coordinator** persona to run the full pipeline automatically — see [Automated Orchestration with the Ledger Claude Coordinator](#automated-orchestration-with-the-ledger-claude-coordinator) below.
 
 **For experienced users** - follow these steps (expand sections below for detailed instructions):
 
@@ -73,19 +73,19 @@ Stages not included in a WP's configuration are skipped automatically. **Common 
 
 ---
 
-## Automated Orchestration with the Workflow Orchestrator
+## Automated Orchestration with the Ledger Claude Coordinator
 
-The **Workflow Orchestrator** is a standalone persona that automates the entire pipeline. Instead of manually pasting personas and switching sessions for each stage, you invoke it once and it dispatches agents in the correct order — with the ledger as the single source of truth.
+The **Ledger Claude Coordinator** is a standalone persona that automates the entire pipeline. Instead of manually pasting personas and switching sessions for each stage, you invoke it once and it dispatches agents in the correct order — with the ledger as the single source of truth.
 
 The generated persona file is available at:
-- **Claude Code:** `personas/standalone/claude-code/workflow-orchestrator.md`
-- **VS Code:** `personas/standalone/vs-code/workflow-orchestrator.agent.md`
+- **Claude Code:** `personas/standalone/claude-code/ledger-claude-coordinator.md`
+- **VS Code:** `personas/standalone/vs-code/ledger-claude-coordinator.agent.md`
 
-After syncing (`node scripts/sync-personas.js`), it is also deployed to `~/.claude/agents/workflow-orchestrator.md` for use as a Claude Code sub-agent.
+After syncing (`node scripts/sync-personas.js`), it is also deployed to `~/.claude/agents/ledger-claude-coordinator.md` for use as a Claude Code sub-agent.
 
 ### When to use it
 
-Use the Workflow Orchestrator when you want an agent to coordinate the full pipeline autonomously, eliminating manual handoffs and the risk of skipping stages or advancing WPs out of turn.
+Use the Ledger Claude Coordinator when you want an agent to coordinate the full pipeline autonomously, eliminating manual handoffs and the risk of skipping stages or advancing WPs out of turn.
 
 Use the manual step-by-step approach when you want fine-grained control over each stage — for example, to iterate on a plan with the Planner before committing, or to review QA results before the Reviewer runs.
 
@@ -125,7 +125,7 @@ The orchestrator enforces the same constraints the ledger does:
 
 ### Resuming a paused workflow
 
-If the workflow is interrupted (session ends, error, or you pause it), invoke the Workflow Orchestrator again. It reads the current ledger state and resumes from wherever the pipeline left off — no manual bookkeeping required.
+If the workflow is interrupted (session ends, error, or you pause it), invoke the Ledger Claude Coordinator again. It reads the current ledger state and resumes from wherever the pipeline left off — no manual bookkeeping required.
 
 ---
 
@@ -622,7 +622,7 @@ For the full build system documentation — source layout, metadata schema, temp
 
 ## Next Steps
 
-1. **Try the workflow**: Start with a small feature to familiarize yourself — use the **Workflow Orchestrator** persona for automated orchestration, or follow the manual stages above
+1. **Try the workflow**: Start with a small feature to familiarize yourself — use the **Ledger Claude Coordinator** persona for automated orchestration, or follow the manual stages above
 2. **Customize personas**: Adapt the agent prompts to your team's conventions
 3. **Build system details**: See the [Personas Project Manifest](../docs/agents/project-manifest/README.md) for template syntax, metadata schema, and source layout
 4. **Review the ledger schema**: Understand all available fields in [project-ledger-schema.md](project-ledger-schema.md)
