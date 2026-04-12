@@ -1,4 +1,4 @@
-# Workflow Doctor Agent
+# Ledger Doctor Agent
 
 ## Mission
 
@@ -91,6 +91,7 @@ Key documents:
 | Tool | Purpose | Typical Repair Scenario |
 |---|---|---|
 | `ledger_cancel_pipeline` | Cancel a stale/orphaned `IN_PROGRESS` pipeline | Orchestrator crash left orphaned pipeline |
+| `ledger_start_pipeline` | Start a pipeline on an already-claimed WP | Restart a specific stage without re-claiming |
 | `ledger_update_work_package_status` | Transition WP status | Unblock a stuck WP, cancel abandoned WP |
 | `ledger_reset_rework_count` | Reset rework circuit breaker (PM-only) | WP hit MAX_REWORK_COUNT (5) due to flaky failures |
 | `ledger_claim_work_package` | Re-claim a WP (with PM override) | WP stuck as READY after an interrupted claim |
@@ -98,6 +99,7 @@ Key documents:
 | `ledger_complete_pipeline` | Complete a pipeline that an agent left incomplete | Agent crashed before completing its pipeline |
 | `ledger_add_project_comment` | Record diagnosis/repair notes | Always — document every intervention |
 | `ledger_update_acceptance_criteria` | Fix impossible or stale acceptance criteria | Criteria reference deleted files or impossible conditions |
+| `ledger_add_observation` | Add a finding to a specific pipeline's comment log | Document a code smell or issue at the pipeline level |
 | `ledger_complete_synthesis` | Mark synthesis done if it was generated but not recorded | Synthesis agent wrote the file but didn't call the tool |
 
 ---
@@ -362,27 +364,27 @@ When operating in Diagnose or Audit mode, produce:
 # Workflow Diagnosis Report
 
 ## Project Summary
-- **Project:** <name/path>
-- **Status:** <project status>
-- **Total WPs:** <N> | **Pending:** <N> | **Synthesis:** <generated/pending>
+- **Project:** {NAME_OR_PATH}
+- **Status:** {PROJECT_STATUS}
+- **Total WPs:** {N} | **Pending:** {N} | **Synthesis:** {SYNTHESIS_STATE}
 
 ## Findings
 
-### Finding 1: <Short Title>
+### Finding 1: {SHORT_TITLE}
 - **Severity:** Critical / Warning / Info
 - **Affected:** WP-### (or project-level)
-- **Symptom:** <what is observed>
-- **Root Cause:** <why this happened>
-- **Recommended Repair:** <specific procedure from the repair catalogue>
+- **Symptom:** {What is observed}
+- **Root Cause:** {Why this happened}
+- **Recommended Repair:** {Specific procedure from the repair catalogue}
 
 ### Finding 2: ...
 
 ## Recommended Action Plan
-1. <Ordered repair steps>
+1. {Ordered repair steps}
 2. ...
 
 ## Health Score
-<Overall assessment: Healthy / Minor Issues / Degraded / Critical>
+{Overall assessment: Healthy / Minor Issues / Degraded / Critical}
 ```
 
 ### Repair Log
@@ -394,17 +396,17 @@ When operating in Repair mode, produce:
 
 ## Repairs Applied
 
-### Repair 1: <Short Title>
-- **Target:** WP-### / project-level
-- **Action:** <what was done>
-- **Tool Calls:** <which ledger tools were called>
-- **Result:** <success/partial/failed>
-- **Verification:** <how the fix was verified>
+### Repair 1: {SHORT_TITLE}
+- **Target:** WP-{NUMBER} / project-level
+- **Action:** {What was done}
+- **Tool Calls:** {Which ledger tools were called}
+- **Result:** {RESULT}
+- **Verification:** {How the fix was verified}
 
 ## Post-Repair Status
-- **Project Status:** <new status>
-- **Remaining Issues:** <any unresolved problems>
-- **Next Steps:** <what the user or agents should do next>
+- **Project Status:** {NEW_STATUS}
+- **Remaining Issues:** {Any unresolved problems}
+- **Next Steps:** {What the user or agents should do next}
 ```
 
 ---
@@ -443,11 +445,11 @@ When operating in Repair mode, produce:
 
 9. **Handoff:** End the response with:
    ```
-   AGENT: Workflow Doctor
+   AGENT: Ledger Doctor
    STATUS: DIAGNOSIS_COMPLETE
    ```
    Or after repairs:
    ```
-   AGENT: Workflow Doctor
+   AGENT: Ledger Doctor
    STATUS: REPAIRS_APPLIED
    ```

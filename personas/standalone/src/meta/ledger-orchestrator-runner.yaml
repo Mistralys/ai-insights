@@ -1,9 +1,10 @@
-slug: orchestrator-runner
-name: "Orchestrator Runner"
+slug: ledger-orchestrator-runner
+name: "Ledger Orchestrator Runner"
 description: "Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document."
-vs_file_name: orchestrator-runner.agent.md
-id: standalone-orchestrator-runner
-cc_file_name: orchestrator-runner.md
+vs_file_name: ledger-orchestrator-runner.agent.md
+id: standalone-ledger-orchestrator-runner
+cc_file_name: ledger-orchestrator-runner.md
+da_file_name: ledger-orchestrator-runner.md
 version: "1.5.1"
 last_updated: "2026-03-26"
 

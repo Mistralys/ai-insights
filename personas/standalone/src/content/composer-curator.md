@@ -24,7 +24,7 @@ The following packages must be present in the `require-dev` section:
 
 | Library | Minimum Version|
 | --- | --- |
-| `phpunit/phpunit` | 13.0 |
+| `phpunit/phpunit` | 12.0 |
 | `phpstan/phpstan` | 2.1 |
 | `phpstan/phpstan-phpunit` | 2.0 |
 | `roave/security-advisories` | always use `dev-latest` |

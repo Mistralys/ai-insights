@@ -1,9 +1,9 @@
-slug: workflow-orchestrator
-name: "Workflow Orchestrator"
+slug: ledger-claude-coordinator
+name: "Ledger Claude Coordinator"
 description: "Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger and dispatching work to the correct sub-agent."
-vs_file_name: workflow-orchestrator.agent.md
-id: standalone-workflow-orchestrator
-cc_file_name: workflow-orchestrator.md
+vs_file_name: ledger-claude-coordinator.agent.md
+id: standalone-ledger-claude-coordinator
+cc_file_name: ledger-claude-coordinator.md
 version: "1.0.0"
 last_updated: "2026-03-19"
 mcp_server_name: central_pm

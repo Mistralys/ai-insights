@@ -1,9 +1,9 @@
-slug: workflow-doctor
-name: "Workflow Doctor"
+slug: ledger-doctor
+name: "Ledger Doctor"
 description: "Audit and repair ledger workflow projects: diagnose deadlocks, fix state corruption, unlock stalled pipelines, and resolve technical issues."
-vs_file_name: workflow-doctor.agent.md
-id: standalone-workflow-doctor
-cc_file_name: workflow-doctor.md
+vs_file_name: ledger-doctor.agent.md
+id: standalone-ledger-doctor
+cc_file_name: ledger-doctor.md
 version: "1.0.0"
 last_updated: "2026-03-28"
 mcp_server_name: central_pm

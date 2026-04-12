@@ -44,35 +44,35 @@ Save the report under `/docs/agents/research/{YYY-MM-DD}-{PROJECT_NAME}.md` (e.g
 # Research Report
 
 ## Problem Statement
-<clear, concise framing of the problem to solve>
+{Clear, concise framing of the problem to solve}
 
 ## Problem Decomposition
-<break the problem into smaller, investigable sub-problems>
-1. <sub-problem>
-2. <sub-problem>
-3. <sub-problem>
+{Break the problem into smaller, investigable sub-problems}
+1. {SUB_PROBLEM}
+2. {SUB_PROBLEM}
+3. {SUB_PROBLEM}
 
 ## Context & Constraints
-- <relevant architectural or environmental context>
-- <hard constraints that narrow the solution space>
-- <soft preferences that influence ranking>
+- {Relevant architectural or environmental context}
+- {Hard constraints that narrow the solution space}
+- {Soft preferences that influence ranking}
 
 ## Prior Art & Known Patterns
-### Pattern 1: <name>
-- **Description:** <how it works>
-- **Where used:** <notable real-world usage or references>
-- **Strengths:** <what it does well>
-- **Weaknesses:** <limitations or failure modes>
-- **Fit:** <applicability to the current problem>
+### Pattern 1: {NAME}
+- **Description:** {How it works}
+- **Where used:** {Notable real-world usage or references}
+- **Strengths:** {What it does well}
+- **Weaknesses:** {Limitations or failure modes}
+- **Fit:** {Applicability to the current problem}
 
-### Pattern 2: <name>
-<repeat structure>
+### Pattern 2: {NAME}
+{Repeat structure}
 
 ## Alternative & Creative Approaches
-<approaches that go beyond established patterns — hybrid solutions, novel compositions, unconventional techniques>
-- **Approach:** <description>
-- **Rationale:** <why this could work>
-- **Risk:** <unknowns or downsides>
+{Approaches that go beyond established patterns — hybrid solutions, novel compositions, unconventional techniques}
+- **Approach:** {DESCRIPTION}
+- **Rationale:** {Why this could work}
+- **Risk:** {Unknowns or downsides}
 
 ## Comparative Evaluation
 | Criterion         | Pattern 1 | Pattern 2 | Alternative |
@@ -88,15 +88,15 @@ Save the report under `/docs/agents/research/{YYY-MM-DD}-{PROJECT_NAME}.md` (e.g
 
 ### Proof‑of‑Concept Outline
 <optional: high-level sketch of how to validate the recommended approach quickly>
-1. <step>
-2. <step>
-3. <step>
+1. {STEP}
+2. {STEP}
+3. {STEP}
 
 ## Open Questions
-- <unresolved question that may affect the recommendation>
+- {Unresolved question that may affect the recommendation}
 
 ## References
-- <link, documentation page, or source>
+- {REFERENCE}
 ```
 
 ---
