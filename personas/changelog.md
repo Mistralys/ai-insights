@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.15.1 - Design Guide Update
+- Docs: Added version information to the persona design guide.
+
 ## v3.15.0 - Standalone Persona Overhaul
 - Standalone: Renamed 6 ledger-related personas with `ledger-` prefix.
 - Standalone: Added Persona Curator, Ledger Claude Coordinator,

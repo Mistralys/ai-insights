@@ -1,5 +1,12 @@
 # AI Insights Changelog
 
+## v1.17.0 - Stream Retry on Transient API Errors
+> orchestrator v0.16.0 · personas v3.15.1
+
+- Orchestrator: Automatic retry with exponential backoff on transient API errors during
+  streaming, with configurable retry limits and per-attempt JSONL log events.
+- Personas: Updated persona design guide.
+
 ## v1.16.0 - Streaming Dialogue Capture
 > mcp v1.24.0 · orchestrator v0.15.0 · personas v3.15.0
 

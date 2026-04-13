@@ -1,5 +1,15 @@
 # Orchestrator Changelog
 
+## v0.16.0 - Stream Retry on Transient API Errors
+- Nodes: Automatic retry with exponential backoff when streaming hits overloaded,
+  rate-limit, 5xx, or network errors.
+- Nodes: Fixed exception-chain cycle guard in fatal error detection.
+- Config: Added `STREAM_MAX_RETRIES` and `STREAM_RETRY_BASE_DELAY_S` env-var controls.
+- ChunkWriter: Added `delete()` to discard partial chunk files between retries.
+- Logs: Added `stage_retry` JSONL event emitted per retry with attempt count and delay.
+- Docs: Updated JSONL log schema with `stage_retry` entry and revised event ordering.
+- Tests: Added stream retry and error classification tests.
+
 ## v0.15.0 - Streaming Capture & Signal Handling
 - Nodes: Real-time chunk capture via `ChunkWriter` during `astream()`.
 - CLI: Graceful shutdown on SIGTERM/SIGINT with `signal_shutdown` event.
