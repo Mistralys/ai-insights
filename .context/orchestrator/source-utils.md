@@ -7,6 +7,7 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
     └── src/
         └── utils/
             └── __init__.py
+            └── _revision.py
             └── chunk_writer.py
             └── dialogue_writer.py
             └── filelock.py
@@ -26,6 +27,42 @@ _SOURCE: Utility modules: tool wrappers, persona loader, plan parser, JSONL logg
 """
 utils — shared helper utilities.
 """
+
+```
+###  Path: `/orchestrator/src/utils/_revision.py`
+
+```py
+"""Shared revision-numbering helper for chunk and dialogue files."""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+
+def next_revision(directory: Path, wp_id: str, stage: str, ext: str) -> int:
+    """Return the next revision number for *wp_id*/*stage* files in *directory*.
+
+    Globs ``{wp_id}-{stage}-r*{ext}`` inside *directory*, parses the integer
+    revision from each matching filename, and returns ``max + 1``.  Returns
+    ``0`` when no prior files exist.
+
+    *ext* includes the leading dot (e.g. ``".jsonl"``, ``".md"``).
+    """
+    pattern = f"{wp_id}-{stage}-r*{ext}"
+    # Regex to extract the revision number from the stem.
+    rev_re = re.compile(rf"^{re.escape(wp_id)}-{re.escape(stage)}-r(\d+)$")
+
+    max_rev: int | None = None
+    for path in directory.glob(pattern):
+        m = rev_re.match(path.stem)
+        if m is None:
+            continue
+        rev = int(m.group(1))
+        if max_rev is None or rev > max_rev:
+            max_rev = rev
+
+    return 0 if max_rev is None else max_rev + 1
 
 ```
 ###  Path: `/orchestrator/src/utils/chunk_writer.py`
@@ -210,6 +247,24 @@ class ChunkWriter:
                 log.debug("ChunkWriter.close: error closing %s — %s", self._path, exc)
             finally:
                 self._fh = None
+
+    def delete(self) -> None:
+        """Close the writer and delete the chunk file from disk.
+
+        Closes the underlying file handle first (idempotent), then removes
+        the chunk file.  If the file does not exist the call completes
+        silently without raising.  Any other :class:`OSError` is logged at
+        ``DEBUG`` level and then silently swallowed — callers are never
+        interrupted by cleanup failures.
+
+        Intended for use when a stream retry discards a partial chunk file
+        and a fresh write must start with a new file path.
+        """
+        self.close()
+        try:
+            self._path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.debug("ChunkWriter.delete: error deleting %s — %s", self._path, exc)
 
     # ------------------------------------------------------------------
     # Context manager protocol

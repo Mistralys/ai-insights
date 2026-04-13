@@ -902,6 +902,8 @@ persona YAML metadata via :func:`src.utils.persona_models.extract_persona_model_
 from __future__ import annotations
 
 import json
+import logging
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -917,6 +919,9 @@ from dotenv import load_dotenv
 _HERE = Path(__file__).resolve().parent
 _ORCHESTRATOR_ROOT = _HERE.parent
 load_dotenv(_ORCHESTRATOR_ROOT / ".env", override=False)
+
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -1078,6 +1083,32 @@ WP_TERMINAL_STATUSES: frozenset[str] = frozenset(
 #: alongside the other private config constants and easy to extend.
 _CAPTURE_DIALOGUES_FALSY: frozenset[str] = frozenset({"false", "0", "no"})
 
+#: Default number of stream retry attempts on transient API errors.
+_DEFAULT_STREAM_MAX_RETRIES: int = 2
+
+#: Default base delay (seconds) for exponential-backoff stream retries.
+_DEFAULT_STREAM_RETRY_BASE_DELAY_S: float = 10.0
+
+#: Upper ceiling for ``STREAM_MAX_RETRIES`` to prevent misconfigured
+#: env vars from causing near-infinite run times or ``2**attempt`` overflow.
+_MAX_STREAM_RETRIES_CEILING: int = 10
+
+
+def _parse_positive_float(raw: str, default: float) -> float:
+    """Parse *raw* as a positive finite float, falling back to *default*.
+
+    Returns *default* when *raw* is empty, non-numeric, negative, ``nan``,
+    or infinite.  This covers the ``math.isfinite()`` validation gap
+    identified during the stream-retry delivery review.
+    """
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        return default
+    if not math.isfinite(value) or value < 0:
+        return default
+    return value
+
 
 def _validate_model_api_keys(stage_models: dict[str, str]) -> None:
     """
@@ -1163,6 +1194,17 @@ class Config:
         Controlled by the ``CAPTURE_DIALOGUES`` environment variable (falsy
         values: ``"false"``, ``"0"``, ``"no"``; case-insensitive). Defaults to
         ``True``.
+    stream_max_retries:
+        Maximum number of retry attempts when ``_accumulate_stream`` encounters
+        a transient API error. ``0`` disables retry entirely. Controlled by the
+        ``STREAM_MAX_RETRIES`` environment variable. Defaults to ``2``. Missing
+        or non-numeric values fall back to the default.
+    stream_retry_base_delay_s:
+        Base delay in seconds for exponential backoff between stream retries.
+        The actual delay is ``base * 2^attempt * jitter`` where jitter is
+        uniformly distributed in ``[0.5, 1.0)``. Controlled by the
+        ``STREAM_RETRY_BASE_DELAY_S`` environment variable. Defaults to
+        ``10.0``. Missing or non-numeric values fall back to the default.
     """
 
     stage_models: dict[str, str]
@@ -1173,6 +1215,8 @@ class Config:
     log_level: str
     heartbeat_interval_s: int = 120
     capture_dialogues: bool = True
+    stream_max_retries: int = _DEFAULT_STREAM_MAX_RETRIES
+    stream_retry_base_delay_s: float = _DEFAULT_STREAM_RETRY_BASE_DELAY_S
 
     def resolve_model_for_stage(self, stage: str) -> str:
         """
@@ -1283,6 +1327,32 @@ def load_config(
             f"HEARTBEAT_INTERVAL_S must be a non-negative integer; got {raw_heartbeat!r}."
         ) from exc
 
+    # --- stream_max_retries ---
+    # Falls back to the module-level default on missing / non-numeric values.
+    raw_max_retries = os.environ.get("STREAM_MAX_RETRIES", "").strip()
+    try:
+        stream_max_retries = (
+            int(raw_max_retries) if raw_max_retries else _DEFAULT_STREAM_MAX_RETRIES
+        )
+        if stream_max_retries < 0:
+            raise ValueError("must be a non-negative integer")
+    except ValueError:
+        stream_max_retries = _DEFAULT_STREAM_MAX_RETRIES
+    if stream_max_retries > _MAX_STREAM_RETRIES_CEILING:
+        log.warning(
+            "STREAM_MAX_RETRIES=%d exceeds ceiling %d; clamping to ceiling.",
+            stream_max_retries,
+            _MAX_STREAM_RETRIES_CEILING,
+        )
+        stream_max_retries = _MAX_STREAM_RETRIES_CEILING
+
+    # --- stream_retry_base_delay_s ---
+    # Validated by _parse_positive_float: rejects negative, nan, and inf values.
+    raw_base_delay = os.environ.get("STREAM_RETRY_BASE_DELAY_S", "").strip()
+    stream_retry_base_delay_s = _parse_positive_float(
+        raw_base_delay, _DEFAULT_STREAM_RETRY_BASE_DELAY_S
+    )
+
     return Config(
         stage_models=stage_models,
         max_iterations=max_iterations,
@@ -1292,6 +1362,8 @@ def load_config(
         log_level=log_level,
         capture_dialogues=capture_dialogues,
         heartbeat_interval_s=heartbeat_interval_s,
+        stream_max_retries=stream_max_retries,
+        stream_retry_base_delay_s=stream_retry_base_delay_s,
     )
 
 

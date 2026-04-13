@@ -11,6 +11,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_cli.py
         └── test_config.py
         └── test_dialogue_writer.py
+        └── test_error_helpers.py
         └── test_filelock.py
         └── test_graph.py
         └── test_integration.py
@@ -23,6 +24,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_prompt_renderer.py
         └── test_revision.py
         └── test_state.py
+        └── test_stream_retry.py
         └── test_streaming_capture.py
         └── test_subagents.py
         └── test_subprocess_encoding.py
@@ -74,6 +76,8 @@ class _StreamCaptureConfig:
     def __init__(self, workspace_root: Path) -> None:
         self.workspace_root = workspace_root
         self.capture_dialogues = True
+        self.stream_max_retries = 0
+        self.stream_retry_base_delay_s = 10.0
         self.stage_models = {
             "developer": "claude-test",
             "pm": "claude-test",
@@ -101,6 +105,8 @@ class _CaptureConfig:
     }
     workspace_root = Path(__file__).resolve().parent.parent.parent
     capture_dialogues = True
+    stream_max_retries = 0
+    stream_retry_base_delay_s = 10.0
 
     def resolve_model_for_stage(self, stage: str) -> str:
         return self.stage_models.get(stage, "claude-test")
@@ -111,6 +117,8 @@ class _NoCaptureConfig:
 
     workspace_root = Path("/tmp/no-capture-ws")
     capture_dialogues = False
+    stream_max_retries = 0
+    stream_retry_base_delay_s = 10.0
     stage_models = {k: "claude-test" for k in [
         "developer", "pm", "qa", "reviewer", "security_auditor",
         "docs", "release_engineer", "synthesis", "planner",
@@ -560,6 +568,63 @@ class TestCrossPlatformPaths:
     def test_path_is_inside_chunks_subdir(self, tmp_path: Path) -> None:
         with _make_writer(tmp_path) as cw:
             assert cw.path.parent == _chunks_dir(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# ChunkWriter.delete()
+# ---------------------------------------------------------------------------
+
+
+class TestDelete:
+    """Tests for ChunkWriter.delete() — AC for WP-002."""
+
+    def test_delete_removes_chunk_file(self, tmp_path: Path) -> None:
+        """AC-1: delete() removes the chunk file from disk."""
+        cw = _make_writer(tmp_path)
+        path = cw.path
+        assert path.exists(), "file should exist before deletion"
+        cw.delete()
+        assert not path.exists(), "file should be gone after delete()"
+
+    def test_delete_on_already_deleted_file_does_not_raise(self, tmp_path: Path) -> None:
+        """AC-2: delete() is safe when the file no longer exists."""
+        cw = _make_writer(tmp_path)
+        cw.delete()  # first call removes the file
+        # second call — file is already gone; must not raise
+        cw.delete()
+
+    def test_delete_on_never_existing_path_does_not_raise(self, tmp_path: Path) -> None:
+        """AC-2 (variant): graceful no-op when chunk file was never created."""
+        cw = _make_writer(tmp_path)
+        path = cw.path
+        # Remove the file manually before calling delete()
+        path.unlink()
+        cw.delete()  # must not raise
+
+    def test_delete_closes_writer_first(self, tmp_path: Path) -> None:
+        """AC-3: writer is properly closed before the file is deleted."""
+        cw = _make_writer(tmp_path)
+        assert not cw._closed, "writer should be open initially"
+        cw.delete()
+        assert cw._closed, "writer should be closed after delete()"
+        assert cw._fh is None, "file handle should be cleared after delete()"
+
+    def test_delete_on_open_writer_releases_handle(self, tmp_path: Path) -> None:
+        """AC-3 (variant): delete() works correctly on an open (not yet closed) writer."""
+        cw = _make_writer(tmp_path)
+        cw.write_chunk({"x": 1})
+        path = cw.path
+        # Writer is still open — delete() must close it and remove the file.
+        cw.delete()
+        assert not path.exists()
+        assert cw._closed
+
+    def test_delete_after_explicit_close_does_not_raise(self, tmp_path: Path) -> None:
+        """AC-3 (idempotency): close + delete sequence does not raise."""
+        cw = _make_writer(tmp_path)
+        cw.close()
+        cw.delete()  # file still exists; delete() should remove it
+        assert not cw.path.exists()
 
 ```
 ###  Path: `/orchestrator/tests/test_cli.py`
@@ -1729,6 +1794,88 @@ class TestApiKeyValidation:
                     load_config()
 
 
+# ---------------------------------------------------------------------------
+# Tests: Config.stream_max_retries and Config.stream_retry_base_delay_s
+# ---------------------------------------------------------------------------
+
+
+class TestStreamRetryConfig:
+    """Tests for stream retry configuration fields and env-var parsing (WP-003)."""
+
+    # ------------------------------------------------------------------
+    # AC-1: correct defaults
+    # ------------------------------------------------------------------
+
+    def test_stream_max_retries_default(self):
+        """stream_max_retries defaults to 2 when STREAM_MAX_RETRIES is unset."""
+        cfg = _load()
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_retry_base_delay_default(self):
+        """stream_retry_base_delay_s defaults to 10.0 when STREAM_RETRY_BASE_DELAY_S is unset."""
+        cfg = _load()
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+    def test_stream_max_retries_is_int(self):
+        cfg = _load()
+        assert isinstance(cfg.stream_max_retries, int)
+
+    def test_stream_retry_base_delay_is_float(self):
+        cfg = _load()
+        assert isinstance(cfg.stream_retry_base_delay_s, float)
+
+    # ------------------------------------------------------------------
+    # AC-2: env vars are parsed correctly
+    # ------------------------------------------------------------------
+
+    def test_stream_max_retries_env_var(self):
+        cfg = _load({"STREAM_MAX_RETRIES": "5"})
+        assert cfg.stream_max_retries == 5
+
+    def test_stream_max_retries_zero_disables_retry(self):
+        cfg = _load({"STREAM_MAX_RETRIES": "0"})
+        assert cfg.stream_max_retries == 0
+
+    def test_stream_retry_base_delay_env_var(self):
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "30.0"})
+        assert cfg.stream_retry_base_delay_s == 30.0
+
+    def test_stream_retry_base_delay_integer_string(self):
+        """An integer string like "20" must be accepted as a valid float."""
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "20"})
+        assert cfg.stream_retry_base_delay_s == 20.0
+
+    # ------------------------------------------------------------------
+    # AC-3: missing or non-numeric values fall back to defaults
+    # ------------------------------------------------------------------
+
+    def test_stream_max_retries_non_numeric_falls_back(self):
+        cfg = _load({"STREAM_MAX_RETRIES": "not-a-number"})
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_max_retries_empty_string_falls_back(self):
+        cfg = _load({"STREAM_MAX_RETRIES": ""})
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_retry_base_delay_non_numeric_falls_back(self):
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "not-a-number"})
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+    def test_stream_retry_base_delay_empty_string_falls_back(self):
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": ""})
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+    def test_stream_max_retries_negative_falls_back(self):
+        """Negative value is invalid; must fall back to the default."""
+        cfg = _load({"STREAM_MAX_RETRIES": "-1"})
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_retry_base_delay_negative_falls_back(self):
+        """Negative delay is invalid; must fall back to the default."""
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "-5.0"})
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+
 ```
 ###  Path: `/orchestrator/tests/test_dialogue_writer.py`
 
@@ -2077,6 +2224,167 @@ class TestRoundTrip:
         assert "## Human" in recovered
         assert "## Assistant" in recovered
         assert "Token Usage" in recovered
+
+```
+###  Path: `/orchestrator/tests/test_error_helpers.py`
+
+```py
+"""
+test_error_helpers.py — Unit tests for the error-classifier helper functions
+in ``src/nodes/__init__.py``.
+
+Covers :func:`_is_retryable_api_error` in isolation, separated from the
+stage-node tests in ``test_nodes.py`` to improve discoverability.
+"""
+
+from __future__ import annotations
+
+from src.nodes import _is_retryable_api_error
+
+# ---------------------------------------------------------------------------
+# Helper factories
+# ---------------------------------------------------------------------------
+
+def _exc_with_status(status: int) -> Exception:
+    """Return a plain Exception with a ``status_code`` attribute."""
+    exc = Exception(f"HTTP {status}")
+    exc.status_code = status  # type: ignore[attr-defined]
+    return exc
+
+
+def _httpx_transport_error() -> Exception:
+    """Return an exception that looks like an httpx transport error.
+
+    We fake the ``__module__`` attribute so we don't need to import httpx.
+    The exception carries no ``status_code``, matching the real httpx
+    ``TransportError`` / ``ConnectError`` hierarchy.
+    """
+
+    class _FakeHttpxConnectError(Exception):
+        pass
+
+    _FakeHttpxConnectError.__module__ = "httpx"
+    return _FakeHttpxConnectError("Connection refused")
+
+
+def _httpx_status_error(status: int) -> Exception:
+    """Return an exception that looks like an httpx.HTTPStatusError.
+
+    Fakes the ``httpx`` module and carries a ``status_code`` attribute,
+    matching the real ``httpx.HTTPStatusError`` which is raised for HTTP
+    responses with error status codes.  The presence of ``status_code``
+    means this is routed through the status-code branch, not the
+    transport-error branch.
+    """
+
+    class _FakeHttpxStatusError(Exception):
+        pass
+
+    _FakeHttpxStatusError.__module__ = "httpx"
+    exc = _FakeHttpxStatusError(f"HTTP {status}")
+    exc.status_code = status  # type: ignore[attr-defined]
+    return exc
+
+
+# ---------------------------------------------------------------------------
+# Tests: _is_retryable_api_error
+# ---------------------------------------------------------------------------
+
+
+class TestIsRetryableApiError:
+    """Tests for _is_retryable_api_error()."""
+
+    # ------------------------------------------------------------------
+    # AC-1: Retryable HTTP status codes and httpx transport errors
+    # ------------------------------------------------------------------
+
+    def test_status_529_is_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(529)) is True
+
+    def test_status_429_is_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(429)) is True
+
+    def test_status_500_is_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(500)) is True
+
+    def test_status_503_is_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(503)) is True
+
+    def test_httpx_transport_error_is_retryable(self):
+        assert _is_retryable_api_error(_httpx_transport_error()) is True
+
+    # ------------------------------------------------------------------
+    # AC-2: Fatal HTTP status codes are never retryable
+    # ------------------------------------------------------------------
+
+    def test_status_401_is_not_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(401)) is False
+
+    def test_status_403_is_not_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(403)) is False
+
+    # ------------------------------------------------------------------
+    # AC-3: Non-API errors are not retryable
+    # ------------------------------------------------------------------
+
+    def test_plain_value_error_is_not_retryable(self):
+        assert _is_retryable_api_error(ValueError("something went wrong")) is False
+
+    def test_plain_runtime_error_is_not_retryable(self):
+        assert _is_retryable_api_error(RuntimeError("unexpected")) is False
+
+    def test_status_400_client_error_is_not_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(400)) is False
+
+    def test_status_404_client_error_is_not_retryable(self):
+        assert _is_retryable_api_error(_exc_with_status(404)) is False
+
+    def test_httpx_status_error_400_is_not_retryable(self):
+        """httpx.HTTPStatusError with a 4xx status_code must NOT be retried.
+
+        This locks the disambiguation invariant: httpx errors that carry a
+        ``status_code`` attribute are routed through the status-code branch,
+        NOT the transport-error branch.  A 400 response from httpx is a client
+        error and must be treated as non-retryable.
+        """
+        assert _is_retryable_api_error(_httpx_status_error(400)) is False
+
+    # ------------------------------------------------------------------
+    # AC-4: Exception chain walking
+    # ------------------------------------------------------------------
+
+    def test_wrapped_529_via_cause_is_retryable(self):
+        inner = _exc_with_status(529)
+        outer = RuntimeError("wrapper")
+        outer.__cause__ = inner
+        assert _is_retryable_api_error(outer) is True
+
+    def test_wrapped_429_via_context_is_retryable(self):
+        inner = _exc_with_status(429)
+        outer = RuntimeError("wrapper")
+        outer.__context__ = inner
+        assert _is_retryable_api_error(outer) is True
+
+    def test_wrapped_500_via_cause_is_retryable(self):
+        inner = _exc_with_status(500)
+        outer = ValueError("wrapped")
+        outer.__cause__ = inner
+        assert _is_retryable_api_error(outer) is True
+
+    def test_wrapped_401_via_cause_is_not_retryable(self):
+        """A fatal error wrapped in RuntimeError must still be non-retryable."""
+        inner = _exc_with_status(401)
+        outer = RuntimeError("wrapper")
+        outer.__cause__ = inner
+        assert _is_retryable_api_error(outer) is False
+
+    def test_deeply_wrapped_httpx_error_is_retryable(self):
+        httpx_err = _httpx_transport_error()
+        mid = RuntimeError("middle")
+        mid.__cause__ = httpx_err
+        outer = Exception("outer")
+        outer.__cause__ = mid
+        assert _is_retryable_api_error(outer) is True
 
 ```
 ###  Path: `/orchestrator/tests/test_filelock.py`
@@ -4269,6 +4577,7 @@ import pytest
 from langchain_core.messages import AIMessageChunk
 
 from src.utils.chunk_writer import ChunkWriter
+from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Minimal config stub
@@ -4284,6 +4593,8 @@ class _FakeConfig:
     }
     workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
     capture_dialogues = False  # Default off; override in specific test classes
+    stream_max_retries = 0
+    stream_retry_base_delay_s = 10.0
 
     def resolve_model_for_stage(self, stage: str) -> str:
         return self.stage_models.get(stage, "claude-test")
@@ -5168,9 +5479,8 @@ class TestPipelineResult:
 # ---------------------------------------------------------------------------
 
 
-# _CaptureConfig and _NoCaptureConfig are defined in conftest.py;
-# imported explicitly below due to this directory being a Python package.
-from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
+# _CaptureConfig and _NoCaptureConfig are defined in conftest.py and imported
+# at the top of this file.
 
 
 def _make_mock_chunk_writer(path: Path = Path("/tmp/WP-001-developer-r0.jsonl")) -> MagicMock:
@@ -5252,7 +5562,9 @@ class TestDialogueCaptured:
             assert "wp_id" in entry
             assert entry.get("file_path"), "file_path must be a non-empty string"
             assert entry.get("level") == "INFO"
-            assert entry.get("format") == "chunks", "all dialogue_captured entries must have format='chunks'"
+            assert entry.get("format") == "chunks", (
+                "all dialogue_captured entries must have format='chunks'"
+            )
 
     async def test_dialogue_captured_not_emitted_when_flag_false(self):
         """No dialogue_captured entry when capture_dialogues=False."""
@@ -6078,6 +6390,108 @@ class TestSubagentWiring:
         assert captured.get("subagents") is None, (
             f"Stage {stage!r} must pass subagents=None to create_deep_agent; "
             f"got {captured.get('subagents')!r}"
+        )
+
+
+
+# ---------------------------------------------------------------------------
+# Tests: WP-008 — Config retry values wired into _accumulate_stream via node_fn
+# ---------------------------------------------------------------------------
+
+
+class TestConfigRetryWiring:
+    """Verify that node_fn() passes config retry values to _accumulate_stream().
+
+    AC1 (WP-008): _accumulate_stream() receives retry config values from the
+                  node_fn() closure.
+    AC2 (WP-008): Config values flow correctly from Config to streaming function.
+    """
+
+    @pytest.mark.asyncio
+    async def test_accumulate_stream_receives_max_retries_from_config(self):
+        """node_fn() must forward config.stream_max_retries as max_retries."""
+        from src.nodes.developer import make_developer_node
+
+        class _CustomConfig(_FakeConfig):
+            stream_max_retries = 3
+            stream_retry_base_delay_s = 5.0
+
+        captured: dict = {}
+
+        async def _mock_accumulate_stream(agent, user_prompt, slug_dir, wp_id, stage, **kwargs):
+            captured.update(kwargs)
+            return ([], None)
+
+        node_fn = make_developer_node(_CustomConfig(), FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with (
+            _patch_persona(),
+            create_p,
+            backend_p,
+            patch("src.nodes._accumulate_stream", side_effect=_mock_accumulate_stream),
+        ):
+            await node_fn(base_state())
+
+        assert captured.get("max_retries") == 3, (
+            f"Expected max_retries=3, got {captured.get('max_retries')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_accumulate_stream_receives_base_delay_from_config(self):
+        """node_fn() must forward config.stream_retry_base_delay_s as base_delay_s."""
+        from src.nodes.developer import make_developer_node
+
+        class _CustomConfig(_FakeConfig):
+            stream_max_retries = 1
+            stream_retry_base_delay_s = 7.5
+
+        captured: dict = {}
+
+        async def _mock_accumulate_stream(agent, user_prompt, slug_dir, wp_id, stage, **kwargs):
+            captured.update(kwargs)
+            return ([], None)
+
+        node_fn = make_developer_node(_CustomConfig(), FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with (
+            _patch_persona(),
+            create_p,
+            backend_p,
+            patch("src.nodes._accumulate_stream", side_effect=_mock_accumulate_stream),
+        ):
+            await node_fn(base_state())
+
+        assert captured.get("base_delay_s") == 7.5, (
+            f"Expected base_delay_s=7.5, got {captured.get('base_delay_s')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_zero_max_retries_forwarded_correctly(self):
+        """A config with stream_max_retries=0 must disable retry (max_retries=0)."""
+        from src.nodes.developer import make_developer_node
+
+        class _ZeroRetryConfig(_FakeConfig):
+            stream_max_retries = 0
+            stream_retry_base_delay_s = 10.0
+
+        captured: dict = {}
+
+        async def _mock_accumulate_stream(agent, user_prompt, slug_dir, wp_id, stage, **kwargs):
+            captured.update(kwargs)
+            return ([], None)
+
+        node_fn = make_developer_node(_ZeroRetryConfig(), FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with (
+            _patch_persona(),
+            create_p,
+            backend_p,
+            patch("src.nodes._accumulate_stream", side_effect=_mock_accumulate_stream),
+        ):
+            await node_fn(base_state())
+
+        assert captured.get("max_retries") == 0, (
+            f"Expected max_retries=0, got {captured.get('max_retries')!r}"
         )
 
 ```
@@ -7755,6 +8169,566 @@ class TestStateGraphIntegration:
         assert graph is not None
 
 ```
+###  Path: `/orchestrator/tests/test_stream_retry.py`
+
+```py
+"""
+test_stream_retry.py — Unit tests for the retry loop in _accumulate_stream().
+
+Tests the WP-004, WP-009, and WP-010 acceptance criteria:
+
+AC1: Retryable errors trigger retry with exponential backoff
+AC2: Fatal errors propagate immediately
+AC3: Exhausted retries propagate the last error
+AC4: Accumulators reset on each attempt
+AC5: ChunkWriter partial files cleaned up on retry
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from langchain_core.messages import AIMessageChunk
+
+from src.nodes import _accumulate_stream
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_error_with_status(status_code: int) -> Exception:
+    """Return a fake API error with the given HTTP status code."""
+    exc = Exception(f"HTTP {status_code}")
+    exc.status_code = status_code  # type: ignore[attr-defined]
+    return exc
+
+
+def _make_agent_success(chunks: list[AIMessageChunk]) -> Any:
+    """Return a mock agent whose astream() yields the given chunks once (success)."""
+
+    async def _astream(*args: Any, **kwargs: Any):
+        for chunk in chunks:
+            yield ((), (chunk, {}))
+
+    agent = MagicMock()
+    agent.astream = _astream
+    return agent
+
+
+def _make_agent_fail_then_succeed(
+    error: Exception,
+    chunks: list[AIMessageChunk],
+    fail_count: int = 1,
+) -> Any:
+    """Return a mock agent that raises *error* for the first *fail_count*
+    attempts, then succeeds by yielding *chunks*."""
+    call_count = {"n": 0}
+
+    async def _astream(*args: Any, **kwargs: Any):
+        call_count["n"] += 1
+        if call_count["n"] <= fail_count:
+            raise error
+        for chunk in chunks:
+            yield ((), (chunk, {}))
+
+    agent = MagicMock()
+    agent.astream = _astream
+    return agent
+
+
+def _make_agent_always_fail(error: Exception) -> Any:
+    """Return a mock agent whose astream() always raises *error*."""
+
+    async def _astream(*args: Any, **kwargs: Any):
+        raise error
+        yield  # make it an async generator
+
+    agent = MagicMock()
+    agent.astream = _astream
+    return agent
+
+
+# ---------------------------------------------------------------------------
+# AC1: Retryable errors trigger retry with exponential backoff
+# ---------------------------------------------------------------------------
+
+
+class TestRetryableErrors:
+    """AC1: Retryable errors trigger retry with exponential backoff."""
+
+    @pytest.mark.asyncio
+    async def test_retry_on_429(self) -> None:
+        """HTTP 429 should trigger a retry; second attempt succeeds."""
+        error_429 = _make_error_with_status(429)
+        chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error_429, [chunk], fail_count=1)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=1.0,
+            )
+
+        assert len(msgs) == 1
+        assert msgs[0].content == "Done"
+        mock_sleep.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_on_529(self) -> None:
+        """HTTP 529 (Anthropic overloaded) should trigger a retry."""
+        error_529 = _make_error_with_status(529)
+        chunk = AIMessageChunk(content="OK", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error_529, [chunk], fail_count=1)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=2, base_delay_s=1.0,
+            )
+
+        assert msgs[0].content == "OK"
+        mock_sleep.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_on_500(self) -> None:
+        """HTTP 500 (generic server error) should trigger a retry."""
+        error_500 = _make_error_with_status(500)
+        chunk = AIMessageChunk(content="Recovered", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error_500, [chunk], fail_count=1)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=0.0,
+            )
+
+        assert msgs[0].content == "Recovered"
+        mock_sleep.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_sleep_delay_uses_base_delay(self) -> None:
+        """Sleep delay on first retry (attempt=0) must be base_delay * 2^0 * jitter,
+        which is within [base_delay * 0.5, base_delay * 1.0)."""
+        error = _make_error_with_status(429)
+        chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [chunk], fail_count=1)
+
+        slept: list[float] = []
+
+        async def _capture_sleep(delay: float) -> None:
+            slept.append(delay)
+
+        with patch("src.nodes.asyncio.sleep", side_effect=_capture_sleep):
+            await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=10.0,
+            )
+
+        assert slept, "asyncio.sleep was never called"
+        # attempt=0: delay = 10.0 * 2^0 * [0.5, 1.0) → [5.0, 10.0)
+        assert 5.0 <= slept[0] < 10.0, f"Unexpected delay: {slept[0]}"
+
+    @pytest.mark.asyncio
+    async def test_sleep_delay_doubles_on_second_retry(self) -> None:
+        """Sleep delay on second retry (attempt=1) must be 2× the first attempt range."""
+        error = _make_error_with_status(429)
+        chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [chunk], fail_count=2)
+
+        slept: list[float] = []
+
+        async def _capture_sleep(delay: float) -> None:
+            slept.append(delay)
+
+        with patch("src.nodes.asyncio.sleep", side_effect=_capture_sleep):
+            await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=2, base_delay_s=10.0,
+            )
+
+        assert len(slept) == 2, f"Expected 2 sleep calls, got {len(slept)}"
+        # attempt=0: [5.0, 10.0); attempt=1: [10.0, 20.0)
+        assert 5.0 <= slept[0] < 10.0, f"First delay out of range: {slept[0]}"
+        assert 10.0 <= slept[1] < 20.0, f"Second delay out of range: {slept[1]}"
+
+
+# ---------------------------------------------------------------------------
+# AC2: Fatal errors propagate immediately
+# ---------------------------------------------------------------------------
+
+
+class TestFatalErrors:
+    """AC2: Fatal errors propagate immediately without retrying."""
+
+    @pytest.mark.asyncio
+    async def test_401_propagates_immediately(self) -> None:
+        """HTTP 401 must propagate immediately, no retry."""
+        error_401 = _make_error_with_status(401)
+        agent = _make_agent_always_fail(error_401)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with pytest.raises(Exception, match="HTTP 401"):
+                await _accumulate_stream(
+                    agent, "prompt", None, "WP-001", "developer",
+                    max_retries=3, base_delay_s=1.0,
+                )
+
+        mock_sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_403_propagates_immediately(self) -> None:
+        """HTTP 403 must propagate immediately, no retry."""
+        error_403 = _make_error_with_status(403)
+        agent = _make_agent_always_fail(error_403)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with pytest.raises(Exception, match="HTTP 403"):
+                await _accumulate_stream(
+                    agent, "prompt", None, "WP-001", "developer",
+                    max_retries=3, base_delay_s=1.0,
+                )
+
+        mock_sleep.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_plain_value_error_propagates_immediately(self) -> None:
+        """A plain ValueError (non-HTTP) is not retryable and must propagate."""
+
+        async def _astream(*a: Any, **kw: Any) -> Any:
+            raise ValueError("unexpected")
+            yield  # make it a generator
+
+        agent = MagicMock()
+        agent.astream = _astream
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with pytest.raises(ValueError, match="unexpected"):
+                await _accumulate_stream(
+                    agent, "prompt", None, "WP-001", "developer",
+                    max_retries=3, base_delay_s=1.0,
+                )
+
+        mock_sleep.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# AC3: Exhausted retries propagate the last error
+# ---------------------------------------------------------------------------
+
+
+class TestExhaustedRetries:
+    """AC3: When all retries are exhausted, the last error is re-raised."""
+
+    @pytest.mark.asyncio
+    async def test_last_error_raised_after_exhausted_retries(self) -> None:
+        """After max_retries attempts, the transient error must propagate."""
+        error = _make_error_with_status(429)
+        agent = _make_agent_always_fail(error)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with pytest.raises(Exception, match="HTTP 429"):
+                await _accumulate_stream(
+                    agent, "prompt", None, "WP-001", "developer",
+                    max_retries=2, base_delay_s=0.0,
+                )
+
+        # 3 attempts total (0, 1, 2) → 2 sleep calls (between attempt 0→1 and 1→2)
+        assert mock_sleep.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_no_retry_when_max_retries_is_zero(self) -> None:
+        """max_retries=0 means no retries; error propagates on first failure."""
+        error = _make_error_with_status(429)
+        agent = _make_agent_always_fail(error)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+            with pytest.raises(Exception, match="HTTP 429"):
+                await _accumulate_stream(
+                    agent, "prompt", None, "WP-001", "developer",
+                    max_retries=0, base_delay_s=1.0,
+                )
+
+        mock_sleep.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# AC4: Accumulators reset on each attempt
+# ---------------------------------------------------------------------------
+
+
+class TestAccumulatorReset:
+    """AC4: Accumulators must be reset between retry attempts so no stale
+    partial messages from a failed attempt appear in the final result."""
+
+    @pytest.mark.asyncio
+    async def test_partial_chunks_from_failed_attempt_discarded(self) -> None:
+        """Chunks accumulated before the error must NOT appear in the result."""
+        # First attempt: yields partial chunk then raises
+        partial_chunk = AIMessageChunk(content="PARTIAL", id="msg-partial")
+        full_chunk = AIMessageChunk(content="FULL", id="msg-full")
+
+        call_count = {"n": 0}
+
+        async def _astream(*args: Any, **kwargs: Any):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                yield ((), (partial_chunk, {}))
+                raise _make_error_with_status(429)
+            else:
+                yield ((), (full_chunk, {}))
+
+        agent = MagicMock()
+        agent.astream = _astream
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=0.0,
+            )
+
+        # Only the clean second-attempt result should be present
+        assert len(msgs) == 1
+        assert msgs[0].content == "FULL"
+        contents = [m.content for m in msgs]
+        assert "PARTIAL" not in contents
+
+    @pytest.mark.asyncio
+    async def test_multiple_retries_accumulator_clean(self) -> None:
+        """After two failed attempts the final result contains only messages
+        from the successful third attempt."""
+        error = _make_error_with_status(529)
+        good_chunk = AIMessageChunk(content="CLEAN", id="msg-clean")
+
+        call_count = {"n": 0}
+
+        async def _astream(*args: Any, **kwargs: Any):
+            call_count["n"] += 1
+            if call_count["n"] <= 2:
+                stale_id = f"stale-{call_count['n']}"
+                stale_content = f"STALE-{call_count['n']}"
+                yield ((), (AIMessageChunk(content=stale_content, id=stale_id), {}))
+                raise error
+            yield ((), (good_chunk, {}))
+
+        agent = MagicMock()
+        agent.astream = _astream
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=2, base_delay_s=0.0,
+            )
+
+        assert len(msgs) == 1
+        assert msgs[0].content == "CLEAN"
+
+
+# ---------------------------------------------------------------------------
+# AC5: ChunkWriter partial files cleaned up on retry
+# ---------------------------------------------------------------------------
+
+
+class TestChunkWriterCleanup:
+    """AC5: ChunkWriter.delete() must be called on the partial file when a
+    retry occurs; the partial JSONL file must not remain on disk."""
+
+    @pytest.mark.asyncio
+    async def test_partial_chunk_file_deleted_on_retry(self, tmp_path: Path) -> None:
+        """After a retryable error the partial chunk file must be deleted."""
+        slug_dir = tmp_path / "mcp-server" / "storage" / "ledger" / "test-slug"
+        error = _make_error_with_status(429)
+        good_chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [good_chunk], fail_count=1)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            msgs, final_path = await _accumulate_stream(
+                agent, "prompt", slug_dir, "WP-001", "developer",
+                max_retries=1, base_delay_s=0.0,
+            )
+
+        assert msgs[0].content == "Done"
+        chunks_dir = slug_dir / "orchestrator" / "chunks"
+        # Final file exists (revision 1, from the successful attempt)
+        assert final_path is not None
+        assert final_path.exists()
+        # Only one JSONL file should exist (the partial was deleted)
+        jsonl_files = list(chunks_dir.glob("WP-001-developer-r*.jsonl"))
+        assert len(jsonl_files) == 1, (
+            f"Expected 1 chunk file (partial deleted), found {len(jsonl_files)}: {jsonl_files}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_partial_chunk_file_deleted_when_retries_exhausted(
+        self, tmp_path: Path
+    ) -> None:
+        """When all retries are exhausted, all partial chunk files must be deleted."""
+        slug_dir = tmp_path / "mcp-server" / "storage" / "ledger" / "test-slug"
+        error = _make_error_with_status(429)
+        agent = _make_agent_always_fail(error)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(Exception, match="HTTP 429"):
+                await _accumulate_stream(
+                    agent, "prompt", slug_dir, "WP-001", "developer",
+                    max_retries=1, base_delay_s=0.0,
+                )
+
+        chunks_dir = slug_dir / "orchestrator" / "chunks"
+        # No partial files should remain after all retries are exhausted
+        if chunks_dir.exists():
+            jsonl_files = list(chunks_dir.glob("WP-001-developer-r*.jsonl"))
+            assert not jsonl_files, (
+                f"Partial chunk files must be deleted on final failure: {jsonl_files}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_no_chunk_file_deleted_on_success(self, tmp_path: Path) -> None:
+        """When the stream succeeds on the first attempt, the file is kept."""
+        slug_dir = tmp_path / "mcp-server" / "storage" / "ledger" / "test-slug"
+        chunk = AIMessageChunk(content="Success", id="msg-1")
+        agent = _make_agent_success([chunk])
+
+        msgs, final_path = await _accumulate_stream(
+            agent, "prompt", slug_dir, "WP-001", "developer",
+            max_retries=1, base_delay_s=0.0,
+        )
+
+        assert msgs[0].content == "Success"
+        assert final_path is not None
+        assert final_path.exists(), "Chunk file must exist after a successful run"
+
+    @pytest.mark.asyncio
+    async def test_fatal_error_deletes_partial_chunk_file(self, tmp_path: Path) -> None:
+        """Even on a fatal (non-retryable) error, the partial chunk file is deleted."""
+        slug_dir = tmp_path / "mcp-server" / "storage" / "ledger" / "test-slug"
+        error = _make_error_with_status(401)
+        agent = _make_agent_always_fail(error)
+
+        with pytest.raises(Exception, match="HTTP 401"):
+            await _accumulate_stream(
+                agent, "prompt", slug_dir, "WP-001", "developer",
+                max_retries=2, base_delay_s=0.0,
+            )
+
+        chunks_dir = slug_dir / "orchestrator" / "chunks"
+        if chunks_dir.exists():
+            jsonl_files = list(chunks_dir.glob("WP-001-developer-r*.jsonl"))
+            assert not jsonl_files, (
+                f"Partial chunk files must be deleted on fatal error: {jsonl_files}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# WP-009: stage_retry JSONL log entry
+# ---------------------------------------------------------------------------
+
+
+class TestStageRetryLogEntry:
+    """WP-009 acceptance criteria:
+    AC1: Each retry attempt emits a stage_retry JSONL entry.
+    AC2: Entry contains attempt number, error message, and delay.
+    AC3: Entries appear in the structured run log.
+    """
+
+    @pytest.mark.asyncio
+    async def test_retry_emits_stage_retry_entry(self) -> None:
+        """AC1+AC3: run_logger.stream_entry is called once per retry."""
+        error = _make_error_with_status(429)
+        chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [chunk], fail_count=1)
+
+        run_logger = MagicMock()
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=0.0, run_logger=run_logger,
+            )
+
+        run_logger.stream_entry.assert_called_once()
+        entry = run_logger.stream_entry.call_args[0][0]
+        assert entry["action"] == "stage_retry"
+
+    @pytest.mark.asyncio
+    async def test_retry_entry_fields(self) -> None:
+        """AC2: Entry contains attempt, max_attempts, error, and delay_s."""
+        error = _make_error_with_status(529)
+        chunk = AIMessageChunk(content="OK", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [chunk], fail_count=1)
+
+        run_logger = MagicMock()
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            await _accumulate_stream(
+                agent, "prompt", None, "WP-007", "qa",
+                max_retries=2, base_delay_s=0.0, run_logger=run_logger,
+            )
+
+        entry = run_logger.stream_entry.call_args[0][0]
+        assert entry["action"] == "stage_retry"
+        assert entry["stage"] == "qa"
+        assert entry["wp_id"] == "WP-007"
+        assert entry["attempt"] == 1
+        assert entry["max_attempts"] == 3
+        assert "HTTP 529" in entry["error"]
+        assert "delay_s" in entry
+        assert entry["level"] == "WARNING"
+
+    @pytest.mark.asyncio
+    async def test_multiple_retries_emit_one_entry_each(self) -> None:
+        """AC1: Two retries produce two stage_retry entries."""
+        error = _make_error_with_status(500)
+        chunk = AIMessageChunk(content="Recovered", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [chunk], fail_count=2)
+
+        run_logger = MagicMock()
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=2, base_delay_s=0.0, run_logger=run_logger,
+            )
+
+        assert run_logger.stream_entry.call_count == 2
+        entries = [call[0][0] for call in run_logger.stream_entry.call_args_list]
+        assert entries[0]["attempt"] == 1
+        assert entries[1]["attempt"] == 2
+
+    @pytest.mark.asyncio
+    async def test_no_entry_on_success_without_retry(self) -> None:
+        """AC1: No stage_retry entry when the stream succeeds on first attempt."""
+        chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_success([chunk])
+
+        run_logger = MagicMock()
+
+        await _accumulate_stream(
+            agent, "prompt", None, "WP-001", "developer",
+            max_retries=2, base_delay_s=0.0, run_logger=run_logger,
+        )
+
+        run_logger.stream_entry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_entry_when_run_logger_is_none(self) -> None:
+        """AC3: When run_logger is None, retry must still succeed without error."""
+        error = _make_error_with_status(429)
+        chunk = AIMessageChunk(content="Done", id="msg-1")
+        agent = _make_agent_fail_then_succeed(error, [chunk], fail_count=1)
+
+        with patch("src.nodes.asyncio.sleep", new_callable=AsyncMock):
+            msgs, _ = await _accumulate_stream(
+                agent, "prompt", None, "WP-001", "developer",
+                max_retries=1, base_delay_s=0.0, run_logger=None,
+            )
+
+        assert msgs[0].content == "Done"
+
+```
 ###  Path: `/orchestrator/tests/test_streaming_capture.py`
 
 ```py
@@ -7831,6 +8805,29 @@ def _make_stream_agent(chunks: list[tuple]) -> MagicMock:
     agent = MagicMock()
     agent.astream = _astream
     return agent
+
+
+class _TrackingChunkWriter:
+    """Module-level ChunkWriter stub shared across ``TestChunkWriterAlwaysClosed``.
+
+    Tracks ``close()`` and ``write_chunk()`` calls so tests can assert
+    cleanup invariants without touching the real filesystem.  ``delete()``
+    delegates to ``close()`` to mirror the real implementation.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.path = Path("/tmp/chunk.jsonl")
+        self.close_calls: list[bool] = []
+        self.written_chunks: list[dict] = []
+
+    def write_chunk(self, chunk: dict) -> None:
+        self.written_chunks.append(chunk)
+
+    def close(self) -> None:
+        self.close_calls.append(True)
+
+    def delete(self) -> None:
+        self.close()
 
 
 # ---------------------------------------------------------------------------
@@ -8201,19 +9198,12 @@ class TestChunkWriterAlwaysClosed:
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_developer_node(cfg, [])
 
-        close_called: list[bool] = []
+        instances: list[_TrackingChunkWriter] = []
 
-        class _TrackingChunkWriter:
-            """ChunkWriter replacement that tracks close() calls."""
-
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                self.path = Path("/tmp/chunk.jsonl")
-
-            def write_chunk(self, chunk: dict) -> None:
-                pass
-
-            def close(self) -> None:
-                close_called.append(True)
+        def _make_tracker(*args: Any, **kwargs: Any) -> _TrackingChunkWriter:
+            inst = _TrackingChunkWriter(*args, **kwargs)
+            instances.append(inst)
+            return inst
 
         async def _failing_astream(inputs, *args, **kwargs):
             yield ((), (AIMessageChunk(content="partial", id="msg-1"), {}))
@@ -8224,11 +9214,12 @@ class TestChunkWriterAlwaysClosed:
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent), \
-             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+             patch("src.nodes.ChunkWriter", side_effect=_make_tracker):
             result = await node_fn(_base_state())
 
         assert result["stage_success"] is False, "Stage must fail when stream raises"
-        assert close_called, "ChunkWriter.close() must have been called even on stream error"
+        assert instances, "_TrackingChunkWriter was never instantiated"
+        assert instances[0].close_calls, "ChunkWriter.close() must have been called on stream error"
 
     async def test_chunk_writer_closed_on_success(self, tmp_path: Path) -> None:
         """ChunkWriter.close() must be called on the normal success path."""
@@ -8237,30 +9228,24 @@ class TestChunkWriterAlwaysClosed:
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_developer_node(cfg, [])
 
-        close_called: list[bool] = []
+        instances: list[_TrackingChunkWriter] = []
 
-        class _TrackingChunkWriter:
-            """ChunkWriter replacement that tracks close() calls."""
-
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                self.path = Path("/tmp/chunk.jsonl")
-
-            def write_chunk(self, chunk: dict) -> None:
-                pass
-
-            def close(self) -> None:
-                close_called.append(True)
+        def _make_tracker(*args: Any, **kwargs: Any) -> _TrackingChunkWriter:
+            inst = _TrackingChunkWriter(*args, **kwargs)
+            instances.append(inst)
+            return inst
 
         chunk = AIMessageChunk(content="done", id="msg-1")
         agent = _make_stream_agent([((), (chunk, {}))])
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent), \
-             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+             patch("src.nodes.ChunkWriter", side_effect=_make_tracker):
             result = await node_fn(_base_state())
 
         assert result["stage_success"] is True
-        assert close_called, "ChunkWriter.close() must have been called on success"
+        assert instances, "_TrackingChunkWriter was never instantiated"
+        assert instances[0].close_calls, "ChunkWriter.close() must have been called on success"
 
     async def test_partial_chunks_written_before_stream_error(self, tmp_path: Path) -> None:
         """Chunks accumulated before the stream error must have been written
@@ -8270,18 +9255,12 @@ class TestChunkWriterAlwaysClosed:
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_developer_node(cfg, [])
 
-        written_chunks: list[dict] = []
-        close_called: list[bool] = []
+        instances: list[_TrackingChunkWriter] = []
 
-        class _TrackingChunkWriter:
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                self.path = Path("/tmp/chunk.jsonl")
-
-            def write_chunk(self, chunk: dict) -> None:
-                written_chunks.append(chunk)
-
-            def close(self) -> None:
-                close_called.append(True)
+        def _make_tracker(*args: Any, **kwargs: Any) -> _TrackingChunkWriter:
+            inst = _TrackingChunkWriter(*args, **kwargs)
+            instances.append(inst)
+            return inst
 
         async def _failing_stream(inputs, *args, **kwargs):
             yield ((), (AIMessageChunk(content="partial content", id="msg-1"), {}))
@@ -8292,12 +9271,13 @@ class TestChunkWriterAlwaysClosed:
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent), \
-             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+             patch("src.nodes.ChunkWriter", side_effect=_make_tracker):
             result = await node_fn(_base_state())
 
         assert result["stage_success"] is False
-        assert close_called, "ChunkWriter.close() must have been called on error path"
-        assert written_chunks, "Partial chunks must have been written before the error"
+        assert instances, "_TrackingChunkWriter was never instantiated"
+        assert instances[0].close_calls, "ChunkWriter.close() must have been called on error path"
+        assert instances[0].written_chunks, "Partial chunks must have been written before the error"
 
 
 # ---------------------------------------------------------------------------

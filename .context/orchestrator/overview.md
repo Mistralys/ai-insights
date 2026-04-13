@@ -114,6 +114,8 @@ HEARTBEAT_INTERVAL_S=120  # Heartbeat interval in seconds (0 = disabled)
 | `LOG_LEVEL` | no | `INFO` | Python logging verbosity |
 | `HEARTBEAT_INTERVAL_S` | no | `120` | Seconds of console silence before emitting an "alive" heartbeat (`0` = disabled) |
 | `CAPTURE_DIALOGUES` | no | `true` | Capture full agent dialogue exchanges (enabled by default); set to `false`, `0`, or `no` (case-insensitive) to disable |
+| `STREAM_MAX_RETRIES` | no | `2` | Maximum retry attempts on transient API errors mid-stream (overloaded, rate-limited, 5xx, network). `0` disables retry entirely. Invalid or non-numeric values fall back to the default. |
+| `STREAM_RETRY_BASE_DELAY_S` | no | `10.0` | Base delay in seconds for exponential backoff between stream retries. Actual delay: `base * 2^attempt * jitter` (jitter uniform in `[0.5, 1.0)`). Invalid or non-numeric values fall back to the default. |
 
 The LLM model for each stage is read from the persona YAML metadata (`personas/ledger/src/meta/`). At startup, `load_config()` calls `extract_persona_model_slugs()` to build the `stage_models` map — one model slug per stage — sourced from `model_slug` (per-persona) or `default_model_slug` (from `_shared.yaml`). The provider is **auto-detected** from which API key is set (`ANTHROPIC_API_KEY` for `claude-*` slugs, `GOOGLE_API_KEY` for `gemini-*` slugs). `MODEL_NAME` is not read and has no effect.
 
