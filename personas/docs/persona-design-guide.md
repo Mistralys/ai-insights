@@ -2,6 +2,9 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
+**Version:** 2.0.  
+**Last Updated:** 2026-04-11.  
+
 ---
 
 ## Core Philosophy
