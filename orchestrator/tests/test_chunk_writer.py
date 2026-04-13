@@ -435,3 +435,60 @@ class TestCrossPlatformPaths:
     def test_path_is_inside_chunks_subdir(self, tmp_path: Path) -> None:
         with _make_writer(tmp_path) as cw:
             assert cw.path.parent == _chunks_dir(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# ChunkWriter.delete()
+# ---------------------------------------------------------------------------
+
+
+class TestDelete:
+    """Tests for ChunkWriter.delete() — AC for WP-002."""
+
+    def test_delete_removes_chunk_file(self, tmp_path: Path) -> None:
+        """AC-1: delete() removes the chunk file from disk."""
+        cw = _make_writer(tmp_path)
+        path = cw.path
+        assert path.exists(), "file should exist before deletion"
+        cw.delete()
+        assert not path.exists(), "file should be gone after delete()"
+
+    def test_delete_on_already_deleted_file_does_not_raise(self, tmp_path: Path) -> None:
+        """AC-2: delete() is safe when the file no longer exists."""
+        cw = _make_writer(tmp_path)
+        cw.delete()  # first call removes the file
+        # second call — file is already gone; must not raise
+        cw.delete()
+
+    def test_delete_on_never_existing_path_does_not_raise(self, tmp_path: Path) -> None:
+        """AC-2 (variant): graceful no-op when chunk file was never created."""
+        cw = _make_writer(tmp_path)
+        path = cw.path
+        # Remove the file manually before calling delete()
+        path.unlink()
+        cw.delete()  # must not raise
+
+    def test_delete_closes_writer_first(self, tmp_path: Path) -> None:
+        """AC-3: writer is properly closed before the file is deleted."""
+        cw = _make_writer(tmp_path)
+        assert not cw._closed, "writer should be open initially"
+        cw.delete()
+        assert cw._closed, "writer should be closed after delete()"
+        assert cw._fh is None, "file handle should be cleared after delete()"
+
+    def test_delete_on_open_writer_releases_handle(self, tmp_path: Path) -> None:
+        """AC-3 (variant): delete() works correctly on an open (not yet closed) writer."""
+        cw = _make_writer(tmp_path)
+        cw.write_chunk({"x": 1})
+        path = cw.path
+        # Writer is still open — delete() must close it and remove the file.
+        cw.delete()
+        assert not path.exists()
+        assert cw._closed
+
+    def test_delete_after_explicit_close_does_not_raise(self, tmp_path: Path) -> None:
+        """AC-3 (idempotency): close + delete sequence does not raise."""
+        cw = _make_writer(tmp_path)
+        cw.close()
+        cw.delete()  # file still exists; delete() should remove it
+        assert not cw.path.exists()

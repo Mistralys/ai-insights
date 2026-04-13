@@ -20,6 +20,7 @@ import pytest
 from langchain_core.messages import AIMessageChunk
 
 from src.utils.chunk_writer import ChunkWriter
+from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Minimal config stub
@@ -35,6 +36,8 @@ class _FakeConfig:
     }
     workspace_root = Path(__file__).resolve().parent.parent.parent  # ai-insights root
     capture_dialogues = False  # Default off; override in specific test classes
+    stream_max_retries = 0
+    stream_retry_base_delay_s = 10.0
 
     def resolve_model_for_stage(self, stage: str) -> str:
         return self.stage_models.get(stage, "claude-test")
@@ -919,9 +922,8 @@ class TestPipelineResult:
 # ---------------------------------------------------------------------------
 
 
-# _CaptureConfig and _NoCaptureConfig are defined in conftest.py;
-# imported explicitly below due to this directory being a Python package.
-from tests.conftest import _CaptureConfig, _NoCaptureConfig  # noqa: F401
+# _CaptureConfig and _NoCaptureConfig are defined in conftest.py and imported
+# at the top of this file.
 
 
 def _make_mock_chunk_writer(path: Path = Path("/tmp/WP-001-developer-r0.jsonl")) -> MagicMock:
@@ -1003,7 +1005,9 @@ class TestDialogueCaptured:
             assert "wp_id" in entry
             assert entry.get("file_path"), "file_path must be a non-empty string"
             assert entry.get("level") == "INFO"
-            assert entry.get("format") == "chunks", "all dialogue_captured entries must have format='chunks'"
+            assert entry.get("format") == "chunks", (
+                "all dialogue_captured entries must have format='chunks'"
+            )
 
     async def test_dialogue_captured_not_emitted_when_flag_false(self):
         """No dialogue_captured entry when capture_dialogues=False."""
@@ -1829,4 +1833,106 @@ class TestSubagentWiring:
         assert captured.get("subagents") is None, (
             f"Stage {stage!r} must pass subagents=None to create_deep_agent; "
             f"got {captured.get('subagents')!r}"
+        )
+
+
+
+# ---------------------------------------------------------------------------
+# Tests: WP-008 — Config retry values wired into _accumulate_stream via node_fn
+# ---------------------------------------------------------------------------
+
+
+class TestConfigRetryWiring:
+    """Verify that node_fn() passes config retry values to _accumulate_stream().
+
+    AC1 (WP-008): _accumulate_stream() receives retry config values from the
+                  node_fn() closure.
+    AC2 (WP-008): Config values flow correctly from Config to streaming function.
+    """
+
+    @pytest.mark.asyncio
+    async def test_accumulate_stream_receives_max_retries_from_config(self):
+        """node_fn() must forward config.stream_max_retries as max_retries."""
+        from src.nodes.developer import make_developer_node
+
+        class _CustomConfig(_FakeConfig):
+            stream_max_retries = 3
+            stream_retry_base_delay_s = 5.0
+
+        captured: dict = {}
+
+        async def _mock_accumulate_stream(agent, user_prompt, slug_dir, wp_id, stage, **kwargs):
+            captured.update(kwargs)
+            return ([], None)
+
+        node_fn = make_developer_node(_CustomConfig(), FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with (
+            _patch_persona(),
+            create_p,
+            backend_p,
+            patch("src.nodes._accumulate_stream", side_effect=_mock_accumulate_stream),
+        ):
+            await node_fn(base_state())
+
+        assert captured.get("max_retries") == 3, (
+            f"Expected max_retries=3, got {captured.get('max_retries')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_accumulate_stream_receives_base_delay_from_config(self):
+        """node_fn() must forward config.stream_retry_base_delay_s as base_delay_s."""
+        from src.nodes.developer import make_developer_node
+
+        class _CustomConfig(_FakeConfig):
+            stream_max_retries = 1
+            stream_retry_base_delay_s = 7.5
+
+        captured: dict = {}
+
+        async def _mock_accumulate_stream(agent, user_prompt, slug_dir, wp_id, stage, **kwargs):
+            captured.update(kwargs)
+            return ([], None)
+
+        node_fn = make_developer_node(_CustomConfig(), FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with (
+            _patch_persona(),
+            create_p,
+            backend_p,
+            patch("src.nodes._accumulate_stream", side_effect=_mock_accumulate_stream),
+        ):
+            await node_fn(base_state())
+
+        assert captured.get("base_delay_s") == 7.5, (
+            f"Expected base_delay_s=7.5, got {captured.get('base_delay_s')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_zero_max_retries_forwarded_correctly(self):
+        """A config with stream_max_retries=0 must disable retry (max_retries=0)."""
+        from src.nodes.developer import make_developer_node
+
+        class _ZeroRetryConfig(_FakeConfig):
+            stream_max_retries = 0
+            stream_retry_base_delay_s = 10.0
+
+        captured: dict = {}
+
+        async def _mock_accumulate_stream(agent, user_prompt, slug_dir, wp_id, stage, **kwargs):
+            captured.update(kwargs)
+            return ([], None)
+
+        node_fn = make_developer_node(_ZeroRetryConfig(), FAKE_TOOLS)
+        create_p, backend_p = _patch_deep_agent()
+        with (
+            _patch_persona(),
+            create_p,
+            backend_p,
+            patch("src.nodes._accumulate_stream", side_effect=_mock_accumulate_stream),
+        ):
+            await node_fn(base_state())
+
+        assert captured.get("max_retries") == 0, (
+            f"Expected max_retries=0, got {captured.get('max_retries')!r}"
         )

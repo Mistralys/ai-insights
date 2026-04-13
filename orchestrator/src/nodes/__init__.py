@@ -18,11 +18,13 @@ Stage prompts are assembled by each module using ``render_prompt`` and
 
 from __future__ import annotations
 
+import asyncio
 import json as _json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from random import random as _random
 from typing import TYPE_CHECKING, Any, Optional
 
 from langchain_core.messages import AIMessageChunk
@@ -53,20 +55,82 @@ log = logging.getLogger(__name__)
 _FATAL_HTTP_STATUSES: frozenset[int] = frozenset({401, 403})
 
 
-def _is_fatal_error(exc: BaseException) -> bool:
+def _is_fatal_error(exc: BaseException, visited: set[int] | None = None) -> bool:
     """Return True when *exc* is an unrecoverable error that should stop the run.
 
     Detects authentication / permission errors from any LLM provider library
     (Anthropic, OpenAI, Google, generic HTTP clients) by inspecting the
     ``status_code`` attribute that all major SDKs attach to their error classes.
     """
+    if visited is None:
+        visited = set()
+    visited.add(id(exc))
     status = getattr(exc, "status_code", None)
     if status is not None and int(status) in _FATAL_HTTP_STATUSES:
         return True
     # Walk the exception chain — the SDK error may be wrapped.
     cause = exc.__cause__ or exc.__context__
-    if cause is not None and cause is not exc:
-        return _is_fatal_error(cause)
+    if cause is not None and cause is not exc and id(cause) not in visited:
+        return _is_fatal_error(cause, visited)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Retryable error detection
+# ---------------------------------------------------------------------------
+
+def _is_retryable_api_error(exc: BaseException, visited: set[int] | None = None) -> bool:
+    """Return True when *exc* is a transient API error that warrants a retry.
+
+    Classifies the following as retryable:
+
+    * Anthropic ``overloaded_error`` — HTTP 529
+    * Rate-limit errors — HTTP 429
+    * Generic server errors — HTTP 5xx (status >= 500)
+    * Network-layer errors from ``httpx`` (connection failures, timeouts) that
+      carry no ``status_code`` attribute
+
+    Fatal errors (401, 403) detected by :func:`_is_fatal_error` are always
+    classified as **non-retryable**, even when they arrive wrapped in another
+    exception.
+
+    Uses duck-typing (``getattr(exc, "status_code", None)``) so that no direct
+    SDK import is required — the check works with Anthropic, OpenAI, Google,
+    and any other provider that follows the same convention.
+
+    Walks the exception chain using the same pattern as :func:`_is_fatal_error`
+    so that errors wrapped in ``RuntimeError`` or similar are still detected.
+    """
+    if visited is None:
+        visited = set()
+    visited.add(id(exc))
+    # Fatal errors must never be retried, regardless of any other attribute.
+    if _is_fatal_error(exc):
+        return False
+
+    # Check HTTP status code via duck-typing (no SDK import needed).
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        status_int = int(status)
+        if status_int >= 500 or status_int == 429:
+            return True
+
+    # Detect httpx transport-level errors (ConnectError, TimeoutException,
+    # RemoteProtocolError, etc.) without importing httpx.  These exceptions
+    # carry no ``status_code`` but live in the ``httpx`` package namespace.
+    exc_module = type(exc).__module__ or ""
+    if exc_module == "httpx" or exc_module.startswith("httpx."):
+        # httpx.HTTPStatusError carries a status_code; those are already
+        # handled by the block above.  Anything else from httpx that reaches
+        # here is a transport/network error — treat as retryable.
+        if status is None:
+            return True
+
+    # Walk the exception chain — the retryable error may be wrapped.
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and cause is not exc and id(cause) not in visited:
+        return _is_retryable_api_error(cause, visited)
+
     return False
 
 
@@ -342,6 +406,9 @@ async def _accumulate_stream(
     slug_dir: Path | None,
     wp_id: str,
     stage: str,
+    max_retries: int = 0,
+    base_delay_s: float = 10.0,
+    run_logger: Any = None,
 ) -> tuple[list, Path | None]:
     """Run the ``astream()`` loop, accumulate messages, and write JSONL chunks.
 
@@ -359,6 +426,21 @@ async def _accumulate_stream(
         :class:`~src.utils.chunk_writer.ChunkWriter`.
     stage:
         Stage name; used for logging and ChunkWriter file naming.
+    max_retries:
+        Maximum number of retry attempts on transient API errors.  ``0``
+        disables retry entirely.  Each retry resets the accumulator and opens
+        a fresh ChunkWriter file; the partial file from the failed attempt is
+        removed by :meth:`~src.utils.chunk_writer.ChunkWriter.delete`.
+    base_delay_s:
+        Base delay in seconds for exponential backoff between retries.  The
+        actual delay per attempt is
+        ``base_delay_s * 2**attempt * (0.5 + random() * 0.5)``.
+    run_logger:
+        Optional run-scoped JSONL logger (from
+        :func:`~src.utils.logging.get_run_logger`).  When provided, a
+        ``stage_retry`` entry is streamed to the log on every retry attempt.
+        When ``None``, retry attempts are only recorded via the standard
+        Python logger.
 
     Returns
     -------
@@ -366,77 +448,110 @@ async def _accumulate_stream(
         ``(msgs, chunk_file_path)`` where *msgs* is the list of reconstructed
         LangChain messages in stream order and *chunk_file_path* is the Path of
         the written JSONL chunk file, or ``None`` if chunk capture was not active.
-
-        When the ``astream()`` loop raises an exception, the ``finally`` block
-        closes the ChunkWriter and reconstructs any partially collected messages
-        before the exception propagates to the caller.
     """
-    _chunk_writer: ChunkWriter | None = None
-    _chunk_file_path: Path | None = None
-    _chunk_accumulator: dict[str, AIMessageChunk] = {}
-    _msg_order: list[Any] = []
+    for attempt in range(max_retries + 1):
+        _chunk_writer: ChunkWriter | None = None
+        _chunk_file_path: Path | None = None
+        _chunk_accumulator: dict[str, AIMessageChunk] = {}
+        _msg_order: list[Any] = []
 
-    try:
-        if slug_dir is not None:
-            try:
-                _chunk_writer = ChunkWriter(slug_dir=slug_dir, wp_id=wp_id, stage=stage)
-                _chunk_file_path = _chunk_writer.path
-            except OSError:
-                log.warning(
-                    "Could not open chunk file for %s/%s; "
-                    "chunk capture disabled for this run.",
-                    wp_id,
-                    stage,
-                )
-
-        async for _stream_item in agent.astream(
-            {"messages": [{"role": "user", "content": user_prompt}]},
-            stream_mode="messages",
-            subgraphs=True,
-        ):
-            # Unpack the (ns, (msg, metadata)) structure yielded by
-            # subgraph-aware message streaming.
-            _ns, _inner = _stream_item
-            _msg, _meta = _inner
-
-            # Write raw chunk to JSONL immediately (flush guaranteed
-            # by ChunkWriter.write_chunk).
-            if _chunk_writer is not None:
-                _chunk_writer.write_chunk({
-                    "ns": list(_ns),
-                    "msg": _msg.model_dump(),
-                    "metadata": _meta,
-                })
-
-            # Accumulate AIMessageChunk fragments; pass other types through.
-            if isinstance(_msg, AIMessageChunk):
-                _msg_id = _msg.id
-                # AIMessageChunk with id=None is rare (modern LangGraph
-                # always assigns IDs) and is safely dropped during
-                # message reconstruction in the `finally` block below.
-                if _msg_id is None:
-                    log.debug(
-                        "AIMessageChunk with id=None received (stage %s); "
-                        "chunk will be dropped during message reconstruction.",
+        try:
+            if slug_dir is not None:
+                try:
+                    _chunk_writer = ChunkWriter(slug_dir=slug_dir, wp_id=wp_id, stage=stage)
+                    _chunk_file_path = _chunk_writer.path
+                except OSError:
+                    log.warning(
+                        "Could not open chunk file for %s/%s; "
+                        "chunk capture disabled for this run.",
+                        wp_id,
                         stage,
                     )
-                if _msg_id and _msg_id in _chunk_accumulator:
-                    _chunk_accumulator[_msg_id] = (
-                        _chunk_accumulator[_msg_id] + _msg
-                    )
-                else:
-                    _chunk_accumulator[_msg_id] = _msg
-                    _msg_order.append(("chunk", _msg_id))
-            else:
-                _msg_order.append(("direct", _msg))
 
-    finally:
+            async for _stream_item in agent.astream(
+                {"messages": [{"role": "user", "content": user_prompt}]},
+                stream_mode="messages",
+                subgraphs=True,
+            ):
+                # Unpack the (ns, (msg, metadata)) structure yielded by
+                # subgraph-aware message streaming.
+                _ns, _inner = _stream_item
+                _msg, _meta = _inner
+
+                # Write raw chunk to JSONL immediately (flush guaranteed
+                # by ChunkWriter.write_chunk).
+                if _chunk_writer is not None:
+                    _chunk_writer.write_chunk({
+                        "ns": list(_ns),
+                        "msg": _msg.model_dump(),
+                        "metadata": _meta,
+                    })
+
+                # Accumulate AIMessageChunk fragments; pass other types through.
+                if isinstance(_msg, AIMessageChunk):
+                    _msg_id = _msg.id
+                    # AIMessageChunk with id=None is rare (modern LangGraph
+                    # always assigns IDs) and is safely dropped during
+                    # message reconstruction below.
+                    if _msg_id is None:
+                        log.debug(
+                            "AIMessageChunk with id=None received (stage %s); "
+                            "chunk will be dropped during message reconstruction.",
+                            stage,
+                        )
+                    if _msg_id and _msg_id in _chunk_accumulator:
+                        _chunk_accumulator[_msg_id] = (
+                            _chunk_accumulator[_msg_id] + _msg
+                        )
+                    else:
+                        _chunk_accumulator[_msg_id] = _msg
+                        _msg_order.append(("chunk", _msg_id))
+                else:
+                    _msg_order.append(("direct", _msg))
+
+        except BaseException as _exc:
+            # Clean up the partial chunk file before deciding whether to retry.
+            if _chunk_writer is not None:
+                _chunk_writer.delete()
+
+            # Fatal errors are never retried — propagate immediately.
+            if not _is_retryable_api_error(_exc):
+                raise
+
+            # Retries exhausted — propagate the last error.
+            if attempt >= max_retries:
+                raise
+
+            # Compute exponential backoff with jitter in [0.5, 1.0).
+            delay = base_delay_s * (2 ** attempt) * (0.5 + _random() * 0.5)
+            log.warning(
+                "Stream attempt %d/%d failed with transient error (%s); "
+                "retrying in %.1fs.",
+                attempt + 1,
+                max_retries + 1,
+                type(_exc).__name__,
+                delay,
+            )
+            if run_logger:
+                _retry_entry: dict = {
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "action": "stage_retry",
+                    "stage": stage,
+                    "wp_id": wp_id,
+                    "attempt": attempt + 1,
+                    "max_attempts": max_retries + 1,
+                    "error": str(_exc),
+                    "delay_s": round(delay, 1),
+                    "level": "WARNING",
+                }
+                run_logger.stream_entry(_retry_entry)
+            await asyncio.sleep(delay)
+            continue
+
+        # Success path — close the writer and reconstruct messages in stream order.
         if _chunk_writer is not None:
             _chunk_writer.close()
 
-        # Reconstruct msgs in stream order from accumulated chunks and
-        # direct (non-AI) messages.  Done in `finally` so that partial
-        # messages are available even when the stream loop raises.
         msgs: list = []
         for _entry in _msg_order:
             if _entry[0] == "chunk":
@@ -446,7 +561,11 @@ async def _accumulate_stream(
             else:
                 msgs.append(_entry[1])
 
-    return msgs, _chunk_file_path
+        return msgs, _chunk_file_path
+
+    # Unreachable in practice (the loop always returns or re-raises),
+    # but satisfies the type checker.
+    return [], None  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
@@ -769,7 +888,14 @@ def create_stage_node(
                     )
 
             _msgs, _chunk_file_path = await _accumulate_stream(
-                agent, user_prompt, _slug_dir, _wp_id, stage
+                agent,
+                user_prompt,
+                _slug_dir,
+                _wp_id,
+                stage,
+                max_retries=_app_config.stream_max_retries,
+                base_delay_s=_app_config.stream_retry_base_delay_s,
+                run_logger=run_logger,
             )
 
             last_msg = _msgs[-1] if _msgs else None

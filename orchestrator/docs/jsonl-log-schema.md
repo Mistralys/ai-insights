@@ -68,6 +68,7 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 | `pipeline_result` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `pipeline_status`, `files_modified`, `metrics`, `summary`, `duration_s` |
 | `pipeline_rollback` | `nodes/__init__.py` | `stage`, `wp_id`, `pipeline_type`, `level="INFO"` — emitted when error-path rollback successfully cancels an orphaned IN_PROGRESS pipeline |
 | `tool_call` | `utils/tool_wrappers.py` | `stage`, `wp_id`, `action="tool_call"`, `tool_name`, `tool_wp_id`, `level="DEBUG"` — emitted before every MCP tool `ainvoke`; argument payload excluded (privacy constraint) |
+| `stage_retry` | `nodes/__init__.py` | `stage`, `wp_id`, `attempt`, `max_attempts`, `error`, `delay_s`, `level="WARNING"` — emitted inside `_accumulate_stream` when a transient API error triggers a retry; `attempt` is 1-based (first retry = 1), `delay_s` is the computed backoff rounded to 1 decimal place |
 | `dialogue_captured` | `nodes/__init__.py` | `stage`, `wp_id`, `file_path` (non-empty absolute path), `partial` (optional boolean, `true` for error-path captures), `level="INFO"` — emitted by default; suppressed when `capture_dialogues=False` |
 | `wp_status_change` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `old_status`, `new_status`, `level="INFO"` |
 | `wp_complete` | `supervisor.py` | `stage="supervisor"`, `wp_id`, `level="INFO"` |
@@ -89,13 +90,14 @@ Every run writes a JSONL file to `orchestrator/logs/` during execution. At run c
 
 ### `stage_start` / `stage_complete` / `stage_error` ordering
 
-For every stage invocation, three to five entries are written in order:
+For every stage invocation, three to six entries are written in order:
 
 1. **`stage_start`** — emitted immediately before the Deep Agent is created
 2. **`tool_call`** *(0–N)* — emitted once before each MCP tool `ainvoke`; high-frequency at `level: "DEBUG"` (one per tool call during the stage); never includes argument payloads
-3. **`stage_complete`** (or **`stage_error`** on exception) — emitted after the agent finishes
-4. **`pipeline_result`** *(optional)* — emitted after `stage_complete` when the WP still exists and carries at least one pipeline record; omitted on read-back failure or when `wp_id` is empty
-5. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. Includes `partial: true` if captured in the error path after a crash. A write failure is caught silently and this entry is omitted.
+3. **`stage_retry`** *(0–N)* — emitted at `level: "WARNING"` each time a transient API error triggers a retry inside `_accumulate_stream`; includes `attempt` (1-based), `max_attempts`, `error`, and `delay_s`. Zero entries appear when no retry occurs. Steps 2 and 3 may interleave across multiple stream attempts.
+4. **`stage_complete`** (or **`stage_error`** on exception) — emitted after the agent finishes
+5. **`pipeline_result`** *(optional)* — emitted after `stage_complete` when the WP still exists and carries at least one pipeline record; omitted on read-back failure or when `wp_id` is empty
+6. **`dialogue_captured`** *(optional)* — emitted by default when `wp_id` is non-empty (suppressed when `capture_dialogues=False`); records the path of the Markdown dialogue file written to disk. Includes `partial: true` if captured in the error path after a crash. A write failure is caught silently and this entry is omitted.
 
 `pipeline_result.duration_s` will be `null` until `ledger_complete_pipeline` stores `duration_ms` in the WP record (separate MCP server work package).
 

@@ -31,6 +31,8 @@ class _StreamCaptureConfig:
     def __init__(self, workspace_root: Path) -> None:
         self.workspace_root = workspace_root
         self.capture_dialogues = True
+        self.stream_max_retries = 0
+        self.stream_retry_base_delay_s = 10.0
         self.stage_models = {
             "developer": "claude-test",
             "pm": "claude-test",
@@ -58,6 +60,8 @@ class _CaptureConfig:
     }
     workspace_root = Path(__file__).resolve().parent.parent.parent
     capture_dialogues = True
+    stream_max_retries = 0
+    stream_retry_base_delay_s = 10.0
 
     def resolve_model_for_stage(self, stage: str) -> str:
         return self.stage_models.get(stage, "claude-test")
@@ -68,6 +72,8 @@ class _NoCaptureConfig:
 
     workspace_root = Path("/tmp/no-capture-ws")
     capture_dialogues = False
+    stream_max_retries = 0
+    stream_retry_base_delay_s = 10.0
     stage_models = {k: "claude-test" for k in [
         "developer", "pm", "qa", "reviewer", "security_auditor",
         "docs", "release_engineer", "synthesis", "planner",

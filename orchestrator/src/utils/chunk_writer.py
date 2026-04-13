@@ -178,6 +178,24 @@ class ChunkWriter:
             finally:
                 self._fh = None
 
+    def delete(self) -> None:
+        """Close the writer and delete the chunk file from disk.
+
+        Closes the underlying file handle first (idempotent), then removes
+        the chunk file.  If the file does not exist the call completes
+        silently without raising.  Any other :class:`OSError` is logged at
+        ``DEBUG`` level and then silently swallowed — callers are never
+        interrupted by cleanup failures.
+
+        Intended for use when a stream retry discards a partial chunk file
+        and a fresh write must start with a new file path.
+        """
+        self.close()
+        try:
+            self._path.unlink(missing_ok=True)
+        except OSError as exc:
+            log.debug("ChunkWriter.delete: error deleting %s — %s", self._path, exc)
+
     # ------------------------------------------------------------------
     # Context manager protocol
     # ------------------------------------------------------------------

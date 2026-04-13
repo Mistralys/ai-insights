@@ -435,3 +435,85 @@ class TestApiKeyValidation:
                 with pytest.raises(OSError, match="Expected 9 stage model slugs"):
                     load_config()
 
+
+# ---------------------------------------------------------------------------
+# Tests: Config.stream_max_retries and Config.stream_retry_base_delay_s
+# ---------------------------------------------------------------------------
+
+
+class TestStreamRetryConfig:
+    """Tests for stream retry configuration fields and env-var parsing (WP-003)."""
+
+    # ------------------------------------------------------------------
+    # AC-1: correct defaults
+    # ------------------------------------------------------------------
+
+    def test_stream_max_retries_default(self):
+        """stream_max_retries defaults to 2 when STREAM_MAX_RETRIES is unset."""
+        cfg = _load()
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_retry_base_delay_default(self):
+        """stream_retry_base_delay_s defaults to 10.0 when STREAM_RETRY_BASE_DELAY_S is unset."""
+        cfg = _load()
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+    def test_stream_max_retries_is_int(self):
+        cfg = _load()
+        assert isinstance(cfg.stream_max_retries, int)
+
+    def test_stream_retry_base_delay_is_float(self):
+        cfg = _load()
+        assert isinstance(cfg.stream_retry_base_delay_s, float)
+
+    # ------------------------------------------------------------------
+    # AC-2: env vars are parsed correctly
+    # ------------------------------------------------------------------
+
+    def test_stream_max_retries_env_var(self):
+        cfg = _load({"STREAM_MAX_RETRIES": "5"})
+        assert cfg.stream_max_retries == 5
+
+    def test_stream_max_retries_zero_disables_retry(self):
+        cfg = _load({"STREAM_MAX_RETRIES": "0"})
+        assert cfg.stream_max_retries == 0
+
+    def test_stream_retry_base_delay_env_var(self):
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "30.0"})
+        assert cfg.stream_retry_base_delay_s == 30.0
+
+    def test_stream_retry_base_delay_integer_string(self):
+        """An integer string like "20" must be accepted as a valid float."""
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "20"})
+        assert cfg.stream_retry_base_delay_s == 20.0
+
+    # ------------------------------------------------------------------
+    # AC-3: missing or non-numeric values fall back to defaults
+    # ------------------------------------------------------------------
+
+    def test_stream_max_retries_non_numeric_falls_back(self):
+        cfg = _load({"STREAM_MAX_RETRIES": "not-a-number"})
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_max_retries_empty_string_falls_back(self):
+        cfg = _load({"STREAM_MAX_RETRIES": ""})
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_retry_base_delay_non_numeric_falls_back(self):
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "not-a-number"})
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+    def test_stream_retry_base_delay_empty_string_falls_back(self):
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": ""})
+        assert cfg.stream_retry_base_delay_s == 10.0
+
+    def test_stream_max_retries_negative_falls_back(self):
+        """Negative value is invalid; must fall back to the default."""
+        cfg = _load({"STREAM_MAX_RETRIES": "-1"})
+        assert cfg.stream_max_retries == 2
+
+    def test_stream_retry_base_delay_negative_falls_back(self):
+        """Negative delay is invalid; must fall back to the default."""
+        cfg = _load({"STREAM_RETRY_BASE_DELAY_S": "-5.0"})
+        assert cfg.stream_retry_base_delay_s == 10.0
+

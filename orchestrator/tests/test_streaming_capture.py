@@ -73,6 +73,29 @@ def _make_stream_agent(chunks: list[tuple]) -> MagicMock:
     return agent
 
 
+class _TrackingChunkWriter:
+    """Module-level ChunkWriter stub shared across ``TestChunkWriterAlwaysClosed``.
+
+    Tracks ``close()`` and ``write_chunk()`` calls so tests can assert
+    cleanup invariants without touching the real filesystem.  ``delete()``
+    delegates to ``close()`` to mirror the real implementation.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        self.path = Path("/tmp/chunk.jsonl")
+        self.close_calls: list[bool] = []
+        self.written_chunks: list[dict] = []
+
+    def write_chunk(self, chunk: dict) -> None:
+        self.written_chunks.append(chunk)
+
+    def close(self) -> None:
+        self.close_calls.append(True)
+
+    def delete(self) -> None:
+        self.close()
+
+
 # ---------------------------------------------------------------------------
 # Tests: JSONL chunk file creation
 # ---------------------------------------------------------------------------
@@ -441,19 +464,12 @@ class TestChunkWriterAlwaysClosed:
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_developer_node(cfg, [])
 
-        close_called: list[bool] = []
+        instances: list[_TrackingChunkWriter] = []
 
-        class _TrackingChunkWriter:
-            """ChunkWriter replacement that tracks close() calls."""
-
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                self.path = Path("/tmp/chunk.jsonl")
-
-            def write_chunk(self, chunk: dict) -> None:
-                pass
-
-            def close(self) -> None:
-                close_called.append(True)
+        def _make_tracker(*args: Any, **kwargs: Any) -> _TrackingChunkWriter:
+            inst = _TrackingChunkWriter(*args, **kwargs)
+            instances.append(inst)
+            return inst
 
         async def _failing_astream(inputs, *args, **kwargs):
             yield ((), (AIMessageChunk(content="partial", id="msg-1"), {}))
@@ -464,11 +480,12 @@ class TestChunkWriterAlwaysClosed:
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent), \
-             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+             patch("src.nodes.ChunkWriter", side_effect=_make_tracker):
             result = await node_fn(_base_state())
 
         assert result["stage_success"] is False, "Stage must fail when stream raises"
-        assert close_called, "ChunkWriter.close() must have been called even on stream error"
+        assert instances, "_TrackingChunkWriter was never instantiated"
+        assert instances[0].close_calls, "ChunkWriter.close() must have been called on stream error"
 
     async def test_chunk_writer_closed_on_success(self, tmp_path: Path) -> None:
         """ChunkWriter.close() must be called on the normal success path."""
@@ -477,30 +494,24 @@ class TestChunkWriterAlwaysClosed:
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_developer_node(cfg, [])
 
-        close_called: list[bool] = []
+        instances: list[_TrackingChunkWriter] = []
 
-        class _TrackingChunkWriter:
-            """ChunkWriter replacement that tracks close() calls."""
-
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                self.path = Path("/tmp/chunk.jsonl")
-
-            def write_chunk(self, chunk: dict) -> None:
-                pass
-
-            def close(self) -> None:
-                close_called.append(True)
+        def _make_tracker(*args: Any, **kwargs: Any) -> _TrackingChunkWriter:
+            inst = _TrackingChunkWriter(*args, **kwargs)
+            instances.append(inst)
+            return inst
 
         chunk = AIMessageChunk(content="done", id="msg-1")
         agent = _make_stream_agent([((), (chunk, {}))])
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent), \
-             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+             patch("src.nodes.ChunkWriter", side_effect=_make_tracker):
             result = await node_fn(_base_state())
 
         assert result["stage_success"] is True
-        assert close_called, "ChunkWriter.close() must have been called on success"
+        assert instances, "_TrackingChunkWriter was never instantiated"
+        assert instances[0].close_calls, "ChunkWriter.close() must have been called on success"
 
     async def test_partial_chunks_written_before_stream_error(self, tmp_path: Path) -> None:
         """Chunks accumulated before the stream error must have been written
@@ -510,18 +521,12 @@ class TestChunkWriterAlwaysClosed:
         cfg = _StreamCaptureConfig(workspace_root=tmp_path)
         node_fn = make_developer_node(cfg, [])
 
-        written_chunks: list[dict] = []
-        close_called: list[bool] = []
+        instances: list[_TrackingChunkWriter] = []
 
-        class _TrackingChunkWriter:
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
-                self.path = Path("/tmp/chunk.jsonl")
-
-            def write_chunk(self, chunk: dict) -> None:
-                written_chunks.append(chunk)
-
-            def close(self) -> None:
-                close_called.append(True)
+        def _make_tracker(*args: Any, **kwargs: Any) -> _TrackingChunkWriter:
+            inst = _TrackingChunkWriter(*args, **kwargs)
+            instances.append(inst)
+            return inst
 
         async def _failing_stream(inputs, *args, **kwargs):
             yield ((), (AIMessageChunk(content="partial content", id="msg-1"), {}))
@@ -532,12 +537,13 @@ class TestChunkWriterAlwaysClosed:
 
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent), \
-             patch("src.nodes.ChunkWriter", side_effect=_TrackingChunkWriter):
+             patch("src.nodes.ChunkWriter", side_effect=_make_tracker):
             result = await node_fn(_base_state())
 
         assert result["stage_success"] is False
-        assert close_called, "ChunkWriter.close() must have been called on error path"
-        assert written_chunks, "Partial chunks must have been written before the error"
+        assert instances, "_TrackingChunkWriter was never instantiated"
+        assert instances[0].close_calls, "ChunkWriter.close() must have been called on error path"
+        assert instances[0].written_chunks, "Partial chunks must have been written before the error"
 
 
 # ---------------------------------------------------------------------------
