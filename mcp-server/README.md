@@ -320,6 +320,7 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - Delete completed projects permanently
 - Toggle auto-handoff, adjust the max handoff depth, and toggle dialogue capture at runtime (no restart required)
 - **Dark mode** — theme toggle button (🌙 / ☀️) in the nav header persists the preference to `localStorage`; defaults to dark on first visit. FOUC-prevention inline script in `<head>` applies the saved theme before first paint
+- **Stale-instance detection** — `stale-check.js` polls the `/api/server-info` endpoint every 30 seconds and inserts a persistent `stale-banner` at the top of the page when the GUI detects that on-disk component versions (MCP Server, Personas, Orchestrator) differ from the versions present at boot time; the banner names each changed component and prompts the user to relaunch; polling stops once the banner is shown; the module is idempotent (safe to call `StaleCheck.init()` multiple times)
 
 > The GUI server is a **separate process** from the MCP server. Both can run simultaneously and share the same ledger directory. The MCP server monitors `gui-config.json` for configuration changes via `fs.watch()` — changes take effect immediately without restarting.
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * Tests for gui/public/api-client.js — specifically the run log methods.
+ * Tests for gui/public/api-client.js — run log methods and server-info endpoint.
  *
  * Uses jsdom + vm.runInThisContext to load the browser-side script, then mocks
  * globalThis.fetch to assert the URLs and options that API methods produce.
@@ -129,5 +129,23 @@ describe('API.getRunLogEntries', () => {
     await globalThis.API.getRunLogEntries('my-slug', 'file.jsonl', 0);
 
     expect(calls[0]!.url).toContain('?after=0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getServerInfo
+// ---------------------------------------------------------------------------
+
+describe('API.getServerInfo', () => {
+  it('calls GET /api/server-info and resolves to the server-info payload', async () => {
+    const payload = { stale: false, bootVersions: {}, diskVersions: {} };
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.getServerInfo();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/server-info');
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toEqual(payload);
   });
 });

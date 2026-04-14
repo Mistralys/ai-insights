@@ -752,6 +752,21 @@ input[type="number"].form-control {
 }
 
 /* ----------------------------------------------------------
+   Stale instance warning banner
+   ---------------------------------------------------------- */
+.stale-banner {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  background: #fef3c7;
+  color: #78350f;
+  border-bottom: 2px solid #f59e0b;
+  padding: 12px 24px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+/* ----------------------------------------------------------
    Pagination controls (WP-008)
    ---------------------------------------------------------- */
 .pagination-row {
@@ -1555,6 +1570,12 @@ th[data-sort="total_work_packages"] {
   background: #1e3a5f;
   color: #93c5fd;
   border-color: #1e40af;
+}
+
+[data-theme="dark"] .stale-banner {
+  background: #451a03;
+  color: #fbbf24;
+  border-bottom-color: #92400e;
 }
 
 /* Reset modal warning banner */

@@ -17,6 +17,8 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot, ORCHESTRATOR_LOGS_DIR } from '../src/utils/ledger-root.js';
+import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
+import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
 import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
 import { startAutoArchiveTimer } from '../src/gui/auto-archive.js';
 import {
@@ -503,7 +505,8 @@ export async function handleRequest(
   ledgerRoot: string,
   configPath: string,
   port: number,
-  orchestratorLogsDir: string
+  orchestratorLogsDir: string,
+  bootVersions: WorkspaceVersions | null = null
 ): Promise<void> {
   const method = req.method?.toUpperCase() ?? 'GET';
   const url = req.url ?? '/';
@@ -544,6 +547,23 @@ export async function handleRequest(
         process.stderr.write(`[server] Unhandled error in PUT /api/config: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
+    }
+    return;
+  }
+
+  // GET /api/server-info — special case: needs bootVersions closure from main()
+  if (method === 'GET' && path === '/api/server-info') {
+    try {
+      const boot = bootVersions ?? captureWorkspaceVersions();
+      const disk = captureWorkspaceVersions();
+      const stale =
+        boot.mcpServer !== disk.mcpServer ||
+        boot.personas !== disk.personas ||
+        boot.orchestrator !== disk.orchestrator;
+      sendJson(res, 200, { stale, bootVersions: boot, diskVersions: disk }, port);
+    } catch (err) {
+      process.stderr.write(`[server] Unhandled error in GET /api/server-info: ${String(err)}\n`);
+      sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
     }
     return;
   }
@@ -657,12 +677,16 @@ async function main(): Promise<void> {
 
   const orchestratorLogsDir = ORCHESTRATOR_LOGS_DIR;
 
+  // Capture component versions at server startup. Passed into handleRequest()
+  // so that subsequent GET /api/server-info calls can detect stale instances.
+  const bootVersions = captureWorkspaceVersions();
+
   // Start the auto-archive background service. Reads auto_archive_days from
   // config; no-op if the setting is 0.
   startAutoArchiveTimer(ledgerRoot);
 
   const server = createServer((req, res) => {
-    handleRequest(req, res, ledgerRoot, configPath, port, orchestratorLogsDir).catch((err) => {
+    handleRequest(req, res, ledgerRoot, configPath, port, orchestratorLogsDir, bootVersions).catch((err) => {
       process.stderr.write(`[server] Unhandled error: ${String(err)}\n`);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'application/json', ...securityHeaders() });

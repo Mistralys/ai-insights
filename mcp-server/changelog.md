@@ -1,5 +1,8 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.24.1 - GUI Stale Version Guard
+- GUI: Now displaying a notification banner for stale GUI running jobs.
+
 ## v1.24.0 - Streaming Chunks & Stage-Scoped Handoffs
 - GUI: Added chunk file browser and JSONL-to-Markdown renderer
   for streaming dialogue capture.

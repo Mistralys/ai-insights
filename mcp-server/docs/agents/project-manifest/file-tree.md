@@ -31,7 +31,8 @@ mcp-server/
 │       ├── theme.js         # Theme IIFE; localStorage key mcp-theme; init() applies saved theme
 │       ├── router.js        # Router IIFE; hash-based routing
 │       ├── utils.js         # Shared helpers: escapeHtml, formatDate, statusBadge, showLoading, showError
-│       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init()
+│       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init(); StaleCheck.init()
+│       ├── stale-check.js   # StaleCheck IIFE; init() polls API.getServerInfo() immediately then every 30 s; injects .stale-banner into document.body before <header> on stale:true; stops polling after banner; silently continues on network errors
 │       ├── views/
 │   │   ├── project-list.js    # renderProjectList — status filter, search, sortable columns, archive/unarchive/delete row buttons, pagination, 10s polling; runner filter dropdown (RUNNER_STORAGE key mcp-runner-filter, buildRunnerOptions() dynamically filters runner_counts to count only — fixed: previously hardcoded all 4 types; preserves stale localStorage selections as zero-count entry); runnerBadge() renders .badge.badge-runner.badge-runner-{type} — fixed: previously emitted badge-unknown instead of badge-runner-unknown; runnerLabel() unused — cleanup candidate; sortable Runner column
 │   │   ├── project-detail.js  # extractSynopsis, renderPlan, renderSynthesis, renderProjectDetail; STAGE_ABBREV, buildPipelineTrack; showResetModal; archive banner
@@ -89,8 +90,9 @@ mcp-server/
 │       ├── project-reset.ts     # Semi-intelligent project reset
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
-│       ├── server-version.ts    # Reads MCP server version from package.json
-│       ├── timestamp.ts         # Timestamp formatting
+│       ├── server-version.ts      # Reads MCP server version from package.json
+│       ├── timestamp.ts           # Timestamp formatting
+│       ├── workspace-versions.ts  # captureWorkspaceVersions() — reads mcpServer, personas, orchestrator versions from disk
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
@@ -101,6 +103,7 @@ mcp-server/
     │
     ├── gui/                     # GUI and config module tests
     │   ├── api-client.test.ts
+    │   ├── stale-check.test.ts  # 10 unit tests for StaleCheck IIFE (jsdom + vm.runInThisContext + fake timers): immediate poll, 30 s interval, banner insertion before <header>, changed-component listing, polling stop after banner, silent error handling
     │   ├── api-reset.test.ts    # Integration tests for handleResetProject (13 tests)
     │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
     │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
