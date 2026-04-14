@@ -61,6 +61,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── app.js
     │   │   ├── index.html
     │   │   ├── router.js
+    │   │   ├── stale-check.js
     │   │   ├── styles.css
     │   │   ├── theme.js
     │   │   ├── utils.js
@@ -114,6 +115,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── server-version.ts
     │   │   └── timestamp.ts
     │   │   └── workflow-helpers.ts
+    │   │   └── workspace-versions.ts
     │   │   └── wp-id.ts
     ├── storage/
     │   ├── ledger/
@@ -136,6 +138,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── run-log-server.test.ts
     │   │   ├── run-log.test.ts
     │   │   ├── security-headers.test.ts
+    │   │   ├── server-info.test.ts
+    │   │   ├── stale-check.test.ts
     │   ├── helpers/
     │   │   ├── create-temp-store.ts
     │   │   ├── fixtures.ts

@@ -22,6 +22,8 @@ _SOURCE: Test suite (unit, integration)_
             ├── run-log-server.test.ts
             ├── run-log.test.ts
             ├── security-headers.test.ts
+            ├── server-info.test.ts
+            ├── stale-check.test.ts
         └── integration/
             ├── auto-handoff.test.ts
             ├── full-workflow.test.ts
@@ -78,7 +80,7 @@ _SOURCE: Test suite (unit, integration)_
 // @vitest-environment jsdom
 
 /**
- * Tests for gui/public/api-client.js — specifically the run log methods.
+ * Tests for gui/public/api-client.js — run log methods and server-info endpoint.
  *
  * Uses jsdom + vm.runInThisContext to load the browser-side script, then mocks
  * globalThis.fetch to assert the URLs and options that API methods produce.
@@ -206,6 +208,24 @@ describe('API.getRunLogEntries', () => {
     await globalThis.API.getRunLogEntries('my-slug', 'file.jsonl', 0);
 
     expect(calls[0]!.url).toContain('?after=0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getServerInfo
+// ---------------------------------------------------------------------------
+
+describe('API.getServerInfo', () => {
+  it('calls GET /api/server-info and resolves to the server-info payload', async () => {
+    const payload = { stale: false, bootVersions: {}, diskVersions: {} };
+    const calls = mockFetch(payload);
+
+    const result = await globalThis.API.getServerInfo();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/server-info');
+    expect(calls[0]!.opts.method).toBe('GET');
+    expect(result).toEqual(payload);
   });
 });
 
@@ -7521,6 +7541,405 @@ describe('Security headers — WP-001', () => {
     });
     expect(status).toBe(200);
     expectSecurityHeaders(headers);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/server-info.test.ts`
+
+```ts
+/**
+ * Integration tests for GET /api/server-info in gui/server.ts (WP-003).
+ *
+ * Verifies:
+ *   - 200 JSON response with stale, bootVersions, diskVersions fields
+ *   - stale: false when boot versions match disk versions
+ *   - stale: true when any boot version differs from the current disk version
+ *   - CORS and security headers are present on the response
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { handleRequest } from '../../gui/server.js';
+import { captureWorkspaceVersions } from '../../src/utils/workspace-versions.js';
+import type { WorkspaceVersions } from '../../src/utils/workspace-versions.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function startTestServer(
+  ledgerRoot: string,
+  configPath: string,
+  logsDir: string,
+  bootVersions?: WorkspaceVersions,
+): Promise<{ server: Server; baseUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      handleRequest(req, res, ledgerRoot, configPath, 0, logsDir, bootVersions ?? null).catch(
+        (err) => {
+          process.stderr.write(`[test-server] Unhandled: ${String(err)}\n`);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'error' } }));
+          }
+        },
+      );
+    });
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') {
+        resolve({ server, baseUrl: `http://127.0.0.1:${addr.port}` });
+      } else {
+        reject(new Error('Could not determine server port'));
+      }
+    });
+
+    server.on('error', reject);
+  });
+}
+
+function stopServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('GET /api/server-info — WP-003', () => {
+  let ledgerRoot: string;
+  let logsDir: string;
+  let configPath: string;
+  let server: Server;
+  let baseUrl: string;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'server-info-test-ledger-'));
+    logsDir = await mkdtemp(join(tmpdir(), 'server-info-test-logs-'));
+    configPath = join(ledgerRoot, 'gui-config.json');
+  });
+
+  afterEach(async () => {
+    await stopServer(server);
+    await rm(ledgerRoot, { recursive: true, force: true });
+    await rm(logsDir, { recursive: true, force: true });
+  });
+
+  it('returns 200 with stale, bootVersions, diskVersions fields', async () => {
+    ({ server, baseUrl } = await startTestServer(ledgerRoot, configPath, logsDir));
+
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as {
+      stale: boolean;
+      bootVersions: WorkspaceVersions;
+      diskVersions: WorkspaceVersions;
+    };
+    expect(typeof body.stale).toBe('boolean');
+    expect(body.bootVersions).toHaveProperty('mcpServer');
+    expect(body.bootVersions).toHaveProperty('personas');
+    expect(body.bootVersions).toHaveProperty('orchestrator');
+    expect(body.diskVersions).toHaveProperty('mcpServer');
+    expect(body.diskVersions).toHaveProperty('personas');
+    expect(body.diskVersions).toHaveProperty('orchestrator');
+  });
+
+  it('returns stale: false when boot versions match disk versions', async () => {
+    // Capture the real current disk versions to use as bootVersions.
+    const currentVersions = captureWorkspaceVersions();
+    ({ server, baseUrl } = await startTestServer(ledgerRoot, configPath, logsDir, currentVersions));
+
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    const body = (await res.json()) as { stale: boolean };
+    expect(body.stale).toBe(false);
+  });
+
+  it('returns stale: true when MCP server boot version differs from disk', async () => {
+    const currentVersions = captureWorkspaceVersions();
+    const staleBootVersions: WorkspaceVersions = {
+      ...currentVersions,
+      mcpServer: '0.0.0-stale-test',
+    };
+    ({ server, baseUrl } = await startTestServer(
+      ledgerRoot,
+      configPath,
+      logsDir,
+      staleBootVersions,
+    ));
+
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    const body = (await res.json()) as {
+      stale: boolean;
+      bootVersions: WorkspaceVersions;
+      diskVersions: WorkspaceVersions;
+    };
+    expect(body.stale).toBe(true);
+    expect(body.bootVersions.mcpServer).toBe('0.0.0-stale-test');
+    expect(body.diskVersions.mcpServer).toBe(currentVersions.mcpServer);
+  });
+
+  it('returns stale: true when personas boot version differs from disk', async () => {
+    const currentVersions = captureWorkspaceVersions();
+    const staleBootVersions: WorkspaceVersions = {
+      ...currentVersions,
+      personas: '0.0.0-stale-test',
+    };
+    ({ server, baseUrl } = await startTestServer(
+      ledgerRoot,
+      configPath,
+      logsDir,
+      staleBootVersions,
+    ));
+
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    const body = (await res.json()) as { stale: boolean };
+    expect(body.stale).toBe(true);
+  });
+
+  it('returns stale: true when orchestrator boot version differs from disk', async () => {
+    const currentVersions = captureWorkspaceVersions();
+    const staleBootVersions: WorkspaceVersions = {
+      ...currentVersions,
+      orchestrator: '0.0.0-stale-test',
+    };
+    ({ server, baseUrl } = await startTestServer(
+      ledgerRoot,
+      configPath,
+      logsDir,
+      staleBootVersions,
+    ));
+
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    const body = (await res.json()) as { stale: boolean };
+    expect(body.stale).toBe(true);
+  });
+
+  it('applies CORS and security headers to the response', async () => {
+    ({ server, baseUrl } = await startTestServer(ledgerRoot, configPath, logsDir));
+
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+    expect(res.headers.get('content-security-policy')).toMatch(/default-src 'self'/);
+    expect(res.headers.get('content-type')).toMatch(/application\/json/);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/stale-check.test.ts`
+
+```ts
+// @vitest-environment jsdom
+
+/**
+ * Unit tests for gui/public/stale-check.js
+ *
+ * Loads the browser-side IIFE with vm.runInThisContext, stubs globalThis.API,
+ * and uses vi.useFakeTimers to control the polling interval.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import vm from 'node:vm';
+
+// ---------------------------------------------------------------------------
+// Load client script (evaluated once per test file, but re-exec'd per test)
+// ---------------------------------------------------------------------------
+
+const publicDir = join(__dirname, '../../gui/public');
+const staleCheckJs = readFileSync(join(publicDir, 'stale-check.js'), 'utf-8');
+
+// TypeScript declarations for globals injected by the IIFE
+declare global {
+  // eslint-disable-next-line no-var
+  var StaleCheck: { init: () => void };
+  // eslint-disable-next-line no-var
+  var API: { getServerInfo: () => Promise<unknown> };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeServerInfo(stale: boolean, overrides: Record<string, string> = {}) {
+  const base = { mcpServer: '1.0.0', personas: '2.0.0', orchestrator: '3.0.0' };
+  const disk = { ...base, ...overrides };
+  return { stale, bootVersions: base, diskVersions: disk };
+}
+
+// ---------------------------------------------------------------------------
+// Setup / teardown
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  vi.useFakeTimers();
+
+  // Reset DOM: fresh <header> so banner-insertion tests are deterministic
+  document.body.innerHTML = '<header></header><main><div id="app"></div></main>';
+
+  // Re-evaluate the IIFE with vm.runInThisContext so that the module-level
+  // variables (_bannerInserted, _intervalId) are reset before every test.
+  //
+  // Why not a normal `import`? stale-check.js is an IIFE that captures its
+  // private state at evaluation time. Node's module cache means a standard
+  // `import` (or even `require`) would return the already-evaluated module
+  // on the second and subsequent calls, leaving _bannerInserted=true or a
+  // live _intervalId from a previous test. vm.runInThisContext re-executes
+  // the source string in the current V8 context on every beforeEach, so
+  // each test starts with a completely fresh StaleCheck instance.
+  vm.runInThisContext(staleCheckJs);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('StaleCheck.init()', () => {
+  it('calls API.getServerInfo immediately on init', () => {
+    const getServerInfo = vi.fn().mockResolvedValue(makeServerInfo(false));
+    globalThis.API = { getServerInfo };
+
+    globalThis.StaleCheck.init();
+
+    expect(getServerInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('polls again after 30 seconds', async () => {
+    const getServerInfo = vi.fn().mockResolvedValue(makeServerInfo(false));
+    globalThis.API = { getServerInfo };
+
+    globalThis.StaleCheck.init();
+    expect(getServerInfo).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(0);    // flush the immediate promise
+    await vi.advanceTimersByTimeAsync(30_000); // fire one interval tick
+
+    expect(getServerInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not insert a banner when stale is false', async () => {
+    globalThis.API = { getServerInfo: vi.fn().mockResolvedValue(makeServerInfo(false)) };
+
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0); // flush the immediate promise
+
+    expect(document.querySelector('.stale-banner')).toBeNull();
+  });
+});
+
+describe('Banner insertion when stale', () => {
+  it('inserts a .stale-banner element when stale is true', async () => {
+    globalThis.API = { getServerInfo: vi.fn().mockResolvedValue(makeServerInfo(true)) };
+
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(document.querySelector('.stale-banner')).not.toBeNull();
+  });
+
+  it('inserts the banner before <header> (first child of body)', async () => {
+    globalThis.API = { getServerInfo: vi.fn().mockResolvedValue(makeServerInfo(true)) };
+
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const firstChild = document.body.firstElementChild;
+    expect(firstChild?.classList.contains('stale-banner')).toBe(true);
+  });
+
+  it('stops polling after the banner is inserted', async () => {
+    const getServerInfo = vi.fn().mockResolvedValue(makeServerInfo(true));
+    globalThis.API = { getServerInfo };
+
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Banner shown — advance time; polling should be stopped
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // Should not have been called more than once (the initial call)
+    expect(getServerInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists only components whose versions differ', async () => {
+    const info = makeServerInfo(true, { mcpServer: '1.1.0' }); // only mcpServer changed
+    globalThis.API = { getServerInfo: vi.fn().mockResolvedValue(info) };
+
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const banner = document.querySelector('.stale-banner');
+    expect(banner?.textContent).toContain('MCP Server');
+    expect(banner?.textContent).toContain('1.0.0');
+    expect(banner?.textContent).toContain('1.1.0');
+    // Unchanged components must NOT appear
+    expect(banner?.textContent).not.toContain('Personas');
+    expect(banner?.textContent).not.toContain('Orchestrator');
+  });
+
+  it('does not insert a second banner on repeated stale responses', async () => {
+    const getServerInfo = vi.fn().mockResolvedValue(makeServerInfo(true));
+    globalThis.API = { getServerInfo };
+
+    globalThis.StaleCheck.init();
+    await vi.runAllTimersAsync();
+
+    // Simulate a second stale response (should not happen in practice because
+    // polling stops, but guard against the _bannerInserted flag failing)
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(document.querySelectorAll('.stale-banner').length).toBe(1);
+  });
+});
+
+describe('Error handling', () => {
+  it('continues polling silently when the API call rejects', async () => {
+    const getServerInfo = vi.fn()
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue(makeServerInfo(false));
+    globalThis.API = { getServerInfo };
+
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // No banner, no crash
+    expect(document.querySelector('.stale-banner')).toBeNull();
+
+    // Next poll fires normally
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(getServerInfo).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not throw if API is called before DOM has a <header>', async () => {
+    document.body.innerHTML = '<main><div id="app"></div></main>'; // no <header>
+    const info = makeServerInfo(true, { personas: '2.1.0' });
+    globalThis.API = { getServerInfo: vi.fn().mockResolvedValue(info) };
+
+    // Should insert banner as document.body.firstChild instead
+    globalThis.StaleCheck.init();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const firstChild = document.body.firstElementChild;
+    expect(firstChild?.classList.contains('stale-banner')).toBe(true);
   });
 });
 

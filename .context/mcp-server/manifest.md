@@ -1661,6 +1661,35 @@ export async function markProjectComplete(
 ): Promise<MarkProjectCompleteResult>;
 ```
 
+### Workspace Versions — `src/utils/workspace-versions.ts`
+
+Reads the current on-disk version strings for all three workspace components in a single call. Used by the GUI server and any other consumer that needs to display or expose version information without importing from individual `package.json` files.
+
+```typescript
+/** Version strings for all three workspace components. */
+type WorkspaceVersions = {
+  mcpServer: string;    // from mcp-server/package.json → .version
+  personas: string;     // from personas/package.json → .version
+  orchestrator: string; // from orchestrator/pyproject.toml → version = "..."
+};
+
+// Reads the current on-disk version strings for the MCP server, personas build
+// system, and orchestrator.
+//
+// All reads are synchronous (readFileSync). Throws on any of the following:
+//   - ENOENT: any version file is missing or unreadable
+//   - malformed TOML: /^version\s*=\s*"([^"]+)"/m regex yields no match on pyproject.toml
+//
+// The function reads from disk on every call — there is no caching.
+// No external dependencies; uses only Node.js built-ins (fs, url, path).
+//
+// Path resolution: serverDir = join(__dirname, '..', '..'), workspaceRoot = join(serverDir, '..')
+// These offsets are identical from both src/utils/ (dev via tsx) and dist/utils/ (compiled).
+//
+// Exported from src/utils/workspace-versions.ts.
+function captureWorkspaceVersions(): WorkspaceVersions;
+```
+
 ---
 
 ## Internal Testing Utilities
@@ -2298,6 +2327,28 @@ export async function handleGetSynthesisDocument(
   slug: string
 ): Promise<{ content: string }>;
 
+// GET /api/server-info — stale-instance detection (no auth required)
+// Handled via a **special-case block** in server.ts before matchRoute() — needs the
+// bootVersions closure captured once by main() at startup.
+//
+// Response shape:
+//   { stale: boolean, bootVersions: WorkspaceVersions, diskVersions: WorkspaceVersions }
+//
+// `stale` is true when any of `mcpServer`, `personas`, or `orchestrator` version strings
+// differ between the boot-time snapshot and the current on-disk values read at request time.
+//
+// bootVersions=null fallback: when handleRequest() is called without a bootVersions argument
+// (non-production callers), captureWorkspaceVersions() is used for both boot and disk,
+// so stale is always false in that code path.
+//
+// WorkspaceVersions: { mcpServer: string; personas: string; orchestrator: string }
+//   — mcpServer sourced from mcp-server/package.json
+//   — personas  sourced from personas/package.json
+//   — orchestrator sourced from orchestrator/pyproject.toml
+//
+// All three reads are synchronous (readFileSync) on each request.
+// CORS and security headers are applied via sendJson().
+
 // GET /api/config — returns in-memory config (no disk read)
 export async function handleGetConfig(configPath: string): Promise<GuiConfig>;
 
@@ -2466,6 +2517,7 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/config` | `handleGetConfig` |
 | PUT | `/api/config` | `handleUpdateConfig` (body parsed inline) |
 | GET | `/api/insights` | `handleGetInsights` |
+| GET | `/api/server-info` | special-case block in `server.ts` before `matchRoute()` — returns `{ stale, bootVersions, diskVersions }` (stale-instance detection) |
 | POST | `/api/projects/:slug/reset` | `handleResetProject` (body parsed via `readBody()`) |
 
 **Static file serving:** requests not starting with `/api/` are served from `gui/public/` (ESM path via `import.meta.url`). `/` → `index.html`. Unknown paths → 404.
@@ -2488,7 +2540,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | File | Purpose |
 |------|---------|
 | `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
-| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success banners, comment cards, reset modal, action menu dropdown |
+| `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success/stale banners, comment cards, reset modal, action menu dropdown |
 | `api-client.js` | `API` object — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx) |
 | `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
 | `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch |
@@ -2601,8 +2653,20 @@ Dark mode overrides for `.dialogue-btn`, `.dialogue-btn-latest`, and `.dialogue-
 
 > **Accessibility note (future work):** `.dialogue-btn` toggle buttons do not currently set `aria-expanded` — screen readers cannot infer the expanded/collapsed state from the DOM. A future accessibility pass should add `aria-expanded="false"` initially and toggle it alongside `.dialogue-btn-active` on click.
 
+**`styles.css` — Stale instance banner class:**
+
+| Class | Role |
+|-------|------|
+| `.stale-banner` | Full-width sticky banner for stale-instance warnings; `position:sticky; top:0; z-index:200`; amber palette: `#fef3c7` bg / `#78350f` text / `#f59e0b` bottom border (2 px); no `border-radius` (edge-to-edge); `box-sizing:border-box` |
+
+Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf24` text / `#92400e` border. WCAG contrast ratios: light mode **8.15:1**, dark mode **8.97:1** — both exceed WCAG AA (4.5:1).
+
+> **DOM placement:** the banner element must be inserted **before `<header>`** in the DOM. Both the banner and the header use `position:sticky; top:0`; the banner wins the top slot because `z-index:200 > z-index:100`. This ensures the banner remains visible while the header scrolls underneath it.
+
+> **Missing flex properties (intentional):** `display:flex`, `align-items`, and `padding` are not present in this CSS-only WP. They will be added in the HTML integration WP when the banner markup and its inner layout are implemented.
+
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 25 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(slug)` → `GET /api/projects/:slug/runs`; `getRunLogEntries(slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns raw Markdown text via `res.text()` — uses direct `fetch()` rather than the private `request()` helper, which calls `res.json()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(slug, filename)` → `GET /api/projects/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToMarkdown`)
+- **`API`** — async fetch wrappers for all 26 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(slug)` → `GET /api/projects/:slug/runs`; `getRunLogEntries(slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns raw Markdown text via `res.text()` — uses direct `fetch()` rather than the private `request()` helper, which calls `res.json()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(slug, filename)` → `GET /api/projects/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToMarkdown`)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
@@ -6151,7 +6215,8 @@ mcp-server/
 │       ├── theme.js         # Theme IIFE; localStorage key mcp-theme; init() applies saved theme
 │       ├── router.js        # Router IIFE; hash-based routing
 │       ├── utils.js         # Shared helpers: escapeHtml, formatDate, statusBadge, showLoading, showError
-│       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init()
+│       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init(); StaleCheck.init()
+│       ├── stale-check.js   # StaleCheck IIFE; init() polls API.getServerInfo() immediately then every 30 s; injects .stale-banner into document.body before <header> on stale:true; stops polling after banner; silently continues on network errors
 │       ├── views/
 │   │   ├── project-list.js    # renderProjectList — status filter, search, sortable columns, archive/unarchive/delete row buttons, pagination, 10s polling; runner filter dropdown (RUNNER_STORAGE key mcp-runner-filter, buildRunnerOptions() dynamically filters runner_counts to count only — fixed: previously hardcoded all 4 types; preserves stale localStorage selections as zero-count entry); runnerBadge() renders .badge.badge-runner.badge-runner-{type} — fixed: previously emitted badge-unknown instead of badge-runner-unknown; runnerLabel() unused — cleanup candidate; sortable Runner column
 │   │   ├── project-detail.js  # extractSynopsis, renderPlan, renderSynthesis, renderProjectDetail; STAGE_ABBREV, buildPipelineTrack; showResetModal; archive banner
@@ -6209,8 +6274,9 @@ mcp-server/
 │       ├── project-reset.ts     # Semi-intelligent project reset
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
 │       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
-│       ├── server-version.ts    # Reads MCP server version from package.json
-│       ├── timestamp.ts         # Timestamp formatting
+│       ├── server-version.ts      # Reads MCP server version from package.json
+│       ├── timestamp.ts           # Timestamp formatting
+│       ├── workspace-versions.ts  # captureWorkspaceVersions() — reads mcpServer, personas, orchestrator versions from disk
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
@@ -6221,6 +6287,7 @@ mcp-server/
     │
     ├── gui/                     # GUI and config module tests
     │   ├── api-client.test.ts
+    │   ├── stale-check.test.ts  # 10 unit tests for StaleCheck IIFE (jsdom + vm.runInThisContext + fake timers): immediate poll, 30 s interval, banner insertion before <header>, changed-component listing, polling stop after banner, silent error handling
     │   ├── api-reset.test.ts    # Integration tests for handleResetProject (13 tests)
     │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
     │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
