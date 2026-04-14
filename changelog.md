@@ -1,5 +1,10 @@
 # AI Insights Changelog
 
+## v1.18.0 - GUI Stale Instance Detection
+> mcp v1.25.0
+
+- MCP: Added stale-instance banner that alerts when component versions change since the GUI booted.
+
 ## v1.17.0 - Stream Retry on Transient API Errors
 > orchestrator v0.16.0 · personas v3.15.1
 

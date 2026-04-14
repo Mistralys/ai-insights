@@ -1,7 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.24.1 - GUI Stale Version Guard
-- GUI: Now displaying a notification banner for stale GUI running jobs.
+## v1.25.0 - GUI Stale Instance Detection
+- GUI: Added stale-instance banner shown when component versions change after the GUI boots.
+- GUI: New `GET /api/server-info` endpoint compares boot-time and current on-disk versions.
+- Utils: Added `workspace-versions.ts` to read all three workspace component versions.
+- Tests: Added `server-info` and `stale-check` test suites.
 
 ## v1.24.0 - Streaming Chunks & Stage-Scoped Handoffs
 - GUI: Added chunk file browser and JSONL-to-Markdown renderer
