@@ -188,6 +188,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── ledger-root.test.ts
     │   │   └── path-validator.test.ts
     │   │   └── pipeline-maps.test.ts
+    │   │   └── progress.test.ts
     │   │   └── project-reset.test.ts
     │   │   └── runner.test.ts
     │   │   └── timestamp.test.ts
@@ -282,6 +283,7 @@ _SOURCE: Top-level directory tree_
     ├── README.md
     ├── changelog.md
     ├── docs/
+    │   ├── persona-build-system.md
     │   ├── persona-design-guide.md
     ├── ledger/
     │   ├── README.md

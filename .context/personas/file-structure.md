@@ -19,6 +19,7 @@ _SOURCE: Directory tree_
         │   │   ├── tech-stack.md
         │   ├── research/
         │   │   └── 2026-02-22-skill-extraction-mcp-docs.md
+        ├── persona-build-system.md
         ├── persona-design-guide.md
     └── ledger/
         ├── README.md

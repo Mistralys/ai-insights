@@ -242,6 +242,7 @@ _SOURCE: Directory tree_
         │   └── ledger-root.test.ts
         │   └── path-validator.test.ts
         │   └── pipeline-maps.test.ts
+        │   └── progress.test.ts
         │   └── project-reset.test.ts
         │   └── runner.test.ts
         │   └── timestamp.test.ts
