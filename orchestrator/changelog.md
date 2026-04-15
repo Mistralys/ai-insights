@@ -1,20 +1,13 @@
 # Orchestrator Changelog
 
 ## v0.17.0 - Metadata-Driven Subagent Loading
-- Utils: `load_subagents()` now reads subagent slugs from the ledger persona YAML `subagents`
-  field instead of a static `STAGE_SUBAGENT_FILES` dict.
-- Utils: `name` field in each SubAgent spec is now the kebab-case slug; `description` comes
-  from `personas/standalone/src/meta/{slug}.yaml`; `system_prompt` from
-  `personas/standalone/deep-agents/{slug}.md`.
-- Config: Removed `STAGE_SUBAGENT_FILES` constant from `src/config.py`.
-- Tests: Rewrote `tests/test_subagents.py` with fixture-based unit tests and live-workspace
-  integration tests; `pm` stage now returns 4 subagent specs.
-- Docs: Updated architecture guide, public API, project manifest (api-surface, constraints),
-  and AGENTS.md cross-system dependencies table to reflect metadata-driven approach.
-- Utils: Added `_extract_yaml_list()` to parse flat YAML block lists in stdlib-only mode.
-- Utils: Added `find_ledger_yaml_for_stage()` to resolve ledger persona YAML by manifest stage ID.
-- Utils: Refactored `extract_persona_model_slugs()` to delegate per-stage lookup to the new helper.
-- Tests: Added 16 unit + integration tests for the two new helpers in `test_persona_models.py`.
+- Utils: Subagent specs now derived from persona YAML metadata at startup.
+- Utils: Added stage-to-persona YAML resolver shared by subagent and model loaders.
+- Utils: Added YAML list parser for subagent field extraction.
+- Config: Removed static subagent file mapping.
+- Error Handling: Suppressed verbose traces during API key issues.
+- Tests: Rewrote subagent tests with fixtures; added 16 persona-model helper tests.
+- Docs: Updated architecture guide, public API, and manifest for metadata-driven approach.
 
 ## v0.16.0 - Streaming Retry with Backoff
 - Nodes: Automatic retry with exponential backoff when streaming hits overloaded,
