@@ -1395,9 +1395,104 @@ def _extract_yaml_scalar(text: str, key: str) -> str | None:
     return None
 
 
+def _extract_yaml_list(text: str, key: str) -> list[str]:
+    """Return the list of simple scalar items under *key* from YAML *text*.
+
+    Handles the pattern::
+
+        key:
+          - item1
+          - item2
+
+    Returns an empty list if the key is absent or has no list items.
+    Only top-level keys are considered.  Items must be simple scalars (not
+    nested structures).  Inline comments and surrounding quotes (single or
+    double) are stripped from each item.
+
+    If the key is found but has an inline scalar value (e.g. ``key: value``)
+    rather than a block list, an empty list is returned.
+    """
+    prefix = f"{key}:"
+    collecting = False
+    result: list[str] = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(prefix):
+            remainder = stripped[len(prefix):].strip()
+            remainder = _strip_inline_comment(remainder).strip()
+            if not remainder:
+                collecting = True
+                continue
+            # Inline scalar value — not a block list.
+            return []
+        if collecting:
+            if stripped.startswith("- "):
+                val = stripped[2:].strip()
+                val = _strip_inline_comment(val).strip()
+                if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+                    val = val[1:-1]
+                result.append(val)
+            elif stripped == "-":
+                # bare dash with no value — append empty string
+                result.append("")
+            else:
+                # Next top-level key encountered — stop collecting.
+                break
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def find_ledger_yaml_for_stage(
+    stage_id: str,
+    workspace_root: Path | str,
+) -> tuple[Path, str] | None:
+    """Locate the ledger persona YAML file for *stage_id*.
+
+    Reads ``shared/workflow-manifest.json`` to map *stage_id* to a role
+    number, then scans ``personas/ledger/src/meta/`` for the matching file.
+
+    Returns a ``(yaml_path, yaml_text)`` tuple, or ``None`` if no matching
+    file is found or *stage_id* is not in the manifest.
+
+    Notes
+    -----
+    The glob pattern ``[1-9]-*.yaml`` only matches files with a **single-digit**
+    numeric prefix (i.e. role numbers 1–9).  If a tenth role is ever added with
+    a two-digit prefix it will be silently skipped.
+    """
+    workspace_root = Path(workspace_root)
+    meta_dir = workspace_root / _META_DIR_RELATIVE
+    manifest_path = workspace_root / _MANIFEST_RELATIVE
+
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    id_to_number: dict[str, int] = {
+        r["id"]: r["number"] for r in manifest_data.get("roles", [])
+    }
+
+    target_number = id_to_number.get(stage_id)
+    if target_number is None:
+        return None
+
+    for yaml_file in sorted(meta_dir.glob("[1-9]-*.yaml")):
+        text = yaml_file.read_text(encoding="utf-8")
+        number_str = _extract_yaml_scalar(text, "number")
+        if number_str is None:
+            continue
+        try:
+            if int(number_str) == target_number:
+                return (yaml_file, text)
+        except ValueError:
+            continue
+
+    return None
+
 
 def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
     """Read persona YAML metadata and return ``{stage_id: model_slug}``.
@@ -1460,7 +1555,7 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
         )
 
     # ------------------------------------------------------------------
-    # 2. Build number → stage_id from the shared workflow manifest.
+    # 2. Collect all stage IDs from the shared workflow manifest.
     # ------------------------------------------------------------------
     manifest_path = workspace_root / _MANIFEST_RELATIVE
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1469,40 +1564,18 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
             f"'roles' key missing from {manifest_path}. "
             "Ensure shared/workflow-manifest.json is valid."
         )
-    number_to_id: dict[int, str] = {
-        r["number"]: r["id"] for r in manifest_data["roles"]
-    }
+    stage_ids = [r["id"] for r in manifest_data["roles"]]
 
     # ------------------------------------------------------------------
-    # 3. Scan per-persona YAML files (e.g. 1-planner.yaml … 9-synthesis.yaml).
+    # 3. For each stage, locate its persona YAML and extract model_slug.
     # ------------------------------------------------------------------
     result: dict[str, str] = {}
-    for yaml_file in sorted(meta_dir.glob("[1-9]-*.yaml")):
-        text = yaml_file.read_text(encoding="utf-8")
-
-        number_str = _extract_yaml_scalar(text, "number")
-        if number_str is None:
-            log.warning("Skipping %s: no 'number' field found.", yaml_file.name)
+    for stage_id in stage_ids:
+        found = find_ledger_yaml_for_stage(stage_id, workspace_root)
+        if found is None:
+            log.warning("No persona YAML found for stage %r — skipping.", stage_id)
             continue
-        try:
-            number = int(number_str)
-        except ValueError:
-            log.warning(
-                "Skipping %s: 'number' is not an integer: %r.",
-                yaml_file.name,
-                number_str,
-            )
-            continue
-
-        stage_id = number_to_id.get(number)
-        if stage_id is None:
-            log.warning(
-                "Skipping %s: number %d not in workflow manifest.",
-                yaml_file.name,
-                number,
-            )
-            continue
-
+        yaml_file, text = found
         model_slug = _extract_yaml_scalar(text, "model_slug") or default_slug
         result[stage_id] = model_slug
         log.debug(
@@ -1663,13 +1736,25 @@ utils/subagents.py — Subagent definition loader.
 
 Builds SubAgent spec dicts for stages that delegate sub-tasks to specialised
 sub-agents.  Called by the node factory in :mod:`src.nodes` before
-``create_deep_agent()`` so that only the stages listed in
-:data:`~src.config.STAGE_SUBAGENT_FILES` receive a subagent list.
+``create_deep_agent()`` so that only stages with a ``subagents`` list in their
+ledger persona YAML receive a subagent list.
+
+The subagent slugs are declared in the ledger persona YAML for each stage
+(e.g. ``personas/ledger/src/meta/2-project-manager.yaml``).  For each slug,
+this module resolves:
+
+- **name** — the kebab-case slug itself
+- **description** — from ``personas/standalone/src/meta/{slug}.yaml``
+- **system_prompt** — from ``personas/standalone/deep-agents/{slug}.md``
 
 Example::
 
     subs = load_subagents("pm", workspace_root=config.workspace_root)
-    # → [{"name": "WP Decomposer", "description": "...", "system_prompt": "..."}]
+    # → [
+    #     {"name": "ledger-wp-decomposer", "description": "...", "system_prompt": "..."},
+    #     {"name": "ledger-dependency-sequencer", "description": "...", ...},
+    #     ...
+    # ]
 
     subs = load_subagents("developer", workspace_root=config.workspace_root)
     # → []
@@ -1681,10 +1766,21 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.utils.persona_models import (
+    _extract_yaml_list,
+    _extract_yaml_scalar,
+    find_ledger_yaml_for_stage,
+)
+
 log = logging.getLogger(__name__)
 
-# Module-level in-memory cache: (stage, subagent_name) → persona file content.
-_CACHE: dict[tuple[str, str], str] = {}
+# Paths relative to workspace root.
+_STANDALONE_META_RELATIVE = Path("personas") / "standalone" / "src" / "meta"
+_STANDALONE_DEEP_AGENTS_RELATIVE = Path("personas") / "standalone" / "deep-agents"
+
+# Module-level in-memory cache: (stage, slug) → (description, system_prompt).
+# workspace_root is intentionally excluded from the cache key — single-workspace assumption.
+_CACHE: dict[tuple[str, str], tuple[str, str]] = {}
 
 
 def load_subagents(
@@ -1694,9 +1790,15 @@ def load_subagents(
     """
     Build and return SubAgent spec dicts for *stage*.
 
-    Returns an empty list for stages that have no subagent configuration in
-    :data:`~src.config.STAGE_SUBAGENT_FILES`.  Results are cached per
-    ``(stage, name)`` pair for the process lifetime so repeated calls within
+    Reads the ``subagents`` list from the ledger persona YAML for *stage*
+    (via :func:`~src.utils.persona_models.find_ledger_yaml_for_stage`), then
+    resolves each slug against the standalone persona metadata YAML
+    (``personas/standalone/src/meta/{slug}.yaml``) and the standalone
+    deep-agents persona file (``personas/standalone/deep-agents/{slug}.md``).
+
+    Returns an empty list for stages that have no ``subagents`` key in their
+    ledger persona YAML, or for unknown stage IDs.  Results are cached per
+    ``(stage, slug)`` pair for the process lifetime so repeated calls within
     a single run (e.g. when the PM stage handles multiple plans) do not
     re-read the file system.
 
@@ -1711,55 +1813,95 @@ def load_subagents(
     Returns
     -------
     list[dict[str, Any]]
-        List of SubAgent TypedDict-compatible dicts with at least
-        ``name``, ``description``, and ``system_prompt`` keys.
+        List of SubAgent TypedDict-compatible dicts with ``name``,
+        ``description``, and ``system_prompt`` keys.  ``name`` is the
+        kebab-case slug declared in the ledger YAML.
 
     Raises
     ------
     FileNotFoundError
-        If a configured subagent persona file does not exist on disk.
+        If any declared slug has no matching standalone YAML or deep-agents
+        file.
+    ValueError
+        If a standalone YAML for a declared slug is missing the ``description``
+        field.
     """
-    from src.config import STAGE_SUBAGENT_FILES  # noqa: PLC0415
+    workspace_root = Path(workspace_root)
 
-    spec_list = STAGE_SUBAGENT_FILES.get(stage, [])
-    if not spec_list:
+    # 1. Locate the ledger YAML for this stage and extract the subagents list.
+    #    Guard against test fixtures or incomplete workspaces that lack the
+    #    workflow manifest — return [] rather than propagating a FileNotFoundError
+    #    from the manifest lookup itself.  Errors from missing slug files (raised
+    #    below, after we already have *found*) still propagate as expected.
+    try:
+        found = find_ledger_yaml_for_stage(stage, workspace_root)
+    except (FileNotFoundError, OSError):
+        log.debug(
+            "Workflow manifest or ledger YAML not accessible for stage %r "
+            "(workspace_root: %s); returning no subagents.",
+            stage,
+            workspace_root,
+        )
+        return []
+    if found is None:
         return []
 
-    workspace_root = Path(workspace_root)
+    _, ledger_yaml_text = found
+    slugs = _extract_yaml_list(ledger_yaml_text, "subagents")
+    if not slugs:
+        return []
+
     subagents: list[dict[str, Any]] = []
 
-    for spec in spec_list:
-        name: str = spec["name"]
-        cache_key = (stage, name)
+    for slug in slugs:
+        cache_key = (stage, slug)
 
         if cache_key in _CACHE:
-            content = _CACHE[cache_key]
+            description, system_prompt = _CACHE[cache_key]
+            log.debug("Cache hit for subagent %r (stage %r).", slug, stage)
         else:
-            persona_file = spec["persona_file"]
-            full_path = workspace_root / persona_file
-            if not full_path.resolve().is_relative_to(workspace_root.resolve()):
-                raise ValueError(
-                    f"Subagent persona file path escapes workspace root "
-                    f"({workspace_root!r}): {full_path}"
-                )
-            if not full_path.exists():
+            # 2. Load description from standalone YAML.
+            standalone_yaml_path = (
+                workspace_root / _STANDALONE_META_RELATIVE / f"{slug}.yaml"
+            )
+            if not standalone_yaml_path.exists():
                 raise FileNotFoundError(
-                    f"Subagent persona file for stage {stage!r} "
-                    f"({name!r}) not found at: {full_path}"
+                    f"Standalone persona YAML for subagent slug {slug!r} "
+                    f"(stage {stage!r}) not found at: {standalone_yaml_path}"
                 )
-            content = full_path.read_text(encoding="utf-8")
-            _CACHE[cache_key] = content
+            standalone_yaml_text = standalone_yaml_path.read_text(encoding="utf-8")
+            description = _extract_yaml_scalar(standalone_yaml_text, "description")
+            if description is None:
+                raise ValueError(
+                    f"Standalone persona YAML for subagent slug {slug!r} at "
+                    f"{standalone_yaml_path} is missing the 'description' field."
+                )
+
+            # 3. Load system_prompt from standalone deep-agents file.
+            deep_agents_path = (
+                workspace_root / _STANDALONE_DEEP_AGENTS_RELATIVE / f"{slug}.md"
+            )
+            if not deep_agents_path.exists():
+                raise FileNotFoundError(
+                    f"Deep-agents persona file for subagent slug {slug!r} "
+                    f"(stage {stage!r}) not found at: {deep_agents_path}"
+                )
+            system_prompt = deep_agents_path.read_text(encoding="utf-8")
+
+            _CACHE[cache_key] = (description, system_prompt)
             log.debug(
-                "Loaded subagent persona %r for stage %r (%d chars).",
-                name,
+                "Loaded subagent %r for stage %r "
+                "(description: %d chars, system_prompt: %d chars).",
+                slug,
                 stage,
-                len(content),
+                len(description),
+                len(system_prompt),
             )
 
         subagents.append({
-            "name": name,
-            "description": spec["description"],
-            "system_prompt": content,
+            "name": slug,
+            "description": description,
+            "system_prompt": system_prompt,
         })
 
     return subagents

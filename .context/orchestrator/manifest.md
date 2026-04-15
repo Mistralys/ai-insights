@@ -334,12 +334,14 @@ print(cw.path)
 ### `src/utils/persona_models.py`
 
 Stdlib-only utility that reads persona YAML metadata and returns the API model slug for
-each orchestrator stage. Uses hand-rolled `_extract_yaml_scalar()` / `_strip_inline_comment()`
-helpers to avoid a PyYAML dependency.
+each orchestrator stage. Uses hand-rolled `_extract_yaml_scalar()` / `_extract_yaml_list()` /
+`_strip_inline_comment()` helpers to avoid a PyYAML dependency.
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `extract_persona_model_slugs` | `extract_persona_model_slugs(workspace_root: Path \| str) -> dict[str, str]` | Resolves the API model slug for every orchestrator stage. Resolution order: (1) per-persona `model_slug` field if present; (2) `default_model_slug` from `_shared.yaml`. Scans `personas/ledger/src/meta/[1-9]-*.yaml` files and cross-references role numbers against `shared/workflow-manifest.json`. **Constraint:** the glob pattern `[1-9]-*.yaml` only matches single-digit numeric prefixes (roles 1–9); a role file with prefix `10-` or higher would be silently skipped. Update the pattern if the role count ever exceeds 9. Returns a `{stage_id: model_slug}` mapping — one entry per manifest role that has a matching YAML file; roles with no YAML file are skipped with a `WARNING` log. Raises `OSError` if the metadata directory does not exist; `FileNotFoundError` if `_shared.yaml` or `workflow-manifest.json` is missing; `ValueError` if `default_model_slug` is absent from `_shared.yaml` or the `roles` key is missing from the manifest. |
+| `find_ledger_yaml_for_stage` | `find_ledger_yaml_for_stage(stage_id: str, workspace_root: Path \| str) -> tuple[Path, str] \| None` | Locates the ledger persona YAML file for *stage_id*. Reads `shared/workflow-manifest.json` to map *stage_id* to a role number, then scans `personas/ledger/src/meta/[1-9]-*.yaml` for the matching file. Returns a `(yaml_path, yaml_text)` tuple, or `None` if *stage_id* is not in the manifest or no matching YAML file exists. **Constraint:** the glob pattern `[1-9]-*.yaml` only matches single-digit numeric prefixes (roles 1–9); a role file with prefix `10-` or higher would be silently skipped. Consumed by `extract_persona_model_slugs()` and `load_subagents()` (via `subagents.py`). |
+| `extract_persona_model_slugs` | `extract_persona_model_slugs(workspace_root: Path \| str) -> dict[str, str]` | Resolves the API model slug for every orchestrator stage. Resolution order: (1) per-persona `model_slug` field if present; (2) `default_model_slug` from `_shared.yaml`. Delegates per-stage file lookup to `find_ledger_yaml_for_stage()`. Returns a `{stage_id: model_slug}` mapping — one entry per manifest role that has a matching YAML file; roles with no YAML file are skipped with a `WARNING` log. Raises `OSError` if the metadata directory does not exist; `FileNotFoundError` if `_shared.yaml` or `workflow-manifest.json` is missing; `ValueError` if `default_model_slug` is absent from `_shared.yaml` or the `roles` key is missing from the manifest. |
+| `_extract_yaml_list` | `_extract_yaml_list(text: str, key: str) -> list[str]` | **Private helper.** Parses a flat dash-prefixed block list under *key* from raw YAML *text*. Handles block lists (`key:\n  - item1\n  - item2`), missing keys (returns `[]`), empty keys (returns `[]`), quoted item values (strips outer single or double quotes), and inline comments (stripped from each item). Returns `[]` when *key* has an inline scalar value rather than a block list. Only processes top-level keys — nested structures are not supported. Used by `load_subagents()` to read the `subagents` field from the PM persona YAML. |
 
 ---
 
@@ -349,7 +351,7 @@ helpers to avoid a PyYAML dependency.
 |--------|-----------|-------------|
 | `Config` | `@dataclass Config` | Immutable configuration bundle populated by `load_config()`. Key fields: `stage_models` (`dict[str, str]`) — map of stage name → model slug for the run (populated from persona YAML by `extract_persona_model_slugs()`); `max_iterations`, `checkpoint_dir`, `mcp_server_cmd`, `workspace_root`, `log_level`, `heartbeat_interval_s`, `capture_dialogues`. |
 | `Config.resolve_model_for_stage` | `resolve_model_for_stage(stage: str) -> str` | Returns the model slug for *stage* from `Config.stage_models`. Raises `KeyError` when *stage* is not present — this is a programming error (all valid stages must be populated at config load time by `extract_persona_model_slugs()`). Called by `create_stage_node()` **before** the try block so that an unrecognised stage name fails loudly rather than producing a silent `stage_error` log entry. |
-| `STAGE_SUBAGENT_FILES` | `dict[str, list[dict[str, str]]]` | Module-level constant. Maps graph stage names to a list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to the subagent's persona Markdown file), `name` (display name passed to `create_deep_agent()`), and `description` (delegation guidance). Stages absent from the map receive `subagents=None`. **Statically maintained** — not derived from `workflow-manifest.json`. See [Constraint 18](#18-stage_subagent_files-is-manually-maintained-not-manifest-derived) for the rationale and future improvement path. Currently defines one entry: `"pm"` → WP Decomposer. |
+
 
 
 ---
@@ -361,8 +363,8 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `load_subagents` | `load_subagents(stage: str, workspace_root: Path \| str) -> list[dict[str, Any]]` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt` keys) for *stage*. Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Reads persona file content and joins it as `system_prompt`. Applies a path containment guard: raises `ValueError` if the resolved persona path escapes *workspace_root*. Raises `FileNotFoundError` if a configured persona file is missing. Results cached per `(stage, name)` pair for the process lifetime — repeated calls within a run (e.g. multi-plan PM runs) skip disk I/O. |
-| `clear_cache` | `clear_cache() -> None` | Clears the in-memory `(stage, name)` cache. For test use only. |
+| `load_subagents` | `load_subagents(stage: str, workspace_root: Path \| str) -> list[dict[str, Any]]` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt` keys) for *stage*. Reads the `subagents` field from the ledger persona YAML for *stage* (via `find_ledger_yaml_for_stage()`), then resolves each slug against `personas/standalone/src/meta/{slug}.yaml` (for `description`) and `personas/standalone/deep-agents/{slug}.md` (for `system_prompt`). Returns `[]` for stages with no `subagents` key, unknown stage IDs, or when the workflow manifest is inaccessible. Raises `FileNotFoundError` if any declared slug has no matching standalone YAML or deep-agents file. Raises `ValueError` if a standalone YAML lacks a `description` field. Results cached per `(stage, slug)` pair for the process lifetime — cache key excludes `workspace_root` (single-workspace assumption). |
+| `clear_cache` | `clear_cache() -> None` | Clears the in-memory `(stage, slug)` cache. For test use only. |
 
 ---
 
@@ -751,35 +753,33 @@ python3 -m ruff check .
 
 ---
 
-### 18. `STAGE_SUBAGENT_FILES` Is Manually Maintained — Not Manifest-Derived
+### 18. Subagent Configuration Is Metadata-Driven — Declared in Ledger Persona YAML
 
-**Rule:** `STAGE_SUBAGENT_FILES` in `src/config.py` is a static, hand-edited constant. Unlike `PERSONA_FILES`, `AGENT_ROLES`, and `PIPELINE_ROLE_NAMES` — which are all derived from `shared/workflow-manifest.json` at import time — `STAGE_SUBAGENT_FILES` has no counterpart in the manifest and must be updated manually whenever a new stage requires subagent delegation.
+**Rule:** Subagent delegation is configured by declaring a `subagents` list in the ledger persona YAML for each stage (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). The orchestrator reads this list at startup via `load_subagents()` in `src/utils/subagents.py`. There is no longer a `STAGE_SUBAGENT_FILES` constant in `src/config.py` — it was removed in v0.17.0.
 
-**Rationale:** The workflow manifest currently has no `subagents` field on role entries. The manual constant is an explicit interim design decision made at WP-013 implementation time, chosen to avoid adding a new schema field prematurely. The Developer's own in-source comment acknowledges this.
+**Source of truth:** The ledger persona YAML `subagents` field. Each slug in that list must have a corresponding `personas/standalone/src/meta/{slug}.yaml` (providing `description`) and `personas/standalone/deep-agents/{slug}.md` (providing `system_prompt`).
 
-**To add a subagent to a new stage:** Append an entry to `STAGE_SUBAGENT_FILES` with the correct `persona_file`, `name`, and `description` keys. No manifest change is required.
+**To add a subagent to a stage:** Add the kebab-case slug to the `subagents` field in the stage's ledger persona YAML source (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). Rebuild the personas with `node scripts/build-personas.js` to regenerate the output files. No Python changes required — `load_subagents()` picks up the new slug automatically.
 
-**Future improvement path:** Add a `"subagents"` array to each role entry in `shared/workflow-manifest.json` and derive `STAGE_SUBAGENT_FILES` from `_roles` at import time (consistent with how `PERSONA_FILES` is built). This would make the manifest the single source of truth for all per-stage agent configuration. Validate against `shared/workflow-manifest.schema.json` and regenerate `AGENT_ROLES` / `KNOWN_ROLES` via the existing validation scripts.
+**`subagent_type` value convention:** The value must match the `name` field of the SubAgent spec dict — for ledger personas, `name` is the kebab-case slug itself (e.g. `ledger-wp-decomposer`). The `{{agent_<slug>}}` computed variable resolves to this slug at build time, so using `{{agent_ledger_wp_decomposer}}` in the template is the recommended idiom.
+
+**Correct pattern (persona template):**
+```
+runSubagent:
+  subagent_type: {{agent_ledger_wp_decomposer}}
+  task: |
+    Analyze the plan and decompose it into work packages.
+```
 
 **Anti-pattern:**
-```python
-# ❌ WRONG — treating STAGE_SUBAGENT_FILES as manifest-derived (it is not)
-STAGE_SUBAGENT_FILES = {r["id"]: r["subagents"] for r in _roles}  # KeyError: no such field
+```
+runSubagent:
+  subagent: {{agent_ledger_wp_decomposer}}   # ❌ WRONG — silently ignored by SubAgentMiddleware
+  task: |
+    Analyze the plan and decompose it into work packages.
 ```
 
-**Correct pattern:**
-```python
-# ✅ CORRECT — static map; update manually when adding stages with subagent delegation
-STAGE_SUBAGENT_FILES: dict[str, list[dict[str, str]]] = {
-    "pm": [
-        {
-            "persona_file": "personas/standalone/deep-agents/wp-decomposer.md",
-            "name": "WP Decomposer",
-            "description": "Analyze a plan document and decompose it into atomic, actionable Work Package definitions.",
-        },
-    ],
-}
-```
+**Cache note:** `load_subagents()` caches results per `(stage, slug)` for the process lifetime. `workspace_root` is intentionally excluded from the cache key — a single workspace per process is assumed. Persona files modified while the orchestrator is running are not reloaded.
 
 ---
 
@@ -809,6 +809,35 @@ agent = create_deep_agent(model=resolved_model, ...)
 - `os.environ.get("MODEL_NAME", ...)` anywhere in the orchestrator source
 - `argparse` / `click` flags for `--model` that override per-stage selection
 - Hardcoding a model slug string in `create_stage_node()` or any node factory
+
+---
+
+## Sub-Agent Delegation Constraints
+
+### 20. Deep Agents `task` Tool Uses `subagent_type`, Not `subagent`
+
+**Rule:** When a stage persona's content template dispatches work to a sub-agent via the Deep Agents `task` tool, the parameter identifying the target sub-agent **must** be named `subagent_type`. The parameter name `subagent` is silently ignored by Deep Agents' `SubAgentMiddleware` — no error is raised, but the sub-agent invocation produces no output.
+
+**Rationale:** Deep Agents' `SubAgentMiddleware` expects the `subagent_type` key as the discriminator for routing a task to a named sub-agent. Using the wrong parameter name (`subagent`) bypasses the middleware's routing logic entirely. Because the tool call still appears to succeed (no exception raised), this failure is invisible until the agent's output is inspected. The fix is a one-word change in the template, but it requires knowing the correct parameter name.
+
+**Correct pattern (persona content template):**
+```
+runSubagent:
+  subagent_type: {{agent_ledger_wp_decomposer}}
+  task: |
+    Analyze the plan and decompose it into work packages.
+```
+
+**Anti-pattern:**
+```
+runSubagent:
+  subagent: {{agent_ledger_wp_decomposer}}   # ❌ WRONG — silently ignored by SubAgentMiddleware
+  task: |
+    Analyze the plan and decompose it into work packages.
+```
+
+**`subagent_type` value convention:** The value must match the `name` field of the SubAgent spec dict — for ledger personas, `name` is the kebab-case slug itself (e.g. `ledger-wp-decomposer`), derived from the `subagents` field in the ledger persona YAML. The `{{agent_<slug>}}` computed variable resolves to this slug at build time, so using `{{agent_ledger_wp_decomposer}}` in the template is the recommended idiom. See [Constraint 18](#18-subagent-configuration-is-metadata-driven--declared-in-ledger-persona-yaml) for the full configuration model.
+
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`

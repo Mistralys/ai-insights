@@ -201,6 +201,95 @@ if (!CHECK) {
   console.log(`Generated personas/name-mapping.json with ${mapping.length} entries.`);
 }
 
+// Always: validate {{agent_slug_*}} cross-references (real builds AND --check).
+// Ensures every {{agent_slug_X_Y}} reference in a persona content file has a
+// matching slug "x-y" declared in that persona's `subagents` list in the YAML.
+{
+  const metaDir    = path.join(ROOT, 'personas', 'ledger', 'src', 'meta');
+  const contentDir = path.join(ROOT, 'personas', 'ledger', 'src', 'content');
+
+  /**
+   * Parse a flat dash-prefixed block list from YAML text under `key`.
+   * Handles: key:\n  - item1\n  - item2
+   * Returns [] when the key is absent, empty, or has an inline scalar value.
+   */
+  function extractSubagentsList(text, key) {
+    const prefix = key + ':';
+    let collecting = false;
+    const result = [];
+
+    for (const line of text.split('\n')) {
+      const stripped = line.trim();
+      if (!stripped || stripped.startsWith('#')) continue;
+
+      if (stripped.startsWith(prefix)) {
+        const rest = stripped.slice(prefix.length).trim();
+        if (!rest) {
+          collecting = true;
+        }
+        continue;
+      }
+
+      if (collecting) {
+        if (stripped.startsWith('- ')) {
+          let val = stripped.slice(2).trim();
+          if ((val.startsWith('"') && val.endsWith('"')) ||
+              (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+          }
+          const ci = val.indexOf(' #');
+          if (ci !== -1) val = val.slice(0, ci).trim();
+          result.push(val);
+        } else {
+          break;  // next top-level key — stop collecting
+        }
+      }
+    }
+    return result;
+  }
+
+  const metaFiles = fs.existsSync(metaDir)
+    ? fs.readdirSync(metaDir).filter(f => /^\d+-/.test(f) && f.endsWith('.yaml'))
+    : [];
+
+  const errors = [];
+
+  for (const yamlFile of metaFiles) {
+    const baseName    = yamlFile.replace('.yaml', '');
+    const contentPath = path.join(contentDir, baseName + '.md');
+    if (!fs.existsSync(contentPath)) continue;
+
+    const subagents   = extractSubagentsList(
+      fs.readFileSync(path.join(metaDir, yamlFile), 'utf8'),
+      'subagents',
+    );
+    const contentText = fs.readFileSync(contentPath, 'utf8');
+
+    const agentSlugRe = /\{\{agent_slug_([a-z0-9_]+)\}\}/g;
+    let m;
+    while ((m = agentSlugRe.exec(contentText)) !== null) {
+      const suffix       = m[1];
+      const expectedSlug = suffix.replace(/_/g, '-');
+
+      if (!subagents.includes(expectedSlug)) {
+        errors.push(
+          `Persona "${baseName}": {{agent_slug_${suffix}}} references slug ` +
+          `"${expectedSlug}" which is not declared in the subagents list. ` +
+          `Add "${expectedSlug}" to the subagents field in ${yamlFile}.`,
+        );
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error('\n[ERROR] agent_slug cross-reference check failed:\n');
+    for (const err of errors) {
+      console.error('  ' + err);
+    }
+    process.exit(1);
+  }
+}
+
 ```
 ###  Path: `/scripts/bundle-docs.js`
 
