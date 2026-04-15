@@ -12,6 +12,7 @@ export const WorkPackageSummarySchema = z.object({
   dependencies: z.array(z.string()),
   file: z.string(),
   active_pipeline_stages: z.array(z.string()).nullable().optional(),
+  passed_stages: z.number().int().nonnegative().optional(),
 });
 export type WorkPackageSummary = z.infer<typeof WorkPackageSummarySchema>;
 

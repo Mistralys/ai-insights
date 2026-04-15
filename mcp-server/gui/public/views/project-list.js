@@ -136,7 +136,7 @@ function renderProjectList(app) {
       var projectName = (p.project_name != null && p.project_name !== '') ? escapeHtml(p.project_name) : escapeHtml(p.slug);
       var doneCellHtml;
       if (p.total_work_packages > 0) {
-        var pct = Math.round(((p.total_work_packages - p.pending_work_packages) / p.total_work_packages) * 100);
+        var pct = p.progress_pct != null ? p.progress_pct : 0;
         doneCellHtml = '<div class="progress-bar-track" title="' + pct + '%"><div class="progress-bar-fill" style="width:' + pct + '%"></div></div>';
       } else {
         doneCellHtml = '\u2014';

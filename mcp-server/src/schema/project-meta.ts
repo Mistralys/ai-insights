@@ -11,6 +11,7 @@ export const ProjectMetaSchema = z.object({
   // Enrichment cache fields - optional for backward compatibility
   total_work_packages: z.number().int().nonnegative().optional(),
   pending_work_packages: z.number().int().nonnegative().optional(),
+  progress_pct: z.number().nonnegative().optional(),
   project_name: z.string().nullable().optional(),
   repository_name: z.string().nullable().optional(),
   // Runner metadata - optional for backward compatibility
