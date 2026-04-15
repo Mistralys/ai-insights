@@ -194,12 +194,14 @@ print(cw.path)
 ### `src/utils/persona_models.py`
 
 Stdlib-only utility that reads persona YAML metadata and returns the API model slug for
-each orchestrator stage. Uses hand-rolled `_extract_yaml_scalar()` / `_strip_inline_comment()`
-helpers to avoid a PyYAML dependency.
+each orchestrator stage. Uses hand-rolled `_extract_yaml_scalar()` / `_extract_yaml_list()` /
+`_strip_inline_comment()` helpers to avoid a PyYAML dependency.
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `extract_persona_model_slugs` | `extract_persona_model_slugs(workspace_root: Path \| str) -> dict[str, str]` | Resolves the API model slug for every orchestrator stage. Resolution order: (1) per-persona `model_slug` field if present; (2) `default_model_slug` from `_shared.yaml`. Scans `personas/ledger/src/meta/[1-9]-*.yaml` files and cross-references role numbers against `shared/workflow-manifest.json`. **Constraint:** the glob pattern `[1-9]-*.yaml` only matches single-digit numeric prefixes (roles 1–9); a role file with prefix `10-` or higher would be silently skipped. Update the pattern if the role count ever exceeds 9. Returns a `{stage_id: model_slug}` mapping — one entry per manifest role that has a matching YAML file; roles with no YAML file are skipped with a `WARNING` log. Raises `OSError` if the metadata directory does not exist; `FileNotFoundError` if `_shared.yaml` or `workflow-manifest.json` is missing; `ValueError` if `default_model_slug` is absent from `_shared.yaml` or the `roles` key is missing from the manifest. |
+| `find_ledger_yaml_for_stage` | `find_ledger_yaml_for_stage(stage_id: str, workspace_root: Path \| str) -> tuple[Path, str] \| None` | Locates the ledger persona YAML file for *stage_id*. Reads `shared/workflow-manifest.json` to map *stage_id* to a role number, then scans `personas/ledger/src/meta/[1-9]-*.yaml` for the matching file. Returns a `(yaml_path, yaml_text)` tuple, or `None` if *stage_id* is not in the manifest or no matching YAML file exists. **Constraint:** the glob pattern `[1-9]-*.yaml` only matches single-digit numeric prefixes (roles 1–9); a role file with prefix `10-` or higher would be silently skipped. Consumed by `extract_persona_model_slugs()` and `load_subagents()` (via `subagents.py`). |
+| `extract_persona_model_slugs` | `extract_persona_model_slugs(workspace_root: Path \| str) -> dict[str, str]` | Resolves the API model slug for every orchestrator stage. Resolution order: (1) per-persona `model_slug` field if present; (2) `default_model_slug` from `_shared.yaml`. Delegates per-stage file lookup to `find_ledger_yaml_for_stage()`. Returns a `{stage_id: model_slug}` mapping — one entry per manifest role that has a matching YAML file; roles with no YAML file are skipped with a `WARNING` log. Raises `OSError` if the metadata directory does not exist; `FileNotFoundError` if `_shared.yaml` or `workflow-manifest.json` is missing; `ValueError` if `default_model_slug` is absent from `_shared.yaml` or the `roles` key is missing from the manifest. |
+| `_extract_yaml_list` | `_extract_yaml_list(text: str, key: str) -> list[str]` | **Private helper.** Parses a flat dash-prefixed block list under *key* from raw YAML *text*. Handles block lists (`key:\n  - item1\n  - item2`), missing keys (returns `[]`), empty keys (returns `[]`), quoted item values (strips outer single or double quotes), and inline comments (stripped from each item). Returns `[]` when *key* has an inline scalar value rather than a block list. Only processes top-level keys — nested structures are not supported. Used by `load_subagents()` to read the `subagents` field from the PM persona YAML. |
 
 ---
 
@@ -209,7 +211,7 @@ helpers to avoid a PyYAML dependency.
 |--------|-----------|-------------|
 | `Config` | `@dataclass Config` | Immutable configuration bundle populated by `load_config()`. Key fields: `stage_models` (`dict[str, str]`) — map of stage name → model slug for the run (populated from persona YAML by `extract_persona_model_slugs()`); `max_iterations`, `checkpoint_dir`, `mcp_server_cmd`, `workspace_root`, `log_level`, `heartbeat_interval_s`, `capture_dialogues`. |
 | `Config.resolve_model_for_stage` | `resolve_model_for_stage(stage: str) -> str` | Returns the model slug for *stage* from `Config.stage_models`. Raises `KeyError` when *stage* is not present — this is a programming error (all valid stages must be populated at config load time by `extract_persona_model_slugs()`). Called by `create_stage_node()` **before** the try block so that an unrecognised stage name fails loudly rather than producing a silent `stage_error` log entry. |
-| `STAGE_SUBAGENT_FILES` | `dict[str, list[dict[str, str]]]` | Module-level constant. Maps graph stage names to a list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to the subagent's persona Markdown file), `name` (display name passed to `create_deep_agent()`), and `description` (delegation guidance). Stages absent from the map receive `subagents=None`. **Statically maintained** — not derived from `workflow-manifest.json`. See [Constraint 18](#18-stage_subagent_files-is-manually-maintained-not-manifest-derived) for the rationale and future improvement path. Currently defines one entry: `"pm"` → WP Decomposer. |
+
 
 
 ---
@@ -221,8 +223,8 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `load_subagents` | `load_subagents(stage: str, workspace_root: Path \| str) -> list[dict[str, Any]]` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt` keys) for *stage*. Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Reads persona file content and joins it as `system_prompt`. Applies a path containment guard: raises `ValueError` if the resolved persona path escapes *workspace_root*. Raises `FileNotFoundError` if a configured persona file is missing. Results cached per `(stage, name)` pair for the process lifetime — repeated calls within a run (e.g. multi-plan PM runs) skip disk I/O. |
-| `clear_cache` | `clear_cache() -> None` | Clears the in-memory `(stage, name)` cache. For test use only. |
+| `load_subagents` | `load_subagents(stage: str, workspace_root: Path \| str) -> list[dict[str, Any]]` | Returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt` keys) for *stage*. Reads the `subagents` field from the ledger persona YAML for *stage* (via `find_ledger_yaml_for_stage()`), then resolves each slug against `personas/standalone/src/meta/{slug}.yaml` (for `description`) and `personas/standalone/deep-agents/{slug}.md` (for `system_prompt`). Returns `[]` for stages with no `subagents` key, unknown stage IDs, or when the workflow manifest is inaccessible. Raises `FileNotFoundError` if any declared slug has no matching standalone YAML or deep-agents file. Raises `ValueError` if a standalone YAML lacks a `description` field. Results cached per `(stage, slug)` pair for the process lifetime — cache key excludes `workspace_root` (single-workspace assumption). |
+| `clear_cache` | `clear_cache() -> None` | Clears the in-memory `(stage, slug)` cache. For test use only. |
 
 ---
 

@@ -72,9 +72,104 @@ def _extract_yaml_scalar(text: str, key: str) -> str | None:
     return None
 
 
+def _extract_yaml_list(text: str, key: str) -> list[str]:
+    """Return the list of simple scalar items under *key* from YAML *text*.
+
+    Handles the pattern::
+
+        key:
+          - item1
+          - item2
+
+    Returns an empty list if the key is absent or has no list items.
+    Only top-level keys are considered.  Items must be simple scalars (not
+    nested structures).  Inline comments and surrounding quotes (single or
+    double) are stripped from each item.
+
+    If the key is found but has an inline scalar value (e.g. ``key: value``)
+    rather than a block list, an empty list is returned.
+    """
+    prefix = f"{key}:"
+    collecting = False
+    result: list[str] = []
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith(prefix):
+            remainder = stripped[len(prefix):].strip()
+            remainder = _strip_inline_comment(remainder).strip()
+            if not remainder:
+                collecting = True
+                continue
+            # Inline scalar value — not a block list.
+            return []
+        if collecting:
+            if stripped.startswith("- "):
+                val = stripped[2:].strip()
+                val = _strip_inline_comment(val).strip()
+                if len(val) >= 2 and val[0] in ('"', "'") and val[-1] == val[0]:
+                    val = val[1:-1]
+                result.append(val)
+            elif stripped == "-":
+                # bare dash with no value — append empty string
+                result.append("")
+            else:
+                # Next top-level key encountered — stop collecting.
+                break
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
+def find_ledger_yaml_for_stage(
+    stage_id: str,
+    workspace_root: Path | str,
+) -> tuple[Path, str] | None:
+    """Locate the ledger persona YAML file for *stage_id*.
+
+    Reads ``shared/workflow-manifest.json`` to map *stage_id* to a role
+    number, then scans ``personas/ledger/src/meta/`` for the matching file.
+
+    Returns a ``(yaml_path, yaml_text)`` tuple, or ``None`` if no matching
+    file is found or *stage_id* is not in the manifest.
+
+    Notes
+    -----
+    The glob pattern ``[1-9]-*.yaml`` only matches files with a **single-digit**
+    numeric prefix (i.e. role numbers 1–9).  If a tenth role is ever added with
+    a two-digit prefix it will be silently skipped.
+    """
+    workspace_root = Path(workspace_root)
+    meta_dir = workspace_root / _META_DIR_RELATIVE
+    manifest_path = workspace_root / _MANIFEST_RELATIVE
+
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    id_to_number: dict[str, int] = {
+        r["id"]: r["number"] for r in manifest_data.get("roles", [])
+    }
+
+    target_number = id_to_number.get(stage_id)
+    if target_number is None:
+        return None
+
+    for yaml_file in sorted(meta_dir.glob("[1-9]-*.yaml")):
+        text = yaml_file.read_text(encoding="utf-8")
+        number_str = _extract_yaml_scalar(text, "number")
+        if number_str is None:
+            continue
+        try:
+            if int(number_str) == target_number:
+                return (yaml_file, text)
+        except ValueError:
+            continue
+
+    return None
+
 
 def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
     """Read persona YAML metadata and return ``{stage_id: model_slug}``.
@@ -137,7 +232,7 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
         )
 
     # ------------------------------------------------------------------
-    # 2. Build number → stage_id from the shared workflow manifest.
+    # 2. Collect all stage IDs from the shared workflow manifest.
     # ------------------------------------------------------------------
     manifest_path = workspace_root / _MANIFEST_RELATIVE
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -146,40 +241,18 @@ def extract_persona_model_slugs(workspace_root: Path | str) -> dict[str, str]:
             f"'roles' key missing from {manifest_path}. "
             "Ensure shared/workflow-manifest.json is valid."
         )
-    number_to_id: dict[int, str] = {
-        r["number"]: r["id"] for r in manifest_data["roles"]
-    }
+    stage_ids = [r["id"] for r in manifest_data["roles"]]
 
     # ------------------------------------------------------------------
-    # 3. Scan per-persona YAML files (e.g. 1-planner.yaml … 9-synthesis.yaml).
+    # 3. For each stage, locate its persona YAML and extract model_slug.
     # ------------------------------------------------------------------
     result: dict[str, str] = {}
-    for yaml_file in sorted(meta_dir.glob("[1-9]-*.yaml")):
-        text = yaml_file.read_text(encoding="utf-8")
-
-        number_str = _extract_yaml_scalar(text, "number")
-        if number_str is None:
-            log.warning("Skipping %s: no 'number' field found.", yaml_file.name)
+    for stage_id in stage_ids:
+        found = find_ledger_yaml_for_stage(stage_id, workspace_root)
+        if found is None:
+            log.warning("No persona YAML found for stage %r — skipping.", stage_id)
             continue
-        try:
-            number = int(number_str)
-        except ValueError:
-            log.warning(
-                "Skipping %s: 'number' is not an integer: %r.",
-                yaml_file.name,
-                number_str,
-            )
-            continue
-
-        stage_id = number_to_id.get(number)
-        if stage_id is None:
-            log.warning(
-                "Skipping %s: number %d not in workflow manifest.",
-                yaml_file.name,
-                number,
-            )
-            continue
-
+        yaml_file, text = found
         model_slug = _extract_yaml_scalar(text, "model_slug") or default_slug
         result[stage_id] = model_slug
         log.debug(

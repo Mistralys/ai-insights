@@ -138,26 +138,6 @@ PIPELINE_TO_STAGE: dict[str, str] = {v: k for k, v in STAGE_TO_PIPELINE.items()}
 #: a new role without a deep-agents persona.
 PERSONA_FILES: dict[str, str] = {r["id"]: r["persona_file_deep_agents"] for r in _roles}
 
-#: Map of graph stage name → list of subagent spec dicts.
-#: Each spec must have three string keys:
-#:   - ``persona_file``: workspace-relative path to the subagent persona file.
-#:   - ``name``: unique identifier used by the main agent when calling the task() tool.
-#:   - ``description``: delegation guidance — what the subagent does and when to use it.
-#: Only stages that require subagent delegation are listed here; stages absent from
-#: this map receive no subagents (``create_deep_agent`` is called with ``subagents=None``).
-STAGE_SUBAGENT_FILES: dict[str, list[dict[str, str]]] = {
-    "pm": [
-        {
-            "persona_file": "personas/standalone/deep-agents/ledger-wp-decomposer.md",
-            "name": "Ledger WP Decomposer",
-            "description": (
-                "Analyze a plan document and decompose it into atomic, "
-                "actionable Work Package definitions."
-            ),
-        },
-    ],
-}
-
 #: All valid graph stage names — the set of all non-orchestrating role IDs.
 VALID_STAGES: frozenset[str] = frozenset(
     r["id"] for r in _roles if not r.get("orchestrating")

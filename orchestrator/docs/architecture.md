@@ -39,21 +39,22 @@ The supervisor's MCP tool calls handle all ledger mutations (start pipelines, co
 
 The `pm` stage is the only stage that delegates sub-tasks to specialised subagents. Subagent support is wired through `create_stage_node()` via three components:
 
-- **`STAGE_SUBAGENT_FILES`** in `src/config.py` — a statically-maintained map of graph stage name → list of subagent spec dicts. Each spec has three string keys: `persona_file` (workspace-relative path to a deep-agents persona Markdown file), `name` (display name used by the main agent when calling the task tool), and `description` (delegation guidance). It is not derived from `workflow-manifest.json` — add entries manually when a stage requires subagent delegation.
+- **Ledger persona YAML `subagents` field** (e.g. `personas/ledger/src/meta/2-project-manager.yaml`) — declares the kebab-case slugs of sub-agents a stage should receive. This is the source of truth for which stages have subagent delegation.
 
-- **`load_subagents(stage, workspace_root)`** in `src/utils/subagents.py` — reads and caches the persona content from each configured `persona_file` and returns a list of SubAgent spec dicts (`name`, `description`, `system_prompt`). Returns `[]` for stages absent from `STAGE_SUBAGENT_FILES`. Applies a path containment guard; raises `FileNotFoundError` for missing files. Results are cached per `(stage, name)` for the process lifetime.
+- **`load_subagents(stage, workspace_root)`** in `src/utils/subagents.py` — reads the `subagents` list from the ledger persona YAML for *stage*, then resolves `description` from `personas/standalone/src/meta/{slug}.yaml` and `system_prompt` from `personas/standalone/deep-agents/{slug}.md`. Returns `[]` for stages with no `subagents` key. Results are cached per `(stage, slug)` for the process lifetime.
 
-- **`create_stage_node()` call site** — `load_subagents()` is called inside every `node_fn` before `create_deep_agent()`. When the returned list is non-empty, it is forwarded as `subagents=list`; when empty it is forwarded as `subagents=None`. This means non-PM stages are not affected by the subagent mechanism — they simply receive `subagents=None`.
+- **`create_stage_node()` call site** — `load_subagents()` is called inside every `node_fn` before `create_deep_agent()`. When the returned list is non-empty, it is forwarded as `subagents=list`; when empty it is forwarded as `subagents=None`. Non-PM stages simply receive `subagents=None`.
 
-**Currently configured subagents:**
+**Currently configured subagents (pm stage):**
 
-| Stage | Subagent | Persona file |
-|-------|----------|-------------|
-| `pm` | WP Decomposer | `personas/standalone/deep-agents/wp-decomposer.md` |
+| Slug | Description source | System prompt source |
+|------|--------------------|---------------------|
+| `ledger-wp-decomposer` | `personas/standalone/src/meta/ledger-wp-decomposer.yaml` | `personas/standalone/deep-agents/ledger-wp-decomposer.md` |
+| `ledger-dependency-sequencer` | `personas/standalone/src/meta/ledger-dependency-sequencer.yaml` | `personas/standalone/deep-agents/ledger-dependency-sequencer.md` |
+| `ledger-pipeline-configurator` | `personas/standalone/src/meta/ledger-pipeline-configurator.yaml` | `personas/standalone/deep-agents/ledger-pipeline-configurator.md` |
+| `ledger-bootstrapper` | `personas/standalone/src/meta/ledger-bootstrapper.yaml` | `personas/standalone/deep-agents/ledger-bootstrapper.md` |
 
-**To add a subagent to a stage:** append an entry to `STAGE_SUBAGENT_FILES` in `src/config.py`. The orchestrator picks it up automatically on the next run — no other Python changes needed. Ensure the referenced persona file exists in the `personas/*/deep-agents/` directory; the build system generates these from source templates in `personas/*/src/`.
-
-> **Note:** `STAGE_SUBAGENT_FILES` does not mirror the manifest pattern used by `PERSONA_FILES`. A future improvement would be to add a `"subagents"` array to each role entry in `shared/workflow-manifest.json` so the config derives automatically — see Constraint 18 in `orchestrator/docs/agents/project-manifest/constraints.md`.
+**To add a subagent to a stage:** Add the kebab-case slug to the `subagents` field in the stage's ledger persona YAML source (e.g. `personas/ledger/src/meta/2-project-manager.yaml`). Rebuild personas with `node scripts/build-personas.js`. No Python changes required.
 
 ### Pipeline Rollback (Orphaned Pipeline Cleanup)
 

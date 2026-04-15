@@ -6,6 +6,8 @@ Covers:
 - Per-persona model_slug overrides default_model_slug
 - Missing metadata directory raises OSError
 - Inline YAML comments are stripped correctly
+- _extract_yaml_list() parses block lists, handles edge cases
+- find_ledger_yaml_for_stage() locates persona YAML by stage ID
 """
 
 from __future__ import annotations
@@ -16,9 +18,11 @@ from pathlib import Path
 import pytest
 
 from src.utils.persona_models import (
+    _extract_yaml_list,
     _extract_yaml_scalar,
     _strip_inline_comment,
     extract_persona_model_slugs,
+    find_ledger_yaml_for_stage,
 )
 
 # Workspace root: two levels above orchestrator/tests/.
@@ -84,6 +88,164 @@ def _build_workspace(
 
 # ---------------------------------------------------------------------------
 # Unit tests — internal helpers
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Unit tests — _extract_yaml_list
+# ---------------------------------------------------------------------------
+
+class TestExtractYamlList:
+    def test_basic_list_parsed(self):
+        text = "subagents:\n  - ledger-wp-decomposer\n  - ledger-bootstrapper\n"
+        assert _extract_yaml_list(text, "subagents") == [
+            "ledger-wp-decomposer",
+            "ledger-bootstrapper",
+        ]
+
+    def test_missing_key_returns_empty_list(self):
+        text = "role: Developer\nmodel_slug: claude-sonnet-4-6\n"
+        assert _extract_yaml_list(text, "subagents") == []
+
+    def test_empty_key_has_no_list_items(self):
+        # Key present with no list items below it
+        text = "subagents:\nrole: Developer\n"
+        assert _extract_yaml_list(text, "subagents") == []
+
+    def test_double_quoted_items_unquoted(self):
+        text = 'tools:\n  - "ledger-wp-decomposer"\n  - "ledger-bootstrapper"\n'
+        assert _extract_yaml_list(text, "tools") == [
+            "ledger-wp-decomposer",
+            "ledger-bootstrapper",
+        ]
+
+    def test_single_quoted_items_unquoted(self):
+        text = "tools:\n  - 'item-one'\n  - 'item-two'\n"
+        assert _extract_yaml_list(text, "tools") == ["item-one", "item-two"]
+
+    def test_inline_comment_stripped_from_item(self):
+        text = "subagents:\n  - ledger-wp-decomposer  # WP Decomposer\n  - ledger-bootstrapper\n"
+        assert _extract_yaml_list(text, "subagents") == [
+            "ledger-wp-decomposer",
+            "ledger-bootstrapper",
+        ]
+
+    def test_inline_scalar_value_returns_empty(self):
+        # Key has an inline value, not a block list
+        text = "subagents: some-value\n"
+        assert _extract_yaml_list(text, "subagents") == []
+
+    def test_collection_stops_at_next_key(self):
+        text = (
+            "subagents:\n"
+            "  - item-one\n"
+            "  - item-two\n"
+            "other_key: value\n"
+            "  - not-an-item\n"
+        )
+        assert _extract_yaml_list(text, "subagents") == ["item-one", "item-two"]
+
+    def test_comment_lines_inside_list_skipped(self):
+        text = (
+            "subagents:\n"
+            "  # this is a comment\n"
+            "  - item-one\n"
+            "  - item-two\n"
+        )
+        assert _extract_yaml_list(text, "subagents") == ["item-one", "item-two"]
+
+    def test_four_slugs_as_in_pm_yaml(self):
+        """Mirrors the real PM persona YAML subagents field format."""
+        text = (
+            "subagents:\n"
+            "  - ledger-wp-decomposer\n"
+            "  - ledger-dependency-sequencer\n"
+            "  - ledger-pipeline-configurator\n"
+            "  - ledger-bootstrapper\n"
+        )
+        result = _extract_yaml_list(text, "subagents")
+        assert result == [
+            "ledger-wp-decomposer",
+            "ledger-dependency-sequencer",
+            "ledger-pipeline-configurator",
+            "ledger-bootstrapper",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — find_ledger_yaml_for_stage
+# ---------------------------------------------------------------------------
+
+class TestFindLedgerYamlForStage:
+    def _make_workspace(self, tmp_path: Path) -> Path:
+        """Build a minimal workspace with two persona YAMLs and a manifest."""
+        meta_dir = tmp_path / "personas" / "ledger" / "src" / "meta"
+        meta_dir.mkdir(parents=True)
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+
+        (meta_dir / "_shared.yaml").write_text(
+            'default_model_slug: "claude-sonnet-4-6"\n', encoding="utf-8"
+        )
+        (meta_dir / "1-planner.yaml").write_text(
+            "number: 1\nrole: Planner\nmodel_slug: claude-opus-4-6\n",
+            encoding="utf-8",
+        )
+        (meta_dir / "2-pm.yaml").write_text(
+            "number: 2\nrole: Project Manager\nmodel_slug: claude-opus-4-6\n",
+            encoding="utf-8",
+        )
+        manifest = {
+            "roles": [
+                {"id": "planner", "number": 1, "name": "Planner"},
+                {"id": "pm", "number": 2, "name": "Project Manager"},
+            ]
+        }
+        (shared_dir / "workflow-manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        return tmp_path
+
+    def test_valid_stage_returns_tuple(self, tmp_path):
+        ws = self._make_workspace(tmp_path)
+        result = find_ledger_yaml_for_stage("planner", ws)
+        assert result is not None
+        path, text = result
+        assert isinstance(path, Path)
+        assert isinstance(text, str)
+        assert "claude-opus-4-6" in text
+
+    def test_valid_stage_returns_correct_file(self, tmp_path):
+        ws = self._make_workspace(tmp_path)
+        result = find_ledger_yaml_for_stage("pm", ws)
+        assert result is not None
+        path, _ = result
+        assert path.name == "2-pm.yaml"
+
+    def test_unknown_stage_returns_none(self, tmp_path):
+        ws = self._make_workspace(tmp_path)
+        result = find_ledger_yaml_for_stage("nonexistent", ws)
+        assert result is None
+
+    def test_accepts_string_workspace_root(self, tmp_path):
+        ws = self._make_workspace(tmp_path)
+        result = find_ledger_yaml_for_stage("planner", str(ws))
+        assert result is not None
+
+    def test_real_workspace_pm_stage(self):
+        """Integration: find_ledger_yaml_for_stage works on the real workspace."""
+        result = find_ledger_yaml_for_stage("pm", _WORKSPACE_ROOT)
+        assert result is not None
+        path, text = result
+        assert path.name.startswith("2-")
+        assert "Project Manager" in text
+
+    def test_real_workspace_unknown_stage_returns_none(self):
+        result = find_ledger_yaml_for_stage("nonexistent_stage_xyz", _WORKSPACE_ROOT)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — _strip_inline_comment (unchanged)
 # ---------------------------------------------------------------------------
 
 class TestStripInlineComment:
