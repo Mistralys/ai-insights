@@ -1,7 +1,10 @@
 # Personas Changelog
 
-## v3.15.1 - Design Guide Update
-- Docs: Added version information to the persona design guide.
+## v3.16.0 - Subagent Slug Validation
+- Build: Added `{{agent_slug_*}}` cross-reference validation to the build.
+- Build: Upgraded `@mistralys/persona-builder` to v2.4.1.
+- PM: Fixed `subagent:` → `subagent_type:` in deep-agents dispatch blocks.
+- PM: Declared subagents for the orchestrator.
 
 ## v3.15.0 - Standalone Persona Overhaul
 - Standalone: Renamed 6 ledger-related personas with `ledger-` prefix.

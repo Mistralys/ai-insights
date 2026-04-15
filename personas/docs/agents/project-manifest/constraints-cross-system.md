@@ -20,9 +20,18 @@
 <a name="x3"></a>
 3. **`name-mapping.json` is generated from persona YAML metadata.** `scripts/build-personas.js` reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` (plus `_shared.yaml` for `default_version`) and writes `personas/name-mapping.json` after every real build (skipped in `--check`/`--dry-run` mode). The file contains per-persona identity (`role`, `number`, `id`, `version`) and per-target agent name data (`vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`). It must be regenerated whenever persona YAML naming fields change (`role`, `number`, `id`, `version`, `cc_file_name`, `vs_file_name`, `da_file_name`, or `default_version` in `_shared.yaml`). The file is checked into Git — stale state is visible in Git diffs. Run `node scripts/build-personas.js` (without `--check`) to regenerate.
 
----
+<a name="c39"></a>
+<a name="x4"></a>
+4. **`subagents` field in ledger persona YAML is consumed by the orchestrator's `load_subagents()`.** The optional `subagents` field (type: `string[]`, flat dash-prefixed block list) in a ledger persona YAML (`personas/ledger/src/meta/N-name.yaml`) declares the kebab-case slugs of standalone personas this stage may delegate sub-tasks to. For each slug, `load_subagents()` in `orchestrator/src/utils/subagents.py` resolves:
+   - **`description`** — from `personas/standalone/src/meta/{slug}.yaml`
+   - **`system_prompt`** — from `personas/standalone/deep-agents/{slug}.md`
+   - **`name`** — the kebab-case slug itself
 
-## Intentional Differences from Pre-Build Era
+   The template engine silently ignores unknown YAML keys, so the `subagents` field has no effect on persona build output. It is not used by `scripts/build-personas.js` for rendering — only for the `{{agent_slug_*}}` cross-reference validation (see [Build System Constraint 9](constraints-build-system.md#b9)).
+
+   **Sync contract:** Every slug declared in the `subagents` field must have a corresponding `personas/standalone/src/meta/{slug}.yaml` (with a `description` field) and a `personas/standalone/deep-agents/{slug}.md` that are valid at orchestrator startup. Missing files raise `FileNotFoundError`; a missing `description` raises `ValueError`. Currently only Agent 2 (Project Manager) carries this field, listing four PM planning sub-agents.
+
+---
 
 When the build system was introduced, the generated output differs from the original hand-authored files in these **intentional** ways:
 

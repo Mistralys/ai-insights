@@ -81,6 +81,25 @@ The build script (`scripts/build-personas.js`) uses four bracket-prefixed severi
 
    > **Why regex over string.includes:** `string.includes('| \`toolName\` |')` is tightly coupled to exact column spacing. A Markdown table reformatter or editor that normalises padding (e.g., `|  \`toolName\`  |`) would silently bypass the check. The regex `\|\s*\`…\`\s*\|` matches any amount of whitespace on either side of the backtick-quoted name, making the guard robust to formatting drift.
 
+<a name="c36"></a>
+<a name="b9"></a>
+9. **`{{agent_slug_*}}` references in ledger persona content must match the persona's declared `subagents` list.** Every `{{agent_slug_X_Y}}` reference in `personas/ledger/src/content/*.md` is cross-checked against that persona's `subagents` field in its YAML (`personas/ledger/src/meta/*.yaml`). The suffix `X_Y` is converted to kebab-case (`X-Y`) and must appear as an entry in the `subagents` list. The check runs **unconditionally** — on both real builds and `--check` runs. If any reference has no matching `subagents` entry, a `[ERROR]` block is emitted identifying the persona, the template variable, and the expected slug, and `process.exit(1)` is called.
+
+   **Error message format:**
+   ```
+   [ERROR] agent_slug cross-reference check failed:
+
+     Persona "2-project-manager": {{agent_slug_foo_bar}} references slug "foo-bar"
+     which is not declared in the subagents list.
+     Add "foo-bar" to the subagents field in 2-project-manager.yaml.
+   ```
+
+   **To resolve:** Add the slug to the `subagents` field in the relevant `personas/ledger/src/meta/N-name.yaml` file and rebuild standalone personas (`node scripts/build-personas.js`) so the matching `personas/standalone/src/meta/{slug}.yaml` and `personas/standalone/deep-agents/{slug}.md` files exist.
+
+   **Regex scope:** The pattern `/\{\{agent_slug_([a-z0-9_]+)\}\}/g` only matches all-lowercase suffixes. Mixed-case or hyphenated `{{agent_slug_*}}` references are not detected — this is intentional and enforces the lowercase-only convention.
+
+   **Shared-partial note:** The scan covers only `personas/ledger/src/content/*.md`. References in `personas/ledger/src/partials/` or `personas/shared/partials/` are not validated by this check.
+
 ---
 
 ## Sync Script Conventions

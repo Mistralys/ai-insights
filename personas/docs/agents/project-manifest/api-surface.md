@@ -24,6 +24,8 @@ The wrapper accepts three flags. Suite and target selection are controlled by th
 
 Post-build (real builds only, not `--check`/`--dry-run`): the wrapper performs two steps: (1) reads `personas/changelog.md`, extracts the latest `## vX.Y.Z` version, and writes it to `personas/package.json` if it differs; (2) reads all 9 ledger persona YAML files in `personas/ledger/src/meta/` plus `_shared.yaml` (for `default_version`), computes per-target agent names, and writes `personas/name-mapping.json` (9 entries sorted by `number`). Each entry shape: `role`, `number`, `id`, `version`, and target blocks `vscode`, `claude_code`, `deep_agents` — each with `file_name` and `agent_name`.
 
+**Unconditional (both real builds and `--check`):** A cross-reference validation step scans every `personas/ledger/src/content/*.md` file for `{{agent_slug_X_Y}}` references and verifies that the corresponding slug `x-y` is declared in the persona's `subagents` field in its YAML. Errors accumulate across all personas before a single `[ERROR]` block is printed and `process.exit(1)` is called. Personas with no `{{agent_slug_*}}` references pass silently. The internal helper `extractSubagentsList(text, key)` parses flat dash-prefixed YAML block lists (strips inline comments and surrounding quotes); it is local to the validation block and is not exported.
+
 ### `personas/persona-build.config.js` — Config Interface
 
 The config file is loaded by the library CLI. It exports an object with the following shape:
@@ -205,6 +207,7 @@ Use these flags in content templates to write platform-conditional blocks:
 | `version` | `string` | no | Overrides `default_version` for this persona |
 | `tools` | `string[]` | yes | Tool permission slugs for the AI IDE |
 | `cc_tools` | `string[]` | no | Tool names for Claude Code — overrides `default_cc_tools` from `_shared.yaml` when present (e.g. `["Bash", "Read", "Edit", ...]`) |
+| `subagents` | `string[]` | no | Flat dash-prefixed list of standalone persona slugs that this ledger persona may delegate to as sub-agents. Each slug resolves to `personas/standalone/src/meta/{slug}.yaml`. Currently only carried by the Project Manager (Agent 2), where it lists the four PM planning sub-agents (`ledger-wp-decomposer`, `ledger-dependency-sequencer`, `ledger-pipeline-configurator`, `ledger-bootstrapper`). Consumed by the orchestrator's `load_subagents()` loader at pipeline startup to load the matching standalone persona YAML and make the sub-agent available for invocation. The template engine silently ignores unknown YAML keys, so this field has no effect on persona build output. |
 | `has_mcp` | `bool` | yes | Inject MCP pre-flight check and tools table |
 | `has_detect_project` | `bool` | yes | Inject detect-project pre-flight step |
 | `self_documenting_note` | `bool` | yes | Inject self-documenting tools note |
