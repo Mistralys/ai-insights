@@ -173,6 +173,7 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
 export interface ProjectSummary extends ProjectMeta {
   total_work_packages: number;
   pending_work_packages: number;
+  progress_pct: number;
   project_name: string | null;
   repository_name: string | null;
 }
@@ -277,6 +278,7 @@ export async function handleListProjects(
     allProjects.map(async (meta): Promise<ProjectSummary> => {
       let total_work_packages = 0;
       let pending_work_packages = 0;
+      let progress_pct = 0;
       let project_name: string | null = null;
 
       const projectRoot = inferProjectRootFromPlanPath(meta.plan_path);
@@ -304,6 +306,9 @@ export async function handleListProjects(
       ) {
         total_work_packages = meta.total_work_packages;
         pending_work_packages = meta.pending_work_packages ?? 0;
+        progress_pct = meta.progress_pct ?? (total_work_packages > 0
+          ? Math.round(((total_work_packages - pending_work_packages) / total_work_packages) * 100)
+          : 0);
         if (project_name === null) {
           project_name = meta.project_name;
         }
@@ -316,6 +321,9 @@ export async function handleListProjects(
               const rootIndex = await store.readRootIndex();
               total_work_packages = rootIndex.total_work_packages ?? 0;
               pending_work_packages = rootIndex.pending_work_packages ?? 0;
+              progress_pct = total_work_packages > 0
+                ? Math.round(((total_work_packages - pending_work_packages) / total_work_packages) * 100)
+                : 0;
             } catch {
               // default to 0
             }
@@ -346,6 +354,7 @@ export async function handleListProjects(
         runner: meta.runner ?? 'unknown',
         total_work_packages,
         pending_work_packages,
+        progress_pct,
         project_name,
         repository_name,
       };
@@ -408,8 +417,8 @@ export async function handleListProjects(
         bVal = b.total_work_packages;
         break;
       case 'done':
-        aVal = a.total_work_packages - a.pending_work_packages;
-        bVal = b.total_work_packages - b.pending_work_packages;
+        aVal = a.progress_pct;
+        bVal = b.progress_pct;
         break;
       case 'date_created':
         aVal = a.date_created ?? '';

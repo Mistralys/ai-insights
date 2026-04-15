@@ -12,6 +12,24 @@ import { withLock } from './file-lock.js';
 import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
 import { SAFE_SLUG_REGEX } from '../utils/constants.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
+import { computePassedStages, computeProjectProgress } from '../utils/workflow-helpers.js';
+
+/**
+ * Optional enrichment fields written into `.meta.json` alongside core
+ * project metadata. Passed to `writeProjectMeta()` by every sync method
+ * and `writeRootIndex()` so the project-list fast path can avoid
+ * re-reading root-index files.
+ */
+export interface MetaCacheUpdates {
+  total_work_packages?: number;
+  pending_work_packages?: number;
+  progress_pct?: number;
+  project_name?: string | null;
+  repository_name?: string | null;
+  runner?: string;
+  runner_client?: string;
+  runner_version?: string;
+}
 
 /**
  * Thrown by `LedgerStore.renameSlug()` when the target slug directory already
@@ -208,10 +226,11 @@ export class LedgerStore {
 
     const path = this.rootIndexPath();
     await atomicWriteJson(path, validated);
-    // Auto-sync .meta.json after every root index write — include WP counters and runner metadata
+    // Auto-sync .meta.json after every root index write — include WP counters, progress, and runner metadata
     await this.writeProjectMeta('', validated.status, {
       total_work_packages: validated.total_work_packages,
       pending_work_packages: validated.pending_work_packages,
+      progress_pct: computeProjectProgress(validated.work_packages),
       ...(validated.runner !== undefined ? { runner: validated.runner } : {}),
       ...(validated.runner_client !== undefined ? { runner_client: validated.runner_client } : {}),
       ...(validated.runner_version !== undefined ? { runner_version: validated.runner_version } : {}),
@@ -272,6 +291,12 @@ export class LedgerStore {
       // Auto-stamp last_updated on every WP write (§WP-002)
       updatedWp.last_updated = now();
 
+      // Sync passed_stages on the matching WP summary
+      const wpSummary = updatedRoot.work_packages.find((s) => s.work_package_id === wpId);
+      if (wpSummary) {
+        wpSummary.passed_stages = computePassedStages(updatedWp, wpSummary.active_pipeline_stages);
+      }
+
       // Validate the updates
       const validatedWp = WorkPackageDetailSchema.parse(updatedWp);
       const validatedRoot = RootIndexSchema.parse(updatedRoot);
@@ -279,10 +304,11 @@ export class LedgerStore {
       // Write both atomically (within the same lock)
       await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
       await atomicWriteJson(this.rootIndexPath(), validatedRoot);
-      // Auto-sync .meta.json inside the same lock scope — include WP counters
+      // Auto-sync .meta.json inside the same lock scope — include WP counters + progress
       await this.writeProjectMeta('', validatedRoot.status, {
         total_work_packages: validatedRoot.total_work_packages,
         pending_work_packages: validatedRoot.pending_work_packages,
+        progress_pct: computeProjectProgress(validatedRoot.work_packages),
       });
     });
   }
@@ -321,6 +347,12 @@ export class LedgerStore {
       // Auto-stamp last_updated on every WP write (matches updateWorkPackageWithSync behaviour)
       newWp.last_updated = now();
 
+      // Sync passed_stages on the matching WP summary
+      const wpSummary = updatedRoot.work_packages.find((s) => s.work_package_id === wpId);
+      if (wpSummary) {
+        wpSummary.passed_stages = computePassedStages(newWp, wpSummary.active_pipeline_stages);
+      }
+
       // Validate both objects
       const validatedWp = WorkPackageDetailSchema.parse(newWp);
       const validatedRoot = RootIndexSchema.parse(updatedRoot);
@@ -328,10 +360,11 @@ export class LedgerStore {
       // Write both atomically (within the same lock)
       await atomicWriteJson(this.wpDetailPath(wpId), validatedWp);
       await atomicWriteJson(this.rootIndexPath(), validatedRoot);
-      // Auto-sync .meta.json inside the same lock scope — include WP counters
+      // Auto-sync .meta.json inside the same lock scope — include WP counters + progress
       await this.writeProjectMeta('', validatedRoot.status, {
         total_work_packages: validatedRoot.total_work_packages,
         pending_work_packages: validatedRoot.pending_work_packages,
+        progress_pct: computeProjectProgress(validatedRoot.work_packages),
       });
     });
     return createdWpId;
@@ -381,6 +414,14 @@ export class LedgerStore {
 
       const timestamp = now();
 
+      // Sync passed_stages on each modified WP's summary entry
+      for (const [wpId, wp] of updatedWps) {
+        const wpSummary = updatedRoot.work_packages.find((s) => s.work_package_id === wpId);
+        if (wpSummary) {
+          wpSummary.passed_stages = computePassedStages(wp, wpSummary.active_pipeline_stages);
+        }
+      }
+
       // Pass 1: auto-stamp and validate every WP — collect validated objects before any write.
       // This ensures a mid-batch validation failure cannot leave some WP files updated
       // while the root index still reflects the pre-batch state (WP/root desync).
@@ -400,10 +441,11 @@ export class LedgerStore {
       }
       await atomicWriteJson(this.rootIndexPath(), validatedRoot);
 
-      // Sync .meta.json exactly once after all WP writes
+      // Sync .meta.json exactly once after all WP writes — include progress
       await this.writeProjectMeta('', validatedRoot.status, {
         total_work_packages: validatedRoot.total_work_packages,
         pending_work_packages: validatedRoot.pending_work_packages,
+        progress_pct: computeProjectProgress(validatedRoot.work_packages),
       });
     });
   }
@@ -425,15 +467,7 @@ export class LedgerStore {
   async writeProjectMeta(
     planFile: string,
     status?: string,
-    cacheUpdates?: {
-      total_work_packages?: number;
-      pending_work_packages?: number;
-      project_name?: string | null;
-      repository_name?: string | null;
-      runner?: string;
-      runner_client?: string;
-      runner_version?: string;
-    },
+    cacheUpdates?: MetaCacheUpdates,
     options?: { preserveLastUpdated?: boolean }
   ): Promise<void> {
     const path = this.metaPath();
@@ -463,11 +497,13 @@ export class LedgerStore {
       // Preserve existing cache fields unless overridden by cacheUpdates
       ...(existing.total_work_packages !== undefined ? { total_work_packages: existing.total_work_packages } : {}),
       ...(existing.pending_work_packages !== undefined ? { pending_work_packages: existing.pending_work_packages } : {}),
+      ...(existing.progress_pct !== undefined ? { progress_pct: existing.progress_pct } : {}),
       ...(existing.project_name !== undefined ? { project_name: existing.project_name } : {}),
       ...(existing.repository_name !== undefined ? { repository_name: existing.repository_name } : {}),
       // Apply overrides from cacheUpdates (undefined values skip the field)
       ...(cacheUpdates?.total_work_packages !== undefined ? { total_work_packages: cacheUpdates.total_work_packages } : {}),
       ...(cacheUpdates?.pending_work_packages !== undefined ? { pending_work_packages: cacheUpdates.pending_work_packages } : {}),
+      ...(cacheUpdates?.progress_pct !== undefined ? { progress_pct: cacheUpdates.progress_pct } : {}),
       ...(cacheUpdates !== undefined && 'project_name' in cacheUpdates ? { project_name: cacheUpdates.project_name } : {}),
       ...(cacheUpdates !== undefined && 'repository_name' in cacheUpdates ? { repository_name: cacheUpdates.repository_name } : {}),
       // Runner metadata: preserve existing values (backward compat), then apply overrides

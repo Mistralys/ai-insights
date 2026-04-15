@@ -9,12 +9,13 @@
  */
 
 import type { WorkPackageDetail, Pipeline } from '../schema/work-package.js';
-import type { RootIndex } from '../schema/root-index.js';
+import type { RootIndex, WorkPackageSummary } from '../schema/root-index.js';
 import { parseTimestamp } from './timestamp.js';
 import type { PipelineType, PostImplPipelineType } from './pipeline-maps.js';
 import { getDownstreamTypes, getUpstreamTypes, resolveFailAgent, DEFAULT_PIPELINE_STAGES } from './pipeline-maps.js';
 import { getConfig } from '../gui/config.js';
 import { workflowManifest } from '../schema/workflow-manifest-schema.js';
+import { isTerminalStatus } from '../schema/validators.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -510,4 +511,71 @@ export function getHandoffNotesForAgent(
   if (relevant.length === 0) return undefined;
   // Flatten all notes from matching entries into a single array
   return relevant.flatMap((n) => n.notes);
+}
+
+// ---------------------------------------------------------------------------
+// Progress computation helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Counts the number of distinct pipeline stage types whose most recent
+ * non-auto-cancelled run has status PASS for a given work package.
+ *
+ * Only stages listed in `activeStages` are counted. Defaults to
+ * DEFAULT_PIPELINE_STAGES when not provided.
+ */
+export function computePassedStages(
+  wp: WorkPackageDetail,
+  activeStages?: readonly string[] | null,
+): number {
+  const stages = activeStages && activeStages.length > 0
+    ? activeStages
+    : DEFAULT_PIPELINE_STAGES;
+
+  let count = 0;
+  for (const stage of stages) {
+    // Walk pipelines in reverse to find the most recent non-auto-cancelled of this type
+    for (let i = wp.pipelines.length - 1; i >= 0; i--) {
+      const p = wp.pipelines[i]!;
+      if (p.type !== stage || p.auto_cancelled) continue;
+      if (p.status === 'PASS') count++;
+      break; // only consider the most recent
+    }
+  }
+  return count;
+}
+
+/**
+ * Computes a 0–100 integer project progress percentage from the root index's
+ * work package summary array.
+ *
+ * Formula per WP:
+ *   - COMPLETE or CANCELLED → weight 1.0
+ *   - READY or BLOCKED      → weight 0.0
+ *   - IN_PROGRESS           → passed_stages / active_stages_count
+ *
+ * Project progress = round( sum(wp_weight) / total × 100 )
+ *
+ * Returns 0 when there are no work packages.
+ */
+export function computeProjectProgress(workPackages: WorkPackageSummary[]): number {
+  if (workPackages.length === 0) return 0;
+
+  let weightSum = 0;
+
+  for (const wp of workPackages) {
+    if (isTerminalStatus(wp.status)) {
+      weightSum += 1.0;
+    } else if (wp.status === 'IN_PROGRESS') {
+      const activeCount =
+        Array.isArray(wp.active_pipeline_stages) && wp.active_pipeline_stages.length > 0
+          ? wp.active_pipeline_stages.length
+          : DEFAULT_PIPELINE_STAGES.length;
+      const passed = wp.passed_stages ?? 0;
+      weightSum += activeCount > 0 ? passed / activeCount : 0;
+    }
+    // READY, BLOCKED → weight 0 (no-op)
+  }
+
+  return Math.round((weightSum / workPackages.length) * 100);
 }
