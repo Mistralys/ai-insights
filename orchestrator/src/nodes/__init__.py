@@ -956,7 +956,8 @@ def create_stage_node(
         except Exception as exc:  # noqa: BLE001
             stage_end_time = datetime.now(UTC)
             duration_s = round((stage_end_time - stage_start_time).total_seconds(), 1)
-            log.error("Stage %s failed: %s", stage, exc, exc_info=not _is_cross_wp_error(exc))
+            _suppress_tb = _is_cross_wp_error(exc) or _is_fatal_error(exc)
+            log.error("Stage %s failed: %s", stage, exc, exc_info=not _suppress_tb)
             log_entry = _build_error_log_entry(
                 stage, _wp_id, resolved_model, exc, duration_s, stage_end_time
             )
