@@ -702,8 +702,7 @@ process.exit(0);
 /**
  * scripts/cli.js
  *
- * Unified workspace CLI — interactive command center and direct CLI entry point.
- * Replaces the need to remember individual `node scripts/X.js` invocations.
+ * Unified workspace CLI -- interactive command center and direct CLI entry point.
  *
  * Usage:
  *   node scripts/cli.js                     Interactive main menu
@@ -712,20 +711,36 @@ process.exit(0);
  *   node scripts/cli.js setup --all         Non-interactive full setup
  *   node scripts/cli.js setup --components  Run selected components
  *   node scripts/cli.js <command> [flags]   Run a command directly
- *
- * Note: scripts/setup-orchestrator.js has been removed.
- *       Use `node scripts/cli.js setup` instead.
  */
 
 'use strict';
 
+const {
+  createMenu,
+  C,
+  log,
+  IS_WIN,
+  NPM,
+  sh,
+  runScript,
+  runLongScript,
+  checkNodeVersion,
+  PreflightError,
+} = require('@mistralys/cli-menu');
+
+const {
+  readChangelogVersion,
+  readPackageVersion,
+  readPyprojectVersion,
+} = require('@mistralys/cli-menu/changelog');
+
 const path     = require('path');
 const fs       = require('fs');
 const readline = require('readline');
-const { spawnSync, spawn } = require('child_process');
+const { spawnSync } = require('child_process');
 const { getPublishLocations } = require('./publish-locations');
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// --- Constants ---
 
 const WORKSPACE_ROOT   = path.resolve(__dirname, '..');
 const SCRIPTS_DIR      = __dirname;
@@ -735,127 +750,21 @@ const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
 const CHANGELOG_FILE   = path.join(WORKSPACE_ROOT, 'changelog.md');
 const MCP_DIST_JSON    = path.join(WORKSPACE_ROOT, '.mcp.dist.json');
 const MCP_JSON         = path.join(WORKSPACE_ROOT, '.mcp.json');
-const IS_WIN           = process.platform === 'win32';
-const NPM              = IS_WIN ? 'npm.cmd' : 'npm';
 
-// ─── ANSI color helpers ───────────────────────────────────────────────────────
-
-const C = {
-  reset:       (s) => `\x1b[0m${s}\x1b[0m`,
-  bold:        (s) => `\x1b[1m${s}\x1b[0m`,
-  dim:         (s) => `\x1b[2m${s}\x1b[0m`,
-  red:         (s) => `\x1b[31m${s}\x1b[0m`,
-  green:       (s) => `\x1b[32m${s}\x1b[0m`,
-  yellow:      (s) => `\x1b[33m${s}\x1b[0m`,
-  cyan:        (s) => `\x1b[36m${s}\x1b[0m`,
-  white:       (s) => `\x1b[37m${s}\x1b[0m`,
-  brightWhite: (s) => `\x1b[97m${s}\x1b[0m`,
-  brightCyan:  (s) => `\x1b[96m${s}\x1b[0m`,
-};
-
-// ─── Logging ──────────────────────────────────────────────────────────────────
-
-function log(msg, color) {
-  console.log(color && C[color] ? C[color](msg) : msg);
-}
-
-// ─── Pre-flight checks ────────────────────────────────────────────────────────
-
-function checkNodeVersion() {
-  const major = parseInt(process.versions.node.split('.')[0], 10);
-  if (major < 18) {
-    log(`✗ Node.js >= 18 required (found ${process.versions.node})`, 'red');
-    process.exit(1);
-  }
-}
+// --- Pre-flight checks ---
 
 function checkWorkspaceRoot() {
   if (!fs.existsSync(MCP_SERVER_DIR)) {
-    log('✗ Run from the workspace root (mcp-server/ not found)', 'red');
-    process.exit(1);
+    throw new PreflightError('Run from the workspace root (mcp-server/ not found)');
   }
 }
 
-// ─── Version string helper ────────────────────────────────────────────────────
-
-function readVersion() {
-  try {
-    // Matches `## v1.2.3` and `## [1.2.3]` style headings.
-    // Verified against changelog.md format `## v{semver} - {title}` — 2026-03-04.
-    const m = fs.readFileSync(CHANGELOG_FILE, 'utf8').match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
-    return m ? `v${m[1]}` : 'unknown';
-  } catch { return 'unknown'; }
-}
-
-function readSubVersion(subDir) {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(subDir, 'package.json'), 'utf8'));
-    return pkg.version ? `v${pkg.version}` : 'unknown';
-  } catch { return 'unknown'; }
-}
-
-function readPyprojectVersion(subDir) {
-  try {
-    const content = fs.readFileSync(path.join(subDir, 'pyproject.toml'), 'utf8');
-    const m = content.match(/^version\s*=\s*"([^"]+)"/m);
-    return m ? `v${m[1]}` : 'unknown';
-  } catch { return 'unknown'; }
-}
-
-// ─── Script runners ───────────────────────────────────────────────────────────
-
-/**
- * Run a script synchronously; exit on failure.
- * Used for direct delegating commands (sync-personas, build-personas, etc.).
- */
-function runScript(scriptName, args = []) {
-  const result = spawnSync('node', [path.join(SCRIPTS_DIR, scriptName), ...args], {
-    cwd: WORKSPACE_ROOT,
-    stdio: 'inherit',
-  });
-  if (result.status !== 0) {
-    log(`\n✗ ${scriptName} exited with code ${result.status}`, 'red');
-    process.exit(result.status ?? 1);
-  }
-}
-
-/**
- * Run a long-running script asynchronously (gui, orchestrator).
- * Forwards SIGINT to child; exits when child exits.
- */
-function runLongScript(scriptName, args = []) {
-  const child = spawn('node', [path.join(SCRIPTS_DIR, scriptName), ...args], {
-    cwd: WORKSPACE_ROOT,
-    stdio: 'inherit',
-  });
-  child.on('error', (err) => {
-    log(`✗ Failed to launch ${scriptName}: ${err.message}`, 'red');
-    process.exit(1);
-  });
-  process.on('SIGINT', () => child.kill('SIGINT'));
-  child.on('exit', (code) => process.exit(code ?? 0));
-}
-
-/**
- * Run a command, returning the exit code.
- * Used inside setup components — does NOT exit on failure.
- *
- * On Windows, .cmd files (npm.cmd, pip.cmd) require shell:true in Node 22+
- * to avoid EINVAL from spawnSync. We default shell to IS_WIN; callers can
- * override via opts if needed.
- */
-function sh(cmd, args = [], opts = {}) {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: WORKSPACE_ROOT, shell: IS_WIN, ...opts });
-  return r.status ?? 1;
-}
-
-// ─── Python finder (for orchestrator setup) ───────────────────────────────────
+// --- Python finder (for orchestrator setup) ---
 
 function findPython() {
   const candidates = IS_WIN ? ['python', 'python3', 'py'] : ['python3', 'python'];
   for (const cand of candidates) {
     const a = cand === 'py' ? ['-3', '--version'] : ['--version'];
-    // python, python3, py are .exe on Windows — no shell wrapper needed
     const r = spawnSync(cand, a, { encoding: 'utf8', shell: false });
     if (r.status !== 0) continue;
     const raw = (r.stdout || '') + (r.stderr || '');
@@ -871,38 +780,34 @@ function syncOrchestratorVersion() {
   const pyprojectPath = path.join(ORCHESTRATOR_DIR, 'pyproject.toml');
 
   if (!fs.existsSync(changelogPath)) {
-    log('  ✗ orchestrator/changelog.md not found', 'red');
+    log('  ✗ orchestrator/changelog.md not found');
     return;
   }
   if (!fs.existsSync(pyprojectPath)) {
-    log('  ✗ orchestrator/pyproject.toml not found', 'red');
+    log('  ✗ orchestrator/pyproject.toml not found');
     return;
   }
 
   try {
     const changelog = fs.readFileSync(changelogPath, 'utf8');
-    // Match ## v1.2.3 or ## [1.2.3]
     const versionMatch = changelog.match(/^##\s+(?:\[|v)?(\d+\.\d+\.\d+)/m);
-    
+
     if (!versionMatch) {
-      // It's possible the changelog hasn't been started or format differs
-      log('  ⚠ Could not find version in orchestrator/changelog.md', 'yellow');
+      log('  ⚠ Could not find version in orchestrator/changelog.md');
       return;
     }
 
     const newVersion = versionMatch[1];
     let pyproject = fs.readFileSync(pyprojectPath, 'utf8');
 
-    // Simple regex for top-level version = "..."
     const versionRegex = /^version\s*=\s*"[^"]+"/m;
     if (!versionRegex.test(pyproject)) {
-      log('  ⚠ Could not find "version" key in pyproject.toml', 'yellow');
+      log('  ⚠ Could not find "version" key in pyproject.toml');
       return;
     }
 
     const newContent = pyproject.replace(versionRegex, `version = "${newVersion}"`);
-    
-    // Only write if changed
+
     if (newContent !== pyproject) {
       fs.writeFileSync(pyprojectPath, newContent, 'utf8');
       log(`  ✓ Updated orchestrator/pyproject.toml to ${newVersion}`, 'green');
@@ -920,19 +825,12 @@ function venvBin(name) {
     : path.join(ORCHESTRATOR_DIR, '.venv', 'bin', name);
 }
 
-// ─── .mcp.json scaffold ───────────────────────────────────────────────────────
+// --- .mcp.json scaffold ---
 
-/**
- * Scaffold .mcp.json from .mcp.dist.json, replacing the placeholder path
- * with the real absolute path to mcp-server/src/index.ts.
- *
- * Returns true if the file was written or already exists (satisfied).
- * Returns false only on hard error (e.g. missing .mcp.dist.json).
- */
 function scaffoldMcpJson(force = false) {
   if (fs.existsSync(MCP_JSON) && !force) {
     log('  .mcp.json already exists. Use --force to overwrite.', 'yellow');
-    return true; // already satisfied
+    return true;
   }
   if (!fs.existsSync(MCP_DIST_JSON)) {
     log('  ✗ .mcp.dist.json not found; cannot scaffold .mcp.json', 'red');
@@ -948,8 +846,6 @@ function scaffoldMcpJson(force = false) {
 
   const PLACEHOLDER_BASE = '/Users/path/to/repo/ai-insights/mcp-server';
 
-  // Walk every string value in the parsed JSON and replace the placeholder
-  // base path with the real MCP_SERVER_DIR
   function replaceInObj(obj) {
     if (typeof obj === 'string')  return obj.replaceAll(PLACEHOLDER_BASE, MCP_SERVER_DIR);
     if (Array.isArray(obj))       return obj.map(replaceInObj);
@@ -966,7 +862,7 @@ function scaffoldMcpJson(force = false) {
   return true;
 }
 
-// ─── Setup components ─────────────────────────────────────────────────────────
+// --- Setup components ---
 
 const SETUP_COMPONENTS = [
   {
@@ -1016,10 +912,8 @@ const SETUP_COMPONENTS = [
     desc:  'Python venv + pip install',
     detect: () => fs.existsSync(path.join(ORCHESTRATOR_DIR, '.venv')),
     run(args = []) {
-      // Parse orchestrator-specific flags forwarded through args
       const pIdx  = args.indexOf('--provider');
       const prov  = (pIdx !== -1 && args[pIdx + 1]) ? args[pIdx + 1] : 'anthropic';
-      const dev   = args.includes('--dev');
       const ckpt  = args.includes('--checkpoint');
       const force = args.includes('--force');
       const VENV  = path.join(ORCHESTRATOR_DIR, '.venv');
@@ -1037,16 +931,13 @@ const SETUP_COMPONENTS = [
       if (!fs.existsSync(VENV)) {
         log('  Creating virtual environment…', 'dim');
         const vArgs = pyBin === 'py' ? ['-3', '-m', 'venv', VENV] : ['-m', 'venv', VENV];
-        if (sh(pyBin, vArgs) !== 0) return false;
+        if (sh(pyBin, vArgs, { cwd: WORKSPACE_ROOT }) !== 0) return false;
       } else {
         log('  .venv exists — skipping creation (use --force to recreate)', 'dim');
       }
 
-      // Remove any partial .dist-info dirs left by interrupted pip installs.
-      // pip writes them with a leading '~' and renames on success; leftover
-      // tilde-prefixed entries cause "Ignoring invalid distribution" warnings.
       const sitePkgsCandidates = [
-        path.join(VENV, 'Lib', 'site-packages'),                  // Windows
+        path.join(VENV, 'Lib', 'site-packages'),
         ...(() => { try { return fs.readdirSync(path.join(VENV, 'lib')).map(d => path.join(VENV, 'lib', d, 'site-packages')); } catch { return []; } })(),
       ];
       for (const sp of sitePkgsCandidates) {
@@ -1060,11 +951,10 @@ const SETUP_COMPONENTS = [
       }
 
       log('  Upgrading pip…', 'dim');
-      if (sh(venvBin('python'), ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip']) !== 0) {
+      if (sh(venvBin('python'), ['-m', 'pip', 'install', '--quiet', '--upgrade', 'pip'], { cwd: WORKSPACE_ROOT }) !== 0) {
         return false;
       }
 
-      // Always include 'dev' so ruff (used by the pre-commit hook) is available
       const extras = [prov, 'dev', ...(ckpt ? ['checkpoint'] : [])];
       const target = `.[${extras.join(',')}]`;
       log(`  Installing ${target}…`, 'dim');
@@ -1072,7 +962,6 @@ const SETUP_COMPONENTS = [
         return false;
       }
 
-      // Scaffold .env if missing
       const envFile = path.join(ORCHESTRATOR_DIR, '.env');
       const envEx   = path.join(ORCHESTRATOR_DIR, '.env.example');
       if (!fs.existsSync(envFile) || force) {
@@ -1110,7 +999,7 @@ const SETUP_COMPONENTS = [
       const r = spawnSync('git', ['config', 'core.hooksPath'], { encoding: 'utf8' });
       return r.status === 0 && r.stdout.trim() === '.githooks';
     },
-    run: () => sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]) === 0,
+    run: () => sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')], { cwd: WORKSPACE_ROOT }) === 0,
     validate() {
       const r = spawnSync('git', ['config', 'core.hooksPath'], { encoding: 'utf8' });
       return r.status === 0 && r.stdout.trim() === '.githooks';
@@ -1118,21 +1007,16 @@ const SETUP_COMPONENTS = [
   },
 ];
 
-// ─── Delegating command functions ─────────────────────────────────────────────
+// --- Delegating command functions ---
 
-function cmdSyncPersonas(args)    { runScript('sync-personas.js', args); }
+function cmdSyncPersonas(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'sync-personas.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
 
-/**
- * Clean persona files from all publish locations (VS Code, Claude Code agents,
- * Claude Code skills). Lists files per target and deletes after confirmation.
- * Supports --force to skip the confirmation prompt.
- */
 async function cmdCleanAgents(args) {
   const force = args.includes('--force');
-
   const allTargets = getPublishLocations();
-
-  // Collect files per target
   for (const target of allTargets) {
     if (fs.existsSync(target.dir)) {
       target.files = fs.readdirSync(target.dir).filter(target.filter);
@@ -1140,9 +1024,7 @@ async function cmdCleanAgents(args) {
       target.files = [];
     }
   }
-
   const nonEmpty = allTargets.filter(t => t.files.length > 0);
-
   if (nonEmpty.length === 0) {
     log('\n  No persona files found in any publish location.', 'green');
     for (const target of allTargets) {
@@ -1150,8 +1032,6 @@ async function cmdCleanAgents(args) {
     }
     return;
   }
-
-  // ── Location selection (interactive only) ───────────────────────────────
   let targets;
   if (force) {
     targets = nonEmpty;
@@ -1168,62 +1048,47 @@ async function cmdCleanAgents(args) {
       }
     }
     log(C.dim(`\n  Enter numbers separated by commas, or ${C.bold('a')} for all.`));
-
     const answer = await askCleanInput('  Selection: ');
     const trimmed = answer.trim().toLowerCase();
-
-    if (!trimmed) {
-      log(C.dim('  Cancelled — no files deleted.'));
-      return;
-    }
-
+    if (!trimmed) { log(C.dim('  Cancelled \u2014 no files deleted.')); return; }
     if (trimmed === 'a') {
       targets = nonEmpty;
     } else {
       const indices = trimmed.split(',')
         .map(s => parseInt(s.trim(), 10))
         .filter(n => !isNaN(n) && n >= 1 && n <= allTargets.length);
-
       if (indices.length === 0) {
-        log('  Invalid selection — no files deleted.', 'red');
+        log('  Invalid selection \u2014 no files deleted.', 'red');
         return;
       }
-
-      targets = indices
-        .map(i => allTargets[i - 1])
-        .filter(t => t.files.length > 0);
-
+      targets = indices.map(i => allTargets[i - 1]).filter(t => t.files.length > 0);
       if (targets.length === 0) {
-        log('\n  Selected locations are all empty — nothing to delete.', 'green');
+        log('\n  Selected locations are all empty \u2014 nothing to delete.', 'green');
         return;
       }
     }
   }
-
-  // ── Display files per selected target ───────────────────────────────────
   let totalFiles = 0;
   console.log('');
   for (const target of targets) {
     totalFiles += target.files.length;
-    log(`  ${C.bold(target.label)} ${C.dim('— ' + target.dir)}`);
+    log(`  ${C.bold(target.label)} ${C.dim('\u2014 ' + target.dir)}`);
     log(`  ${target.files.length} file${target.files.length === 1 ? '' : 's'}:`);
     for (const file of target.files) {
-      log(`    ${C.yellow('•')} ${file}`);
+      log(`    ${C.yellow('\u2022')} ${file}`);
     }
     console.log('');
   }
-
   if (!force) {
     const activeCount = targets.filter(t => t.files.length > 0).length;
     const answer = await askCleanInput(
       `  Delete all ${totalFiles} file${totalFiles === 1 ? '' : 's'} across ${activeCount} location${activeCount === 1 ? '' : 's'}? [y/N] `,
     );
     if (answer.trim().toLowerCase() !== 'y') {
-      log(C.dim('  Cancelled — no files deleted.'));
+      log(C.dim('  Cancelled \u2014 no files deleted.'));
       return;
     }
   }
-
   let deleted = 0;
   for (const target of targets) {
     for (const file of target.files) {
@@ -1231,60 +1096,81 @@ async function cmdCleanAgents(args) {
         fs.unlinkSync(path.join(target.dir, file));
         deleted++;
       } catch (err) {
-        log(`  ✗ Failed to delete ${file}: ${err.message}`, 'red');
+        log(`  \u2717 Failed to delete ${file}: ${err.message}`, 'red');
       }
     }
   }
-
-  log(`\n  ${C.green('✓')} Deleted ${deleted} file${deleted === 1 ? '' : 's'} across all publish locations.`);
+  log(`\n  ${C.green('\u2713')} Deleted ${deleted} file${deleted === 1 ? '' : 's'} across all publish locations.`);
 }
 
-/**
- * Prompt the user for text input.
- * @param {string} question
- * @returns {Promise<string>}
- */
 function askCleanInput(question) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
+    rl.question(question, (answer) => { rl.close(); resolve(answer); });
   });
 }
-function cmdBuildPersonas(args)   { runScript('build-personas.js', args); }
-function cmdPackagePersonas(args) { runScript('package-personas.js', args); }
-function cmdGui(args)             { runLongScript('run-gui.js', args); }
+
+function cmdBuildPersonas(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdPackagePersonas(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'package-personas.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdGui(args) {
+  const { child, exitCode } = runLongScript('node', [path.join(SCRIPTS_DIR, 'run-gui.js'), ...args], { cwd: WORKSPACE_ROOT });
+  child.on('error', (err) => { log(`\u2717 Failed to launch run-gui.js: ${err.message}`, 'red'); process.exit(1); });
+  process.once('SIGINT', () => child.kill('SIGINT'));
+  return exitCode.then(code => { process.exit(code); });
+}
+
 function cmdBuildMaintain(args) {
-  // 1. Sync MCP server version (existing behavior)
-  runScript(path.join('..', 'mcp-server', 'scripts', 'sync-version.js'), args);
-
-  // 2. Sync Orchestrator version (new behavior)
+  const syncCode = runScript('node', [path.join(MCP_SERVER_DIR, 'scripts', 'sync-version.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (syncCode !== 0) process.exit(syncCode);
   syncOrchestratorVersion();
-
-  // 3. Build Personas (all suites: ledger + standalone)
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
-  runScript('build-personas.js', buildArgs);
-
-  // 4. Check role parity (persona ↔ MCP server roles)
-  runScript('check-known-roles.js');
-
-  // 5. Regenerate CTX context documentation
+  const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
+  if (buildCode !== 0) process.exit(buildCode);
+  const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
+  if (rolesCode !== 0) process.exit(rolesCode);
   cmdCtxGenerate(args);
 }
-function cmdOrchestrator(args)    { runLongScript('run-orchestrator.js', args); }
-function cmdPreflight(args)       { runScript('preflight-orchestrator.js', args); }
-function cmdPreviewPrompts(args) {
-  const result = spawnSync(venvBin('python'), [path.join(SCRIPTS_DIR, 'preview-prompts.py'), ...args], {
-    cwd: WORKSPACE_ROOT,
-    stdio: 'inherit',
-  });
-  if (result.status !== 0) process.exit(result.status ?? 1);
+
+function cmdOrchestrator(args) {
+  const { child, exitCode } = runLongScript('node', [path.join(SCRIPTS_DIR, 'run-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
+  child.on('error', (err) => { log(`\u2717 Failed to launch run-orchestrator.js: ${err.message}`, 'red'); process.exit(1); });
+  process.once('SIGINT', () => child.kill('SIGINT'));
+  return exitCode.then(code => { process.exit(code); });
 }
-function cmdCheckRoles()          { runScript('check-known-roles.js'); }
-function cmdCheckVersions()       { runScript('check-version-sync.js'); }
-function cmdBundleDocs(args)      { runScript('bundle-docs.js', args); }
+
+function cmdPreflight(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'preflight-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdPreviewPrompts(args) {
+  const code = runScript(venvBin('python'), [path.join(SCRIPTS_DIR, 'preview-prompts.py'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdCheckRoles() {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdCheckVersions() {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'check-version-sync.js')], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdBundleDocs(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'bundle-docs.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
 function cmdCtxGenerate(args) {
   const ctxDir = path.join(WORKSPACE_ROOT, '.context');
   if (fs.existsSync(ctxDir)) {
@@ -1300,48 +1186,38 @@ function cmdCtxGenerate(args) {
     log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
     process.exit(result.status ?? 1);
   }
-  // Normalize Windows backslash paths to forward slashes for cross-platform consistency
-  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir]);
-
-  fs.writeFileSync(
-    path.join(ctxDir, 'generated-at.txt'),
-    new Date().toISOString() + '\n',
-  );
-
-  // Copy AGENTS.md content into CLAUDE.md so IDEs that only read CLAUDE.md
-  // always get the latest agent instructions without a manual sync step.
+  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
+  fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
   const agentsMd = path.join(WORKSPACE_ROOT, 'AGENTS.md');
   const claudeMd = path.join(WORKSPACE_ROOT, 'CLAUDE.md');
   if (fs.existsSync(agentsMd)) {
     const agentsContent = fs.readFileSync(agentsMd, 'utf8');
     const header = '<!-- NOTE: This file is generated automatically from AGENTS.md whenever CTX documents are updated -->\n\n';
     fs.writeFileSync(claudeMd, header + agentsContent, 'utf8');
-    log('Synced AGENTS.md → CLAUDE.md', 'dim');
+    log('Synced AGENTS.md \u2192 CLAUDE.md', 'dim');
   } else {
-    log('\u26a0 AGENTS.md not found — CLAUDE.md not updated', 'yellow');
+    log('\u26a0 AGENTS.md not found \u2014 CLAUDE.md not updated', 'yellow');
   }
 }
-function cmdMcpJson(args)         { scaffoldMcpJson(args.includes('--force')); }
-function cmdGitHooks()            { sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')]); }
-function cmdReadLog(args)          { runScript('read-log.js', args); }
-function cmdKillOrchestrator(args) { runScript('kill-orchestrator.js', args); }
 
-// ─── Command registry ─────────────────────────────────────────────────────────
+function cmdMcpJson(args) { scaffoldMcpJson(args.includes('--force')); }
 
-// forward-declares runSetup (defined below) — hoisting is fine for functions
-//
-// COMMANDS entry shape (all fields except id, key, label, category, description, run are optional):
-//   helpVariants:    [commandString, description][] — sub-rows rendered in printHelp()
-//                    immediately after the base command row. Never shown in the menu.
-//   hidden:          boolean — omits the command from the interactive menu;
-//                    command still dispatches via CLI and appears in printHelp().
-//   helpHidden:      boolean — omits the command from printHelp() output;
-//                    command still dispatches via CLI and appears in the menu (key required).
-//                    Composable with hidden: a command can carry both flags.
-//   interleaveAfter: { command: string, variant: number } — instructs printHelp() to
-//                    render this command after the specified parent's helpVariant at that
-//                    index. The command is excluded from its normal insertion-order position.
-//                    Note: command must match an existing COMMANDS id — no runtime validation.
+function cmdGitHooks() {
+  sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')], { cwd: WORKSPACE_ROOT });
+}
+
+function cmdReadLog(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'read-log.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+function cmdKillOrchestrator(args) {
+  const code = runScript('node', [path.join(SCRIPTS_DIR, 'kill-orchestrator.js'), ...args], { cwd: WORKSPACE_ROOT });
+  if (code !== 0) process.exit(code);
+}
+
+// --- Command registry ---
+
 const COMMANDS = [
   {
     id:           'setup',
@@ -1353,18 +1229,14 @@ const COMMANDS = [
       ['setup --all',              'Non-interactive full setup'],
       ['setup --components <ids>', 'Run selected components (e.g. mcp-server,personas)'],
     ],
-    run:          (args) => runSetup(args),
   },
   {
-    id:             'build-maintain',
-    key:            'b',
-    label:          'Build & Maintain',
-    category:       'Validation & Utilities',
-    description:    'Sync versions, build personas & CTX generate',
-    // In printHelp(), render this command after setup's first helpVariant (setup --all)
-    // to reproduce the original canonical help output order.
-    interleaveAfter: { command: 'setup', variant: 0 },
-    run:            cmdBuildMaintain,
+    id:          'build-maintain',
+    key:         'b',
+    label:       'Build & Maintain',
+    category:    'Validation & Utilities',
+    description: 'Sync versions, build personas & CTX generate',
+    run:         cmdBuildMaintain,
   },
   {
     id:           'mcp-json',
@@ -1449,7 +1321,6 @@ const COMMANDS = [
     label:       'Run orchestrator',
     category:    'Orchestrator',
     description: 'Run orchestrator pipeline (requires --plan <path>)',
-    hidden:      true,
     run:         cmdOrchestrator,
   },
   {
@@ -1461,7 +1332,6 @@ const COMMANDS = [
     helpVariants: [
       ['read-log --summary', 'One-line run overview with token totals'],
     ],
-    hidden:       true,
     helpHidden:   true,
     run:          cmdReadLog,
   },
@@ -1474,7 +1344,6 @@ const COMMANDS = [
     helpVariants: [
       ['kill-orchestrator --force', 'Kill without confirmation (agent use)'],
     ],
-    // Not shown in printHelp() — was absent from original help output
     helpHidden:   true,
     run:          cmdKillOrchestrator,
   },
@@ -1492,7 +1361,6 @@ const COMMANDS = [
     label:       'CTX generate',
     category:    'Validation & Utilities',
     description: 'Generate context documentation (ctx generate)',
-    hidden:      true,
     run:         cmdCtxGenerate,
   },
   {
@@ -1501,411 +1369,42 @@ const COMMANDS = [
     label:       'Check version sync',
     category:    'Validation & Utilities',
     description: 'Verify changelog vs manifest versions',
-    hidden:      true,
     run:         cmdCheckVersions,
   },
 ];
 
-// ─── Help ─────────────────────────────────────────────────────────────────────
-
-function printHelp() {
-  const ver = readVersion();
-  console.log(`\nAI Insights CLI — ${ver}\n`);
-  console.log('Usage: node scripts/cli.js [command] [options]\n');
-  console.log('Commands:');
-
-  // Build a map of commands that should be interleaved inside another command's
-  // helpVariants block. Key: "<parentId>:<variantIndex>" (insert AFTER that variant).
-  const interleaveMap = new Map();
-  const interleavedIds = new Set();
-  for (const cmd of COMMANDS) {
-    if (cmd.interleaveAfter) {
-      const key = `${cmd.interleaveAfter.command}:${cmd.interleaveAfter.variant}`;
-      if (!interleaveMap.has(key)) interleaveMap.set(key, []);
-      interleaveMap.get(key).push(cmd);
-      interleavedIds.add(cmd.id);
-    }
-  }
-
-  for (const cmd of COMMANDS) {
-    if (cmd.helpHidden) continue;         // explicitly excluded from help
-    if (interleavedIds.has(cmd.id)) continue; // rendered inline via interleaveAfter
-
-    process.stdout.write('  ' + cmd.id.padEnd(28) + C.dim(cmd.description) + '\n');
-    if (cmd.helpVariants) {
-      for (let i = 0; i < cmd.helpVariants.length; i++) {
-        const [variant, desc] = cmd.helpVariants[i];
-        process.stdout.write('  ' + variant.padEnd(28) + C.dim(desc) + '\n');
-        // After each variant, inject any interleaved commands registered for this position.
-        const key = `${cmd.id}:${i}`;
-        if (interleaveMap.has(key)) {
-          for (const other of interleaveMap.get(key)) {
-            process.stdout.write('  ' + other.id.padEnd(28) + C.dim(other.description) + '\n');
-            if (other.helpVariants) {
-              for (const [v, d] of other.helpVariants) {
-                process.stdout.write('  ' + v.padEnd(28) + C.dim(d) + '\n');
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  process.stdout.write('  ' + 'help'.padEnd(28) + C.dim('Show this help') + '\n');
-  console.log('\nRun without arguments for interactive mode.\n');
-}
-
-// ─── Argument parser ──────────────────────────────────────────────────────────
-
-function parseArgs(argv) {
-  const [first, ...rest] = argv;
-  if (!first || first.startsWith('-')) return { command: null, flags: argv };
-  return { command: first, flags: rest };
-}
-
-// ─── Setup wizard ─────────────────────────────────────────────────────────────
-
-/**
- * Interactive checkbox menu for setup component selection.
- * Returns a Promise that resolves to an array of component IDs,
- * or null if the user quit without selecting.
- */
-function runSetupMenu() {
-  const items = SETUP_COMPONENTS.map((c) => ({
-    id:      c.id,
-    label:   c.label,
-    desc:    c.desc,
-    checked: true,
-    done:    c.detect(),
-  }));
-  let cursor = 0;
-
-  function render() {
-    process.stdout.write('\x1b[2J\x1b[0;0H'); // clear screen + cursor home
-    console.log(C.bold('Select components to set up:\n'));
-    items.forEach((item, i) => {
-      const mark  = i === cursor ? C.cyan('▶') : ' ';
-      const box   = item.checked ? C.green('[x]') : '[ ]';
-      const num   = `${i + 1}.`.padEnd(3);
-      const label = item.label.padEnd(14);
-      const desc  = C.dim(item.desc.padEnd(32));
-      const done  = item.done ? C.dim(' (done)') : '';
-      console.log(`  ${mark} ${box} ${num} ${label} ${desc}${done}`);
-    });
-    console.log('');
-    console.log(C.dim('  (done) = already set up — toggle to re-run'));
-    console.log('');
-    console.log(
-      `  ${C.bold('[a]')} Toggle all   ` +
-      `${C.bold('[Enter]')} Run selected   ` +
-      `${C.bold('[q]')} Back`
-    );
-    console.log('  ↑/↓ or j/k move   Space toggles\n');
-  }
-
-  return new Promise((resolve) => {
-    readline.emitKeypressEvents(process.stdin);
-    let rawSet = false;
-    try { process.stdin.setRawMode(true); rawSet = true; } catch {}
-    process.stdin.resume();
-    render();
-
-    function finish(result) {
-      process.stdin.removeAllListeners('keypress');
-      if (rawSet) try { process.stdin.setRawMode(false); } catch {}
-      process.stdin.pause();
-      resolve(result);
-    }
-
-    process.stdin.on('keypress', (ch, key) => {
-      if (!key) return;
-      // Ctrl+C
-      if ((key.ctrl && key.name === 'c') || key.sequence === '\x03') {
-        finish(null);
-        return;
-      }
-      const k = key.name;
-      if (k === 'up'   || ch === 'k') { cursor = Math.max(0, cursor - 1);                  render(); return; }
-      if (k === 'down' || ch === 'j') { cursor = Math.min(items.length - 1, cursor + 1);   render(); return; }
-      if (ch === ' ')  { items[cursor].checked = !items[cursor].checked;                   render(); return; }
-      if (ch === 'a')  {
-        const allOn = items.every((i) => i.checked);
-        items.forEach((i) => { i.checked = !allOn; });
-        render();
-        return;
-      }
-      if (k === 'return' || k === 'enter') {
-        finish(items.filter((i) => i.checked).map((i) => i.id));
-        return;
-      }
-      if (ch === 'q') { finish(null); return; }
-    });
-  });
-}
-
-/**
- * Entry function for the `setup` command.
- * async so it can await the interactive checkbox menu when needed.
- */
-async function runSetup(args) {
-  const runAll   = args.includes('--all');
-  const compIdx  = args.indexOf('--components');
-  const compList = compIdx !== -1
-    ? (args[compIdx + 1] || '').split(',').filter(Boolean)
-    : null;
-
-  let selectedIds;
-
-  if (runAll) {
-    selectedIds = SETUP_COMPONENTS.map((c) => c.id);
-  } else if (compList) {
-    selectedIds = compList;
-  } else if (!process.stdin.isTTY) {
-    log('✗ Non-interactive mode requires --all or --components <list>', 'red');
-    log('  Example: node scripts/cli.js setup --all', 'dim');
-    process.exit(1);
-  } else {
-    selectedIds = await runSetupMenu();
-    if (!selectedIds || selectedIds.length === 0) {
-      log('No components selected — aborted.', 'dim');
-      return;
-    }
-  }
-
-  const toRun = SETUP_COMPONENTS.filter((c) => selectedIds.includes(c.id));
-  if (toRun.length === 0) {
-    log('No matching components. Available: ' + SETUP_COMPONENTS.map((c) => c.id).join(', '), 'yellow');
-    return;
-  }
-
-  console.log('');
-
-  const results = [];
-  for (const comp of toRun) {
-    log(`→ ${comp.label}  ${C.dim(comp.desc)}`, 'bold');
-    let ok = false;
-    try {
-      ok = await Promise.resolve(comp.run(args));
-    } catch (e) {
-      log(`  ✗ ${comp.label} threw: ${e.message}`, 'red');
-    }
-    if (ok) ok = comp.validate();
-    results.push({ comp, ok });
-  }
-
-  // Print summary table
-  const LINE = '─'.repeat(50);
-  console.log('\nSetup Summary');
-  console.log(LINE);
-  for (const { comp, ok } of results) {
-    const icon  = ok ? C.green('✓') : C.red('✗');
-    const label = comp.label.padEnd(16);
-    const msg   = ok ? C.dim('OK') : C.red('Failed — see output above');
-    console.log(`  ${icon}  ${label} ${msg}`);
-  }
-  console.log(LINE);
-  const passed = results.filter((r) => r.ok).length;
-  const total  = results.length;
-  const color  = passed === total ? 'green' : passed > 0 ? 'yellow' : 'red';
-  log(`  ${passed}/${total} components succeeded`, color);
-  console.log('');
-  if (passed < total) process.exit(1);
-}
-
-// ─── Wait-for-key helper ──────────────────────────────────────────────────────
-
-/**
- * Display a prompt and wait for the user to press any key.
- * Used after blocking commands so their output stays visible before the menu
- * re-renders and clears the screen.
- */
-function waitForKey(prompt = '\n  Press any key to continue…') {
-  return new Promise((resolve) => {
-    process.stdout.write(C.dim(prompt));
-    readline.emitKeypressEvents(process.stdin);
-    let rawSet = false;
-    try { process.stdin.setRawMode(true); rawSet = true; } catch {}
-    process.stdin.resume();
-
-    function done() {
-      process.stdin.removeAllListeners('keypress');
-      if (rawSet) try { process.stdin.setRawMode(false); } catch {}
-      process.stdin.pause();
-      console.log('');
-      resolve();
-    }
-
-    process.stdin.on('keypress', (ch, key) => {
-      if (key && key.ctrl && key.name === 'c') {
-        done();
-        process.exit(0);
-      }
-      done();
-    });
-  });
-}
-
-// ─── Interactive main menu ────────────────────────────────────────────────────
+// --- ASCII banner ---
 
 const BANNER_LINES = [
-  " ",
-  " █████╗ ██╗   ██╗███╗   ██╗███████╗██╗ ██████╗ ██╗  ██╗████████╗███████╗",
-  "██╔══██╗██║   ██║████╗  ██║██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝██╔════╝",
-  "███████║██║   ██║██╔██╗ ██║███████╗██║██║  ███╗███████║   ██║   ███████╗",
-  "██╔══██║██║   ██║██║╚██╗██║╚════██║██║██║   ██║██╔══██║   ██║   ╚════██║",
-  "██║  ██║██║   ██║██║ ╚████║███████║██║╚██████╔╝██║  ██║   ██║   ███████║",
-  "╚═╝  ╚═╝╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝",
+  ' ',
+  ' █████╗ ██╗   ██╗███╗   ██╗███████╗██╗ ██████╗ ██╗  ██╗████████╗███████╗',
+  '██╔══██╗██║   ██║████╗  ██║██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝██╔════╝',
+  '███████║██║   ██║██╔██╗ ██║███████╗██║██║  ███╗███████║   ██║   ███████╗',
+  '██╔══██║██║   ██║██║╚██╗██║╚════██║██║██║   ██║██╔══██║   ██║   ╚════██║',
+  '██║  ██║██║   ██║██║ ╚████║███████║██║╚██████╔╝██║  ██║   ██║   ███████║',
+  '╚═╝  ╚═╝╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚══════╝',
 ];
 
-function renderMenu(version) {
-  process.stdout.write('\x1b[2J\x1b[0;0H'); // clear screen + cursor home
-  console.log(C.cyan(BANNER_LINES.join('\n')));
-  console.log(C.dim(`  Workspace CLI  ${version}\n`));
+// --- Entry point ---
 
-  const catVersions = {
-    'MCP Server':   readSubVersion(MCP_SERVER_DIR),
-    'Personas':     readSubVersion(PERSONAS_DIR),
-    'Orchestrator': readPyprojectVersion(ORCHESTRATOR_DIR),
-  };
-
-  // Group commands by category (preserving insertion order)
-  const cats = [...new Set(COMMANDS.map((c) => c.category))];
-  for (const cat of cats) {
-    const subVer = catVersions[cat] ? C.dim(` ${catVersions[cat]}`) : '';
-    console.log(C.bold(`  ${cat}`) + subVer);
-    for (const cmd of COMMANDS.filter((c) => c.category === cat && !c.hidden)) {
-      const key   = C.cyan(`${cmd.key}.`);
-      const label = cmd.label.padEnd(26);
-      const desc  = C.dim(cmd.description);
-      console.log(`    ${key} ${label} ${desc}`);
-    }
-    console.log('');
-  }
-
-  console.log(`  ${C.dim('[h] Help   [q] Quit')}\n`);
-  process.stdout.write('  Choose: ');
-}
-
-/**
- * Show the interactive main menu and handle keypresses.
- * Called on first launch and after each non-long-running command completes.
- */
-function showInteractiveMenu() {
-  const version = readVersion();
-  renderMenu(version);
-
-  readline.emitKeypressEvents(process.stdin);
-  let rawSet = false;
-  try {
-    process.stdin.setRawMode(true);
-    rawSet = true;
-  } catch {
-    log('\n✗ Interactive mode requires a TTY terminal.', 'red');
-    log('  Use: node scripts/cli.js help', 'dim');
-    process.exit(1);
-  }
-  process.stdin.resume();
-
-  function restoreTerminal() {
-    process.stdin.removeAllListeners('keypress');
-    if (rawSet) try { process.stdin.setRawMode(false); } catch {}
-    process.stdin.pause();
-  }
-
-  process.stdin.on('keypress', async (ch, key) => {
-    if (!key) return;
-    try {
-
-      // Ctrl+C or 'q' → exit
-      if ((key.ctrl && key.name === 'c') || key.sequence === '\x03' || ch === 'q') {
-        restoreTerminal();
-        console.log('');
-        process.exit(0);
-      }
-
-      // 'h' → show help, pause for user, then re-render menu
-      if (ch === 'h') {
-        restoreTerminal();
-        console.log('');
-        printHelp();
-        await waitForKey('\n  Press any key to return to menu…');
-        setImmediate(() => showInteractiveMenu());
-        return;
-      }
-
-      // Check if the keypress matches a command
-      const cmd = COMMANDS.find((c) => c.key === ch);
-      if (!cmd) {
-        renderMenu(version); // unknown key — just re-render
-        return;
-      }
-
-      // Restore terminal before running any command
-      restoreTerminal();
-      console.log('');
-
-      const isLong = cmd.id === 'gui' || cmd.id === 'orchestrator';
-      if (isLong) {
-        // Long-running: runLongScript manages process exit when child exits
-        cmd.run([]);
-      } else {
-        // Blocking command: run it, pause for user, then re-show menu
-        try {
-          const result = cmd.run([]);
-          if (result && typeof result.then === 'function') await result;
-        } catch { /* errors are already logged inside command implementations */ }
-        await waitForKey('\n  Press any key to return to menu…');
-        setImmediate(() => showInteractiveMenu());
-      }
-
-    } catch (e) {
-      // Safety net: if something unexpected throws, restore terminal and re-show menu
-      restoreTerminal();
-      console.error('\n' + C.red(`Unexpected error: ${e.message}`));
-      setImmediate(() => showInteractiveMenu());
-    }
-  });
-}
-
-// ─── Entry point ──────────────────────────────────────────────────────────────
-
-async function main() {
-  checkNodeVersion();
-  checkWorkspaceRoot();
-
-  const { command, flags } = parseArgs(process.argv.slice(2));
-
-  if (command === 'help') {
-    printHelp();
-    process.exit(0);
-  }
-
-  if (command !== null) {
-    const cmd = COMMANDS.find((c) => c.id === command);
-    if (!cmd) {
-      log(`\n✗ Unknown command: "${command}"`, 'red');
-      log('  Run `node scripts/cli.js help` for a list of commands.', 'dim');
-      process.exit(1);
-    }
-    const result = cmd.run(flags);
-    if (result && typeof result.then === 'function') await result;
-    return;
-  }
-
-  // No command provided
-  if (!process.stdin.isTTY) {
-    log('Usage: node scripts/cli.js [command]', 'dim');
-    log('Run `node scripts/cli.js help` for a list of commands.', 'dim');
-    process.exit(1);
-  }
-
-  showInteractiveMenu();
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+createMenu({
+  name:            'AI Insights CLI',
+  banner:          BANNER_LINES,
+  version:         () => readChangelogVersion(CHANGELOG_FILE).replace(/^v/, ''),
+  commands:        COMMANDS,
+  workspaceRoot:   WORKSPACE_ROOT,
+  setupComponents: SETUP_COMPONENTS,
+  preflightChecks: [
+    () => checkNodeVersion(18),
+    checkWorkspaceRoot,
+  ],
+  categoryVersions: {
+    'MCP Server':   () => readPackageVersion(MCP_SERVER_DIR).replace(/^v/, ''),
+    'Personas':     () => readPackageVersion(PERSONAS_DIR).replace(/^v/, ''),
+    'Orchestrator': () => readPyprojectVersion(ORCHESTRATOR_DIR).replace(/^v/, ''),
+  },
+  usageLine: 'node scripts/cli.js [command] [options]',
+}).run(process.argv.slice(2)).then(code => process.exit(code));
 
 ```
 ###  Path: `/scripts/extract-changelog-entry.js`

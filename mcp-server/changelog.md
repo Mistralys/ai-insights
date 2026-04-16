@@ -1,5 +1,12 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.26.0 - GUI Progress Calculation
+- GUI: Added pipeline-based project progress percentage to the project list.
+- Utils: Added `computePassedStages()` and `computeProjectProgress()` helpers.
+- Schema: Added `passed_stages` to WP summary and `progress_pct` to project meta.
+- Storage: Root-index enrichment now computes and caches progress per WP.
+- Tests: Added progress calculation test suite.
+
 ## v1.25.0 - GUI Stale Instance Detection
 - GUI: Added stale-instance banner shown when component versions change after the GUI boots.
 - GUI: New `GET /api/server-info` endpoint compares boot-time and current on-disk versions.

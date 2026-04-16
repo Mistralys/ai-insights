@@ -1,5 +1,13 @@
 # AI Insights Changelog
 
+## v1.19.0 - Progress Tracking & Metadata-Driven Subagents
+> mcp v1.26.0 · orchestrator v0.17.0 · personas v3.16.0
+
+- MCP: Pipeline-based project progress percentage in the GUI project list.
+- Orchestrator: Subagent specs now derived from persona YAML metadata at startup.
+- Personas: Added cross-reference validation for subagent slug variables.
+- Scripts: Refactored CLI to use the `@mistralys/cli-menu` library.
+
 ## v1.18.0 - GUI Stale Instance Detection
 > mcp v1.25.0
 
