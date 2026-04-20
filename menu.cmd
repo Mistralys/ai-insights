@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0"
-node scripts/cli.js %*
+node scripts\preflight-bootstrap.js
+node scripts\cli.js %*
