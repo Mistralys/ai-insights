@@ -109,7 +109,7 @@ if (!CHECK) {
    */
   function parseYamlScalars(text, fields) {
     const result = {};
-    for (const line of text.split('\n')) {
+    for (const line of text.split(/\r?\n/)) {
       const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
       if (!m) continue;
       const key = m[1];
