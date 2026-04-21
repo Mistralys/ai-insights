@@ -2267,6 +2267,19 @@ def restrict_to_wp(tools: list[Any], wp_id: str) -> list[Any]:
     Tool calls that do not include ``work_package_id`` are passed through
     unmodified; the active WP ID is auto-injected instead.
 
+    **Design note — PM stages and cross-WP calls:**
+    Pipeline agent stages (Developer, QA, Reviewer, etc.) must never cross
+    WP boundaries, so this guard is always correct for them.  The PM stage
+    is an *orchestrating* role that may, in principle, need to inspect or
+    manipulate a different WP than the one it was dispatched for.  The
+    current architecture handles this correctly without relaxing the guard:
+    PM stages complete their pipeline work on the active WP, then return
+    WAIT.  The supervisor re-enters, queries ``ledger_get_next_action``,
+    receives the next routing signal (e.g. ``ROUTE_PIPELINE_AGENT``), and
+    dispatches a new stage invocation with the correct ``wp_id``.  Any
+    cross-WP claim attempt *within* a PM stage is therefore a logic error in
+    the agent, and the guard rejection is the correct outcome.
+
     The function is **idempotent**: a sentinel attribute ``_orig_ainvoke_wp``
     prevents closure stacking when the same tool objects are wrapped more than
     once.

@@ -838,6 +838,23 @@ runSubagent:
 
 **`subagent_type` value convention:** The value must match the `name` field of the SubAgent spec dict — for ledger personas, `name` is the kebab-case slug itself (e.g. `ledger-wp-decomposer`), derived from the `subagents` field in the ledger persona YAML. The `{{agent_<slug>}}` computed variable resolves to this slug at build time, so using `{{agent_ledger_wp_decomposer}}` in the template is the recommended idiom. See [Constraint 18](#18-subagent-configuration-is-metadata-driven--declared-in-ledger-persona-yaml) for the full configuration model.
 
+---
+
+### 21. PM Cross-WP Claims Are Rejected by the WP Guard — This Is By Design
+
+**Rule:** A PM stage invocation that attempts to call `ledger_claim_work_package` (or any other write tool) with a `work_package_id` that differs from the WP the stage was dispatched for will be rejected by the `restrict_to_wp` guard in `src/utils/tool_wrappers.py`. This is the **correct** behavior. Do not relax the guard for PM stages.
+
+**Invariant:** The current architecture does not require the PM stage to claim a different WP within the same stage turn. The workflow is:
+
+1. PM stage completes its pipeline work on the active WP and returns `WAIT` (or `ROUTE_PIPELINE_AGENT`).
+2. The supervisor re-enters, queries `ledger_get_next_action`, receives the next routing signal with the new `work_package_id`, and dispatches a fresh stage invocation scoped to that WP.
+3. The new stage invocation is guarded against the new WP — cross-WP contamination is prevented by construction.
+
+**Root cause of observed rejections:** If a PM stage attempts to claim a different WP than the one it was dispatched for, it is a logic error in the LLM agent — the PM should return `WAIT` and let the supervisor perform the re-dispatch. The rejection is a correct safety response, not a bug.
+
+**Rationale:** Pipeline agent stages (Developer, QA, Reviewer, etc.) must never cross WP boundaries, so the guard is non-negotiable. The PM role is architecturally an orchestrating role but its stage turns are still scoped to a single WP. Cross-WP orchestration is delegated to the deterministic supervisor, which always has full ledger context and performs re-dispatch with the correct `wp_id`.
+
+
 
 ```
 ###  Path: `/orchestrator/docs/agents/project-manifest/data-flows.md`

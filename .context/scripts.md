@@ -14,6 +14,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── kill-orchestrator.js
     └── normalize-ctx-paths.js
     └── package-personas.js
+    └── preflight-bootstrap.js
     └── preflight-orchestrator.js
     └── publish-locations.js
     └── read-log.js
@@ -137,7 +138,7 @@ if (!CHECK) {
    */
   function parseYamlScalars(text, fields) {
     const result = {};
-    for (const line of text.split('\n')) {
+    for (const line of text.split(/\r?\n/)) {
       const m = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.+)$/);
       if (!m) continue;
       const key = m[1];
@@ -2356,6 +2357,65 @@ for (const target of TARGETS) {
 }
 
 log('\nDone.');
+
+```
+###  Path: `/scripts/preflight-bootstrap.js`
+
+```js
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
+
+function bootstrap() {
+  const root = path.resolve(__dirname, '..');
+  
+  // In case of local dev, try to find original repos if they are siblings
+  const workspaceRoot = path.resolve(root, '..');
+  const cliMenuDir = path.join(workspaceRoot, 'cli-menu');
+  const personaBuilderDir = path.join(workspaceRoot, 'ai-persona-builder');
+  
+  const packages = [
+    { name: '@mistralys/persona-builder', dir: personaBuilderDir },
+    { name: '@mistralys/cli-menu', dir: cliMenuDir }
+  ];
+
+  let builtAny = false;
+
+  for (const pkg of packages) {
+    if (!fs.existsSync(pkg.dir)) continue;
+
+    const distDir = path.join(pkg.dir, 'dist');
+    const nodeModules = path.join(pkg.dir, 'node_modules');
+    
+    if (!fs.existsSync(distDir) || !fs.existsSync(nodeModules)) {
+      console.log(`[Bootstrap] Preparing ${pkg.name}...`);
+      try {
+        if (!fs.existsSync(nodeModules)) {
+          execSync('npm install', { cwd: pkg.dir, stdio: 'inherit' });
+        }
+        execSync('npm run build', { cwd: pkg.dir, stdio: 'inherit' });
+        builtAny = true;
+      } catch (err) {
+        console.error(`[Bootstrap] Failed to prepare ${pkg.name}.`);
+        process.exit(1);
+      }
+    }
+  }
+
+  // Also ensure ai-insights root has node_modules and cli-menu inside it has dist (if linked)
+  const insightsModules = path.join(root, 'node_modules');
+  if (builtAny || !fs.existsSync(insightsModules)) {
+    console.log(`[Bootstrap] Preparing ai-insights...`);
+    try {
+      execSync('npm install', { cwd: root, stdio: 'inherit' });
+    } catch (err) {
+      console.error(`[Bootstrap] Failed to run npm install in ai-insights.`);
+      process.exit(1);
+    }
+  }
+}
+
+bootstrap();
 
 ```
 ###  Path: `/scripts/preflight-orchestrator.js`

@@ -2737,8 +2737,15 @@ export function getMaxHandoffDepth(): number;
 // mocking the config singleton.
 export function effectiveMaxDepth(totalWorkPackages: number, configMax?: number): number;
 
+// Returns the most recent non-auto-cancelled pipeline matching the given type, or null if none
+// exists. Equivalent to: pipelines.filter(p => p.type === type && !p.auto_cancelled).at(-1) ?? null
+// Auto-cancelled pipelines are excluded per §14.7 / §21.27. Treat absent/falsy `auto_cancelled`
+// as false (backward-compatible). Used internally by isMostRecentPipelineFail and by PM dispatch
+// functions (workflow-handoff.ts, workflow-next-action.ts) to avoid duplicated filter+at(-1) patterns.
+export function latestNonCancelledPipeline(pipelines: Pipeline[], type: string): Pipeline | null;
+
 // Returns true ONLY if the most recent non-auto-cancelled pipeline of pipelineType has FAIL status.
-// Auto-cancelled pipelines (auto_cancelled: true) are filtered out before selecting the most recent entry.
+// Delegates to latestNonCancelledPipeline(). Auto-cancelled pipelines are excluded per §14.7 / §21.27.
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean;
 
 // Returns true if a pipeline is IN_PROGRESS and was started more than STALE_PIPELINE_HOURS ago.
@@ -2834,7 +2841,7 @@ export const pipelineAgentRoleMap: Record<string, string>;
 ### `src/tools/workflow-next-action.ts` — ledger_get_next_action internals
 
 ```typescript
-// Project Manager next-action computation. Implements the 5-priority algorithm from §14.1.2.
+// Project Manager next-action computation. Implements the 6-priority algorithm from §14.1.2.
 // When preloadedWpDetails is provided (by the parent getNextAction call), skips the internal
 // Promise.all disk fetch and uses the pre-loaded data instead (matching the pattern of all
 // other role action functions). Evaluates priorities in strict top-down order:
@@ -2845,6 +2852,13 @@ export const pipelineAgentRoleMap: Record<string, string>;
 //                          grace period: skips WPs where status_changed_at is within the threshold.
 //   P3c REPAIR_ORPHAN_BLOCKED — BLOCKED WP with dependency/absent blocker where
 //                               canStartWorkPackage(wp, rootIndex) returns allowed:true.
+//   P3d ROUTE_PIPELINE_AGENT — non-terminal, non-dependency-blocked IN_PROGRESS WP where the
+//                              next active pipeline stage needs work. Applies the same guards as
+//                              §13.1 step 2b: FAIL stages are skipped (downstream FAIL routing),
+//                              IN_PROGRESS stages are skipped (stage already being worked on),
+//                              upstream IN_PROGRESS stages are skipped (premature routing prevention).
+//                              Returns action ROUTE_PIPELINE_AGENT with next_agent and pipeline_type.
+//                              Covers stage-transition routing and freshly-claimed WPs (zero pipelines).
 //   P4 WAIT              — no actionable items found.
 // Note: dependency-blocked WPs (blocked_by.type === 'dependency' or absent blocked_by) are
 // explicitly excluded from UNBLOCK_WP and fall through to REPAIR_ORPHAN_BLOCKED.
@@ -3101,7 +3115,7 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 //   → WAIT
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
-// getProjectManagerHandoff (§5.5): steps applied to full WP list:
+// getProjectManagerHandoff (§13.1): steps applied to full WP list:
 //   1. Non-dependency blockers — any WP is BLOCKED with technical/external/decision blocker
 //      → IN_PROGRESS (PM must intervene; dependency-blocked WPs fall through).
 //   2. READY WPs — routed to the first-stage owner:
@@ -3111,6 +3125,16 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
 //          firstActiveStage='documentation' → READY_FOR_DOCUMENTATION). Legacy WPs without
 //          active_pipeline_stages fall back to DEFAULT_PIPELINE_STAGES[0]='implementation'
 //          → READY_FOR_DEVELOPER (backward compatible).
+//   2b. IN_PROGRESS WPs needing next pipeline stage (fires only when step 2 finds no READY WPs):
+//        For each non-terminal, non-dependency-blocked IN_PROGRESS WP, scans
+//        getOrderedActiveStages(wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES):
+//          - stage PASS (most recent non-auto-cancelled) → continue to next stage
+//          - stage FAIL → break (FAIL routing is handled by the downstream agent's own handoff)
+//          - stage IN_PROGRESS → break (stage already being worked on)
+//          - upstream (resolvePrerequisite) IN_PROGRESS → break (premature routing prevention)
+//          - otherwise → route to PIPELINE_AGENT_MAP[stage] via readyStatusForAgent()
+//        Covers two scenarios: (a) stage-transition routing (e.g. impl PASS → READY_FOR_QA),
+//        and (b) freshly-claimed WPs with zero pipelines (routes to first active stage's agent).
 //   3. All terminal → READY_FOR_SYNTHESIS.
 //   → WAIT
 export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
@@ -3700,6 +3724,28 @@ interface HandoffNote {
 **Consumption:** `ledger_get_next_action` and `ledger_get_next_actions` include any handoff notes addressed to the requesting agent in their response, so the next agent sees the notes immediately when they ask for their next action.
 
 > Full specification: [Workflow Specification §9, §12](../workflow-specification/pipeline-routing.md).
+
+---
+
+### 22b. PM Handoff Detects Pending Pipeline Stages on IN_PROGRESS WPs (Step 2b Invariant)
+
+**Rule:** Both `getProjectManagerHandoff()` (§13.1, `workflow-handoff.ts`) and `getProjectManagerAction()` (§14.1.2, `workflow-next-action.ts`) MUST scan non-terminal, non-dependency-blocked `IN_PROGRESS` work packages for pending pipeline stages when no `READY` WPs exist. This scan — called **step 2b** in the handoff function and **Priority 3d** in the recommendation engine — is the only mechanism that advances a WP between pipeline stages after a stage PASS, and that bootstraps freshly-claimed WPs with zero pipelines to their first active stage.
+
+**Invariant:** An IN_PROGRESS WP that has a PASS on stage N and no pipeline started for stage N+1 MUST surface as actionable by the PM (either via `ROUTE_PIPELINE_AGENT` action or the equivalent `READY_FOR_<AGENT>` handoff status) before the affected agent can be dispatched. Failure to implement step 2b would leave such WPs silently stuck — the PM would return `WAIT` instead of routing the next agent.
+
+**Guards (all must be applied):**
+1. **FAIL guard** — If the most recent non-auto-cancelled pipeline for the current stage is FAIL, break the stage scan for this WP. The stage's own agent handles rework; the PM does not route.
+2. **IN_PROGRESS guard** — If the most recent non-auto-cancelled pipeline for the current stage is IN_PROGRESS, break. The stage is already being worked on.
+3. **Upstream IN_PROGRESS guard** — If the preceding stage's most recent non-auto-cancelled pipeline is IN_PROGRESS, break. Routing the next stage now would be premature.
+4. **Dependency-blocked exclusion** — WPs where `wp.status === 'BLOCKED'` and `blocked_by.type === 'dependency'` (or `blocked_by` is absent) are excluded from step 2b entirely.
+
+**Coverage scenarios:**
+- **Stage-transition routing:** WP has implementation PASS and no QA pipeline → PM routes to QA.
+- **Zero-pipeline bootstrap:** Freshly-claimed IN_PROGRESS WP with no pipelines → PM routes to first active stage's agent (e.g., Developer for default stages).
+
+**Rationale:** The PM is the only agent whose action/handoff functions have visibility into all WPs simultaneously. Without step 2b, a WP that just received a pipeline PASS would not advance until something else triggered a re-scan. This invariant was added in v2.4.3 (WP-002/WP-003) to eliminate the gap where stage transitions required manual PM intervention.
+
+> Implementation: `workflow-handoff.ts` `getProjectManagerHandoff()` §13.1 step 2b; `workflow-next-action.ts` `getProjectManagerAction()` §14.1.2 Priority 3d.
 
 ---
 
@@ -5325,7 +5371,7 @@ Check project state:
 Load all WorkPackageDetail files (Promise.all)
   ↓
 Agent-specific logic:
-  - Project Manager: 5-priority algorithm (§14.1.2):
+  - Project Manager: 6-priority algorithm (§14.1.2):
                      P1 UNBLOCK_WP — BLOCKED WPs with decision/external/technical blocker.
                      P2 REVIEW_REWORK_LIMIT — IN_PROGRESS WPs with rework_counts entry >= MAX_REWORK_COUNT.
                      P3 REVIEW_STALE — IN_PROGRESS WPs with a stale active pipeline.
@@ -5333,7 +5379,14 @@ Agent-specific logic:
                           recent activity (grace period: status_changed_at within STALE_PIPELINE_HOURS).
                      P3c REPAIR_ORPHAN_BLOCKED — BLOCKED WPs whose dependency block is stale
                           (canStartWorkPackage returns allowed:true).
-                     P4 WAIT — no actionable items.
+                     P3d ROUTE_PIPELINE_AGENT — non-terminal, non-dependency-blocked IN_PROGRESS WPs
+                          where the next active pipeline stage needs work. Applies the same guards as
+                          §13.1 step 2b: FAIL stages are skipped (downstream FAIL routing), IN_PROGRESS
+                          stages are skipped (stage already in flight), upstream IN_PROGRESS stages are
+                          skipped (premature routing prevention). Returns ROUTE_PIPELINE_AGENT with
+                          next_agent and pipeline_type. Covers stage-transition routing (e.g. impl PASS
+                          → next stage) and freshly-claimed WPs with zero pipelines.
+                     Final Fallback WAIT — no actionable items.
   - Developer: 7-priority per-WP algorithm (§14.2, evaluated for each IN_PROGRESS/READY WP):
                      P1 BLOCK_FOR_REWORK_LIMIT — rework_counts.implementation >= MAX_REWORK_COUNT.
                      P2 RESUME_OR_CANCEL — stale implementation pipeline (>STALE_PIPELINE_HOURS).
@@ -5379,10 +5432,12 @@ Return recommendation:
             "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | "REWORK_DOCS" |
             "FINALIZE_WP" | "UPDATE_CRITERIA" |
             "RESUME_OR_CANCEL" | "REVIEW_STALE" | "REVIEW_ABANDONED" | "REVIEW_REWORK_LIMIT" |
-            "UNBLOCK_WP" | "REPAIR_ORPHAN_BLOCKED" | "GENERATE_SYNTHESIS" | "WAIT" | ...,
+            "UNBLOCK_WP" | "REPAIR_ORPHAN_BLOCKED" | "ROUTE_PIPELINE_AGENT" |
+            "GENERATE_SYNTHESIS" | "WAIT" | ...,
     work_package_id?: "WP-###",
-    reason: "..."
+    reason: "...",
     // RESUME_OR_CANCEL includes: pipeline_type, started_at, age_hours
+    // ROUTE_PIPELINE_AGENT includes: next_agent, pipeline_type
   }
 ```
 
@@ -5453,11 +5508,19 @@ Agent-specific handoff logic:
            not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS
       → WAIT
 
-  - Project Manager (§5.5): Operates on full WP list
+  - Project Manager (§13.1): Operates on full WP list
       1. Non-dependency blockers — BLOCKED WP with technical/external/decision blocker
          → IN_PROGRESS  (PM must intervene; dependency-blocked WPs are skipped here)
       2. READY WPs — readyStatusForAgent(wp.assigned_to) routes to READY_FOR_QA,
-         READY_FOR_DEVELOPER, or READY_FOR_SYNTHESIS based on assigned agent
+         READY_FOR_DEVELOPER, etc. based on assigned agent; unassigned WPs route via
+         PIPELINE_AGENT_MAP[firstActiveStage(wp)] to the first-stage owner
+      2b. IN_PROGRESS WPs needing next pipeline stage (fires only when no READY WPs in step 2):
+          For each non-terminal, non-dependency-blocked IN_PROGRESS WP, scans ordered active stages:
+            - PASS stage → continue to next; FAIL stage → break (downstream handles it)
+            - IN_PROGRESS stage → break (already in flight); upstream IN_PROGRESS → break
+            - otherwise → readyStatusForAgent(PIPELINE_AGENT_MAP[stage])
+          Covers stage-transition routing (e.g. impl PASS → READY_FOR_QA) and freshly-claimed
+          WPs with zero pipelines (routes to first active stage's agent).
       3. All terminal → READY_FOR_SYNTHESIS
       → WAIT
   ↓

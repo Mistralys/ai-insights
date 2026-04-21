@@ -11139,6 +11139,7 @@ class TestDirectActionRouting:
         ("Project Manager", "REPAIR_ORPHAN_BLOCKED","pm"),
         ("Project Manager", "REVIEW_STALE",         "pm"),
         ("Project Manager", "REVIEW_ABANDONED",     "pm"),
+        ("Project Manager", "ROUTE_PIPELINE_AGENT", "pm"),  # fallback: no next_agent
     ])
     async def test_action_routes_to_correct_stage(
         self, role: str, action: str, expected_stage: str
@@ -11186,6 +11187,84 @@ class TestDirectActionRouting:
 
         # PM comes first in _ROLES order, so it should win.
         assert cmd.goto == "pm"
+
+
+# ---------------------------------------------------------------------------
+# Tests: ROUTE_PIPELINE_AGENT direct routing
+# ---------------------------------------------------------------------------
+
+class TestRoutePipelineAgent:
+    """Verify that ROUTE_PIPELINE_AGENT uses the next_agent field to route
+    directly to the target stage rather than back to PM."""
+
+    async def test_route_pipeline_agent_qa_routes_to_qa_stage(self):
+        """ROUTE_PIPELINE_AGENT with next_agent='QA' must route to 'qa' stage."""
+        tools = make_mcp_tools_with_actions({
+            "Project Manager": {
+                "action": "ROUTE_PIPELINE_AGENT",
+                "work_package_id": "WP-001",
+                "next_agent": "QA",
+            }
+        })
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "qa", (
+            f"ROUTE_PIPELINE_AGENT next_agent='QA' should route to 'qa', got {cmd.goto!r}"
+        )
+
+    async def test_route_pipeline_agent_developer_routes_to_developer_stage(self):
+        """ROUTE_PIPELINE_AGENT with next_agent='Developer' must route to 'developer' stage."""
+        tools = make_mcp_tools_with_actions({
+            "Project Manager": {
+                "action": "ROUTE_PIPELINE_AGENT",
+                "work_package_id": "WP-001",
+                "next_agent": "Developer",
+            }
+        })
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "developer", (
+            f"ROUTE_PIPELINE_AGENT next_agent='Developer' should route to 'developer', "
+            f"got {cmd.goto!r}"
+        )
+
+    async def test_route_pipeline_agent_unknown_next_agent_falls_back_to_pm(self):
+        """ROUTE_PIPELINE_AGENT with an unknown next_agent must fall back to
+        the queried role's stage (PM → 'pm')."""
+        tools = make_mcp_tools_with_actions({
+            "Project Manager": {
+                "action": "ROUTE_PIPELINE_AGENT",
+                "work_package_id": "WP-001",
+                "next_agent": "UnknownRole",
+            }
+        })
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "pm", (
+            f"ROUTE_PIPELINE_AGENT with unknown next_agent should fall back to 'pm', "
+            f"got {cmd.goto!r}"
+        )
+
+    async def test_route_pipeline_agent_missing_next_agent_falls_back_to_pm(self):
+        """ROUTE_PIPELINE_AGENT with no next_agent field must fall back to
+        the queried role's stage (PM → 'pm')."""
+        tools = make_mcp_tools_with_actions({
+            "Project Manager": {
+                "action": "ROUTE_PIPELINE_AGENT",
+                "work_package_id": "WP-001",
+                # no next_agent field
+            }
+        })
+        node = make_supervisor_node(tools)
+        cmd = await node(base_state())
+
+        assert cmd.goto == "pm", (
+            f"ROUTE_PIPELINE_AGENT with missing next_agent should fall back to 'pm', "
+            f"got {cmd.goto!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

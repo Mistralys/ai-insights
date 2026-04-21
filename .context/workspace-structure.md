@@ -26,9 +26,7 @@ _SOURCE: Top-level directory tree_
     │       ├── agent-name-map.md
     │       ├── parallelization.md
     │   └── references/
-    │       ├── langgraph-deep-agents-subagent-handbook.md
-    │   └── research/
-    │       └── 2026-04-14-pm-subagent-reliability.md
+    │       └── langgraph-deep-agents-subagent-handbook.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
@@ -422,6 +420,7 @@ _SOURCE: Top-level directory tree_
     ├── kill-orchestrator.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
+    ├── preflight-bootstrap.js
     ├── preflight-orchestrator.js
     ├── preview-prompts.py
     ├── publish-locations.js
