@@ -11,6 +11,7 @@ import {
   resolvePrerequisite,
   DEFAULT_PIPELINE_STAGES,
   firstActiveStage,
+  getOrderedActiveStages,
   PIPELINE_AGENT_MAP,
   scopeToStage,
   type PipelineType,
@@ -19,6 +20,7 @@ import {
   buildHandoffPrompt,
   isBlockedByDependencies,
   isMostRecentPipelineFail,
+  latestNonCancelledPipeline,
   effectiveMaxDepth,
   hasDownstreamReengagedSince,
   hasNewUpstreamPassSince,
@@ -316,11 +318,15 @@ function readyStatusForAgent(assignedTo: string | null): string {
 }
 
 /**
- * Get handoff status for Project Manager (§5.5)
+ * Get handoff status for Project Manager (§13.1)
  *
  * Priority-ordered algorithm:
  * 1. Non-dependency blockers (decision/external/technical) → IN_PROGRESS (PM must act)
  * 2. READY WPs → route to assigned agent via readyStatusForAgent
+ * 2b. IN_PROGRESS WPs with a pending pipeline stage → route to the stage-owning agent.
+ *     Covers stage-transition routing (e.g. impl PASS → QA) and freshly-claimed WPs
+ *     (zero pipelines → route to first active stage). Guards: FAIL (break), current-stage
+ *     IN_PROGRESS (break), upstream IN_PROGRESS (break).
  * 3. All terminal → READY_FOR_SYNTHESIS
  * 4. WPs in-flight (IN_PROGRESS or dependency-BLOCKED) → WAIT
  */
@@ -362,6 +368,49 @@ export async function getProjectManagerHandoff(wpDetails: WorkPackageDetail[], p
         'Project Manager',
         status,
         `Work package ${wp.work_package_id} is READY. Routing to ${targetAgent} (${wp.assigned_to ? 'assigned' : 'first active stage'}).`,
+        undefined,
+        projectPath,
+        store
+      );
+    }
+  }
+
+  // Step 2b: IN_PROGRESS WPs needing next pipeline stage (§13.1 step 2b)
+  // Fires only when step 2 finds no READY WPs. Scans each non-terminal, non-dependency-blocked
+  // IN_PROGRESS WP for a pipeline stage that has not yet PASSed and is safe to start.
+  // Covers both (a) stage-transition routing and (b) freshly-claimed WPs with zero pipelines.
+  for (const wp of wpDetails) {
+    if (isTerminalStatus(wp.status) || wp.status !== 'IN_PROGRESS') continue;
+    if (isBlockedByDependencies(wp)) continue;
+
+    const activeStages = getOrderedActiveStages(
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? [...DEFAULT_PIPELINE_STAGES]
+    );
+
+    for (const stage of activeStages) {
+      // Check the most recent non-auto-cancelled pipeline for this stage
+      const mostRecent = latestNonCancelledPipeline(wp.pipelines, stage);
+
+      if (mostRecent?.status === 'PASS') continue; // stage done, check next
+
+      // First stage not yet PASS — apply guards before routing
+      if (mostRecent?.status === 'FAIL') break; // FAIL routing handled by downstream agent's own handoff
+      if (mostRecent?.status === 'IN_PROGRESS') break; // stage already being worked on
+
+      // Upstream prerequisite guard: skip if upstream stage is still IN_PROGRESS
+      const upstream = resolvePrerequisite(stage, activeStages);
+      if (upstream) {
+        if (latestNonCancelledPipeline(wp.pipelines, upstream)?.status === 'IN_PROGRESS') break;
+      }
+
+      // Route to the agent that owns this stage
+      const targetAgent = PIPELINE_AGENT_MAP[stage];
+      const status = readyStatusForAgent(targetAgent);
+      return buildHandoffResponse(
+        'Project Manager',
+        status,
+        `Work package ${wp.work_package_id} is IN_PROGRESS with ` +
+          `${stage} stage pending. Routing to ${targetAgent}.`,
         undefined,
         projectPath,
         store

@@ -433,7 +433,7 @@ Check project state:
 Load all WorkPackageDetail files (Promise.all)
   ↓
 Agent-specific logic:
-  - Project Manager: 5-priority algorithm (§14.1.2):
+  - Project Manager: 6-priority algorithm (§14.1.2):
                      P1 UNBLOCK_WP — BLOCKED WPs with decision/external/technical blocker.
                      P2 REVIEW_REWORK_LIMIT — IN_PROGRESS WPs with rework_counts entry >= MAX_REWORK_COUNT.
                      P3 REVIEW_STALE — IN_PROGRESS WPs with a stale active pipeline.
@@ -441,7 +441,14 @@ Agent-specific logic:
                           recent activity (grace period: status_changed_at within STALE_PIPELINE_HOURS).
                      P3c REPAIR_ORPHAN_BLOCKED — BLOCKED WPs whose dependency block is stale
                           (canStartWorkPackage returns allowed:true).
-                     P4 WAIT — no actionable items.
+                     P3d ROUTE_PIPELINE_AGENT — non-terminal, non-dependency-blocked IN_PROGRESS WPs
+                          where the next active pipeline stage needs work. Applies the same guards as
+                          §13.1 step 2b: FAIL stages are skipped (downstream FAIL routing), IN_PROGRESS
+                          stages are skipped (stage already in flight), upstream IN_PROGRESS stages are
+                          skipped (premature routing prevention). Returns ROUTE_PIPELINE_AGENT with
+                          next_agent and pipeline_type. Covers stage-transition routing (e.g. impl PASS
+                          → next stage) and freshly-claimed WPs with zero pipelines.
+                     Final Fallback WAIT — no actionable items.
   - Developer: 7-priority per-WP algorithm (§14.2, evaluated for each IN_PROGRESS/READY WP):
                      P1 BLOCK_FOR_REWORK_LIMIT — rework_counts.implementation >= MAX_REWORK_COUNT.
                      P2 RESUME_OR_CANCEL — stale implementation pipeline (>STALE_PIPELINE_HOURS).
@@ -487,10 +494,12 @@ Return recommendation:
             "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | "REWORK_DOCS" |
             "FINALIZE_WP" | "UPDATE_CRITERIA" |
             "RESUME_OR_CANCEL" | "REVIEW_STALE" | "REVIEW_ABANDONED" | "REVIEW_REWORK_LIMIT" |
-            "UNBLOCK_WP" | "REPAIR_ORPHAN_BLOCKED" | "GENERATE_SYNTHESIS" | "WAIT" | ...,
+            "UNBLOCK_WP" | "REPAIR_ORPHAN_BLOCKED" | "ROUTE_PIPELINE_AGENT" |
+            "GENERATE_SYNTHESIS" | "WAIT" | ...,
     work_package_id?: "WP-###",
-    reason: "..."
+    reason: "...",
     // RESUME_OR_CANCEL includes: pipeline_type, started_at, age_hours
+    // ROUTE_PIPELINE_AGENT includes: next_agent, pipeline_type
   }
 ```
 
@@ -561,11 +570,19 @@ Agent-specific handoff logic:
            not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS
       → WAIT
 
-  - Project Manager (§5.5): Operates on full WP list
+  - Project Manager (§13.1): Operates on full WP list
       1. Non-dependency blockers — BLOCKED WP with technical/external/decision blocker
          → IN_PROGRESS  (PM must intervene; dependency-blocked WPs are skipped here)
       2. READY WPs — readyStatusForAgent(wp.assigned_to) routes to READY_FOR_QA,
-         READY_FOR_DEVELOPER, or READY_FOR_SYNTHESIS based on assigned agent
+         READY_FOR_DEVELOPER, etc. based on assigned agent; unassigned WPs route via
+         PIPELINE_AGENT_MAP[firstActiveStage(wp)] to the first-stage owner
+      2b. IN_PROGRESS WPs needing next pipeline stage (fires only when no READY WPs in step 2):
+          For each non-terminal, non-dependency-blocked IN_PROGRESS WP, scans ordered active stages:
+            - PASS stage → continue to next; FAIL stage → break (downstream handles it)
+            - IN_PROGRESS stage → break (already in flight); upstream IN_PROGRESS → break
+            - otherwise → readyStatusForAgent(PIPELINE_AGENT_MAP[stage])
+          Covers stage-transition routing (e.g. impl PASS → READY_FOR_QA) and freshly-claimed
+          WPs with zero pipelines (routes to first active stage's agent).
       3. All terminal → READY_FOR_SYNTHESIS
       → WAIT
   ↓

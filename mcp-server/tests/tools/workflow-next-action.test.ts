@@ -375,6 +375,82 @@ describe('PM action logic', () => {
     expect(result.action).toBe('UNBLOCK_WP');
     expect(result.work_package_id).toBe('WP-002');
   });
+
+  // Case 10: ROUTE_PIPELINE_AGENT — impl PASS + no QA pipeline → routes to QA
+  it('returns ROUTE_PIPELINE_AGENT with next_agent QA when WP has implementation PASS and no QA pipeline', async () => {
+    const recentComplete = new Date(Date.now() - 30 * 60 * 1000).toISOString(); // 30min ago (within grace)
+    const recentStart    = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const wp = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'PASS', recentStart, recentComplete),
+    ] });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('ROUTE_PIPELINE_AGENT');
+    expect(result.work_package_id).toBe('WP-001');
+    expect(result.next_agent).toBe('QA');
+    expect(result.pipeline_type).toBe('qa');
+  });
+
+  // Case 11: Priority ordering — REVIEW_STALE (P3) fires before ROUTE_PIPELINE_AGENT (P3d)
+  it('returns REVIEW_STALE (P3) before ROUTE_PIPELINE_AGENT (P3d) when both conditions are present', async () => {
+    // WP-001: stale IN_PROGRESS implementation pipeline (would trigger P3)
+    const staleStart = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const wp1 = makeWorkPackageDetail({ acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'IN_PROGRESS', staleStart),
+    ] });
+    // WP-002: impl PASS + no QA pipeline (would trigger P3d if WP-001 did not fire first)
+    const recentComplete = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const recentStart    = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const wp2 = makeWorkPackageDetail({ work_package_id: 'WP-002', work_package_file: 'work/WP-002.md', acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'PASS', recentStart, recentComplete),
+    ] });
+    const rootIndex = await setupStore(handle, [wp1, wp2]);
+    const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('REVIEW_STALE');
+    expect(result.work_package_id).toBe('WP-001');
+  });
+
+  // Case 12: Priority ordering — REPAIR_ORPHAN_BLOCKED (P3c) fires before ROUTE_PIPELINE_AGENT (P3d)
+  it('returns REPAIR_ORPHAN_BLOCKED (P3c) before ROUTE_PIPELINE_AGENT (P3d) when both conditions are present', async () => {
+    // WP-001: COMPLETE dependency for WP-002
+    const dep: WorkPackageDetail = makeWorkPackageDetail({ status: 'COMPLETE', acceptance_criteria: [], pipelines: [] });
+    // WP-002: BLOCKED with no blocked_by and its dep is now COMPLETE → REPAIR_ORPHAN_BLOCKED
+    const blocked: WorkPackageDetail = makeWorkPackageDetail({
+      work_package_id: 'WP-002', work_package_file: 'work/WP-002.md',
+      status: 'BLOCKED', acceptance_criteria: [], pipelines: [], dependencies: ['WP-001'],
+    });
+    // WP-003: impl PASS + no QA pipeline → would trigger P3d if P3c did not fire first
+    const recentComplete = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const recentStart    = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const routable = makeWorkPackageDetail({ work_package_id: 'WP-003', work_package_file: 'work/WP-003.md', acceptance_criteria: [], pipelines: [
+      makePipeline('implementation', 'PASS', recentStart, recentComplete),
+    ] });
+    const rootIndex = await setupStore(handle, [dep, blocked, routable]);
+    const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
+
+    expect(result.action).toBe('REPAIR_ORPHAN_BLOCKED');
+    expect(result.work_package_id).toBe('WP-002');
+  });
+
+  // Case 13: Zero-pipeline freshly-claimed WP → ROUTE_PIPELINE_AGENT to first active stage's agent
+  it('returns ROUTE_PIPELINE_AGENT to first active stage agent for a freshly-claimed WP with zero pipelines', async () => {
+    // WP with no pipelines and status_changed_at within the grace period (recently claimed)
+    const recentlyClaimed = new Date(Date.now() - 1 * 60 * 1000).toISOString(); // 1min ago
+    const wp: WorkPackageDetail = makeWorkPackageDetail({
+      acceptance_criteria: [], pipelines: [], status_changed_at: recentlyClaimed,
+    });
+    const rootIndex = await setupStore(handle, [wp]);
+    const result = await parseResult(getProjectManagerAction(rootIndex, handle.store));
+
+    // Default stages: implementation → qa → code-review → documentation
+    // First active stage = implementation → agent = Developer
+    expect(result.action).toBe('ROUTE_PIPELINE_AGENT');
+    expect(result.work_package_id).toBe('WP-001');
+    expect(result.next_agent).toBe('Developer');
+    expect(result.pipeline_type).toBe('implementation');
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -272,6 +272,23 @@ for each WP with status == "READY":
     // Unassigned: route to the agent owning the WP's first active stage
     return readyStatusForAgent(PIPELINE_AGENT_MAP[firstActiveStage(wp)])
 
+// Step 2b: IN_PROGRESS WPs needing next pipeline stage
+for each non-terminal, non-dependency-blocked WP with status == "IN_PROGRESS":
+  activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+  for each stage in getOrderedActiveStages(activeStages):
+    if stage has a PASS pipeline (most recent non-auto-cancelled):
+      continue  // done, check next stage
+    // This is the first stage not yet PASS
+    if stage has a recent FAIL pipeline (most recent non-auto-cancelled):
+      break     // FAIL routing handles this WP; skip to next WP
+    if stage has an IN_PROGRESS pipeline (most recent non-auto-cancelled):
+      break     // stage already being worked on; skip to next WP
+    upstreamStage = resolvePrerequisite(stage, activeStages)
+    if upstreamStage != null AND upstreamStage has an IN_PROGRESS pipeline:
+      break     // upstream still running; skip to next WP
+    nextAgent = PIPELINE_AGENT_MAP[stage]
+    return readyStatusForAgent(nextAgent)
+
 // All WPs terminal
 if all WPs have terminal status:
   return READY_FOR_SYNTHESIS
@@ -283,6 +300,10 @@ return WAIT
 > **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Security Auditor"` → `READY_FOR_SECURITY_AUDIT`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Release Engineer"` → `READY_FOR_RELEASE_ENGINEERING`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
 
 > **Dynamic routing for unassigned WPs (v2.4.2):** Prior to v2.4.2, unassigned READY WPs were hardcoded to route to `READY_FOR_DEVELOPER`. This caused misrouting for WPs with non-default `active_pipeline_stages` — a documentation-only WP (`["documentation"]`) would be routed to Developer, whose `getNextAction` returns `WAIT` (no implementation work), stalling auto-handoff. The routing now uses `firstActiveStage` (§6.2.1) to dynamically determine the correct starting agent for the WP's composition.
+
+> **Design note — PM pipeline blindness (v2.4.3):** Prior to v2.4.3, the PM handoff only examined WP-level statuses (READY, BLOCKED, COMPLETE, IN_PROGRESS). When all WPs were IN_PROGRESS and a pipeline stage completed (e.g., implementation PASS), the PM saw "in-flight work" and returned WAIT — even though the next pipeline agent (e.g., QA) needed to be engaged. This left auto-handoff with no target to dispatch to, stalling the pipeline chain. Step 2b closes this gap by examining pipeline states within each IN_PROGRESS WP, matching the approach used by all other pipeline agents' handoff functions. Step 2b fires only when step 2 (READY WPs) does not match, preserving the existing priority: READY WPs are always routed first.
+
+> **Design note — freshly-claimed WP coverage (v2.4.3):** Step 2b intentionally covers freshly-claimed IN_PROGRESS WPs with zero pipelines. When no pipelines exist yet, the first active stage has no PASS, no FAIL, and no IN_PROGRESS — so the algorithm routes to `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`. This is correct: the WP was claimed but the owning agent has not yet called `startPipeline`. The REVIEW_ABANDONED priority (§14.1.2 priority 3b) separately handles the case where a claimed WP remains idle beyond the staleness grace period — step 2b provides immediate routing so that the auto-handoff chain does not stall while waiting for the staleness threshold to expire.
 
 ### 13.2 Handoff Evaluation Order
 

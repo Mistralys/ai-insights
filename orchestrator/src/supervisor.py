@@ -62,7 +62,7 @@ _SKIP_ACTIONS: frozenset[str] = frozenset({
 _DISPATCH_ACTIONS: frozenset[str] = frozenset({
     # PM
     "UNBLOCK_WP", "REVIEW_REWORK_LIMIT", "REVIEW_STALE", "REVIEW_ABANDONED",
-    "REPAIR_ORPHAN_BLOCKED",
+    "REPAIR_ORPHAN_BLOCKED", "ROUTE_PIPELINE_AGENT",
     # Developer
     "IMPLEMENT", "CLAIM_WP", "CONTINUE_PIPELINE", "RESUME_OR_CANCEL",
     # Multi-role (routed by fail_routing in workflow manifest)
@@ -612,6 +612,16 @@ def make_supervisor_node(mcp_tools: list[Any], *, dry_run: bool = False):
             if destination is None:
                 log.warning("No stage mapped for role %r; skipping.", role)
                 continue
+
+            # Special case: PM's ROUTE_PIPELINE_AGENT provides an explicit
+            # next_agent field — route directly to that agent's stage rather
+            # than looping back to PM. This enables direct stage transitions
+            # (e.g. impl PASS → qa) without an additional supervisor round-trip.
+            # Falls back to the queried role's stage when next_agent is unknown.
+            if action == "ROUTE_PIPELINE_AGENT":
+                next_agent = action_data.get("next_agent", "")
+                if next_agent and next_agent in _ROLE_STAGE_MAP:
+                    destination = _ROLE_STAGE_MAP[next_agent]
 
             # Emit rework_detected when the ledger dispatches a REWORK action.
             if action == "REWORK":

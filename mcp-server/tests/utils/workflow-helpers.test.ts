@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth, clearSynthesisState } from '../../src/utils/workflow-helpers.js';
+import { checkRevalidationGuard, hasDownstreamFail, hasDownstreamReengagedSince, hasNewUpstreamPassSince, isMostRecentPipelineFail, isActivePipeline, latestNonCancelledPipeline, mostRecentEffectivePipeline, isBlockedByDependencies, hasDependencyBlocked, effectiveMaxDepth, clearSynthesisState } from '../../src/utils/workflow-helpers.js';
 import type { Pipeline, WorkPackageDetail } from '../../src/schema/work-package.js';
 import type { PipelineType } from '../../src/utils/pipeline-maps.js';
 import { makePipeline, makeWorkPackageDetail } from '../helpers/fixtures.js';
@@ -704,5 +704,53 @@ describe('clearSynthesisState', () => {
 
     expect(rootIndex.synthesis_generated).toBe(false);
     expect(rootIndex.synthesis_generated_at).toBeNull();
+  });
+});
+
+describe('latestNonCancelledPipeline', () => {
+  it('returns null for an empty pipeline array', () => {
+    expect(latestNonCancelledPipeline([], 'implementation')).toBeNull();
+  });
+
+  it('returns null when no pipelines match the given type', () => {
+    const pipelines: Pipeline[] = [
+      makePipeline('qa', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00'),
+    ];
+    expect(latestNonCancelledPipeline(pipelines, 'implementation')).toBeNull();
+  });
+
+  it('returns the only matching pipeline', () => {
+    const pipeline = makePipeline('implementation', 'PASS', '2026-01-01T08:00:00', '2026-01-01T09:00:00');
+    expect(latestNonCancelledPipeline([pipeline], 'implementation')).toBe(pipeline);
+  });
+
+  it('returns the last matching pipeline when multiple exist', () => {
+    const first = makePipeline('implementation', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T09:00:00');
+    const second = makePipeline('implementation', 'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00');
+    expect(latestNonCancelledPipeline([first, second], 'implementation')).toBe(second);
+  });
+
+  it('skips auto-cancelled pipelines', () => {
+    const cancelled = { ...makePipeline('implementation', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T09:00:00'), auto_cancelled: true };
+    const valid = makePipeline('implementation', 'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00');
+    expect(latestNonCancelledPipeline([cancelled, valid], 'implementation')).toBe(valid);
+  });
+
+  it('returns null when all matching pipelines are auto-cancelled', () => {
+    const cancelled = { ...makePipeline('implementation', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T09:00:00'), auto_cancelled: true };
+    expect(latestNonCancelledPipeline([cancelled], 'implementation')).toBeNull();
+  });
+
+  it('ignores pipelines of other types when auto-cancellation is mixed', () => {
+    const implCancelled = { ...makePipeline('implementation', 'FAIL', '2026-01-01T08:00:00', '2026-01-01T09:00:00'), auto_cancelled: true };
+    const qa = makePipeline('qa', 'PASS', '2026-01-01T10:00:00', '2026-01-01T11:00:00');
+    const implValid = makePipeline('implementation', 'PASS', '2026-01-01T12:00:00', '2026-01-01T13:00:00');
+    expect(latestNonCancelledPipeline([implCancelled, qa, implValid], 'implementation')).toBe(implValid);
+  });
+
+  it('treats absent auto_cancelled field as false (backward-compatible)', () => {
+    // makePipeline does not set auto_cancelled, so it is absent/undefined
+    const pipeline = makePipeline('implementation', 'IN_PROGRESS', '2026-01-01T08:00:00');
+    expect(latestNonCancelledPipeline([pipeline], 'implementation')).toBe(pipeline);
   });
 });

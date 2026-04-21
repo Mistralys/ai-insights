@@ -156,17 +156,28 @@ export function isStalePipeline(pipeline: Pipeline): boolean {
 }
 
 /**
+ * Returns the most recent non-auto-cancelled pipeline matching the given type,
+ * or null if none exists. Equivalent to:
+ *   pipelines.filter(p => p.type === type && !p.auto_cancelled).at(-1) ?? null
+ *
+ * Auto-cancelled pipelines are excluded per §14.7 / §21.27. Treat absent/falsy
+ * `auto_cancelled` as false (backward-compatible).
+ */
+export function latestNonCancelledPipeline(
+  pipelines: Pipeline[],
+  type: string
+): Pipeline | null {
+  return pipelines.filter((p) => p.type === type && !p.auto_cancelled).at(-1) ?? null;
+}
+
+/**
  * Helper: Returns true only if the most recent non-auto-cancelled pipeline of the
  * given type has FAIL status. Auto-cancelled pipelines are excluded per §14.7 / §21.27.
  * A [FAIL, PASS] sequence correctly returns false — only historical FAILs preceding
  * a PASS are ignored. Treat absent/falsy `auto_cancelled` as false (backward-compatible).
  */
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean {
-  const matching = pipelines.filter(
-    (p) => p.type === pipelineType && !p.auto_cancelled
-  );
-  if (matching.length === 0) return false;
-  return matching.at(-1)!.status === 'FAIL';
+  return latestNonCancelledPipeline(pipelines, pipelineType)?.status === 'FAIL' ?? false;
 }
 
 /**

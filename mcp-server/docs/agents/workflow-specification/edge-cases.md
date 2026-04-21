@@ -690,3 +690,23 @@ function recoverOrphanedPipeline(wp, pipelineType, reason):
 - **Related sections:** [§13.1](handoff.md#131-per-agent-handoff-functions) (handoff functions), [§14.2–§14.5c](recommendations.md) (recommendation engine — correctly scoped since v2.4.0), [§18](auxiliary-systems.md#18-auto-handoff-depth-counter) (auto-handoff eligibility)
 
 **Related sections:** [§12.5](operations.md#125-pipeline-cancellation-cancelpipeline) (`cancelPipeline` operation and `auto_cancelled` semantics), [§21.27](#2127-auto-cancelled-pipelines) (auto-cancelled pipeline exclusion rules), [§16.3](dependencies-and-rework.md#163-circuit-breaker) (circuit breaker and rework budget), [§16.3c](dependencies-and-rework.md#163c-circuit-breaker-escalation-for-automated-orchestrators) (orchestrator escalation guidance)
+
+### 21.70 PM Pipeline-Routing for IN_PROGRESS WPs
+
+When all READY WPs have been claimed and all remaining WPs are IN_PROGRESS, the PM handoff previously returned WAIT — leaving no `auto_handoff` target to dispatch the next pipeline agent after a stage PASSed. Step 2b (§13.1) and priority 3d (§14.1.2) close this gap by scanning IN_PROGRESS WPs for pipeline stage transitions.
+
+**Two covered scenarios:**
+
+- **(a) Stage PASS → next stage:** A pipeline stage has completed with PASS and the next active stage has no pipeline started yet. The PM routes to `PIPELINE_AGENT_MAP[nextStage]`, engaging the next agent in the WP's pipeline chain without requiring a READY WP to trigger the handoff.
+- **(b) Freshly-claimed WP with zero pipelines:** A WP was just claimed (status is IN_PROGRESS) but the owning agent has not yet called `startPipeline`. No pipelines exist, so the first active stage has no PASS, no FAIL, and no IN_PROGRESS. The algorithm routes to `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`, providing immediate auto-handoff rather than waiting for the `REVIEW_ABANDONED` staleness threshold (§14.1.2 priority 3b) to expire.
+
+**Guards (identical in both §13.1 step 2b and §14.1.2 priority 3d):**
+
+- **FAIL stage:** If the first non-PASS stage's most recent non-auto-cancelled pipeline is FAIL, the WP is skipped. FAIL routing is handled by the downstream agent's own handoff — the PM should not override it.
+- **IN_PROGRESS stage:** If the first non-PASS stage already has an active IN_PROGRESS pipeline, the WP is skipped — the stage is currently being worked on.
+- **Upstream IN_PROGRESS:** If the prerequisite stage (via `resolvePrerequisite`) has an IN_PROGRESS pipeline, the WP is skipped — the upstream stage has not finished, making routing to the next stage premature.
+- **Dependency-blocked WPs:** Non-dependency-blocked is a prerequisite for inclusion — WPs with status BLOCKED and a `dependency` blocker type (or absent blocker) are excluded entirely.
+
+**Priority ordering:** Step 2b fires only after step 2 (READY WPs) finds no matches, preserving the invariant that READY WPs are always routed before any IN_PROGRESS pipeline-routing logic. Priority 3d in the recommendation engine is similarly positioned after all monitoring/repair priorities (3, 3b, 3c) and before the terminal WAIT.
+
+**Related sections:** [§13.1](handoff.md#131-per-agent-handoff-functions) (PM Handoff step 2b pseudocode), [§14.1.2](recommendations.md#1412-project-manager-action-logic) (priority 3d ROUTE_PIPELINE_AGENT), [§21.46](#2146-pm-handoff-single-return-for-multiple-ready-wps) (single-return limitation and batch action system), [§21.40](#2140-abandoned-wp-detection-claimed-but-no-pipeline) (REVIEW_ABANDONED for staleness-threshold coverage)

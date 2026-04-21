@@ -43,6 +43,7 @@ Priority order:
 3. **REVIEW_STALE**: Any WP has a stale IN_PROGRESS pipeline (>24h) — PM should coordinate with the assigned agent
 3b. **REVIEW_ABANDONED**: Any WP is IN_PROGRESS with no IN_PROGRESS pipeline AND no pipeline completed within `STALE_PIPELINE_HOURS` (or no pipelines at all) AND the WP has been IN_PROGRESS for at least `STALE_PIPELINE_HOURS` (measured via `root.last_updated` for the WP's claiming transition or, if available, the WP detail's most recent status-change timestamp) — WP was claimed but work never started or was abandoned. PM should re-claim on behalf of the correct agent or unclaim the WP.
 3c. **REPAIR_ORPHAN_BLOCKED**: Any WP is BLOCKED with a `dependency` blocker (or absent blocker type) but all its formal dependencies are terminal — the WP should have been auto-unblocked by `propagateDependencyUnblock` (§15.4) but wasn't, likely due to an interruption during the cascade lock gap (§20.4). PM should transition it to READY or manually unblock.
+3d. **ROUTE_PIPELINE_AGENT**: Any non-terminal, non-dependency-blocked IN_PROGRESS WP where the next active pipeline stage has no pipeline started (or no PASS). This covers two scenarios: (a) a stage has PASSed and the next stage needs work, and (b) a freshly-claimed WP with zero pipelines where the first active stage's agent needs to begin. PM should route to the agent owning that stage. Same guards as §13.1 step 2b: FAIL stages are skipped (handled by downstream agent's FAIL routing), current-stage IN_PROGRESS pipelines are skipped (stage already being worked on), upstream IN_PROGRESS stages are skipped (premature routing prevention).
 4. **CREATE_WORK_PACKAGES**: No WPs exist yet (also covered by §14.1 common pre-check)
 5. **WAIT**: No actionable items
 
@@ -78,6 +79,23 @@ function getPMAction(root, store):
       if canStartWorkPackage(wpDetail, root.work_packages).allowed:
         return REPAIR_ORPHAN_BLOCKED with wp.id
   
+  // Priority 3d: IN_PROGRESS WPs needing next pipeline stage (§13.1 step 2b)
+  for each non-terminal, non-dependency-blocked WP with status == "IN_PROGRESS":
+    activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+    for each stage in getOrderedActiveStages(activeStages):
+      if stage has a PASS pipeline (most recent non-auto-cancelled):
+        continue  // done, check next stage
+      // This is the first stage not yet PASS
+      if stage has a recent FAIL pipeline (most recent non-auto-cancelled):
+        break     // FAIL routing handles this WP; skip to next WP
+      if stage has an IN_PROGRESS pipeline (most recent non-auto-cancelled):
+        break     // stage already being worked on; skip to next WP
+      upstreamStage = resolvePrerequisite(stage, activeStages)
+      if upstreamStage != null AND upstreamStage has an IN_PROGRESS pipeline:
+        break     // upstream still running; skip to next WP
+      nextAgent = PIPELINE_AGENT_MAP[stage]
+      return ROUTE_PIPELINE_AGENT with wp.id, stage, nextAgent
+
   // Priority 4: No WPs yet (redundant with §14.1, included for completeness)
   if root.work_packages is empty:
     return CREATE_WORK_PACKAGES

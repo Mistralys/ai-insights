@@ -8,6 +8,7 @@ import { isTerminalStatus, canStartWorkPackage } from '../schema/validators.js';
 import { AGENT_ROLES, type AgentRole } from '../utils/constants.js';
 import {
   PIPELINE_TYPES,
+  PIPELINE_AGENT_MAP,
   type PipelineType,
   resolvePrerequisite,
   resolveFailAgent,
@@ -19,6 +20,7 @@ import { parseTimestamp } from '../utils/timestamp.js';
 import {
   extractStalePipelineAction,
   isMostRecentPipelineFail,
+  latestNonCancelledPipeline,
   hasDependencyBlocked,
   hasDownstreamFail,
   hasDownstreamReengagedSince,
@@ -458,7 +460,56 @@ export async function getProjectManagerAction(
     }
   }
 
-  // --- Priority 4 / Fallback: WAIT ---
+  // --- Priority 3d: ROUTE_PIPELINE_AGENT ---
+  // Fires only when no READY WPs remain (step 2 found nothing). Scans each non-terminal,
+  // non-dependency-blocked IN_PROGRESS WP for a pipeline stage that needs to be started.
+  // Covers two distinct cases:
+  //   Case A — mid-flight PASS advance: a stage has PASSed and the next active stage has
+  //             no pipeline started yet. Routes to PIPELINE_AGENT_MAP[nextStage].
+  //   Case B — zero-pipeline bootstrap: a WP was freshly claimed but the owning agent has
+  //             not yet called startPipeline. No pipelines exist, so the first active stage
+  //             has no PASS, FAIL, or IN_PROGRESS — routes to PIPELINE_AGENT_MAP[firstActiveStage].
+  // Guards: FAIL stages are skipped (handled by downstream agent's own FAIL routing),
+  //         IN_PROGRESS stages are skipped (stage already being worked on),
+  //         upstream IN_PROGRESS stages are skipped (premature routing prevention),
+  //         dependency-blocked WPs are excluded entirely.
+  for (const wpDetail of wpDetails) {
+    if (isTerminalStatus(wpDetail.status) || wpDetail.status !== 'IN_PROGRESS') continue;
+    if (hasDependencyBlocked(wpDetail)) continue;
+
+    const activeStages = getOrderedActiveStages(
+      (wpDetail.active_pipeline_stages as PipelineType[] | undefined) ?? [...DEFAULT_PIPELINE_STAGES]
+    );
+
+    for (const stage of activeStages) {
+      const mostRecent = latestNonCancelledPipeline(wpDetail.pipelines, stage);
+
+      if (mostRecent?.status === 'PASS') continue; // stage done, check next
+      if (mostRecent?.status === 'FAIL') break;     // FAIL routing handles this WP
+      if (mostRecent?.status === 'IN_PROGRESS') break; // stage already being worked on
+
+      // Check upstream prerequisite for premature routing prevention
+      const upstream = resolvePrerequisite(stage, activeStages);
+      if (upstream) {
+        if (latestNonCancelledPipeline(wpDetail.pipelines, upstream)?.status === 'IN_PROGRESS') break;
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            action: 'ROUTE_PIPELINE_AGENT',
+            work_package_id: wpDetail.work_package_id,
+            pipeline_type: stage,
+            next_agent: PIPELINE_AGENT_MAP[stage],
+            reason: `Work package ${wpDetail.work_package_id} needs its ${stage} stage started. Route to ${PIPELINE_AGENT_MAP[stage]}.`,
+          }, null, 2),
+        }],
+      };
+    }
+  }
+
+  // --- Final Fallback: WAIT ---
   return {
     content: [{
       type: 'text' as const,

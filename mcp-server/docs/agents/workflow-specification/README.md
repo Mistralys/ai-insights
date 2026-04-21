@@ -2,12 +2,18 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.4.2
-**Date:** 2026-04-10
+**Version:** 2.4.3
+**Date:** 2026-04-21
 
 ---
 
 ## Changelog
+
+### v2.4.3 - PM Pipeline-Routing for IN_PROGRESS WPs
+- **PM Handoff step 2b (§13.1):** Added a new step 2b to the Project Manager Handoff algorithm, positioned between step 2 (READY WPs) and step 3 (all terminal). Step 2b scans non-terminal, non-dependency-blocked IN_PROGRESS WPs for pipeline stage transitions and routes to `PIPELINE_AGENT_MAP[nextStage]`. This closes the auto-handoff gap where the PM returned WAIT after a pipeline stage PASSed but no READY WPs remained, leaving no agent to dispatch to.
+- **PM Action priority 3d (§14.1.2):** Added `ROUTE_PIPELINE_AGENT` as priority 3d in the PM recommendation engine, positioned after `REPAIR_ORPHAN_BLOCKED` (3c) and before `CREATE_WORK_PACKAGES` (4). Applies the same stage-scanning logic as §13.1 step 2b to the recommendation path.
+- **Design notes (§13.1):** Added two design notes to the PM Handoff section explaining (a) the PM's prior blindness to intra-WP pipeline transitions and how step 2b resolves it, and (b) freshly-claimed WP coverage — WPs with zero pipelines are routed immediately to their first-active-stage agent, with REVIEW_ABANDONED still covering the staleness-threshold fallback.
+- **New edge case:** §21.70 (PM Pipeline-Routing for IN_PROGRESS WPs) — documents both covered scenarios (stage PASS → next stage, and zero-pipeline freshly-claimed WP), the four guards applied, and the priority ordering rationale.
 
 ### v2.4.2 - Handoff Handler Active-Stage Scoping
 - **Handoff scope filters (§13.1):** Added explicit `active_pipeline_stages` scoping to Developer, QA, Reviewer, and Documentation handoff functions. Pipeline-specific conditions now include `with "<type>" in activeStages`, matching the pattern established by Security Auditor and Release Engineer handlers in v2.4.0. Without this scoping, non-default WP compositions (e.g., documentation-only) were misclassified as `IN_PROGRESS` by pipeline handlers that have no work on those WPs, suppressing auto-handoff.

@@ -46,13 +46,14 @@ function makeWp(
   id: string,
   status: string,
   pipelines: Array<{ type: string; status: string }> = [],
-  deps: string[] = []
+  deps: string[] = [],
+  assignedTo: string = 'Developer'
 ): WorkPackageDetail {
   return {
     work_package_id: id,
     work_package_file: `work/${id}.md`,
     status: status as any,
-    assigned_to: 'Developer',
+    assigned_to: assignedTo,
     dependencies: deps,
     acceptance_criteria: [],
     revision: 0,
@@ -2090,13 +2091,191 @@ describe('WP-005: getProjectManagerHandoff \u2014 additional scenarios', () => {
     expect(result.status).toBe('READY_FOR_DOCUMENTATION');
   });
 
-  it('R5.10: returns WAIT when all WPs are IN_PROGRESS (no READY, no non-dependency BLOCKED)', async () => {
+  it('R5.10: returns WAIT when all WPs are IN_PROGRESS with their current stage already IN_PROGRESS (no READY, no non-dependency BLOCKED)', async () => {
+    // With step 2b, zero-pipeline IN_PROGRESS WPs now route to Developer.
+    // To test WAIT, give each WP an impl IN_PROGRESS pipeline — step 2b sees the
+    // current-stage guard ("already being worked on") and breaks, producing WAIT.
     const wpDetails = [
-      makeWp('WP-001', 'IN_PROGRESS', []),
-      makeWp('WP-002', 'IN_PROGRESS', []),
+      makeWp('WP-001', 'IN_PROGRESS', [{ type: 'implementation', status: 'IN_PROGRESS' }]),
+      makeWp('WP-002', 'IN_PROGRESS', [{ type: 'implementation', status: 'IN_PROGRESS' }]),
     ];
     const result = await parseResult(getProjectManagerHandoff(wpDetails));
     expect(result.status).toBe('WAIT');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-003: getProjectManagerHandoff — step 2b pipeline routing (§13.1 step 2b)
+// ---------------------------------------------------------------------------
+
+describe('WP-003: getProjectManagerHandoff — step 2b pipeline routing', () => {
+  it('2b.1: happy path — impl PASS, no QA → routes to QA (READY_FOR_QA)', async () => {
+    // WP is IN_PROGRESS, implementation has PASSed, QA pipeline not yet started.
+    // Step 2b should detect the pending qa stage and return READY_FOR_QA.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.current_agent).toBe('Project Manager');
+  });
+
+  it('2b.2: multi-stage — impl PASS + QA PASS → routes to Reviewer (READY_FOR_REVIEW)', async () => {
+    // Two stages have PASSed; code-review is next. Step 2b routes to Reviewer.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+  });
+
+  it('2b.3: FAIL guard — impl PASS + QA FAIL → WAIT (FAIL routing handled by QA own handoff)', async () => {
+    // Most recent QA pipeline is FAIL. Step 2b breaks on the FAIL guard and produces WAIT.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+  });
+
+  it('2b.4: current-stage IN_PROGRESS guard — impl IN_PROGRESS → WAIT', async () => {
+    // The implementation stage is currently being worked on.
+    // Step 2b hits the current-stage IN_PROGRESS guard and breaks → WAIT.
+    // (implementation has no upstream, so the upstream guard is not relevant here.)
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'IN_PROGRESS' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+  });
+
+  it('2b.5: READY takes priority — one READY + one IN_PROGRESS with impl PASS → routes to READY WP', async () => {
+    // Step 2 (READY WPs) fires before step 2b. The READY WP is routed first.
+    const wpDetails = [
+      makeWp('WP-001', 'READY'),
+      makeWp('WP-002', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    // READY WP routes to Developer (default assigned_to)
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('2b.6: dependency-blocked IN_PROGRESS WP → WAIT (step 2b skips dep-blocked WPs)', async () => {
+    // The IN_PROGRESS WP is dependency-blocked; isBlockedByDependencies() returns true.
+    // Step 2b skips it entirely → no routing → WAIT.
+    const wpDetails = [
+      makeWp('WP-001', 'BLOCKED', [
+        { type: 'implementation', status: 'PASS' },
+      ], ['WP-999']),
+    ];
+    // Override status to IN_PROGRESS but keep dependency blocked shape.
+    // Actually, isBlockedByDependencies checks status=BLOCKED, so let's use BLOCKED
+    // with no blocked_by (the dep-blocked shape per §21.54).
+    const depBlockedWp: WorkPackageDetail = {
+      ...makeWp('WP-001', 'BLOCKED', [
+        { type: 'implementation', status: 'PASS' },
+      ]),
+      status: 'BLOCKED' as any,
+      blocked_by: undefined,
+    };
+    const result = await parseResult(getProjectManagerHandoff([depBlockedWp]));
+    // No READY WPs, dep-blocked WP skipped by step 2b, not all terminal → WAIT
+    expect(result.status).toBe('WAIT');
+  });
+
+  it('2b.7: all active stages PASS → WAIT (step 2b finds no pending stage)', async () => {
+    // All four default stages have PASSed. Step 2b iterates all stages, finds all PASS,
+    // exits inner loop with no routing → falls through to WAIT.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+  });
+
+  it('2b.8: custom active stages — ["implementation","code-review"], impl PASS → routes to Reviewer', async () => {
+    // WP has custom active_pipeline_stages omitting QA.
+    // After impl PASS, code-review is next. Step 2b routes to Reviewer.
+    const wpDetails: WorkPackageDetail[] = [
+      {
+        ...makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+        ]),
+        active_pipeline_stages: ['implementation', 'code-review'] as any,
+      },
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+  });
+
+  it('2b.9: current-stage IN_PROGRESS guard — impl PASS + QA IN_PROGRESS → WAIT', async () => {
+    // QA stage is currently in progress. Step 2b iterates: impl is PASS (continue),
+    // qa is IN_PROGRESS → break (current-stage guard fires at line 394, not upstream guard).
+    // This also exercises the upstream-guard scenario for code-review, but QA's own
+    // current-stage guard breaks before reaching it.
+    // No routing for this WP → WAIT.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'IN_PROGRESS' },
+      ]),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+  });
+
+  it('2b.10: zero-pipeline freshly-claimed WP with default stages → routes to Developer (READY_FOR_DEVELOPER)', async () => {
+    // WP is IN_PROGRESS with zero pipelines (freshly claimed, agent hasn't called startPipeline yet).
+    // Step 2b: first active stage (implementation) has no pipeline → no PASS/FAIL/IN_PROGRESS guards fire.
+    // Routes to PIPELINE_AGENT_MAP["implementation"] = Developer.
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', []),
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('2b.10b: zero-pipeline freshly-claimed WP with ["documentation"] only → routes to Documentation', async () => {
+    // Custom stage: documentation only. Zero pipelines.
+    // Step 2b: first (and only) active stage is documentation → routes to Documentation.
+    const wpDetails: WorkPackageDetail[] = [
+      {
+        ...makeWp('WP-001', 'IN_PROGRESS', []),
+        active_pipeline_stages: ['documentation'] as any,
+      },
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+  });
+
+  it('2b.11: zero-pipeline freshly-claimed WP with custom stages ["qa","code-review"] → routes to QA', async () => {
+    // Custom stage set: qa and code-review. Zero pipelines.
+    // Step 2b: first active stage in canonical order is qa → routes to QA.
+    const wpDetails: WorkPackageDetail[] = [
+      {
+        ...makeWp('WP-001', 'IN_PROGRESS', []),
+        active_pipeline_stages: ['qa', 'code-review'] as any,
+      },
+    ];
+    const result = await parseResult(getProjectManagerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
   });
 });
 
