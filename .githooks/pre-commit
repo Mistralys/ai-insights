@@ -1,4 +1,16 @@
 #!/bin/sh
+
+# Git hooks run with a minimal PATH that excludes version manager shims.
+# Extend PATH with common Node.js install locations so that 'node' is found.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.volta/bin:$PATH"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+if ! command -v node > /dev/null 2>&1; then
+  echo "ERROR: 'node' not found. Install Node.js or ensure it is on PATH."
+  exit 1
+fi
+
 node scripts/build-personas.js --check || exit 1
 
 # Check version sync (changelog vs package manifest) — blocking
