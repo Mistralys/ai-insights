@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v0.18.0 - Direct Pipeline Stage Routing
+- Supervisor: Added `ROUTE_PIPELINE_AGENT` to dispatch actions.
+- Supervisor: PM stage routes directly to the target pipeline agent using `next_agent`,
+  eliminating a supervisor round-trip on stage transitions.
+- Tests: Added supervisor routing tests for `ROUTE_PIPELINE_AGENT`.
+
 ## v0.17.0 - Metadata-Driven Subagent Loading
 - Utils: Subagent specs now derived from persona YAML metadata at startup.
 - Utils: Added stage-to-persona YAML resolver shared by subagent and model loaders.

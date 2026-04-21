@@ -1,5 +1,17 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.27.0 - PM Pipeline-Aware Routing
+- Handoff: Added `ROUTE_PIPELINE_AGENT` priority step to both `getProjectManagerHandoff()`
+  and `getProjectManagerAction()`.
+- Handoff: PM now scans IN_PROGRESS WPs for pending pipeline stages and routes directly
+  to the stage-owning agent, covering stage-transition advances and zero-pipeline bootstrap.
+- Handoff: Guards prevent routing when the target stage has FAIL or IN_PROGRESS, or its
+  upstream prerequisite stage is still IN_PROGRESS.
+- Utils: Added `latestNonCancelledPipeline()` helper; refactored `isMostRecentPipelineFail()`
+  to use it.
+- Spec: Updated workflow specification §13.1 with full step 2b routing algorithm and guards.
+- Tests: Expanded workflow-handoff, workflow-next-action, and workflow-helpers test suites.
+
 ## v1.26.0 - GUI Progress Calculation
 - GUI: Added pipeline-based project progress percentage to the project list.
 - Utils: Added `computePassedStages()` and `computeProjectProgress()` helpers.

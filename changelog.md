@@ -1,5 +1,16 @@
 # AI Insights Changelog
 
+## v1.20.0 - PM Pipeline-Aware Routing
+> mcp v1.27.0 · orchestrator v0.18.0 · personas v3.16.1
+
+- MCP: PM handoff now routes IN_PROGRESS WPs directly to the next pending pipeline-stage
+  agent without a READY transition (`ROUTE_PIPELINE_AGENT`).
+- Orchestrator: Direct PM-to-stage dispatch on `ROUTE_PIPELINE_AGENT` eliminates a
+  supervisor round-trip during stage transitions.
+- Personas: Fixed CRLF line-ending handling in Windows builds.
+- Scripts: CLI ported to `@mistralys/cli-menu` library with automatic pre-menu setup check.
+- Hooks: Pre-commit hook now resolves Node.js on macOS via extended PATH.
+
 ## v1.19.0 - Progress Tracking & Metadata-Driven Subagents
 > mcp v1.26.0 · orchestrator v0.17.0 · personas v3.16.0
 

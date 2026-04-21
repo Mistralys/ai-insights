@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.16.1 - Windows Compatibility Fix
+- Build: Fixed CRLF line-ending handling in the YAML scalar parser.
+
 ## v3.16.0 - Subagent Slug Validation
 - Build: Added `{{agent_slug_*}}` cross-reference validation to the build.
 - Build: Upgraded `@mistralys/persona-builder` to v2.4.1.
