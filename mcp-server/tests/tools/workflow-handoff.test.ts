@@ -2847,5 +2847,90 @@ describe('Handoff-spec-compliance-followup: getSecurityAuditorHandoff — §5.2b
     }];
     const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
     expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.status).not.toBe('READY_FOR_SYNTHESIS');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// partitionWpsAwaitingNextStage edge cases (indirect via handoff resolvers)
+//
+// These three tests exercise branches in partitionWpsAwaitingNextStage that had
+// only one indirect test each (via getReviewerHandoff). All tests route through
+// public handoff functions per the established testing pattern.
+//
+// Branch coverage targets:
+//   1. Mixed-routing (nextAgents.size > 1)  → nextStatus = null  → caller emits WAIT
+//   2. Last-stage Synthesis routing          → WP excluded from awaiting → WAIT (not READY_FOR_SYNTHESIS)
+//   3. FAIL-at-next-stage re-routing         → FAIL ≠ PASS filter → WP stays in awaiting → READY_FOR_DOCUMENTATION
+// ---------------------------------------------------------------------------
+
+describe('partitionWpsAwaitingNextStage edge cases (indirect via handoff resolvers)', () => {
+  it('mixed-routing: two WPs with PASS code-review routing to different next agents → WAIT with agent names in details', async () => {
+    // WP-A: active stages [code-review, documentation]           → next = Documentation
+    // WP-B: active stages [code-review, release-engineering, documentation] → next = Release Engineer
+    // nextAgents.size === 2 → nextStatus = null → mixed-routing branch → WAIT.
+    // Regression guard: must NOT emit a single READY_FOR_* that misroutes one of the WPs.
+    const wpDetails: WorkPackageDetail[] = [
+      {
+        ...makeWp('WP-A', 'IN_PROGRESS', [{ type: 'code-review', status: 'PASS' }]),
+        active_pipeline_stages: ['code-review', 'documentation'] as any,
+      },
+      {
+        ...makeWp('WP-B', 'IN_PROGRESS', [{ type: 'code-review', status: 'PASS' }]),
+        active_pipeline_stages: ['code-review', 'release-engineering', 'documentation'] as any,
+      },
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('READY_FOR_DOCUMENTATION');
+    expect(result.status).not.toBe('READY_FOR_RELEASE_ENGINEERING');
+    // Details must name both conflicting agents (mixed-routing safety message).
+    expect(result.details).toContain('Documentation');
+    expect(result.details).toContain('Release Engineer');
+  });
+
+  it('last-stage Synthesis routing: WP-B (code-review-only stages) excluded from awaiting → WAIT while WP-A still in-flight', async () => {
+    // WP-A: IN_PROGRESS, no code-review PASS yet → not in wpsPassedReview → keeps Reviewer waiting.
+    // WP-B: PASSed code-review, active stages = ['code-review'] only.
+    //       resolveNextAgent('code-review', ['code-review']) returns 'Synthesis'.
+    //       AGENT_PIPELINE_MAP['Synthesis'] is undefined → WP-B excluded from awaiting.
+    //       ready = [] → does NOT trigger READY_FOR_SYNTHESIS.
+    //       WP-A also not assigned_to Reviewer → step 4 does not fire → WAIT (step 5).
+    const wpDetails: WorkPackageDetail[] = [
+      {
+        ...makeWp('WP-A', 'IN_PROGRESS', []),
+        active_pipeline_stages: ['code-review'] as any,
+      },
+      {
+        ...makeWp('WP-B', 'IN_PROGRESS', [{ type: 'code-review', status: 'PASS' }]),
+        active_pipeline_stages: ['code-review'] as any,
+      },
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    // Regression guard: last-stage exclusion must NOT promote WP-B to a spurious READY_FOR_SYNTHESIS.
+    expect(result.status).not.toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('FAIL-at-next-stage re-routing: WP with code-review PASS + documentation FAIL still routes to Documentation', async () => {
+    // code-review PASS → documentation FAIL: documentation was attempted but has not succeeded.
+    // partitionWpsAwaitingNextStage filter: !wp.pipelines.some(p => p.type === nextStage && p.status === 'PASS')
+    // → documentation FAIL ≠ PASS → condition is true → WP stays in awaiting → routes to Documentation.
+    // Regression guard: if someone "fixes" the helper to exclude FAIL pipelines from awaiting,
+    // the WP would be dropped and the resolver would return WAIT instead of READY_FOR_DOCUMENTATION.
+    const wpDetails: WorkPackageDetail[] = [
+      {
+        ...makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'code-review', status: 'PASS' },
+          { type: 'documentation', status: 'FAIL' },
+        ]),
+        active_pipeline_stages: ['code-review', 'documentation'] as any,
+      },
+    ];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    expect(result.next_agent).toBe('Documentation');
+    // Regression guard: must NOT silently drop the WP and return WAIT.
+    expect(result.status).not.toBe('WAIT');
   });
 });
