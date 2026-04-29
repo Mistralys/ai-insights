@@ -2148,7 +2148,7 @@ export function latestNonCancelledPipeline(
  * a PASS are ignored. Treat absent/falsy `auto_cancelled` as false (backward-compatible).
  */
 export function isMostRecentPipelineFail(pipelines: Pipeline[], pipelineType: string): boolean {
-  return latestNonCancelledPipeline(pipelines, pipelineType)?.status === 'FAIL' ?? false;
+  return latestNonCancelledPipeline(pipelines, pipelineType)?.status === 'FAIL';
 }
 
 /**
