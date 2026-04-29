@@ -3,7 +3,7 @@
 > A reference for editing personas in the ai-insights workspace. Covers the build pipeline, template syntax, metadata schema, partials, versioning, subagent declarations, and output targets.
 
 **Version:** 1.0.0.
-**Last Updated:** 2026-04-15.
+**Last Updated:** 2026-04-23.
 
 ---
 
@@ -375,6 +375,7 @@ mcp_tools:
 | `id` | `string` | yes | Stable VS Code routing identifier (e.g. `standalone-researcher`) |
 | `vs_file_name` | `string` | yes | VS Code output filename (e.g. `researcher.agent.md`) |
 | `cc_file_name` | `string` | yes | Claude Code output filename (e.g. `researcher.md`) |
+| `da_file_name` | `string` | no | Deep Agents output filename (e.g. `ledger-orchestrator-runner.md`). When absent, the library falls back to the content template filename. |
 | `version` | `string` | yes | Per-persona version string |
 | `last_updated` | `string` | no | Per-persona last-updated date |
 | `tools` | `string[]` | yes | Tool permission slugs |
@@ -469,16 +470,16 @@ Injected automatically per target pass:
 | Variable | Source | Description |
 |----------|--------|-------------|
 | `{{version}}` | `persona.version` ?? `_shared.default_version` | Resolved version string |
-| `{{model}}` | `persona.model` &#124;&#124; `_shared.default_model` &#124;&#124; `_shared.cc_model` | AI model name |
+| `{{model}}` | `persona.model` &#124;&#124; `_shared.default_model` | AI model name |
 | `{{model_slug}}` | `persona.model_slug` &#124;&#124; `_shared.default_model_slug` | API model identifier |
 | `{{cc_name}}` | `cc_file_name` without `.md` | Claude Code identifier (e.g. `3-developer`) |
 | `{{cc_description}}` | Roster entry (ledger) or `description` (standalone) | Human-readable description |
-| `{{cc_model}}` | `persona.cc_model` → `model` → `_shared.cc_model` | Claude Code model |
+| `{{cc_model}}` | `persona.cc_model` &#124;&#124; `_shared.cc_model` (standard YAML merge) | Claude Code model |
 | `{{roster_rendered}}` | `_shared.roster[]` | Full numbered agent roster in Markdown |
 | `{{mcp_tools_table}}` | `persona.mcp_tools[]` | Markdown table of MCP tools |
 | `{{tools_json}}` | `persona.tools[]` | YAML flow sequence with brackets |
 | `{{tools_list}}` | `persona.tools[]` | Comma-separated list without brackets |
-| `{{cc_tools_json}}` | `persona.cc_tools` ?? `_shared.default_cc_tools` | CC tools with brackets |
+| `{{cc_tools_json}}` | `persona.cc_tools` ?? `persona.tools` | CC tools with brackets |
 | `{{cc_tools_list}}` | Same | CC tools without brackets |
 
 ---
@@ -645,10 +646,12 @@ version: {{version}}
 last_updated: {{last_updated}}
 tools: {{cc_tools_json}}
 permissionMode: {{cc_permission_mode}}
-model: {{cc_model}}
+model: '{{cc_model}}'
 memory: {{cc_memory}}
+{{#if has_mcp}}
 mcpServers:
   - {{mcp_server_name}}
+{{/if}}
 ---
 ```
 
@@ -779,8 +782,8 @@ The `ledgerPlugin` (in `personas/plugins/ledger/`) provides:
 
 - **`onSuiteInit`** — applies ledger-specific frontmatter templates only for the numbered suite.
 - **`onBuildContext`** — injects `roster_rendered`, `mcp_tools_table`, `total`, model resolution, `cc_name`, and `cc_description` into the build context.
-- **`onValidate`** — validates persona `role` against workflow manifest roles, and runs the `note_only` guard.
 - **`onPostRender`** — captures rendered output for the `note_only` validation.
+- **`onValidate`** — validates persona `role` against workflow manifest roles, and runs the `note_only` guard (using output captured by `onPostRender`).
 
 ### Plugin Convention
 
