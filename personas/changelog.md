@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.16.2 - Plan Auditor Persona
+- Plan Auditor: Added the Plan Auditor persona as dedicated plan verification agent.
+- Persona Curator: Improved mission statement.
+
 ## v3.16.1 - Windows Compatibility Fix
 - Build: Fixed CRLF line-ending handling in the YAML scalar parser.
 
