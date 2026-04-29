@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import {
   getQaHandoff,
   getReviewerHandoff,
+  getSecurityAuditorHandoff,
   getDocumentationHandoff,
   getDeveloperHandoff,
   getPlannerHandoff,
@@ -67,7 +68,9 @@ function makeWp(
 
 describe('Handoff logic: incomplete project detection', () => {
   describe('QA handoff', () => {
-    it('returns READY_FOR_REVIEW when remaining WPs are blocked by dependencies', async () => {
+    it('returns READY_FOR_REVIEW when WP-001 has PASS QA; dep-blocked WP-002/003 not QA concern (spec v2.0.0)', async () => {
+      // WP-001 has qa PASS and no code-review PASS yet — QA routes to Reviewer.
+      // WP-002/003 are BLOCKED with no pipelines — not in wpsPassedQa, not QA's concern.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -79,9 +82,7 @@ describe('Handoff logic: incomplete project detection', () => {
 
       const result = await parseResult(getQaHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_REVIEW');
-      expect(result.details).toContain('blocked by dependencies');
-      expect(result.details).toContain('WP-002');
-      expect(result.details).toContain('WP-003');
+      expect(result.details).toContain('PASS QA');
     });
 
     it('returns READY_FOR_REVIEW when ALL WPs are implemented and QA passed', async () => {
@@ -100,7 +101,10 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('READY_FOR_REVIEW');
     });
 
-    it('returns IN_PROGRESS when some implemented WPs still need QA', async () => {
+    it('returns READY_FOR_REVIEW when WP-001 has PASS QA; WP-002 not-yet-QA-d is not QA concern (spec v2.0.0)', async () => {
+      // spec v2.0.0 removed the auto-engagement branch for WPs with impl PASS but no QA pipeline.
+      // WP-001 has qa PASS — routes to Reviewer. WP-002 having impl PASS but no QA is not
+      // QA's concern (ledger_get_next_action handles routing QA to WP-002 separately).
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -108,11 +112,12 @@ describe('Handoff logic: incomplete project detection', () => {
         ]),
         makeWp('WP-002', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
+          // No QA pipeline — not QA's concern per spec v2.0.0 handoff
         ]),
       ];
 
       const result = await parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.status).toBe('READY_FOR_REVIEW');
     });
 
     it('returns READY_FOR_DEVELOPER when a QA pipeline has FAIL status', async () => {
@@ -127,25 +132,28 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('READY_FOR_DEVELOPER');
     });
 
-    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', async () => {
+    it('returns READY_FOR_REVIEW when WP-001 has PASS QA; WP-002 not-yet-reviewed is not QA concern (spec v2.0.0)', async () => {
+      // spec v2.0.0 removed the "not-yet-reached-stage" READY_FOR_DEVELOPER branch from QA handoff.
+      // WP-001 has qa PASS — routes to Reviewer. WP-002 READY and WP-003 BLOCKED are not QA concern.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
           { type: 'qa', status: 'PASS' },
         ]),
-        makeWp('WP-002', 'READY', [], []), // Not blocked, ready for work
+        makeWp('WP-002', 'READY', [], []), // Not yet QA'd — not QA's concern
         makeWp('WP-003', 'BLOCKED', [], ['WP-001']), // Blocked by dependency
       ];
 
       const result = await parseResult(getQaHandoff(wpDetails));
-      expect(result.status).toBe('READY_FOR_DEVELOPER');
-      expect(result.details).toContain('ready for implementation');
-      expect(result.details).toContain('WP-002');
+      expect(result.status).toBe('READY_FOR_REVIEW');
+      expect(result.details).toContain('PASS QA');
     });
   });
 
   describe('Reviewer handoff', () => {
-    it('returns READY_FOR_DOCUMENTATION when remaining WPs are blocked by dependencies', async () => {
+    it('returns READY_FOR_DOCUMENTATION when WP-001 has PASS review; WP-002 dep-blocked WP ignored (spec v2.0.0)', async () => {
+      // WP-002 is BLOCKED and has no code-review pipeline — not in wpsPassedReview.
+      // WP-001 has PASS code-review and is ready for documentation.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -157,8 +165,7 @@ describe('Handoff logic: incomplete project detection', () => {
 
       const result = await parseResult(getReviewerHandoff(wpDetails));
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
-      expect(result.details).toContain('blocked by dependencies');
-      expect(result.details).toContain('WP-002');
+      expect(result.details).toContain('PASS code-review');
     });
 
     it('returns READY_FOR_DOCUMENTATION when ALL WPs have passed review', async () => {
@@ -179,27 +186,30 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
     });
 
-    it('returns READY_FOR_DEVELOPER when some WPs are ready (not blocked)', async () => {
+    it('returns READY_FOR_DOCUMENTATION when WP-001 has PASS review; WP-002 not-yet-reviewed is not Reviewer\u2019s concern (spec v2.0.0)', async () => {
+      // spec v2.0.0 removed the "not-yet-reached-stage" READY_FOR_DEVELOPER branch.
+      // WP-001 has PASS code-review and is ready for documentation.
+      // WP-002 is READY but has not yet reached QA/code-review — not Reviewer\'s concern.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
           { type: 'qa', status: 'PASS' },
           { type: 'code-review', status: 'PASS' },
         ]),
-        makeWp('WP-002', 'READY', [], []), // Not blocked, ready for work
+        makeWp('WP-002', 'READY', [], []), // Not yet reviewed — not Reviewer's concern
         makeWp('WP-003', 'BLOCKED', [], ['WP-001']), // Blocked by dependency
       ];
 
       const result = await parseResult(getReviewerHandoff(wpDetails));
-      expect(result.status).toBe('READY_FOR_DEVELOPER');
-      expect(result.details).toContain('ready for');
-      expect(result.details).toContain('WP-002');
+      expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+      expect(result.details).toContain('PASS code-review');
     });
   });
 
   describe('Documentation handoff', () => {
-    it('returns READY_FOR_SYNTHESIS when unreviewed WPs are all blocked by dependencies', async () => {
-      // WP-002 is blocked by WP-001 (IN_PROGRESS, not COMPLETE) — should go to Synthesis not loop back to Developer
+    it('returns WAIT when WP-001 has docs PASS (IN_PROGRESS) and WP-002 is dep-blocked — spec v2.0.0 removed upstream catch-all', async () => {
+      // Per spec v2.0.0: Documentation cannot dispatch to the correct upstream agent.
+      // WPs in earlier stages are left for the orchestrator to route via polling → WAIT.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -211,13 +221,12 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = await parseResult(getDocumentationHandoff(wpDetails));
-      expect(result.status).toBe('READY_FOR_SYNTHESIS');
-      expect(result.details).toContain('blocked by dependencies');
-      expect(result.details).toContain('WP-002');
+      expect(result.status).toBe('WAIT');
     });
 
-    it('returns READY_FOR_DEVELOPER when unreviewed WPs are genuinely ready (not dependency-blocked)', async () => {
-      // WP-002 has no dependencies — it is genuinely waiting for earlier pipeline stages
+    it('returns WAIT when WP-002 is genuinely waiting for earlier pipeline stages — spec v2.0.0 removed READY_FOR_DEVELOPER dispatch', async () => {
+      // Per spec v2.0.0: Documentation cannot accurately dispatch to the correct upstream agent.
+      // WPs needing earlier-stage work are left for the orchestrator to route → WAIT.
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -229,8 +238,7 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = await parseResult(getDocumentationHandoff(wpDetails));
-      expect(result.status).toBe('READY_FOR_DEVELOPER');
-      expect(result.details).toContain('WP-002');
+      expect(result.status).toBe('WAIT');
     });
 
     it('returns READY_FOR_SYNTHESIS when ALL WPs have documentation', async () => {
@@ -1950,7 +1958,7 @@ describe('WP-005: getQaHandoff \u2014 additional scenarios', () => {
       ]),
     ];
     const result = await parseResult(getQaHandoff(wpDetails));
-    expect(result.status).toBe('READY_FOR_REVIEW');
+    expect(result.status).toBe('WAIT');
   });
 
   it('R2.5: returns READY_FOR_SYNTHESIS when all WPs are COMPLETE', async () => {
@@ -2045,14 +2053,32 @@ describe('WP-005: getDocumentationHandoff \u2014 additional scenarios', () => {
   });
 
   it('R4.4: returns IN_PROGRESS when doc-1 FAIL with no new upstream PASS (FAIL self-rework path)', async () => {
-    // cr PASS \u2192 doc FAIL: no new cr PASS since doc started (makeWp has no timestamps \u2192 conservative).
-    // Step 1 (ready-for-docs) does not fire. Step 2 (FAIL self-rework) fires \u2192 IN_PROGRESS.
+    // cr PASS → doc FAIL: no new cr PASS since doc started (makeWp has no timestamps → conservative).
+    // Step 1 (ready-for-docs) does not fire. Step 2 (FAIL self-rework) fires → IN_PROGRESS.
     const wpDetails = [
       makeWp('WP-001', 'IN_PROGRESS', [
         { type: 'implementation', status: 'PASS' },
         { type: 'qa', status: 'PASS' },
         { type: 'code-review', status: 'PASS' },
         { type: 'documentation', status: 'FAIL' },
+      ]),
+    ];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('R4.4b: returns IN_PROGRESS when upstream regresses after doc FAIL (cr:PASS → doc:FAIL → cr:FAIL) — spec §5.4 has no upstream gate on FAIL self-rework', async () => {
+    // code-review PASS → documentation FAIL → code-review FAIL.
+    // Per spec §5.4 Condition 2: only requires most-recent doc FAIL, no upstream-PASS gate.
+    // The most recent code-review is FAIL, but the most recent documentation is also FAIL
+    // → FAIL self-rework fires → IN_PROGRESS (Documentation self-corrects).
+    const wpDetails = [
+      makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'FAIL' },
+        { type: 'code-review', status: 'FAIL' },
       ]),
     ];
     const result = await parseResult(getDocumentationHandoff(wpDetails));
@@ -2345,5 +2371,406 @@ describe('computeHandoffStatus — bypass path (store/rootIndex/wpDetails opts)'
     await expect(
       computeHandoffStatus(PLAN_PATH, 'Developer', { store })
     ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-006: 5-stage pipeline regression (bug report 2026-04-28)
+//
+// Verifies that the spec-compliant re-write of getReviewerHandoff,
+// getSecurityAuditorHandoff, and getQaHandoff no longer produces the
+// contradictory IN_PROGRESS handoff payload seen against the ffmpeg ledger
+// (5-stage WPs with qa:PASS but security-audit not yet started, assigned_to: null).
+//
+// Spec reference: §5.2 (QA), §5.2b (Security Auditor), §5.3 (Reviewer).
+// Condition numbering matches the per-function six-condition pseudocode in handoff.md.
+// ---------------------------------------------------------------------------
+
+/** 5-stage active stages used across all regression tests */
+const FIVE_STAGES = ['implementation', 'qa', 'security-audit', 'code-review', 'documentation'];
+
+describe('WP-006: getReviewerHandoff — 5-stage pipeline regression (bug report 2026-04-28)', () => {
+  it('spec cond-5: does NOT return IN_PROGRESS when WPs have qa:PASS but security-audit (active upstream) not yet started — bug-report-2026-04-28', async () => {
+    // Reproduces the ffmpeg ledger contradiction: old getReviewerHandoff fired auto-engagement
+    // IN_PROGRESS with next_agent: Reviewer when qa:PASS but security-audit hadn't started.
+    // Spec cond-4 (condition 4): IN_PROGRESS only when assigned_to === 'Reviewer'.
+    // assigned_to: null (no agent has claimed this WP) → condition 4 does not fire → WAIT (cond-5).
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('IN_PROGRESS');
+    // Regression guard: next_agent must NOT be 'Reviewer' when status is WAIT
+    expect(result.next_agent).not.toBe('Reviewer');
+  });
+
+  it('spec cond-4: returns IN_PROGRESS only when assigned_to === "Reviewer" (5-stage, security-audit:PASS, no code-review)', async () => {
+    // Condition 4 is the ONLY spec-authorized IN_PROGRESS path for this scenario.
+    // When Reviewer has claimed the WP (assigned_to: 'Reviewer') and the WP is IN_PROGRESS,
+    // getReviewerHandoff must return IN_PROGRESS — this is NOT a contradiction with the spec.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+      ], [], 'Reviewer'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.next_agent).toBe('Reviewer');
+  });
+});
+
+describe('WP-006: getSecurityAuditorHandoff — 5-stage regression', () => {
+  it('spec cond-5: does NOT return IN_PROGRESS when WPs have qa:PASS but security-audit not yet started (assigned_to: null)', async () => {
+    // Security Auditor must not auto-engage when qa:PASS but no security-audit pipeline exists
+    // and no agent has claimed the WP. Condition 4 requires assigned_to === 'Security Auditor'.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+
+  it('spec cond-3: returns READY_FOR_REVIEW when security-audit:PASS and no code-review PASS yet (5-stage)', async () => {
+    // Condition 3: PASS security-audit with next stage (code-review, owned by Reviewer) not yet PASSed
+    // → resolveNextAgent returns 'Reviewer' → READY_FOR_REVIEW.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+  });
+
+  it('spec cond-4: returns IN_PROGRESS only when assigned_to === "Security Auditor" (5-stage, qa:PASS, no security-audit)', async () => {
+    // Condition 4: assigned_to === 'Security Auditor' with IN_PROGRESS status is the only
+    // spec-authorized IN_PROGRESS path for Security Auditor (besides re-engagement cond-1).
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ], [], 'Security Auditor'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+});
+
+describe('WP-006: getQaHandoff — 5-stage regression', () => {
+  it('spec cond-5: does NOT return IN_PROGRESS when WPs have impl:PASS but qa not yet started (5-stage, assigned_to: null)', async () => {
+    // QA must not auto-engage when impl:PASS but no qa pipeline exists and no agent claimed it.
+    // Condition 4 requires assigned_to === 'QA' — without it, falls through to WAIT (cond-5).
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+
+  it('spec cond-3: returns READY_FOR_SECURITY_AUDIT when qa:PASS and security-audit is the active next stage (5-stage)', async () => {
+    // Condition 3: PASS qa with 5-stage active_pipeline_stages → resolveNextAgent returns
+    // 'Security Auditor' (not 'Reviewer' as it would on the default 4-stage pipeline).
+    // READY_STATUS_FOR_ROLE['Security Auditor'] === 'READY_FOR_SECURITY_AUDIT'.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SECURITY_AUDIT');
+  });
+
+  it('spec cond-4: returns IN_PROGRESS only when assigned_to === "QA" (5-stage, impl:PASS, no QA pipeline)', async () => {
+    // Condition 4: assigned_to === 'QA' with IN_PROGRESS status triggers active-work branch.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+      ], [], 'QA'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+});
+
+describe('WP-006: bug-report-2026-04-28 end-to-end fixtures — getReviewerHandoff contradiction fix', () => {
+  it('Fixture A (assigned_to: null, cond-4/cond-5): getReviewerHandoff does NOT return IN_PROGRESS with next_agent: Reviewer for 5-stage WP with qa:PASS', async () => {
+    // The exact ffmpeg bug: 5-stage WP, qa:PASS, security-audit not started, assigned_to: null.
+    // Old code returned IN_PROGRESS with current_agent === next_agent === Reviewer,
+    // contradicting the WAIT returned by ledger_get_next_action for the same WP.
+    // Spec-correct outcome: cond-4 does not fire (assigned_to !== 'Reviewer') → WAIT (cond-5).
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    // Bug guard: must NEVER produce the contradictory payload
+    expect(result.status).not.toBe('IN_PROGRESS');
+    expect(result.next_agent).not.toBe('Reviewer');
+  });
+
+  it('Fixture B (assigned_to: "Reviewer"): getReviewerHandoff returns IN_PROGRESS with current_agent === next_agent === Reviewer — spec-correct cond-4 (coherent, not a contradiction)', async () => {
+    // When a Reviewer has actually claimed the WP (assigned_to: 'Reviewer'), IN_PROGRESS
+    // is the spec-correct outcome of condition 4. This is coherent: both
+    // ledger_get_next_action (CONTINUE_PIPELINE) and getReviewerHandoff (IN_PROGRESS)
+    // agree that the Reviewer is actively working.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+      ], [], 'Reviewer'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('Reviewer');
+    expect(result.next_agent).toBe('Reviewer');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-007: 5-stage pipeline regression — full spec condition coverage
+//
+// Dedicated describe blocks exercising all four non-re-engagement spec
+// conditions (cond-2 through cond-5) for getQaHandoff, getSecurityAuditorHandoff,
+// and getReviewerHandoff against the 5-stage pipeline composition from the bug
+// report 2026-04-28. Each it() is tagged with the spec condition under test.
+//
+// Spec reference: §5.2 (QA), §5.2b (Security Auditor), §5.3 (Reviewer).
+// Condition numbering matches the per-function pseudocode in handoff.md.
+//
+// Reuses the FIVE_STAGES constant defined in the WP-006 section above.
+// ---------------------------------------------------------------------------
+
+describe('WP-007: getQaHandoff — 5-stage spec condition coverage', () => {
+  it('spec cond-2 (FAIL): returns READY_FOR_DEVELOPER when qa:FAIL on 5-stage WP (no implementation re-pass since)', async () => {
+    // Condition 2: most-recent qa pipeline is FAIL and no implementation re-pass since
+    // qa started (makeWp has no timestamps → hasNewUpstreamPassSince conservative → false).
+    // Re-engagement (cond-1) does not fire. FAIL short-circuit fires → READY_FOR_DEVELOPER.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'FAIL' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('spec cond-3 (PASS/next): returns READY_FOR_SECURITY_AUDIT when qa:PASS on 5-stage WP and security-audit not yet started', async () => {
+    // Condition 3: qa:PASS, next stage is security-audit (resolveNextAgent returns 'Security Auditor').
+    // partitionWpsAwaitingNextStage finds this WP → READY_FOR_SECURITY_AUDIT.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SECURITY_AUDIT');
+  });
+
+  it('spec cond-4 (active work): returns IN_PROGRESS when assigned_to === "QA" with impl:PASS and no qa pipeline yet (5-stage)', async () => {
+    // Condition 4: QA has claimed the WP (assigned_to: 'QA') and WP is IN_PROGRESS.
+    // Active-work branch fires before cond-5 fallthrough.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+      ], [], 'QA'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('QA');
+  });
+
+  it('spec cond-5 (WAIT): returns WAIT when impl:PASS, no qa pipeline, assigned_to: null (5-stage) — auto-engagement guard', async () => {
+    // Condition 5 (fallthrough): no qa FAIL, no qa PASS, assigned_to !== 'QA'
+    // → all conditions miss → WAIT. Confirms the auto-engagement branch is gone.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+});
+
+describe('WP-007: getSecurityAuditorHandoff — 5-stage spec condition coverage', () => {
+  it('spec cond-2 (FAIL): returns READY_FOR_DEVELOPER when security-audit:FAIL on 5-stage WP (no qa re-pass since)', async () => {
+    // Condition 2: most-recent security-audit pipeline is FAIL and no qa re-pass since
+    // audit started (makeWp has no timestamps → conservative). FAIL short-circuit fires.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'FAIL' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('spec cond-3 (PASS/next): returns READY_FOR_REVIEW when security-audit:PASS on 5-stage WP and code-review not yet started', async () => {
+    // Condition 3: security-audit:PASS, resolveNextAgent('security-audit', FIVE_STAGES) = 'Reviewer'
+    // → READY_FOR_REVIEW.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_REVIEW');
+  });
+
+  it('spec cond-4 (active work): returns IN_PROGRESS when assigned_to === "Security Auditor" with qa:PASS, no security-audit pipeline (5-stage)', async () => {
+    // Condition 4: Security Auditor has claimed the WP (assigned_to: 'Security Auditor').
+    // Active-work branch fires before cond-5 fallthrough.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ], [], 'Security Auditor'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('Security Auditor');
+  });
+
+  it('spec cond-5 (WAIT): returns WAIT when qa:PASS, no security-audit pipeline, assigned_to: null (5-stage) — auto-engagement guard', async () => {
+    // Condition 5 (fallthrough): no security-audit FAIL, no security-audit PASS,
+    // assigned_to !== 'Security Auditor' → all conditions miss → WAIT.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('IN_PROGRESS');
+  });
+});
+
+describe('WP-007: getReviewerHandoff — 5-stage spec condition coverage', () => {
+  it('spec cond-2 (FAIL): returns READY_FOR_DEVELOPER when code-review:FAIL on 5-stage WP (no security-audit re-pass since)', async () => {
+    // Condition 2: most-recent code-review pipeline is FAIL and no security-audit re-pass
+    // since review started (makeWp has no timestamps → conservative). FAIL fires.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+        { type: 'code-review', status: 'FAIL' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('spec cond-3 (PASS/next): returns READY_FOR_DOCUMENTATION when code-review:PASS and documentation not yet started (5-stage)', async () => {
+    // Condition 3: code-review:PASS, resolveNextAgent('code-review', FIVE_STAGES) = 'Documentation'
+    // → READY_FOR_DOCUMENTATION.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+  });
+
+  it('spec cond-4 (active work): returns IN_PROGRESS when assigned_to === "Reviewer" with security-audit:PASS, no code-review pipeline (5-stage)', async () => {
+    // Condition 4: Reviewer has claimed the WP (assigned_to: 'Reviewer').
+    // Active-work branch fires before cond-5 fallthrough.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'PASS' },
+      ], [], 'Reviewer'),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('Reviewer');
+  });
+
+  it('spec cond-5 (WAIT): returns WAIT when qa:PASS but security-audit (active upstream) not started and assigned_to: null (5-stage) — core bug-report scenario', async () => {
+    // Condition 5 (fallthrough): no code-review FAIL, no code-review PASS,
+    // assigned_to !== 'Reviewer' → WAIT. This is the exact contradiction from the ffmpeg
+    // bug report: old code returned IN_PROGRESS with next_agent: Reviewer instead.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+      assigned_to: null as any,
+    }];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    // Regression guard: old code returned IN_PROGRESS with next_agent: Reviewer
+    expect(result.status).not.toBe('IN_PROGRESS');
+    expect(result.next_agent).not.toBe('Reviewer');
   });
 });
