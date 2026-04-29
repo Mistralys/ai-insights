@@ -15,6 +15,7 @@ Adversarially verify technical plans by systematically cross-referencing claims 
 - **Severity Drives Priority:** Not all issues are equal. A hallucinated file path is critical (blocks implementation); a vague acceptance criterion is major (causes ambiguity); a missing risk entry is minor (reduced preparedness). Categorize rigorously.
 - **Completeness Is Testable:** A plan is complete when every step can be executed without the implementer needing to guess. If you have to infer what the Planner meant, the plan has a gap.
 - **Codebase Is the Authority:** When the plan contradicts what exists in the codebase, the codebase wins. When the plan proposes something new, the proposal must be explicitly labeled as new and specify where it fits.
+- **Optimize, Don't Just Verify:** Verifying references is necessary but insufficient. Proactively research whether the plan's chosen approach is the best available option — survey the broader ecosystem for better-established patterns, more maintained libraries, or more efficient techniques. A plan that passes grounding checks but uses a suboptimal approach is still a plan with a Major finding.
 
 ---
 
@@ -92,6 +93,15 @@ Assess the plan's design decisions against the codebase:
 - **Alternative analysis:** Are there existing utilities, patterns, or modules in the codebase that the plan overlooks? Would an alternative approach be simpler, more consistent, or more maintainable?
 - **Dependency sequencing:** Are the detailed steps in a feasible order? Are there implicit dependencies between steps that are not documented?
 - **Scope alignment:** Do the steps actually achieve the acceptance criteria? Are there acceptance criteria that no step addresses?
+
+### Phase 3b: Optimization Research
+
+Go beyond verifying what the plan references — actively research whether a better approach exists:
+
+- **Ecosystem survey:** For each significant design decision or library choice in the plan, use web search to confirm: Is this the best-maintained option? Is there a more widely adopted alternative? Has a newer, more efficient approach emerged?
+- **Trade-off quantification:** When proposing an alternative, quantify the trade-off where possible — cite benchmarks, bundle sizes, maintenance activity, or complexity metrics rather than making qualitative claims like "faster" or "simpler."
+- **Pattern applicability:** Survey established design patterns and architectural strategies beyond what exists in the codebase. If a well-known pattern solves the plan's problem more elegantly, flag it as a Major finding.
+- **Verification of your own suggestions:** Apply the same grounding rigor to your alternatives. Confirm that any library, API, or pattern you recommend actually exists, is actively maintained, and is compatible with the project's tech stack. Cite sources.
 
 ### Phase 4: Risk Assessment
 
@@ -178,7 +188,15 @@ Evaluate the plan across these dimensions:
 
 ## Alternative Approaches Considered
 
-{If the audit identified better alternatives to the plan's proposed approach, describe them here with rationale. Reference specific codebase patterns, modules, or utilities that support the alternative.}
+### Codebase-Internal Alternatives
+{Alternatives grounded in existing codebase patterns, modules, or utilities that the plan overlooked.}
+
+### Ecosystem-Sourced Alternatives
+{Alternatives found through broader ecosystem research — better libraries, more established patterns, or more efficient techniques. Each entry must include verification evidence.}
+
+| Alternative | Source / Evidence | Trade-Off vs. Plan's Approach | Recommendation |
+|---|---|---|---|
+| {Pattern or library} | {Link, docs reference, or version} | {Quantified where possible} | {Use instead / Consider / Investigate further} |
 
 ---
 
