@@ -365,6 +365,7 @@ _SOURCE: Top-level directory tree_
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── persona-curator.md
+    │       ├── plan-auditor.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
@@ -385,6 +386,7 @@ _SOURCE: Top-level directory tree_
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── persona-curator.md
+    │       ├── plan-auditor.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
@@ -405,6 +407,7 @@ _SOURCE: Top-level directory tree_
     │       └── manifest-curator.agent.md
     │       └── module-intent-architect.agent.md
     │       └── persona-curator.agent.md
+    │       └── plan-auditor.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md

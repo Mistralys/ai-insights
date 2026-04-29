@@ -23,6 +23,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── manifest-curator.yaml
                 └── module-intent-architect.yaml
                 └── persona-curator.yaml
+                └── plan-auditor.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
@@ -417,8 +418,31 @@ description: "Create, audit, and maintain AI agent personas according to the Per
 vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
+version: "1.1.0"
+last_updated: "2026-04-29"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+```
+###  Path: `/personas/standalone/src/meta/plan-auditor.yaml`
+
+```yaml
+slug: plan-auditor
+name: "Plan Auditor"
+description: "Audit technical plans against the actual codebase — catch hallucinated references, missing steps, and overlooked alternatives before implementation begins."
+vs_file_name: plan-auditor.agent.md
+id: standalone-plan-auditor
+cc_file_name: plan-auditor.md
 version: "1.0.0"
-last_updated: "2026-04-11"
+last_updated: "2026-04-29"
 
 tools:
   - vscode
