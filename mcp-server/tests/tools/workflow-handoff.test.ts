@@ -204,6 +204,20 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('READY_FOR_DOCUMENTATION');
       expect(result.details).toContain('PASS code-review');
     });
+
+    it('Step 4 / cond-4: returns IN_PROGRESS when assigned_to === "Reviewer" with implementation:PASS and no code-review pipeline', async () => {
+      // Spec Step 4 / cond-4: assigned_to === 'Reviewer' with WP IN_PROGRESS triggers active-work branch.
+      // Fixture: implementation:PASS history, no code-review pipeline started, assigned_to: 'Reviewer'.
+      const wpDetails = [
+        makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+        ], [], 'Reviewer'),
+      ];
+
+      const result = await parseResult(getReviewerHandoff(wpDetails));
+      expect(result.status).toBe('IN_PROGRESS');
+      expect(result.current_agent).toBe('Reviewer');
+    });
   });
 
   describe('Documentation handoff', () => {
@@ -2772,5 +2786,66 @@ describe('WP-007: getReviewerHandoff — 5-stage spec condition coverage', () =>
     // Regression guard: old code returned IN_PROGRESS with next_agent: Reviewer
     expect(result.status).not.toBe('IN_PROGRESS');
     expect(result.next_agent).not.toBe('Reviewer');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Handoff-spec-compliance-followup: getSecurityAuditorHandoff cond-1/cond-2
+//
+// Dedicated re-engagement / FAIL-routing describe block mirroring the AC5/AC6
+// QA patterns (WP-002: getQaHandoff — §5.2 re-engagement guard).
+//
+// Spec reference: §5.2b (Security Auditor handoff, handoff.md).
+// Condition numbering matches the per-function pseudocode in handoff.md.
+// ---------------------------------------------------------------------------
+
+describe('Handoff-spec-compliance-followup: getSecurityAuditorHandoff — §5.2b re-engagement guard', () => {
+  it('spec cond-1: returns IN_PROGRESS (re-engagement) when security-audit:FAIL and qa has since re-PASSed', async () => {
+    // qa-1 PASS → security-audit-1 FAIL → qa-2 PASS: Security Auditor must re-engage.
+    // hasNewUpstreamPassSince("qa","security-audit") = true → cond-1 fires.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'FAIL' },
+        { type: 'qa', status: 'PASS' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('spec cond-2: returns READY_FOR_DEVELOPER when security-audit:FAIL and no qa re-pass (no timestamps)', async () => {
+    // Without timestamps, hasNewUpstreamPassSince is conservative (returns false).
+    // Re-engagement (cond-1) does not fire → FAIL short-circuit (cond-2) fires → READY_FOR_DEVELOPER.
+    // Negative-regression: must NOT skip to READY_FOR_SYNTHESIS.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWp('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'FAIL' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.status).not.toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('spec cond-2 (timed): returns READY_FOR_DEVELOPER when security-audit:FAIL and qa PASS predates audit start', async () => {
+    // qa PASS completed at T+1.5h; security-audit FAIL started at T+2h (after qa PASS completed).
+    // No qa-2 → hasNewUpstreamPassSince("qa","security-audit") = false (qa-1 predates audit start).
+    // → cond-1 does not fire → cond-2 fires → READY_FOR_DEVELOPER.
+    const wpDetails: WorkPackageDetail[] = [{
+      ...makeWpTimed('WP-001', 'IN_PROGRESS', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'security-audit', status: 'FAIL' },
+      ]),
+      active_pipeline_stages: FIVE_STAGES as any,
+    }];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
   });
 });
