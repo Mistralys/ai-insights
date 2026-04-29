@@ -196,12 +196,17 @@ describe('QA handoff returns READY_FOR_DEVELOPER on FAIL', () => {
     expect(result.next_agent).toBe('Developer');
   });
 
-  it('returns IN_PROGRESS when there are WPs still needing QA (no pipeline yet)', async () => {
+  it('returns IN_PROGRESS when WP is assigned_to QA and has impl PASS but no QA pipeline yet', async () => {
+    // spec v2.0.0: QA IN_PROGRESS fires only when assigned_to === \'QA\'. Without the assignment,
+    // auto-engagement is not emitted (removed the wpsNeedingNewQa branch).
     const wpDetails = [
-      makeWp('WP-001', 'IN_PROGRESS', [
-        { type: 'implementation', status: 'PASS' },
-        // No QA pipeline yet → QA still has work
-      ]),
+      {
+        ...makeWp('WP-001', 'IN_PROGRESS', [
+          { type: 'implementation', status: 'PASS' },
+          // No QA pipeline yet — QA should work on this WP
+        ]),
+        assigned_to: 'QA',  // WP is assigned to QA
+      } as WorkPackageDetail,
     ];
 
     const result = await parseResult(getQaHandoff(wpDetails));

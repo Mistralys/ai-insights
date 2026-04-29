@@ -657,12 +657,17 @@ If the arrays diverge it exits 1 with a labelled diff:
 
 The script lives at `scripts/check-known-roles.js` in the workspace root and has no npm dependencies beyond Node.js built-ins.
 
-### Running Tests
+### Running the test suite
 
 ```bash
 npm test              # Run all tests once
 npm run test:watch   # Run tests in watch mode
 ```
+
+> **Prerequisite:** `npm test` runs a `pretest` hook that calls `../scripts/build-personas.js`
+> to regenerate persona output files. This script depends on `@mistralys/persona-builder`
+> being compiled. If you see a `Cannot find module` error on the first run, execute
+> `npm run build` from the sibling `ai-persona-builder/` workspace first, then retry.
 
 The test suite includes unit tests for all modules and **integration tests** for the auto-handoff chain. Integration tests use real `LedgerStore` instances against temp directories and a mock agents directory — no real VS Code installation or filesystem paths are required.
 
