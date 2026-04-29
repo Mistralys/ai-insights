@@ -3,10 +3,8 @@
 ## v1.21.0 - Handoff Spec Compliance
 > mcp v1.28.0
 
-- MCP: Fixed five routing bugs in `getSecurityAuditorHandoff`, `getDocumentationHandoff`,
-  `getReviewerHandoff`, `getQaHandoff`, and `partitionWpsAwaitingNextStage`; all brought
-  into full compliance with workflow spec §5.2–§5.4.
-- MCP: Added 31 regression tests covering spec conditions and edge cases; test count 148 → 179.
+- MCP: Fixed leftover hardcoded handoff routing paths.
+- Orchestrator: Fixed a windows-specific test error.
 
 ## v1.20.0 - PM Pipeline-Aware Routing
 > mcp v1.27.0 · orchestrator v0.18.0 · personas v3.16.1
