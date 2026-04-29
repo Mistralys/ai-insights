@@ -2,8 +2,8 @@
 
 > A blueprint for creating AI agent personas that follow the structure and philosophy established across the Ledger and Standalone persona suites.
 
-**Version:** 2.0.  
-**Last Updated:** 2026-04-11.  
+**Version:** 2.1.  
+**Last Updated:** 2026-04-29.  
 
 ---
 
@@ -106,6 +106,7 @@ The Mission is the persona's identity card. It answers: *Who is this agent, and 
 - **Open with the Identity line.** Format: `**Identity: {TITLE}.**` — always bold, always a recognized professional role. This is not decoration; it anchors the agent's behavior throughout the session.
 - **Choose the identity carefully.** The title shapes how the agent approaches its work. "Staff Software Engineer" produces different behavior than "Junior Developer." "Chief Product Officer" thinks strategically; "Technical Writer" thinks about clarity. Pick the seniority and domain that match the persona's responsibilities.
 - **State the outcome, not the process.** "Produce a clear, actionable plan" is better than "Analyze requirements and write planning documents." The workflow section covers process — the mission covers purpose.
+- **Lead with a verb, not "You."** The mission body opens with an imperative or declarative verb: "Produce…", "Initialize…", "Focus on…", "Audit…". This voice keeps the mission anchored to the *role's purpose* rather than addressing the agent in second person. Compare: "Produce clean, scannable changelogs" (imperative — states the outcome) vs. "You specialize in producing changelogs" (second-person — describes the agent). Save "You" for the Workflow and Inputs sections where conversational address is natural.
 - **One responsibility per persona.** If the mission statement requires "and" to connect two unrelated activities, you probably need two personas.
 
 **Examples from existing personas:**
@@ -126,6 +127,7 @@ The Mission is the persona's identity card. It answers: *Who is this agent, and 
 **Anti-patterns:**
 
 - "You are an AI assistant that helps with..." — too generic, no identity anchor.
+- "You specialize in…" / "You are the…" — second-person address weakens the mission. Rewrite as a verb-led outcome: "Audit plans for grounding errors" instead of "You specialize in auditing plans."
 - A mission that lists five different responsibilities — scope is too wide.
 - A mission that describes *how* rather than *what* — that's the workflow's job.
 
