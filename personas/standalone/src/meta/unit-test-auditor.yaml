@@ -4,8 +4,8 @@ description: "Audit unit test coverage of specific codebase modules — identify
 vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
-version: "1.0.2"
-last_updated: "2026-03-04"
+version: "1.1.0"
+last_updated: "2026-04-30"
 
 tools:
   - vscode

@@ -1,8 +1,18 @@
 # Personas Changelog
 
-## v3.16.2 - Plan Auditor Persona
-- Plan Auditor: Added the Plan Auditor persona as dedicated plan verification agent.
+## v3.17.0 - Comprehensive Persona Tweaks
+- Ledger: Documentation: Now delegating to CTX Architect sub-agent.
+- Ledger: Dependency Sequencer: Rewrote to imperative voice; improvements.
+- Ledger: Dependency Sequencer: Fixed missing edit capabilities.
+- Ledger: Pipeline Configurator: Rewrote to imperative voice: improvements.
+- Ledger: WP Decomposer: Rewrote to imperative voice; improvements.
+- AGENTS.md Curator: Comprehensive rewrite.
+- Manifest Curator: Rewrote to imperative voice; CTX Architect delegation and more.
+- Researcher: Rewrote to imperative voice; improvements.
+- Unit Test Auditor: Rewrote to imperative voice; improvements.
 - Persona Curator: Improved mission statement.
+- Added new Documentation Curator persona.
+- Added new Plan Auditor persona.
 
 ## v3.16.1 - Windows Compatibility Fix
 - Build: Fixed CRLF line-ending handling in the YAML scalar parser.
