@@ -13,6 +13,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── composer-curator.yaml
                 └── ctx-architect.yaml
                 └── developer.yaml
+                └── documentation-curator.yaml
                 └── ledger-bootstrapper.yaml
                 └── ledger-claude-coordinator.yaml
                 └── ledger-dependency-sequencer.yaml
@@ -62,8 +63,8 @@ description: "Generate, update, and maintain AGENTS.md files — the operating m
 vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
-version: "1.1.0"
-last_updated: "2026-03-20"
+version: "1.2.0"
+last_updated: "2026-04-30"
 
 tools:
   - vscode
@@ -183,6 +184,29 @@ cc_tools:
   - TodoWrite
 
 ```
+###  Path: `/personas/standalone/src/meta/documentation-curator.yaml`
+
+```yaml
+slug: documentation-curator
+name: "Documentation (Standalone)"
+description: "Analyze codebase changes, identify documentation gaps, and update READMEs, API references, and architecture guides to stay in sync with the code."
+vs_file_name: documentation-curator.agent.md
+id: standalone-documentation-curator
+cc_file_name: documentation-curator.md
+version: "1.0.0"
+last_updated: "2026-04-30"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+```
 ###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`
 
 ```yaml
@@ -242,11 +266,12 @@ description: "Map dependencies between Work Packages, identify parallelization o
 vs_file_name: ledger-dependency-sequencer.agent.md
 id: standalone-ledger-dependency-sequencer
 cc_file_name: ledger-dependency-sequencer.md
-version: "1.0.1"
-last_updated: "2026-04-11"
+version: "1.0.3"
+last_updated: "2026-04-30"
 
 tools:
   - read
+  - edit
   - search
 
 ```
@@ -325,8 +350,8 @@ description: "Determine which pipeline stages should be active for each Work Pac
 vs_file_name: ledger-pipeline-configurator.agent.md
 id: standalone-ledger-pipeline-configurator
 cc_file_name: ledger-pipeline-configurator.md
-version: "1.0.0"
-last_updated: "2026-03-14"
+version: "1.0.1"
+last_updated: "2026-04-30"
 
 tools:
   - read
@@ -343,8 +368,8 @@ description: "Analyze a plan document and decompose it into atomic, actionable W
 vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
-version: "1.0.0"
-last_updated: "2026-03-14"
+version: "1.0.1"
+last_updated: "2026-04-30"
 
 tools:
   - read
@@ -361,8 +386,8 @@ description: "Create, update, and audit project manifests — the source of trut
 vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
-version: "1.0.4"
-last_updated: "2026-03-04"
+version: "1.0.6"
+last_updated: "2026-04-30"
 
 tools:
   - vscode
@@ -395,6 +420,7 @@ tools:
   - search
   - web
   - agent
+  - todo
 
 # cc_tools differs from default: module-intent-architect has no TodoRead/TodoWrite
 cc_tools:
@@ -487,8 +513,8 @@ description: "Research solutions to complex problems through known patterns or c
 vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
-version: "1.0.2"
-last_updated: "2026-03-04"
+version: "1.1.0"
+last_updated: "2026-04-30"
 
 tools:
   - vscode
@@ -510,8 +536,8 @@ description: "Audit unit test coverage of specific codebase modules — identify
 vs_file_name: unit-test-auditor.agent.md
 id: standalone-unit-test-auditor
 cc_file_name: unit-test-auditor.md
-version: "1.0.2"
-last_updated: "2026-03-04"
+version: "1.1.0"
+last_updated: "2026-04-30"
 
 tools:
   - vscode

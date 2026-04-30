@@ -336,8 +336,8 @@ vs_file_name: 8-docs.agent.md
 id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
-version: "3.6.1"
-last_updated: "2026-04-08"
+version: "3.7.0"
+last_updated: "2026-04-30"
 
 tools:
   - vscode
@@ -349,6 +349,9 @@ tools:
   - agent
   - todo
   - central_pm/*
+
+subagents:
+  - ctx-architect
 
 has_mcp: true
 has_detect_project: true
