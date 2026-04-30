@@ -1,0 +1,18 @@
+slug: documentation-curator
+name: "Documentation (Standalone)"
+description: "Analyze codebase changes, identify documentation gaps, and update READMEs, API references, and architecture guides to stay in sync with the code."
+vs_file_name: documentation-curator.agent.md
+id: standalone-documentation-curator
+cc_file_name: documentation-curator.md
+version: "1.0.0"
+last_updated: "2026-04-30"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
