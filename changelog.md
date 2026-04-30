@@ -1,5 +1,13 @@
 # AI Insights Changelog
 
+## v1.21.0 - Persona Tweaks and Improvements
+> personas v3.17.0
+
+- Personas: Improvements and tweaks across the board.
+- Personas: Fixed dependency sequencer not saving files.
+- Personas: Added the standalone documentation persona.
+- Personas: Added the plan auditor persona.
+
 ## v1.20.0 - PM Pipeline-Aware Routing
 > mcp v1.27.0 · orchestrator v0.18.0 · personas v3.16.1
 
