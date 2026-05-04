@@ -212,7 +212,7 @@ describe('Auto-handoff chain integration', () => {
             { type: 'qa', status: 'PASS' },
             { type: 'code-review', status: 'PASS' },
             { type: 'documentation', status: 'PASS' },
-          ])],
+          ], 'COMPLETE')],
           tempDir,
           store,
         ),
@@ -270,6 +270,7 @@ describe('Auto-handoff chain integration', () => {
       expect((await store.readRootIndex()).auto_handoff_depth).toBe(4);
 
       // Step 5: Documentation → Synthesis (depth 4 → 5)
+      // WP-001 must be COMPLETE (terminal) for the all-terminal early exit to fire → READY_FOR_SYNTHESIS.
       await parseResult(
         getDocumentationHandoff(
           [makeWp('WP-001', [
@@ -277,7 +278,7 @@ describe('Auto-handoff chain integration', () => {
             { type: 'qa', status: 'PASS' },
             { type: 'code-review', status: 'PASS' },
             { type: 'documentation', status: 'PASS' },
-          ])],
+          ], 'COMPLETE')],
           tempDir,
           store,
         ),
@@ -572,6 +573,7 @@ describe('Auto-handoff chain integration', () => {
     });
 
     it('Documentation handoff omits auto_handoff but still returns correct next_agent', async () => {
+      // WP-001 must be COMPLETE (terminal) for the all-terminal early exit to fire → READY_FOR_SYNTHESIS.
       const result = await parseResult(
         getDocumentationHandoff(
           [makeWp('WP-001', [
@@ -579,7 +581,7 @@ describe('Auto-handoff chain integration', () => {
             { type: 'qa', status: 'PASS' },
             { type: 'code-review', status: 'PASS' },
             { type: 'documentation', status: 'PASS' },
-          ])],
+          ], 'COMPLETE')],
           tempDir,
           store,
         ),
@@ -1100,5 +1102,121 @@ describe('WP-007: Mixed-composition WPs (active_pipeline_stages scoping)', () =>
     );
 
     expect(result.status).not.toBe('READY_FOR_DEVELOPER');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-009: Bug-report 2026-04-28 end-to-end fixtures (Phase 7 verification)
+//
+// Two fixtures that mirror the ffmpeg ledger state that triggered the
+// contradictory handoff payload bug:
+//   Fixture A — assigned_to: null  → getReviewerHandoff must NOT emit
+//               IN_PROGRESS with next_agent: Reviewer.
+//   Fixture B — assigned_to: 'Reviewer' → getReviewerHandoff correctly emits
+//               IN_PROGRESS (spec cond-4 active-work branch) — coherent, not a bug.
+//
+// Spec reference: §5.3 (Reviewer), condition 4 and condition 5.
+// ---------------------------------------------------------------------------
+
+const FIVE_STAGES_INT = [
+  'implementation', 'qa', 'security-audit', 'code-review', 'documentation',
+] as const;
+
+describe('WP-009: Bug-report 2026-04-28 end-to-end fixtures', () => {
+  let tempDir: string;
+  let agentDir: string;
+  let tempLedgerRoot: string;
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    resetRegistry();
+    tempDir = await mkdtemp(join(tmpdir(), '2026-04-29-wp009-'));
+    agentDir = await mkdtemp(join(tmpdir(), 'wp009-agents-'));
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'ledger-root-wp009-'));
+    store = new LedgerStore(tempDir, tempLedgerRoot);
+    await writeAgentFile(agentDir, '6-reviewer.agent.md', '6 - Reviewer v1.0', 'Reviewer');
+    await writeAgentFile(agentDir, '7-docs.agent.md', '7 - Documentation v1.0', 'Documentation');
+    await discoverAgents(agentDir);
+    await store.writeRootIndex(makeRoot({ auto_handoff_depth: 0 }));
+  });
+
+  afterEach(async () => {
+    resetRegistry();
+    await rm(tempDir, { recursive: true, force: true });
+    await rm(agentDir, { recursive: true, force: true });
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  it('Fixture A (assigned_to: null): getReviewerHandoff does NOT emit IN_PROGRESS with next_agent: Reviewer for 5-stage WPs with qa:PASS but security-audit not started', async () => {
+    // Reproduces the ffmpeg ledger bug: multiple 5-stage WPs have [impl:PASS, qa:PASS]
+    // but security-audit (the active upstream for code-review) has not started.
+    // assigned_to is null → cond-4 (active-work) does NOT fire → must fall through to WAIT.
+    // WP-003 has code-review:PASS on a 4-stage pipeline, triggering cond-3 (READY_FOR_DOCUMENTATION).
+    const wpDetails: WorkPackageDetail[] = [
+      // 5-stage WPs: qa:PASS but security-audit not started — core bug-report scenario
+      { ...makeWp('WP-001', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ], 'IN_PROGRESS', [...FIVE_STAGES_INT]), assigned_to: null as any },
+      { ...makeWp('WP-002', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ], 'IN_PROGRESS', [...FIVE_STAGES_INT]), assigned_to: null as any },
+      // 4-stage WP: code-review:PASS triggers cond-3 → READY_FOR_DOCUMENTATION
+      { ...makeWp('WP-003', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'code-review', status: 'PASS' },
+        ], 'IN_PROGRESS'), assigned_to: null as any },
+      // COMPLETE WP — excluded by all-terminal check (not all WPs are terminal, so this does
+      // not trigger the early-exit)
+      makeWp('WP-004', [
+        { type: 'implementation', status: 'PASS' },
+        { type: 'qa', status: 'PASS' },
+        { type: 'code-review', status: 'PASS' },
+        { type: 'documentation', status: 'PASS' },
+      ], 'COMPLETE'),
+    ];
+
+    const result = await parseResult(getReviewerHandoff(wpDetails, tempDir, store));
+
+    // Core bug-report guard: the contradictory payload must never be emitted
+    expect(result.status).not.toBe('IN_PROGRESS');
+    expect(result.next_agent).not.toBe('Reviewer');
+
+    // WP-003 (4-stage, code-review:PASS) triggers cond-3 → READY_FOR_DOCUMENTATION
+    expect(result.status).toBe('READY_FOR_DOCUMENTATION');
+    expect(result.current_agent).toBe('Reviewer');
+    expect(result.auto_handoff).toBeDefined();
+    expect(result.auto_handoff.agent_name).toBe('7 - Documentation v1.0');
+  });
+
+  it('Fixture B (assigned_to: "Reviewer"): getReviewerHandoff correctly emits IN_PROGRESS — spec cond-4 active-work, coherent with ledger state', async () => {
+    // When the Reviewer has actually claimed a WP (assigned_to: 'Reviewer'),
+    // IN_PROGRESS is the spec-correct outcome of cond-4. This is NOT a contradiction:
+    // both getReviewerHandoff (IN_PROGRESS) and ledger_get_next_action
+    // (CONTINUE_PIPELINE) agree that Reviewer has active work.
+    const wpDetails: WorkPackageDetail[] = [
+      // 5-stage WPs with security-audit:PASS — Reviewer has claimed WP-001
+      { ...makeWp('WP-001', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+          { type: 'security-audit', status: 'PASS' },
+        ], 'IN_PROGRESS', [...FIVE_STAGES_INT]), assigned_to: 'Reviewer' },
+      { ...makeWp('WP-002', [
+          { type: 'implementation', status: 'PASS' },
+          { type: 'qa', status: 'PASS' },
+        ], 'IN_PROGRESS', [...FIVE_STAGES_INT]), assigned_to: null as any },
+    ];
+
+    const result = await parseResult(getReviewerHandoff(wpDetails, tempDir, store));
+
+    // Spec-correct cond-4: Reviewer has claimed WP-001 → IN_PROGRESS
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.current_agent).toBe('Reviewer');
+    expect(result.next_agent).toBe('Reviewer');
+
+    // IN_PROGRESS must NOT emit auto_handoff (gated to READY_FOR_* statuses only per §18.6)
+    expect(result.auto_handoff).toBeUndefined();
   });
 });

@@ -218,6 +218,7 @@ These constraints are **non-negotiable**. Violating them will cause bugs or prot
 | Verify a rule or constraint | [constraints.md](docs/agents/project-manifest/constraints.md) |
 | See previous implementation notes | [docs/agents/implementation-history/](docs/agents/implementation-history/) |
 | Understand workflow logic (state machines, routing, handoffs) | [Workflow Specification](docs/agents/workflow-specification/README.md) |
+| Run tests (pretest / persona-builder dependency) | [README.md — Running the test suite](README.md#running-the-test-suite) |
 
 ---
 

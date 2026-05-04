@@ -1,5 +1,5 @@
 ---
-mode: Changelog Curator v1.1.1
+agent: Changelog Curator v1.1.1
 description: Generate changelog entries for all changes since the last Git tag.
 ---
 

@@ -1,16 +1,20 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.28.0 - Handoff Spec Compliance
+- Handoff: Fixed premature synthesis routing in the Security Auditor handoff.
+- Handoff: Fixed Documentation handoff to fall back to WAIT instead of routing to Developer.
+- Handoff: Rewrote Reviewer handoff to spec compliance; removed hard-coded upstream prerequisite.
+- Handoff: Rewrote QA handoff to spec compliance; same fixes applied.
+- Utils: Fixed next-stage pipeline check to re-route work packages with a downstream failure.
+- Utils: Extracted shared upstream-pass check used by all handoff functions.
+
 ## v1.27.0 - PM Pipeline-Aware Routing
-- Handoff: Added `ROUTE_PIPELINE_AGENT` priority step to both `getProjectManagerHandoff()`
-  and `getProjectManagerAction()`.
-- Handoff: PM now scans IN_PROGRESS WPs for pending pipeline stages and routes directly
-  to the stage-owning agent, covering stage-transition advances and zero-pipeline bootstrap.
-- Handoff: Guards prevent routing when the target stage has FAIL or IN_PROGRESS, or its
-  upstream prerequisite stage is still IN_PROGRESS.
-- Utils: Added `latestNonCancelledPipeline()` helper; refactored `isMostRecentPipelineFail()`
-  to use it.
-- Spec: Updated workflow specification §13.1 with full step 2b routing algorithm and guards.
-- Tests: Expanded workflow-handoff, workflow-next-action, and workflow-helpers test suites.
+- Handoff: PM now scans in-progress work packages for pending pipeline stages and routes
+  directly to the owning agent, covering stage transitions and zero-pipeline bootstrap.
+- Handoff: Added guards to prevent routing to stages that are failing or still in progress.
+- Utils: Extracted latest non-cancelled pipeline helper; refactored failure detection to use it.
+- Spec: Updated workflow specification with full PM routing algorithm and guards.
+- Tests: Expanded handoff and next-action test suites.
 
 ## v1.26.0 - GUI Progress Calculation
 - GUI: Added pipeline-based project progress percentage to the project list.
