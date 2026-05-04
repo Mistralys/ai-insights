@@ -1,5 +1,13 @@
 # AI Insights Changelog
 
+## v1.22.0 - Persona Tweaks and Improvements
+> personas v3.17.0
+
+- Personas: Improvements and tweaks across the board.
+- Personas: Fixed dependency sequencer not saving files.
+- Personas: Added the standalone documentation persona.
+- Personas: Added the plan auditor persona.
+
 ## v1.21.0 - Handoff Spec Compliance
 > mcp v1.28.0
 

@@ -4,8 +4,8 @@ description: "Create, audit, and maintain AI agent personas according to the Per
 vs_file_name: persona-curator.agent.md
 id: standalone-persona-curator
 cc_file_name: persona-curator.md
-version: "1.0.0"
-last_updated: "2026-04-11"
+version: "1.1.0"
+last_updated: "2026-04-29"
 
 tools:
   - vscode

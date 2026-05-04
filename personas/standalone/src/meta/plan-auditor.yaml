@@ -1,0 +1,18 @@
+slug: plan-auditor
+name: "Plan Auditor"
+description: "Audit technical plans against the actual codebase — catch hallucinated references, missing steps, and overlooked alternatives before implementation begins."
+vs_file_name: plan-auditor.agent.md
+id: standalone-plan-auditor
+cc_file_name: plan-auditor.md
+version: "1.0.0"
+last_updated: "2026-04-29"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
