@@ -4,8 +4,8 @@ description: "Determine which pipeline stages should be active for each Work Pac
 vs_file_name: ledger-pipeline-configurator.agent.md
 id: standalone-ledger-pipeline-configurator
 cc_file_name: ledger-pipeline-configurator.md
-version: "1.0.0"
-last_updated: "2026-03-14"
+version: "1.0.1"
+last_updated: "2026-04-30"
 
 tools:
   - read

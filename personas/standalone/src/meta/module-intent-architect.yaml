@@ -15,6 +15,7 @@ tools:
   - search
   - web
   - agent
+  - todo
 
 # cc_tools differs from default: module-intent-architect has no TodoRead/TodoWrite
 cc_tools:

@@ -131,6 +131,7 @@ _SOURCE: Directory tree_
             ├── composer-curator.md
             ├── ctx-architect.md
             ├── developer-standalone.md
+            ├── documentation-curator.md
             ├── ledger-bootstrapper.md
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
@@ -141,6 +142,7 @@ _SOURCE: Directory tree_
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── persona-curator.md
+            ├── plan-auditor.md
             ├── readme-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
@@ -151,6 +153,7 @@ _SOURCE: Directory tree_
             ├── composer-curator.md
             ├── ctx-architect.md
             ├── developer.md
+            ├── documentation-curator.md
             ├── ledger-bootstrapper.md
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
@@ -161,6 +164,7 @@ _SOURCE: Directory tree_
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── persona-curator.md
+            ├── plan-auditor.md
             ├── readme-curator.md
             ├── researcher.md
             ├── unit-test-auditor.md
@@ -172,6 +176,7 @@ _SOURCE: Directory tree_
             │   ├── composer-curator.md
             │   ├── ctx-architect.md
             │   ├── developer.md
+            │   ├── documentation-curator.md
             │   ├── ledger-bootstrapper.md
             │   ├── ledger-claude-coordinator.md
             │   ├── ledger-dependency-sequencer.md
@@ -182,6 +187,7 @@ _SOURCE: Directory tree_
             │   ├── manifest-curator.md
             │   ├── module-intent-architect.md
             │   ├── persona-curator.md
+            │   ├── plan-auditor.md
             │   ├── readme-curator.md
             │   ├── researcher.md
             │   ├── unit-test-auditor.md
@@ -193,6 +199,7 @@ _SOURCE: Directory tree_
             │   └── composer-curator.yaml
             │   └── ctx-architect.yaml
             │   └── developer.yaml
+            │   └── documentation-curator.yaml
             │   └── ledger-bootstrapper.yaml
             │   └── ledger-claude-coordinator.yaml
             │   └── ledger-dependency-sequencer.yaml
@@ -203,6 +210,7 @@ _SOURCE: Directory tree_
             │   └── manifest-curator.yaml
             │   └── module-intent-architect.yaml
             │   └── persona-curator.yaml
+            │   └── plan-auditor.yaml
             │   └── readme-curator.yaml
             │   └── researcher.yaml
             │   └── unit-test-auditor.yaml
@@ -213,6 +221,7 @@ _SOURCE: Directory tree_
             └── composer-curator.agent.md
             └── ctx-architect.agent.md
             └── developer-standalone.agent.md
+            └── documentation-curator.agent.md
             └── ledger-bootstrapper.agent.md
             └── ledger-claude-coordinator.agent.md
             └── ledger-dependency-sequencer.agent.md
@@ -223,6 +232,7 @@ _SOURCE: Directory tree_
             └── manifest-curator.agent.md
             └── module-intent-architect.agent.md
             └── persona-curator.agent.md
+            └── plan-auditor.agent.md
             └── readme-curator.agent.md
             └── researcher.agent.md
             └── unit-test-auditor.agent.md

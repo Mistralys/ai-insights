@@ -129,10 +129,10 @@
     "number": 8,
     "id": "ledger-8-docs",
     "role": "Documentation",
-    "version": "3.6.1",
+    "version": "3.7.0",
     "vscode": {
       "file_name": "8-docs.agent.md",
-      "agent_name": "8 - Documentation v3.6.1"
+      "agent_name": "8 - Documentation v3.7.0"
     },
     "claude_code": {
       "file_name": "8-documentation.md",
