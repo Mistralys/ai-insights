@@ -1,12 +1,12 @@
 # AI Insights Changelog
 
-## v1.22.0 - Persona Tweaks and Improvements
-> personas v3.17.0
+## v1.22.0 - Cross-WP Dispatch and New Personas
+> mcp v1.29.0 · personas v3.17.0
 
-- Personas: Improvements and tweaks across the board.
-- Personas: Fixed dependency sequencer not saving files.
-- Personas: Added the standalone documentation persona.
-- Personas: Added the plan auditor persona.
+- MCP: Cross-WP dispatch prevents IDE stalls between WP transitions.
+- MCP: Synthesis handoff now returns COMPLETE instead of WAIT.
+- Personas: Added Plan Auditor and Documentation Curator standalone personas.
+- Personas: Rewrote 6 standalone personas to imperative voice.
 
 ## v1.21.0 - Handoff Spec Compliance
 > mcp v1.28.0
