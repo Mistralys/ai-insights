@@ -3039,6 +3039,25 @@ export async function getNextActionsCollector(
 ### `src/tools/workflow-handoff.ts` — ledger_get_handoff_status internals
 
 ```typescript
+// Shared cross-WP dispatch helper used by the five non-PM handoff functions.
+// Called as the penultimate step in each affected function, just before the final WAIT return.
+//
+// Algorithm (returns first matching branch):
+//   Step 1 — Route to the agent owning the first active pipeline stage of the first READY,
+//             non-dependency-blocked WP. "First" follows wpDetails array order, consistent
+//             with PM Step 2. Self-routing (targetRole === currentRole) is intentional — never filtered.
+//   Step 2 — All WPs terminal (wpDetails.length > 0 && wpDetails.every(isTerminalStatus))
+//             → returns READY_FOR_SYNTHESIS. Serves as a safety net for handoff functions that
+//             position cross-WP dispatch before their own all-terminal check.
+//   null  — No deterministic dispatch available; caller falls through to WAIT.
+//
+// Dependencies: isTerminalStatus, isBlockedByDependencies, firstActiveStage, PIPELINE_AGENT_MAP,
+//               READY_STATUS_FOR_ROLE (all pre-existing helpers/constants).
+function findNextReadyDispatch(
+  wpDetails: WorkPackageDetail[],
+  currentRole: string,
+): { status: string; reason: string } | null;
+
 // Handoff computation functions (one per agent role).
 // All functions receive the full WP list plus optional projectPath and store for dep-blocked routing.
 // Each function is async and returns a Promise<HandoffResult>.
@@ -3078,6 +3097,9 @@ export async function getDeveloperHandoff(wpDetails: WorkPackageDetail[], projec
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to QA (from qaWps) → IN_PROGRESS.
+//   6. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'QA'): if a READY,
+//      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
 //   → WAIT
 export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -3096,10 +3118,45 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
 //      in getDeveloperHandoff. wpDetails.length > 0 precondition prevents Array.every()
 //      vacuous truth on an empty array.
 //   5. IN_PROGRESS assigned to Reviewer (from reviewWps) → IN_PROGRESS.
+//   6. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Reviewer'): if a READY,
+//      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
 //   → WAIT
 export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
+// getSecurityAuditorHandoff: short-circuit priority order:
+//   Scope filter: pipeline-specific checks operate on securityWps — WPs whose
+//   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'security-audit'.
+//   1. FAIL short-circuit — most recent security-audit is FAIL → READY_FOR_DEVELOPER.
+//   2. READY_FOR_REVIEW — non-terminal WPs in securityWps where PASS security-audit exists AND
+//      hasNewUpstreamPassSince('security-audit','code-review') = true; dep-blocked routing applies.
+//   3. All terminal → READY_FOR_SYNTHESIS.
+//   4. IN_PROGRESS assigned to Security Auditor (from securityWps) → IN_PROGRESS.
+//   5. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Security Auditor'): if a READY,
+//      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//   → WAIT
+export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
+
+// getReleaseEngineerHandoff: short-circuit priority order:
+//   1. All terminal — all WPs COMPLETE or CANCELLED → READY_FOR_SYNTHESIS.
+//      Uses wpDetails.every(isTerminal) with .length > 0 guard, matching all other
+//      non-PM handoff functions (harmonized from the previous releaseWps.every scope).
+//   Scope filter: pipeline-specific checks (steps 2, 3) operate on releaseWps — WPs whose
+//   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'release-engineering'.
+//   2. Ready for release — PASS code-review, no release-engineering pipeline yet or new upstream pass
+//      → IN_PROGRESS.
+//   3. FAIL self-rework — most recent release-engineering is FAIL → IN_PROGRESS (self-rework).
+//   4. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Release Engineer'): if a READY,
+//      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
+//   → WAIT
+export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
+
 // getDocumentationHandoff (§5.4): §14.5 priority — ready-for-docs BEFORE self-rework:
+//   0. All-terminal early exit — wpDetails.length > 0 && wpDetails.every(isTerminal) →
+//      READY_FOR_SYNTHESIS. Applies to all WPs regardless of active stages. The .length > 0
+//      guard prevents Array.every() vacuous truth on an empty array.
 //   Scope filter: pipeline-specific checks (steps 1, 2) operate on docWps — WPs whose
 //   (active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES) includes 'documentation'. Steps 3 and 4
 //   (allDocsPassed / wpsNotYetReviewed) also derive from docWps. The WAIT fallback is unscoped.
@@ -3112,6 +3169,9 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
 //        non-empty unblocked → READY_FOR_SYNTHESIS; all dep-blocked → WAIT.
 //   4. wpsNotYetReviewed remain — dep-blocked routing:
 //        not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS.
+//   5. Cross-WP dispatch — findNextReadyDispatch(wpDetails, 'Documentation'): if a READY,
+//      non-dependency-blocked WP exists, routes to the agent owning its first active stage.
+//      If all WPs are terminal, returns READY_FOR_SYNTHESIS. (See Constraint 55.)
 //   → WAIT
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore): Promise<HandoffResult>;
 
@@ -4252,6 +4312,43 @@ Acceptance criteria cannot be empty or whitespace-only.
 > *"Invalid slug (e.g. path-traversal attempt) returns 404 NOT_FOUND."*
 
 Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection. (See [error-ledger.md](../../../../../history/error-ledger.md) — deviation recorded in 2026-03-04-project-reset-rework-1 synthesis.)
+
+---
+
+### 55. Non-PM Handoff Functions Must Dispatch to the Next READY Work Package Before Returning WAIT
+
+**Rule:** Each of the five non-PM handoff functions — `getQaHandoff`, `getSecurityAuditorHandoff`, `getReviewerHandoff`, `getReleaseEngineerHandoff`, and `getDocumentationHandoff` — MUST call `findNextReadyDispatch(wpDetails, '<RoleName>')` as the penultimate step, immediately before the final `return WAIT` fallthrough. If `findNextReadyDispatch` returns a non-null result, the function MUST return that dispatch rather than falling through to WAIT.
+
+**Rationale:** Without this step, completing the last pipeline stage on WP-N leaves the IDE in a stalled state when WP-N+1 is READY but has no pipelines yet. The five affected functions previously returned a bare `WAIT` in this scenario, requiring manual PM intervention to unblock the IDE workflow. The PM handoff already implements this cross-WP dispatch pattern (§13.1 Step 2); this rule extends the same behaviour to all non-PM handoff functions.
+
+**`findNextReadyDispatch` algorithm:**
+1. Finds the first READY work package whose dependencies are satisfied (using `isBlockedByDependencies`).
+2. Routes to the agent owning its first active pipeline stage (`PIPELINE_AGENT_MAP[firstActiveStage(wp.active_pipeline_stages ?? null)]`).
+3. If all WPs are terminal, returns `READY_FOR_SYNTHESIS` (safety-net branch for handoff functions that position cross-WP dispatch before their own all-terminal check).
+4. Returns `null` when no deterministic dispatch is possible — the caller falls through to WAIT.
+
+**Self-routing is intentional:** `findNextReadyDispatch` does NOT filter out cases where the target role equals the calling role (`targetRole === currentRole`). Self-routing causes the IDE to visibly declare a new handoff step for the new work package, improving auditability and keeping orchestrator and IDE behaviors aligned.
+
+**Scope:** This is a best-effort optimization for IDE runners. The orchestrator does not depend on it — its supervisor polling loop re-dispatches independently.
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — penultimate step, just before final WAIT return
+const dispatch = findNextReadyDispatch(wpDetails, 'Documentation');
+if (dispatch) {
+  return buildHandoffResponse(
+    'Documentation', dispatch.status, dispatch.reason,
+    undefined, projectPath, store
+  );
+}
+return buildHandoffResponse('Documentation', 'WAIT', 'No actionable documentation work.');
+```
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — returns WAIT without checking for READY WPs
+return buildHandoffResponse('Documentation', 'WAIT', 'No actionable documentation work.');
+```
 
 ---
 

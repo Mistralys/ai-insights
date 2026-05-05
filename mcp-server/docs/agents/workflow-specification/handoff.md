@@ -88,6 +88,10 @@ if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "QA":
   return IN_PROGRESS             (QA has active work)
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
 return WAIT                      (no actionable work for QA)
 ```
 
@@ -130,6 +134,10 @@ if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "Reviewer":
   return IN_PROGRESS             (Reviewer has active work)
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
 return WAIT                      (no actionable work for Reviewer)
 ```
 
@@ -164,6 +172,10 @@ if all WPs are terminal:
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "Security Auditor":
   return IN_PROGRESS
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
 return WAIT
 ```
 
@@ -195,12 +207,18 @@ if any non-terminal, non-dependency-blocked WP with "release-engineering" in act
 if all WPs are terminal:
   return READY_FOR_SYNTHESIS
 
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
 return WAIT
 ```
 
 > **Self-rework pattern:** Release Engineer follows the same self-rework pattern as Documentation — release-engineering FAIL routes to Release Engineer itself (§9.3). Escalation for code-level issues uses the BLOCKED mechanism with a `technical` blocker, identical to the Documentation escalation path (§21.24).
 
 > **Upstream catch-all removed (v2.0.0):** Prior versions included a catch-all `READY_FOR_DEVELOPER` for WPs awaiting earlier pipeline stages. This was removed because the Release Engineer cannot accurately dispatch to the correct upstream agent — a WP awaiting `code-review` would be misrouted to Developer instead of Reviewer, causing the auto-handoff chain to terminate at Developer → WAIT. The orchestrator's hub-and-spoke polling (or the supervisor) is responsible for routing WPs to the correct upstream agent.
+
+> **All-terminal scope harmonized:** As of the cross-WP dispatch rework, the Release Engineer handoff's all-terminal early exit uses `wpDetails.every(isTerminal)` — the same scope as the QA, Security Auditor, Reviewer, and Documentation handoff functions. The previous asymmetry (scoped to `releaseWps`) has been removed for consistency. The check is placed before `scopeToStage()` so that projects with no `release-engineering` WPs still fire the early exit when all WPs are terminal.
 
 #### Documentation Handoff
 
@@ -241,6 +259,10 @@ if any non-terminal, non-dependency-blocked WP with "documentation" in activeSta
 if all WPs are terminal:
   return READY_FOR_SYNTHESIS
 
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
 return WAIT
 ```
 
@@ -250,10 +272,10 @@ return WAIT
 
 ```pseudocode
 // Synthesis is the terminal stage — no onward routing
-return WAIT   // Chain terminates; project COMPLETE status is the orchestrator's stop signal
+return COMPLETE   // Chain terminates; project COMPLETE status is the orchestrator's stop signal
 ```
 
-> **Design note:** The Synthesis agent's handoff always returns `WAIT`. After `completeSynthesis` (§19.1) sets the project to `COMPLETE`, no further handoff is evaluated (§18.6 skips auto-handoff for `COMPLETE` status). This block exists for completeness — implementations that enumerate all agent handoff functions will not encounter a null/undefined case for Synthesis.
+> **Design note:** The Synthesis agent's handoff always returns `COMPLETE`. After `completeSynthesis` (§19.1) sets the project to `COMPLETE`, no further handoff is evaluated (§18.6 skips auto-handoff for `COMPLETE` status). This block exists for completeness — implementations that enumerate all agent handoff functions will not encounter a null/undefined case for Synthesis. The `COMPLETE` return value signals to auto-handoff orchestrators that the entire project workflow is finished — no next agent needs to be dispatched.
 
 #### Project Manager Handoff
 
@@ -298,6 +320,50 @@ return WAIT
 ```
 
 > **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Security Auditor"` → `READY_FOR_SECURITY_AUDIT`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Release Engineer"` → `READY_FOR_RELEASE_ENGINEERING`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
+
+### 13.5 `findNextReadyDispatch` Algorithm
+
+The `findNextReadyDispatch` helper is called by QA, Security Auditor, Reviewer, Release Engineer, and Documentation handoff functions immediately before their final `return WAIT`. It provides cross-WP dispatch: when an agent finishes its own work for the current WP but other WPs are READY and awaiting a deterministic agent, the handoff can route directly to that agent rather than returning `WAIT` and relying on the orchestrator to poll.
+
+```pseudocode
+function findNextReadyDispatch(currentRole):
+  // Scan all READY, non-dependency-blocked WPs for a deterministic dispatch target.
+  // First matching WP wins (consistent with PM Step 2).
+  for each WP with status == "READY" AND !isBlockedByDependencies(wp):
+    // Route to the agent owning the WP's first active pipeline stage.
+    firstStage = firstActiveStage(wp.active_pipeline_stages)   // §6.2.1
+    targetRole = PIPELINE_AGENT_MAP[firstStage]
+    return readyStatusForRole(targetRole)  // e.g. READY_FOR_QA, READY_FOR_DOCS
+    // reason: "{WP-ID} is READY; routing to {targetRole} for {firstStage} stage.
+    //          (Cross-WP dispatch from {currentRole}.)"
+
+  // All WPs are terminal (COMPLETE or CANCELLED) — project ready for Synthesis.
+  // Guard: wpDetails must be non-empty (prevents false READY_FOR_SYNTHESIS on empty projects).
+  if wpDetails is non-empty AND all WPs have terminal status:
+    return READY_FOR_SYNTHESIS
+
+  // No deterministic dispatch possible (all non-terminal WPs are IN_PROGRESS
+  // or dependency-BLOCKED, or no READY WPs exist).
+  return null
+```
+
+**Behaviour summary:**
+
+| Condition | Return value |
+|---|---|
+| READY, non-dependency-blocked WP exists | `readyStatusForRole(PIPELINE_AGENT_MAP[firstActiveStage(wp)])` |
+| All WPs terminal (and at least one WP exists) | `READY_FOR_SYNTHESIS` |
+| No READY WPs; non-terminal WPs in-flight or dependency-blocked | `null` (caller returns `WAIT`) |
+
+> **`currentRole` parameter:** The `currentRole` string is the calling agent's role name (e.g. `"Documentation"`). It is used exclusively for the human-readable `reason` string in the return object — never as a routing filter. Pass it for diagnostic clarity; it has no effect on the returned status.
+
+> **Dependency-blocked exclusion:** READY WPs where `isBlockedByDependencies(wp)` returns true are excluded from Step 1. A WP is dependency-blocked when one or more of its declared dependency WP IDs have not yet reached a terminal status. Excluding them ensures `findNextReadyDispatch` does not route to agents who would immediately encounter a blocking dependency check.
+
+> **`assigned_to` not consulted:** Unlike the PM handoff Step 2 (which routes to `wp.assigned_to` when set), `findNextReadyDispatch` always routes via `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`. For the typical case where `assigned_to` matches the first-active-stage agent this is equivalent. For post-auto-unblock scenarios where `assigned_to` diverges from the first active stage, the PM handoff is the authoritative router — `findNextReadyDispatch` is a lightweight safety net intended for IDE stall prevention, not full PM-equivalent routing.
+
+> **Self-routing design decision:** `findNextReadyDispatch` may return a status that routes back to the calling agent (e.g., Documentation handoff calling `findNextReadyDispatch` which returns `READY_FOR_DOCS` for a different WP). This is intentional — it allows Documentation to continue working on another READY WP that still needs documentation, without forcing the orchestrator to re-poll. The calling agent's own `getNextAction` will then surface the next WP to act on. See also [§21.71](edge-cases.md#2171-cross-wp-dispatch-from-non-pm-agents).
+
+> **Relationship to PM handoff:** The PM handoff (§13.1 Project Manager Handoff) subsumes `findNextReadyDispatch` logic inline as Steps 2 and 2b, with additional depth for IN_PROGRESS WPs (pipeline-stage inspection) and `assigned_to` routing. `findNextReadyDispatch` is the lightweight variant used by pipeline agents — it only examines READY WPs and defers IN_PROGRESS WP routing to the PM or orchestrator polling.
 
 > **Dynamic routing for unassigned WPs (v2.4.2):** Prior to v2.4.2, unassigned READY WPs were hardcoded to route to `READY_FOR_DEVELOPER`. This caused misrouting for WPs with non-default `active_pipeline_stages` — a documentation-only WP (`["documentation"]`) would be routed to Developer, whose `getNextAction` returns `WAIT` (no implementation work), stalling auto-handoff. The routing now uses `firstActiveStage` (§6.2.1) to dynamically determine the correct starting agent for the WP's composition.
 

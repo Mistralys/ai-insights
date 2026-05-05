@@ -710,3 +710,34 @@ When all READY WPs have been claimed and all remaining WPs are IN_PROGRESS, the 
 **Priority ordering:** Step 2b fires only after step 2 (READY WPs) finds no matches, preserving the invariant that READY WPs are always routed before any IN_PROGRESS pipeline-routing logic. Priority 3d in the recommendation engine is similarly positioned after all monitoring/repair priorities (3, 3b, 3c) and before the terminal WAIT.
 
 **Related sections:** [§13.1](handoff.md#131-per-agent-handoff-functions) (PM Handoff step 2b pseudocode), [§14.1.2](recommendations.md#1412-project-manager-action-logic) (priority 3d ROUTE_PIPELINE_AGENT), [§21.46](#2146-pm-handoff-single-return-for-multiple-ready-wps) (single-return limitation and batch action system), [§21.40](#2140-abandoned-wp-detection-claimed-but-no-pipeline) (REVIEW_ABANDONED for staleness-threshold coverage)
+
+### 21.71 Cross-WP Dispatch from Non-PM Agents
+
+#### Stall scenario
+
+A non-PM pipeline agent (QA, Security Auditor, Reviewer, Release Engineer, or Documentation) completes the final pipeline stage of WP-001. WP-002 is `READY` with zero pipelines and satisfied dependencies. Without cross-WP dispatch, the handoff function for the completing agent falls through to its terminal `return WAIT`. The IDE receives `WAIT` and has no `auto_handoff` target to fire — the workflow stalls until the orchestrator's supervisor polling loop detects the READY WP and resumes.
+
+In headless orchestrator mode the polling loop handles this automatically. In IDE runner mode (where there is no polling loop), the stall is permanent until a human intervenes.
+
+#### Resolution via `findNextReadyDispatch()`
+
+The `findNextReadyDispatch()` helper (§13.5) is inserted as the **penultimate step** in each of the five affected handoff functions, immediately before the final `return WAIT`. The helper:
+
+1. Scans all WPs for any with `status == "READY"` and satisfied dependencies (i.e., `!isBlockedByDependencies(wp)`).
+2. For the first matching WP, resolves `targetRole = PIPELINE_AGENT_MAP[firstActiveStage(wp)]` and returns a `READY_FOR_<ROLE>` dispatch.
+3. If no READY WP exists but all WPs are terminal, returns `READY_FOR_SYNTHESIS`.
+4. Otherwise returns `null`, allowing the caller to fall through to its own `return WAIT`.
+
+When the helper returns a non-null dispatch, the handoff function returns that dispatch **instead** of `WAIT`, giving the IDE a concrete next-agent target.
+
+#### Self-routing
+
+`findNextReadyDispatch()` does **not** filter out cases where `targetRole == currentRole` (the calling agent). Self-routing is intentional: even when the same agent is the correct owner of WP-002's first active stage, the handoff still returns `READY_FOR_<ROLE>` rather than `WAIT`. This causes the IDE to visibly declare a new handoff step, making it explicit that a fresh work package is being bootstrapped. Auditability and IDE-vs-orchestrator alignment are preserved.
+
+**Example:** Documentation completes the final pipeline stage of WP-001. WP-002 is a documentation-only WP (`active_pipeline_stages = ["documentation"]`). `findNextReadyDispatch()` resolves `targetRole = "Documentation"` and returns `READY_FOR_DOCS`. The Documentation handoff returns `READY_FOR_DOCS` — causing the IDE to re-dispatch to Documentation for WP-002 — rather than `WAIT`.
+
+#### Invariant
+
+Cross-WP dispatch is a **best-effort optimization for IDE runners**. The orchestrator's supervisor polling loop already re-dispatches READY WPs without relying on this mechanism. Implementations that omit `findNextReadyDispatch()` remain correct in orchestrator mode; the fix only prevents stalls in IDE mode. No invariants of the core state machine are affected — READY WPs and pipeline ownership rules are unchanged.
+
+**Related sections:** [§13.5](handoff.md#135-findnextreadydispatch-algorithm) (`findNextReadyDispatch` algorithm), [§13.1](handoff.md#131-per-agent-handoff-functions) (per-agent handoff functions — QA, Security Auditor, Reviewer, Release Engineer, Documentation each call `findNextReadyDispatch()` before final WAIT), [§21.70](#2170-pm-pipeline-routing-for-in_progress-wps) (PM equivalent for IN_PROGRESS WP routing)

@@ -7,6 +7,7 @@ import {
   getReviewerHandoff,
   getSecurityAuditorHandoff,
   getDocumentationHandoff,
+  getReleaseEngineerHandoff,
   getDeveloperHandoff,
   getPlannerHandoff,
   getProjectManagerHandoff,
@@ -238,9 +239,13 @@ describe('Handoff logic: incomplete project detection', () => {
       expect(result.status).toBe('WAIT');
     });
 
-    it('returns WAIT when WP-002 is genuinely waiting for earlier pipeline stages — spec v2.0.0 removed READY_FOR_DEVELOPER dispatch', async () => {
-      // Per spec v2.0.0: Documentation cannot accurately dispatch to the correct upstream agent.
-      // WPs needing earlier-stage work are left for the orchestrator to route → WAIT.
+    it('returns READY_FOR_DEVELOPER when WP-002 is READY with no pipelines — cross-WP dispatch (spec v2.1.0)', async () => {
+      // Per spec v2.1.0 (WP-003): findNextReadyDispatch() is called before the final WAIT return.
+      // WP-001 has documentation PASS (IN_PROGRESS). WP-002 is READY with no pipelines.
+      // Documentation's role-specific checks find no work for themselves (WP-002 is READY, not
+      // in an earlier pipeline stage per docs scope). Cross-WP dispatch fires: WP-002 first
+      // active stage defaults to "implementation" → routes to Developer → READY_FOR_DEVELOPER.
+      // This replaces the old WAIT that caused IDE workflow stalls (§21.7x cross-WP dispatch gap).
       const wpDetails = [
         makeWp('WP-001', 'IN_PROGRESS', [
           { type: 'implementation', status: 'PASS' },
@@ -252,7 +257,7 @@ describe('Handoff logic: incomplete project detection', () => {
       ];
 
       const result = await parseResult(getDocumentationHandoff(wpDetails));
-      expect(result.status).toBe('WAIT');
+      expect(result.status).toBe('READY_FOR_DEVELOPER');
     });
 
     it('returns READY_FOR_SYNTHESIS when ALL WPs have documentation', async () => {
@@ -2932,5 +2937,168 @@ describe('partitionWpsAwaitingNextStage edge cases (indirect via handoff resolve
     expect(result.next_agent).toBe('Documentation');
     // Regression guard: must NOT silently drop the WP and return WAIT.
     expect(result.status).not.toBe('WAIT');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-WP dispatch from non-PM agents (findNextReadyDispatch integration)
+//
+// These tests verify that QA, Security Auditor, Reviewer, Release Engineer, and
+// Documentation all call findNextReadyDispatch() before their final WAIT return
+// and correctly route to the agent owning the first active pipeline stage of a
+// READY, non-dependency-blocked work package.
+//
+// Coverage targets (per plan.md §Step 8):
+//   1. Documentation → READY WP dispatch  → READY_FOR_DEVELOPER
+//   2. Documentation → all-terminal       → READY_FOR_SYNTHESIS
+//   3. Documentation → dep-blocked READY  → WAIT (no false dispatch)
+//   4. QA → READY WP dispatch             → READY_FOR_DEVELOPER
+//   5. Security Auditor → READY WP dispatch → READY_FOR_DEVELOPER
+//   6. Reviewer → READY WP dispatch       → READY_FOR_DEVELOPER
+//   7. Release Engineer → READY WP dispatch → READY_FOR_DEVELOPER
+//   8. Custom active_pipeline_stages      → routes to first custom stage
+//   9. Self-routing (targetRole === currentRole) → dispatch still fires
+// ---------------------------------------------------------------------------
+
+describe('Cross-WP dispatch from non-PM agents (findNextReadyDispatch)', () => {
+  // Helper: WP-001 COMPLETE with all four default stages PASSed.
+  function makeCompletedWp(id: string): WorkPackageDetail {
+    return makeWp(id, 'COMPLETE', [
+      { type: 'implementation', status: 'PASS' },
+      { type: 'qa', status: 'PASS' },
+      { type: 'code-review', status: 'PASS' },
+      { type: 'documentation', status: 'PASS' },
+    ]);
+  }
+
+  it('1. Documentation: WP-001 COMPLETE, WP-002 READY (no pipelines) → READY_FOR_DEVELOPER', async () => {
+    // Bug scenario: Documentation finishes WP-001 final stage. WP-002 is READY with no pipelines.
+    // Without cross-WP dispatch, getDocumentationHandoff returns WAIT. With it, it must route to Developer
+    // (first active stage of WP-002 defaults to "implementation" → PIPELINE_AGENT_MAP → "Developer").
+    const wpDetails = [makeCompletedWp('WP-001'), makeWp('WP-002', 'READY')];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.next_agent).toBe('Developer');
+    expect(result.details).toContain('WP-002');
+  });
+
+  it('2. Documentation: all WPs COMPLETE → READY_FOR_SYNTHESIS (via findNextReadyDispatch step 2)', async () => {
+    // All-terminal early exit fires before cross-WP dispatch; result is the same either way.
+    // This test validates the findNextReadyDispatch all-terminal branch as a safety net.
+    const wpDetails = [makeCompletedWp('WP-001'), makeCompletedWp('WP-002')];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('3. Documentation: WP-001 COMPLETE, WP-002 BLOCKED by dependency → WAIT (no false dispatch)', async () => {
+    // WP-002 is BLOCKED (not READY) with a dependency blocker.
+    // isBlockedByDependencies returns true only when status === 'BLOCKED'.
+    // findNextReadyDispatch filters to status === 'READY' WPs — BLOCKED WPs are excluded.
+    // The function falls through to WAIT.
+    const wp002: WorkPackageDetail = {
+      ...makeWp('WP-002', 'BLOCKED', [], ['WP-001']),
+      blocked_by: { type: 'dependency', description: 'WP-001 not yet resolved' },
+    };
+    const wpDetails = [makeCompletedWp('WP-001'), wp002];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    // Regression guard: must NOT misroute to a blocked WP.
+    expect(result.status).not.toBe('READY_FOR_DEVELOPER');
+  });
+
+  it('4. QA: WP-001 COMPLETE, WP-002 READY (no pipelines) → READY_FOR_DEVELOPER', async () => {
+    // Same cross-WP dispatch scenario, exercising getQaHandoff.
+    const wpDetails = [makeCompletedWp('WP-001'), makeWp('WP-002', 'READY')];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.next_agent).toBe('Developer');
+  });
+
+  it('5. Security Auditor: WP-001 COMPLETE, WP-002 READY (no pipelines) → READY_FOR_DEVELOPER', async () => {
+    // getSecurityAuditorHandoff cross-WP dispatch.
+    const wpDetails = [makeCompletedWp('WP-001'), makeWp('WP-002', 'READY')];
+    const result = await parseResult(getSecurityAuditorHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.next_agent).toBe('Developer');
+  });
+
+  it('6. Reviewer: WP-001 COMPLETE, WP-002 READY (no pipelines) → READY_FOR_DEVELOPER', async () => {
+    // getReviewerHandoff cross-WP dispatch.
+    const wpDetails = [makeCompletedWp('WP-001'), makeWp('WP-002', 'READY')];
+    const result = await parseResult(getReviewerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.next_agent).toBe('Developer');
+  });
+
+  it('7. Release Engineer: WP-001 COMPLETE, WP-002 READY (no pipelines) → READY_FOR_DEVELOPER', async () => {
+    // getReleaseEngineerHandoff cross-WP dispatch.
+    // NOTE: getReleaseEngineerHandoff scopes WPs to 'release-engineering' active stages for its
+    // role-specific checks, but findNextReadyDispatch receives ALL wpDetails (not scoped).
+    // WP-001 COMPLETE has no release-engineering stage in its default stages, so the
+    // role-specific checks pass through; cross-WP dispatch fires on WP-002.
+    const wpDetails = [makeCompletedWp('WP-001'), makeWp('WP-002', 'READY')];
+    const result = await parseResult(getReleaseEngineerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_DEVELOPER');
+    expect(result.next_agent).toBe('Developer');
+  });
+
+  it('8. Custom active_pipeline_stages: WP-002 READY with stages ["qa","code-review"] → READY_FOR_QA', async () => {
+    // WP-002's first active stage is "qa" → PIPELINE_AGENT_MAP["qa"] = "QA" → READY_FOR_QA.
+    // Verifies findNextReadyDispatch respects wp.active_pipeline_stages.
+    const wp002: WorkPackageDetail = {
+      ...makeWp('WP-002', 'READY'),
+      active_pipeline_stages: ['qa', 'code-review'] as any,
+    };
+    const wpDetails = [makeCompletedWp('WP-001'), wp002];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.next_agent).toBe('QA');
+  });
+
+  it('9. Self-routing: QA calling, WP-002 READY with first stage "qa" → READY_FOR_QA (self-routing allowed)', async () => {
+    // targetRole === currentRole: findNextReadyDispatch must NOT filter self-routing.
+    // WP-002 is READY with active_pipeline_stages ['qa','code-review']. getQaHandoff
+    // has no role-specific work (WP-001 is COMPLETE), reaches cross-WP dispatch, and
+    // finds WP-002 → first stage is 'qa' → PIPELINE_AGENT_MAP['qa'] = 'QA' → READY_FOR_QA.
+    // The IDE must visibly declare a new handoff step even when the same agent continues.
+    const wp002: WorkPackageDetail = {
+      ...makeWp('WP-002', 'READY'),
+      active_pipeline_stages: ['qa', 'code-review'] as any,
+    };
+    const wpDetails = [makeCompletedWp('WP-001'), wp002];
+    const result = await parseResult(getQaHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_QA');
+    expect(result.next_agent).toBe('QA');
+    // Regression guard: self-routing must NOT be silently filtered to WAIT.
+    expect(result.status).not.toBe('WAIT');
+  });
+
+  it('10. Release Engineer: all WPs terminal, none have release-engineering stage → READY_FOR_SYNTHESIS', async () => {
+    // Regression: the previous implementation scoped the all-terminal check to releaseWps
+    // (WPs with "release-engineering" in active stages). When no WPs have that stage,
+    // releaseWps is empty and the check short-circuited. After harmonization, the check
+    // uses wpDetails (all WPs), matching QA/Security/Reviewer/Documentation.
+    const wpDetails = [makeCompletedWp('WP-001'), makeCompletedWp('WP-002')];
+    const result = await parseResult(getReleaseEngineerHandoff(wpDetails));
+    expect(result.status).toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('11. Documentation: empty wpDetails → does NOT return READY_FOR_SYNTHESIS', async () => {
+    // Regression: getDocumentationHandoff was missing the .length > 0 guard on its
+    // all-terminal early exit. Array.every() returns true for an empty array, so
+    // an empty wpDetails would incorrectly return READY_FOR_SYNTHESIS. After the fix,
+    // empty wpDetails falls through to WAIT.
+    const wpDetails: WorkPackageDetail[] = [];
+    const result = await parseResult(getDocumentationHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('READY_FOR_SYNTHESIS');
+  });
+
+  it('12. Release Engineer: empty wpDetails → does NOT return READY_FOR_SYNTHESIS', async () => {
+    // Same empty-array guard regression test for getReleaseEngineerHandoff.
+    const wpDetails: WorkPackageDetail[] = [];
+    const result = await parseResult(getReleaseEngineerHandoff(wpDetails));
+    expect(result.status).toBe('WAIT');
+    expect(result.status).not.toBe('READY_FOR_SYNTHESIS');
   });
 });

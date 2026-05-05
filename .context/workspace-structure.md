@@ -117,9 +117,6 @@ _SOURCE: Top-level directory tree_
     │   │   └── workflow-helpers.ts
     │   │   └── workspace-versions.ts
     │   │   └── wp-id.ts
-    ├── storage/
-    │   ├── ledger/
-    │   │   └── gui-config.json
     ├── tests/
     │   ├── gui/
     │   │   ├── api-client.test.ts

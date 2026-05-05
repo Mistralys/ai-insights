@@ -1,5 +1,14 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.29.0 - Cross-WP Dispatch
+- Handoff: Added `findNextReadyDispatch` helper to prevent IDE stalls
+  between WP transitions.
+- Handoff: QA, Security Auditor, Reviewer, Release Engineer, and
+  Documentation now dispatch to READY WPs before returning WAIT.
+- Handoff: Synthesis handoff now returns COMPLETE instead of WAIT.
+- Spec: Added §13.5 algorithm and §21.71 edge-case documentation.
+- Tests: Expanded handoff test suite for cross-WP dispatch scenarios.
+
 ## v1.28.0 - Handoff Spec Compliance
 - Handoff: Fixed premature synthesis routing in the Security Auditor handoff.
 - Handoff: Fixed Documentation handoff to fall back to WAIT instead of routing to Developer.

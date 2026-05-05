@@ -2,12 +2,20 @@
 
 > **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
 
-**Version:** 2.4.3
-**Date:** 2026-04-21
+**Version:** 2.5.0
+**Date:** 2026-05-04
 
 ---
 
 ## Changelog
+
+### v2.5.0 - Cross-WP Dispatch from Non-PM Agents
+
+- **`findNextReadyDispatch()` helper (§13.5):** Introduced as the shared implementation for cross-WP dispatch used by the five non-PM pipeline agent handoff functions (QA, Security Auditor, Reviewer, Release Engineer, Documentation). The helper scans all READY, non-dependency-blocked WPs and routes to `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`, preventing IDE workflow stalls when a non-PM agent's role-specific work is done but other READY WPs have not yet started any pipelines. Returns `READY_FOR_SYNTHESIS` when all WPs are terminal; returns `null` when no deterministic dispatch is possible (caller falls through to WAIT).
+- **Five handoff functions updated (§13.1):** QA, Security Auditor, Reviewer, Release Engineer, and Documentation handoff functions each call `findNextReadyDispatch()` as the penultimate step (immediately before their final `return WAIT`). This closes the IDE stall gap documented in §21.71.
+- **Spec pseudocode updated (§13.5):** Corrected the `findNextReadyDispatch` pseudocode to match the implementation: (a) the helper does NOT consult `wp.assigned_to` — routing is always via `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`; (b) the helper accepts a `currentRole` parameter used only for the diagnostic `reason` string; (c) the all-terminal branch is guarded by a non-empty `wpDetails` check to prevent false `READY_FOR_SYNTHESIS` on empty projects; (d) dependency-blocked WPs are excluded from the READY scan via `!isBlockedByDependencies(wp)`.
+- **Release Engineer all-terminal asymmetry documented (§13.1):** Added a design note explaining that `getReleaseEngineerHandoff` scopes its all-terminal early-exit to `releaseWps` (not `wpDetails`), unlike the other four handoff functions. `findNextReadyDispatch()` serves as a safety net for zero-release-stage projects. Behaviour is functionally correct in all non-degenerate configurations.
+- **New edge case:** §21.71 (Cross-WP Dispatch from Non-PM Agents) — documents the stall scenario, the `findNextReadyDispatch` resolution, self-routing design decision, and invariants. *(Note: §21.71 was pre-populated in the spec prior to implementation; this version marks it as the authoritative implementation record.)*
 
 ### v2.4.3 - PM Pipeline-Routing for IN_PROGRESS WPs
 - **PM Handoff step 2b (§13.1):** Added a new step 2b to the Project Manager Handoff algorithm, positioned between step 2 (READY WPs) and step 3 (all terminal). Step 2b scans non-terminal, non-dependency-blocked IN_PROGRESS WPs for pipeline stage transitions and routes to `PIPELINE_AGENT_MAP[nextStage]`. This closes the auto-handoff gap where the PM returned WAIT after a pipeline stage PASSed but no READY WPs remained, leaving no agent to dispatch to.

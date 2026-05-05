@@ -1030,6 +1030,43 @@ Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NO
 
 ---
 
+### 55. Non-PM Handoff Functions Must Dispatch to the Next READY Work Package Before Returning WAIT
+
+**Rule:** Each of the five non-PM handoff functions — `getQaHandoff`, `getSecurityAuditorHandoff`, `getReviewerHandoff`, `getReleaseEngineerHandoff`, and `getDocumentationHandoff` — MUST call `findNextReadyDispatch(wpDetails, '<RoleName>')` as the penultimate step, immediately before the final `return WAIT` fallthrough. If `findNextReadyDispatch` returns a non-null result, the function MUST return that dispatch rather than falling through to WAIT.
+
+**Rationale:** Without this step, completing the last pipeline stage on WP-N leaves the IDE in a stalled state when WP-N+1 is READY but has no pipelines yet. The five affected functions previously returned a bare `WAIT` in this scenario, requiring manual PM intervention to unblock the IDE workflow. The PM handoff already implements this cross-WP dispatch pattern (§13.1 Step 2); this rule extends the same behaviour to all non-PM handoff functions.
+
+**`findNextReadyDispatch` algorithm:**
+1. Finds the first READY work package whose dependencies are satisfied (using `isBlockedByDependencies`).
+2. Routes to the agent owning its first active pipeline stage (`PIPELINE_AGENT_MAP[firstActiveStage(wp.active_pipeline_stages ?? null)]`).
+3. If all WPs are terminal, returns `READY_FOR_SYNTHESIS` (safety-net branch for handoff functions that position cross-WP dispatch before their own all-terminal check).
+4. Returns `null` when no deterministic dispatch is possible — the caller falls through to WAIT.
+
+**Self-routing is intentional:** `findNextReadyDispatch` does NOT filter out cases where the target role equals the calling role (`targetRole === currentRole`). Self-routing causes the IDE to visibly declare a new handoff step for the new work package, improving auditability and keeping orchestrator and IDE behaviors aligned.
+
+**Scope:** This is a best-effort optimization for IDE runners. The orchestrator does not depend on it — its supervisor polling loop re-dispatches independently.
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — penultimate step, just before final WAIT return
+const dispatch = findNextReadyDispatch(wpDetails, 'Documentation');
+if (dispatch) {
+  return buildHandoffResponse(
+    'Documentation', dispatch.status, dispatch.reason,
+    undefined, projectPath, store
+  );
+}
+return buildHandoffResponse('Documentation', 'WAIT', 'No actionable documentation work.');
+```
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — returns WAIT without checking for READY WPs
+return buildHandoffResponse('Documentation', 'WAIT', 'No actionable documentation work.');
+```
+
+---
+
 ## Cross-Platform Constraints
 
 ### 54. All Code Must Run on Windows, macOS, and Linux
