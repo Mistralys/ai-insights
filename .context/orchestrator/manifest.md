@@ -854,6 +854,22 @@ runSubagent:
 
 **Rationale:** Pipeline agent stages (Developer, QA, Reviewer, etc.) must never cross WP boundaries, so the guard is non-negotiable. The PM role is architecturally an orchestrating role but its stage turns are still scoped to a single WP. Cross-WP orchestration is delegated to the deterministic supervisor, which always has full ledger context and performs re-dispatch with the correct `wp_id`.
 
+---
+
+### 22. Cross-WP Dispatch (`findNextReadyDispatch`) Is an IDE-Only Optimization
+
+**Rule:** The `findNextReadyDispatch()` mechanism in `mcp-server/src/tools/workflow-handoff.ts` is a best-effort, IDE-only optimization. It is called by the five non-PM handoff functions (QA, Security Auditor, Reviewer, Release Engineer, Documentation) immediately before their final `WAIT` return. When a READY, non-dependency-blocked WP exists whose first active pipeline stage maps to a deterministic agent, `findNextReadyDispatch` returns a routing signal (e.g., `READY_FOR_DEVELOPER`) instead of `WAIT`, preventing the IDE from stalling between handoffs.
+
+**Invariant:** The orchestrator's supervisor polling loop handles READY WP re-dispatch independently and does **not** rely on `findNextReadyDispatch`. The supervisor queries `ledger_get_next_action` on every iteration and dispatches the next stage based on the PM's routing logic, which covers all READY WP scenarios by construction.
+
+**Consequence for orchestrator implementations:**
+
+- Do not assume that cross-WP dispatch fires from non-PM handoff functions. The orchestrator must treat `WAIT` from any handoff function as a normal polling signal.
+- Do not add `findNextReadyDispatch`-equivalent logic to the orchestrator. The supervisor's hub-and-spoke polling already covers the same ground deterministically.
+- If the IDE's `findNextReadyDispatch` logic changes, no corresponding orchestrator change is needed.
+
+**References:** [MCP server edge-cases.md §21.71](../../mcp-server/docs/agents/workflow-specification/edge-cases.md), MCP server [Constraint 55](../../mcp-server/docs/agents/project-manifest/constraints.md).
+
 
 
 ```

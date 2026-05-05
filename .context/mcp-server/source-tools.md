@@ -5038,9 +5038,66 @@ function partitionWpsAwaitingNextStage(
   return { ready, blocked, nextStatus };
 }
 
-// partitionWpsAwaitingNextStage is consumed by getReviewerHandoff and will be consumed by
-// getQaHandoff and getSecurityAuditorHandoff (WP-004/005). hasPassedDynamicUpstream is
-// consumed by getDocumentationHandoff.
+// partitionWpsAwaitingNextStage is consumed by getReviewerHandoff, getQaHandoff, and
+// getSecurityAuditorHandoff. hasPassedDynamicUpstream is consumed by getDocumentationHandoff.
+
+/**
+ * Cross-WP dispatch helper: routes to the agent owning the first active pipeline
+ * stage of the first READY, non-dependency-blocked work package, or returns
+ * `READY_FOR_SYNTHESIS` when all WPs are terminal.
+ *
+ * Called as the penultimate step (before the final WAIT return) in each of the
+ * five non-PM handoff functions (QA, Security Auditor, Reviewer, Release Engineer,
+ * Documentation) to prevent IDE workflow stalls when a non-PM agent's role-specific
+ * work is done but other READY WPs have not yet started any pipelines.
+ *
+ * **Self-routing is intentional:** the helper does NOT filter cases where
+ * `targetRole === currentRole`. Self-routing causes the IDE to visibly declare a
+ * new handoff step, making it explicit that a fresh WP is being bootstrapped even
+ * when the same agent continues. This improves auditability and keeps orchestrator
+ * and IDE behaviors aligned.
+ *
+ * @param wpDetails  All WP detail objects for the project.
+ * @param currentRole  The calling agent's role name (used in the reason string only,
+ *   never as a filter). Pass this for diagnostic clarity even though the helper does
+ *   not inspect it for routing decisions.
+ * @returns A `{ status, reason }` object to pass directly to `buildHandoffResponse`,
+ *   or `null` when no deterministic dispatch is possible (caller should fall through
+ *   to `WAIT`).
+ */
+function findNextReadyDispatch(
+  wpDetails: WorkPackageDetail[],
+  currentRole: string,
+): { status: string; reason: string } | null {
+  // Step 1: Route to agent owning the first active pipeline stage of a READY,
+  // non-dependency-blocked WP. First READY WP wins (consistent with PM Step 2).
+  const readyWps = wpDetails.filter(
+    (wp) => wp.status === 'READY' && !isBlockedByDependencies(wp)
+  );
+  if (readyWps.length > 0) {
+    const wp = readyWps[0]!;
+    const activeStages =
+      (wp.active_pipeline_stages as PipelineType[] | undefined) ?? null;
+    const stage = firstActiveStage(activeStages);
+    const targetRole = PIPELINE_AGENT_MAP[stage];
+    const status = READY_STATUS_FOR_ROLE[targetRole as AgentRole] ?? 'READY_FOR_DEVELOPER';
+    return {
+      status,
+      reason: `${wp.work_package_id} is READY; routing to ${targetRole} for ${stage} stage. (Cross-WP dispatch from ${currentRole}.)`,
+    };
+  }
+
+  // Step 2: All WPs terminal → READY_FOR_SYNTHESIS.
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
+    return {
+      status: 'READY_FOR_SYNTHESIS',
+      reason: 'All work packages are in a terminal state.',
+    };
+  }
+
+  // No deterministic dispatch available — caller falls through to WAIT.
+  return null;
+}
 
 /**
  * Get handoff status for Project Manager (§13.1)
@@ -5432,7 +5489,22 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
     );
   }
 
-  // Step 5 of §5.2 (Condition 5): Fallthrough → WAIT.
+  // Step 5 of §5.2 (Condition 5): Cross-WP dispatch — if a READY WP exists whose
+  // dependencies are satisfied, route to the agent owning its first active pipeline
+  // stage. Prevents IDE stall when QA's role-specific work is done but other WPs
+  // have not yet started any pipelines. Fallthrough to WAIT when no dispatch found.
+  const dispatch = findNextReadyDispatch(wpDetails, 'QA');
+  if (dispatch) {
+    return buildHandoffResponse(
+      'QA',
+      dispatch.status,
+      dispatch.reason,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
   return buildHandoffResponse(
     'QA',
     'WAIT',
@@ -5569,7 +5641,22 @@ export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], 
     );
   }
 
-  // Step 5 of §5.2b (Condition 5): Fallthrough → WAIT.
+  // Step 5 of §5.2b (Condition 5): Cross-WP dispatch — if a READY WP exists whose
+  // dependencies are satisfied, route to the agent owning its first active pipeline
+  // stage. Prevents IDE stall when Security Auditor's role-specific work is done but
+  // other WPs have not yet started any pipelines. Fallthrough to WAIT when no dispatch found.
+  const dispatch = findNextReadyDispatch(wpDetails, 'Security Auditor');
+  if (dispatch) {
+    return buildHandoffResponse(
+      'Security Auditor',
+      dispatch.status,
+      dispatch.reason,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
   return buildHandoffResponse(
     'Security Auditor',
     'WAIT',
@@ -5712,7 +5799,22 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
     );
   }
 
-  // Step 5 of §5.3 (Condition 5): Fallthrough → WAIT.
+  // Step 5 of §5.3 (Condition 5): Cross-WP dispatch — if a READY WP exists whose
+  // dependencies are satisfied, route to the agent owning its first active pipeline
+  // stage. Prevents IDE stall when Reviewer's role-specific work is done but other
+  // WPs have not yet started any pipelines. Fallthrough to WAIT when no dispatch found.
+  const dispatch = findNextReadyDispatch(wpDetails, 'Reviewer');
+  if (dispatch) {
+    return buildHandoffResponse(
+      'Reviewer',
+      dispatch.status,
+      dispatch.reason,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
   return buildHandoffResponse(
     'Reviewer',
     'WAIT',
@@ -5729,18 +5831,19 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
  * Self-rework on FAIL. Only active for WPs that include "release-engineering".
  */
 export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
-  const releaseWps = scopeToStage(wpDetails, 'release-engineering');
-
-  if (releaseWps.length > 0 && releaseWps.every((wp) => isTerminalStatus(wp.status))) {
+  // All-terminal early exit (matches QA/Security/Reviewer/Documentation pattern)
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
     return buildHandoffResponse(
       'Release Engineer',
       'READY_FOR_SYNTHESIS',
-      'All release engineering work packages are in a terminal state.',
+      'All work packages are in a terminal state.',
       undefined,
       projectPath,
       store
     );
   }
+
+  const releaseWps = scopeToStage(wpDetails, 'release-engineering');
 
   // Release engineering ready (PASS code-review, no release pipeline yet or new upstream pass)
   const readyWps = releaseWps.filter((wp) => {
@@ -5779,6 +5882,22 @@ export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], 
     );
   }
 
+  // Cross-WP dispatch — if a READY WP exists whose dependencies are satisfied,
+  // route to the agent owning its first active pipeline stage. Prevents IDE stall
+  // when Release Engineer's role-specific work is done but other WPs have not yet
+  // started any pipelines. Fallthrough to WAIT when no dispatch found.
+  const dispatch = findNextReadyDispatch(wpDetails, 'Release Engineer');
+  if (dispatch) {
+    return buildHandoffResponse(
+      'Release Engineer',
+      dispatch.status,
+      dispatch.reason,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
   return buildHandoffResponse(
     'Release Engineer',
     'WAIT',
@@ -5798,7 +5917,7 @@ export async function getReleaseEngineerHandoff(wpDetails: WorkPackageDetail[], 
  */
 export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], projectPath?: string, store?: LedgerStore) {
   // All-terminal early exit (§5.4): applies to all WPs regardless of active stages.
-  if (wpDetails.every((wp) => isTerminalStatus(wp.status))) {
+  if (wpDetails.length > 0 && wpDetails.every((wp) => isTerminalStatus(wp.status))) {
     return buildHandoffResponse(
       'Documentation',
       'READY_FOR_SYNTHESIS',
@@ -5870,7 +5989,23 @@ export async function getDocumentationHandoff(wpDetails: WorkPackageDetail[], pr
   // cannot accurately dispatch to the correct upstream agent (Developer / QA / Reviewer etc.).
   // Defer to orchestrator polling — fall through to WAIT.
 
-  // Fallthrough (§5.4 Condition 4) → WAIT.
+  // Step 4 of §5.4: Cross-WP dispatch — if a READY WP exists whose dependencies are
+  // satisfied, route to the agent owning its first active pipeline stage. Prevents IDE
+  // stall when Documentation's role-specific work is done but other WPs have not yet
+  // started any pipelines. Fallthrough to WAIT when no dispatch found.
+  const dispatch = findNextReadyDispatch(wpDetails, 'Documentation');
+  if (dispatch) {
+    return buildHandoffResponse(
+      'Documentation',
+      dispatch.status,
+      dispatch.reason,
+      undefined,
+      projectPath,
+      store
+    );
+  }
+
+  // Fallthrough (§5.4 Condition 5) → WAIT.
   return buildHandoffResponse(
     'Documentation',
     'WAIT',

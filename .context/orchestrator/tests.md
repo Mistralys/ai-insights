@@ -597,7 +597,9 @@ class TestDelete:
         """AC-2 (variant): graceful no-op when chunk file was never created."""
         cw = _make_writer(tmp_path)
         path = cw.path
-        # Remove the file manually before calling delete()
+        # Close the writer first to release the file handle (required on Windows),
+        # then remove the file manually before calling delete().
+        cw.close()
         path.unlink()
         cw.delete()  # must not raise
 
