@@ -301,6 +301,11 @@ describe('gui/api.ts', () => {
       await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
+
+    it('rejects wpIds containing a backslash with NOT_FOUND', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-traversal');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', 'bad\\id')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
   });
 
   // ─── handleDeleteProject ─────────────────────────────────────────────────
@@ -1598,6 +1603,66 @@ describe('gui/api.ts', () => {
       } finally {
         warnSpy.mockRestore();
       }
+    });
+  });
+
+  // ─── Allowlist guard edge cases (WP-002 hardening) ─────────────────────
+
+  describe('assertSafeSlug allowlist edge cases', () => {
+    it('rejects a slug containing a space', async () => {
+      await expect(handleGetProject(ledgerRoot, 'bad slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a slug containing an @ character', async () => {
+      await expect(handleGetProject(ledgerRoot, 'bad@slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a slug with uppercase letters', async () => {
+      await expect(handleGetProject(ledgerRoot, 'Bad-Slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a bare dot', async () => {
+      await expect(handleGetProject(ledgerRoot, '.')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects bare double-dot', async () => {
+      await expect(handleGetProject(ledgerRoot, '..')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a slug containing a backslash', async () => {
+      await expect(handleGetProject(ledgerRoot, 'bad\\slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  describe('assertSafeWpId allowlist edge cases', () => {
+    it('rejects a WP ID containing a forward slash', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge', 'WP/001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a WP ID containing a backslash', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge2');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge2', 'WP\\001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a bare dot as WP ID', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge3');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge3', '.')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects bare double-dot as WP ID', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge4');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge4', '..')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a WP ID containing a space', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge5');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge5', 'WP 001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a WP ID containing @', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge6');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge6', 'WP@001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 });

@@ -11,6 +11,9 @@ const serverDir = join(__dirname, '..', '..');
 // Workspace root: from mcp-server/ up one level → ai-insights/
 const workspaceRoot = join(serverDir, '..');
 
+/** Absolute path to the workspace root directory. */
+export const WORKSPACE_ROOT = workspaceRoot;
+
 /** Absolute path to the orchestrator's live logs directory. */
 export const ORCHESTRATOR_LOGS_DIR = join(workspaceRoot, 'orchestrator', 'logs');
 

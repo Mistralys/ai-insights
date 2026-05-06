@@ -57,6 +57,14 @@ import type {
 } from '../src/utils/project-reset.js';
 import { ApiError } from '../src/gui/errors.js';
 export { ApiError };
+import {
+  getQueue,
+  killQueueEntry,
+  dismissQueueEntry,
+  startOrchestrator,
+  getRunStatus,
+} from './orchestrator-manager.js';
+import type { QueueEntry, KillResult, StartResult, RunStatus } from './orchestrator-manager.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -79,16 +87,25 @@ function validationError(message: string, details?: unknown): never {
 }
 
 /**
+ * Allowlist for WP IDs and queue entry IDs: must start with alnum, then word chars or hyphens.
+ * Note: `\w` includes underscore intentionally — WP IDs (`WP-001`) and queue entry IDs may
+ * contain underscores in future formats. This is permissive by design.
+ */
+const SAFE_ID_PATTERN = /^[A-Za-z0-9][\w-]*$/;
+
+/**
  * Guards against path-traversal attacks on the project slug URL parameter.
  *
- * Throws a NOT_FOUND (404) error for any slug that is empty, contains a
- * forward-slash, or contains a `..` component — all of which could otherwise
- * be used to escape the ledger root directory.
+ * Rejects any slug that does not match {@link SAFE_SLUG_REGEX}
+ * (`/^[a-z0-9][a-z0-9-]*$/`). This reuses the same slug format enforced on
+ * project creation and rename, ensuring only lowercase alphanumeric characters
+ * and hyphens are accepted — eliminating path separators and traversal
+ * sequences by design.
  *
  * @param slug - The raw slug string extracted from the request URL.
  */
 function assertSafeSlug(slug: string): void {
-  if (!slug || slug.includes('/') || slug.includes('..')) {
+  if (!slug || !SAFE_SLUG_REGEX.test(slug)) {
     notFound(`Invalid project slug: '${slug}'.`);
   }
 }
@@ -96,15 +113,31 @@ function assertSafeSlug(slug: string): void {
 /**
  * Guards against path-traversal attacks on the work-package ID URL parameter.
  *
- * Throws a NOT_FOUND (404) error for any wpId that is empty, contains a
- * forward-slash, or contains a `..` component — all of which could otherwise
- * be used to escape the project ledger directory.
+ * Rejects any wpId that does not match {@link SAFE_ID_PATTERN}
+ * (`/^[A-Za-z0-9][\w-]*$/`). Requires an alphanumeric first character,
+ * blocking `..`, `.`, and all path separators by design.
  *
  * @param wpId - The raw work-package ID string extracted from the request URL.
  */
 function assertSafeWpId(wpId: string): void {
-  if (!wpId || wpId.includes('/') || wpId.includes('..')) {
+  if (!wpId || !SAFE_ID_PATTERN.test(wpId)) {
     notFound(`Invalid work-package ID: '${wpId}'.`);
+  }
+}
+
+/**
+ * Guards against path-traversal attacks on the orchestrator queue entry ID
+ * URL parameter.
+ *
+ * Rejects any id that does not match {@link SAFE_ID_PATTERN}
+ * (`/^[A-Za-z0-9][\w-]*$/`). Requires an alphanumeric first character,
+ * blocking `..`, `.`, and all path separators by design.
+ *
+ * @param id - The raw queue entry ID string extracted from the request URL.
+ */
+function assertSafeQueueId(id: string): void {
+  if (!id || !SAFE_ID_PATTERN.test(id)) {
+    notFound(`Invalid queue entry ID: '${id}'.`);
   }
 }
 
@@ -1491,4 +1524,128 @@ export async function handleGetChunkFile(
 
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/orchestrator/start
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates `body.planPath`, then runs preflight checks and (when `dryRun`
+ * is `false` and all checks pass) spawns a detached orchestrator process.
+ *
+ * Throws VALIDATION_ERROR when `body.planPath` is absent or not a string.
+ *
+ * @param workspaceRoot - Absolute path to the workspace root directory.
+ * @param body          - Parsed request body (any shape — validated here).
+ */
+export async function handleOrchestratorStart(
+  workspaceRoot: string,
+  body: unknown,
+): Promise<StartResult> {
+  if (typeof body !== 'object' || body === null) {
+    validationError('Request body must be a JSON object.');
+  }
+  const b = body as Record<string, unknown>;
+  if (!('planPath' in b) || typeof b['planPath'] !== 'string') {
+    validationError('body.planPath is required and must be a string.');
+  }
+  const planPath = b['planPath'];
+  const dryRun = typeof b['dryRun'] === 'boolean' ? b['dryRun'] : false;
+  return startOrchestrator(planPath, workspaceRoot, dryRun);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/orchestrator/queue
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns all active orchestrator queue entries enriched with computed
+ * lifecycle state and JSONL progress summaries.
+ *
+ * @param logsDir    - Absolute path to the orchestrator logs directory.
+ * @param ledgerRoot - Absolute path to the central ledger root.
+ */
+export async function handleGetOrchestratorQueue(
+  logsDir: string,
+  ledgerRoot: string,
+): Promise<QueueEntry[]> {
+  return getQueue({ logsDir, ledgerRoot });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/orchestrator/kill/:id
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminates the orchestrator process for an effectively-pending queue entry
+ * and removes it from the queue file.
+ *
+ * Returns `{ killed: false }` without throwing when the entry is not found or
+ * its effective status is not `pending`.
+ *
+ * @param id         - Queue entry ID.
+ * @param logsDir    - Absolute path to the orchestrator logs directory.
+ * @param ledgerRoot - Absolute path to the central ledger root.
+ */
+export async function handleOrchestratorKill(
+  id: string,
+  logsDir: string,
+  ledgerRoot: string,
+): Promise<KillResult> {
+  assertSafeQueueId(id);
+  return killQueueEntry({ id, logsDir, ledgerRoot });
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/orchestrator/dismiss/:id
+// ---------------------------------------------------------------------------
+
+/**
+ * Removes a dead queue entry from the queue file on disk.
+ *
+ * Resolves without throwing when the entry is not found or its effective
+ * status is not `dead`. The caller (server.ts) sends HTTP 204 No Content.
+ *
+ * @param id         - Queue entry ID.
+ * @param logsDir    - Absolute path to the orchestrator logs directory.
+ * @param ledgerRoot - Absolute path to the central ledger root.
+ */
+export async function handleOrchestratorDismiss(
+  id: string,
+  logsDir: string,
+  ledgerRoot: string,
+): Promise<void> {
+  assertSafeQueueId(id);
+  await dismissQueueEntry({ id, logsDir, ledgerRoot });
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/orchestrator/run-status/:filename
+// ---------------------------------------------------------------------------
+
+/** Allowlist for run-status filenames: `{16 hex chars}-run-status.json`. */
+const SAFE_RUN_STATUS_FILENAME = /^[0-9a-f]{16}-run-status\.json$/;
+
+/**
+ * Returns the run-status tombstone written by the Python orchestrator at the
+ * end of every run, or `null` when the file does not exist yet (run still in
+ * progress, or has not started for this plan).
+ *
+ * The filename must be the value returned by `runStatusFilename()` in
+ * `orchestrator-manager.ts` — a SHA-1 hash prefix of the absolute plan path
+ * so that plans with identical folder names in different repositories never
+ * collide in the shared logs directory.
+ *
+ * @param logsDir        - Absolute path to the orchestrator logs directory.
+ * @param statusFilename - Bare filename as returned by `runStatusFilename()`.
+ */
+export async function handleGetRunStatus(
+  logsDir:        string,
+  statusFilename: string,
+): Promise<RunStatus | null> {
+  if (!statusFilename || !SAFE_RUN_STATUS_FILENAME.test(statusFilename)) {
+    notFound(`Invalid run-status filename: '${statusFilename}'.`);
+  }
+  return getRunStatus(logsDir, statusFilename);
 }

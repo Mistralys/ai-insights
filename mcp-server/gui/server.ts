@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveLedgerRoot, ORCHESTRATOR_LOGS_DIR } from '../src/utils/ledger-root.js';
+import { resolveLedgerRoot, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
 import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
@@ -47,6 +47,11 @@ import {
   handleGetDialogueFile,
   handleListChunks,
   handleGetChunkFile,
+  handleOrchestratorStart,
+  handleGetOrchestratorQueue,
+  handleOrchestratorKill,
+  handleOrchestratorDismiss,
+  handleGetRunStatus,
   ApiError,
 } from './api.js';
 import { renderChunksToMarkdown } from './chunk-renderer.js';
@@ -140,7 +145,7 @@ function sendError(
   sendJson(res, status, { error: { code, message } }, port);
 }
 
-function apiErrorToStatus(code: string): number {
+export function apiErrorToStatus(code: string): number {
   switch (code) {
     case 'NOT_FOUND':
       return 404;
@@ -148,6 +153,8 @@ function apiErrorToStatus(code: string): number {
       return 403;
     case 'VALIDATION_ERROR':
       return 400;
+    case 'CONFLICT':
+      return 409;
     default:
       return 500;
   }
@@ -157,13 +164,81 @@ function apiErrorToStatus(code: string): number {
 // Body reading
 // ---------------------------------------------------------------------------
 
+/** Maximum accepted request body size (1 MiB). */
+export const MAX_BODY_BYTES = 1_048_576;
+
+/** Thrown by {@link readBody} when the request body exceeds {@link MAX_BODY_BYTES}. */
+export class PayloadTooLargeError extends Error {
+  constructor() {
+    super('Payload Too Large');
+    this.name = 'PayloadTooLargeError';
+  }
+}
+
+/**
+ * Reads the full request body as a UTF-8 string, enforcing a size limit of
+ * {@link MAX_BODY_BYTES} (1 MiB).
+ *
+ * @throws {PayloadTooLargeError} When the body exceeds the limit (detected
+ *   either via Content-Length header pre-check or streaming byte count).
+ *   **Callers must catch this error and return a 413 response.**
+ *
+ * @param req - The incoming HTTP request.
+ * @returns The full body string.
+ */
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
+    // Content-Length pre-check: reject immediately if the declared size exceeds the limit.
+    const declaredLength = req.headers['content-length'];
+    if (declaredLength !== undefined) {
+      const n = parseInt(declaredLength, 10);
+      if (!isNaN(n) && n > MAX_BODY_BYTES) {
+        req.resume();  // drain body data from socket buffer
+        reject(new PayloadTooLargeError());
+        return;
+      }
+    }
+
     const chunks: Buffer[] = [];
-    req.on('data', (chunk: Buffer) => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
-    req.on('error', reject);
+    let totalBytes = 0;
+    let rejected = false;
+
+    req.on('data', (chunk: Buffer) => {
+      if (rejected) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_BODY_BYTES) {
+        rejected = true;
+        reject(new PayloadTooLargeError());
+        // Drain remaining data so the 413 response can be sent cleanly.
+        req.resume();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (!rejected) resolve(Buffer.concat(chunks).toString('utf-8'));
+    });
+    req.on('error', (err) => {
+      if (!rejected) reject(err);
+    });
   });
+}
+
+/**
+ * Reads and parses the request body as JSON, enforcing the same size limit as
+ * {@link readBody}. Throws {@link PayloadTooLargeError} for oversized bodies
+ * and {@link ApiError} with code `VALIDATION_ERROR` for invalid JSON.
+ *
+ * @param req - The incoming HTTP request.
+ * @returns The parsed JSON value.
+ */
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const raw = await readBody(req);
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new ApiError('VALIDATION_ERROR', 'Invalid JSON body.');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +277,17 @@ function matchRoute(
   // GET /api/insights
   if (method === 'GET' && rest.length === 1 && rest[0] === 'insights') {
     return () => handleGetInsights(ledgerRoot);
+  }
+
+  // GET /api/orchestrator/queue
+  if (method === 'GET' && rest.length === 2 && rest[0] === 'orchestrator' && rest[1] === 'queue') {
+    return () => handleGetOrchestratorQueue(orchestratorLogsDir, ledgerRoot);
+  }
+
+  // GET /api/orchestrator/run-status/:filename
+  if (method === 'GET' && rest.length === 3 && rest[0] === 'orchestrator' && rest[1] === 'run-status') {
+    const filename = decodeURIComponent(rest[2]!);
+    return () => handleGetRunStatus(orchestratorLogsDir, filename);
   }
 
   // GET /api/projects
@@ -453,7 +539,13 @@ function matchRoute(
 
   // POST /api/projects/:slug/reset — handled separately in handleRequest()
   // because it requires body parsing (like PUT /api/config).
-  // This comment serves as a route-map reference for maintainability.
+
+  // POST /api/orchestrator/start — handled separately in handleRequest()
+  // because it requires body parsing.
+  // POST /api/orchestrator/kill/:id and POST /api/orchestrator/dismiss/:id —
+  // handled separately in handleRequest() (path-parameter extraction via path.slice).
+
+  // This comment block serves as a route-map reference for maintainability.
 
   return null;
 }
@@ -530,18 +622,13 @@ export async function handleRequest(
   // PUT /api/config — special case: requires body parsing
   if (method === 'PUT' && path === '/api/config') {
     try {
-      const rawBody = await readBody(req);
-      let body: unknown;
-      try {
-        body = JSON.parse(rawBody);
-      } catch {
-        sendError(res, 400, 'VALIDATION_ERROR', 'Invalid JSON body.', port);
-        return;
-      }
+      const body = await readJsonBody(req);
       const result = await handleUpdateConfig(configPath, body);
       sendJson(res, 200, result, port);
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in PUT /api/config: ${String(err)}\n`);
@@ -588,18 +675,13 @@ export async function handleRequest(
   if (method === 'PATCH' && path.startsWith('/api/projects/')) {
     const slug = decodeURIComponent(path.slice('/api/projects/'.length));
     try {
-      const rawBody = await readBody(req);
-      let body: unknown;
-      try {
-        body = JSON.parse(rawBody);
-      } catch {
-        sendError(res, 400, 'VALIDATION_ERROR', 'Invalid JSON body.', port);
-        return;
-      }
+      const body = await readJsonBody(req);
       const result = await handleRenameProject(ledgerRoot, slug, body);
       sendJson(res, 200, result, port);
     } catch (err) {
-      if (err instanceof ApiError) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in PATCH /api/projects/:slug: ${String(err)}\n`);
@@ -620,18 +702,13 @@ export async function handleRequest(
     ) {
       const slug = decodeURIComponent(postSegments[2]!);
       try {
-        const rawBody = await readBody(req);
-        let body: unknown;
-        try {
-          body = JSON.parse(rawBody);
-        } catch {
-          sendError(res, 400, 'VALIDATION_ERROR', 'Invalid JSON body.', port);
-          return;
-        }
+        const body = await readJsonBody(req);
         const result = await handleResetProject(ledgerRoot, slug, body);
         sendJson(res, 200, result, port);
       } catch (err) {
-        if (err instanceof ApiError) {
+        if (err instanceof PayloadTooLargeError) {
+          sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+        } else if (err instanceof ApiError) {
           sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
         } else {
           process.stderr.write(`[server] Unhandled error in POST /api/projects/:slug/reset: ${String(err)}\n`);
@@ -640,6 +717,60 @@ export async function handleRequest(
       }
       return;
     }
+  }
+
+  // POST /api/orchestrator/start — body parsing required
+  if (method === 'POST' && path === '/api/orchestrator/start') {
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleOrchestratorStart(WORKSPACE_ROOT, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/start: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/orchestrator/kill/:id
+  if (method === 'POST' && path.startsWith('/api/orchestrator/kill/')) {
+    const id = decodeURIComponent(path.slice('/api/orchestrator/kill/'.length));
+    try {
+      const result = await handleOrchestratorKill(id, orchestratorLogsDir, ledgerRoot);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/kill/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/orchestrator/dismiss/:id — responds with 204 No Content
+  if (method === 'POST' && path.startsWith('/api/orchestrator/dismiss/')) {
+    const id = decodeURIComponent(path.slice('/api/orchestrator/dismiss/'.length));
+    try {
+      await handleOrchestratorDismiss(id, orchestratorLogsDir, ledgerRoot);
+      res.writeHead(204, { ...corsHeaders(port), ...securityHeaders() });
+      res.end();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/dismiss/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
   }
 
   // General API route matching

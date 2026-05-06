@@ -149,3 +149,83 @@ describe('API.getServerInfo', () => {
     expect(result).toEqual(payload);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Orchestrator methods
+// ---------------------------------------------------------------------------
+
+describe('API.orchestratorStart', () => {
+  it('sends POST /api/orchestrator/start with planPath and dryRun in body', async () => {
+    const calls = mockFetch({ started: true, pid: 99, checks: [] });
+
+    await globalThis.API.orchestratorStart('/path/to/plan.md', false);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/start');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body).toEqual({ planPath: '/path/to/plan.md', dryRun: false });
+  });
+
+  it('passes dryRun: true when requested', async () => {
+    const calls = mockFetch({ started: false, checks: [] });
+
+    await globalThis.API.orchestratorStart('/path/to/plan.md', true);
+
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body.dryRun).toBe(true);
+  });
+});
+
+describe('API.orchestratorGetQueue', () => {
+  it('sends GET /api/orchestrator/queue', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.orchestratorGetQueue();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/queue');
+    expect(calls[0]!.opts.method).toBe('GET');
+  });
+});
+
+describe('API.orchestratorKill', () => {
+  it('sends POST /api/orchestrator/kill/{id}', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorKill('abc-123');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/kill/abc-123');
+    expect(calls[0]!.opts.method).toBe('POST');
+  });
+
+  it('encodes the entry ID in the URL', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorKill('id/with/slashes');
+
+    expect(calls[0]!.url).toBe('/api/orchestrator/kill/id%2Fwith%2Fslashes');
+  });
+});
+
+describe('API.orchestratorDismiss', () => {
+  it('sends DELETE /api/orchestrator/queue/{id}', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorDismiss('abc-123');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/queue/abc-123');
+    expect(calls[0]!.opts.method).toBe('DELETE');
+  });
+
+  it('encodes the entry ID in the URL', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorDismiss('id/with/slashes');
+
+    expect(calls[0]!.url).toBe('/api/orchestrator/queue/id%2Fwith%2Fslashes');
+  });
+});

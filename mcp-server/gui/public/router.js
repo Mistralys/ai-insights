@@ -80,6 +80,11 @@ var Router = (function () {
       return;
     }
 
+    if (path === '/orchestrator') {
+      renderOrchestrator(app);
+      return;
+    }
+
     app.innerHTML = '<p class="error-banner">Page not found: ' + escapeHtml(path) + '</p>';
   }
 

@@ -421,7 +421,16 @@ function cmdPackagePersonas(args) {
   if (code !== 0) process.exit(code);
 }
 
-function cmdGui(args) {
+async function cmdGui(args) {
+  if (!args.includes('--port')) {
+    const portInput = await askCleanInput('  Port [3420]: ');
+    const trimmed = portInput.trim();
+    if (trimmed) {
+      const p = parseInt(trimmed, 10);
+      if (isNaN(p) || p <= 0) { log('  Invalid port number.', 'red'); return; }
+      args = [...args, '--port', String(p)];
+    }
+  }
   const { child, exitCode } = runLongScript('node', [path.join(SCRIPTS_DIR, 'run-gui.js'), ...args], { cwd: WORKSPACE_ROOT });
   child.on('error', (err) => { log(`\u2717 Failed to launch run-gui.js: ${err.message}`, 'red'); process.exit(1); });
   process.once('SIGINT', () => child.kill('SIGINT'));

@@ -2,8 +2,13 @@
    views/project-detail.js — Project Detail view
    Sections 4b–4d of the MCP Server Dashboard SPA
    Depends on: API, Router, marked, escapeHtml, formatDate,
-               statusBadge, showLoading, showError
+               statusBadge, showLoading, showError,
+               OrchestratorWidgets (js/orchestrator-widgets.js)
    ============================================================ */
+
+// Module-scoped log-preview cleanup registry.
+// Each renderProjectDetail() call drains this array before creating new widgets.
+var _pdLogPreviewCleanups = [];
 
 /* ----------------------------------------------------------
    4b. View: Plan Document
@@ -103,6 +108,10 @@ function buildRunBadges(item, isActive) {
 }
 
 function renderProjectDetail(app, slug) {
+  // Drain log preview cleanup callbacks from the previous render.
+  _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+  _pdLogPreviewCleanups = [];
+
   showLoading(app);
 
   Promise.all([
@@ -487,32 +496,127 @@ function renderProjectDetail(app, slug) {
         return bName.localeCompare(aName);
       });
 
-      runsEl.innerHTML = sorted.map(function (item, index) {
-        var filename = (item && item.filename) ? item.filename : String(item);
-        // Only the most recent run (index 0) can possibly be active; older runs
-        // that were killed without writing run_end would otherwise show as Running.
-        var isActive = index === 0 && !!(item && item.is_active);
-        var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
+      // Only the most recent run can be truly active.
+      var activeItem = (sorted.length > 0 && sorted[0] && sorted[0].is_active) ? sorted[0] : null;
+      var activeFilename = activeItem ? (activeItem.filename || '') : null;
 
-        // Chronological run number: oldest = #1, newest = #N (sorted is descending).
-        var runNumber = sorted.length - index;
+      // Render the full runs list; called with the matched queue entry (or null).
+      // NOTE (refactor candidate): renderRunsList is a nested closure inside the getRunLogs().then()
+      // callback to close over sorted, slug, and activeFilename. A future pass could extract this as
+      // a module-level helper accepting (sorted, slug, activeFilename, matchingQueueEntry) to improve
+      // testability and reduce closure depth.
+      function renderRunsList(matchingQueueEntry) {
+        // Drain any existing log preview cleanups before rebuilding the DOM.
+        _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+        _pdLogPreviewCleanups = [];
 
-        // Parse the timestamp from the filename prefix (YYYYMMDDTHHmmss).
-        var dateStr = (function () {
-          var m = filename.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})-/);
-          if (!m) return '';
-          var iso = m[1] + '-' + m[2] + '-' + m[3] + 'T' + m[4] + ':' + m[5] + ':' + m[6];
-          var formatted = formatDate(iso);
-          return formatted ? ' <span class="text-muted" style="font-size:11px">' + escapeHtml(formatted) + '</span>' : '';
-        }());
+        runsEl.innerHTML = sorted.map(function (item, index) {
+          var filename = (item && item.filename) ? item.filename : String(item);
+          var isActive = index === 0 && !!(item && item.is_active);
+          var href = '#/projects/' + encodeURIComponent(slug) + '/runs/' + encodeURIComponent(filename);
+          var runNumber = sorted.length - index;
 
-        var badges = buildRunBadges(item, isActive);
+          var dateStr = (function () {
+            var m = filename.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})-/);
+            if (!m) return '';
+            var iso = m[1] + '-' + m[2] + '-' + m[3] + 'T' + m[4] + ':' + m[5] + ':' + m[6];
+            var formatted = formatDate(iso);
+            return formatted ? ' <span class="text-muted" style="font-size:11px">' + escapeHtml(formatted) + '</span>' : '';
+          }());
 
-        return '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
-          '<span>' + badges + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
-          '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
-        '</div>';
-      }).join('');
+          var badges = buildRunBadges(item, isActive);
+
+          var rowHtml =
+            '<div class="run-event run-event--info" style="display:flex;align-items:center;justify-content:space-between">' +
+              '<span>' + badges + '<span style="font-size:13px">Run #' + runNumber + '</span>' + dateStr + '</span>' +
+              '<a class="btn btn-secondary btn-sm" href="' + href + '">View</a>' +
+            '</div>';
+
+          if (isActive) {
+            var statusCardHtml = matchingQueueEntry
+              ? OrchestratorWidgets.renderStatusCard(matchingQueueEntry)
+              : '';
+            var cliKillHint = !matchingQueueEntry
+              ? '<p class="orch-cli-kill-hint text-muted">To kill this run: ' +
+                  '<code>node scripts/kill-orchestrator.js --force</code></p>'
+              : '';
+            rowHtml +=
+              '<div class="orch-active-run-section">' +
+                statusCardHtml +
+                '<div id="orch-active-kill-cell"></div>' +
+                cliKillHint +
+                '<div class="orch-log-preview" id="orch-project-log-preview"></div>' +
+              '</div>';
+          }
+
+          return rowHtml;
+        }).join('');
+
+        // Inject DOM-based kill button when a matching queue entry exists.
+        if (matchingQueueEntry) {
+          var killCell = document.getElementById('orch-active-kill-cell');
+          if (killCell) {
+            killCell.appendChild(OrchestratorWidgets.renderKillButton(
+              matchingQueueEntry.id,
+              function () {
+                // Re-poll the queue and re-render after kill.
+                API.orchestratorGetQueue().then(function (q) {
+                  var newMatch = null;
+                  if (Array.isArray(q)) {
+                    for (var i = 0; i < q.length; i++) {
+                      if (q[i] && q[i].logFilename === activeFilename) {
+                        newMatch = q[i];
+                        break;
+                      }
+                    }
+                  }
+                  renderRunsList(newMatch);
+                }).catch(function () { renderRunsList(null); });
+              }
+            ));
+          }
+        }
+
+        // Start inline log preview for the active run.
+        if (activeFilename) {
+          var previewEl = document.getElementById('orch-project-log-preview');
+          if (previewEl) {
+            var cleanup = OrchestratorWidgets.renderLogPreview(previewEl, slug, activeFilename);
+            _pdLogPreviewCleanups.push(cleanup);
+          }
+        }
+      }
+
+      if (activeFilename) {
+        // Active run: fetch the queue to find the matching entry, then render.
+        // Polling refreshes the status card and log preview every 5 s.
+        var pollQueue = function () {
+          // Drain existing log previews before re-fetching.
+          _pdLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+          _pdLogPreviewCleanups = [];
+
+          API.orchestratorGetQueue().then(function (queue) {
+            var match = null;
+            if (Array.isArray(queue)) {
+              for (var i = 0; i < queue.length; i++) {
+                if (queue[i] && queue[i].logFilename === activeFilename) {
+                  match = queue[i];
+                  break;
+                }
+              }
+            }
+            renderRunsList(match);
+          }).catch(function () {
+            renderRunsList(null);
+          });
+        };
+
+        pollQueue();
+        Router._setPolling(pollQueue, 5000);
+      } else {
+        // No active run — render without queue interaction.
+        renderRunsList(null);
+      }
     }).catch(function () {
       // Silent failure — don't show error for projects without logs
     });

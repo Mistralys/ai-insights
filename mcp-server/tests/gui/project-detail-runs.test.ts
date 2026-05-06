@@ -8,7 +8,7 @@
  * renderProjectDetail paths related to orchestrator run logs.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
@@ -27,8 +27,44 @@ beforeAll(() => {
     parse: (s: string) => '<p>' + s + '</p>',
   };
 
+  // OrchestratorWidgets stub — used by the queue-aware active run section (WP-013).
+  (globalThis as Record<string, unknown>)['OrchestratorWidgets'] = {
+    renderStatusCard:    vi.fn().mockReturnValue('<div class="orchestrator-status-card">card</div>'),
+    renderKillButton:    vi.fn().mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'kill-btn';
+      btn.textContent = 'Kill';
+      return btn;
+    }),
+    renderDismissButton: vi.fn(),
+    renderLogPreview:    vi.fn().mockReturnValue(vi.fn()), // returns a cleanup stub
+    renderProgressBadge: vi.fn().mockReturnValue(''),
+    renderCliReference:  vi.fn().mockReturnValue(''),
+  };
+
+  // Router stub — used by Router._setPolling() in the active run section.
+  (globalThis as Record<string, unknown>)['Router'] = {
+    _setPolling:   vi.fn(),
+    _clearPolling: vi.fn(),
+  };
+
   vm.runInThisContext(utilsJs);
   vm.runInThisContext(projectDetailJs);
+});
+
+// Reset OrchestratorWidgets and Router mocks between tests.
+beforeEach(() => {
+  globalThis.OrchestratorWidgets.renderStatusCard
+    .mockReturnValue('<div class="orchestrator-status-card">card</div>');
+  globalThis.OrchestratorWidgets.renderKillButton
+    .mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'kill-btn';
+      btn.textContent = 'Kill';
+      return btn;
+    });
+  globalThis.OrchestratorWidgets.renderLogPreview.mockReturnValue(vi.fn());
+  vi.clearAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -42,6 +78,20 @@ declare global {
   var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
   // eslint-disable-next-line no-var
   var marked: { parse: (s: string) => string };
+  // eslint-disable-next-line no-var
+  var OrchestratorWidgets: {
+    renderStatusCard:    Mock;
+    renderKillButton:    Mock;
+    renderDismissButton: Mock;
+    renderLogPreview:    Mock;
+    renderProgressBadge: Mock;
+    renderCliReference:  Mock;
+  };
+  // eslint-disable-next-line no-var
+  var Router: {
+    _setPolling:   Mock;
+    _clearPolling: Mock;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +134,7 @@ async function renderWithAPI(
     getWorkPackageOverview?: () => Promise<unknown>;
     getProjectHealth?: () => Promise<unknown>;
     getRunLogs?: () => Promise<unknown>;
+    orchestratorGetQueue?: () => Promise<unknown>;
   }
 ) {
   (globalThis as Record<string, unknown>)['API'] = {
@@ -92,6 +143,7 @@ async function renderWithAPI(
     getWorkPackageOverview: apiStubs.getWorkPackageOverview ?? (() => Promise.resolve(null)),
     getProjectHealth:     apiStubs.getProjectHealth      ?? (() => Promise.resolve({ work_packages_needing_reset: 0 })),
     getRunLogs:           apiStubs.getRunLogs            ?? (() => Promise.resolve([])),
+    orchestratorGetQueue: apiStubs.orchestratorGetQueue  ?? (() => Promise.resolve([])),
   };
 
   globalThis.renderProjectDetail(app, slug);
@@ -383,5 +435,245 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     expect(app.innerHTML).toContain('Project Comments');
     // Breadcrumb
     expect(app.innerHTML).toContain('Projects');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-013: Queue-aware active run section
+// ---------------------------------------------------------------------------
+
+describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)', () => {
+  let app: HTMLElement;
+
+  beforeEach(() => {
+    app = document.createElement('div');
+    document.body.appendChild(app);
+  });
+
+  afterEach(() => {
+    if (app.parentNode) app.parentNode.removeChild(app);
+  });
+
+  // Shared factory for a minimal queue entry matching a given log filename.
+  function makeQueueEntry(logFilename: string, overrides: Record<string, unknown> = {}) {
+    return {
+      id:              'queue-entry-1',
+      pid:             42424,
+      logFilename,
+      expectedSlug:    'my-project',
+      startedAt:       new Date(Date.now() - 30_000).toISOString(),
+      effectiveStatus: 'started',
+      progress:        null,
+      lastAction:      null,
+      ...overrides,
+    };
+  }
+
+  // Helper: wait for queue-aware rendering to settle (queue fetch = extra promise hop).
+  async function flush(): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < 300) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
+      const el = app.querySelector('#orchestrator-runs-section');
+      if (el && !el.innerHTML.includes('Loading runs')) break;
+    }
+    // Extra hops for orchestratorGetQueue resolution.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  // ── AC-1: Active run with matching queue entry ────────────────────────────
+
+  it('AC-1: calls renderStatusCard with the matching queue entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+    const queueEntry = makeQueueEntry(activeLog.filename);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([queueEntry]),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderStatusCard).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'queue-entry-1' })
+    );
+  });
+
+  it('AC-1: injects a kill button via renderKillButton for matching entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+    const queueEntry = makeQueueEntry(activeLog.filename);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([queueEntry]),
+    });
+
+    expect(app.querySelector('.kill-btn')).not.toBeNull();
+    expect(globalThis.OrchestratorWidgets.renderKillButton).toHaveBeenCalledWith(
+      'queue-entry-1',
+      expect.any(Function)
+    );
+  });
+
+  it('AC-1: starts log preview via renderLogPreview for matching entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+    const queueEntry = makeQueueEntry(activeLog.filename);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([queueEntry]),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      'my-project',
+      activeLog.filename
+    );
+  });
+
+  // ── AC-2: Active run without matching queue entry ────────────────────────
+
+  it('AC-2: does NOT call renderStatusCard when no queue entry matches', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]), // empty queue
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderStatusCard).not.toHaveBeenCalled();
+  });
+
+  it('AC-2: does NOT inject a kill button when no queue entry matches', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(app.querySelector('.kill-btn')).toBeNull();
+    expect(globalThis.OrchestratorWidgets.renderKillButton).not.toHaveBeenCalled();
+  });
+
+  it('AC-2: shows CLI kill hint when no queue entry matches', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(app.innerHTML).toContain('kill-orchestrator');
+  });
+
+  it('AC-2: starts log preview via renderLogPreview even without a matching queue entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      'my-project',
+      activeLog.filename
+    );
+  });
+
+  // ── AC-3: Non-active runs are unchanged ──────────────────────────────────
+
+  it('AC-3: does not call renderStatusCard or renderKillButton for non-active runs', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+      { filename: '20260504T100000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderStatusCard).not.toHaveBeenCalled();
+    expect(globalThis.OrchestratorWidgets.renderKillButton).not.toHaveBeenCalled();
+  });
+
+  it('AC-3: does not call renderLogPreview for non-active runs', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).not.toHaveBeenCalled();
+  });
+
+  it('AC-3: still renders run number and View link for non-active runs', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(app.innerHTML).toContain('Run #1');
+    expect(app.innerHTML).toContain('View');
+  });
+
+  // ── AC-4: Log preview cleanup on re-render ────────────────────────────────
+
+  it('AC-4: calls cleanup function returned by renderLogPreview on the next renderProjectDetail call', async () => {
+    const cleanup = vi.fn();
+    globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup);
+
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    // First render should have called renderLogPreview and stored the cleanup.
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+
+    // Second call to renderProjectDetail — should drain cleanups from the first render.
+    const cleanup2 = vi.fn();
+    globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup2);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  // ── AC-5: Polling registered via Router._setPolling ──────────────────────
+
+  it('AC-5: calls Router._setPolling with 5000 ms when an active run is present', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(globalThis.Router._setPolling).toHaveBeenCalledOnce();
+    const [, delay] = (globalThis.Router._setPolling as Mock).mock.calls[0];
+    expect(delay).toBe(5000);
+  });
+
+  it('AC-5: does NOT call Router._setPolling when there is no active run', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(globalThis.Router._setPolling).not.toHaveBeenCalled();
   });
 });

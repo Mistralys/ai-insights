@@ -2046,3 +2046,413 @@ th[data-sort="total_work_packages"] {
   border-color: var(--color-btn-bg);
   color: #fff;
 }
+
+/* ----------------------------------------------------------
+   Orchestrator View (WP-011)
+   ---------------------------------------------------------- */
+
+/* Status badges for effectiveStatus */
+.badge-pending {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.badge-started {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge-dead {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Progress badges (used by renderProgressBadge) */
+.badge-info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.badge-success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge-error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.badge-warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge-neutral {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* Section layout */
+.orch-section {
+  margin-bottom: 2rem;
+}
+
+.orch-section-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem 0;
+  color: var(--color-text);
+}
+
+/* Start New Run panel */
+.orch-start-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+.orch-plan-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.orch-plan-input {
+  flex: 1 1 300px;
+  min-width: 200px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: var(--font-mono, monospace);
+}
+
+.orch-plan-input:focus {
+  outline: 2px solid var(--color-ready);
+  outline-offset: 1px;
+}
+
+/* Preflight results checklist */
+.preflight-list {
+  list-style: none;
+  margin: 0.75rem 0 0 0;
+  padding: 0;
+}
+
+.preflight-check {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.preflight-check:last-child {
+  border-bottom: none;
+}
+
+.preflight-icon {
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.preflight-pass .preflight-icon { color: var(--color-complete); }
+.preflight-fail .preflight-icon { color: var(--color-blocked); }
+
+.preflight-fix {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.preflight-fix code {
+  background: var(--color-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+  border: 1px solid var(--color-border);
+}
+
+/* Queue table */
+.orch-queue-table {
+  width: 100%;
+}
+
+.orch-toggle-cell {
+  width: 28px;
+  text-align: center;
+  padding: 0;
+}
+
+.orch-row-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 4px 6px;
+  border-radius: var(--radius);
+}
+
+.orch-row-toggle:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.orch-plan-cell {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.orch-elapsed-cell {
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.orch-progress-cell {
+  font-size: 12px;
+}
+
+.orch-progress-text {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.orch-log-link {
+  font-size: 11px;
+  color: var(--color-ready);
+  white-space: nowrap;
+}
+
+.orch-actions-cell {
+  white-space: nowrap;
+}
+
+.orch-project-link {
+  font-size: 12px;
+}
+
+.orch-row-pending  { /* no tint */ }
+.orch-row-started  { /* no tint */ }
+.orch-row-dead     { opacity: 0.75; }
+
+.orch-log-row td {
+  padding: 0;
+  border-top: none;
+}
+
+/* Inline log preview (compact scrollable list) */
+.orch-log-preview {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.orch-empty-queue {
+  padding: 1rem 0;
+}
+
+/* CLI reference card */
+.orch-cli-section {
+  padding-top: 0.5rem;
+}
+
+/* Dark mode overrides */
+[data-theme="dark"] .orch-plan-input {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .badge-pending {
+  background: #422006;
+  color: #fcd34d;
+}
+
+[data-theme="dark"] .badge-started {
+  background: #052e16;
+  color: #4ade80;
+}
+
+[data-theme="dark"] .badge-dead {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .badge-info {
+  background: #172554;
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .badge-success {
+  background: #052e16;
+  color: #4ade80;
+}
+
+[data-theme="dark"] .badge-error {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+[data-theme="dark"] .badge-warning {
+  background: #422006;
+  color: #fcd34d;
+}
+
+[data-theme="dark"] .badge-neutral {
+  background: #1f2937;
+  color: #9ca3af;
+}
+
+/* ============================================================
+   Orchestrator widget classes (WP-014)
+   ============================================================ */
+
+/* Page-level heading used by the orchestrator view h1 */
+.section-title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 1.25rem 0;
+  color: var(--color-text);
+}
+
+/* Icon-only button utility (used by .orch-row-toggle) */
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  line-height: 1;
+}
+
+/* Status card (rendered by OrchestratorWidgets.renderStatusCard) */
+.orchestrator-status-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.orchestrator-status-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.orchestrator-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.orchestrator-elapsed {
+  font-size: 12px;
+}
+
+.orchestrator-pid {
+  font-size: 12px;
+}
+
+.orchestrator-progress-summary {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* Kill/Dismiss buttons — visual handled by .btn.btn-danger/.btn-secondary,
+   these selectors exist only so all class names referenced in markup resolve. */
+.orchestrator-kill-btn { /* no extra rules */ }
+.orchestrator-dismiss-btn { /* no extra rules */ }
+
+/* Log preview entries (appended by OrchestratorWidgets.renderLogPreview) */
+.log-preview-entry {
+  padding: 1px 0;
+  border-bottom: 1px solid var(--color-border);
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.log-preview-entry:last-child {
+  border-bottom: none;
+}
+
+/* CLI reference card (rendered by OrchestratorWidgets.renderCliReference) */
+.orchestrator-cli-reference {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+.orchestrator-cli-reference h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.orchestrator-cli-reference pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* Queue table status cell */
+.orch-status-cell {
+  white-space: nowrap;
+}
+
+/* Active run section within project detail (WP-013) */
+.orch-active-run-section {
+  margin-top: 0.75rem;
+  padding: 0.75rem 0;
+}
+
+/* CLI kill hint shown when queue entry is absent */
+.orch-cli-kill-hint {
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  margin-bottom: 0.5rem;
+}
+
+/* Dark mode overrides for new widget classes */
+[data-theme="dark"] .orchestrator-status-card {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .orchestrator-cli-reference {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+
+[data-theme="dark"] .log-preview-entry {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}

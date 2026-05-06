@@ -88,5 +88,12 @@ var API = (function () {
       return request('GET', '/projects/' + encodeURIComponent(slug) + '/chunks/' + encodeURIComponent(filename) + '/rendered')
         .then(function (data) { return data.content; });
     },
+
+    // -- Orchestrator --------------------------------------------------
+    orchestratorStart:       function (planPath, dryRun) { return request('POST',   '/orchestrator/start',                                         { planPath: planPath, dryRun: dryRun }); },
+    orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
+    orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
+    orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
+    orchestratorDismiss:     function (id)               { return request('DELETE', '/orchestrator/queue/'      + encodeURIComponent(id)); },
   };
 })();

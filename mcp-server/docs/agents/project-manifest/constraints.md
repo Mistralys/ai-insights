@@ -1743,3 +1743,24 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 **`last_updated` field:** `WorkPackageDetail` now includes a dedicated `last_updated: z.string().optional()` field that is auto-stamped with `now()` on every WP detail write path (status transitions, claim, pipeline start/complete/cancel, creation, cascade reblock/unblock). The previous composite proxy (`max(status_changed_at, latest_pipeline.completed_at)`) is no longer used. The `last_updated` field is auto-stamped via `updateWorkPackageWithSync` (the primary choke point), plus explicit setting in `createWorkPackage`, `propagateDependencyUnblock`, and `propagateDependencyReblock` (which bypass the choke point). Existing WP detail files without the field parse without error (the field is optional).
 
 **Race window (acceptable):** Dependency WP files are read before lock acquisition. A dependency could theoretically be modified between the pre-read and the lock. For an advisory-only check this race window is acceptable — false negatives do not affect correctness.
+
+---
+
+### 71. `gui/server.ts` Two-Tier Routing Convention — Preserve the Route-Map Comment Block
+
+**Rule:** `gui/server.ts` uses a deliberate two-tier routing architecture. When adding a new route, use the correct tier and keep the route-map comment block at the bottom of `matchRoute()` up-to-date.
+
+**Tier 1 — `matchRoute()`:** Handles segment-count-based dispatch. Receives pre-parsed path segments (`rest`), the request method, `ledgerRoot`, and `orchestratorLogsDir`. Suitable for routes that need only path-derived parameters (no body, no dynamic path-tail extraction). Returns a `() => Promise<unknown>` thunk, or `null` if no route matches. The function contains a **route-map comment block** before its final `return null` that lists every route handled outside `matchRoute()` (i.e., in `handleRequest()` special-case blocks). **This comment block must be kept current.** When a new route is handled in `handleRequest()` rather than `matchRoute()`, add a line to that block.
+
+**Tier 2 — `handleRequest()` special-case blocks:** Handles routes that require body parsing (via `readBody()`) or path-tail extraction (via `path.slice()` + `decodeURIComponent()`). Each block is a guarded early-return placed before the `matchRoute()` fallback call.
+
+**Current split (as of WP-009):**
+
+| Tier | Routes |
+|------|--------|
+| `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
+| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `PATCH /api/projects/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+
+**Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
+
+**Test coverage note:** As of WP-009, orchestrator routes have strong handler-level test coverage in `tests/gui/api-orchestrator.test.ts` but no `handleRequest()`-level integration test (unlike `tests/gui/api.test.ts` which exercises `handleRequest()` directly). A future `handleRequest()` integration test for orchestrator routes would provide defence-in-depth.
