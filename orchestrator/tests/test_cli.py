@@ -7,6 +7,7 @@ Tests verify:
 - _print_run_summary() returns correct exit codes.
 - _make_dryrun_node() returns a callable that produces correct state updates.
 - main() exits with correct codes for missing plan files.
+- Run queue register/unregister lifecycle in _run() (WP-004).
 
 No real MCP server, LLM, or LangGraph graph invocation is performed.
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -719,3 +721,381 @@ class TestSignalInterruptedRun:
             "Signal-interrupted run must NOT be marked terminal"
         )
 
+
+# ---------------------------------------------------------------------------
+# Run queue integration — WP-004
+# ---------------------------------------------------------------------------
+
+class TestRunQueueIntegration:
+    """Verify that cli._run() calls run_queue.register() after run_start and
+    run_queue.unregister() in the finally block, regardless of how the run
+    terminates.
+
+    All tests mock MCPToolkit and the LangGraph graph so no real MCP server
+    or LLM is invoked.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _make_args(self, tmp_path: "Path") -> MagicMock:
+        plan = tmp_path / "plan.md"
+        plan.write_text("# Plan")
+        args = MagicMock()
+        args.plan = str(plan)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = str(tmp_path)
+        args.max_iterations = None
+        return args
+
+    def _make_config(self, tmp_path: "Path") -> MagicMock:
+        ckpt_dir = tmp_path / "checkpoints"
+        ckpt_dir.mkdir()
+        config = MagicMock()
+        config.checkpoint_dir = ckpt_dir
+        config.workspace_root = tmp_path
+        config.heartbeat_interval_s = 0
+        config.max_iterations = 100
+        config.stage_models = {}
+        return config
+
+    def _make_mcp_mocks(self, *, graph_raises: bool = False) -> tuple:
+        """Return (mock_toolkit, mock_graph, mock_db)."""
+        mock_toolkit = MagicMock()
+        mock_toolkit.get_tools.return_value = []
+        mock_toolkit.__aenter__ = AsyncMock(return_value=mock_toolkit)
+        mock_toolkit.__aexit__ = AsyncMock(return_value=None)
+
+        mock_db = MagicMock()
+        mock_db.close = AsyncMock()
+
+        if graph_raises:
+            async def _ainvoke(*_a: object, **_kw: object) -> dict:
+                raise RuntimeError("simulated graph failure")
+        else:
+            async def _ainvoke(*_a: object, **_kw: object) -> dict:
+                return {"run_log": [], "errors": [], "wp_summaries": []}
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = _ainvoke
+        return mock_toolkit, mock_graph, mock_db
+
+    # ------------------------------------------------------------------
+    # AC-1 partial: register() is called after run_start
+    # ------------------------------------------------------------------
+
+    async def test_register_called_after_run_start(self, tmp_path: "Path") -> None:
+        """register() must be called after the run_start JSONL entry is logged
+        (AC-1: queue entry created after run_start)."""
+        from pathlib import Path
+
+        from src.cli import _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-order.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks()
+
+        # Track call order via a mutable list.
+        call_order: list[str] = []
+        original_log = run_logger.log
+
+        def _tracking_log(*args: object, **kwargs: object) -> None:
+            if kwargs.get("action") == "run_start":
+                call_order.append("run_start")
+            original_log(*args, **kwargs)
+
+        run_logger.log = _tracking_log  # type: ignore[method-assign]
+
+        # Capture the call_order snapshot at the moment register() fires.
+        snapshot_at_register: list[str] = []
+
+        def _register(*_a: object, **_kw: object) -> str:
+            snapshot_at_register.extend(call_order)
+            call_order.append("register")
+            return "order-test-entry-id"
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", side_effect=_register),
+            patch("src.utils.run_queue.unregister"),
+        ):
+            await _run(args, config)
+
+        run_logger.close()
+
+        assert "run_start" in snapshot_at_register, (
+            "register() must be called after run_start is logged"
+        )
+
+    # ------------------------------------------------------------------
+    # AC-1: unregister() called with the correct entry_id on normal exit
+    # ------------------------------------------------------------------
+
+    async def test_unregister_called_with_correct_entry_id(self, tmp_path: "Path") -> None:
+        """On normal completion, unregister() must be called with the entry_id
+        returned by register() (AC-1)."""
+        from src.cli import _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-normal.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks()
+
+        expected_id = "normal-entry-uuid"
+        mock_unregister = MagicMock()
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", return_value=expected_id),
+            patch("src.utils.run_queue.unregister", mock_unregister),
+        ):
+            await _run(args, config)
+
+        run_logger.close()
+        mock_unregister.assert_called_once_with(expected_id)
+
+    # ------------------------------------------------------------------
+    # AC-2: unregister() called even when the run exits via an error path
+    # ------------------------------------------------------------------
+
+    async def test_unregister_called_when_graph_raises(self, tmp_path: "Path") -> None:
+        """Even when graph execution raises, unregister() must be called in the
+        finally block (covers error / signal-interrupted exit paths; AC-2)."""
+        from src.cli import _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-graph-err.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks(graph_raises=True)
+
+        expected_id = "graph-error-entry-uuid"
+        mock_unregister = MagicMock()
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", return_value=expected_id),
+            patch("src.utils.run_queue.unregister", mock_unregister),
+        ):
+            await _run(args, config)
+
+        run_logger.close()
+        mock_unregister.assert_called_once_with(expected_id)
+
+    # ------------------------------------------------------------------
+    # AC-3: register() raises — entry_id stays None — no NameError
+    # ------------------------------------------------------------------
+
+    async def test_register_failure_run_continues_without_unregister(
+        self, tmp_path: "Path"
+    ) -> None:
+        """If register() raises, entry_id stays None, the run continues normally,
+        and unregister() is never called (AC-3: no NameError in finally block)."""
+        from src.cli import EXIT_SUCCESS, _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-reg-fail.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks()
+        mock_unregister = MagicMock()
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", side_effect=OSError("lock failed")),
+            patch("src.utils.run_queue.unregister", mock_unregister),
+        ):
+            exit_code = await _run(args, config)
+
+        run_logger.close()
+        # Run must complete successfully despite register() failing.
+        assert exit_code == EXIT_SUCCESS
+        # unregister() must NOT be called — entry_id was never assigned.
+        mock_unregister.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _write_error_status() — early-exit tombstone writes
+# ---------------------------------------------------------------------------
+
+class TestWriteErrorStatusEarlyExits:
+    """Regression tests for the _write_error_status() helper called at
+    early-exit paths in _run().
+
+    Verifies that a valid JSON tombstone is written to the run-status file
+    whenever _run() exits before the graph starts, so the GUI does not hang
+    waiting for a status file that will never appear.
+    """
+
+    # Derive the orchestrator logs directory using the same algorithm as cli.py:
+    #   Path(cli.__file__).resolve().parent.parent / "logs"
+    # From this test file (orchestrator/tests/test_cli.py):
+    #   parent → orchestrator/tests/
+    #   parent.parent → orchestrator/
+    #   / "logs" → orchestrator/logs/
+    _LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+
+    def _expected_status_path(self, plan_path: "Path") -> "Path":
+        """Compute the expected status file path for a given plan path."""
+        import hashlib
+        plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+        return self._LOGS_DIR / f"{plan_hash}-run-status.json"
+
+    def _make_args(self, plan_path: "Path") -> MagicMock:
+        args = MagicMock()
+        args.plan = str(plan_path)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = None
+        return args
+
+    def _make_config(self, tmp_path: "Path") -> MagicMock:
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = tmp_path / "checkpoints"
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+        mock_config.max_iterations = 100
+        return mock_config
+
+    # ------------------------------------------------------------------
+    # Lock-held early exit
+    # ------------------------------------------------------------------
+
+    async def test_lock_held_writes_error_status_file(self, tmp_path: "Path") -> None:
+        """When the lock is already held, _run() exits with EXIT_ERROR and
+        writes a valid ERROR tombstone to the run-status file."""
+        import json
+
+        from src.cli import EXIT_ERROR, _run
+
+        plan = (tmp_path / "plan.md").resolve()
+        plan.write_text("# Plan")
+
+        args = self._make_args(plan)
+        config = self._make_config(tmp_path)
+        expected_path = self._expected_status_path(plan)
+
+        try:
+            # Patch lock_exclusive to raise OSError, simulating a held lock.
+            with patch(
+                "src.cli.lock_exclusive",
+                side_effect=OSError("Resource temporarily unavailable"),
+            ):
+                result = await _run(args, config)
+
+            assert result == EXIT_ERROR
+
+            assert expected_path.exists(), (
+                f"Status file not found: {expected_path}"
+            )
+            status = json.loads(expected_path.read_text())
+            assert status["result"] == "ERROR"
+            assert status["error"], "error field must be a non-empty string"
+        finally:
+            expected_path.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Plan-not-found early exit
+    # ------------------------------------------------------------------
+
+    async def test_plan_not_found_writes_error_status_file(self, tmp_path: "Path") -> None:
+        """When the plan file does not exist, _run() exits with EXIT_ERROR and
+        writes a valid ERROR tombstone to the run-status file."""
+        import json
+
+        from src.cli import EXIT_ERROR, _run
+
+        # Intentionally non-existent plan.
+        plan = (tmp_path / "no_such_plan.md").resolve()
+
+        args = self._make_args(plan)
+        config = self._make_config(tmp_path)
+        expected_path = self._expected_status_path(plan)
+
+        try:
+            result = await _run(args, config)
+
+            assert result == EXIT_ERROR
+
+            assert expected_path.exists(), (
+                f"Status file not found: {expected_path}"
+            )
+            status = json.loads(expected_path.read_text())
+            assert status["result"] == "ERROR"
+            assert status["error"], "error field must be a non-empty string"
+            assert "Plan file not found" in status["error"] or "plan" in status["error"].lower()
+        finally:
+            expected_path.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Resume-terminal early exit
+    # ------------------------------------------------------------------
+
+    async def test_resume_terminal_writes_error_status_file(self, tmp_path: "Path") -> None:
+        """When --resume targets a terminal checkpoint, _run() exits with
+        EXIT_ERROR and writes a valid ERROR tombstone to the run-status file."""
+        import json
+
+        from src.cli import EXIT_ERROR, _mark_run_terminal, _run
+        from src.utils.logging import WorkflowLogger
+
+        plan = (tmp_path / "plan.md").resolve()
+        plan.write_text("# Plan")
+
+        ckpt_dir = tmp_path / "checkpoints"
+        _mark_run_terminal(ckpt_dir, "done-thread")
+
+        args = self._make_args(plan)
+        args.resume = "done-thread"
+
+        config = self._make_config(tmp_path)
+        config.checkpoint_dir = ckpt_dir
+
+        mock_run_logger = MagicMock()
+        mock_run_logger._path = tmp_path / "run.jsonl"
+        mock_run_logger.start_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.stop_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.flush_unstreamed = MagicMock()
+        mock_run_logger.log = MagicMock()
+        mock_run_logger.close = MagicMock()
+
+        expected_path = self._expected_status_path(plan)
+
+        try:
+            with patch("src.utils.logging.WorkflowLogger") as mock_logger_cls:
+                mock_logger_cls.create.return_value = mock_run_logger
+                result = await _run(args, config)
+
+            assert result == EXIT_ERROR
+
+            assert expected_path.exists(), (
+                f"Status file not found: {expected_path}"
+            )
+            status = json.loads(expected_path.read_text())
+            assert status["result"] == "ERROR"
+            assert status["error"], "error field must be a non-empty string"
+        finally:
+            expected_path.unlink(missing_ok=True)

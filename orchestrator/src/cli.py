@@ -45,6 +45,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import shutil
@@ -487,8 +489,45 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
 
     # ── Resolve paths ───────────────────────────────────────────────────────
     plan_path = Path(args.plan).resolve()
+
+    # ── Compute run-status tombstone path early ──────────────────────────────
+    # The filename is a SHA-1 hash of the resolved plan path (first 16 hex
+    # chars) so it is unique per plan regardless of folder name.
+    # Must match the algorithm in orchestrator-manager.ts runStatusFilename().
+    # Computed here (before any early exit) so ALL exit paths can write it.
+    _logs_dir = Path(__file__).resolve().parent.parent / "logs"
+    _logs_dir.mkdir(parents=True, exist_ok=True)
+    _plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+    _run_status_path = _logs_dir / f"{_plan_hash}-run-status.json"
+
+    def _write_error_status(
+        error_msg: str, log_filename: str = "", slug: str | None = None
+    ) -> None:
+        """Write an ERROR status file. Best-effort — never raises.
+
+        ``slug`` defaults to ``plan_dir.name`` when omitted; pass an explicit
+        value for call sites where ``plan_dir`` has not yet been assigned (e.g.
+        the plan-not-found early exit).
+        """
+        try:
+            _slug = slug if slug is not None else plan_dir.name
+            with open(_run_status_path, "w") as f:
+                json.dump(
+                    {
+                        "slug": _slug,
+                        "result": "ERROR",
+                        "error": error_msg,
+                        "logFilename": log_filename,
+                        "durationS": None,
+                    },
+                    f,
+                )
+        except Exception:
+            pass
+
     if not plan_path.exists():
         sys.stderr.write(f"orchestrate: error: plan file not found: {plan_path}\n")
+        _write_error_status(f"Plan file not found: {plan_path}", slug=plan_path.parent.name)
         return EXIT_ERROR
 
     plan_dir = plan_path.parent if plan_path.is_file() else plan_path
@@ -499,6 +538,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     # ── Acquire process lock (prevent concurrent runs on same plan) ──────
     lock_path = plan_dir / ".orchestrator.lock"
     lock_file = None
+    entry_id: str | None = None
     try:
         lock_file = open(lock_path, "w")  # noqa: SIM115
         lock_exclusive(lock_file.fileno())
@@ -511,6 +551,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         )
         if lock_file:
             lock_file.close()
+        _write_error_status(f"Another orchestrator process is already running against {plan_dir}")
         return EXIT_ERROR
 
     try:  # ── try/finally guarantees lock cleanup on any exit path ────────────
@@ -520,6 +561,12 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
         run_logger = WorkflowLogger.create(label=plan_dir.name)
         log.info("JSONL log: %s", run_logger._path)
         await run_logger.start_heartbeat(config.heartbeat_interval_s)
+
+        # ── Delete stale run-status file from any previous run ───────────
+        try:
+            _run_status_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
         # ── Register signal handlers (graceful shutdown) ─────────────────
         # Create the shutdown event first; it will be populated with the
@@ -536,6 +583,9 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                     f"orchestrate: error: thread {thread_id!r} is a completed run\n"
                     "  (terminal checkpoint — nothing left to execute).\n"
                     "  To start a fresh run, omit --resume.\n"
+                )
+                _write_error_status(
+                    f"Thread {thread_id!r} is a completed run (nothing left to execute)"
                 )
                 return EXIT_ERROR
         else:
@@ -569,6 +619,17 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             run_start_ts=run_start_ts,
             stage_models=dict(config.stage_models),
         )
+        # ── Register in shared run queue ─────────────────────────────────
+        try:
+            from src.utils import run_queue
+            entry_id = run_queue.register(
+                pid=os.getpid(),
+                plan_path=str(plan_path),
+                slug=plan_dir.name,
+                started_at=run_start_ts,
+            )
+        except Exception:
+            log.warning("Could not register in run queue; continuing without tracking.")
         # ── Register signal handlers now that thread_id is known ────────
         # Handlers set shutdown_event and emit a log entry; the graph
         # execution loop is responsible for honouring the event.
@@ -759,8 +820,14 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
             await run_logger.stop_heartbeat()
             run_logger.close()
 
-    # ── Release process lock ────────────────────────────────────────────────
+    # ── Release process lock + run queue entry ────────────────────────────
     finally:
+        if entry_id is not None:
+            try:
+                from src.utils import run_queue
+                run_queue.unregister(entry_id)
+            except Exception:
+                pass
         if lock_file:
             try:
                 unlock(lock_file.fileno())
@@ -768,6 +835,29 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                 lock_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    # ── Write run-status tombstone for GUI polling ─────────────────────────────
+    # A small JSON file named {slug}.run-status.json is written to the logs
+    # directory so the GUI can detect fatal early failures (e.g. bad API key)
+    # without relying on the queue, which clears before the first poll cycle
+    # when the run completes in under ~5 seconds.
+    try:
+        import json as _json
+        _fatal = (
+            outside_errors[0]
+            if outside_errors
+            else (final_state.get("fatal_error") if final_state else None)
+        )
+        _status_payload = {
+            "slug": plan_dir.name,
+            "result": "ERROR" if (_fatal or outside_errors) else "SUCCESS",
+            "error": _fatal,
+            "logFilename": run_logger._path.name,
+            "durationS": total_duration_s,
+        }
+        _run_status_path.write_text(_json.dumps(_status_payload))
+    except Exception:
+        pass
 
     # ── Copy run log to ledger storage ──────────────────────────────────────
     # Copy the JSONL file from orchestrator/logs/ into the project's ledger

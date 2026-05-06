@@ -1,5 +1,15 @@
 # Orchestrator Changelog
 
+## v0.18.1 - GUI Error Surfacing Fixes
+- CLI: Fixed GUI error-surfacing for early-exit paths (lock-held, resume-terminal,
+  plan-not-found) that left the UI hanging indefinitely at "Waiting for run…".
+- CLI: Moved `_write_error_status()` definition before plan-not-found guard so all
+  exit paths can invoke it; added `slug` parameter for pre-`plan_dir` call sites.
+- CLI: Fixed file handle leak in `_write_error_status()` — replaced bare `open()`
+  passed to `json.dump()` with a `with` block.
+- Tests: Added `TestWriteErrorStatusEarlyExits` covering lock-held, plan-not-found,
+  and resume-terminal early-exit tombstone writes.
+
 ## v0.18.0 - Direct Pipeline Stage Routing
 - Supervisor: Added `ROUTE_PIPELINE_AGENT` to dispatch actions.
 - Supervisor: PM stage routes directly to the target pipeline agent using `next_agent`,
