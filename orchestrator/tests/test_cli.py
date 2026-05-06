@@ -739,7 +739,7 @@ class TestRunQueueIntegration:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _make_args(self, tmp_path: "Path") -> MagicMock:
+    def _make_args(self, tmp_path: Path) -> MagicMock:
         plan = tmp_path / "plan.md"
         plan.write_text("# Plan")
         args = MagicMock()
@@ -751,7 +751,7 @@ class TestRunQueueIntegration:
         args.max_iterations = None
         return args
 
-    def _make_config(self, tmp_path: "Path") -> MagicMock:
+    def _make_config(self, tmp_path: Path) -> MagicMock:
         ckpt_dir = tmp_path / "checkpoints"
         ckpt_dir.mkdir()
         config = MagicMock()
@@ -787,10 +787,9 @@ class TestRunQueueIntegration:
     # AC-1 partial: register() is called after run_start
     # ------------------------------------------------------------------
 
-    async def test_register_called_after_run_start(self, tmp_path: "Path") -> None:
+    async def test_register_called_after_run_start(self, tmp_path: Path) -> None:
         """register() must be called after the run_start JSONL entry is logged
         (AC-1: queue entry created after run_start)."""
-        from pathlib import Path
 
         from src.cli import _run
         from src.utils.logging import WorkflowLogger
@@ -840,7 +839,7 @@ class TestRunQueueIntegration:
     # AC-1: unregister() called with the correct entry_id on normal exit
     # ------------------------------------------------------------------
 
-    async def test_unregister_called_with_correct_entry_id(self, tmp_path: "Path") -> None:
+    async def test_unregister_called_with_correct_entry_id(self, tmp_path: Path) -> None:
         """On normal completion, unregister() must be called with the entry_id
         returned by register() (AC-1)."""
         from src.cli import _run
@@ -872,7 +871,7 @@ class TestRunQueueIntegration:
     # AC-2: unregister() called even when the run exits via an error path
     # ------------------------------------------------------------------
 
-    async def test_unregister_called_when_graph_raises(self, tmp_path: "Path") -> None:
+    async def test_unregister_called_when_graph_raises(self, tmp_path: Path) -> None:
         """Even when graph execution raises, unregister() must be called in the
         finally block (covers error / signal-interrupted exit paths; AC-2)."""
         from src.cli import _run
@@ -905,7 +904,7 @@ class TestRunQueueIntegration:
     # ------------------------------------------------------------------
 
     async def test_register_failure_run_continues_without_unregister(
-        self, tmp_path: "Path"
+        self, tmp_path: Path
     ) -> None:
         """If register() raises, entry_id stays None, the run continues normally,
         and unregister() is never called (AC-3: no NameError in finally block)."""
@@ -957,13 +956,13 @@ class TestWriteErrorStatusEarlyExits:
     #   / "logs" → orchestrator/logs/
     _LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
 
-    def _expected_status_path(self, plan_path: "Path") -> "Path":
+    def _expected_status_path(self, plan_path: Path) -> Path:
         """Compute the expected status file path for a given plan path."""
         import hashlib
         plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
         return self._LOGS_DIR / f"{plan_hash}-run-status.json"
 
-    def _make_args(self, plan_path: "Path") -> MagicMock:
+    def _make_args(self, plan_path: Path) -> MagicMock:
         args = MagicMock()
         args.plan = str(plan_path)
         args.resume = None
@@ -972,7 +971,7 @@ class TestWriteErrorStatusEarlyExits:
         args.project_path = None
         return args
 
-    def _make_config(self, tmp_path: "Path") -> MagicMock:
+    def _make_config(self, tmp_path: Path) -> MagicMock:
         mock_config = MagicMock()
         mock_config.checkpoint_dir = tmp_path / "checkpoints"
         mock_config.workspace_root = tmp_path
@@ -984,7 +983,7 @@ class TestWriteErrorStatusEarlyExits:
     # Lock-held early exit
     # ------------------------------------------------------------------
 
-    async def test_lock_held_writes_error_status_file(self, tmp_path: "Path") -> None:
+    async def test_lock_held_writes_error_status_file(self, tmp_path: Path) -> None:
         """When the lock is already held, _run() exits with EXIT_ERROR and
         writes a valid ERROR tombstone to the run-status file."""
         import json
@@ -1021,7 +1020,7 @@ class TestWriteErrorStatusEarlyExits:
     # Plan-not-found early exit
     # ------------------------------------------------------------------
 
-    async def test_plan_not_found_writes_error_status_file(self, tmp_path: "Path") -> None:
+    async def test_plan_not_found_writes_error_status_file(self, tmp_path: Path) -> None:
         """When the plan file does not exist, _run() exits with EXIT_ERROR and
         writes a valid ERROR tombstone to the run-status file."""
         import json
@@ -1054,13 +1053,12 @@ class TestWriteErrorStatusEarlyExits:
     # Resume-terminal early exit
     # ------------------------------------------------------------------
 
-    async def test_resume_terminal_writes_error_status_file(self, tmp_path: "Path") -> None:
+    async def test_resume_terminal_writes_error_status_file(self, tmp_path: Path) -> None:
         """When --resume targets a terminal checkpoint, _run() exits with
         EXIT_ERROR and writes a valid ERROR tombstone to the run-status file."""
         import json
 
         from src.cli import EXIT_ERROR, _mark_run_terminal, _run
-        from src.utils.logging import WorkflowLogger
 
         plan = (tmp_path / "plan.md").resolve()
         plan.write_text("# Plan")

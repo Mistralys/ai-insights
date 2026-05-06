@@ -132,7 +132,10 @@ class TestLoadSubagentsHappyPath:
             tmp_path,
             pm_subagents=["slug-alpha", "slug-beta"],
             standalone_yaml={"slug-alpha": "Alpha does things.", "slug-beta": "Beta helps."},
-            deep_agents={"slug-alpha": "# Alpha\nSystem prompt alpha.", "slug-beta": "# Beta\nSystem prompt beta."},
+            deep_agents={
+                "slug-alpha": "# Alpha\nSystem prompt alpha.",
+                "slug-beta": "# Beta\nSystem prompt beta.",
+            },
         )
         result = load_subagents("pm", workspace_root=ws)
         assert len(result) == 2
