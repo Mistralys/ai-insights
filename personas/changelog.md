@@ -1,11 +1,9 @@
 # Personas Changelog
 
-## v3.18.1 - Git Committer Category Prefixes
-- Standalone: Added category/module prefix convention to Git Committer
-  commit message composition (Docs, Maintenance, Hooks, CTX, etc.).
-
-## v3.18.0 - Git Committer Persona
+## v3.18.1 - Git Committer Persona
 - Standalone: Added Git Committer persona for structured commit workflows.
+- Standalone: Added category/module prefix convention for commit message composition
+  (Docs, Maintenance, Hooks, CTX, etc.).
 
 ## v3.17.0 - New Personas and Standalone Rewrites
 - Standalone: Added Plan Auditor persona.
