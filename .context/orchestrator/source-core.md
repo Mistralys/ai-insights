@@ -529,7 +529,9 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     _plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
     _run_status_path = _logs_dir / f"{_plan_hash}-run-status.json"
 
-    def _write_error_status(error_msg: str, log_filename: str = "", slug: str | None = None) -> None:
+    def _write_error_status(
+        error_msg: str, log_filename: str = "", slug: str | None = None
+    ) -> None:
         """Write an ERROR status file. Best-effort — never raises.
 
         ``slug`` defaults to ``plan_dir.name`` when omitted; pass an explicit
@@ -611,7 +613,9 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
                     "  (terminal checkpoint — nothing left to execute).\n"
                     "  To start a fresh run, omit --resume.\n"
                 )
-                _write_error_status(f"Thread {thread_id!r} is a completed run (nothing left to execute)")
+                _write_error_status(
+                    f"Thread {thread_id!r} is a completed run (nothing left to execute)"
+                )
                 return EXIT_ERROR
         else:
             thread_id = str(uuid.uuid4())
