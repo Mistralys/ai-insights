@@ -1,14 +1,12 @@
 # Orchestrator Changelog
 
-## v0.18.1 - GUI Error Surfacing Fixes
+## v0.19.0 - Run Queue and GUI Error Surfacing
+- CLI: Added persistent run queue with atomic file I/O and filelock integration;
+  runs are registered on start and deregistered on exit.
 - CLI: Fixed GUI error-surfacing for early-exit paths (lock-held, resume-terminal,
-  plan-not-found) that left the UI hanging indefinitely at "Waiting for run…".
-- CLI: Moved `_write_error_status()` definition before plan-not-found guard so all
-  exit paths can invoke it; added `slug` parameter for pre-`plan_dir` call sites.
-- CLI: Fixed file handle leak in `_write_error_status()` — replaced bare `open()`
-  passed to `json.dump()` with a `with` block.
-- Tests: Added `TestWriteErrorStatusEarlyExits` covering lock-held, plan-not-found,
-  and resume-terminal early-exit tombstone writes.
+  plan-not-found) that left the UI hanging indefinitely.
+- CLI: Fixed file handle leak in `_write_error_status()`.
+- Tests: Added run-queue and early-exit tombstone test suites.
 
 ## v0.18.0 - Direct Pipeline Stage Routing
 - Supervisor: Added `ROUTE_PIPELINE_AGENT` to dispatch actions.
