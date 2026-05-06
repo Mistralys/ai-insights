@@ -132,6 +132,7 @@ _SOURCE: Directory tree_
             ├── ctx-architect.md
             ├── developer-standalone.md
             ├── documentation-curator.md
+            ├── git-committer.md
             ├── ledger-bootstrapper.md
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
@@ -154,6 +155,7 @@ _SOURCE: Directory tree_
             ├── ctx-architect.md
             ├── developer.md
             ├── documentation-curator.md
+            ├── git-committer.md
             ├── ledger-bootstrapper.md
             ├── ledger-claude-coordinator.md
             ├── ledger-dependency-sequencer.md
@@ -177,6 +179,7 @@ _SOURCE: Directory tree_
             │   ├── ctx-architect.md
             │   ├── developer.md
             │   ├── documentation-curator.md
+            │   ├── git-committer.md
             │   ├── ledger-bootstrapper.md
             │   ├── ledger-claude-coordinator.md
             │   ├── ledger-dependency-sequencer.md
@@ -200,6 +203,7 @@ _SOURCE: Directory tree_
             │   └── ctx-architect.yaml
             │   └── developer.yaml
             │   └── documentation-curator.yaml
+            │   └── git-committer.yaml
             │   └── ledger-bootstrapper.yaml
             │   └── ledger-claude-coordinator.yaml
             │   └── ledger-dependency-sequencer.yaml
@@ -222,6 +226,7 @@ _SOURCE: Directory tree_
             └── ctx-architect.agent.md
             └── developer-standalone.agent.md
             └── documentation-curator.agent.md
+            └── git-committer.agent.md
             └── ledger-bootstrapper.agent.md
             └── ledger-claude-coordinator.agent.md
             └── ledger-dependency-sequencer.agent.md

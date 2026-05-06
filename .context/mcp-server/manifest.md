@@ -1309,6 +1309,13 @@ function computeHealedStatus(rootIndex: RootIndex): {
   legacySynthesisTimestampRepair: boolean; // true when synthesis_generated===true, corruptionDetected===false, and synthesis_generated_at is absent/null → signals getProjectStatus to backfill synthesis_generated_at = last_updated
 };
 
+// Absolute path to the workspace root directory (ai-insights/).
+// Derived once at module-load time: join(__dirname, '..', '..', '..') from src/utils/.
+// Resolves correctly from both dev (tsx runs .ts from src/utils/) and production (dist/utils/).
+// Exported from src/utils/ledger-root.ts. Used by gui/server.ts to pass workspaceRoot to
+// handleOrchestratorStart (added by WP-008).
+const WORKSPACE_ROOT: string;
+
 // Returns the absolute path to the central ledger root directory.
 // Resolution: 1) --ledger-dir CLI arg, 2) {serverDir}/storage/ledger/
 // Exported from src/utils/ledger-root.ts
@@ -2112,18 +2119,287 @@ Slug validation: throws `ApiError NOT_FOUND` for slugs that are empty, contain `
 
 ---
 
+## GUI Queue Helpers
+
+### `src/gui/queue/types.ts` — shared queue type definitions and constants (WP-A)
+
+Leaf module. Imports only from `compute-effective-status.ts`. No I/O.
+
+```typescript
+/** Filename of the shared run queue within the orchestrator logs directory. */
+export const QUEUE_FILENAME = '.run-queue.json';
+
+export interface RawQueueEntry {
+  id: string; pid: number; planPath: string; expectedSlug: string;
+  startedAt: string; status: 'pending';
+}
+
+export interface QueueEntry extends RawQueueEntry {
+  effectiveStatus: EffectiveStatus; // from compute-effective-status.ts
+  progress: string | null;
+  lastAction: string | null;
+  logFilename: string | null;
+}
+
+export interface KillResult { killed: boolean; }
+
+export interface PreflightResult {
+  name: string; pass: boolean; detail: string; fix?: string;
+}
+
+export interface StartResult {
+  checks: PreflightResult[]; started: boolean; pid?: number;
+  runStatusFilename?: string;
+}
+
+export interface RunStatus {
+  slug: string; result: 'SUCCESS' | 'ERROR'; error: string | null;
+  logFilename: string; durationS: number | null;
+}
+```
+
+---
+
+### `src/gui/queue/get-queue.ts` — queue reading internals and public `getQueue()` (WP-B)
+
+Async, I/O (reads queue file and project ledger files). Imports from `./types.js`, `./resolve-progress.js`, and `./compute-effective-status.js`.
+
+```typescript
+/**
+ * Returns true if the process with `pid` exists on this machine.
+ * Exported for use by queue-mutation functions in orchestrator-manager.ts.
+ */
+export function isProcessAlive(pid: number): boolean;
+
+/**
+ * Reads and parses <logsDir>/.run-queue.json.
+ * Returns [] on any I/O or parse error. Never writes.
+ * Exported for use by checkNoConflict in orchestrator-manager.ts.
+ */
+export async function readQueueFile(logsDir: string): Promise<RawQueueEntry[]>;
+
+/**
+ * Returns whether the project identified by `slug` has a ledger entry
+ * and whether synthesis has been generated for it. Fail-safe.
+ * Exported for use by killQueueEntry/dismissQueueEntry in orchestrator-manager.ts.
+ */
+export async function getProjectLedgerStatus(
+  ledgerRoot: string,
+  slug: string,
+): Promise<{ exists: boolean; synthesisGenerated: boolean }>;
+
+/**
+ * Reads the shared orchestrator run queue and returns all active entries
+ * enriched with computed lifecycle state and JSONL progress summaries.
+ * Entries for completed projects (synthesis_generated === true) are excluded.
+ * Fail-safe: never throws.
+ */
+export async function getQueue(params: {
+  logsDir: string;
+  ledgerRoot: string;
+}): Promise<QueueEntry[]>;
+```
+
+---
+
+### `src/gui/queue/format-progress-entry.ts` — pure JSONL entry → progress string mapper (WP-001, WP-D)
+
+Stateless, no I/O. Maps a single JSONL log entry to a human-readable string.
+
+```typescript
+/**
+ * Maps a single JSONL log entry to a human-readable progress string.
+ *
+ * Returns null for event types that do not produce a useful summary
+ * (heartbeat, unrecognised action). Exported for unit testing.
+ *
+ * Handled event types: run_start, stage_start, stage_complete,
+ * progress_snapshot, tool_call, wp_complete, wp_status_change, run_end,
+ * run_error, signal_shutdown, heartbeat (→ null), unknown (→ null).
+ *
+ * Note: tool_call with tool_name === '' is treated the same as absent
+ * (returns 'Tool call' without a name suffix). (WP-D)
+ */
+export function formatProgressEntry(entry: Record<string, unknown>): string | null;
+```
+
+### `src/gui/queue/resolve-progress.ts` — async progress resolver (WP-001)
+
+Reads the most recent JSONL log file for a slug and returns a structured `ProgressResolution`. Also re-exports `formatProgressEntry` as a convenience barrel.
+
+**Re-export note:** This module intentionally acts as a barrel for both `resolveProgress` and `formatProgressEntry`. `orchestrator-manager.ts` further re-exports both for backward compat (see the two-level chain description above).
+
+```typescript
+/**
+ * Structured result returned by resolveProgress().
+ */
+export interface ProgressResolution {
+  /** Human-readable summary of the last meaningful JSONL log event, or null. */
+  summary: string | null;
+  /** The `action` field of the JSONL entry that produced `summary`, or null. */
+  lastAction: string | null;
+  /** Basename of the JSONL log file read, or null when no matching file found. */
+  logFilename: string | null;
+  /**
+   * true when lastAction is non-null and not 'run_start', indicating that
+   * at least one meaningful pipeline stage has been entered.
+   */
+  hasStageActivity: boolean;
+}
+
+// Re-exported from format-progress-entry.ts for caller convenience:
+export { formatProgressEntry } from './format-progress-entry.js';
+
+/**
+ * Finds the most recent JSONL log file for `slug` in `logsDir` and returns
+ * a ProgressResolution describing the last meaningful event.
+ *
+ * Returns a resolution with all null/false fields when:
+ *   - No matching log file exists.
+ *   - The file is unreadable or empty.
+ *   - All entries are non-summarisable (e.g. only heartbeats).
+ *
+ * logFilename is populated even when the file is readable but contains
+ * only non-summarisable events (non-null while summary is null).
+ *
+ * Fail-safe: never throws — all I/O errors return safe defaults.
+ */
+export async function resolveProgress(
+  logsDir: string,
+  slug:    string,
+): Promise<ProgressResolution>;
+```
+
+---
+
+## GUI Orchestrator Manager
+
+### `gui/orchestrator-manager.ts` — queue mutator, orchestrator launcher, backward-compat re-export hub (WP-005, WP-006, WP-007, WP-A, WP-B)
+
+Provides two areas of functionality (queue reading delegated to `src/gui/queue/get-queue.ts`):
+
+1. **Queue mutation** — `killQueueEntry()` terminates a pending orchestrator process (SIGTERM → wait → SIGKILL) and removes its entry from the queue file; `dismissQueueEntry()` removes a dead entry from the queue file without signalling. Both operations use atomic tmp-then-rename writes.
+2. **Preflight and launch** — validates workspace readiness via 7 preflight checks and optionally spawns a detached orchestrator process (`startOrchestrator`).
+
+**Re-export hub:** all types, `QUEUE_FILENAME`, `getQueue`, `formatProgressEntry`, `ProgressResolution`, `EffectiveStatus` are re-exported from their respective `src/gui/queue/` sub-modules. Callers importing from `gui/orchestrator-manager.ts` continue to work unchanged.
+
+**Re-export chain (WP-001, WP-A, WP-B):** `formatProgressEntry` lives in `src/gui/queue/format-progress-entry.ts`. `src/gui/queue/resolve-progress.ts` imports and re-exports it as a convenience barrel alongside `ProgressResolution` and `resolveProgress`. `src/gui/queue/types.ts` holds all 6 shared type definitions (WP-A). `src/gui/queue/get-queue.ts` holds `getQueue()` and all queue-reading internals (WP-B). `orchestrator-manager.ts` re-exports everything from the queue sub-modules for backward compatibility with callers that import from this module. New code should import directly from the relevant `src/gui/queue/` sub-module.
+
+**Lifecycle state transitions (computed in-memory, never persisted):**
+
+| Process alive | Project exists in ledger | Effective status |
+|---|---|---|
+| yes | no | `pending` |
+| yes | yes | `started` |
+| no | no | `dead` |
+| no | yes | `started` |
+| — | synthesis_generated = true | excluded from result |
+
+**Types** — all defined in `src/gui/queue/types.ts` and re-exported here for backward compat. See the `types.ts` section above for full signatures: `QUEUE_FILENAME`, `RawQueueEntry`, `QueueEntry`, `KillResult`, `PreflightResult`, `StartResult`, `RunStatus`.
+
+```typescript
+/**
+ * Runs 6 preflight checks and optionally spawns a detached orchestrator process.
+ *
+ * All checks (plan-basename, plan-file, no-conflict, venv, env, mcp-dist)
+ * run in parallel. Environment checks (venv, env, mcp-dist)
+ * always run. All applicable checks execute in parallel via Promise.all.
+ *
+ * - dryRun: true  → returns check results without spawning.
+ * - Any check fails → returns results with started: false.
+ * - All pass + not dry-run → spawns detached process, returns started: true + pid.
+ *
+ * Binary resolution: orchestrator/.venv/Scripts/orchestrate.exe (Windows),
+ * orchestrator/.venv/bin/orchestrate (Unix).
+ * Spawn options: detached: true, stdio: 'ignore', env includes PYTHONUTF8='1';
+ * child.unref() called immediately (survives GUI server exit).
+ *
+ * @param planPath       Absolute path to the plan .md file.
+ * @param workspaceRoot  Absolute path to the workspace root directory.
+ * @param dryRun         When true, skip spawning even if all checks pass. Default: false.
+ */
+export async function startOrchestrator(
+  planPath:      string,
+  workspaceRoot: string,
+  dryRun?:       boolean,
+): Promise<StartResult>;
+
+/**
+ * Terminates the orchestrator process for a pending queue entry and removes
+ * the entry from the queue file.
+ *
+ * Only operates on effectively-pending entries (alive && no project in ledger).
+ * Returns { killed: false } without throwing when:
+ *   - The entry is not found.
+ *   - The entry's effective status is `started` or `dead`.
+ *
+ * When killed === true, the procedure is:
+ *   1. SIGTERM sent to the process.
+ *   2. Wait up to SIGTERM_WAIT_MS ms.
+ *   3. SIGKILL sent if the process is still alive after the wait.
+ *   4. Entry removed from the queue file atomically (tmp-then-rename).
+ *   5. `.orchestrator.lock` removed from the plan directory.
+ *
+ * TOCTOU safety: ESRCH on SIGTERM delivery is swallowed — process already gone.
+ * PID validation: isRawQueueEntry() rejects zero, negative, and float PIDs.
+ */
+export async function killQueueEntry(params: {
+  id: string;          // Queue entry ID to kill.
+  logsDir: string;     // Absolute path to the orchestrator logs directory.
+  ledgerRoot: string;  // Absolute path to the central ledger root.
+}): Promise<KillResult>;
+
+/**
+ * Removes a dead queue entry from the queue file on disk.
+ *
+ * Only operates on effectively-dead entries (!alive && no project in ledger).
+ * Returns (void) without throwing when entry is not found or not dead.
+ * Queue file write is atomic (tmp-then-rename).
+ */
+export async function dismissQueueEntry(params: {
+  id: string;          // Queue entry ID to dismiss.
+  logsDir: string;     // Absolute path to the orchestrator logs directory.
+  ledgerRoot: string;  // Absolute path to the central ledger root.
+}): Promise<void>;
+```
+
+**Preflight checks (6 total):**
+
+| Name | Description |
+|---|---|
+| `plan-basename` | Validates plan folder matches `YYYY-MM-DD-{project-name}` via `planFolderBasename()` |
+| `plan-file` | Verifies the plan `.md` file exists on disk |
+| `no-conflict` | Checks the plan is not already registered in the run queue |
+| `venv` | Verifies `.venv` directory and `orchestrate` binary exist |
+| `env` | Verifies `orchestrator/.env` contains `ANTHROPIC_API_KEY` or `GOOGLE_API_KEY` |
+| `mcp-dist` | Verifies `mcp-server/dist/index.js` exists and is newer than all `mcp-server/src/` files |
+
+
+**Fail-safe pattern:** `readQueueFile`, `getProjectLedgerStatus`, and `resolveProgress` all
+return safe defaults on any I/O or JSON parse error — I/O failures never propagate to callers.
+`isProcessAlive(pid)` uses `process.kill(pid, 0)` (zero-signal check); EPERM is caught and
+treated as dead (cross-process owned PID — known limitation, acceptable for non-critical GUI
+monitoring).
+
+**Progress resolution:** `resolveProgress` finds the most recent JSONL log file for a slug
+(newest-first via lexicographic sort on ISO-prefixed filenames) and walks backwards to the last
+summarisable event.
+
+---
+
 ## GUI API Module
 
 ### `gui/api.ts` — REST API route handlers
 
 Pure async handler functions called by the HTTP server (`gui/server.ts`). All handlers accept parsed parameters and return typed result objects, or throw `ApiError`.
 
-**Path-traversal guards:** two module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
+**Path-traversal guards:** three module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
 - `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleGetWorkPackageOverview`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`, `handleListChunks`, `handleGetChunkFile`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
+- `assertSafeQueueId(id: string): void` — applied as the **first statement** in `handleOrchestratorKill` and `handleOrchestratorDismiss`; `id` is extracted from the URL path via `decodeURIComponent()` in `server.ts` **before** the guard is called, so percent-encoded slashes (`%2F`) are decoded first and then caught.
 
-Both guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
+All three guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
 
 ```typescript
 // Error type used by all handlers
@@ -2464,6 +2740,59 @@ export async function handleGetChunkFile(
 // Security and error handling are inherited from handleGetChunkFile.
 // Route is dispatched from gui/server.ts before the raw-file route (different segment count:
 // rest.length === 5 vs. rest.length === 4 — no ordering dependency).
+
+// ---------------------------------------------------------------------------
+// Orchestrator lifecycle handlers (WP-008)
+// ---------------------------------------------------------------------------
+
+// POST /api/orchestrator/start
+// Validates body.planPath (required, string) and optional dryRun (boolean, default false),
+// then runs 7 preflight checks via startOrchestrator().
+// When dryRun=false and all checks pass, spawns a detached orchestrator process.
+// Throws VALIDATION_ERROR when body.planPath is absent or not a string.
+// Also throws VALIDATION_ERROR when body is not a JSON object (non-object, null).
+// Note: an array body passes the non-null object check and falls through to the planPath
+// check, producing a 'body.planPath is required' error rather than 'body must be an object'
+// — non-blocking because array bodies cannot occur in practice for this endpoint.
+export async function handleOrchestratorStart(
+  workspaceRoot: string,
+  body: unknown,
+): Promise<StartResult>;
+
+// GET /api/orchestrator/queue
+// Returns all active orchestrator queue entries enriched with computed
+// lifecycle state and JSONL progress summaries. Delegates entirely to
+// getQueue() from gui/orchestrator-manager.ts.
+// Returns [] when the queue file or its parent directory does not exist.
+// Fail-safe: all internal I/O errors return safe defaults — never throws.
+export async function handleGetOrchestratorQueue(
+  logsDir: string,
+  ledgerRoot: string,
+): Promise<QueueEntry[]>;
+
+// POST /api/orchestrator/kill/:id
+// Terminates the orchestrator process for an effectively-pending queue entry
+// and removes it from the queue file. Delegates to killQueueEntry().
+// Returns { killed: false } without throwing when the entry is not found or
+// its effective status is not 'pending'.
+// assertSafeQueueId() applied first; id passed in by server.ts after decodeURIComponent().
+export async function handleOrchestratorKill(
+  id: string,
+  logsDir: string,
+  ledgerRoot: string,
+): Promise<KillResult>;
+// where KillResult = { killed: boolean } (from gui/orchestrator-manager.ts)
+
+// POST /api/orchestrator/dismiss/:id
+// Removes a dead queue entry from the queue file on disk. Delegates to dismissQueueEntry().
+// Resolves without throwing when the entry is not found or its effective status is not 'dead'.
+// server.ts sends HTTP 204 No Content on success (void return).
+// assertSafeQueueId() applied first; id passed in by server.ts after decodeURIComponent().
+export async function handleOrchestratorDismiss(
+  id: string,
+  logsDir: string,
+  ledgerRoot: string,
+): Promise<void>;
 ```
 
 **HTTP status code mapping** (implemented in `gui/server.ts`):
@@ -2472,6 +2801,7 @@ export async function handleGetChunkFile(
 | `NOT_FOUND` | 404 |
 | `FORBIDDEN` | 403 |
 | `VALIDATION_ERROR` | 400 |
+| `CONFLICT` | 409 |
 | (unhandled) | 500 |
 
 ---
@@ -2519,6 +2849,10 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 | GET | `/api/insights` | `handleGetInsights` |
 | GET | `/api/server-info` | special-case block in `server.ts` before `matchRoute()` — returns `{ stale, bootVersions, diskVersions }` (stale-instance detection) |
 | POST | `/api/projects/:slug/reset` | `handleResetProject` (body parsed via `readBody()`) |
+| GET | `/api/orchestrator/queue` | `handleGetOrchestratorQueue` — via `matchRoute()`; returns enriched `QueueEntry[]` |
+| POST | `/api/orchestrator/start` | `handleOrchestratorStart` — special-case block before `matchRoute()`; body parsed via `readBody()`; dispatches `WORKSPACE_ROOT` as `workspaceRoot` |
+| POST | `/api/orchestrator/kill/:id` | `handleOrchestratorKill` — special-case block; `id` extracted via `decodeURIComponent(path.slice('/api/orchestrator/kill/'.length))` before `assertSafeQueueId` |
+| POST | `/api/orchestrator/dismiss/:id` | `handleOrchestratorDismiss` — special-case block; same `decodeURIComponent` extraction; responds HTTP 204 No Content |
 
 **Static file serving:** requests not starting with `/api/` are served from `gui/public/` (ESM path via `import.meta.url`). `/` → `index.html`. Unknown paths → 404.
 
@@ -2528,6 +2862,18 @@ A minimal Node.js HTTP server using `node:http` (no external HTTP frameworks). R
 - `ApiError` codes map to HTTP status: `NOT_FOUND`→404, `FORBIDDEN`→403, `VALIDATION_ERROR`→400, other→500
 - Error response body: `{ "error": { "code": "...", "message": "..." } }`
 - `EADDRINUSE` → logs to stderr + `process.exit(1)`
+
+#### `apiErrorToStatus(code: string): number`
+
+Maps an `ApiError` error code to its HTTP status code. Exported for unit testing.
+
+| Error Code | HTTP Status |
+|------------|-------------|
+| `NOT_FOUND` | 404 |
+| `FORBIDDEN` | 403 |
+| `VALIDATION_ERROR` | 400 |
+| `CONFLICT` | 409 |
+| *(default)* | 500 |
 
 ---
 
@@ -2551,6 +2897,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
+| `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
 
@@ -2666,7 +3013,7 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 > **Missing flex properties (intentional):** `display:flex`, `align-items`, and `padding` are not present in this CSS-only WP. They will be added in the HTML integration WP when the banner markup and its inner layout are implemented.
 
 **`api-client.js`:**
-- **`API`** — async fetch wrappers for all 26 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(slug)` → `GET /api/projects/:slug/runs`; `getRunLogEntries(slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns raw Markdown text via `res.text()` — uses direct `fetch()` rather than the private `request()` helper, which calls `res.json()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(slug, filename)` → `GET /api/projects/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToMarkdown`)
+- **`API`** — async fetch wrappers for all 30 REST endpoints (throws `{ code, message }` on non-2xx); includes `getProjects(params)` → `GET /api/projects`; `getProject(slug)` → `GET /api/projects/:slug`; `getWorkPackages(slug)` → `GET /api/projects/:slug/work-packages`; `getWorkPackage(slug, wpId)` → `GET /api/projects/:slug/work-packages/:wpId`; `getWorkPackageOverview(slug)` → `GET /api/projects/:slug/work-packages/overview`; `deleteProject(slug)` → `DELETE /api/projects/:slug`; `archiveProject(slug)` → `POST /api/projects/:slug/archive`; `unarchiveProject(slug)` → `POST /api/projects/:slug/unarchive`; `getConfig()` → `GET /api/config`; `updateConfig(data)` → `PUT /api/config`; `getInsights()` → `GET /api/insights`; `getServerInfo()` → `GET /api/server-info`; `getPlanDocument(slug)` → `GET /api/projects/:slug/plan`; `getSynthesisDocument(slug)` → `GET /api/projects/:slug/synthesis`; `analyzeProjectReset(slug)` → `POST /api/projects/:slug/reset` with `{ dry_run: true }`; `applyProjectReset(slug, decisions)` → `POST /api/projects/:slug/reset` with `{ dry_run: false, decisions }`; `getProjectHealth(slug)` → `GET /api/projects/:slug/health`; `renameProject(slug, title)` → `PATCH /api/projects/:slug` with `{ title }`; `renameSlug(slug, newSlug)` → `PATCH /api/projects/:slug` with `{ slug: newSlug }`; `markProjectComplete(slug)` → `POST /api/projects/:slug/complete`; `getRunLogs(slug)` → `GET /api/projects/:slug/runs`; `getRunLogEntries(slug, filename, afterLine?)` → `GET /api/projects/:slug/runs/:filename?after=N` (hand-rolled query string; consistent with `getDialogues`); `getDialogues(slug, wpId)` → `GET /api/projects/:slug/dialogues?wp={wpId}` (hand-rolled query string; returns parsed JSON `{ filename, stage, wp_id }[]`); `getDialogueContent(slug, filename)` → `GET /api/projects/:slug/dialogues/:filename` (returns raw Markdown text via `res.text()` — uses direct `fetch()` rather than the private `request()` helper, which calls `res.json()`); `getChunks(slug, wpId)` → `GET /api/projects/:slug/chunks?wp={wpId}` (returns parsed JSON `ChunkEntry[]`); `getChunkRendered(slug, filename)` → `GET /api/projects/:slug/chunks/{filename}/rendered` (returns `{ content: string }` — rendered Markdown via `renderChunksToMarkdown`); `orchestratorStart(planPath, dryRun)` → `POST /api/orchestrator/start` with body `{ planPath, dryRun }` (launches an orchestrator run; server-side handler pending); `orchestratorGetQueue()` → `GET /api/orchestrator/queue` (returns current run-queue entries; server-side handler pending); `orchestratorKill(id)` → `POST /api/orchestrator/kill/{encodeURIComponent(id)}` (sends SIGTERM to the process; server-side handler pending); `orchestratorDismiss(id)` → `DELETE /api/orchestrator/queue/{encodeURIComponent(id)}` (removes a completed or stale entry from the queue without killing the process; server-side handler pending)
 
 **`theme.js`:**
 - **`Theme`** — dark/light theme toggle; reads/writes `localStorage`; applies `data-theme` attribute on `<html>`; `init()` wires the toggle button; `toggle()` switches between `'dark'` and `'light'` and persists the choice
@@ -2679,6 +3026,15 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 
 **`app.js`:**
 - Bootstrap entry point — calls `Theme.init()` then `Router.init()`
+
+**`js/orchestrator-widgets.js`:**
+- **`OrchestratorWidgets`** — ES5-compatible IIFE; exposes 6 functions on a single global object (does not pollute the global namespace beyond this one name):
+  - `renderStatusCard(entry)` → `string` — HTML card with status badge (`.badge-pending` / `.badge-started` / `.badge-dead`), PID, elapsed running time, and progress summary; all user-controlled values are XSS-escaped via `escapeHtml()`
+  - `renderKillButton(entryId, onDone)` → `HTMLButtonElement` — requires `window.confirm` before calling `API.orchestratorKill(entryId)`; invokes `onDone` on success
+  - `renderDismissButton(entryId, onDone)` → `HTMLButtonElement` — calls `API.orchestratorDismiss(entryId)`; invokes `onDone` on success
+  - `renderLogPreview(container, slug, filename)` → `() => void` — auto-polls `API.getRunLogEntries()` at a 2-second interval; appends new events as `<div class="log-preview-entry">` elements via `textContent` (no `innerHTML`); returns a cleanup function; stopped-flag guard prevents stale `.then()` callbacks from appending after cleanup
+  - `renderProgressBadge(lastAction)` → `string` — maps `lastAction` strings to badge classes: `run_start/stage_start/progress_snapshot` → `badge-info`; `stage_complete/wp_complete` → `badge-success`; `run_end/heartbeat` → `badge-neutral`; `run_error/stage_error` → `badge-error`; `signal_shutdown` → `badge-warning`; unknown/null → `badge-neutral` with idle label
+  - `renderCliReference()` → `string` — static HTML with `orchestrate`, `--resume`, `--dry-run`, and `kill-orchestrator.js` command references; keep in sync with `orchestrator/src/cli.py` (CLI flags), `scripts/kill-orchestrator.js`, and `scripts/preflight-orchestrator.js`
 
 **`views/project-list.js`:**
 - **`renderProjectList(app)`** — project list table with status filter dropdown + fulltext search input (client-side, combined `statusMatch && textMatch`); columns: **Slug** (date prefix stripped; full slug in `title` attribute tooltip), **Project** (`project_name` or `—`), **Repository** (`repository_name` or `—`; rendered via `<td class="repo-col">`), **% Done** (inline `.progress-bar-track` / `.progress-bar-fill` + percentage, or `—` for 0 WPs), **Status**, **Created**, **Updated**, **Actions**; `searchValue` and `filterValue` are closure-scope state that survive the 10-second poll-triggered re-render cycle; `applyFilter()` reads `data-slug`, `data-name`, and `data-repo` attributes off `<tr>` elements (full slug + raw project name + repository name, all lowercased for case-insensitive match); `data-repo` is set to `escapeHtml(p.repository_name || '')` on the `<tr>` element; em-dash fallback uses `\u2014` Unicode escape; **Actions** column uses a single ⋮ kebab button per row (`.action-menu-wrapper` / `.action-menu-btn` / `.action-menu`) rather than per-row inline buttons; dropdown items: **View** (`<a role=menuitem>`), conditional **Archive** / **Unarchive** (`<button role=menuitem data-action=archive|unarchive>`), **Delete** (`<button class=danger role=menuitem data-action=delete>` — always rendered regardless of status; backend still enforces COMPLETE/ARCHIVED guard); open/close state tracked via `openMenuWrapper` + `closeOpenMenu()` closure-scope variables; a document `mousedown` sentinel (installed once per `renderProjectList` call via `docHandlerInstalled` flag) and a `scroll` listener on `.table-wrapper` close any open menu on outside interaction; opening a second menu closes the first; `aria-haspopup='menu'` and `aria-expanded` wired to trigger button
@@ -5029,6 +5385,27 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 
 **Race window (acceptable):** Dependency WP files are read before lock acquisition. A dependency could theoretically be modified between the pre-read and the lock. For an advisory-only check this race window is acceptable — false negatives do not affect correctness.
 
+---
+
+### 71. `gui/server.ts` Two-Tier Routing Convention — Preserve the Route-Map Comment Block
+
+**Rule:** `gui/server.ts` uses a deliberate two-tier routing architecture. When adding a new route, use the correct tier and keep the route-map comment block at the bottom of `matchRoute()` up-to-date.
+
+**Tier 1 — `matchRoute()`:** Handles segment-count-based dispatch. Receives pre-parsed path segments (`rest`), the request method, `ledgerRoot`, and `orchestratorLogsDir`. Suitable for routes that need only path-derived parameters (no body, no dynamic path-tail extraction). Returns a `() => Promise<unknown>` thunk, or `null` if no route matches. The function contains a **route-map comment block** before its final `return null` that lists every route handled outside `matchRoute()` (i.e., in `handleRequest()` special-case blocks). **This comment block must be kept current.** When a new route is handled in `handleRequest()` rather than `matchRoute()`, add a line to that block.
+
+**Tier 2 — `handleRequest()` special-case blocks:** Handles routes that require body parsing (via `readBody()`) or path-tail extraction (via `path.slice()` + `decodeURIComponent()`). Each block is a guarded early-return placed before the `matchRoute()` fallback call.
+
+**Current split (as of WP-009):**
+
+| Tier | Routes |
+|------|--------|
+| `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
+| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `PATCH /api/projects/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+
+**Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
+
+**Test coverage note:** As of WP-009, orchestrator routes have strong handler-level test coverage in `tests/gui/api-orchestrator.test.ts` but no `handleRequest()`-level integration test (unlike `tests/gui/api.test.ts` which exercises `handleRequest()` directly). A future `handleRequest()` integration test for orchestrator routes would provide defence-in-depth.
+
 ```
 ###  Path: `/mcp-server/docs/agents/project-manifest/data-flows.md`
 
@@ -6365,15 +6742,15 @@ mcp-server/
 │           └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
 │
 ├── gui/                         # GUI server process code
-│   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints)
+│   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers (WP-008): handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss
 │   ├── chunk-renderer.ts    # renderChunksToMarkdown(jsonlContent) — pure JSONL→Markdown renderer; merges AIMessageChunk token fragments by id; groups by namespace; mirrors serialize_messages_to_markdown() output format
-│   ├── server.ts            # Standalone Node.js HTTP server (node:http); routes /api/* to api.ts handlers, serves static files from gui/public/
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles segment-count-based dispatch (parameter-free routes and GET routes needing signature args), special-case blocks in handleRequest() handle routes needing body parsing (POST /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) or path-parameter extraction (PATCH /api/projects/:slug, POST /api/orchestrator/kill/:id, POST /api/orchestrator/dismiss/:id); serves static files from gui/public/
 │   └── public/              # Static assets served by gui/server.ts
-│       ├── index.html       # Dashboard SPA shell
-│       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides
+│       ├── index.html       # Dashboard SPA shell; nav links: Projects (#/), Insights (#/insights), Orchestrator (#/orchestrator), Configuration (#/config); scripts load in dependency order: api-client → theme → router → utils → views → orchestrator-widgets → orchestrator.js → stale-check → app
+│       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides; orchestrator widget block: .orchestrator-status-card/header/body/elapsed/pid/progress-summary (OrchestratorWidgets.renderStatusCard), .orchestrator-kill-btn/.orchestrator-dismiss-btn (OrchestratorWidgets.renderKillButton/renderDismissButton — visual delegated to .btn.btn-danger/.btn.btn-secondary), .log-preview-entry (OrchestratorWidgets.renderLogPreview), .orchestrator-cli-reference h4/pre (OrchestratorWidgets.renderCliReference), .orch-status-cell (orchestrator.js queue table), .orch-active-run-section/.orch-cli-kill-hint (views/project-detail.js orchestrator section), .section-title/.btn-icon (general utilities used by orchestrator views); dark-mode overrides for .orchestrator-status-card, .orchestrator-cli-reference, .log-preview-entry
 │       ├── api-client.js    # API IIFE; buildQueryString(params) helper used by getProjects
 │       ├── theme.js         # Theme IIFE; localStorage key mcp-theme; init() applies saved theme
-│       ├── router.js        # Router IIFE; hash-based routing
+│       ├── router.js        # Router IIFE; hash-based routing; dispatches '/' → renderProjectList, '/projects/*' → detail/plan/synthesis/WP/run-log views, '/config' → renderConfig, '/insights' → renderInsights, '/orchestrator' → renderOrchestrator; setPolling/clearPolling manage per-view auto-refresh; updateNavActive toggles active class on the matching nav link on each hash change
 │       ├── utils.js         # Shared helpers: escapeHtml, formatDate, statusBadge, showLoading, showError
 │       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init(); StaleCheck.init()
 │       ├── stale-check.js   # StaleCheck IIFE; init() polls API.getServerInfo() immediately then every 30 s; injects .stale-banner into document.body before <header> on stale:true; stops polling after banner; silently continues on network errors
@@ -6382,7 +6759,10 @@ mcp-server/
 │   │   ├── project-detail.js  # extractSynopsis, renderPlan, renderSynthesis, renderProjectDetail; STAGE_ABBREV, buildPipelineTrack; showResetModal; archive banner
 │   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
 │   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
-│   │   └── insights.js        # renderInsights — project health stats; 15 s polling
+│   │   ├── insights.js        # renderInsights — project health stats; 15 s polling
+│   │   └── orchestrator.js    # renderOrchestrator — plan path input, preflight checklist (Section A), Start Run button gated on allChecksPassed (Section B), live queue table with 5 s polling via Router._setPolling, per-row expand/collapse inline log preview; cleanup managed via _orchLogPreviewCleanups array; CLI reference card footer (WP-011)
+│       ├── js/
+│   │   └── orchestrator-widgets.js  # OrchestratorWidgets IIFE — shared orchestrator UI components: kill/dismiss row buttons, renderLogPreview (returns cleanup fn), renderCliReference; depends on API (api-client.js) and escapeHtml (utils.js) (WP-011)
 │       └── libs/
 │           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB)
 │
@@ -6394,6 +6774,13 @@ mcp-server/
 │   │   ├── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
 │   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
 │   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir; migrateOrphanedLogs
+│   │   ├── orchestrator-manager.ts  # Queue mutation (killQueueEntry, dismissQueueEntry), preflight checks, startOrchestrator, getRunStatus, runStatusFilename; re-exports getQueue, all types, QUEUE_FILENAME from queue/ sub-modules for backward compat (WP-005, WP-006, WP-007, WP-A, WP-B)
+│   │   ├── queue/               # Run-queue helpers: types, reading, progress resolution, status computation (WP-001, WP-004, WP-A, WP-B)
+│   │   │   ├── types.ts             # Shared type definitions and QUEUE_FILENAME constant: RawQueueEntry, QueueEntry, KillResult, PreflightResult, StartResult, RunStatus — leaf module, no intra-queue deps beyond compute-effective-status.ts (WP-A)
+│   │   │   ├── get-queue.ts         # Queue reading: readQueueFile, isRawQueueEntry, getProjectLedgerStatus (private); isProcessAlive, readQueueFile, getProjectLedgerStatus (exported for orchestrator-manager.ts); getQueue (public API) (WP-B)
+│   │   │   ├── compute-effective-status.ts  # Pure status computation; computeEffectiveStatus(alive, projectExists, hasLogActivity?): EffectiveStatus — 4 priority-ordered transition rules; zero I/O (WP-004)
+│   │   │   ├── format-progress-entry.ts  # Pure JSONL-entry → string mapper; no I/O; formatProgressEntry(); empty-string tool_name treated as absent (WP-D)
+│   │   │   └── resolve-progress.ts  # ProgressResolution interface + resolveProgress() async resolver; EMPTY_RESOLUTION frozen sentinel; re-exports formatProgressEntry as a convenience barrel (two-level re-export chain: format-progress-entry → resolve-progress → orchestrator-manager) (WP-D)
 │   │   └── handlers/
 │   │       └── run-log-handlers.ts  # handleListRunLogs (optional legacyLogsDir migration), handleGetRunLog — thin wrappers adding slug validation over log-resolver.ts
 │   │
@@ -6457,7 +6844,14 @@ mcp-server/
     │   ├── dialogue-qa.test.ts
     │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
     │   ├── log-resolver.test.ts
+    │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers (WP-008): planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
+    │   ├── orchestrator-manager.test.ts  # 77 tests: getQueue() lifecycle transitions (AC-1 through AC-6), formatProgressEntry() (11 event types), progress resolution (WP-005); killQueueEntry()/dismissQueueEntry() lifecycle gates, SIGTERM→SIGKILL flow, TOCTOU ESRCH handling, queue-file removal, lock-file cleanup; PID validation (negative/zero/float rejection) (WP-006); 7 lastAction/logFilename population cases (WP-003 AC-6)
+    │   ├── orchestrator-widgets.test.ts  # 41 tests: OrchestratorWidgets functions, all 7 ACs + 7 refined variants; vm.runInThisContext + jsdom, fake timers for renderLogPreview (WP-010)
     │   ├── project-detail-runs.test.ts
+    │   ├── queue/               # Unit tests for src/gui/queue/ modules (WP-001, WP-004, WP-A, WP-B, WP-C, WP-D)
+    │   │   ├── compute-effective-status.test.ts  # 6 pure unit tests: AC-1/2/3 transitions, default hasLogActivity=false, projectExists-always-wins across all 4 alive/hasLogActivity combinations (WP-004)
+    │   │   ├── format-progress-entry.test.ts  # Unit tests for formatProgressEntry() (11 event types + empty tool_name WP-D)
+    │   │   └── resolve-progress.test.ts  # 29 unit tests covering all 5 acceptance criteria + 3 edge-case tests (malformed JSONL, all-malformed, 0-byte log) (WP-001, WP-C)
     │   ├── run-log-handlers.test.ts
     │   ├── run-log-server.test.ts
     │   ├── run-log.test.ts

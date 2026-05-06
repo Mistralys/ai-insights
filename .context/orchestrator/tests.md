@@ -23,6 +23,7 @@ _SOURCE: Test suite (unit, integration, live marks)_
         └── test_post_completion_guard.py
         └── test_prompt_renderer.py
         └── test_revision.py
+        └── test_run_queue.py
         └── test_state.py
         └── test_stream_retry.py
         └── test_streaming_capture.py
@@ -641,6 +642,7 @@ Tests verify:
 - _print_run_summary() returns correct exit codes.
 - _make_dryrun_node() returns a callable that produces correct state updates.
 - main() exits with correct codes for missing plan files.
+- Run queue register/unregister lifecycle in _run() (WP-004).
 
 No real MCP server, LLM, or LangGraph graph invocation is performed.
 """
@@ -649,6 +651,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1353,6 +1356,384 @@ class TestSignalInterruptedRun:
             "Signal-interrupted run must NOT be marked terminal"
         )
 
+
+# ---------------------------------------------------------------------------
+# Run queue integration — WP-004
+# ---------------------------------------------------------------------------
+
+class TestRunQueueIntegration:
+    """Verify that cli._run() calls run_queue.register() after run_start and
+    run_queue.unregister() in the finally block, regardless of how the run
+    terminates.
+
+    All tests mock MCPToolkit and the LangGraph graph so no real MCP server
+    or LLM is invoked.
+    """
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _make_args(self, tmp_path: "Path") -> MagicMock:
+        plan = tmp_path / "plan.md"
+        plan.write_text("# Plan")
+        args = MagicMock()
+        args.plan = str(plan)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = str(tmp_path)
+        args.max_iterations = None
+        return args
+
+    def _make_config(self, tmp_path: "Path") -> MagicMock:
+        ckpt_dir = tmp_path / "checkpoints"
+        ckpt_dir.mkdir()
+        config = MagicMock()
+        config.checkpoint_dir = ckpt_dir
+        config.workspace_root = tmp_path
+        config.heartbeat_interval_s = 0
+        config.max_iterations = 100
+        config.stage_models = {}
+        return config
+
+    def _make_mcp_mocks(self, *, graph_raises: bool = False) -> tuple:
+        """Return (mock_toolkit, mock_graph, mock_db)."""
+        mock_toolkit = MagicMock()
+        mock_toolkit.get_tools.return_value = []
+        mock_toolkit.__aenter__ = AsyncMock(return_value=mock_toolkit)
+        mock_toolkit.__aexit__ = AsyncMock(return_value=None)
+
+        mock_db = MagicMock()
+        mock_db.close = AsyncMock()
+
+        if graph_raises:
+            async def _ainvoke(*_a: object, **_kw: object) -> dict:
+                raise RuntimeError("simulated graph failure")
+        else:
+            async def _ainvoke(*_a: object, **_kw: object) -> dict:
+                return {"run_log": [], "errors": [], "wp_summaries": []}
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = _ainvoke
+        return mock_toolkit, mock_graph, mock_db
+
+    # ------------------------------------------------------------------
+    # AC-1 partial: register() is called after run_start
+    # ------------------------------------------------------------------
+
+    async def test_register_called_after_run_start(self, tmp_path: "Path") -> None:
+        """register() must be called after the run_start JSONL entry is logged
+        (AC-1: queue entry created after run_start)."""
+        from pathlib import Path
+
+        from src.cli import _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-order.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks()
+
+        # Track call order via a mutable list.
+        call_order: list[str] = []
+        original_log = run_logger.log
+
+        def _tracking_log(*args: object, **kwargs: object) -> None:
+            if kwargs.get("action") == "run_start":
+                call_order.append("run_start")
+            original_log(*args, **kwargs)
+
+        run_logger.log = _tracking_log  # type: ignore[method-assign]
+
+        # Capture the call_order snapshot at the moment register() fires.
+        snapshot_at_register: list[str] = []
+
+        def _register(*_a: object, **_kw: object) -> str:
+            snapshot_at_register.extend(call_order)
+            call_order.append("register")
+            return "order-test-entry-id"
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", side_effect=_register),
+            patch("src.utils.run_queue.unregister"),
+        ):
+            await _run(args, config)
+
+        run_logger.close()
+
+        assert "run_start" in snapshot_at_register, (
+            "register() must be called after run_start is logged"
+        )
+
+    # ------------------------------------------------------------------
+    # AC-1: unregister() called with the correct entry_id on normal exit
+    # ------------------------------------------------------------------
+
+    async def test_unregister_called_with_correct_entry_id(self, tmp_path: "Path") -> None:
+        """On normal completion, unregister() must be called with the entry_id
+        returned by register() (AC-1)."""
+        from src.cli import _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-normal.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks()
+
+        expected_id = "normal-entry-uuid"
+        mock_unregister = MagicMock()
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", return_value=expected_id),
+            patch("src.utils.run_queue.unregister", mock_unregister),
+        ):
+            await _run(args, config)
+
+        run_logger.close()
+        mock_unregister.assert_called_once_with(expected_id)
+
+    # ------------------------------------------------------------------
+    # AC-2: unregister() called even when the run exits via an error path
+    # ------------------------------------------------------------------
+
+    async def test_unregister_called_when_graph_raises(self, tmp_path: "Path") -> None:
+        """Even when graph execution raises, unregister() must be called in the
+        finally block (covers error / signal-interrupted exit paths; AC-2)."""
+        from src.cli import _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-graph-err.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks(graph_raises=True)
+
+        expected_id = "graph-error-entry-uuid"
+        mock_unregister = MagicMock()
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", return_value=expected_id),
+            patch("src.utils.run_queue.unregister", mock_unregister),
+        ):
+            await _run(args, config)
+
+        run_logger.close()
+        mock_unregister.assert_called_once_with(expected_id)
+
+    # ------------------------------------------------------------------
+    # AC-3: register() raises — entry_id stays None — no NameError
+    # ------------------------------------------------------------------
+
+    async def test_register_failure_run_continues_without_unregister(
+        self, tmp_path: "Path"
+    ) -> None:
+        """If register() raises, entry_id stays None, the run continues normally,
+        and unregister() is never called (AC-3: no NameError in finally block)."""
+        from src.cli import EXIT_SUCCESS, _run
+        from src.utils.logging import WorkflowLogger
+
+        args = self._make_args(tmp_path)
+        config = self._make_config(tmp_path)
+        (tmp_path / "logs").mkdir()
+        run_logger = WorkflowLogger(tmp_path / "logs" / "rq-reg-fail.jsonl")
+
+        mock_toolkit, mock_graph, mock_db = self._make_mcp_mocks()
+        mock_unregister = MagicMock()
+
+        with (
+            patch("src.utils.logging.WorkflowLogger.create", return_value=run_logger),
+            patch("src.mcp_client.MCPToolkit.from_config", return_value=mock_toolkit),
+            patch("src.cli._build_graph_for_run", return_value=(mock_graph, mock_db)),
+            patch("src.utils.run_queue.register", side_effect=OSError("lock failed")),
+            patch("src.utils.run_queue.unregister", mock_unregister),
+        ):
+            exit_code = await _run(args, config)
+
+        run_logger.close()
+        # Run must complete successfully despite register() failing.
+        assert exit_code == EXIT_SUCCESS
+        # unregister() must NOT be called — entry_id was never assigned.
+        mock_unregister.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _write_error_status() — early-exit tombstone writes
+# ---------------------------------------------------------------------------
+
+class TestWriteErrorStatusEarlyExits:
+    """Regression tests for the _write_error_status() helper called at
+    early-exit paths in _run().
+
+    Verifies that a valid JSON tombstone is written to the run-status file
+    whenever _run() exits before the graph starts, so the GUI does not hang
+    waiting for a status file that will never appear.
+    """
+
+    # Derive the orchestrator logs directory using the same algorithm as cli.py:
+    #   Path(cli.__file__).resolve().parent.parent / "logs"
+    # From this test file (orchestrator/tests/test_cli.py):
+    #   parent → orchestrator/tests/
+    #   parent.parent → orchestrator/
+    #   / "logs" → orchestrator/logs/
+    _LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+
+    def _expected_status_path(self, plan_path: "Path") -> "Path":
+        """Compute the expected status file path for a given plan path."""
+        import hashlib
+        plan_hash = hashlib.sha1(str(plan_path).encode("utf-8")).hexdigest()[:16]
+        return self._LOGS_DIR / f"{plan_hash}-run-status.json"
+
+    def _make_args(self, plan_path: "Path") -> MagicMock:
+        args = MagicMock()
+        args.plan = str(plan_path)
+        args.resume = None
+        args.dry_run = False
+        args.interrupt_on = None
+        args.project_path = None
+        return args
+
+    def _make_config(self, tmp_path: "Path") -> MagicMock:
+        mock_config = MagicMock()
+        mock_config.checkpoint_dir = tmp_path / "checkpoints"
+        mock_config.workspace_root = tmp_path
+        mock_config.heartbeat_interval_s = 0
+        mock_config.max_iterations = 100
+        return mock_config
+
+    # ------------------------------------------------------------------
+    # Lock-held early exit
+    # ------------------------------------------------------------------
+
+    async def test_lock_held_writes_error_status_file(self, tmp_path: "Path") -> None:
+        """When the lock is already held, _run() exits with EXIT_ERROR and
+        writes a valid ERROR tombstone to the run-status file."""
+        import json
+
+        from src.cli import EXIT_ERROR, _run
+
+        plan = (tmp_path / "plan.md").resolve()
+        plan.write_text("# Plan")
+
+        args = self._make_args(plan)
+        config = self._make_config(tmp_path)
+        expected_path = self._expected_status_path(plan)
+
+        try:
+            # Patch lock_exclusive to raise OSError, simulating a held lock.
+            with patch(
+                "src.cli.lock_exclusive",
+                side_effect=OSError("Resource temporarily unavailable"),
+            ):
+                result = await _run(args, config)
+
+            assert result == EXIT_ERROR
+
+            assert expected_path.exists(), (
+                f"Status file not found: {expected_path}"
+            )
+            status = json.loads(expected_path.read_text())
+            assert status["result"] == "ERROR"
+            assert status["error"], "error field must be a non-empty string"
+        finally:
+            expected_path.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Plan-not-found early exit
+    # ------------------------------------------------------------------
+
+    async def test_plan_not_found_writes_error_status_file(self, tmp_path: "Path") -> None:
+        """When the plan file does not exist, _run() exits with EXIT_ERROR and
+        writes a valid ERROR tombstone to the run-status file."""
+        import json
+
+        from src.cli import EXIT_ERROR, _run
+
+        # Intentionally non-existent plan.
+        plan = (tmp_path / "no_such_plan.md").resolve()
+
+        args = self._make_args(plan)
+        config = self._make_config(tmp_path)
+        expected_path = self._expected_status_path(plan)
+
+        try:
+            result = await _run(args, config)
+
+            assert result == EXIT_ERROR
+
+            assert expected_path.exists(), (
+                f"Status file not found: {expected_path}"
+            )
+            status = json.loads(expected_path.read_text())
+            assert status["result"] == "ERROR"
+            assert status["error"], "error field must be a non-empty string"
+            assert "Plan file not found" in status["error"] or "plan" in status["error"].lower()
+        finally:
+            expected_path.unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Resume-terminal early exit
+    # ------------------------------------------------------------------
+
+    async def test_resume_terminal_writes_error_status_file(self, tmp_path: "Path") -> None:
+        """When --resume targets a terminal checkpoint, _run() exits with
+        EXIT_ERROR and writes a valid ERROR tombstone to the run-status file."""
+        import json
+
+        from src.cli import EXIT_ERROR, _mark_run_terminal, _run
+        from src.utils.logging import WorkflowLogger
+
+        plan = (tmp_path / "plan.md").resolve()
+        plan.write_text("# Plan")
+
+        ckpt_dir = tmp_path / "checkpoints"
+        _mark_run_terminal(ckpt_dir, "done-thread")
+
+        args = self._make_args(plan)
+        args.resume = "done-thread"
+
+        config = self._make_config(tmp_path)
+        config.checkpoint_dir = ckpt_dir
+
+        mock_run_logger = MagicMock()
+        mock_run_logger._path = tmp_path / "run.jsonl"
+        mock_run_logger.start_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.stop_heartbeat = AsyncMock(return_value=None)
+        mock_run_logger.flush_unstreamed = MagicMock()
+        mock_run_logger.log = MagicMock()
+        mock_run_logger.close = MagicMock()
+
+        expected_path = self._expected_status_path(plan)
+
+        try:
+            with patch("src.utils.logging.WorkflowLogger") as mock_logger_cls:
+                mock_logger_cls.create.return_value = mock_run_logger
+                result = await _run(args, config)
+
+            assert result == EXIT_ERROR
+
+            assert expected_path.exists(), (
+                f"Status file not found: {expected_path}"
+            )
+            status = json.loads(expected_path.read_text())
+            assert status["result"] == "ERROR"
+            assert status["error"], "error field must be a non-empty string"
+        finally:
+            expected_path.unlink(missing_ok=True)
 
 ```
 ###  Path: `/orchestrator/tests/test_config.py`
@@ -8218,6 +8599,270 @@ class TestNextRevisionEdgeCases:
     def test_different_stage_not_counted(self, tmp_path: Path) -> None:
         (tmp_path / "WP-001-qa-r10.jsonl").write_text("{}\n")
         assert next_revision(tmp_path, "WP-001", "developer", ".jsonl") == 0
+
+```
+###  Path: `/orchestrator/tests/test_run_queue.py`
+
+```py
+"""Unit tests for orchestrator/src/utils/run_queue.py."""
+from __future__ import annotations
+
+import json
+import uuid
+from pathlib import Path
+from unittest.mock import patch
+
+import src.utils.run_queue as rq
+
+# ---------------------------------------------------------------------------
+# register() — creates file, appends entry, returns UUID
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterCreatesFile:
+    def test_creates_queue_file_when_missing(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            entry_id = rq.register(
+                pid=1, plan_path="/p/plan.md", slug="2026-05-05-feat",
+                started_at="2026-05-05T10:00:00Z",
+            )
+
+        assert (tmp_path / ".run-queue.json").exists()
+        data = json.loads((tmp_path / ".run-queue.json").read_text())
+        assert len(data) == 1
+        assert data[0]["id"] == entry_id
+
+    def test_entry_shape_is_correct(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            entry_id = rq.register(
+                pid=99, plan_path="/abs/plan.md", slug="my-slug",
+                started_at="2026-01-01T00:00:00Z",
+            )
+
+        data = json.loads((tmp_path / ".run-queue.json").read_text())
+        entry = data[0]
+        assert entry["id"] == entry_id
+        assert entry["pid"] == 99
+        assert entry["planPath"] == "/abs/plan.md"
+        assert entry["expectedSlug"] == "my-slug"
+        assert entry["startedAt"] == "2026-01-01T00:00:00Z"
+        assert entry["status"] == "pending"
+
+    def test_returns_uuid_string(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            entry_id = rq.register(pid=1, plan_path="/p/plan.md", slug="s", started_at="t")
+
+        # Should parse as a valid UUID4 without raising ValueError.
+        parsed = uuid.UUID(entry_id, version=4)
+        assert str(parsed) == entry_id
+
+
+# ---------------------------------------------------------------------------
+# register() — preserves existing entries
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterPreservesExistingEntries:
+    def test_appends_without_overwriting(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+        existing = [
+            {"id": "aaa", "pid": 1, "planPath": "/old", "expectedSlug": "old",
+             "startedAt": "t", "status": "pending"},
+        ]
+        queue_file.write_text(json.dumps(existing), encoding="utf-8")
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            new_id = rq.register(pid=2, plan_path="/new", slug="new", started_at="t2")
+
+        data = json.loads(queue_file.read_text())
+        assert len(data) == 2
+        assert data[0]["id"] == "aaa"
+        assert data[1]["id"] == new_id
+
+    def test_multiple_registers_accumulate(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            id1 = rq.register(pid=1, plan_path="/a", slug="a", started_at="t")
+            id2 = rq.register(pid=2, plan_path="/b", slug="b", started_at="t")
+            id3 = rq.register(pid=3, plan_path="/c", slug="c", started_at="t")
+
+        data = json.loads(queue_file.read_text())
+        ids = [e["id"] for e in data]
+        assert ids == [id1, id2, id3]
+
+
+# ---------------------------------------------------------------------------
+# unregister() — removes only the matching entry
+# ---------------------------------------------------------------------------
+
+
+class TestUnregisterRemovesCorrectEntry:
+    def test_removes_entry_by_id(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+        entries = [
+            {"id": "aaa", "pid": 1, "planPath": "/a", "expectedSlug": "a",
+             "startedAt": "t", "status": "pending"},
+            {"id": "bbb", "pid": 2, "planPath": "/b", "expectedSlug": "b",
+             "startedAt": "t", "status": "pending"},
+        ]
+        queue_file.write_text(json.dumps(entries), encoding="utf-8")
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.unregister("aaa")
+
+        data = json.loads(queue_file.read_text())
+        assert len(data) == 1
+        assert data[0]["id"] == "bbb"
+
+    def test_does_not_remove_other_entries(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+        entries = [
+            {"id": "aaa", "pid": 1, "planPath": "/a", "expectedSlug": "a",
+             "startedAt": "t", "status": "pending"},
+            {"id": "bbb", "pid": 2, "planPath": "/b", "expectedSlug": "b",
+             "startedAt": "t", "status": "pending"},
+            {"id": "ccc", "pid": 3, "planPath": "/c", "expectedSlug": "c",
+             "startedAt": "t", "status": "pending"},
+        ]
+        queue_file.write_text(json.dumps(entries), encoding="utf-8")
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.unregister("bbb")
+
+        data = json.loads(queue_file.read_text())
+        ids = [e["id"] for e in data]
+        assert ids == ["aaa", "ccc"]
+
+    def test_removing_last_entry_leaves_empty_list(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+        entries = [
+            {"id": "only", "pid": 1, "planPath": "/p", "expectedSlug": "p",
+             "startedAt": "t", "status": "pending"},
+        ]
+        queue_file.write_text(json.dumps(entries), encoding="utf-8")
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.unregister("only")
+
+        data = json.loads(queue_file.read_text())
+        assert data == []
+
+
+# ---------------------------------------------------------------------------
+# register() — error recovery (corrupt / missing queue file)
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterEdgeCases:
+    def test_corrupt_file_treated_as_empty(self, tmp_path: Path) -> None:
+        """register() should recover from a corrupt queue file."""
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+        queue_file.write_text("NOT JSON {{{{", encoding="utf-8")
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            entry_id = rq.register(pid=1, plan_path="/p", slug="s", started_at="t")
+
+        data = json.loads(queue_file.read_text())
+        assert len(data) == 1
+        assert data[0]["id"] == entry_id
+
+
+# ---------------------------------------------------------------------------
+# unregister() — silent no-op cases
+# ---------------------------------------------------------------------------
+
+
+class TestUnregisterNoOp:
+    def test_missing_file_is_silent(self, tmp_path: Path) -> None:
+        with patch.object(rq, "QUEUE_FILE", tmp_path / ".run-queue.json"), \
+             patch.object(rq, "_LOCK_FILE", tmp_path / ".run-queue.lock"), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            # Must not raise
+            rq.unregister("unknown-id")
+
+    def test_unknown_id_is_silent(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+        queue_file.write_text(json.dumps([{"id": "aaa"}]), encoding="utf-8")
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.unregister("not-here")  # Must not raise
+
+        # File is unchanged
+        data = json.loads(queue_file.read_text())
+        assert data[0]["id"] == "aaa"
+
+
+# ---------------------------------------------------------------------------
+# Atomic write — no partial content
+# ---------------------------------------------------------------------------
+
+
+class TestAtomicWrite:
+    def test_tmp_file_not_present_after_write(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(pid=1, plan_path="/p", slug="s", started_at="t")
+
+        tmp_file = tmp_path / ".run-queue.json.tmp"
+        assert not tmp_file.exists(), ".tmp file should be cleaned up after rename"
+
+    def test_queue_file_is_valid_json_after_write(self, tmp_path: Path) -> None:
+        queue_file = tmp_path / ".run-queue.json"
+        lock_file = tmp_path / ".run-queue.lock"
+
+        with patch.object(rq, "QUEUE_FILE", queue_file), \
+             patch.object(rq, "_LOCK_FILE", lock_file), \
+             patch.object(rq, "_LOGS_DIR", tmp_path):
+
+            rq.register(pid=42, plan_path="/q", slug="q", started_at="now")
+
+        # Must parse as valid JSON and be a list
+        parsed = json.loads(queue_file.read_text(encoding="utf-8"))
+        assert isinstance(parsed, list)
 
 ```
 ###  Path: `/orchestrator/tests/test_state.py`

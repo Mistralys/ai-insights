@@ -104,10 +104,13 @@ _SOURCE: Directory tree_
     └── gui/
         ├── api.ts
         ├── chunk-renderer.ts
+        ├── orchestrator-manager.ts
         ├── public/
         │   ├── api-client.js
         │   ├── app.js
         │   ├── index.html
+        │   ├── js/
+        │   │   ├── orchestrator-widgets.js
         │   ├── libs/
         │   │   ├── marked.min.js
         │   ├── router.js
@@ -118,6 +121,7 @@ _SOURCE: Directory tree_
         │   ├── views/
         │   │   └── config.js
         │   │   └── insights.js
+        │   │   └── orchestrator.js
         │   │   └── project-detail.js
         │   │   └── project-list.js
         │   │   └── run-log.js
@@ -136,6 +140,12 @@ _SOURCE: Directory tree_
         │   ├── handlers/
         │   │   ├── run-log-handlers.ts
         │   ├── log-resolver.ts
+        │   ├── queue/
+        │   │   └── compute-effective-status.ts
+        │   │   └── format-progress-entry.ts
+        │   │   └── get-queue.ts
+        │   │   └── resolve-progress.ts
+        │   │   └── types.ts
         ├── index.ts
         ├── schema/
         │   ├── enums.ts
@@ -179,6 +189,7 @@ _SOURCE: Directory tree_
     └── tests/
         ├── gui/
         │   ├── api-client.test.ts
+        │   ├── api-orchestrator.test.ts
         │   ├── api-reset.test.ts
         │   ├── api-wp-overview.test.ts
         │   ├── api.test.ts
@@ -189,12 +200,22 @@ _SOURCE: Directory tree_
         │   ├── dialogue-qa.test.ts
         │   ├── handoff-config-integration.test.ts
         │   ├── log-resolver.test.ts
+        │   ├── orchestrator-manager.test.ts
+        │   ├── orchestrator-view.test.ts
+        │   ├── orchestrator-widgets.test.ts
         │   ├── project-detail-runs.test.ts
+        │   ├── queue/
+        │   │   ├── compute-effective-status.test.ts
+        │   │   ├── format-progress-entry.test.ts
+        │   │   ├── resolve-progress.test.ts
         │   ├── run-log-handlers.test.ts
         │   ├── run-log-server.test.ts
         │   ├── run-log.test.ts
         │   ├── security-headers.test.ts
+        │   ├── server-body-limit.test.ts
+        │   ├── server-error-mapping.test.ts
         │   ├── server-info.test.ts
+        │   ├── server-queue.test.ts
         │   ├── stale-check.test.ts
         ├── helpers/
         │   ├── create-temp-store.ts

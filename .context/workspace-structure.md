@@ -56,6 +56,7 @@ _SOURCE: Top-level directory tree_
     ├── gui/
     │   ├── api.ts
     │   ├── chunk-renderer.ts
+    │   ├── orchestrator-manager.ts
     │   ├── public/
     │   │   ├── api-client.js
     │   │   ├── app.js
@@ -123,6 +124,7 @@ _SOURCE: Top-level directory tree_
     ├── tests/
     │   ├── gui/
     │   │   ├── api-client.test.ts
+    │   │   ├── api-orchestrator.test.ts
     │   │   ├── api-reset.test.ts
     │   │   ├── api-wp-overview.test.ts
     │   │   ├── api.test.ts
@@ -133,12 +135,18 @@ _SOURCE: Top-level directory tree_
     │   │   ├── dialogue-qa.test.ts
     │   │   ├── handoff-config-integration.test.ts
     │   │   ├── log-resolver.test.ts
+    │   │   ├── orchestrator-manager.test.ts
+    │   │   ├── orchestrator-view.test.ts
+    │   │   ├── orchestrator-widgets.test.ts
     │   │   ├── project-detail-runs.test.ts
     │   │   ├── run-log-handlers.test.ts
     │   │   ├── run-log-server.test.ts
     │   │   ├── run-log.test.ts
     │   │   ├── security-headers.test.ts
+    │   │   ├── server-body-limit.test.ts
+    │   │   ├── server-error-mapping.test.ts
     │   │   ├── server-info.test.ts
+    │   │   ├── server-queue.test.ts
     │   │   ├── stale-check.test.ts
     │   ├── helpers/
     │   │   ├── create-temp-store.ts
@@ -246,6 +254,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── persona.py
     │   │   └── persona_models.py
     │   │   └── plan_parser.py
+    │   │   └── run_queue.py
     │   │   └── subagents.py
     │   │   └── subprocess_encoding.py
     │   │   └── tool_wrappers.py
@@ -268,6 +277,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_post_completion_guard.py
     │   └── test_prompt_renderer.py
     │   └── test_revision.py
+    │   └── test_run_queue.py
     │   └── test_state.py
     │   └── test_stream_retry.py
     │   └── test_streaming_capture.py
@@ -359,6 +369,7 @@ _SOURCE: Top-level directory tree_
     │       ├── ctx-architect.md
     │       ├── developer-standalone.md
     │       ├── documentation-curator.md
+    │       ├── git-committer.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -381,6 +392,7 @@ _SOURCE: Top-level directory tree_
     │       ├── ctx-architect.md
     │       ├── developer.md
     │       ├── documentation-curator.md
+    │       ├── git-committer.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -403,6 +415,7 @@ _SOURCE: Top-level directory tree_
     │       └── ctx-architect.agent.md
     │       └── developer-standalone.agent.md
     │       └── documentation-curator.agent.md
+    │       └── git-committer.agent.md
     │       └── ledger-bootstrapper.agent.md
     │       └── ledger-claude-coordinator.agent.md
     │       └── ledger-dependency-sequencer.agent.md

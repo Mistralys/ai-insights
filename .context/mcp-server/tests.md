@@ -7,6 +7,7 @@ _SOURCE: Test suite (unit, integration)_
     └── tests/
         └── gui/
             ├── api-client.test.ts
+            ├── api-orchestrator.test.ts
             ├── api-reset.test.ts
             ├── api-wp-overview.test.ts
             ├── api.test.ts
@@ -17,12 +18,22 @@ _SOURCE: Test suite (unit, integration)_
             ├── dialogue-qa.test.ts
             ├── handoff-config-integration.test.ts
             ├── log-resolver.test.ts
+            ├── orchestrator-manager.test.ts
+            ├── orchestrator-view.test.ts
+            ├── orchestrator-widgets.test.ts
             ├── project-detail-runs.test.ts
+            ├── queue/
+            │   ├── compute-effective-status.test.ts
+            │   ├── format-progress-entry.test.ts
+            │   ├── resolve-progress.test.ts
             ├── run-log-handlers.test.ts
             ├── run-log-server.test.ts
             ├── run-log.test.ts
             ├── security-headers.test.ts
+            ├── server-body-limit.test.ts
+            ├── server-error-mapping.test.ts
             ├── server-info.test.ts
+            ├── server-queue.test.ts
             ├── stale-check.test.ts
         └── integration/
             ├── auto-handoff.test.ts
@@ -227,6 +238,429 @@ describe('API.getServerInfo', () => {
     expect(calls[0]!.url).toBe('/api/server-info');
     expect(calls[0]!.opts.method).toBe('GET');
     expect(result).toEqual(payload);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Orchestrator methods
+// ---------------------------------------------------------------------------
+
+describe('API.orchestratorStart', () => {
+  it('sends POST /api/orchestrator/start with planPath and dryRun in body', async () => {
+    const calls = mockFetch({ started: true, pid: 99, checks: [] });
+
+    await globalThis.API.orchestratorStart('/path/to/plan.md', false);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/start');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body).toEqual({ planPath: '/path/to/plan.md', dryRun: false });
+  });
+
+  it('passes dryRun: true when requested', async () => {
+    const calls = mockFetch({ started: false, checks: [] });
+
+    await globalThis.API.orchestratorStart('/path/to/plan.md', true);
+
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body.dryRun).toBe(true);
+  });
+});
+
+describe('API.orchestratorGetQueue', () => {
+  it('sends GET /api/orchestrator/queue', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.orchestratorGetQueue();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/queue');
+    expect(calls[0]!.opts.method).toBe('GET');
+  });
+});
+
+describe('API.orchestratorKill', () => {
+  it('sends POST /api/orchestrator/kill/{id}', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorKill('abc-123');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/kill/abc-123');
+    expect(calls[0]!.opts.method).toBe('POST');
+  });
+
+  it('encodes the entry ID in the URL', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorKill('id/with/slashes');
+
+    expect(calls[0]!.url).toBe('/api/orchestrator/kill/id%2Fwith%2Fslashes');
+  });
+});
+
+describe('API.orchestratorDismiss', () => {
+  it('sends DELETE /api/orchestrator/queue/{id}', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorDismiss('abc-123');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/orchestrator/queue/abc-123');
+    expect(calls[0]!.opts.method).toBe('DELETE');
+  });
+
+  it('encodes the entry ID in the URL', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.orchestratorDismiss('id/with/slashes');
+
+    expect(calls[0]!.url).toBe('/api/orchestrator/queue/id%2Fwith%2Fslashes');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/api-orchestrator.test.ts`
+
+```ts
+/**
+ * Tests for orchestrator API route handlers in gui/api.ts — WP-008
+ *
+ * All acceptance criteria tested:
+ *   AC-1: handleOrchestratorStart validates body.planPath is present and a string.
+ *   AC-2: handleOrchestratorStart forwards dryRun flag correctly.
+ *   AC-3: handleGetOrchestratorQueue returns an array of enriched entries.
+ *   AC-4: handleOrchestratorKill returns { killed: boolean }.
+ *   AC-5: handleOrchestratorDismiss returns 204 on success (void from handler).
+ *   AC-6: All handlers follow the existing error handling patterns in api.ts.
+ *
+ * Uses vi.mock() to stub orchestrator-manager functions — the manager's own
+ * behaviour is covered by orchestrator-manager.test.ts.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Mock the orchestrator-manager module before importing the handlers.
+vi.mock('../../gui/orchestrator-manager.js', () => ({
+  getQueue: vi.fn(),
+  killQueueEntry: vi.fn(),
+  dismissQueueEntry: vi.fn(),
+  startOrchestrator: vi.fn(),
+}));
+
+import {
+  handleOrchestratorStart,
+  handleGetOrchestratorQueue,
+  handleOrchestratorKill,
+  handleOrchestratorDismiss,
+  ApiError,
+} from '../../gui/api.js';
+import {
+  getQueue,
+  killQueueEntry,
+  dismissQueueEntry,
+  startOrchestrator,
+} from '../../gui/orchestrator-manager.js';
+
+const mockGetQueue        = vi.mocked(getQueue);
+const mockKillQueueEntry  = vi.mocked(killQueueEntry);
+const mockDismiss         = vi.mocked(dismissQueueEntry);
+const mockStartOrchestrator = vi.mocked(startOrchestrator);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// handleOrchestratorStart — AC-1, AC-2, AC-6
+// ---------------------------------------------------------------------------
+
+describe('handleOrchestratorStart', () => {
+  const WORKSPACE = '/workspace';
+
+  it('AC-1: throws VALIDATION_ERROR when body.planPath is missing', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, {})
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(mockStartOrchestrator).not.toHaveBeenCalled();
+  });
+
+  it('AC-1: throws VALIDATION_ERROR when body.planPath is a number', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, { planPath: 42 })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-1: throws VALIDATION_ERROR when body.planPath is null', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, { planPath: null })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-1/AC-6: throws VALIDATION_ERROR when body is null (not an object)', async () => {
+    await expect(
+      handleOrchestratorStart(WORKSPACE, null)
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it('AC-1/AC-6: throws ApiError instance on missing planPath', async () => {
+    const err = await handleOrchestratorStart(WORKSPACE, {}).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+  });
+
+  it('AC-2: forwards dryRun: true to startOrchestrator', async () => {
+    const mockResult = { checks: [], started: false };
+    mockStartOrchestrator.mockResolvedValueOnce(mockResult);
+
+    const result = await handleOrchestratorStart(WORKSPACE, {
+      planPath: '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
+      dryRun: true,
+    });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
+      WORKSPACE,
+      true,
+    );
+    expect(result).toBe(mockResult);
+  });
+
+  it('AC-2: defaults dryRun to false when not provided', async () => {
+    const mockResult = { checks: [], started: true, pid: 1234 };
+    mockStartOrchestrator.mockResolvedValueOnce(mockResult);
+
+    await handleOrchestratorStart(WORKSPACE, {
+      planPath: '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
+    });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
+      WORKSPACE,
+      false,
+    );
+  });
+
+  it('AC-2: forwards dryRun: false explicitly', async () => {
+    const mockResult = { checks: [], started: true, pid: 5678 };
+    mockStartOrchestrator.mockResolvedValueOnce(mockResult);
+
+    await handleOrchestratorStart(WORKSPACE, {
+      planPath: '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
+      dryRun: false,
+    });
+
+    expect(mockStartOrchestrator).toHaveBeenCalledWith(
+      '/workspace/docs/agents/plans/2026-05-05-feat/plan.md',
+      WORKSPACE,
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleGetOrchestratorQueue — AC-3
+// ---------------------------------------------------------------------------
+
+describe('handleGetOrchestratorQueue', () => {
+  it('AC-3: returns enriched entries from getQueue()', async () => {
+    const entries = [
+      {
+        id: 'entry-1',
+        pid: 123,
+        planPath: '/plan.md',
+        expectedSlug: '2026-05-05-feat',
+        startedAt: '2026-05-05T10:00:00Z',
+        status: 'pending' as const,
+        effectiveStatus: 'pending' as const,
+        progress: 'Run started',
+      },
+    ];
+    mockGetQueue.mockResolvedValueOnce(entries);
+
+    const result = await handleGetOrchestratorQueue('/logs', '/ledger');
+
+    expect(mockGetQueue).toHaveBeenCalledWith({ logsDir: '/logs', ledgerRoot: '/ledger' });
+    expect(result).toBe(entries);
+  });
+
+  it('AC-3: returns empty array when queue is empty', async () => {
+    mockGetQueue.mockResolvedValueOnce([]);
+
+    const result = await handleGetOrchestratorQueue('/logs', '/ledger');
+
+    expect(result).toEqual([]);
+  });
+
+  it('AC-3: passes logsDir and ledgerRoot to getQueue', async () => {
+    mockGetQueue.mockResolvedValueOnce([]);
+
+    await handleGetOrchestratorQueue('/custom/logs', '/custom/ledger');
+
+    expect(mockGetQueue).toHaveBeenCalledWith({
+      logsDir: '/custom/logs',
+      ledgerRoot: '/custom/ledger',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleOrchestratorKill — AC-4, AC-6
+// ---------------------------------------------------------------------------
+
+describe('handleOrchestratorKill', () => {
+  it('AC-4: returns { killed: true } when entry found and killed', async () => {
+    mockKillQueueEntry.mockResolvedValueOnce({ killed: true });
+
+    const result = await handleOrchestratorKill('entry-1', '/logs', '/ledger');
+
+    expect(mockKillQueueEntry).toHaveBeenCalledWith({
+      id: 'entry-1',
+      logsDir: '/logs',
+      ledgerRoot: '/ledger',
+    });
+    expect(result).toEqual({ killed: true });
+  });
+
+  it('AC-4: returns { killed: false } when entry not found or not pending', async () => {
+    mockKillQueueEntry.mockResolvedValueOnce({ killed: false });
+
+    const result = await handleOrchestratorKill('unknown-id', '/logs', '/ledger');
+
+    expect(result).toEqual({ killed: false });
+  });
+
+  it('AC-6: throws NOT_FOUND for ID containing a path separator', async () => {
+    await expect(
+      handleOrchestratorKill('bad/id', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(mockKillQueueEntry).not.toHaveBeenCalled();
+  });
+
+  it('AC-6: throws NOT_FOUND for path-traversal attempt in ID', async () => {
+    await expect(
+      handleOrchestratorKill('../escape', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('AC-6: throws NOT_FOUND for ID containing a backslash', async () => {
+    await expect(
+      handleOrchestratorKill('bad\\id', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(mockKillQueueEntry).not.toHaveBeenCalled();
+  });
+
+  it('AC-6: throws NOT_FOUND for empty ID', async () => {
+    await expect(
+      handleOrchestratorKill('', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('AC-6: thrown error is an ApiError instance', async () => {
+    const err = await handleOrchestratorKill('bad/id', '/logs', '/ledger').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleOrchestratorDismiss — AC-5, AC-6
+// ---------------------------------------------------------------------------
+
+describe('handleOrchestratorDismiss', () => {
+  it('AC-5: resolves (returns void) when dismissQueueEntry succeeds', async () => {
+    mockDismiss.mockResolvedValueOnce(undefined);
+
+    await expect(
+      handleOrchestratorDismiss('entry-1', '/logs', '/ledger')
+    ).resolves.toBeUndefined();
+
+    expect(mockDismiss).toHaveBeenCalledWith({
+      id: 'entry-1',
+      logsDir: '/logs',
+      ledgerRoot: '/ledger',
+    });
+  });
+
+  it('AC-5: resolves even when entry is not found (graceful no-op)', async () => {
+    mockDismiss.mockResolvedValueOnce(undefined);
+
+    await expect(
+      handleOrchestratorDismiss('nonexistent-id', '/logs', '/ledger')
+    ).resolves.toBeUndefined();
+  });
+
+  it('AC-6: throws NOT_FOUND for ID containing a path separator', async () => {
+    await expect(
+      handleOrchestratorDismiss('bad/id', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(mockDismiss).not.toHaveBeenCalled();
+  });
+
+  it('AC-6: throws NOT_FOUND for empty ID', async () => {
+    await expect(
+      handleOrchestratorDismiss('', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('AC-6: throws NOT_FOUND for path-traversal attempt in ID', async () => {
+    await expect(
+      handleOrchestratorDismiss('../escape', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('AC-6: throws NOT_FOUND for ID containing a backslash', async () => {
+    await expect(
+      handleOrchestratorDismiss('bad\\id', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(mockDismiss).not.toHaveBeenCalled();
+  });
+
+  it('AC-6: thrown error is an ApiError instance', async () => {
+    const err = await handleOrchestratorDismiss('bad/id', '/logs', '/ledger').catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertSafeQueueId allowlist edge cases (WP-002 hardening)
+// ---------------------------------------------------------------------------
+
+describe('assertSafeQueueId allowlist edge cases', () => {
+  it('rejects a bare dot as queue ID (kill)', async () => {
+    await expect(
+      handleOrchestratorKill('.', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects bare double-dot as queue ID (kill)', async () => {
+    await expect(
+      handleOrchestratorKill('..', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects a queue ID containing a space (kill)', async () => {
+    await expect(
+      handleOrchestratorKill('bad id', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects a queue ID containing @ (dismiss)', async () => {
+    await expect(
+      handleOrchestratorDismiss('bad@id', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects a bare dot as queue ID (dismiss)', async () => {
+    await expect(
+      handleOrchestratorDismiss('.', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects bare double-dot as queue ID (dismiss)', async () => {
+    await expect(
+      handleOrchestratorDismiss('..', '/logs', '/ledger')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
 
@@ -1369,6 +1803,11 @@ describe('gui/api.ts', () => {
       await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', '../escape')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', 'a/b')).rejects.toMatchObject({ code: 'NOT_FOUND' });
       await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', '')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects wpIds containing a backslash with NOT_FOUND', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-traversal');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-traversal', 'bad\\id')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 
@@ -2667,6 +3106,66 @@ describe('gui/api.ts', () => {
       } finally {
         warnSpy.mockRestore();
       }
+    });
+  });
+
+  // ─── Allowlist guard edge cases (WP-002 hardening) ─────────────────────
+
+  describe('assertSafeSlug allowlist edge cases', () => {
+    it('rejects a slug containing a space', async () => {
+      await expect(handleGetProject(ledgerRoot, 'bad slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a slug containing an @ character', async () => {
+      await expect(handleGetProject(ledgerRoot, 'bad@slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a slug with uppercase letters', async () => {
+      await expect(handleGetProject(ledgerRoot, 'Bad-Slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a bare dot', async () => {
+      await expect(handleGetProject(ledgerRoot, '.')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects bare double-dot', async () => {
+      await expect(handleGetProject(ledgerRoot, '..')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a slug containing a backslash', async () => {
+      await expect(handleGetProject(ledgerRoot, 'bad\\slug')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  describe('assertSafeWpId allowlist edge cases', () => {
+    it('rejects a WP ID containing a forward slash', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge', 'WP/001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a WP ID containing a backslash', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge2');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge2', 'WP\\001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a bare dot as WP ID', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge3');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge3', '.')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects bare double-dot as WP ID', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge4');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge4', '..')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a WP ID containing a space', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge5');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge5', 'WP 001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('rejects a WP ID containing @', async () => {
+      await createProject(ledgerRoot, '2026-01-01-wp-edge6');
+      await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge6', 'WP@001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 });
@@ -5979,6 +6478,2289 @@ describe('resolveLogSource', () => {
 });
 
 ```
+###  Path: `/mcp-server/tests/gui/orchestrator-manager.test.ts`
+
+```ts
+/**
+ * Tests for gui/orchestrator-manager.ts — WP-003 + WP-005 + WP-006 + WP-007
+ *
+ * All acceptance criteria tested:
+ *   WP-003 AC-6: lastAction and logFilename are populated in QueueEntry from ProgressResolution.
+ *   WP-005 AC-1: getQueue() returns [] when queue file / logs dir missing.
+ *   WP-005 AC-2: pending + alive + no project  → effectiveStatus 'pending'.
+ *   WP-005 AC-3: pending + alive + project     → effectiveStatus 'started'.
+ *   WP-005 AC-4: pending + dead  + no project  → effectiveStatus 'dead'.
+ *   WP-005 AC-5: pending + dead  + project     → effectiveStatus 'started'.
+ *   WP-005 AC-6: started + synthesis_generated → excluded from result.
+ *   WP-005 AC-7: JSONL progress resolved with correct human-readable summaries.
+ *   WP-005 AC-8: queue file on disk is never modified by getQueue().
+ *   WP-006 AC-1: killQueueEntry() rejects non-pending entries and missing IDs.
+ *   WP-006 AC-2: killQueueEntry() sends SIGTERM then SIGKILL (or SIGTERM only).
+ *   WP-006 AC-3: killQueueEntry() removes entry from queue file.
+ *   WP-006 AC-4: killQueueEntry() removes .orchestrator.lock.
+ *   WP-006 AC-5: dismissQueueEntry() rejects non-dead entries and missing IDs.
+ *   WP-006 AC-6: dismissQueueEntry() removes dead entry from queue file.
+ *   WP-006 AC-7: both functions handle entry-not-found gracefully.
+ *   WP-007 AC-1: startOrchestrator dryRun:true returns checks, never spawns.
+ *   WP-007 AC-2: any failing check → started:false, no spawn.
+ *   WP-007 AC-3: all checks pass + not dryRun → spawns + returns started:true.
+ *   WP-007 AC-4: planPath outside workspaceRoot → path-prefix check fails.
+ *   WP-007 AC-5: planFolderBasename() error → plan-basename check fails.
+ *   WP-007 AC-6: duplicate plan in queue → no-conflict check fails.
+ *   WP-007 AC-7: spawned process is detached and unref()-ed.
+ *   WP-007 AC-8: binary resolved as bin/orchestrate (Unix) or Scripts/orchestrate.exe (Win).
+ *
+ * Uses real temp directories for filesystem operations.
+ * process.kill() is spied on to control PID-alive checks without
+ * sending real signals.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtemp, rm, writeFile, mkdir, readFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { spawn } from 'child_process';
+
+vi.mock('child_process');
+
+// Clear mock call history before every test so assertions like
+// toHaveBeenCalledOnce() are not polluted by calls from previous tests.
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+import {
+  getQueue,
+  formatProgressEntry,
+  killQueueEntry,
+  dismissQueueEntry,
+  startOrchestrator,
+} from '../../gui/orchestrator-manager.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function setupDirs(): Promise<{
+  tempDir: string;
+  logsDir: string;
+  ledgerRoot: string;
+}> {
+  const tempDir    = await mkdtemp(join(tmpdir(), 'orch-mgr-test-'));
+  const logsDir    = join(tempDir, 'logs');
+  const ledgerRoot = join(tempDir, 'ledger');
+  await mkdir(logsDir);
+  await mkdir(ledgerRoot);
+  return { tempDir, logsDir, ledgerRoot };
+}
+
+async function teardown(tempDir: string): Promise<void> {
+  await rm(tempDir, { recursive: true, force: true });
+}
+
+function makeRawEntry(overrides: Partial<{
+  id: string;
+  pid: number;
+  planPath: string;
+  expectedSlug: string;
+  startedAt: string;
+  status: 'pending';
+}> = {}): Record<string, unknown> {
+  return {
+    id:           overrides.id           ?? 'test-entry-id',
+    pid:          overrides.pid          ?? 12345,
+    planPath:     overrides.planPath     ?? '/plans/plan.md',
+    expectedSlug: overrides.expectedSlug ?? '2026-05-05-feat',
+    startedAt:    overrides.startedAt    ?? '2026-05-05T10:00:00Z',
+    status:       overrides.status       ?? 'pending',
+  };
+}
+
+async function writeQueueFile(logsDir: string, entries: unknown[]): Promise<void> {
+  await writeFile(join(logsDir, '.run-queue.json'), JSON.stringify(entries), 'utf-8');
+}
+
+async function writeLedgerProject(
+  ledgerRoot: string,
+  slug: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  const slugDir = join(ledgerRoot, slug);
+  await mkdir(slugDir, { recursive: true });
+  await writeFile(
+    join(slugDir, 'project-ledger.json'),
+    JSON.stringify({
+      plan_file:            'plan.md',
+      date_created:         '2026-05-05',
+      last_updated:         '2026-05-05',
+      status:               'IN_PROGRESS',
+      total_work_packages:  0,
+      pending_work_packages: 0,
+      work_packages:        [],
+      project_comments:     [],
+      ...extra,
+    }),
+    'utf-8',
+  );
+}
+
+async function writeJsonlLog(
+  logsDir: string,
+  filenamePrefix: string,
+  slug: string,
+  entries: unknown[],
+): Promise<void> {
+  const filename = `${filenamePrefix}-${slug}.jsonl`;
+  const content  = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+  await writeFile(join(logsDir, filename), content, 'utf-8');
+}
+
+/** Stub process.kill so any call looks like the process is alive. */
+function stubAlive(): void {
+  vi.spyOn(process, 'kill').mockImplementation(() => true);
+}
+
+/** Stub process.kill so any call throws ESRCH (process not found). */
+function stubDead(): void {
+  vi.spyOn(process, 'kill').mockImplementation(() => {
+    throw Object.assign(new Error('No such process'), { code: 'ESRCH' });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// AC-1: getQueue() returns [] when queue file / logs dir is missing
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-1: missing queue file', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('returns [] when logs directory does not exist', async () => {
+    const result = await getQueue({
+      logsDir: join(tempDir, 'nonexistent'),
+      ledgerRoot,
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when queue file does not exist in a valid logs directory', async () => {
+    // logsDir exists but has no .run-queue.json
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when queue file contains an empty array', async () => {
+    await writeQueueFile(logsDir, []);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when queue file contains corrupt JSON', async () => {
+    await writeFile(join(logsDir, '.run-queue.json'), 'not json', 'utf-8');
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('returns [] when queue file is a JSON non-array (e.g. object)', async () => {
+    await writeFile(join(logsDir, '.run-queue.json'), JSON.stringify({ id: 'oops' }), 'utf-8');
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PID security: invalid PIDs filtered by isRawQueueEntry
+// ---------------------------------------------------------------------------
+
+describe('getQueue — PID security: invalid pid values are filtered out', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+    vi.restoreAllMocks();
+  });
+
+  it('filters out entry with pid = 0', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ pid: 0 })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('filters out entry with pid = -1 (POSIX broadcast risk)', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ pid: -1 })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('filters out entry with a negative pid', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ pid: -9999 })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('filters out entry with a non-integer float pid', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ pid: 1.5 as unknown as number })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toEqual([]);
+  });
+
+  it('accepts a valid positive integer pid', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ pid: 12345 })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0].pid).toBe(12345);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2 through AC-5: effective status computation
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-2 to AC-5: lifecycle status', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('AC-2: pending + alive + no project → effectiveStatus pending', async () => {
+    stubAlive();
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: 'no-project-slug' })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.effectiveStatus).toBe('pending');
+  });
+
+  it('AC-3: pending + alive + project exists → effectiveStatus started', async () => {
+    stubAlive();
+    const slug = '2026-05-05-started';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.effectiveStatus).toBe('started');
+  });
+
+  it('AC-4: pending + dead process + no project → effectiveStatus dead', async () => {
+    stubDead();
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: 'dead-no-project' })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.effectiveStatus).toBe('dead');
+  });
+
+  it('AC-5: pending + dead process + project exists → effectiveStatus started', async () => {
+    stubDead();
+    const slug = '2026-05-05-dead-started';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.effectiveStatus).toBe('started');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-6: started + synthesis_generated → excluded from result
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-6: synthesis exclusion', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('excludes entry when synthesis_generated is true', async () => {
+    const slug = '2026-05-05-done';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug, { synthesis_generated: true });
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(0);
+  });
+
+  it('keeps entry when synthesis_generated is false', async () => {
+    const slug = '2026-05-05-ongoing';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug, { synthesis_generated: false });
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.effectiveStatus).toBe('started');
+  });
+
+  it('keeps entry when synthesis_generated field is absent', async () => {
+    const slug = '2026-05-05-no-synth';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug);  // no synthesis_generated key
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.effectiveStatus).toBe('started');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-7: JSONL progress — formatProgressEntry (pure unit tests)
+// ---------------------------------------------------------------------------
+
+describe('formatProgressEntry — AC-7: event type mappings', () => {
+  it('run_start → "Run started"', () => {
+    expect(formatProgressEntry({ action: 'run_start' })).toBe('Run started');
+  });
+
+  it('stage_start with stage + wp_id', () => {
+    expect(
+      formatProgressEntry({ action: 'stage_start', stage: 'developer', wp_id: 'WP-001' }),
+    ).toBe('Starting developer for WP-001');
+  });
+
+  it('stage_start with stage only (no wp_id)', () => {
+    expect(formatProgressEntry({ action: 'stage_start', stage: 'qa' })).toBe('Starting qa');
+  });
+
+  it('stage_start with neither stage nor wp_id', () => {
+    expect(formatProgressEntry({ action: 'stage_start' })).toBe('Starting (unknown stage)');
+  });
+
+  it('stage_complete with result and wp_id', () => {
+    expect(
+      formatProgressEntry({ action: 'stage_complete', stage: 'qa', result: 'PASS', wp_id: 'WP-002' }),
+    ).toBe('qa complete — PASS (WP-002)');
+  });
+
+  it('stage_complete with result only (no wp_id)', () => {
+    expect(
+      formatProgressEntry({ action: 'stage_complete', stage: 'pm', result: 'PASS' }),
+    ).toBe('pm complete — PASS');
+  });
+
+  it('stage_complete without result', () => {
+    expect(formatProgressEntry({ action: 'stage_complete', stage: 'pm' })).toBe('pm complete');
+  });
+
+  it('progress_snapshot with total_wps and status_breakdown', () => {
+    expect(
+      formatProgressEntry({
+        action:           'progress_snapshot',
+        total_wps:        5,
+        status_breakdown: { COMPLETE: 3, IN_PROGRESS: 1 },
+      }),
+    ).toBe('Progress: 3/5 WPs complete');
+  });
+
+  it('progress_snapshot without total_wps → "Progress update"', () => {
+    expect(formatProgressEntry({ action: 'progress_snapshot' })).toBe('Progress update');
+  });
+
+  it('wp_complete with wp_id', () => {
+    expect(formatProgressEntry({ action: 'wp_complete', wp_id: 'WP-003' })).toBe('WP-003 complete');
+  });
+
+  it('wp_complete without wp_id', () => {
+    expect(formatProgressEntry({ action: 'wp_complete' })).toBe('WP complete');
+  });
+
+  it('wp_status_change with wp_id and new_status', () => {
+    expect(
+      formatProgressEntry({ action: 'wp_status_change', wp_id: 'WP-001', new_status: 'IN_PROGRESS' }),
+    ).toBe('WP-001 → IN_PROGRESS');
+  });
+
+  it('wp_status_change without new_status', () => {
+    expect(
+      formatProgressEntry({ action: 'wp_status_change', wp_id: 'WP-001' }),
+    ).toBe('WP-001 status change');
+  });
+
+  it('run_end with result', () => {
+    expect(formatProgressEntry({ action: 'run_end', result: 'COMPLETE' })).toBe('Run ended: COMPLETE');
+  });
+
+  it('run_end without result', () => {
+    expect(formatProgressEntry({ action: 'run_end' })).toBe('Run ended');
+  });
+
+  it('run_error → "Run error"', () => {
+    expect(formatProgressEntry({ action: 'run_error' })).toBe('Run error');
+  });
+
+  it('signal_shutdown → "Interrupted by signal"', () => {
+    expect(formatProgressEntry({ action: 'signal_shutdown' })).toBe('Interrupted by signal');
+  });
+
+  it('heartbeat → null (skipped)', () => {
+    expect(formatProgressEntry({ action: 'heartbeat' })).toBeNull();
+  });
+
+  it('unknown action → null', () => {
+    expect(formatProgressEntry({ action: 'some_unknown_event' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-7: JSONL progress — resolved via getQueue() (integration)
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-7: progress field resolved from JSONL file', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('progress is null when no JSONL log file exists for the slug', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: '2026-05-05-feat' })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.progress).toBeNull();
+  });
+
+  it('progress is null when all log entries are heartbeats', async () => {
+    const slug = '2026-05-05-heartbeat-only';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, '20260505T100000', slug, [
+      { action: 'heartbeat', stage: 'cli' },
+      { action: 'heartbeat', stage: 'cli' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.progress).toBeNull();
+  });
+
+  it('progress reflects the last summarisable entry (skips trailing heartbeats)', async () => {
+    const slug = '2026-05-05-with-progress';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, '20260505T100000', slug, [
+      { action: 'run_start' },
+      { action: 'stage_start', stage: 'developer', wp_id: 'WP-001' },
+      { action: 'heartbeat', stage: 'cli' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.progress).toBe('Starting developer for WP-001');
+  });
+
+  it('progress picks the lexicographically newest JSONL file for the slug', async () => {
+    const slug = '2026-05-05-two-logs';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    // Older log
+    await writeJsonlLog(logsDir, '20260505T090000', slug, [{ action: 'run_start' }]);
+    // Newer log (lexicographically later prefix)
+    await writeJsonlLog(logsDir, '20260505T110000', slug, [
+      { action: 'stage_start', stage: 'qa', wp_id: 'WP-002' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.progress).toBe('Starting qa for WP-002');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-003 AC-6: lastAction and logFilename fields in QueueEntry
+// ---------------------------------------------------------------------------
+
+describe('getQueue — WP-003 AC-6: lastAction and logFilename population', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('lastAction is null when no JSONL log file exists for the slug', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: '2026-05-05-no-log' })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.lastAction).toBeNull();
+  });
+
+  it('logFilename is null when no JSONL log file exists for the slug', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: '2026-05-05-no-log' })]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.logFilename).toBeNull();
+  });
+
+  it('lastAction matches the action field of the last summarizable JSONL entry', async () => {
+    const slug = '2026-05-05-last-action';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, '20260505T100000', slug, [
+      { action: 'run_start' },
+      { action: 'stage_start', stage: 'developer', wp_id: 'WP-001' },
+      { action: 'heartbeat' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.lastAction).toBe('stage_start');
+  });
+
+  it('logFilename is the basename of the JSONL file that was read', async () => {
+    const slug = '2026-05-05-filename';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, '20260505T100000', slug, [
+      { action: 'run_start' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.logFilename).toBe(`20260505T100000-${slug}.jsonl`);
+  });
+
+  it('logFilename is populated even when all entries are non-summarizable (heartbeats only)', async () => {
+    const slug = '2026-05-05-heartbeats';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, '20260505T100000', slug, [
+      { action: 'heartbeat' },
+      { action: 'heartbeat' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    // logFilename is set (file was found), but lastAction/progress are null
+    expect(result[0]!.logFilename).toBe(`20260505T100000-${slug}.jsonl`);
+    expect(result[0]!.lastAction).toBeNull();
+  });
+
+  it('lastAction is null when file has only non-summarizable events', async () => {
+    const slug = '2026-05-05-no-action';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, '20260505T100000', slug, [
+      { action: 'heartbeat' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.lastAction).toBeNull();
+  });
+
+  it('lastAction and logFilename are both non-null from the same ProgressResolution result', async () => {
+    const slug = '2026-05-05-both-fields';
+    const prefix = '20260505T120000';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeJsonlLog(logsDir, prefix, slug, [
+      { action: 'stage_start', stage: 'qa', wp_id: 'WP-002' },
+    ]);
+    const result = await getQueue({ logsDir, ledgerRoot });
+    expect(result[0]!.lastAction).toBe('stage_start');
+    expect(result[0]!.logFilename).toBe(`${prefix}-${slug}.jsonl`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-8: getQueue() never modifies the queue file
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-8: queue file is read-only', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('queue file content is byte-identical before and after getQueue()', async () => {
+    const slug = '2026-05-05-readonly';
+    const entries = [makeRawEntry({ expectedSlug: slug })];
+    await writeQueueFile(logsDir, entries);
+
+    const queuePath = join(logsDir, '.run-queue.json');
+    const before    = await readFile(queuePath, 'utf-8');
+
+    await getQueue({ logsDir, ledgerRoot });
+
+    const after = await readFile(queuePath, 'utf-8');
+    expect(after).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// killQueueEntry — WP-006 (AC-1, AC-7: graceful rejection without sleeping)
+// ---------------------------------------------------------------------------
+
+describe('killQueueEntry — graceful rejection (no sleep involved)', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('AC-7: returns { killed: false } when entry is not found in an empty queue', async () => {
+    stubAlive();
+    await writeQueueFile(logsDir, []);
+    const result = await killQueueEntry({ id: 'missing-id', logsDir, ledgerRoot });
+    expect(result.killed).toBe(false);
+  });
+
+  it('AC-7: returns { killed: false } when entry ID is not present in a non-empty queue', async () => {
+    stubAlive();
+    await writeQueueFile(logsDir, [makeRawEntry({ id: 'other-id' })]);
+    const result = await killQueueEntry({ id: 'missing-id', logsDir, ledgerRoot });
+    expect(result.killed).toBe(false);
+  });
+
+  it('AC-1: returns { killed: false } when entry is effectively started (alive + project exists)', async () => {
+    stubAlive();
+    const slug = '2026-05-05-started';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug);
+    const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+    expect(result.killed).toBe(false);
+  });
+
+  it('AC-1: returns { killed: false } when entry is effectively dead (not alive + no project)', async () => {
+    stubDead();
+    await writeQueueFile(logsDir, [makeRawEntry()]);
+    const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+    expect(result.killed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// killQueueEntry — WP-006 (AC-2, AC-3, AC-4: kill path for pending entries)
+// ---------------------------------------------------------------------------
+
+describe('killQueueEntry — kill path (effectively pending entries)', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+  let planDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    planDir = join(tempDir, 'plan-dir');
+    await mkdir(planDir);
+    // Make sleep() resolve immediately so tests don't wait 3 real seconds.
+    vi.spyOn(global, 'setTimeout').mockImplementation(
+      (fn: (...args: unknown[]) => void) => { fn(); return 0 as unknown as ReturnType<typeof setTimeout>; },
+    );
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('AC-2: sends SIGTERM then SIGKILL when process survives the wait', async () => {
+    const signals: (string | number)[] = [];
+    vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      signals.push(signal as string | number);
+      return true;  // always alive — signal 0 never throws
+    });
+
+    await writeQueueFile(logsDir, [makeRawEntry()]);
+    const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    expect(result.killed).toBe(true);
+    expect(signals).toContain('SIGTERM');
+    expect(signals).toContain('SIGKILL');
+  });
+
+  it('AC-2: sends SIGTERM but not SIGKILL when process exits after SIGTERM', async () => {
+    let sigTermSent = false;
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 'SIGTERM') { sigTermSent = true; }
+      if (signal === 0 && sigTermSent) {
+        // Process died after receiving SIGTERM.
+        throw Object.assign(new Error('No such process'), { code: 'ESRCH' });
+      }
+      return true;
+    });
+
+    await writeQueueFile(logsDir, [makeRawEntry()]);
+    const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    expect(result.killed).toBe(true);
+    const sigkillCalls = killSpy.mock.calls.filter(([, sig]) => sig === 'SIGKILL');
+    expect(sigkillCalls).toHaveLength(0);
+  });
+
+  it('AC-2 (TOCTOU): SIGTERM throws ESRCH (process dies in race window) — returns { killed: true } and cleans up queue entry', async () => {
+    vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 'SIGTERM') {
+        throw Object.assign(new Error('No such process'), { code: 'ESRCH' });
+      }
+      return true;
+    });
+
+    const planPath = join(planDir, 'plan.md');
+    await writeQueueFile(logsDir, [makeRawEntry({ planPath })]);
+    const result = await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    expect(result.killed).toBe(true);
+    const queuePath = join(logsDir, '.run-queue.json');
+    const remaining = JSON.parse(await readFile(queuePath, 'utf-8')) as unknown[];
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('AC-3: removes the killed entry from the queue file on disk', async () => {
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const planPath   = join(planDir, 'plan.md');
+    const otherEntry = makeRawEntry({ id: 'other-id', expectedSlug: '2026-05-05-other' });
+    await writeQueueFile(logsDir, [makeRawEntry({ planPath }), otherEntry]);
+
+    await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    const queuePath = join(logsDir, '.run-queue.json');
+    const remaining = JSON.parse(await readFile(queuePath, 'utf-8')) as unknown[];
+    expect(remaining).toHaveLength(1);
+    expect((remaining[0] as Record<string, unknown>)['id']).toBe('other-id');
+  });
+
+  it('AC-4: removes the .orchestrator.lock file from the plan directory', async () => {
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const planPath = join(planDir, 'plan.md');
+    const lockPath = join(planDir, '.orchestrator.lock');
+    await writeFile(lockPath, '', 'utf-8');
+
+    await writeQueueFile(logsDir, [makeRawEntry({ planPath })]);
+    await killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    let lockExists = false;
+    try {
+      await readFile(lockPath);
+      lockExists = true;
+    } catch {
+      lockExists = false;
+    }
+    expect(lockExists).toBe(false);
+  });
+
+  it('AC-4: no error when .orchestrator.lock file does not exist', async () => {
+    vi.spyOn(process, 'kill').mockImplementation(() => true);
+
+    const planPath = join(planDir, 'plan.md');
+    await writeQueueFile(logsDir, [makeRawEntry({ planPath })]);
+
+    await expect(
+      killQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot }),
+    ).resolves.toEqual({ killed: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dismissQueueEntry — WP-006 (AC-5, AC-7: graceful rejection)
+// ---------------------------------------------------------------------------
+
+describe('dismissQueueEntry — graceful rejection', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('AC-7: returns without throwing when entry is not found', async () => {
+    stubDead();
+    await writeQueueFile(logsDir, []);
+    await expect(
+      dismissQueueEntry({ id: 'missing-id', logsDir, ledgerRoot }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('AC-5: no-op when entry is effectively pending (alive + no project)', async () => {
+    stubAlive();
+    await writeQueueFile(logsDir, [makeRawEntry()]);
+
+    await dismissQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    const queuePath = join(logsDir, '.run-queue.json');
+    const remaining = JSON.parse(await readFile(queuePath, 'utf-8')) as unknown[];
+    expect(remaining).toHaveLength(1);
+  });
+
+  it('AC-5: no-op when entry is effectively started (project exists)', async () => {
+    stubAlive();
+    const slug = '2026-05-05-started';
+    await writeQueueFile(logsDir, [makeRawEntry({ expectedSlug: slug })]);
+    await writeLedgerProject(ledgerRoot, slug);
+
+    await dismissQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    const queuePath = join(logsDir, '.run-queue.json');
+    const remaining = JSON.parse(await readFile(queuePath, 'utf-8')) as unknown[];
+    expect(remaining).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dismissQueueEntry — WP-006 (AC-6: dismiss path for dead entries)
+// ---------------------------------------------------------------------------
+
+describe('dismissQueueEntry — dismiss path (effectively dead entries)', () => {
+  let tempDir: string;
+  let logsDir: string;
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir, ledgerRoot } = await setupDirs());
+    stubDead();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await teardown(tempDir);
+  });
+
+  it('AC-6: removes the dead entry from the queue file', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry()]);
+
+    await dismissQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    const queuePath = join(logsDir, '.run-queue.json');
+    const remaining = JSON.parse(await readFile(queuePath, 'utf-8')) as unknown[];
+    expect(remaining).toHaveLength(0);
+  });
+
+  it('AC-6: other entries are preserved after dismiss', async () => {
+    const keepEntry = makeRawEntry({ id: 'keep-id', expectedSlug: '2026-05-05-keep' });
+    await writeQueueFile(logsDir, [makeRawEntry(), keepEntry]);
+
+    await dismissQueueEntry({ id: 'test-entry-id', logsDir, ledgerRoot });
+
+    const queuePath = join(logsDir, '.run-queue.json');
+    const remaining = JSON.parse(await readFile(queuePath, 'utf-8')) as unknown[];
+    expect(remaining).toHaveLength(1);
+    expect((remaining[0] as Record<string, unknown>)['id']).toBe('keep-id');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startOrchestrator — WP-007
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal workspace scaffold under tempDir:
+ *   orchestrator/.venv/bin/orchestrate  (Unix) — or Scripts/orchestrate.exe (Win)
+ *   orchestrator/.env                   — with ANTHROPIC_API_KEY set
+ *   orchestrator/logs/                  — empty logs dir
+ *   mcp-server/dist/index.js            — sentinel with current mtime
+ *   mcp-server/src/                     — empty src dir (no stale files)
+ *   plans/2026-05-05-test/plan.md       — plan file
+ */
+async function scaffoldWorkspace(
+  tempDir: string,
+): Promise<{ workspaceRoot: string; planPath: string; logsDir: string }> {
+  const workspaceRoot = tempDir;
+  const isWin         = process.platform === 'win32';
+  const venvBin       = isWin ? 'Scripts' : 'bin';
+  const binExt        = isWin ? '.exe' : '';
+
+  const binDir    = join(workspaceRoot, 'orchestrator', '.venv', venvBin);
+  const logsDir   = join(workspaceRoot, 'orchestrator', 'logs');
+  const mcpDistDir = join(workspaceRoot, 'mcp-server', 'dist');
+  const mcpSrcDir  = join(workspaceRoot, 'mcp-server', 'src');
+  const planDir   = join(workspaceRoot, 'plans', '2026-05-05-test');
+
+  await mkdir(binDir,     { recursive: true });
+  await mkdir(logsDir,    { recursive: true });
+  await mkdir(mcpDistDir, { recursive: true });
+  await mkdir(mcpSrcDir,  { recursive: true });
+  await mkdir(planDir,    { recursive: true });
+
+  // Orchestrate binary (empty file, just needs to exist).
+  const binPath = join(binDir, `orchestrate${binExt}`);
+  await writeFile(binPath, '', 'utf-8');
+
+  // .env with an API key.
+  await writeFile(join(workspaceRoot, 'orchestrator', '.env'), 'ANTHROPIC_API_KEY=test-key\n', 'utf-8');
+
+  // dist sentinel — write before src so sentinel mtime > any src file.
+  const sentinelPath = join(mcpDistDir, 'index.js');
+  await writeFile(sentinelPath, '// sentinel', 'utf-8');
+
+  // plan.md
+  const planPath = join(planDir, 'plan.md');
+  await writeFile(planPath, '# Plan\n', 'utf-8');
+
+  return { workspaceRoot, planPath, logsDir };
+}
+
+describe('startOrchestrator — dryRun and check structure', () => {
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+  let logsDir:       string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-start-test-'));
+    ({ workspaceRoot, planPath, logsDir } = await scaffoldWorkspace(tempDir));
+    // Stub child_process.spawn so tests don't start real processes.
+    vi.mocked(spawn).mockReturnValue({
+      pid:   99999,
+      unref: vi.fn(),
+    } as unknown as ReturnType<typeof spawn>);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('AC-1: dryRun:true returns checks array and started:false without spawning', async () => {
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    expect(result.started).toBe(false);
+    expect(result.pid).toBeUndefined();
+    expect(result.checks.length).toBeGreaterThan(0);
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+  });
+
+  it('AC-1: every check passes when the workspace is correctly scaffolded', async () => {
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const failed = result.checks.filter((c) => !c.pass);
+    expect(failed).toHaveLength(0);
+  });
+
+  it('AC-3: all checks pass + dryRun:false → started:true with pid', async () => {
+    const result = await startOrchestrator(planPath, workspaceRoot, false);
+
+    expect(result.started).toBe(true);
+    expect(result.pid).toBe(99999);
+    expect(vi.mocked(spawn)).toHaveBeenCalledOnce();
+  });
+
+  it('AC-2: any failing check keeps started:false and blocks spawn', async () => {
+    // Remove the .env so the env check fails.
+    await rm(join(workspaceRoot, 'orchestrator', '.env'), { force: true });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, false);
+
+    expect(result.started).toBe(false);
+    expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    const envCheck = result.checks.find((c) => c.name === 'env');
+    expect(envCheck?.pass).toBe(false);
+  });
+});
+
+describe('startOrchestrator — plan-basename checks (AC-5)', () => {
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-path-test-'));
+    ({ workspaceRoot, planPath } = await scaffoldWorkspace(tempDir));
+    vi.mocked(spawn).mockReturnValue({
+      pid: 1, unref: vi.fn(),
+    } as unknown as ReturnType<typeof spawn>);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('AC-5: non-standard plan folder basename → plan-basename check fails', async () => {
+    // Create a plan at a path with a non-standard folder name.
+    const badPlanDir = join(workspaceRoot, 'plans', 'my-feature');
+    await mkdir(badPlanDir, { recursive: true });
+    const badPlanPath = join(badPlanDir, 'plan.md');
+    await writeFile(badPlanPath, '# Plan\n', 'utf-8');
+
+    const result = await startOrchestrator(badPlanPath, workspaceRoot, true);
+
+    const basenameCheck = result.checks.find((c) => c.name === 'plan-basename');
+    expect(basenameCheck?.pass).toBe(false);
+    // No unhandled exception — the error is surfaced as a check, not thrown.
+    expect(result.started).toBe(false);
+  });
+
+  it('AC-5: standard plan folder basename → plan-basename check passes', async () => {
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const basenameCheck = result.checks.find((c) => c.name === 'plan-basename');
+    expect(basenameCheck?.pass).toBe(true);
+  });
+});
+
+describe('startOrchestrator — no-conflict check (AC-6)', () => {
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+  let logsDir:       string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-conflict-test-'));
+    ({ workspaceRoot, planPath, logsDir } = await scaffoldWorkspace(tempDir));
+    vi.mocked(spawn).mockReturnValue({
+      pid: 1, unref: vi.fn(),
+    } as unknown as ReturnType<typeof spawn>);
+    stubAlive();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('AC-6: plan already in queue → no-conflict check fails', async () => {
+    await writeQueueFile(logsDir, [makeRawEntry({ planPath, pid: 55555 })]);
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const conflictCheck = result.checks.find((c) => c.name === 'no-conflict');
+    expect(conflictCheck?.pass).toBe(false);
+    expect(conflictCheck?.detail).toContain('55555');
+  });
+
+  it('AC-6: plan not in queue → no-conflict check passes', async () => {
+    await writeQueueFile(logsDir, []);
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const conflictCheck = result.checks.find((c) => c.name === 'no-conflict');
+    expect(conflictCheck?.pass).toBe(true);
+  });
+});
+
+describe('startOrchestrator — spawn behaviour (AC-7, AC-8)', () => {
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+  let unrefSpy:      ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-spawn-test-'));
+    ({ workspaceRoot, planPath } = await scaffoldWorkspace(tempDir));
+    unrefSpy = vi.fn();
+    vi.mocked(spawn).mockReturnValue({
+      pid:   42,
+      unref: unrefSpy,
+    } as unknown as ReturnType<typeof spawn>);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('AC-7: spawned process has detached:true and unref() is called', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false);
+
+    expect(vi.mocked(spawn)).toHaveBeenCalledOnce();
+    const [, , spawnOpts] = vi.mocked(spawn).mock.calls[0]!;
+    expect((spawnOpts as { detached?: boolean }).detached).toBe(true);
+    expect(unrefSpy).toHaveBeenCalledOnce();
+  });
+
+  it('AC-8: spawned binary is bin/orchestrate on Unix or Scripts/orchestrate.exe on Windows', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false);
+
+    const [spawnCmd] = vi.mocked(spawn).mock.calls[0]!;
+    const expected   = process.platform === 'win32'
+      ? join(workspaceRoot, 'orchestrator', '.venv', 'Scripts', 'orchestrate.exe')
+      : join(workspaceRoot, 'orchestrator', '.venv', 'bin', 'orchestrate');
+    expect(spawnCmd).toBe(expected);
+  });
+
+  it('AC-7: stdio of spawned process is fully ignored', async () => {
+    await startOrchestrator(planPath, workspaceRoot, false);
+
+    const [, , spawnOpts] = vi.mocked(spawn).mock.calls[0]!;
+    expect((spawnOpts as { stdio?: unknown }).stdio).toEqual(['ignore', 'ignore', 'ignore']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startOrchestrator — individual preflight check failures (WP-015 AC-3)
+// Tests the fail path for each of the three checks not covered above:
+// venv, plan-file, mcp-dist.
+// ---------------------------------------------------------------------------
+
+describe('startOrchestrator — venv, plan-file, mcp-dist check failures (WP-015 AC-3)', () => {
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-checks-test-'));
+    ({ workspaceRoot, planPath } = await scaffoldWorkspace(tempDir));
+    vi.mocked(spawn).mockReturnValue({
+      pid: 1, unref: vi.fn(),
+    } as unknown as ReturnType<typeof spawn>);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('venv check fails when the orchestrate binary is absent', async () => {
+    const isWin  = process.platform === 'win32';
+    const binExt = isWin ? '.exe' : '';
+    const binDir = join(workspaceRoot, 'orchestrator', '.venv', isWin ? 'Scripts' : 'bin');
+    await rm(join(binDir, `orchestrate${binExt}`), { force: true });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const venvCheck = result.checks.find((c) => c.name === 'venv');
+    expect(venvCheck?.pass).toBe(false);
+    expect(result.started).toBe(false);
+  });
+
+  it('plan-file check fails when plan.md does not exist', async () => {
+    await rm(planPath, { force: true });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const planFileCheck = result.checks.find((c) => c.name === 'plan-file');
+    expect(planFileCheck?.pass).toBe(false);
+    expect(result.started).toBe(false);
+  });
+
+  it('mcp-dist check fails when dist/index.js is absent', async () => {
+    await rm(join(workspaceRoot, 'mcp-server', 'dist', 'index.js'), { force: true });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const mcpDistCheck = result.checks.find((c) => c.name === 'mcp-dist');
+    expect(mcpDistCheck?.pass).toBe(false);
+    expect(result.started).toBe(false);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/orchestrator-view.test.ts`
+
+```ts
+// @vitest-environment jsdom
+
+/**
+ * Tests for gui/public/views/orchestrator.js — WP-011
+ *
+ * All acceptance criteria tested:
+ *   AC-1: "Run Preflight" calls API.orchestratorStart(planPath, true) and
+ *         renders a pass/fail checklist.
+ *   AC-2: "Start Run" button disabled initially; enabled only when all
+ *         preflight checks pass; calls API.orchestratorStart(planPath, false).
+ *   AC-3: Queue table fetches on render and registers 5-second polling via
+ *         Router._setPolling. Each entry renders status badge, elapsed time,
+ *         and progress.
+ *   AC-4: Pending entries show kill button; started entries show project link;
+ *         dead entries show dismiss button.
+ *   AC-5: Expanding a row starts a log preview via
+ *         OrchestratorWidgets.renderLogPreview(); re-render calls its cleanup.
+ *   AC-6: CLI reference card HTML is present at the bottom of the view.
+ *   AC-7: All log preview cleanup functions are invoked when renderOrchestrator
+ *         is called a second time (re-render scenario).
+ *
+ * Uses jsdom + vm.runInThisContext to load the browser-side script.
+ * API, Router, OrchestratorWidgets, and escapeHtml are set on globalThis.
+ */
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import vm from 'node:vm';
+
+// ---------------------------------------------------------------------------
+// Load scripts
+// ---------------------------------------------------------------------------
+
+const publicDir = join(__dirname, '../../gui/public');
+
+const utilsJs        = readFileSync(join(publicDir, 'utils.js'), 'utf-8');
+const orchestratorJs = readFileSync(join(publicDir, 'views/orchestrator.js'), 'utf-8');
+
+// ---------------------------------------------------------------------------
+// Global type stubs
+// ---------------------------------------------------------------------------
+
+declare global {
+  // eslint-disable-next-line no-var
+  var renderOrchestrator: (app: HTMLElement) => void;
+  // eslint-disable-next-line no-var
+  var API: {
+    orchestratorStart:    Mock;
+    orchestratorGetQueue: Mock;
+    orchestratorKill:     Mock;
+    orchestratorDismiss:  Mock;
+  };
+  // eslint-disable-next-line no-var
+  var Router: {
+    _setPolling: Mock;
+    _clearPolling: Mock;
+  };
+  // eslint-disable-next-line no-var
+  var OrchestratorWidgets: {
+    renderCliReference:  Mock;
+    renderKillButton:    Mock;
+    renderDismissButton: Mock;
+    renderLogPreview:    Mock;
+    renderProgressBadge: Mock;
+    renderStatusCard:    Mock;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Setup: install globals, load scripts once
+// ---------------------------------------------------------------------------
+
+beforeAll(() => {
+  // Install utils.js globals (escapeHtml, etc.)
+  vm.runInThisContext(utilsJs);
+
+  // Stub API — individual tests override as needed via mockResolvedValue.
+  (globalThis as Record<string, unknown>)['API'] = {
+    orchestratorStart:    vi.fn().mockResolvedValue({ checks: [], started: false }),
+    orchestratorGetQueue: vi.fn().mockResolvedValue([]),
+    orchestratorKill:     vi.fn().mockResolvedValue(null),
+    orchestratorDismiss:  vi.fn().mockResolvedValue(null),
+  };
+
+  // Stub Router.
+  (globalThis as Record<string, unknown>)['Router'] = {
+    _setPolling:   vi.fn(),
+    _clearPolling: vi.fn(),
+  };
+
+  // Stub OrchestratorWidgets.
+  (globalThis as Record<string, unknown>)['OrchestratorWidgets'] = {
+    renderCliReference:  vi.fn().mockReturnValue('<div class="cli-reference">CLI Ref</div>'),
+    renderKillButton:    vi.fn().mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'kill-btn';
+      btn.textContent = 'Kill';
+      return btn;
+    }),
+    renderDismissButton: vi.fn().mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'dismiss-btn';
+      btn.textContent = 'Dismiss';
+      return btn;
+    }),
+    renderLogPreview:    vi.fn().mockReturnValue(vi.fn()), // returns cleanup stub
+    renderProgressBadge: vi.fn().mockReturnValue('<span class="badge-neutral">• idle</span>'),
+    renderStatusCard:    vi.fn().mockReturnValue('<div>card</div>'),
+  };
+
+  // Load the orchestrator view script.
+  vm.runInThisContext(orchestratorJs);
+});
+
+// Reset mocks before each test; restore real timers.
+beforeEach(() => {
+  vi.clearAllMocks();
+
+  // Reset to safe defaults.
+  globalThis.API.orchestratorStart    = vi.fn().mockResolvedValue({ checks: [], started: false });
+  globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+  globalThis.OrchestratorWidgets.renderCliReference = vi.fn()
+    .mockReturnValue('<div class="cli-reference">CLI Ref</div>');
+  globalThis.OrchestratorWidgets.renderProgressBadge = vi.fn()
+    .mockReturnValue('<span class="badge-neutral">• idle</span>');
+  globalThis.OrchestratorWidgets.renderKillButton = vi.fn()
+    .mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'kill-btn';
+      btn.textContent = 'Kill';
+      return btn;
+    });
+  globalThis.OrchestratorWidgets.renderDismissButton = vi.fn()
+    .mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'dismiss-btn';
+      btn.textContent = 'Dismiss';
+      return btn;
+    });
+  globalThis.OrchestratorWidgets.renderLogPreview = vi.fn()
+    .mockReturnValue(vi.fn());
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Flush pending microtask queues (multi-hop Promise chains). */
+async function flushPromises(): Promise<void> {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+}
+
+/** Create a fresh #app element. */
+function makeApp(): HTMLElement {
+  const app = document.createElement('div');
+  app.id = 'app';
+  document.body.appendChild(app);
+  return app;
+}
+
+function cleanupApp(app: HTMLElement): void {
+  app.remove();
+}
+
+/** Build a minimal queue entry object. */
+function makeEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id:              'entry-abc',
+    pid:             12345,
+    planPath:        '/home/user/project/plan.md',
+    expectedSlug:    'my-project',
+    startedAt:       new Date(Date.now() - 70_000).toISOString(),
+    effectiveStatus: 'pending',
+    progress:        null,
+    lastAction:      null,
+    logFilename:     null,
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AC-6: CLI reference card
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — AC-6: CLI reference', () => {
+  it('renders the CLI reference card returned by OrchestratorWidgets', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+      globalThis.OrchestratorWidgets.renderCliReference = vi.fn()
+        .mockReturnValue('<div class="cli-reference">CLI COMMANDS</div>');
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(app.innerHTML).toContain('CLI COMMANDS');
+    } finally { cleanupApp(app); }
+  });
+
+  it('calls OrchestratorWidgets.renderCliReference()', () => {
+    const app = makeApp();
+    try {
+      renderOrchestrator(app);
+      expect(globalThis.OrchestratorWidgets.renderCliReference).toHaveBeenCalled();
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-3: Queue table + polling
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — AC-3: queue + polling', () => {
+  it('calls API.orchestratorGetQueue on render', async () => {
+    const app = makeApp();
+    try {
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(globalThis.API.orchestratorGetQueue).toHaveBeenCalledOnce();
+    } finally { cleanupApp(app); }
+  });
+
+  it('registers polling via Router._setPolling with 5000 ms', () => {
+    const app = makeApp();
+    try {
+      renderOrchestrator(app);
+      expect(globalThis.Router._setPolling).toHaveBeenCalledOnce();
+      const [, delay] = (globalThis.Router._setPolling as Mock).mock.calls[0];
+      expect(delay).toBe(5000);
+    } finally { cleanupApp(app); }
+  });
+
+  it('renders empty state message when queue is empty', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(app.innerHTML).toContain('No active runs');
+    } finally { cleanupApp(app); }
+  });
+
+  it('renders a table row for each queue entry', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ id: 'e1' }),
+        makeEntry({ id: 'e2' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const rows = app.querySelectorAll('.orch-queue-row');
+      expect(rows.length).toBe(2);
+    } finally { cleanupApp(app); }
+  });
+
+  it('shows plan basename (not full path) in plan cell', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ planPath: '/long/path/to/plan.md' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const planCell = app.querySelector('.orch-plan-cell');
+      expect(planCell?.textContent?.trim()).toBe('plan.md');
+    } finally { cleanupApp(app); }
+  });
+
+  it('shows full path as a tooltip on the plan cell', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ planPath: '/long/path/to/plan.md' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const planCell = app.querySelector('.orch-plan-cell');
+      expect(planCell?.getAttribute('title')).toBe('/long/path/to/plan.md');
+    } finally { cleanupApp(app); }
+  });
+
+  it('renders a status badge for each entry', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ effectiveStatus: 'pending' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const badge = app.querySelector('.badge-pending');
+      expect(badge).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('calls OrchestratorWidgets.renderProgressBadge for each entry', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry(),
+        makeEntry({ id: 'entry-xyz' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(globalThis.OrchestratorWidgets.renderProgressBadge).toHaveBeenCalledTimes(2);
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-4: Per-status row actions
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — AC-4: row actions', () => {
+  it('shows kill button for pending entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ effectiveStatus: 'pending' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(app.querySelector('.kill-btn')).not.toBeNull();
+      expect(globalThis.OrchestratorWidgets.renderKillButton).toHaveBeenCalledOnce();
+    } finally { cleanupApp(app); }
+  });
+
+  it('shows project link for started entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ effectiveStatus: 'started', expectedSlug: 'my-project' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      const link = app.querySelector('.orch-project-link') as HTMLAnchorElement | null;
+      expect(link).not.toBeNull();
+      expect(link?.href).toContain('/projects/');
+      expect(link?.href).toContain('my-project');
+    } finally { cleanupApp(app); }
+  });
+
+  it('shows dismiss button for dead entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ effectiveStatus: 'dead' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(app.querySelector('.dismiss-btn')).not.toBeNull();
+      expect(globalThis.OrchestratorWidgets.renderDismissButton).toHaveBeenCalledOnce();
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-1: Preflight
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — AC-1: preflight', () => {
+  it('renders "Run Preflight" button', () => {
+    const app = makeApp();
+    try {
+      renderOrchestrator(app);
+      const btn = document.getElementById('orch-preflight-btn');
+      expect(btn).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('calls API.orchestratorStart(planPath, true) when "Run Preflight" clicked', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn().mockResolvedValue({ checks: [], started: false });
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      const btn   = document.getElementById('orch-preflight-btn') as HTMLButtonElement;
+      input.value = '/my/plan.md';
+      btn.click();
+      await flushPromises();
+      expect(globalThis.API.orchestratorStart).toHaveBeenCalledWith('/my/plan.md', true);
+    } finally { cleanupApp(app); }
+  });
+
+  it('renders pass items with preflight-pass class', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn().mockResolvedValue({
+        checks: [{ name: 'Venv', pass: true, detail: 'OK' }],
+        started: false,
+      });
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+      expect(app.querySelector('.preflight-pass')).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('renders fail items with preflight-fail class', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn().mockResolvedValue({
+        checks: [{ name: 'MCP dist', pass: false, detail: 'Stale', fix: 'npm run build' }],
+        started: false,
+      });
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+      expect(app.querySelector('.preflight-fail')).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('shows fix hint for failing checks', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn().mockResolvedValue({
+        checks: [{ name: 'MCP dist', pass: false, detail: 'Stale', fix: 'npm run build' }],
+        started: false,
+      });
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+      expect(app.innerHTML).toContain('npm run build');
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2: Start Run button gating
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — AC-2: start run button', () => {
+  it('renders "Start Run" button disabled initially', () => {
+    const app = makeApp();
+    try {
+      renderOrchestrator(app);
+      const btn = document.getElementById('orch-start-btn') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    } finally { cleanupApp(app); }
+  });
+
+  it('enables "Start Run" when all preflight checks pass', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn().mockResolvedValue({
+        checks: [
+          { name: 'Venv',    pass: true, detail: 'OK' },
+          { name: 'MCP dist', pass: true, detail: 'Fresh' },
+        ],
+        started: false,
+      });
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+      const startBtn = document.getElementById('orch-start-btn') as HTMLButtonElement;
+      expect(startBtn.disabled).toBe(false);
+    } finally { cleanupApp(app); }
+  });
+
+  it('keeps "Start Run" disabled when any preflight check fails', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn().mockResolvedValue({
+        checks: [
+          { name: 'Venv',     pass: true,  detail: 'OK' },
+          { name: 'MCP dist', pass: false, detail: 'Stale' },
+        ],
+        started: false,
+      });
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+      const startBtn = document.getElementById('orch-start-btn') as HTMLButtonElement;
+      expect(startBtn.disabled).toBe(true);
+    } finally { cleanupApp(app); }
+  });
+
+  it('calls API.orchestratorStart(planPath, false) when "Start Run" clicked', async () => {
+    const app = makeApp();
+    try {
+      // First call (preflight, dryRun=true) returns all-pass.
+      // Second call (start, dryRun=false) returns started=true.
+      globalThis.API.orchestratorStart = vi.fn()
+        .mockResolvedValueOnce({
+          checks: [{ name: 'Venv', pass: true, detail: 'OK' }],
+          started: false,
+        })
+        .mockResolvedValueOnce({ checks: [], started: true, pid: 9999 });
+
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      (document.getElementById('orch-start-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      expect(globalThis.API.orchestratorStart).toHaveBeenCalledTimes(2);
+      expect(globalThis.API.orchestratorStart).toHaveBeenNthCalledWith(2, '/my/plan.md', false);
+    } finally { cleanupApp(app); }
+  });
+
+  it('clears the plan path input after a successful start', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorStart = vi.fn()
+        .mockResolvedValueOnce({
+          checks: [{ name: 'Venv', pass: true, detail: 'OK' }],
+          started: false,
+        })
+        .mockResolvedValueOnce({ checks: [], started: true });
+
+      renderOrchestrator(app);
+      const input = document.getElementById('orch-plan-path') as HTMLInputElement;
+      input.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+      (document.getElementById('orch-start-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      expect((document.getElementById('orch-plan-path') as HTMLInputElement).value).toBe('');
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-5 + AC-7: Log preview cleanup
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — AC-5 + AC-7: log preview', () => {
+  it('does not call renderLogPreview for a non-expanded row', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ logFilename: 'run.jsonl', expectedSlug: 'proj' }),
+      ]);
+      renderOrchestrator(app);
+      await flushPromises();
+      expect(globalThis.OrchestratorWidgets.renderLogPreview).not.toHaveBeenCalled();
+    } finally { cleanupApp(app); }
+  });
+
+  it('calls cleanup functions when renderOrchestrator is called a second time (AC-7)', async () => {
+    const app = makeApp();
+    try {
+      const cleanup = vi.fn();
+      globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup);
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ id: 'e1', logFilename: 'run.jsonl', expectedSlug: 'proj' }),
+      ]);
+
+      // First render — then manually expand a row and trigger a re-render via the toggle.
+      renderOrchestrator(app);
+      await flushPromises();
+
+      // Click the expand toggle for 'e1' to push a cleanup into the module-level array.
+      const toggleBtn = app.querySelector<HTMLButtonElement>('.orch-row-toggle[data-entry-id="e1"]');
+      toggleBtn?.click();
+      await flushPromises();
+
+      // Second call to renderOrchestrator should drain cleanups from first render.
+      const cleanup2 = vi.fn();
+      globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup2);
+      renderOrchestrator(app);
+
+      // The cleanup from the first render should have been called.
+      expect(cleanup).toHaveBeenCalled();
+    } finally { cleanupApp(app); }
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/orchestrator-widgets.test.ts`
+
+```ts
+// @vitest-environment jsdom
+
+/**
+ * Tests for gui/public/js/orchestrator-widgets.js — WP-010
+ *
+ * All acceptance criteria tested:
+ *   AC-1: renderStatusCard produces valid HTML with PID, elapsed time,
+ *         progress summary, and status badge.
+ *   AC-2: renderKillButton calls API.orchestratorKill() after a
+ *         confirmation prompt and invokes the callback.
+ *   AC-3: renderDismissButton calls API.orchestratorDismiss() and
+ *         invokes the callback.
+ *   AC-4: renderLogPreview auto-polls API.getRunLogEntries() and
+ *         appends new events. Returns a cleanup function that stops polling.
+ *   AC-5: renderProgressBadge maps lastAction to appropriate icon/color.
+ *   AC-6: renderCliReference returns static HTML with the CLI commands
+ *         reference.
+ *   AC-7: All functions are accessible on the global OrchestratorWidgets
+ *         object.
+ *
+ * Uses jsdom + vm.runInThisContext to load the browser-side script.
+ * API and escapeHtml are set on globalThis before the script runs.
+ */
+
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import vm from 'node:vm';
+
+// ---------------------------------------------------------------------------
+// Load dependent scripts, then the widget library
+// ---------------------------------------------------------------------------
+
+const publicDir = join(__dirname, '../../gui/public');
+
+const utilsJs   = readFileSync(join(publicDir, 'utils.js'),    'utf-8');
+const widgetsJs = readFileSync(
+  join(publicDir, 'js', 'orchestrator-widgets.js'),
+  'utf-8',
+);
+
+// ---------------------------------------------------------------------------
+// Global type declarations
+// ---------------------------------------------------------------------------
+
+declare global {
+  // eslint-disable-next-line no-var
+  var OrchestratorWidgets: {
+    renderStatusCard:    (entry: Record<string, unknown>) => string;
+    renderKillButton:    (entryId: string, onDone: () => void) => HTMLButtonElement;
+    renderDismissButton: (entryId: string, onDone: () => void) => HTMLButtonElement;
+    renderLogPreview:    (container: HTMLElement, slug: string, filename: string) => () => void;
+    renderProgressBadge: (lastAction: string | null | undefined) => string;
+    renderCliReference:  () => string;
+  };
+  // eslint-disable-next-line no-var
+  var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
+}
+
+// ---------------------------------------------------------------------------
+// Setup: install utils.js globals, stub API, then load the widget script
+// ---------------------------------------------------------------------------
+
+beforeAll(() => {
+  // Install utils.js globals (escapeHtml etc.)
+  vm.runInThisContext(utilsJs);
+  // Stub API with placeholder methods; individual tests override as needed.
+  (globalThis as Record<string, unknown>)['API'] = {
+    orchestratorKill:    vi.fn().mockResolvedValue(null),
+    orchestratorDismiss: vi.fn().mockResolvedValue(null),
+    getRunLogEntries:    vi.fn().mockResolvedValue({ entries: [], totalLines: 0 }),
+  };
+  // Load the widget module.
+  vm.runInThisContext(widgetsJs);
+});
+
+// Restore fresh API mocks and reset timers between tests.
+beforeEach(() => {
+  (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorKill']    = vi.fn().mockResolvedValue(null);
+  (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorDismiss'] = vi.fn().mockResolvedValue(null);
+  (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries']    = vi.fn().mockResolvedValue({ entries: [], totalLines: 0 });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Flush all pending microtask queues (Promise callbacks).
+ * Looping several times handles multi-hop .then() chains.
+ */
+async function flushPromises(): Promise<void> {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+function makeEntry(overrides: Partial<{
+  effectiveStatus: string;
+  pid: number;
+  startedAt: string;
+  progress: string | null;
+}> = {}): Record<string, unknown> {
+  return {
+    effectiveStatus: overrides.effectiveStatus ?? 'pending',
+    pid:             overrides.pid             ?? 12345,
+    startedAt:       overrides.startedAt       ?? new Date(Date.now() - 65000).toISOString(),
+    progress:        overrides.progress        !== undefined ? overrides.progress : 'Starting developer for WP-001',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AC-7: global namespace
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets — AC-7: global namespace', () => {
+  it('OrchestratorWidgets is defined as a global object', () => {
+    expect(typeof globalThis.OrchestratorWidgets).toBe('object');
+    expect(globalThis.OrchestratorWidgets).not.toBeNull();
+  });
+
+  it('exposes all required functions', () => {
+    const w = globalThis.OrchestratorWidgets;
+    expect(typeof w.renderStatusCard).toBe('function');
+    expect(typeof w.renderKillButton).toBe('function');
+    expect(typeof w.renderDismissButton).toBe('function');
+    expect(typeof w.renderLogPreview).toBe('function');
+    expect(typeof w.renderProgressBadge).toBe('function');
+    expect(typeof w.renderCliReference).toBe('function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-1: renderStatusCard
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.renderStatusCard — AC-1', () => {
+  it('returns a non-empty HTML string', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(makeEntry());
+    expect(typeof html).toBe('string');
+    expect(html.length).toBeGreaterThan(0);
+  });
+
+  it('includes the PID', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(makeEntry({ pid: 99999 }));
+    expect(html).toContain('99999');
+  });
+
+  it('includes the status badge for pending', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ effectiveStatus: 'pending' }),
+    );
+    expect(html).toContain('badge-pending');
+    expect(html).toContain('Pending');
+  });
+
+  it('includes the status badge for started', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ effectiveStatus: 'started' }),
+    );
+    expect(html).toContain('badge-started');
+    expect(html).toContain('Started');
+  });
+
+  it('includes the status badge for dead', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ effectiveStatus: 'dead' }),
+    );
+    expect(html).toContain('badge-dead');
+    expect(html).toContain('Dead');
+  });
+
+  it('includes elapsed time when startedAt is set', () => {
+    // startedAt 65 seconds ago → formatted as "1m"
+    const startedAt = new Date(Date.now() - 65_000).toISOString();
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ startedAt }),
+    );
+    expect(html).toContain('Running');
+  });
+
+  it('includes the progress summary text', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ progress: 'Starting qa for WP-003' }),
+    );
+    expect(html).toContain('Starting qa for WP-003');
+  });
+
+  it('omits progress section when progress is null', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ progress: null }),
+    );
+    expect(html).not.toContain('orchestrator-progress-summary');
+  });
+
+  it('HTML-escapes progress text to prevent XSS', () => {
+    const html = globalThis.OrchestratorWidgets.renderStatusCard(
+      makeEntry({ progress: '<script>alert(1)</script>' }),
+    );
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2: renderKillButton
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.renderKillButton — AC-2', () => {
+  it('returns an HTMLButtonElement', () => {
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-1', vi.fn());
+    expect(btn instanceof HTMLButtonElement).toBe(true);
+  });
+
+  it('button text is "Kill"', () => {
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-1', vi.fn());
+    expect(btn.textContent).toBe('Kill');
+  });
+
+  it('does NOT call API.orchestratorKill when confirm is rejected', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-2', onDone);
+    btn.click();
+
+    await Promise.resolve();  // flush microtasks
+    expect(globalThis.API['orchestratorKill']).not.toHaveBeenCalled();
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it('calls API.orchestratorKill with entryId after confirm', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-3', onDone);
+    btn.click();
+
+    await Promise.resolve();
+    await Promise.resolve();  // two ticks to settle the resolved promise
+    expect(globalThis.API['orchestratorKill']).toHaveBeenCalledWith('entry-3');
+  });
+
+  it('invokes onDone callback after a successful kill', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorKill'] =
+      vi.fn().mockResolvedValue(null);
+
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderKillButton('entry-4', onDone);
+    btn.click();
+
+    // Settle the promise chain (confirm → API call → .then callback)
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-3: renderDismissButton
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.renderDismissButton — AC-3', () => {
+  it('returns an HTMLButtonElement', () => {
+    const btn = globalThis.OrchestratorWidgets.renderDismissButton('entry-5', vi.fn());
+    expect(btn instanceof HTMLButtonElement).toBe(true);
+  });
+
+  it('button text is "Dismiss"', () => {
+    const btn = globalThis.OrchestratorWidgets.renderDismissButton('entry-5', vi.fn());
+    expect(btn.textContent).toBe('Dismiss');
+  });
+
+  it('calls API.orchestratorDismiss with entryId on click', async () => {
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderDismissButton('entry-6', onDone);
+    btn.click();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(globalThis.API['orchestratorDismiss']).toHaveBeenCalledWith('entry-6');
+  });
+
+  it('invokes onDone callback after a successful dismiss', async () => {
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['orchestratorDismiss'] =
+      vi.fn().mockResolvedValue(null);
+
+    const onDone = vi.fn();
+    const btn = globalThis.OrchestratorWidgets.renderDismissButton('entry-7', onDone);
+    btn.click();
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onDone).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-4: renderLogPreview
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns a cleanup function', () => {
+    const container = document.createElement('div');
+    const cleanup = globalThis.OrchestratorWidgets.renderLogPreview(
+      container, 'my-slug', 'run.jsonl',
+    );
+    expect(typeof cleanup).toBe('function');
+    cleanup();
+  });
+
+  it('calls API.getRunLogEntries immediately on invocation', () => {
+    const container = document.createElement('div');
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'my-slug', 'run.jsonl');
+
+    expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledOnce();
+    expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledWith('my-slug', 'run.jsonl', 0);
+  });
+
+  it('appends new event entries to the container', async () => {
+    const container = document.createElement('div');
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
+      vi.fn().mockResolvedValue({
+        entries:    [{ action: 'run_start' }, { action: 'stage_start' }],
+        totalLines: 2,
+      });
+
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+
+    // Flush the initial fetch promise
+    await flushPromises();
+
+    expect(container.children).toHaveLength(2);
+    expect(container.children[0]!.textContent).toBe('run_start');
+    expect(container.children[1]!.textContent).toBe('stage_start');
+  });
+
+  it('polls again after 3 seconds and appends incremental entries', async () => {
+    const container = document.createElement('div');
+
+    let callCount = 0;
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
+      vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ entries: [{ action: 'run_start' }], totalLines: 1 });
+        }
+        return Promise.resolve({ entries: [{ action: 'stage_start' }], totalLines: 2 });
+      });
+
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+    await flushPromises();
+    expect(container.children).toHaveLength(1);
+
+    // Advance past the 3s polling interval
+    vi.advanceTimersByTime(3001);
+    await flushPromises();
+
+    expect(container.children).toHaveLength(2);
+    // Second call uses afterLine = 1 (the totalLines from the first response)
+    const secondCall = (globalThis.API['getRunLogEntries'] as Mock).mock.calls[1];
+    expect(secondCall![2]).toBe(1);
+  });
+
+  it('cleanup function stops polling', async () => {
+    const container = document.createElement('div');
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
+      vi.fn().mockResolvedValue({ entries: [], totalLines: 0 });
+
+    const cleanup = globalThis.OrchestratorWidgets.renderLogPreview(
+      container, 'slug', 'run.jsonl',
+    );
+    await flushPromises();
+
+    const callsBeforeCleanup = (globalThis.API['getRunLogEntries'] as Mock)
+      .mock.calls.length;
+
+    cleanup();
+
+    // Advance well past the interval — no further calls should happen
+    vi.advanceTimersByTime(10_000);
+    await flushPromises();
+
+    expect(
+      (globalThis.API['getRunLogEntries'] as Mock).mock.calls.length,
+    ).toBe(callsBeforeCleanup);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-5: renderProgressBadge
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.renderProgressBadge — AC-5', () => {
+  it('returns a string', () => {
+    expect(typeof globalThis.OrchestratorWidgets.renderProgressBadge('run_start')).toBe('string');
+  });
+
+  it('run_start → badge-info class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('run_start');
+    expect(html).toContain('badge-info');
+  });
+
+  it('stage_start → badge-info class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('stage_start');
+    expect(html).toContain('badge-info');
+  });
+
+  it('stage_complete → badge-success class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('stage_complete');
+    expect(html).toContain('badge-success');
+  });
+
+  it('wp_complete → badge-success class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('wp_complete');
+    expect(html).toContain('badge-success');
+  });
+
+  it('run_end → badge-neutral class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('run_end');
+    expect(html).toContain('badge-neutral');
+  });
+
+  it('run_error → badge-error class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('run_error');
+    expect(html).toContain('badge-error');
+  });
+
+  it('signal_shutdown → badge-warning class', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('signal_shutdown');
+    expect(html).toContain('badge-warning');
+  });
+
+  it('unknown action → badge-neutral fallback', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge('some_unknown');
+    expect(html).toContain('badge-neutral');
+  });
+
+  it('null → badge-neutral fallback with "idle" label', () => {
+    const html = globalThis.OrchestratorWidgets.renderProgressBadge(null as unknown as string);
+    expect(html).toContain('badge-neutral');
+    expect(html).toContain('idle');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-6: renderCliReference
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.renderCliReference — AC-6', () => {
+  it('returns a non-empty string', () => {
+    const html = globalThis.OrchestratorWidgets.renderCliReference();
+    expect(typeof html).toBe('string');
+    expect(html.length).toBeGreaterThan(0);
+  });
+
+  it('contains the orchestrate command', () => {
+    const html = globalThis.OrchestratorWidgets.renderCliReference();
+    expect(html).toContain('orchestrate');
+  });
+
+  it('contains the --resume flag reference', () => {
+    const html = globalThis.OrchestratorWidgets.renderCliReference();
+    expect(html).toContain('--resume');
+  });
+
+  it('contains the --dry-run flag reference', () => {
+    const html = globalThis.OrchestratorWidgets.renderCliReference();
+    expect(html).toContain('--dry-run');
+  });
+
+  it('contains a kill-orchestrator reference', () => {
+    const html = globalThis.OrchestratorWidgets.renderCliReference();
+    expect(html).toContain('kill-orchestrator');
+  });
+
+  it('wraps content in a container element', () => {
+    const html = globalThis.OrchestratorWidgets.renderCliReference();
+    expect(html).toContain('<div');
+    expect(html).toContain('</div>');
+  });
+});
+
+```
 ###  Path: `/mcp-server/tests/gui/project-detail-runs.test.ts`
 
 ```ts
@@ -5992,7 +8774,7 @@ describe('resolveLogSource', () => {
  * renderProjectDetail paths related to orchestrator run logs.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
@@ -6011,8 +8793,44 @@ beforeAll(() => {
     parse: (s: string) => '<p>' + s + '</p>',
   };
 
+  // OrchestratorWidgets stub — used by the queue-aware active run section (WP-013).
+  (globalThis as Record<string, unknown>)['OrchestratorWidgets'] = {
+    renderStatusCard:    vi.fn().mockReturnValue('<div class="orchestrator-status-card">card</div>'),
+    renderKillButton:    vi.fn().mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'kill-btn';
+      btn.textContent = 'Kill';
+      return btn;
+    }),
+    renderDismissButton: vi.fn(),
+    renderLogPreview:    vi.fn().mockReturnValue(vi.fn()), // returns a cleanup stub
+    renderProgressBadge: vi.fn().mockReturnValue(''),
+    renderCliReference:  vi.fn().mockReturnValue(''),
+  };
+
+  // Router stub — used by Router._setPolling() in the active run section.
+  (globalThis as Record<string, unknown>)['Router'] = {
+    _setPolling:   vi.fn(),
+    _clearPolling: vi.fn(),
+  };
+
   vm.runInThisContext(utilsJs);
   vm.runInThisContext(projectDetailJs);
+});
+
+// Reset OrchestratorWidgets and Router mocks between tests.
+beforeEach(() => {
+  globalThis.OrchestratorWidgets.renderStatusCard
+    .mockReturnValue('<div class="orchestrator-status-card">card</div>');
+  globalThis.OrchestratorWidgets.renderKillButton
+    .mockImplementation((_id: string, _cb: () => void) => {
+      const btn = document.createElement('button');
+      btn.className = 'kill-btn';
+      btn.textContent = 'Kill';
+      return btn;
+    });
+  globalThis.OrchestratorWidgets.renderLogPreview.mockReturnValue(vi.fn());
+  vi.clearAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -6026,6 +8844,20 @@ declare global {
   var API: Record<string, (...args: unknown[]) => Promise<unknown>>;
   // eslint-disable-next-line no-var
   var marked: { parse: (s: string) => string };
+  // eslint-disable-next-line no-var
+  var OrchestratorWidgets: {
+    renderStatusCard:    Mock;
+    renderKillButton:    Mock;
+    renderDismissButton: Mock;
+    renderLogPreview:    Mock;
+    renderProgressBadge: Mock;
+    renderCliReference:  Mock;
+  };
+  // eslint-disable-next-line no-var
+  var Router: {
+    _setPolling:   Mock;
+    _clearPolling: Mock;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -6068,6 +8900,7 @@ async function renderWithAPI(
     getWorkPackageOverview?: () => Promise<unknown>;
     getProjectHealth?: () => Promise<unknown>;
     getRunLogs?: () => Promise<unknown>;
+    orchestratorGetQueue?: () => Promise<unknown>;
   }
 ) {
   (globalThis as Record<string, unknown>)['API'] = {
@@ -6076,6 +8909,7 @@ async function renderWithAPI(
     getWorkPackageOverview: apiStubs.getWorkPackageOverview ?? (() => Promise.resolve(null)),
     getProjectHealth:     apiStubs.getProjectHealth      ?? (() => Promise.resolve({ work_packages_needing_reset: 0 })),
     getRunLogs:           apiStubs.getRunLogs            ?? (() => Promise.resolve([])),
+    orchestratorGetQueue: apiStubs.orchestratorGetQueue  ?? (() => Promise.resolve([])),
   };
 
   globalThis.renderProjectDetail(app, slug);
@@ -6369,6 +9203,796 @@ describe('renderProjectDetail — Orchestrator Runs section', () => {
     expect(app.innerHTML).toContain('Projects');
   });
 });
+
+// ---------------------------------------------------------------------------
+// WP-013: Queue-aware active run section
+// ---------------------------------------------------------------------------
+
+describe('renderProjectDetail — WP-013: queue-aware active run (AC-1 to AC-5)', () => {
+  let app: HTMLElement;
+
+  beforeEach(() => {
+    app = document.createElement('div');
+    document.body.appendChild(app);
+  });
+
+  afterEach(() => {
+    if (app.parentNode) app.parentNode.removeChild(app);
+  });
+
+  // Shared factory for a minimal queue entry matching a given log filename.
+  function makeQueueEntry(logFilename: string, overrides: Record<string, unknown> = {}) {
+    return {
+      id:              'queue-entry-1',
+      pid:             42424,
+      logFilename,
+      expectedSlug:    'my-project',
+      startedAt:       new Date(Date.now() - 30_000).toISOString(),
+      effectiveStatus: 'started',
+      progress:        null,
+      lastAction:      null,
+      ...overrides,
+    };
+  }
+
+  // Helper: wait for queue-aware rendering to settle (queue fetch = extra promise hop).
+  async function flush(): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < 300) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 15));
+      const el = app.querySelector('#orchestrator-runs-section');
+      if (el && !el.innerHTML.includes('Loading runs')) break;
+    }
+    // Extra hops for orchestratorGetQueue resolution.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  }
+
+  // ── AC-1: Active run with matching queue entry ────────────────────────────
+
+  it('AC-1: calls renderStatusCard with the matching queue entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+    const queueEntry = makeQueueEntry(activeLog.filename);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([queueEntry]),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderStatusCard).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'queue-entry-1' })
+    );
+  });
+
+  it('AC-1: injects a kill button via renderKillButton for matching entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+    const queueEntry = makeQueueEntry(activeLog.filename);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([queueEntry]),
+    });
+
+    expect(app.querySelector('.kill-btn')).not.toBeNull();
+    expect(globalThis.OrchestratorWidgets.renderKillButton).toHaveBeenCalledWith(
+      'queue-entry-1',
+      expect.any(Function)
+    );
+  });
+
+  it('AC-1: starts log preview via renderLogPreview for matching entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+    const queueEntry = makeQueueEntry(activeLog.filename);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([queueEntry]),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      'my-project',
+      activeLog.filename
+    );
+  });
+
+  // ── AC-2: Active run without matching queue entry ────────────────────────
+
+  it('AC-2: does NOT call renderStatusCard when no queue entry matches', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]), // empty queue
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderStatusCard).not.toHaveBeenCalled();
+  });
+
+  it('AC-2: does NOT inject a kill button when no queue entry matches', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(app.querySelector('.kill-btn')).toBeNull();
+    expect(globalThis.OrchestratorWidgets.renderKillButton).not.toHaveBeenCalled();
+  });
+
+  it('AC-2: shows CLI kill hint when no queue entry matches', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(app.innerHTML).toContain('kill-orchestrator');
+  });
+
+  it('AC-2: starts log preview via renderLogPreview even without a matching queue entry', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalledWith(
+      expect.any(HTMLElement),
+      'my-project',
+      activeLog.filename
+    );
+  });
+
+  // ── AC-3: Non-active runs are unchanged ──────────────────────────────────
+
+  it('AC-3: does not call renderStatusCard or renderKillButton for non-active runs', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+      { filename: '20260504T100000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderStatusCard).not.toHaveBeenCalled();
+    expect(globalThis.OrchestratorWidgets.renderKillButton).not.toHaveBeenCalled();
+  });
+
+  it('AC-3: does not call renderLogPreview for non-active runs', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).not.toHaveBeenCalled();
+  });
+
+  it('AC-3: still renders run number and View link for non-active runs', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(app.innerHTML).toContain('Run #1');
+    expect(app.innerHTML).toContain('View');
+  });
+
+  // ── AC-4: Log preview cleanup on re-render ────────────────────────────────
+
+  it('AC-4: calls cleanup function returned by renderLogPreview on the next renderProjectDetail call', async () => {
+    const cleanup = vi.fn();
+    globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup);
+
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    // First render should have called renderLogPreview and stored the cleanup.
+    expect(globalThis.OrchestratorWidgets.renderLogPreview).toHaveBeenCalled();
+    expect(cleanup).not.toHaveBeenCalled();
+
+    // Second call to renderProjectDetail — should drain cleanups from the first render.
+    const cleanup2 = vi.fn();
+    globalThis.OrchestratorWidgets.renderLogPreview = vi.fn().mockReturnValue(cleanup2);
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(cleanup).toHaveBeenCalled();
+  });
+
+  // ── AC-5: Polling registered via Router._setPolling ──────────────────────
+
+  it('AC-5: calls Router._setPolling with 5000 ms when an active run is present', async () => {
+    const activeLog = { filename: '20260505T120000-my-project.jsonl', is_active: true };
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs:           () => Promise.resolve([activeLog]),
+      orchestratorGetQueue: () => Promise.resolve([]),
+    });
+
+    expect(globalThis.Router._setPolling).toHaveBeenCalledOnce();
+    const [, delay] = (globalThis.Router._setPolling as Mock).mock.calls[0];
+    expect(delay).toBe(5000);
+  });
+
+  it('AC-5: does NOT call Router._setPolling when there is no active run', async () => {
+    const logs = [
+      { filename: '20260505T120000-my-project.jsonl', is_active: false },
+    ];
+
+    await renderWithAPI(app, 'my-project', {
+      getRunLogs: () => Promise.resolve(logs),
+    });
+
+    expect(globalThis.Router._setPolling).not.toHaveBeenCalled();
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/queue/compute-effective-status.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/queue/compute-effective-status.ts — WP-004
+ *
+ * Verifies:
+ *   AC-1: alive + JSONL stage_start + no project → 'started'.
+ *   AC-2: alive + JSONL run_start only + no project → 'pending'.
+ *   AC-3: dead + JSONL stage_start + no project → 'dead'.
+ *   AC-4: default hasLogActivity=false matches pre-WP-004 behavior (safe for kill/dismiss).
+ *   (Backward-compat: project exists always wins regardless of hasLogActivity.)
+ */
+
+import { describe, it, expect } from 'vitest';
+import {
+  computeEffectiveStatus,
+  type EffectiveStatus,
+} from '../../../src/gui/queue/compute-effective-status.js';
+
+// ---------------------------------------------------------------------------
+// AC-1: alive + stage activity + no project → 'started'
+// ---------------------------------------------------------------------------
+
+describe('computeEffectiveStatus — AC-1: alive + stage activity + no project', () => {
+  it('returns "started" when process is alive, log has stage activity, and no project', () => {
+    const result: EffectiveStatus = computeEffectiveStatus(
+      /* alive */          true,
+      /* projectExists */  false,
+      /* hasLogActivity */ true,
+    );
+    expect(result).toBe('started');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2: alive + run_start only + no project → 'pending'
+// ---------------------------------------------------------------------------
+
+describe('computeEffectiveStatus — AC-2: alive + no stage activity + no project', () => {
+  it('returns "pending" when process is alive but log has only run_start (no stage activity)', () => {
+    const result: EffectiveStatus = computeEffectiveStatus(
+      /* alive */          true,
+      /* projectExists */  false,
+      /* hasLogActivity */ false,
+    );
+    expect(result).toBe('pending');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-3: dead + stage activity + no project → 'dead'
+// ---------------------------------------------------------------------------
+
+describe('computeEffectiveStatus — AC-3: dead + stage activity + no project', () => {
+  it('returns "dead" when process is dead even if log has stage activity and no project', () => {
+    const result: EffectiveStatus = computeEffectiveStatus(
+      /* alive */          false,
+      /* projectExists */  false,
+      /* hasLogActivity */ true,
+    );
+    expect(result).toBe('dead');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-4: default hasLogActivity = false (backward-compatible for kill/dismiss)
+// ---------------------------------------------------------------------------
+
+describe('computeEffectiveStatus — AC-4: default hasLogActivity=false', () => {
+  it('returns "pending" when called with two args (alive + no project) — default is false', () => {
+    const result: EffectiveStatus = computeEffectiveStatus(true, false);
+    expect(result).toBe('pending');
+  });
+
+  it('returns "dead" when called with two args (dead + no project) — default is false', () => {
+    const result: EffectiveStatus = computeEffectiveStatus(false, false);
+    expect(result).toBe('dead');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backward-compat: projectExists always wins
+// ---------------------------------------------------------------------------
+
+describe('computeEffectiveStatus — projectExists always wins', () => {
+  it('returns "started" when project exists, regardless of alive/hasLogActivity', () => {
+    expect(computeEffectiveStatus(false, true, false)).toBe('started');
+    expect(computeEffectiveStatus(true,  true, false)).toBe('started');
+    expect(computeEffectiveStatus(true,  true, true)).toBe('started');
+    expect(computeEffectiveStatus(false, true, true)).toBe('started');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/queue/format-progress-entry.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/queue/format-progress-entry.ts — WP-002
+ *
+ * Verifies:
+ *   AC-1: formatProgressEntry() returns "Tool call: {tool_name}" for tool_call entries.
+ *   AC-3: Test verifies tool_call formatting.
+ *
+ * Note: resolve-progress.test.ts covers 7 of the 11 event types via integration;
+ * this file focuses specifically on the tool_call addition from WP-002.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { formatProgressEntry } from '../../../src/gui/queue/format-progress-entry.js';
+
+describe('formatProgressEntry — tool_call (WP-002)', () => {
+  it('AC-1: returns "Tool call: {tool_name}" when tool_name is present', () => {
+    expect(
+      formatProgressEntry({ action: 'tool_call', tool_name: 'ledger_get_next_action' }),
+    ).toBe('Tool call: ledger_get_next_action');
+  });
+
+  it('returns "Tool call" when tool_name is absent', () => {
+    expect(formatProgressEntry({ action: 'tool_call' })).toBe('Tool call');
+  });
+
+  it('returns "Tool call" when tool_name is a non-string value', () => {
+    expect(formatProgressEntry({ action: 'tool_call', tool_name: 42 })).toBe('Tool call');
+  });
+
+  it('returns "Tool call" when tool_name is an empty string', () => {
+    expect(formatProgressEntry({ action: 'tool_call', tool_name: '' })).toBe('Tool call');
+  });
+
+  it('existing actions are unaffected: run_start still returns "Run started"', () => {
+    expect(formatProgressEntry({ action: 'run_start' })).toBe('Run started');
+  });
+
+  it('existing actions are unaffected: heartbeat still returns null', () => {
+    expect(formatProgressEntry({ action: 'heartbeat' })).toBeNull();
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/queue/resolve-progress.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/queue/resolve-progress.ts — WP-001
+ *
+ * Verifies:
+ *   AC-1: resolveProgress() returns a ProgressResolution object with the
+ *         correct fields (summary, lastAction, logFilename, hasStageActivity).
+ *   AC-2: summary matches existing behavior (same string as before the refactor).
+ *   AC-3: lastAction contains the action field of the entry that produced summary.
+ *   AC-4: logFilename contains the basename of the JSONL file read.
+ *   AC-5: hasStageActivity is true when lastAction is non-null and not 'run_start'.
+ *   (formatProgressEntry behavior tested inline via resolveProgress results.)
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import {
+  resolveProgress,
+  formatProgressEntry,
+  type ProgressResolution,
+} from '../../../src/gui/queue/resolve-progress.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function setup(): Promise<{ tempDir: string; logsDir: string }> {
+  const tempDir = await mkdtemp(join(tmpdir(), 'rp-test-'));
+  const logsDir = tempDir;
+  return { tempDir, logsDir };
+}
+
+async function teardown(tempDir: string): Promise<void> {
+  await rm(tempDir, { recursive: true, force: true });
+}
+
+async function writeJsonlLog(
+  logsDir: string,
+  prefix: string,
+  slug: string,
+  entries: unknown[],
+): Promise<string> {
+  const filename = `${prefix}-${slug}.jsonl`;
+  const content  = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
+  await writeFile(join(logsDir, filename), content, 'utf-8');
+  return filename;
+}
+
+/** Assert the shape of an empty / no-activity resolution. */
+function expectEmpty(result: ProgressResolution): void {
+  expect(result.summary).toBeNull();
+  expect(result.lastAction).toBeNull();
+  expect(result.hasStageActivity).toBe(false);
+}
+
+// ---------------------------------------------------------------------------
+// AC-1 / AC-4: ProgressResolution shape — no log file
+// ---------------------------------------------------------------------------
+
+describe('resolveProgress — no log file', () => {
+  let tempDir: string;
+  let logsDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir } = await setup());
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+  });
+
+  it('returns a ProgressResolution with all null/false fields when no log file exists', async () => {
+    const result = await resolveProgress(logsDir, 'nonexistent-slug');
+    expectEmpty(result);
+    expect(result.logFilename).toBeNull();
+  });
+
+  it('returns ProgressResolution with null fields when logs directory is missing', async () => {
+    const result = await resolveProgress(join(tempDir, 'no-such-dir'), 'slug');
+    expectEmpty(result);
+    expect(result.logFilename).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-4: logFilename is the basename of the JSONL file
+// ---------------------------------------------------------------------------
+
+describe('resolveProgress — AC-4: logFilename', () => {
+  let tempDir: string;
+  let logsDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir } = await setup());
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+  });
+
+  it('logFilename is the basename (not a full path) of the JSONL file', async () => {
+    const slug     = '2026-05-06-feat';
+    const filename = await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'run_start' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.logFilename).toBe(filename);
+    expect(result.logFilename).not.toContain('/');
+  });
+
+  it('logFilename is non-null even when file contains only heartbeats (no summary)', async () => {
+    const slug     = '2026-05-06-heartbeat';
+    const filename = await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'heartbeat' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.logFilename).toBe(filename);
+    expect(result.summary).toBeNull();
+  });
+
+  it('picks the lexicographically newest JSONL file for the slug', async () => {
+    const slug = '2026-05-06-two-logs';
+    await writeJsonlLog(logsDir, '20260506T090000', slug, [{ action: 'run_start' }]);
+    const newerFilename = await writeJsonlLog(logsDir, '20260506T110000', slug, [
+      { action: 'stage_start', stage: 'qa' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.logFilename).toBe(newerFilename);
+    expect(result.summary).toBe('Starting qa');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2: summary matches existing behavior
+// ---------------------------------------------------------------------------
+
+describe('resolveProgress — AC-2: summary string', () => {
+  let tempDir: string;
+  let logsDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir } = await setup());
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+  });
+
+  it('summary is null when all entries are heartbeats', async () => {
+    const slug = '2026-05-06-hb-only';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'heartbeat' },
+      { action: 'heartbeat' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBeNull();
+  });
+
+  it('summary reflects the last summarisable entry (skips trailing heartbeats)', async () => {
+    const slug = '2026-05-06-trailing-hb';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'run_start' },
+      { action: 'stage_start', stage: 'developer', wp_id: 'WP-001' },
+      { action: 'heartbeat' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBe('Starting developer for WP-001');
+  });
+
+  it('summary uses the last entry when there are no trailing non-summarisable events', async () => {
+    const slug = '2026-05-06-clean';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'run_start' },
+      { action: 'stage_start', stage: 'qa' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBe('Starting qa');
+  });
+
+  it('summary is "Run started" for a log with only run_start', async () => {
+    const slug = '2026-05-06-run-start-only';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [{ action: 'run_start' }]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBe('Run started');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-3: lastAction
+// ---------------------------------------------------------------------------
+
+describe('resolveProgress — AC-3: lastAction', () => {
+  let tempDir: string;
+  let logsDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir } = await setup());
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+  });
+
+  it('lastAction is null when no summarisable entry exists', async () => {
+    const slug = '2026-05-06-no-summary';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [{ action: 'heartbeat' }]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.lastAction).toBeNull();
+  });
+
+  it('lastAction is "run_start" for a log ending with run_start', async () => {
+    const slug = '2026-05-06-last-run-start';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [{ action: 'run_start' }]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.lastAction).toBe('run_start');
+  });
+
+  it('lastAction is "stage_start" when stage_start is the last summarisable event', async () => {
+    const slug = '2026-05-06-last-stage-start';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'run_start' },
+      { action: 'stage_start', stage: 'developer' },
+      { action: 'heartbeat' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.lastAction).toBe('stage_start');
+  });
+
+  it('lastAction is "stage_complete" when stage_complete is the last summarisable event', async () => {
+    const slug = '2026-05-06-last-stage-complete';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'stage_start', stage: 'developer' },
+      { action: 'stage_complete', stage: 'developer', result: 'PASS' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.lastAction).toBe('stage_complete');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-5: hasStageActivity
+// ---------------------------------------------------------------------------
+
+describe('resolveProgress — AC-5: hasStageActivity', () => {
+  let tempDir: string;
+  let logsDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir } = await setup());
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+  });
+
+  it('hasStageActivity is false when no summarisable entry exists', async () => {
+    const slug = '2026-05-06-no-act';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [{ action: 'heartbeat' }]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.hasStageActivity).toBe(false);
+  });
+
+  it('hasStageActivity is false when lastAction is "run_start"', async () => {
+    const slug = '2026-05-06-run-start';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'run_start' },
+      { action: 'heartbeat' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.lastAction).toBe('run_start');
+    expect(result.hasStageActivity).toBe(false);
+  });
+
+  it('hasStageActivity is true when lastAction is "stage_start"', async () => {
+    const slug = '2026-05-06-stage-start';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'run_start' },
+      { action: 'stage_start', stage: 'developer' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.hasStageActivity).toBe(true);
+  });
+
+  it('hasStageActivity is true when lastAction is "stage_complete"', async () => {
+    const slug = '2026-05-06-stage-complete';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'stage_start', stage: 'developer' },
+      { action: 'stage_complete', stage: 'developer', result: 'PASS' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.hasStageActivity).toBe(true);
+  });
+
+  it('hasStageActivity is true when lastAction is "run_end"', async () => {
+    const slug = '2026-05-06-run-end';
+    await writeJsonlLog(logsDir, '20260506T100000', slug, [
+      { action: 'stage_start', stage: 'developer' },
+      { action: 'run_end', result: 'SUCCESS' },
+    ]);
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.lastAction).toBe('run_end');
+    expect(result.hasStageActivity).toBe(true);
+  });
+
+  it('hasStageActivity is false when log file is absent', async () => {
+    const result = await resolveProgress(logsDir, 'no-log-slug');
+    expect(result.hasStageActivity).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatProgressEntry — event type mappings (re-exported from new module)
+// ---------------------------------------------------------------------------
+
+describe('formatProgressEntry — event type mappings', () => {
+  it('run_start → "Run started"', () => {
+    expect(formatProgressEntry({ action: 'run_start' })).toBe('Run started');
+  });
+
+  it('stage_start with stage + wp_id', () => {
+    expect(
+      formatProgressEntry({ action: 'stage_start', stage: 'developer', wp_id: 'WP-001' }),
+    ).toBe('Starting developer for WP-001');
+  });
+
+  it('stage_start with stage only (no wp_id)', () => {
+    expect(formatProgressEntry({ action: 'stage_start', stage: 'qa' })).toBe('Starting qa');
+  });
+
+  it('stage_complete with result and wp_id', () => {
+    expect(
+      formatProgressEntry({ action: 'stage_complete', stage: 'qa', result: 'PASS', wp_id: 'WP-002' }),
+    ).toBe('qa complete — PASS (WP-002)');
+  });
+
+  it('run_end with result', () => {
+    expect(formatProgressEntry({ action: 'run_end', result: 'COMPLETE' })).toBe(
+      'Run ended: COMPLETE',
+    );
+  });
+
+  it('heartbeat → null', () => {
+    expect(formatProgressEntry({ action: 'heartbeat' })).toBeNull();
+  });
+
+  it('unknown action → null', () => {
+    expect(formatProgressEntry({ action: 'unknown_action' })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WP-C: Edge-case coverage — malformed JSONL lines and empty log files
+// ---------------------------------------------------------------------------
+
+describe('resolveProgress — malformed JSONL lines', () => {
+  let tempDir: string;
+  let logsDir: string;
+
+  beforeEach(async () => {
+    ({ tempDir, logsDir } = await setup());
+  });
+
+  afterEach(async () => {
+    await teardown(tempDir);
+  });
+
+  it('skips a malformed last line and returns the preceding valid entry', async () => {
+    const slug     = '2026-05-06-malformed-last';
+    const filename = `20260506T120000-${slug}.jsonl`;
+    // Valid stage_start line followed by an invalid JSON line.
+    const content  = JSON.stringify({ action: 'stage_start', stage: 'developer' }) + '\n'
+                   + 'not valid json {\n';
+    await writeFile(join(logsDir, filename), content, 'utf-8');
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBe('Starting developer');
+    expect(result.lastAction).toBe('stage_start');
+    expect(result.logFilename).toBe(filename);
+  });
+
+  it('returns empty resolution with logFilename set when all lines are malformed', async () => {
+    const slug     = '2026-05-06-all-malformed';
+    const filename = `20260506T120000-${slug}.jsonl`;
+    await writeFile(join(logsDir, filename), 'not json\n{broken\n', 'utf-8');
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBeNull();
+    expect(result.lastAction).toBeNull();
+    expect(result.logFilename).toBe(filename);
+    expect(result.hasStageActivity).toBe(false);
+  });
+
+  it('returns empty resolution with logFilename set for a 0-byte log file', async () => {
+    const slug     = '2026-05-06-empty-log';
+    const filename = `20260506T120000-${slug}.jsonl`;
+    await writeFile(join(logsDir, filename), '', 'utf-8');
+    const result = await resolveProgress(logsDir, slug);
+    expect(result.summary).toBeNull();
+    expect(result.lastAction).toBeNull();
+    expect(result.logFilename).toBe(filename);
+    expect(result.hasStageActivity).toBe(false);
+  });
+});
+
 
 ```
 ###  Path: `/mcp-server/tests/gui/run-log-handlers.test.ts`
@@ -7546,6 +11170,218 @@ describe('Security headers — WP-001', () => {
 });
 
 ```
+###  Path: `/mcp-server/tests/gui/server-body-limit.test.ts`
+
+```ts
+/**
+ * Body size-cap tests for gui/server.ts (WP-002)
+ *
+ * Verifies:
+ *   AC-2: readBody() rejects payloads that declare a Content-Length > MAX_BODY_BYTES.
+ *   AC-3: readBody() rejects payloads that exceed MAX_BODY_BYTES via streaming byte count.
+ *   AC-4: handleRequest() returns 413 for Payload Too Large errors.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import { createConnection } from 'node:net';
+import { mkdtemp } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { handleRequest, MAX_BODY_BYTES } from '../../gui/server.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function startTestServer(
+  ledgerRoot: string,
+  configPath: string,
+  logsDir: string,
+): Promise<{ server: Server; baseUrl: string; port: number }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      handleRequest(req, res, ledgerRoot, configPath, 0, logsDir).catch((err) => {
+        process.stderr.write(`[test-server] Unhandled: ${String(err)}\n`);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'error' } }));
+        }
+      });
+    });
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') {
+        resolve({ server, baseUrl: `http://127.0.0.1:${addr.port}`, port: addr.port });
+      } else {
+        reject(new Error('Could not determine server port'));
+      }
+    });
+
+    server.on('error', reject);
+  });
+}
+
+/**
+ * Sends a raw HTTP request over a plain TCP socket and returns the
+ * status code extracted from the first response line.
+ *
+ * fetch validates Content-Length/body consistency and rejects before
+ * sending when they do not match, so this helper is needed to exercise
+ * the Content-Length pre-check path.
+ */
+function getRawStatus(host: string, port: number, rawRequest: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection({ host, port }, () => {
+      socket.write(rawRequest);
+    });
+    const chunks: Buffer[] = [];
+    socket.on('data', (chunk: Buffer) => {
+      chunks.push(chunk);
+      // Once we have the status line we can bail out.
+      const sofar = Buffer.concat(chunks).toString('utf-8');
+      const m = sofar.match(/^HTTP\/\d\.\d (\d{3})/);
+      if (m) {
+        socket.destroy();
+        resolve(parseInt(m[1]!, 10));
+      }
+    });
+    socket.on('error', reject);
+    socket.on('close', () => {
+      const sofar = Buffer.concat(chunks).toString('utf-8');
+      const m = sofar.match(/^HTTP\/\d\.\d (\d{3})/);
+      if (m) resolve(parseInt(m[1]!, 10));
+      else reject(new Error('No HTTP status line received'));
+    });
+  });
+}
+
+function stopServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe('Body size cap — WP-002', () => {
+  let ledgerRoot: string;
+  let logsDir: string;
+  let configPath: string;
+  let server: Server;
+  let baseUrl: string;
+  let port: number;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'body-limit-ledger-'));
+    logsDir    = await mkdtemp(join(tmpdir(), 'body-limit-logs-'));
+    configPath = join(ledgerRoot, 'gui-config.json');
+    ({ server, baseUrl, port } = await startTestServer(ledgerRoot, configPath, logsDir));
+  });
+
+  afterEach(async () => {
+    await stopServer(server);
+  });
+
+  it('MAX_BODY_BYTES is 1_048_576 (1 MiB)', () => {
+    expect(MAX_BODY_BYTES).toBe(1_048_576);
+  });
+
+  it('AC-2: returns 413 when Content-Length exceeds MAX_BODY_BYTES (pre-check)', async () => {
+    // Use a raw TCP socket because fetch validates Content-Length vs. body size
+    // client-side and throws before sending the request if they mismatch.
+    const rawRequest = [
+      'PUT /api/config HTTP/1.1',
+      `Host: 127.0.0.1:${port}`,
+      'Content-Type: application/json',
+      `Content-Length: ${MAX_BODY_BYTES + 1}`,
+      'Connection: close',
+      '',
+      '',  // no body — server should reject before reading any data
+    ].join('\r\n');
+
+    const status = await getRawStatus('127.0.0.1', port, rawRequest);
+    expect(status).toBe(413);
+  });
+
+  it('AC-2: pre-check path drains socket cleanly when body data follows', async () => {
+    // Send a request with Content-Length > MAX_BODY_BYTES AND some actual body bytes.
+    // The req.resume() call should drain the socket so the 413 is sent without hanging.
+    const bodyChunk = 'x'.repeat(1024);
+    const rawRequest = [
+      'PUT /api/config HTTP/1.1',
+      `Host: 127.0.0.1:${port}`,
+      'Content-Type: application/json',
+      `Content-Length: ${MAX_BODY_BYTES + 1}`,
+      'Connection: close',
+      '',
+      bodyChunk,
+    ].join('\r\n');
+
+    const status = await getRawStatus('127.0.0.1', port, rawRequest);
+    expect(status).toBe(413);
+  });
+
+  it('AC-3 / AC-4: returns 413 when streaming body exceeds MAX_BODY_BYTES', async () => {
+    // Build a body that is MAX_BODY_BYTES + 1 bytes without a Content-Length header,
+    // so the streaming byte-count fallback is exercised rather than the pre-check.
+    const oversizedBody = Buffer.alloc(MAX_BODY_BYTES + 1, 'x');
+
+    const res = await fetch(`${baseUrl}/api/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: oversizedBody,
+      // @ts-expect-error — duplex required for streaming bodies in Node.js fetch
+      duplex: 'half',
+    });
+    await res.text().catch(() => {});
+    expect(res.status).toBe(413);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/server-error-mapping.test.ts`
+
+```ts
+/**
+ * apiErrorToStatus() mapping tests for gui/server.ts (WP-006)
+ *
+ * Verifies:
+ *   AC-1: apiErrorToStatus('CONFLICT') returns 409.
+ *   AC-2: CONFLICT errors are not silently swallowed by the default 500 branch.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { apiErrorToStatus } from '../../gui/server.js';
+
+describe('apiErrorToStatus()', () => {
+  it("returns 404 for 'NOT_FOUND'", () => {
+    expect(apiErrorToStatus('NOT_FOUND')).toBe(404);
+  });
+
+  it("returns 403 for 'FORBIDDEN'", () => {
+    expect(apiErrorToStatus('FORBIDDEN')).toBe(403);
+  });
+
+  it("returns 400 for 'VALIDATION_ERROR'", () => {
+    expect(apiErrorToStatus('VALIDATION_ERROR')).toBe(400);
+  });
+
+  it("returns 409 for 'CONFLICT' (not 500)", () => {
+    expect(apiErrorToStatus('CONFLICT')).toBe(409);
+  });
+
+  it('returns 500 for an unknown error code', () => {
+    expect(apiErrorToStatus('UNKNOWN_CODE')).toBe(500);
+  });
+});
+
+```
 ###  Path: `/mcp-server/tests/gui/server-info.test.ts`
 
 ```ts
@@ -7734,6 +11570,99 @@ describe('GET /api/server-info — WP-003', () => {
     expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
     expect(res.headers.get('content-security-policy')).toMatch(/default-src 'self'/);
     expect(res.headers.get('content-type')).toMatch(/application\/json/);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/gui/server-queue.test.ts`
+
+```ts
+/**
+ * Integration smoke test for GET /api/orchestrator/queue in gui/server.ts (WP-005).
+ *
+ * Verifies:
+ *   AC-1: Integration test sends GET request to /api/orchestrator/queue through handleRequest().
+ *   AC-2: Test receives a valid response (200 with JSON array).
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { handleRequest } from '../../gui/server.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function startTestServer(
+  ledgerRoot: string,
+  configPath: string,
+  logsDir: string,
+): Promise<{ server: Server; baseUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      handleRequest(req, res, ledgerRoot, configPath, 0, logsDir).catch((err) => {
+        process.stderr.write(`[test-server] Unhandled: ${String(err)}\n`);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'error' } }));
+        }
+      });
+    });
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') {
+        resolve({ server, baseUrl: `http://127.0.0.1:${addr.port}` });
+      } else {
+        reject(new Error('Could not determine server port'));
+      }
+    });
+
+    server.on('error', reject);
+  });
+}
+
+function stopServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('GET /api/orchestrator/queue — WP-005', () => {
+  let ledgerRoot: string;
+  let logsDir: string;
+  let configPath: string;
+  let server: Server;
+  let baseUrl: string;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'queue-test-ledger-'));
+    logsDir    = await mkdtemp(join(tmpdir(), 'queue-test-logs-'));
+    configPath = join(ledgerRoot, 'gui-config.json');
+    ({ server, baseUrl } = await startTestServer(ledgerRoot, configPath, logsDir));
+  });
+
+  afterEach(async () => {
+    await stopServer(server);
+    await rm(ledgerRoot, { recursive: true, force: true });
+    await rm(logsDir, { recursive: true, force: true });
+  });
+
+  it('AC-1/AC-2: returns 200 with a JSON array for an empty queue', async () => {
+    const res = await fetch(`${baseUrl}/api/orchestrator/queue`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
   });
 });
 

@@ -14,6 +14,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── ctx-architect.yaml
                 └── developer.yaml
                 └── documentation-curator.yaml
+                └── git-committer.yaml
                 └── ledger-bootstrapper.yaml
                 └── ledger-claude-coordinator.yaml
                 └── ledger-dependency-sequencer.yaml
@@ -205,6 +206,31 @@ tools:
   - web
   - agent
   - todo
+
+```
+###  Path: `/personas/standalone/src/meta/git-committer.yaml`
+
+```yaml
+slug: git-committer
+name: "Git Committer"
+description: "Analyze uncommitted changes and organize them into comprehensive, categorized commits with plan traceability."
+vs_file_name: git-committer.agent.md
+id: standalone-git-committer
+cc_file_name: git-committer.md
+version: "1.0.0"
+last_updated: "2026-05-06"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - search
+
+cc_tools:
+  - Bash
+  - Read
+  - Grep
+  - Glob
 
 ```
 ###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`

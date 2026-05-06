@@ -368,6 +368,41 @@ Used by the node factory in `src/nodes/__init__.py` before `create_deep_agent()`
 
 ---
 
+### `src/utils/run_queue.py`
+
+Cross-platform run-queue manager. Called by `cli.py` to self-register and self-unregister
+the current orchestrator process in `orchestrator/logs/.run-queue.json`. All read/write
+operations are guarded by an exclusive file lock (`orchestrator/logs/.run-queue.lock`) and
+use an atomic tmp+rename write so no partial content is ever observable.
+
+**Queue entry shape**
+
+```json
+{
+  "id":           "<uuid4>",
+  "pid":          12345,
+  "planPath":     "/abs/path/to/plan.md",
+  "expectedSlug": "2026-05-05-feature",
+  "startedAt":    "2026-05-05T10:00:00.000000+00:00",
+  "status":       "pending"
+}
+```
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `QUEUE_FILE` | `Path` | Public constant. Absolute path to `orchestrator/logs/.run-queue.json`. Read by GUI and external tools to enumerate active runs. |
+| `register` | `register(pid: int, plan_path: str, slug: str, started_at: str) -> str` | Appends a new entry to the queue file and returns its UUID v4. Creates the queue file (and `logs/` directory) if absent. Acquires an exclusive lock before every read/write. |
+| `unregister` | `unregister(entry_id: str) -> None` | Removes the entry with *entry_id* from the queue. Silent no-op when the queue file is missing or *entry_id* is not found. Acquires an exclusive lock before every read/write. |
+
+**CLI integration pattern (best-effort)**
+
+Both calls in `cli.py` are wrapped in `try/except Exception` so that lock contention or
+I/O failures never abort an orchestrator run. `register()` failure leaves `entry_id = None`;
+the `if entry_id is not None` guard in the `finally` block then suppresses the phantom
+`unregister()` call.
+
+---
+
 Three defensive wrappers applied to every MCP tool in a stage node. **Canonical application order:**
 
 ```
@@ -1060,13 +1095,38 @@ orchestrator/
 │       ├── persona.py          # load_persona — reads persona Markdown files
 │       ├── persona_models.py   # Persona model configuration types
 │       ├── plan_parser.py      # Plan document parser
+│       ├── run_queue.py        # register() / unregister() — CLI self-registration in .run-queue.json
 │       ├── subagents.py        # Deep Agent / subagent creation helpers
 │       ├── subprocess_encoding.py  # Cross-platform subprocess encoding fix
 │       └── tool_wrappers.py    # log_tool_calls() — tool_call JSONL event wrapper
 │
-└── tests/                      # pytest test suite
-    ├── conftest.py             # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig
-    └── checkpoints/            # SQLite checkpoint storage (runtime-generated)
+└── tests/                      # pytest test suite (988 collected)
+    ├── conftest.py                  # Shared config stubs: _StreamCaptureConfig, _CaptureConfig, _NoCaptureConfig
+    ├── test_chunk_writer.py         # ChunkWriter JSONL write contract
+    ├── test_cli.py                  # Argument parsing, interrupt mapping, exit codes, TestRunQueueIntegration (run-queue CLI integration)
+    ├── test_config.py               # Manifest-derived config constants
+    ├── test_dialogue_writer.py      # write_dialogue / serialize_messages_to_markdown
+    ├── test_error_helpers.py        # Error helper utilities
+    ├── test_filelock.py             # Cross-platform file locking (acquire, contention, double-unlock)
+    ├── test_graph.py                # Graph topology, edges, compilation
+    ├── test_integration.py          # End-to-end graph execution (ScriptedLedger)
+    ├── test_logging.py              # WorkflowLogger: format helpers, all 8 event-type console format patterns
+    ├── test_mcp_parse.py            # parse_tool_response helper
+    ├── test_nodes.py                # Stage-node factories, tool wrapping, duration_s, pipeline_result
+    ├── test_persona_models.py       # Persona model configuration types
+    ├── test_plan_parser.py          # Plan document parsing
+    ├── test_post_completion_guard.py # Post-completion guard logic
+    ├── test_prompt_renderer.py      # load_template / render_prompt / load_partial
+    ├── test_revision.py             # next_revision() revision-numbering helper
+    ├── test_run_queue.py            # run_queue register/unregister, QUEUE_FILE, file-lock, atomic write
+    ├── test_state.py                # WorkflowState schema and reducer semantics
+    ├── test_stream_retry.py         # Stream retry / exponential backoff
+    ├── test_streaming_capture.py    # Streaming dialogue capture
+    ├── test_subagents.py            # load_subagents / clear_cache
+    ├── test_subprocess_encoding.py  # Cross-platform subprocess encoding fix
+    ├── test_supervisor.py           # Supervisor routing paths, circuit-breaker, enriched events
+    ├── test_tool_wrappers.py        # inject_project_path, restrict_to_wp, log_tool_calls
+    └── checkpoints/                 # SQLite checkpoint storage (runtime-generated)
 ```
 
 ```

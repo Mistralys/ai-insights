@@ -317,8 +317,8 @@ Each stage node emits a `stage_start` event, loads a persona prompt, wraps the s
 | `src/nodes/` | Stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis) |
 | `src/nodes/prompt_renderer.py` | Lightweight Markdown template renderer used by all stage nodes (`load_template`, `load_partial`, `render_prompt`, `clear_template_cache`) |
 | `src/nodes/templates/` | Per-stage Markdown prompt templates (one `.md` per stage, e.g. `developer.md`). Editable without touching Python. |
-| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`), raw-chunk JSONL writer (`chunk_writer.py`) |
-| `tests/` | 825 tests — unit, integration (ScriptedLedger), and live marks |
+| `src/utils/` | Tool wrappers, persona loader, plan parser, JSONL logger, cross-platform file locking, MCP response parser (`mcp_parse.py`), dialogue serialiser (`dialogue_writer.py`), raw-chunk JSONL writer (`chunk_writer.py`), run-queue manager (`run_queue.py`) |
+| `tests/` | 988 tests — unit, integration (ScriptedLedger), and live marks |
 | `docs/` | Technical deep-dives (architecture, routing, log schema, smoke tests) |
 | `dist/stage-prompts/` | Gitignored build output — rendered stage prompt previews written by `scripts/preview-prompts.py` |
 
@@ -441,7 +441,7 @@ Alternatively, downgrade to Python 3.13 where pydantic's v1 shim does not emit t
 ```bash
 cd orchestrator
 
-# All unit tests (no MCP server or LLM required) — 455 tests, 1 skip, ~1 s
+# All unit tests (no MCP server or LLM required) — 987 tests, 1 skip, ~1 s
 python -m pytest tests/ -v
 
 # Integration tests only (ScriptedLedger — no MCP server or LLM required)
@@ -466,9 +466,10 @@ Tests are structured as:
 | `test_nodes.py` | 6 stage-node factories, prompt builders, and `inject_project_path` tool-wrapping integration; `TestStageStartEvent` (4 tests — `stage_start` emitted before agent invocation, correct fields); `TestDurationS` (12 parametrized tests — `duration_s` on both `stage_complete` and `stage_error` across all 6 factories); `TestPipelineResult` (7 tests — successful read-back emission, read-back failure isolation, no-pipeline guard); `TestDialogueCaptured` (5 tests — event emitted when `capture_dialogues=True`, required fields present, event omitted when flag is `False`, event omitted when `wp_id` is empty, `write_dialogue` failure does not affect `stage_success`) |
 | `test_tool_wrappers.py` | `inject_project_path` behavioural contracts: injection when absent, no-override when present, `cwd_path` suppression, argument preservation, idempotency sentinel, non-dict passthrough, return-value identity, multi-tool; `restrict_to_wp` contracts: empty-`wp_id` no-op, matching-`wp_id` pass-through, mismatched-`wp_id` raises `ValueError`, idempotency, integration with `inject_project_path`, wiring in `create_stage_node`; `log_tool_calls` contracts: signature and return-value identity, event emission (`tool_name`, `stage`, `wp_id`, `tool_wp_id`), idempotency (sentinel `_orig_ainvoke_log`), `None`-logger no-op, privacy constraint (argument payload excluded), return-value forwarding, edge cases |
 | `test_graph.py` | Graph topology, edges, compilation |
-| `test_cli.py` | Argument parsing, interrupt mapping, exit codes |
+| `test_cli.py` | Argument parsing, interrupt mapping, exit codes; `TestRunQueueIntegration` (4 tests — `register()` called after `run_start`, `unregister()` in finally on normal exit, `unregister()` in finally on error exit, `register()` failure leaves `entry_id=None` with no `NameError`) |
 | `test_state.py` | WorkflowState schema and reducer semantics |
 | `test_plan_parser.py` | Plan document parsing (title, summary, edge cases) |
+| `test_run_queue.py` | `register()` / `unregister()` contracts, `QUEUE_FILE` constant, atomic write + rename, file-lock guarding, duplicate `entry_id` tolerance, missing-queue-file no-op |
 | `test_filelock.py` | Cross-platform file locking: successful acquire, contention raises `OSError`, double-unlock idempotency |
 | `test_logging.py` | `_format_duration` edge cases (None, 0, sub-minute, multi-minute, multi-hour); all 8 event-type console format patterns (`stage_start`, `stage_complete`, `wp_status_change`, `wp_complete`, `progress_snapshot`, `pipeline_result`, `rework_detected`, `dialogue_captured`); existing event-type stability (generic fallback unchanged); robustness against missing/null fields; `TestDialogueCaptured` (4 tests — format with `file_path`, stage + WP ID included, missing `file_path`, missing `wp_id`) |
 | `test_integration.py` | End-to-end graph execution (7 scenarios, ScriptedLedger) |
