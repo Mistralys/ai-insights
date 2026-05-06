@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.23.0 - Orchestrator GUI Integration
+- GUI: Added starting orchestrator runs from the GUI.
+- Orchestrator: Runs are now automatically registered in a central queue.
+- GUI: The project detail screen now has a dedicated orchestrator section.
+- CLI: Added option to specify GUI port before launching it.
+
 ## v1.22.0 - Cross-WP Dispatch and New Personas
 > mcp v1.29.0 · personas v3.17.0
 
