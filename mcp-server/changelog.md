@@ -1,5 +1,19 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.30.0 - GUI Orchestrator Integration
+- GUI: Added OrchestratorManager with queue read, kill, dismiss, and start operations.
+- GUI: New orchestrator HTTP endpoints for queue management and run lifecycle control.
+- GUI: Added orchestrator view with live run-queue display and status indicators.
+- GUI: Project detail screen now shows active orchestrator runs.
+- GUI: Added orchestrator widget library for queue rendering.
+- GUI: Body-size limit and path-traversal guards on orchestrator endpoints.
+- Queue: Added run-queue sub-modules: types, get-queue, resolve-progress,
+  format-progress-entry, and compute-effective-status.
+- Utils: Updated ledger-root helper for queue integration.
+- Scripts: CLI now prompts for GUI port before launch.
+- Tests: Added orchestrator-manager, orchestrator-view, orchestrator-widgets,
+  project-detail-runs, queue, and HTTP error-mapping test suites.
+
 ## v1.29.0 - Cross-WP Dispatch
 - Handoff: Added `findNextReadyDispatch` helper to prevent IDE stalls
   between WP transitions.
