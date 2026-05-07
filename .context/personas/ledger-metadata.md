@@ -59,8 +59,8 @@ vs_file_name: 2-pm.agent.md
 id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
-version: "3.7.0"
-last_updated: "2026-04-15"
+version: "3.7.1"
+last_updated: "2026-05-07"
 
 tools:
   - vscode
