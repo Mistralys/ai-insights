@@ -56,7 +56,7 @@ Run `git status` and `git diff --stat` to identify all uncommitted changes (modi
 Organize changed files into topic groups based on:
 
 - **Functional cohesion:** Files that implement the same feature or fix.
-- **Plan association:** Files that correspond to the same plan document in `docs/agents/plans/`.
+- **Plan association:** Files that correspond to the same plan document in `docs/agents/plans/`. Include the plan document file itself in the same commit group as its implementation files — do not commit the plan document separately.
 - **Infrastructure grouping:** Configuration, build, or tooling changes that form a logical unit.
 - **CTX rule:** If `context.yaml` exists in the project root, all changes under `.context/` form their own group with the label `CTX: Updated docs`.
 
@@ -66,7 +66,7 @@ For each topic group, attempt to match it against plan documents:
 
 1. Scan `docs/agents/plans/` for plan folders whose scope matches the changed files.
 2. If a match is found, check whether the plan folder contains a `synthesis.md` file:
-   - **`synthesis.md` exists:** The plan is complete. Queue the `synthesis.md` for relocation to `docs/agents/implementation-history/` (include this move in the commit).
+   - **`synthesis.md` exists:** The plan is complete. Queue the entire plan folder for relocation to `docs/agents/implementation-history/{PLAN_FOLDER}` (include this move in the commit).
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
@@ -133,6 +133,7 @@ After approval:
 - **CTX grouping is mandatory.** If the project has a `context.yaml` in its root, all `.context/` changes must be grouped into a single commit labeled `CTX: Updated docs`. Do not scatter CTX changes across topic commits.
 - **One topic per commit.** Never mix unrelated changes in a single commit. If a file serves two topics, ask the user which group it belongs to.
 - **Synthesis relocation is automatic.** When a matched plan has a `synthesis.md`, move it to `docs/agents/implementation-history/` as part of that commit without asking. This is a mechanical bookkeeping step, not a judgment call.
+- **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
 - **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.
 
