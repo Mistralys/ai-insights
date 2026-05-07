@@ -1,13 +1,13 @@
 # AI Insights Changelog
 
 ## v1.23.0 - Orchestrator GUI Integration
-> mcp v1.30.0 · orchestrator v0.19.0 · personas v3.18.1
+> mcp v1.30.0 · orchestrator v0.19.0 · personas v3.18.0
 
 - GUI: Orchestrator runs can now be started, killed, and dismissed from the GUI.
 - Orchestrator: Runs are automatically registered in a central queue.
 - GUI: Project detail screen now shows active orchestrator runs.
 - CLI: Added option to specify GUI port before launching it.
-- Personas: Added Git Committer standalone persona.
+- Personas: Added Git Committer persona; fixed PM preflight for headless runs.
 
 ## v1.22.0 - Cross-WP Dispatch and New Personas
 > mcp v1.29.0 · personas v3.17.0
