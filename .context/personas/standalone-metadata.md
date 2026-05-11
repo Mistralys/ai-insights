@@ -217,8 +217,8 @@ description: "Analyze uncommitted changes and organize them into comprehensive, 
 vs_file_name: git-committer.agent.md
 id: standalone-git-committer
 cc_file_name: git-committer.md
-version: "1.0.1"
-last_updated: "2026-05-06"
+version: "1.0.2"
+last_updated: "2026-05-11"
 
 tools:
   - vscode

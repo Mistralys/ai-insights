@@ -28,7 +28,7 @@ _SOURCE: Top-level directory tree_
     │   └── references/
     │       ├── langgraph-deep-agents-subagent-handbook.md
     │   └── research/
-    │       └── 2026-05-07-pm-missing-documents.md
+    │       └── 2026-05-07-specialized-developer-personas.md
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
