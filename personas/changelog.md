@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.18.1 - Git Committer Plan Relocation Fix
+- Standalone: Git Committer now moves both `plan.md` and `synthesis.md` to implementation history (was only moving `synthesis.md`).
+
 ## v3.18.0 - Git Committer Persona
 - Standalone: Added Git Committer persona for structured commit workflows.
 - PM: Fixed preflight partial to be target-aware for headless orchestrator runs.

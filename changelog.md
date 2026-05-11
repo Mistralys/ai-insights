@@ -1,5 +1,10 @@
 # AI Insights Changelog
 
+## v1.23.1 - Git Committer Plan Relocation Fix
+> personas v3.18.1
+
+- Personas: Git Committer now archives both plan and synthesis files.
+
 ## v1.23.0 - Orchestrator GUI Integration
 > mcp v1.30.0 · orchestrator v0.19.0 · personas v3.18.0
 
