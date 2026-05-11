@@ -93,3 +93,8 @@
 - Verifying ledger logic against the specification through unit tests first.
 - Periodic audits after multiple iterations: Can something be simplified.
 - Adding a glossary of opaque terms connected to the modules they are used in.
+
+### May 2026
+
+- Always audit a newly created plan, no plan is perfect from the start.
+- After auditing a plan, check it for simplification opportunities.
