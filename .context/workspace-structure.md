@@ -28,7 +28,11 @@ _SOURCE: Top-level directory tree_
     │   └── references/
     │       ├── langgraph-deep-agents-subagent-handbook.md
     │   └── research/
-    │       └── 2026-05-07-specialized-developer-personas.md
+    │       └── 2026-05-05-qa-wait-cross-wp-dispatch.md
+    │       └── 2026-05-08-autonomous-plan-refinement.md
+    │       └── 2026-05-11-plan-auditor-split.md
+    │       └── chat.json
+    │       └── handoff-diagram.svg
 └── history/
     ├── 2026-03-25-implementation-comparison.html
     ├── error-ledger.md
@@ -382,6 +386,7 @@ _SOURCE: Top-level directory tree_
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── persona-curator.md
+    │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
     │       ├── readme-curator.md
     │       ├── researcher.md
@@ -405,6 +410,7 @@ _SOURCE: Top-level directory tree_
     │       ├── manifest-curator.md
     │       ├── module-intent-architect.md
     │       ├── persona-curator.md
+    │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
     │       ├── readme-curator.md
     │       ├── researcher.md
@@ -428,6 +434,7 @@ _SOURCE: Top-level directory tree_
     │       └── manifest-curator.agent.md
     │       └── module-intent-architect.agent.md
     │       └── persona-curator.agent.md
+    │       └── plan-architect-reviewer.agent.md
     │       └── plan-auditor.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md

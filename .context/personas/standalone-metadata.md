@@ -25,6 +25,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── manifest-curator.yaml
                 └── module-intent-architect.yaml
                 └── persona-curator.yaml
+                └── plan-architect-reviewer.yaml
                 └── plan-auditor.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
@@ -484,17 +485,40 @@ tools:
   - todo
 
 ```
+###  Path: `/personas/standalone/src/meta/plan-architect-reviewer.yaml`
+
+```yaml
+slug: plan-architect-reviewer
+name: "Plan Architect Reviewer"
+description: "Advisory architectural review of technical plans — challenges design shape, surfaces simplifications, and proposes ecosystem-level alternatives. Runs in parallel with the Plan Auditor; never blocks."
+vs_file_name: plan-architect-reviewer.agent.md
+id: standalone-plan-architect-reviewer
+cc_file_name: plan-architect-reviewer.md
+version: "1.3.0"
+last_updated: "2026-05-11"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+```
 ###  Path: `/personas/standalone/src/meta/plan-auditor.yaml`
 
 ```yaml
 slug: plan-auditor
 name: "Plan Auditor"
-description: "Audit technical plans against the actual codebase — catch hallucinated references, missing steps, and overlooked alternatives before implementation begins."
+description: "Audit technical plans for technical defects — hallucinated references, missing steps, infeasible sequencing, and pattern inconsistencies. Architectural critique is delegated to the Plan Architect Reviewer."
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.0.0"
-last_updated: "2026-04-29"
+version: "1.2.0"
+last_updated: "2026-05-12"
 
 tools:
   - vscode

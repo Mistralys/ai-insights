@@ -143,6 +143,7 @@ _SOURCE: Directory tree_
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── persona-curator.md
+            ├── plan-architect-reviewer.md
             ├── plan-auditor.md
             ├── readme-curator.md
             ├── researcher.md
@@ -166,6 +167,7 @@ _SOURCE: Directory tree_
             ├── manifest-curator.md
             ├── module-intent-architect.md
             ├── persona-curator.md
+            ├── plan-architect-reviewer.md
             ├── plan-auditor.md
             ├── readme-curator.md
             ├── researcher.md
@@ -190,6 +192,7 @@ _SOURCE: Directory tree_
             │   ├── manifest-curator.md
             │   ├── module-intent-architect.md
             │   ├── persona-curator.md
+            │   ├── plan-architect-reviewer.md
             │   ├── plan-auditor.md
             │   ├── readme-curator.md
             │   ├── researcher.md
@@ -214,6 +217,7 @@ _SOURCE: Directory tree_
             │   └── manifest-curator.yaml
             │   └── module-intent-architect.yaml
             │   └── persona-curator.yaml
+            │   └── plan-architect-reviewer.yaml
             │   └── plan-auditor.yaml
             │   └── readme-curator.yaml
             │   └── researcher.yaml
@@ -237,6 +241,7 @@ _SOURCE: Directory tree_
             └── manifest-curator.agent.md
             └── module-intent-architect.agent.md
             └── persona-curator.agent.md
+            └── plan-architect-reviewer.agent.md
             └── plan-auditor.agent.md
             └── readme-curator.agent.md
             └── researcher.agent.md
