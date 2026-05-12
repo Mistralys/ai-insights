@@ -23,6 +23,8 @@ A structured plan containing:
 - Summary of the goal
 - High‑level approach or architecture
 - Rationale for key decisions
+- Considered alternatives (decisions weighed against named alternatives)
+- Pattern alignment (which existing codebase patterns the plan follows or departs from)
 - Detailed steps
 - Dependencies and sequencing
 - Required components (files, modules, services)
@@ -30,6 +32,8 @@ A structured plan containing:
 - Out‑of‑scope items
 - Acceptance criteria
 - Testing strategy
+- Test plan (enumerated test obligations with file paths or test names)
+- Documentation updates (every doc artefact that must change)
 - Risks & mitigations
 
 ### Output Location
@@ -57,7 +61,8 @@ Create a plan folder under `/docs/agents/plans/` using the current date and a de
 3. Guide the user through refining the plan, grounding all design decisions in the codebase research.
 4. Produce the plan using the provided template.
 5. Save the plan to the specified directory.
-6. End the response with:  
+6. **Plan-stage rework.** If the plan you have been given already contains review findings merged into its sections (architectural recommendations, audit findings, or both), treat those as the rework brief: address each one in place by revising the affected sections, then remove the merged finding markers. Do not leave findings in the plan when handing off — the PM should receive a clean, coherent plan, not a plan with open review notes.
+7. End the response with:  
    ```
    AGENT: Planning
    STATUS: READY_FOR_PM

@@ -1,11 +1,11 @@
 slug: plan-auditor
 name: "Plan Auditor"
-description: "Audit technical plans against the actual codebase — catch hallucinated references, missing steps, and overlooked alternatives before implementation begins."
+description: "Audit technical plans for technical defects — hallucinated references, missing steps, infeasible sequencing, and pattern inconsistencies. Architectural critique is delegated to the Plan Architect Reviewer."
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.0.0"
-last_updated: "2026-04-29"
+version: "1.2.0"
+last_updated: "2026-05-12"
 
 tools:
   - vscode

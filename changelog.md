@@ -1,5 +1,15 @@
 # AI Insights Changelog
 
+## v1.24.0 - Plan Review Toolchain
+> personas v3.19.0
+
+- Personas: Added Plan Architect Reviewer — advisory architectural design review
+  with Simplifications, Concerns, and Affirmations vocabulary; parallel to Plan Auditor.
+- Personas: Plan Auditor narrowed to technical defects only; gained Test Plan and
+  Documentation Updates required-sections audit coverage.
+- Personas: Planner gains four new plan sections and two new Core Rules to preempt
+  downstream review findings at authoring time.
+
 ## v1.23.1 - Git Committer Plan Relocation Fix
 > personas v3.18.1
 

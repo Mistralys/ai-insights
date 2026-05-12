@@ -1,0 +1,18 @@
+slug: plan-architect-reviewer
+name: "Plan Architect Reviewer"
+description: "Advisory architectural review of technical plans — challenges design shape, surfaces simplifications, and proposes ecosystem-level alternatives. Runs in parallel with the Plan Auditor; never blocks."
+vs_file_name: plan-architect-reviewer.agent.md
+id: standalone-plan-architect-reviewer
+cc_file_name: plan-architect-reviewer.md
+version: "1.3.0"
+last_updated: "2026-05-11"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo

@@ -1,5 +1,15 @@
 # Personas Changelog
 
+## v3.19.0 - Plan Review Toolchain
+- Standalone: Added Plan Architect Reviewer (v1.3.0) — advisory architectural design
+  review with `Simplifications`, `Concerns`, and `Affirmations` vocabulary; runs in
+  parallel with Plan Auditor and never blocks the workflow.
+- Standalone: Plan Auditor (v1.2.0) narrowed to technical defects only; gained
+  Test Plan and Documentation Updates required-sections checks in Phase 1.
+- Ledger: Planner (v1.4.1) gains Considered Alternatives, Pattern Alignment, Test Plan,
+  and Documentation Updates plan sections; adds Proportionality and Pattern Alignment
+  Core Rules; adds plan-stage rework step to address pre-merged review findings.
+
 ## v3.18.1 - Git Committer Plan Relocation Fix
 - Standalone: Git Committer now moves both `plan.md` and `synthesis.md` to implementation history (was only moving `synthesis.md`).
 
