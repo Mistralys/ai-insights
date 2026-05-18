@@ -4980,13 +4980,10 @@ function hasPassedDynamicUpstream(
  * resolved next stage has not yet started, partitioned into ready and dependency-blocked.
  * Also returns the canonical READY_FOR_* status to emit.
  *
- * Mixed-routing safety rule (audit 2026-04-29): if the `ready` set contains WPs
- * routing to two or more distinct next agents (e.g., a project mixing
- * `[..., code-review, documentation]` with `[..., code-review, release-engineering, documentation]`),
- * `nextStatus` is returned as `null` so the caller falls through to WAIT. The
- * orchestrator's per-agent `ledger_get_next_action` ticks then dispatch each WP
- * individually. Emitting a single `next_agent` for a heterogeneous set would
- * misroute the WPs that don't match.
+ * Mixed-routing (multiple distinct next agents): `nextStatus` is set to the first
+ * ready WP's READY_FOR_* status; remaining WPs are picked up via subsequent per-agent
+ * handoff calls. Each agent's `get_next_action` is role-scoped, so dispatching the
+ * first agent never misroutes the other WPs.
  *
  * Last-stage edge case: when `currentStage` is the last active stage for a WP,
  * `resolveNextAgent` returns 'Synthesis' and `AGENT_PIPELINE_MAP['Synthesis']`
@@ -5019,7 +5016,7 @@ function partitionWpsAwaitingNextStage(
   const ready = awaiting.filter((wp) => !isBlockedByDependencies(wp));
   const blocked = awaiting.filter((wp) => isBlockedByDependencies(wp));
 
-  // Mixed-routing guard: collect the set of distinct next agents across all ready WPs.
+  // Collect the set of distinct next agents across all ready WPs.
   const nextAgents = new Set(
     ready.map((wp) => {
       const activeStages =
@@ -5028,10 +5025,12 @@ function partitionWpsAwaitingNextStage(
     }),
   );
 
-  // Only emit a single READY_FOR_* status when ALL ready WPs route to the same next agent.
-  // If the set is heterogeneous, return null → caller falls through to WAIT.
+  // Emit the READY_FOR_* status for the first ready WP's next agent.
+  // For mixed routing (multiple distinct next agents), remaining WPs are dispatched
+  // via subsequent per-agent handoff calls — no WP is misrouted because get_next_action
+  // is role-scoped and each agent only claims WPs relevant to their own role.
   const nextStatus =
-    nextAgents.size === 1
+    nextAgents.size > 0
       ? (READY_STATUS_FOR_ROLE[[...nextAgents][0] as AgentRole] ?? null)
       : null;
 
@@ -5434,34 +5433,15 @@ export async function getQaHandoff(wpDetails: WorkPackageDetail[], projectPath?:
   );
   const { ready, blocked, nextStatus } = partitionWpsAwaitingNextStage(wpsPassedQa, 'qa');
   if (ready.length > 0) {
-    if (nextStatus !== null) {
-      const nextAgentName = resolveNextAgent(
-        'qa',
-        (ready[0]!.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES
-      );
-      return buildHandoffResponse(
-        'QA',
-        nextStatus,
-        `${ready.length} work package(s) have PASS QA and are ready for ${nextAgentName}.`,
-        undefined,
-        projectPath,
-        store
-      );
-    }
-    // Mixed-routing: multiple distinct next agents across ready WPs — defer to orchestrator.
-    const nextAgents = new Set(
-      ready.map((wp) =>
-        resolveNextAgent('qa', (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES)
-      )
-    );
-    return buildHandoffResponse(
-      'QA',
-      'WAIT',
-      `${ready.length} WPs ready for next stage but route to multiple agents (${[...nextAgents].join(', ')}). Per-agent ledger_get_next_action ticks will dispatch each WP individually.`,
-      undefined,
-      projectPath,
-      store
-    );
+    // nextStatus is always non-null here (partitionWpsAwaitingNextStage returns the first
+    // ready WP's READY_FOR_* status even for mixed-routing across multiple next agents).
+    const allNextAgentNames = [...new Set(
+      ready.map((wp) => resolveNextAgent('qa', (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES))
+    )];
+    const reason = allNextAgentNames.length === 1
+      ? `${ready.length} work package(s) have PASS QA and are ready for ${allNextAgentNames[0]}.`
+      : `${ready.length} WPs have PASS QA; routing to ${allNextAgentNames[0]!} first — ${allNextAgentNames.join(', ')} all need to run.`;
+    return buildHandoffResponse('QA', nextStatus!, reason, undefined, projectPath, store);
   }
   if (ready.length === 0 && blocked.length > 0) {
     return buildHandoffResponse(
@@ -5586,34 +5566,15 @@ export async function getSecurityAuditorHandoff(wpDetails: WorkPackageDetail[], 
   );
   const { ready, blocked, nextStatus } = partitionWpsAwaitingNextStage(wpsPassedAudit, 'security-audit');
   if (ready.length > 0) {
-    if (nextStatus !== null) {
-      const nextAgentName = resolveNextAgent(
-        'security-audit',
-        (ready[0]!.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES
-      );
-      return buildHandoffResponse(
-        'Security Auditor',
-        nextStatus,
-        `${ready.length} work package(s) passed security audit and are ready for ${nextAgentName}.`,
-        undefined,
-        projectPath,
-        store
-      );
-    }
-    // Mixed-routing: multiple distinct next agents — defer to orchestrator.
-    const nextAgents = new Set(
-      ready.map((wp) =>
-        resolveNextAgent('security-audit', (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES)
-      )
-    );
-    return buildHandoffResponse(
-      'Security Auditor',
-      'WAIT',
-      `${ready.length} WPs ready for next stage but route to multiple agents (${[...nextAgents].join(', ')}). Per-agent ledger_get_next_action ticks will dispatch each WP individually.`,
-      undefined,
-      projectPath,
-      store
-    );
+    // nextStatus is always non-null here (partitionWpsAwaitingNextStage returns the first
+    // ready WP's READY_FOR_* status even for mixed-routing across multiple next agents).
+    const allNextAgentNames = [...new Set(
+      ready.map((wp) => resolveNextAgent('security-audit', (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES))
+    )];
+    const reason = allNextAgentNames.length === 1
+      ? `${ready.length} work package(s) passed security audit and are ready for ${allNextAgentNames[0]}.`
+      : `${ready.length} WPs passed security audit; routing to ${allNextAgentNames[0]!} first — ${allNextAgentNames.join(', ')} all need to run.`;
+    return buildHandoffResponse('Security Auditor', nextStatus!, reason, undefined, projectPath, store);
   }
   if (ready.length === 0 && blocked.length > 0) {
     return buildHandoffResponse(
@@ -5746,32 +5707,15 @@ export async function getReviewerHandoff(wpDetails: WorkPackageDetail[], project
   );
   const { ready, blocked, nextStatus } = partitionWpsAwaitingNextStage(wpsPassedReview, 'code-review');
   if (ready.length > 0) {
-    if (nextStatus !== null) {
-      const nextAgentName = resolveNextAgent(
-        'code-review',
-        (ready[0]!.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES,
-      );
-      return buildHandoffResponse(
-        'Reviewer',
-        nextStatus,
-        `${ready.length} work package(s) have PASS code-review and are ready for ${nextAgentName}.`,
-        undefined,
-        projectPath,
-        store
-      );
-    }
-    // Mixed-routing: multiple distinct next agents across ready WPs — defer to orchestrator.
-    const nextAgents = new Set(
+    // nextStatus is always non-null here (partitionWpsAwaitingNextStage returns the first
+    // ready WP's READY_FOR_* status even for mixed-routing across multiple next agents).
+    const allNextAgentNames = [...new Set(
       ready.map((wp) => resolveNextAgent('code-review', (wp.active_pipeline_stages as PipelineType[] | undefined) ?? DEFAULT_PIPELINE_STAGES))
-    );
-    return buildHandoffResponse(
-      'Reviewer',
-      'WAIT',
-      `${ready.length} WPs ready for next stage but route to multiple agents (${[...nextAgents].join(', ')}). Per-agent ledger_get_next_action ticks will dispatch each WP individually.`,
-      undefined,
-      projectPath,
-      store
-    );
+    )];
+    const reason = allNextAgentNames.length === 1
+      ? `${ready.length} work package(s) have PASS code-review and are ready for ${allNextAgentNames[0]}.`
+      : `${ready.length} WPs have PASS code-review; routing to ${allNextAgentNames[0]!} first — ${allNextAgentNames.join(', ')} all need to run.`;
+    return buildHandoffResponse('Reviewer', nextStatus!, reason, undefined, projectPath, store);
   }
   if (ready.length === 0 && blocked.length > 0) {
     return buildHandoffResponse(
