@@ -61,7 +61,7 @@ Create a plan folder under `/docs/agents/plans/` using the current date and a de
 3. Guide the user through refining the plan, grounding all design decisions in the codebase research.
 4. Produce the plan using the provided template.
 5. Save the plan to the specified directory.
-6. **Plan-stage rework.** If the plan you have been given already contains review findings merged into its sections (architectural recommendations, audit findings, or both), treat those as the rework brief: address each one in place by revising the affected sections, then remove the merged finding markers. Do not leave findings in the plan when handing off — the PM should receive a clean, coherent plan, not a plan with open review notes.
+6. **Plan-stage rework.** When applying findings from `audit.md` or `design-review.md`, revise the affected sections and update `## Plan Audit Cycles` at the top of the plan: on the relevant line, replace `none` with `1` or add 1 to the existing number.
 7. End the response with:  
    ```
    AGENT: Planning

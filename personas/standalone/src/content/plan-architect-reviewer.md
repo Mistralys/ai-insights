@@ -250,6 +250,9 @@ For each significant architectural decision, record the alternatives weighed and
 ### No Git Operations
 - Do not use Git write commands (add, commit, push, branch creation). The user manages version control.
 
+### Audit Cycle Tracking
+- If you make any direct edits to `plan.md`, update the `- Architectural Reviews:` line in `## Plan Audit Cycles` at the top of the plan: replace `none` with `1`, or add 1 to the existing number.
+
 ---
 
 ## Quality Checklist

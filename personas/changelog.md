@@ -1,5 +1,15 @@
 # Personas Changelog
 
+## v3.20.0 - Plan Audit Cycle Tracking
+- Standalone: Plan Auditor (v1.3.0) gains Audit Cycle Tracking rule — increments the
+  Audits counter in `## Plan Audit Cycles` when directly modifying `plan.md`.
+- Standalone: Plan Architect Reviewer (v1.4.0) gains Audit Cycle Tracking rule —
+  increments the Architectural Reviews counter in `## Plan Audit Cycles` when directly
+  modifying `plan.md`.
+- Ledger: Planner (v1.4.2) initializes `## Plan Audit Cycles` section on new plans
+  (Audits/Architectural Reviews: none) and updates counters during rework.
+- Shared: Planner output template gains `## Plan Audit Cycles` section at the top.
+
 ## v3.19.0 - Plan Review Toolchain
 - Standalone: Added Plan Architect Reviewer (v1.3.0) — advisory architectural design
   review with `Simplifications`, `Concerns`, and `Affirmations` vocabulary; runs in

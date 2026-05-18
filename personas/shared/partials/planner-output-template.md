@@ -3,6 +3,10 @@
 ```markdown
 # Plan
 
+## Plan Audit Cycles
+- Audits: none — {{agent_plan_auditor}}
+- Architectural Reviews: none — {{agent_plan_architect_reviewer}}
+
 ## Summary
 {One-paragraph summary of the overall goal}
 
