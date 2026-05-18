@@ -1,5 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.30.1 - Mixed-Routing Handoff Fix
+- Handoff: Fixed mixed-routing dispatch — emits the first ready WP's READY_FOR_* status
+  so handoffs are not incorrectly held at WAIT when multiple next agents are involved.
+- Tests: Updated handoff assertions for mixed-routing scenarios.
+
 ## v1.30.0 - GUI Orchestrator Integration
 - GUI: Added OrchestratorManager with queue read, kill, dismiss, and start operations.
 - GUI: New orchestrator HTTP endpoints for queue management and run lifecycle control.

@@ -1,8 +1,10 @@
 # AI Insights Changelog
 
 ## v1.24.0 - Plan Review Toolchain
-> personas v3.19.0
+> mcp v1.30.1 · personas v3.19.0
 
+- MCP: Fixed mixed-routing handoff dispatch to emit the correct READY_FOR_* status
+  instead of falling through to WAIT when multiple next agents are involved.
 - Personas: Added Plan Architect Reviewer — advisory architectural design review
   with Simplifications, Concerns, and Affirmations vocabulary; parallel to Plan Auditor.
 - Personas: Plan Auditor narrowed to technical defects only; gained Test Plan and
