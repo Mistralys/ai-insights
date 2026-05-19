@@ -30,8 +30,8 @@ vs_file_name: 1-planner.agent.md
 id: ledger-1-planner
 cc_file_name: 1-planner.md
 da_file_name: 1-planner.md
-version: "1.4.1"
-last_updated: "2026-05-12"
+version: "1.4.2"
+last_updated: "2026-05-18"
 tools:
   - vscode
   - execute

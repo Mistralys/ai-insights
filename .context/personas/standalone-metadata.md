@@ -494,8 +494,8 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.3.0"
-last_updated: "2026-05-11"
+version: "1.4.0"
+last_updated: "2026-05-18"
 
 tools:
   - vscode
@@ -517,8 +517,8 @@ description: "Audit technical plans for technical defects — hallucinated refer
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.2.0"
-last_updated: "2026-05-12"
+version: "1.3.0"
+last_updated: "2026-05-18"
 
 tools:
   - vscode
