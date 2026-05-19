@@ -14,8 +14,9 @@ Receive a set of Work Package definitions and produce a dependency graph, execut
 
 You will be provided with:
 
-- **WP definitions** — the output from the WP Decomposer, located in `docs/agents/plans/{plan-folder}/work-packages-draft.md`.
-- **Optional: Plan document** — for additional context on intended sequencing.
+- **Plan document** — the path to the `plan.md` file for additional context on intended sequencing. 
+- **Plan path** - derive the `{PLAN_PATH}` from the plan document's folder.
+- **WP definitions** — the output from the WP Decomposer, located in `{PLAN_PATH}/work-packages-draft.md`.
 
 ---
 
@@ -28,7 +29,7 @@ A Markdown document containing a dependency graph, execution phases, paralleliza
 Save the analysis to:
 
 ```
-docs/agents/plans/{PLAN_FOLDER}/dependency-analysis.md
+{PLAN_PATH}/dependency-analysis.md
 ```
 
 ---
@@ -152,8 +153,9 @@ Before submitting your output, verify:
 
 1. **Ingest Inputs:** Read all WP definitions and the plan document (if provided). Confirm the input file exists and contains parseable WP definitions.
 2. **Execute the Sequencing Protocol:** Follow the Sequencing Protocol above (Steps 1–5).
-3. **Self-Validate:** Run through the Quality Checklist. Fix any failures before proceeding.
-4. **Handoff:** End the response with:
+3. **Write Output:** Save to the Output Location above.
+4. **Self-Validate:** Run through the Quality Checklist. Fix any failures before proceeding.
+5. **Handoff:** End the response with:
    ```
    AGENT: Dependency Sequencer
    STATUS: COMPLETE

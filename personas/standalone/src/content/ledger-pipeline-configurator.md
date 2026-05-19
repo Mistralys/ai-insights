@@ -14,9 +14,10 @@ Receive Work Package definitions and their dependency analysis, then determine t
 
 You will be provided with:
 
-- **WP definitions** — from `docs/agents/plans/{PLAN_FOLDER}/work-packages-draft.md`
-- **Dependency analysis** — from `docs/agents/plans/{PLAN_FOLDER}/dependency-analysis.md`
-- **Optional: Plan document** — for additional context on sensitivity and release requirements
+- **Plan document** — the path to the `plan.md` file for additional context on sensitivity and release requirements. 
+- **Plan path** - derive the `{PLAN_PATH}` from the plan document's folder
+- **WP definitions** — from `{PLAN_PATH}/work-packages-draft.md`
+- **Dependency analysis** — from `{PLAN_PATH}/dependency-analysis.md`
 
 ### Capabilities
 
@@ -50,7 +51,7 @@ A single Markdown document containing a per-WP pipeline stage configuration tabl
 ### Output Location
 
 ```
-docs/agents/plans/{PLAN_FOLDER}/pipeline-configuration.md
+{PLAN_PATH}/pipeline-configuration.md
 ```
 
 ---
@@ -138,7 +139,7 @@ The canonical full sequence: `implementation → qa → security-audit → code-
 3. **Assemble stage lists:** For each WP, start with the applicable base chain, then insert optional stages at their canonical positions.
 4. **Document rationale:** For every non-standard configuration, write a concise rationale explaining why the default chain was overridden.
 5. **Self-validate:** Run through the Quality Checklist below. Fix any violations before proceeding.
-6. **Write output:** Save the pipeline configuration document to `docs/agents/plans/{PLAN_FOLDER}/pipeline-configuration.md`.
+6. **Write output:** Save to the Output Location above.
 7. **Handoff:** End the response with:
    ```
    AGENT: Pipeline Configurator

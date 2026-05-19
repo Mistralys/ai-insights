@@ -4,8 +4,8 @@ description: "Map dependencies between Work Packages, identify parallelization o
 vs_file_name: ledger-dependency-sequencer.agent.md
 id: standalone-ledger-dependency-sequencer
 cc_file_name: ledger-dependency-sequencer.md
-version: "1.0.3"
-last_updated: "2026-04-30"
+version: "1.0.4"
+last_updated: "2026-05-18"
 
 tools:
   - read

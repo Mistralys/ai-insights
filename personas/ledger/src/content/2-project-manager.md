@@ -55,72 +55,72 @@ You will be provided with:
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_wp_decomposer}}"`
    - `description`: `"Decompose plan into work packages"`
-   - `prompt`: the full plan document content, project name, and any explicit scope/phasing notes
+   - `prompt`: the plan document path and the project name
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_wp_decomposer}}"`. Pass: the full plan document content, project name, and any explicit scope/phasing notes.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_wp_decomposer}}"`. Pass: the plan document path and the project name.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_wp_decomposer}}"`
-   - `task`: the full plan document content, project name, and any explicit scope/phasing notes.
+   - `task`: the plan document path and the project name.
 {{else}}
-   Call the **{{agent_ledger_wp_decomposer}}** subagent with: the full plan document content, project name, and any explicit scope/phasing notes.
+   Call the **{{agent_ledger_wp_decomposer}}** subagent with: the plan document path and the project name.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
-   Expected output: A list of Work Package definitions, each with title, description, scope, and draft acceptance criteria.
+   Expected output: `work-packages-draft.md` written to the plan folder.
 4. **Invoke Dependency Sequencer sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_dependency_sequencer}}"`
    - `description`: `"Map WP dependencies and execution order"`
-   - `prompt`: the WP definitions received from the WP Decomposer
+   - `prompt`: the plan folder path — the agent reads `work-packages-draft.md` from it
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_dependency_sequencer}}"`. Pass: the WP definitions received from the WP Decomposer.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_dependency_sequencer}}"`. Pass: the plan folder path — the agent reads `work-packages-draft.md` from it.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_dependency_sequencer}}"`
-   - `task`: the WP definitions received from the WP Decomposer.
+   - `task`: the plan folder path — the agent reads `work-packages-draft.md` from it.
 {{else}}
-   Call the **{{agent_ledger_dependency_sequencer}}** subagent with: the WP definitions received from the WP Decomposer.
+   Call the **{{agent_ledger_dependency_sequencer}}** subagent with: the plan folder path — the agent reads `work-packages-draft.md` from it.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
-   Expected output: A dependency graph with execution ordering and identified parallelization opportunities.
+   Expected output: `dependency-analysis.md` written to the plan folder.
 5. **Invoke Pipeline Configurator sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_pipeline_configurator}}"`
    - `description`: `"Configure pipeline stages per work package"`
-   - `prompt`: the WP definitions and dependency graph from prior sub-agents
+   - `prompt`: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_pipeline_configurator}}"`. Pass: the WP definitions and dependency graph from prior sub-agents.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_pipeline_configurator}}"`. Pass: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_pipeline_configurator}}"`
-   - `task`: the WP definitions and dependency graph from prior sub-agents.
+   - `task`: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it.
 {{else}}
-   Call the **{{agent_ledger_pipeline_configurator}}** subagent with: the WP definitions and dependency graph from prior sub-agents.
+   Call the **{{agent_ledger_pipeline_configurator}}** subagent with: the plan folder path — the agent reads `work-packages-draft.md` and `dependency-analysis.md` from it.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
 
-   Expected output: A per-WP pipeline stage configuration map (each WP specifying which stages are active).
+   Expected output: `pipeline-configuration.md` written to the plan folder.
 6. **Invoke Ledger Bootstrapper sub-agent:**
 {{#if target_vscode}}
    Invoke `runSubagent` with the following arguments:
    - `agentName`: `"{{agent_ledger_bootstrapper}}"`
    - `description`: `"Initialize project ledger with all work packages"`
-   - `prompt`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path
+   - `prompt`: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder
 {{else if target_claude_code}}
-   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_bootstrapper}}"`. Pass: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Use the `Task` tool with `description: Use the custom agent "{{agent_ledger_bootstrapper}}"`. Pass: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder.
 {{else if target_deep_agents}}
    Use the `task` tool with the following arguments:
    - `subagent_type`: `"{{agent_slug_ledger_bootstrapper}}"`
-   - `task`: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   - `task`: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder.
 {{else}}
-   Call the **{{agent_ledger_bootstrapper}}** subagent with: the WP definitions, dependency ordering, pipeline configurations, and the absolute project path.
+   Call the **{{agent_ledger_bootstrapper}}** subagent with: the plan document path and the absolute project path — the agent reads `work-packages-draft.md`, `dependency-analysis.md`, and `pipeline-configuration.md` from the plan folder.
 {{/if}}
 
    > **Important:**  The sub-agent has its own built-in persona, so does not need any instructions. The data is sufficient.
