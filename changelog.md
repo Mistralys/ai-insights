@@ -1,5 +1,15 @@
 # AI Insights Changelog
 
+## v1.25.0 - Plan Audit Tracking and WP Context Preservation
+> personas v3.20.0
+
+- Personas: Plan Auditor and Plan Architect Reviewer gain Audit Cycle Tracking — edit
+  counters are now maintained directly in `plan.md`.
+- Personas: WP Decomposer enriched with Plan Context, Rationale, and Rejected Approaches
+  fields for full design-intent preservation across isolated agent runs.
+- Personas: Bootstrapper carries all WP draft fields verbatim into the spec file.
+- Personas: Planner initializes Audit Cycle counters on new plans.
+
 ## v1.24.0 - Plan Review Toolchain
 > mcp v1.30.1 · personas v3.19.0
 

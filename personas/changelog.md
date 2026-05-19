@@ -1,55 +1,21 @@
 # Personas Changelog
 
-## v3.20.6 - WP Decomposer Plan Context Field
-- Standalone: Ledger WP Decomposer (v1.0.5) — adds `**Plan Context:**` field as the first
-  field in every WP definition, sourced from the plan's Summary section. Ensures agents
-  working in isolation (orchestrator context) understand the overarching plan goal before
-  reading the WP-level task. Step 1 of the Decomposition Protocol now instructs the agent
-  to extract the plan summary upfront for embedding in every WP. Quality Checklist gains
-  a check that every WP carries the field.
-
-## v3.20.5 - WP Decomposer Full Design Context
-- Standalone: Ledger WP Decomposer (v1.0.4) — adds `**Rationale:**` field to the output
-  template (WHY the chosen approach was selected); updates `**Rejected Approaches:**` to
-  explicitly require the reason for each rejection, not just the name of the rejected
-  alternative. Step 3 of the Decomposition Protocol now instructs the agent to extract
-  both the positive rationale and rejection reasons per WP so that agents working in
-  isolation have full design intent without access to the plan document or audit reports.
-  Quality Checklist gains a check for both fields.
-
-## v3.20.4 - WP Decomposer Rejected Approaches Preservation
-- Standalone: Ledger WP Decomposer (v1.0.3) — Step 3 of the Decomposition Protocol now
-  instructs the agent to scan the plan's "Considered Alternatives," "Rationale," and
-  "Approach" sections and attribute rejected alternatives per WP. Output template gains
-  an optional `**Rejected Approaches:**` field. Quality Checklist gains a check that
-  every WP overlapping a "Considered Alternatives" entry carries the field. Prevents
-  implementing agents from re-introducing approaches that were already audited and ruled
-  out.
-
-## v3.20.3 - Workflow Write Step Consistency
-- Standalone: Ledger Pipeline Configurator (v1.0.2) — workflow step 6 now references Output Location instead
-  of repeating the path.
-- Standalone: Ledger Dependency Sequencer (v1.0.4) — added missing write step to workflow, referencing
-  Output Location.
-
-## v3.20.2 - PM Subagent Prompt Precision
-- Ledger: Improved Project Manager (v3.7.2) subagent invocations.
-
-## v3.20.1 - WP Decomposer Handoff Fix
-- Standalone: Ledger WP Decomposer (v1.0.2) handoff step now emits `NEXT`,
-  `WORK_PACKAGES`, and `PLAN_DOCUMENT` fields in the status block and explicitly
-  instructs the invoker to pass file paths to the Dependency Sequencer rather than
-  inlining WP or plan content.
-
-## v3.20.0 - Plan Audit Cycle Tracking
-- Standalone: Plan Auditor (v1.3.0) gains Audit Cycle Tracking rule — increments the
-  Audits counter in `## Plan Audit Cycles` when directly modifying `plan.md`.
-- Standalone: Plan Architect Reviewer (v1.4.0) gains Audit Cycle Tracking rule —
-  increments the Architectural Reviews counter in `## Plan Audit Cycles` when directly
-  modifying `plan.md`.
-- Ledger: Planner (v1.4.2) initializes `## Plan Audit Cycles` section on new plans
-  (Audits/Architectural Reviews: none) and updates counters during rework.
-- Shared: Planner output template gains `## Plan Audit Cycles` section at the top.
+## v3.20.0 - Plan Audit Tracking and WP Context Preservation
+- Standalone: Plan Auditor (v1.3.0) and Plan Architect Reviewer (v1.4.0) gain Audit
+  Cycle Tracking — increment `## Plan Audit Cycles` counters when directly modifying `plan.md`.
+- Ledger: Planner (v1.4.2) initializes `## Plan Audit Cycles` on new plans and updates
+  counters during rework; shared output template gains the section.
+- Standalone: WP Decomposer (v1.0.5) adds `Plan Context`, `Rationale`, and
+  `Rejected Approaches` fields so implementing agents have full design intent in isolation.
+- Standalone: WP Decomposer handoff now emits `NEXT`, `WORK_PACKAGES`, and
+  `PLAN_DOCUMENT` fields; instructs invoker to pass file paths to the Dependency Sequencer.
+- Standalone: Bootstrapper (v1.1.0) expands WP spec template to carry all draft fields
+  verbatim; forbidden from summarizing or dropping any section.
+- Ledger: PM (v3.7.3) verification gate now enumerates all WP fields, catching stripped
+  spec files.
+- Standalone: Pipeline Configurator write step references Output Location instead of
+  repeating the path; Dependency Sequencer gains the missing write step.
+- Ledger: Improved PM (v3.7.2) subagent invocations.
 
 ## v3.19.0 - Plan Review Toolchain
 - Standalone: Added Plan Architect Reviewer (v1.3.0) — advisory architectural design
