@@ -1,5 +1,13 @@
 # Orchestrator Changelog
 
+## v0.20.0 - API Key Liveness Validation
+- Preflight: Added `--check-api-key` flag to live-validate API keys (no tokens consumed).
+- Preflight: Supports Anthropic and Google AI Studio; checks run via provider model-list endpoints.
+- GUI: Added live Anthropic and Google AI Studio key liveness checks to the start flow.
+- GUI: `anthropic-key` and `google-key` checks run in parallel with existing preflight steps.
+- Utils: Extracted shared `parseEnvVars()` helper; removed duplicated `.env` parsing.
+- Tests: Added 7 tests covering pass, reject (401/403), network error, dual-key, and no-key cases.
+
 ## v0.19.0 - Run Queue and GUI Error Surfacing
 - CLI: Added persistent run queue with atomic file I/O and filelock integration;
   runs are registered on start and deregistered on exit.

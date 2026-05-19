@@ -308,22 +308,19 @@ async function checkVenv(workspaceRoot: string): Promise<PreflightResult> {
   return { name: 'venv', pass: true, detail: 'orchestrate binary found' };
 }
 
-/** Checks that `orchestrator/.env` exists and contains at least one API key. */
-async function checkEnv(workspaceRoot: string): Promise<PreflightResult> {
+/**
+ * Parses `orchestrator/.env` and returns key→value pairs (trimmed, comments and empty
+ * lines excluded). Returns `null` when the file does not exist or cannot be read.
+ */
+async function parseEnvFile(workspaceRoot: string): Promise<Record<string, string> | null> {
   const envFile = join(workspaceRoot, 'orchestrator', '.env');
   let content: string;
   try {
     content = await readFile(envFile, 'utf-8');
   } catch {
-    return {
-      name:   'env',
-      pass:   false,
-      detail: '.env file not found',
-      fix:    'cp orchestrator/.env.example orchestrator/.env  # then edit it',
-    };
+    return null;
   }
-
-  const vars: Record<string, boolean> = {};
+  const vars: Record<string, string> = {};
   for (const line of content.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -331,9 +328,22 @@ async function checkEnv(workspaceRoot: string): Promise<PreflightResult> {
     if (eq === -1) continue;
     const key = trimmed.slice(0, eq).trim();
     const val = trimmed.slice(eq + 1).trim();
-    if (val) vars[key] = true;
+    if (val) vars[key] = val;
   }
+  return vars;
+}
 
+/** Checks that `orchestrator/.env` exists and contains at least one API key. */
+async function checkEnv(workspaceRoot: string): Promise<PreflightResult> {
+  const vars = await parseEnvFile(workspaceRoot);
+  if (vars === null) {
+    return {
+      name:   'env',
+      pass:   false,
+      detail: '.env file not found',
+      fix:    'cp orchestrator/.env.example orchestrator/.env  # then edit it',
+    };
+  }
   if (!vars['ANTHROPIC_API_KEY'] && !vars['GOOGLE_API_KEY']) {
     return {
       name:   'env',
@@ -342,8 +352,62 @@ async function checkEnv(workspaceRoot: string): Promise<PreflightResult> {
       fix:    'Set the appropriate API key in orchestrator/.env',
     };
   }
-
   return { name: 'env', pass: true, detail: 'API key configured' };
+}
+
+/** Live-validates an Anthropic API key via GET /v1/models — no tokens consumed. */
+async function checkAnthropicKey(apiKey: string): Promise<PreflightResult> {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key':          apiKey,
+        'anthropic-version':  '2023-06-01',
+      },
+    });
+    if (res.ok) {
+      return { name: 'anthropic-key', pass: true, detail: 'key accepted by Anthropic API' };
+    }
+    const hint = res.status === 401 ? 'invalid or expired key' : `HTTP ${res.status}`;
+    return {
+      name:   'anthropic-key',
+      pass:   false,
+      detail: `Anthropic rejected key: ${hint}`,
+      fix:    'Update ANTHROPIC_API_KEY in orchestrator/.env',
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name:   'anthropic-key',
+      pass:   false,
+      detail: `Anthropic key check failed: ${msg}`,
+    };
+  }
+}
+
+/** Live-validates a Google AI Studio API key via GET /v1beta/models — no tokens consumed. */
+async function checkGoogleKey(apiKey: string): Promise<PreflightResult> {
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      return { name: 'google-key', pass: true, detail: 'key accepted by Google AI Studio API' };
+    }
+    const hint =
+      res.status === 400 || res.status === 403 ? 'invalid or expired key' : `HTTP ${res.status}`;
+    return {
+      name:   'google-key',
+      pass:   false,
+      detail: `Google rejected key: ${hint}`,
+      fix:    'Update GOOGLE_API_KEY in orchestrator/.env',
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      name:   'google-key',
+      pass:   false,
+      detail: `Google key check failed: ${msg}`,
+    };
+  }
 }
 
 /**
@@ -514,16 +578,23 @@ export async function startOrchestrator(
   const checks: PreflightResult[] = [];
 
   // Run all checks in parallel — plan path is resolved above, no traversal risk.
-  const [planChecks, envChecks] = await Promise.all([
+  const [planChecks, envChecks, keyChecks] = await Promise.all([
     Promise.all([
       Promise.resolve(checkPlanBasename(resolvedPlan)),
       checkPlanFile(resolvedPlan),
       checkNoConflict(resolvedPlan, join(resolvedRoot, 'orchestrator', 'logs')),
     ]),
     Promise.all([checkVenv(resolvedRoot), checkEnv(resolvedRoot), checkMcpDist(resolvedRoot)]),
+    parseEnvFile(resolvedRoot).then((vars) => {
+      if (!vars) return [] as PreflightResult[];
+      const pending: Promise<PreflightResult>[] = [];
+      if (vars['ANTHROPIC_API_KEY']) pending.push(checkAnthropicKey(vars['ANTHROPIC_API_KEY']));
+      if (vars['GOOGLE_API_KEY'])    pending.push(checkGoogleKey(vars['GOOGLE_API_KEY']));
+      return Promise.all(pending);
+    }),
   ]);
 
-  checks.push(...planChecks, ...envChecks);
+  checks.push(...planChecks, ...envChecks, ...keyChecks);
 
   // Dry-run: return results without spawning.
   if (dryRun) {

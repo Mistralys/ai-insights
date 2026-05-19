@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.26.0 - Orchestrator API Key Validation
+> orchestrator v0.20.0
+
+- Orchestrator: Live API key validation for Anthropic and Google AI Studio, available in both
+  the CLI preflight tool and the GUI start flow.
+
 ## v1.25.0 - Plan Audit Tracking and WP Context Preservation
 > personas v3.20.0
 
