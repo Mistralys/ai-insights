@@ -6509,6 +6509,13 @@ describe('resolveLogSource', () => {
  *   WP-007 AC-6: duplicate plan in queue → no-conflict check fails.
  *   WP-007 AC-7: spawned process is detached and unref()-ed.
  *   WP-007 AC-8: binary resolved as bin/orchestrate (Unix) or Scripts/orchestrate.exe (Win).
+ *   WP-007 AC-9: anthropic-key check passes when provider returns 200.
+ *   WP-007 AC-9: anthropic-key check fails when provider returns 401.
+ *   WP-007 AC-9: anthropic-key check fails on network error.
+ *   WP-007 AC-9: google-key check passes when provider returns 200.
+ *   WP-007 AC-9: google-key check fails when provider returns 403.
+ *   WP-007 AC-9: both key checks run when both keys are configured.
+ *   WP-007 AC-9: no live key checks emitted when .env contains no keys.
  *
  * Uses real temp directories for filesystem operations.
  * process.kill() is spied on to control PID-alive checks without
@@ -6523,10 +6530,17 @@ import { spawn } from 'child_process';
 
 vi.mock('child_process');
 
+// Stub the global fetch so live API-key checks never reach real provider endpoints.
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
 // Clear mock call history before every test so assertions like
 // toHaveBeenCalledOnce() are not polluted by calls from previous tests.
+// Re-establish the default fetch response (accepted) so tests that don't care
+// about key validation get a passing result by default.
 beforeEach(() => {
   vi.clearAllMocks();
+  mockFetch.mockResolvedValue({ ok: true, status: 200 });
 });
 
 import {
@@ -7673,6 +7687,117 @@ describe('startOrchestrator — venv, plan-file, mcp-dist check failures (WP-015
     const mcpDistCheck = result.checks.find((c) => c.name === 'mcp-dist');
     expect(mcpDistCheck?.pass).toBe(false);
     expect(result.started).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// startOrchestrator — live API key checks (WP-007 AC-9)
+// ---------------------------------------------------------------------------
+
+describe('startOrchestrator — live API key liveness checks (AC-9)', () => {
+  let tempDir:       string;
+  let workspaceRoot: string;
+  let planPath:      string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'orch-apikey-test-'));
+    ({ workspaceRoot, planPath } = await scaffoldWorkspace(tempDir));
+    vi.mocked(spawn).mockReturnValue({
+      pid: 1, unref: vi.fn(),
+    } as unknown as ReturnType<typeof spawn>);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('anthropic-key check passes when provider returns 200', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const keyCheck = result.checks.find((c) => c.name === 'anthropic-key');
+    expect(keyCheck?.pass).toBe(true);
+    expect(keyCheck?.detail).toContain('Anthropic');
+  });
+
+  it('anthropic-key check fails when provider returns 401', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 401 });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const keyCheck = result.checks.find((c) => c.name === 'anthropic-key');
+    expect(keyCheck?.pass).toBe(false);
+    expect(keyCheck?.detail).toContain('invalid or expired key');
+  });
+
+  it('anthropic-key check fails when fetch throws a network error', async () => {
+    mockFetch.mockRejectedValue(new Error('Network failure'));
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const keyCheck = result.checks.find((c) => c.name === 'anthropic-key');
+    expect(keyCheck?.pass).toBe(false);
+    expect(keyCheck?.detail).toContain('Network failure');
+  });
+
+  it('google-key check passes when provider returns 200', async () => {
+    await writeFile(
+      join(workspaceRoot, 'orchestrator', '.env'),
+      'GOOGLE_API_KEY=test-google-key\n',
+      'utf-8',
+    );
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const keyCheck = result.checks.find((c) => c.name === 'google-key');
+    expect(keyCheck?.pass).toBe(true);
+    expect(keyCheck?.detail).toContain('Google');
+  });
+
+  it('google-key check fails when provider returns 403', async () => {
+    await writeFile(
+      join(workspaceRoot, 'orchestrator', '.env'),
+      'GOOGLE_API_KEY=test-google-key\n',
+      'utf-8',
+    );
+    mockFetch.mockResolvedValue({ ok: false, status: 403 });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    const keyCheck = result.checks.find((c) => c.name === 'google-key');
+    expect(keyCheck?.pass).toBe(false);
+    expect(keyCheck?.detail).toContain('invalid or expired key');
+  });
+
+  it('both key checks run when both keys are configured', async () => {
+    await writeFile(
+      join(workspaceRoot, 'orchestrator', '.env'),
+      'ANTHROPIC_API_KEY=ant-key\nGOOGLE_API_KEY=goo-key\n',
+      'utf-8',
+    );
+    mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    expect(result.checks.find((c) => c.name === 'anthropic-key')?.pass).toBe(true);
+    expect(result.checks.find((c) => c.name === 'google-key')?.pass).toBe(true);
+  });
+
+  it('no live key checks are emitted when .env contains no keys', async () => {
+    await writeFile(
+      join(workspaceRoot, 'orchestrator', '.env'),
+      '# no keys here\n',
+      'utf-8',
+    );
+
+    const result = await startOrchestrator(planPath, workspaceRoot, true);
+
+    expect(result.checks.find((c) => c.name === 'anthropic-key')).toBeUndefined();
+    expect(result.checks.find((c) => c.name === 'google-key')).toBeUndefined();
+    expect(result.checks.find((c) => c.name === 'env')?.pass).toBe(false);
   });
 });
 

@@ -131,9 +131,10 @@ Before launching, run the dedicated **pre-flight script** to verify the environm
 node scripts/preflight-orchestrator.js             # basic checks
 node scripts/preflight-orchestrator.js --plan path/to/plan.md  # also verify plan exists
 node scripts/preflight-orchestrator.js --json       # machine-readable output
+node scripts/preflight-orchestrator.js --check-api-key  # also live-validate API key(s)
 ```
 
-This validates: venv + `orchestrate` binary, `.env` configuration (API key), MCP server dist freshness, and no conflicting orchestrator process. It is also available via `node scripts/cli.js preflight`.
+This validates: venv + `orchestrate` binary, `.env` configuration (API key presence), MCP server dist freshness, and no conflicting orchestrator process. Add `--check-api-key` to also live-validate configured API keys against their provider endpoints (no tokens consumed). It is also available via `node scripts/cli.js preflight`.
 
 Then use `node scripts/run-orchestrator.js` as the canonical way to launch the orchestrator.
 It performs a **build freshness check** — if any file under `mcp-server/src/`

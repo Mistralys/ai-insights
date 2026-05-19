@@ -2443,11 +2443,13 @@ bootstrap();
  *   - MCP server dist is up to date
  *   - No conflicting orchestrator process is already running
  *   - (Optional) Plan file exists (when --plan <path> is given)
+ *   - (Optional) API key(s) are accepted by the provider (when --check-api-key is given)
  *
  * Usage:
  *   node scripts/preflight-orchestrator.js
  *   node scripts/preflight-orchestrator.js --plan path/to/plan.md
  *   node scripts/preflight-orchestrator.js --plan path/to/plan.md --json
+ *   node scripts/preflight-orchestrator.js --check-api-key
  *
  * Exit codes:
  *   0 — all checks pass
@@ -2493,16 +2495,19 @@ function parseArgs() {
   const argv = process.argv.slice(2);
   let planPath = null;
   let jsonOutput = false;
+  let checkApiKey = false;
 
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--plan' && argv[i + 1]) {
       planPath = argv[++i];
     } else if (argv[i] === '--json') {
       jsonOutput = true;
+    } else if (argv[i] === '--check-api-key') {
+      checkApiKey = true;
     }
   }
 
-  return { planPath, jsonOutput };
+  return { planPath, jsonOutput, checkApiKey };
 }
 
 // ─── Check implementations ───────────────────────────────────────────────────
@@ -2510,6 +2515,26 @@ function parseArgs() {
 /**
  * @typedef {{ name: string, pass: boolean, detail: string, fix?: string }} CheckResult
  */
+
+/**
+ * Parse orchestrator/.env and return a map of key → value.
+ * Comment lines and lines without a value are skipped.
+ * @returns {Record<string, string>}
+ */
+function parseEnvVars() {
+  if (!fs.existsSync(ENV_FILE)) return {};
+  const vars = {};
+  for (const line of fs.readFileSync(ENV_FILE, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    const val = trimmed.slice(eq + 1).trim();
+    if (val) vars[key] = val;
+  }
+  return vars;
+}
 
 /** Check that the Python venv exists and contains the orchestrate binary. */
 function checkVenv() {
@@ -2546,20 +2571,7 @@ function checkEnv() {
     };
   }
 
-  const content = fs.readFileSync(ENV_FILE, 'utf8');
-  const lines = content.split('\n');
-
-  // Parse non-comment, non-empty KEY=VALUE lines
-  const vars = {};
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eq = trimmed.indexOf('=');
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    const val = trimmed.slice(eq + 1).trim();
-    if (val) vars[key] = true;
-  }
+  const vars = parseEnvVars();
 
   if (!vars.ANTHROPIC_API_KEY && !vars.GOOGLE_API_KEY) {
     return {
@@ -2652,10 +2664,72 @@ function checkPlanFile(planPath) {
   return { name: 'plan-file', pass: true, detail: path.basename(resolved) };
 }
 
+/**
+ * Live-validate an Anthropic API key via GET /v1/models — no tokens consumed.
+ * @param {string} apiKey
+ * @returns {Promise<CheckResult>}
+ */
+async function checkAnthropicKey(apiKey) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+    });
+    if (res.ok) {
+      return { name: 'anthropic-key', pass: true, detail: 'key accepted by Anthropic API' };
+    }
+    const hint = res.status === 401 ? 'invalid or expired key' : `HTTP ${res.status}`;
+    return {
+      name: 'anthropic-key',
+      pass: false,
+      detail: `Anthropic rejected key: ${hint}`,
+      fix: 'Update ANTHROPIC_API_KEY in orchestrator/.env',
+    };
+  } catch (err) {
+    return {
+      name: 'anthropic-key',
+      pass: false,
+      detail: `Anthropic key check failed: ${err.message}`,
+    };
+  }
+}
+
+/**
+ * Live-validate a Google AI Studio API key via GET /v1beta/models — no tokens consumed.
+ * @param {string} apiKey
+ * @returns {Promise<CheckResult>}
+ */
+async function checkGoogleKey(apiKey) {
+  try {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      return { name: 'google-key', pass: true, detail: 'key accepted by Google AI Studio API' };
+    }
+    const hint =
+      res.status === 400 || res.status === 403 ? 'invalid or expired key' : `HTTP ${res.status}`;
+    return {
+      name: 'google-key',
+      pass: false,
+      detail: `Google rejected key: ${hint}`,
+      fix: 'Update GOOGLE_API_KEY in orchestrator/.env',
+    };
+  } catch (err) {
+    return {
+      name: 'google-key',
+      pass: false,
+      detail: `Google key check failed: ${err.message}`,
+    };
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-function main() {
-  const { planPath, jsonOutput } = parseArgs();
+async function main() {
+  const { planPath, jsonOutput, checkApiKey } = parseArgs();
 
   /** @type {CheckResult[]} */
   const results = [
@@ -2667,6 +2741,23 @@ function main() {
 
   if (planPath) {
     results.push(checkPlanFile(planPath));
+  }
+
+  if (checkApiKey) {
+    const vars = parseEnvVars();
+    const pending = [];
+    if (vars.ANTHROPIC_API_KEY) pending.push(checkAnthropicKey(vars.ANTHROPIC_API_KEY));
+    if (vars.GOOGLE_API_KEY)    pending.push(checkGoogleKey(vars.GOOGLE_API_KEY));
+    if (pending.length === 0) {
+      results.push({
+        name: 'api-key',
+        pass: false,
+        detail: 'No API key found in .env to validate',
+        fix: 'Set ANTHROPIC_API_KEY or GOOGLE_API_KEY in orchestrator/.env',
+      });
+    } else {
+      results.push(...await Promise.all(pending));
+    }
   }
 
   const allPass = results.every((r) => r.pass);
@@ -2705,7 +2796,10 @@ function main() {
   process.exit(allPass ? 0 : 1);
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 
 ```
 ###  Path: `/scripts/publish-locations.js`
