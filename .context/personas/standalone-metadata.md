@@ -243,8 +243,8 @@ description: "Mechanically initialize the project ledger: create all Work Packag
 vs_file_name: ledger-bootstrapper.agent.md
 id: standalone-ledger-bootstrapper
 cc_file_name: ledger-bootstrapper.md
-version: "1.0.0"
-last_updated: "2026-03-14"
+version: "1.1.0"
+last_updated: "2026-05-19"
 mcp_server_name: central_pm
 
 tools:
@@ -293,8 +293,8 @@ description: "Map dependencies between Work Packages, identify parallelization o
 vs_file_name: ledger-dependency-sequencer.agent.md
 id: standalone-ledger-dependency-sequencer
 cc_file_name: ledger-dependency-sequencer.md
-version: "1.0.3"
-last_updated: "2026-04-30"
+version: "1.0.4"
+last_updated: "2026-05-18"
 
 tools:
   - read
@@ -377,8 +377,8 @@ description: "Determine which pipeline stages should be active for each Work Pac
 vs_file_name: ledger-pipeline-configurator.agent.md
 id: standalone-ledger-pipeline-configurator
 cc_file_name: ledger-pipeline-configurator.md
-version: "1.0.1"
-last_updated: "2026-04-30"
+version: "1.0.2"
+last_updated: "2026-05-18"
 
 tools:
   - read
@@ -395,8 +395,8 @@ description: "Analyze a plan document and decompose it into atomic, actionable W
 vs_file_name: ledger-wp-decomposer.agent.md
 id: standalone-ledger-wp-decomposer
 cc_file_name: ledger-wp-decomposer.md
-version: "1.0.1"
-last_updated: "2026-04-30"
+version: "1.0.5"
+last_updated: "2026-05-19"
 
 tools:
   - read

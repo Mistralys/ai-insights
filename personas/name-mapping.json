@@ -21,10 +21,10 @@
     "number": 2,
     "id": "ledger-2-pm",
     "role": "Project Manager",
-    "version": "3.7.1",
+    "version": "3.7.3",
     "vscode": {
       "file_name": "2-pm.agent.md",
-      "agent_name": "2 - Project Manager v3.7.1"
+      "agent_name": "2 - Project Manager v3.7.3"
     },
     "claude_code": {
       "file_name": "2-project-manager.md",

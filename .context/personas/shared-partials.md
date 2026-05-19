@@ -228,9 +228,12 @@ The PM orchestrates four sub-agents to produce the project ledger. Your direct o
    ```
    /docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/
    ├── plan.md
+   ├── work-packages-draft.md         ← WP definitions (created by WP Decomposer)
+   ├── dependency-analysis.md         ← Dependency ordering (created by Dependency Sequencer)
+   ├── pipeline-configuration.md      ← Per-WP pipeline stages (created by Pipeline Configurator)
    ├── work.md                        ← Summary index (created by Ledger Bootstrapper)
    ├── work/
-   │   ├── WP-001.md                  ← Full WP specification (created by Ledger Bootstrapper)
+   │   ├── WP-001.md                  ← Full WP spec: all draft fields + dependencies + pipeline stages
    │   ├── WP-002.md
    │   └── ...
    ```
