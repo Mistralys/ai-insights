@@ -132,7 +132,7 @@ You will be provided with:
    - The individual spec file exists at `work/<WP-ID>.md` inside the plan folder
    - The summary index `work.md` exists in the plan folder root
    
-   If any files are missing, **create them yourself** before handing off. Each `work/<WP-ID>.md` must contain the WP title, description, scope, dependencies, acceptance criteria, and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure. This is a critical gate — do not hand off with missing WP spec files.
+   If any files are missing, **create them yourself** before handing off. Each `work/<WP-ID>.md` must contain all fields from the WP draft verbatim: plan context, description, scope, deliverables, acceptance criteria, estimated complexity, rationale (if present), rejected approaches (if present), and notes (if present) — plus the two injected fields: dependencies and active pipeline stages. The `work.md` must contain a summary table of all WPs with their status, dependencies, and pipeline stages. See the **File layout** section above for the expected structure. This is a critical gate — do not hand off with missing or stripped WP spec files.
 {{#if target_vscode}}
 10. {{> handoff-block-vscode}}
 {{else if target_claude_code}}

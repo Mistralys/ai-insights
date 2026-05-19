@@ -4,8 +4,8 @@ description: "Mechanically initialize the project ledger: create all Work Packag
 vs_file_name: ledger-bootstrapper.agent.md
 id: standalone-ledger-bootstrapper
 cc_file_name: ledger-bootstrapper.md
-version: "1.0.0"
-last_updated: "2026-03-14"
+version: "1.1.0"
+last_updated: "2026-05-19"
 mcp_server_name: central_pm
 
 tools:

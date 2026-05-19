@@ -93,29 +93,53 @@ For each WP definition (in the order received from the decomposer), create a fil
 ```markdown
 # WP-{NUMBER}: {SHORT_TITLE}
 
+## Plan Context
+
+{Verbatim from WP draft}
+
 ## Description
 
-{1-2 sentence summary from the WP definition}
+{Verbatim from WP draft}
 
 ## Scope
 
-- {Specific file, system, or component touched}
+- {Verbatim from WP draft}
+
+## Deliverables
+
+- {Verbatim from WP draft}
 
 ## Dependencies
 
-- WP-{NUMBER} or "None"
+- WP-{NUMBER} or "None"   ← injected from dependency-analysis.md
 
 ## Acceptance Criteria
 
-1. {Criterion from the WP definition}
-2. {Criterion from the WP definition}
+1. {Verbatim from WP draft}
+2. {Verbatim from WP draft}
 
 ## Active Pipeline Stages
 
-`stage-1` → `stage-2` → `stage-3`
+`stage-1` → `stage-2` → `stage-3`   ← injected from pipeline-configuration.md
+
+## Estimated Complexity
+
+{Verbatim from WP draft}
+
+## Rationale
+
+{Verbatim from WP draft — omit this section if absent in the draft}
+
+## Rejected Approaches
+
+{Verbatim from WP draft — omit this section if absent in the draft}
+
+## Notes
+
+{Verbatim from WP draft — omit this section if absent in the draft}
 ```
 
-Populate each section from the WP definition inputs. Do not invent content — transcribe exactly from the WP Decomposer output.
+Copy all sections verbatim from the WP draft. The only sections you inject are **Dependencies** (from `dependency-analysis.md`) and **Active Pipeline Stages** (from `pipeline-configuration.md`). Do not summarize, paraphrase, or drop any section present in the draft.
 
 > **If a spec file cannot be created:** Do not attempt to register the WP in the ledger without its spec file. Record the error and move on to the next WP.
 
