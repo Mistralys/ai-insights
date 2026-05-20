@@ -388,6 +388,7 @@ _SOURCE: Top-level directory tree_
     │       ├── persona-curator.md
     │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
+    │       ├── plan-refiner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
@@ -412,6 +413,7 @@ _SOURCE: Top-level directory tree_
     │       ├── persona-curator.md
     │       ├── plan-architect-reviewer.md
     │       ├── plan-auditor.md
+    │       ├── plan-refiner.md
     │       ├── readme-curator.md
     │       ├── researcher.md
     │       ├── unit-test-auditor.md
@@ -436,6 +438,7 @@ _SOURCE: Top-level directory tree_
     │       └── persona-curator.agent.md
     │       └── plan-architect-reviewer.agent.md
     │       └── plan-auditor.agent.md
+    │       └── plan-refiner.agent.md
     │       └── readme-curator.agent.md
     │       └── researcher.agent.md
     │       └── unit-test-auditor.agent.md

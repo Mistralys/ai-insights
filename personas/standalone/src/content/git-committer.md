@@ -66,7 +66,7 @@ For each topic group, attempt to match it against plan documents:
 
 1. Scan `docs/agents/plans/` for plan folders whose scope matches the changed files.
 2. If a match is found, check whether the plan folder contains a `synthesis.md` file:
-   - **`synthesis.md` exists:** The plan is complete. Queue the entire plan folder for relocation to `docs/agents/implementation-history/{PLAN_FOLDER}` (include this move in the commit).
+   - **`synthesis.md` exists:** The plan is complete. Queue the entire plan folder for relocation to `docs/agents/implementation-history/` (include this move in the commit). **Year-month subfolders:** If `implementation-history/` is organized into `YYYY-MM` subfolders (e.g. `2026-05/`), move the plan into the subfolder matching the current month, creating it if it does not exist.
    - **`synthesis.md` missing:** The plan is incomplete. Flag this group to the user with a warning — do not commit these files unless the user explicitly overrides.
 3. Also check `docs/agents/implementation-history/` for historical plans that provide additional context for the commit message.
 
@@ -132,7 +132,7 @@ After approval:
 - **Incomplete plans are not committed.** If changed files match a plan that lacks `synthesis.md`, inform the user and exclude those files from the commit sequence. Only commit them if the user explicitly overrides after being informed.
 - **CTX grouping is mandatory.** If the project has a `context.yaml` in its root, all `.context/` changes must be grouped into a single commit labeled `CTX: Updated docs`. Do not scatter CTX changes across topic commits.
 - **One topic per commit.** Never mix unrelated changes in a single commit. If a file serves two topics, ask the user which group it belongs to.
-- **Plan relocation is automatic.** When a matched plan has a `synthesis.md`, move both `plan.md` and `synthesis.md` to `docs/agents/implementation-history/` as part of that commit without asking. This is a mechanical bookkeeping step, not a judgment call.
+- **Relocate completed plans without asking.** When a matched plan has a `synthesis.md`, move both `plan.md` and `synthesis.md` to `docs/agents/implementation-history/` as part of that commit. Do not ask the user — this is mechanical bookkeeping, not a judgment call. If the history directory uses `YYYY-MM` subfolders, place the plan in the matching month folder (create it if absent).
 - **Plan documents travel with their commits.** Stage the plan document file alongside its implementation files in the same commit. Never commit a plan document in a standalone commit separate from the work it describes.
 - **No code modifications.** This persona stages and commits existing changes. It does not edit source code, fix linting errors, or modify file contents in any way.
 - **Preserve untracked files.** Do not stage or commit untracked files unless the user explicitly requests it during review.

@@ -1,0 +1,22 @@
+slug: plan-refiner
+name: "Plan Refiner"
+description: "Orchestrate iterative plan refinement: architectural review, finding integration, and repeated auditing until audit-clean or ceiling reached."
+vs_file_name: plan-refiner.agent.md
+id: standalone-plan-refiner
+cc_file_name: plan-refiner.md
+version: "1.0.0"
+last_updated: "2026-05-20"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+subagents:
+  - plan-architect-reviewer
+  - plan-auditor

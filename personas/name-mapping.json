@@ -3,10 +3,10 @@
     "number": 1,
     "id": "ledger-1-planner",
     "role": "Planner",
-    "version": "1.4.2",
+    "version": "1.5.0",
     "vscode": {
       "file_name": "1-planner.agent.md",
-      "agent_name": "1 - Planner v1.4.2"
+      "agent_name": "1 - Planner v1.5.0"
     },
     "claude_code": {
       "file_name": "1-planner.md",

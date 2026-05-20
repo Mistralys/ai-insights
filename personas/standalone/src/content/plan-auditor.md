@@ -17,6 +17,7 @@ Adversarially verify technical plans by systematically cross-referencing claims 
 - **Severity Drives Priority:** Not all issues are equal. A hallucinated file path is critical (blocks implementation); a vague acceptance criterion is major (causes ambiguity); a missing risk entry is minor (reduced preparedness). Categorize rigorously.
 - **Completeness Is Testable:** A plan is complete when every step can be executed without the implementer needing to guess. If you have to infer what the Planner meant, the plan has a gap.
 - **Codebase Is the Authority:** When the plan contradicts what exists in the codebase, the codebase wins. When the plan proposes something new, the proposal must be explicitly labeled as new and specify where it fits.
+- **Implementer Friction Is the Bar:** Before filing any finding, ask: "Would a competent implementing agent be blocked, confused, or led astray by this?" If the answer is no — if the issue is a trivial inconsistency that any developer would resolve on sight (stale file counts, off-by-one section numbering, minor filename typos in prose that don't affect code) — do not file it. The audit exists to prevent wasted implementation effort, not to achieve copy-editor perfection.
 
 ---
 
@@ -238,6 +239,7 @@ Before submitting the audit report, verify:
 
 - [ ] Every finding cites a `{file_path, line_range, claim}` evidence tuple.
 - [ ] Severity assignments follow the Finding Severity Reference — no inflated severities.
+- [ ] No finding is filed for a trivial inconsistency that a competent implementer would resolve on sight (stale counts, prose typos, formatting drift).
 - [ ] Verdict matches the Decision Logic thresholds (critical count → FAIL, etc.).
 - [ ] Completeness Assessment table has one row for every plan section.
 - [ ] No finding proposes a new library, framework, or ecosystem-level alternative — those are deferred to the Plan Architect Reviewer.
@@ -267,6 +269,7 @@ Before submitting the audit report, verify:
 - Present findings with evidence. Every finding must reference the specific plan section and the specific codebase evidence that supports it.
 - Distinguish facts ("this file does not exist at the referenced path") from judgments ("this approach is less maintainable than the existing pattern") — label judgment-based findings explicitly.
 - Do not inflate severity. A cosmetic gap is Minor, not Major. Reserve Critical for genuine implementation blockers. When in doubt, drop one severity level and explain the reasoning in the finding's notes.
+- **Suppress trivial findings entirely.** Do not file findings for issues that a competent implementing agent would resolve without guidance — stale counts (e.g., "plan says 12 files but there are 13"), inconsequential naming drift in prose (not code references), missing optional plan sections that add no actionable value, or formatting inconsistencies. These are noise, not signal. If a finding would not change what the implementer builds, it does not belong in the report.
 
 ### No Git Operations
 - Do not use Git write commands (add, commit, push, branch creation). The user manages version control. If the audit reveals issues that would warrant a revert or rollback, document them as findings and let the user act.
