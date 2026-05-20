@@ -6,6 +6,9 @@
  *
  * This module is read-only with respect to the queue file and all other files.
  *
+ * The `isRawQueueEntry` type-guard has been extracted to `validate-entry.ts`
+ * for direct testability; it is imported here and re-used at the filter call site.
+ *
  * Exports beyond `getQueue()`:
  *   - `readQueueFile` — used by `checkNoConflict` in `orchestrator-manager.ts`.
  *   - `isProcessAlive` — used by queue-mutation functions in `orchestrator-manager.ts`.
@@ -17,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { QUEUE_FILENAME, type RawQueueEntry, type QueueEntry } from './types.js';
+import { isRawQueueEntry } from './validate-entry.js';
 import { resolveProgress } from './resolve-progress.js';
 import { computeEffectiveStatus } from './compute-effective-status.js';
 
@@ -69,18 +73,6 @@ export async function readQueueFile(logsDir: string): Promise<RawQueueEntry[]> {
   }
 }
 
-function isRawQueueEntry(entry: unknown): entry is RawQueueEntry {
-  if (typeof entry !== 'object' || entry === null) return false;
-  const e = entry as Record<string, unknown>;
-  return (
-    typeof e['id'] === 'string' &&
-    typeof e['pid'] === 'number' && Number.isInteger(e['pid']) && (e['pid'] as number) > 0 &&
-    typeof e['planPath'] === 'string' &&
-    typeof e['expectedSlug'] === 'string' &&
-    typeof e['startedAt'] === 'string'
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Project ledger check
 // ---------------------------------------------------------------------------
@@ -95,6 +87,11 @@ function isRawQueueEntry(entry: unknown): entry is RawQueueEntry {
  *
  * @param ledgerRoot - Absolute path to the ledger root directory.
  * @param slug       - Project slug (e.g. `2026-05-05-my-feature`).
+ * @returns An object with two fields:
+ *   - `exists` — `true` when `<ledgerRoot>/<slug>/project-ledger.json` is present and
+ *     readable; `false` on any I/O error or when the file does not exist.
+ *   - `synthesisGenerated` — `true` when the ledger's `synthesis_generated` field equals
+ *     `true`; `false` when the file is absent, unreadable, or the field is falsy.
  */
 export async function getProjectLedgerStatus(
   ledgerRoot: string,
@@ -166,9 +163,10 @@ export async function getQueue(params: {
       const result: QueueEntry = {
         ...entry,
         effectiveStatus,
-        progress:    progressResult.summary,
-        lastAction:  progressResult.lastAction,
-        logFilename: progressResult.logFilename,
+        progress:      progressResult.summary,
+        lastAction:    progressResult.lastAction,
+        logFilename:   progressResult.logFilename,
+        projectExists,
       };
       return result;
     }),

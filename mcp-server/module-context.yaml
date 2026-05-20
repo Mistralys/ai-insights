@@ -68,6 +68,15 @@ documents:
           - src/utils
         filePattern: "*.ts"
 
+  - description: 'MCP Server - Source (GUI)'
+    outputPath: 'mcp-server/source-gui.md'
+    sources:
+      - type: file
+        description: "GUI layer: queue management, run-log handlers, config, error types"
+        sourcePaths:
+          - src/gui
+        filePattern: "*.ts"
+
   - description: 'MCP Server - Tests'
     outputPath: 'mcp-server/tests.md'
     sources:

@@ -6,10 +6,10 @@
  * dependencies.
  *
  * Dependency order (lowest to highest):
- *   types.ts ← compute-effective-status.ts
+ *   types.ts ← compute-effective-status.ts ← validate-entry.ts
  *   format-progress-entry.ts  (independent leaf)
  *   resolve-progress.ts ← format-progress-entry.ts
- *   get-queue.ts ← types, resolve-progress, compute-effective-status
+ *   get-queue.ts ← types, validate-entry, resolve-progress, compute-effective-status
  *   orchestrator-manager.ts ← get-queue, types, resolve-progress, compute-effective-status
  */
 
@@ -43,6 +43,18 @@ export interface RawQueueEntry {
 /**
  * Queue entry enriched with computed lifecycle state and an optional
  * human-readable JSONL progress summary. Returned by `getQueue()`.
+ *
+ * @remarks
+ * The fields that extend `RawQueueEntry` are all computed in-memory by
+ * `getQueue()` and are never persisted to the queue file:
+ *
+ * - `effectiveStatus` — derived from the PID alive-check, the presence of the
+ *   project ledger, and JSONL stage activity. See `computeEffectiveStatus()`.
+ * - `progress` / `lastAction` / `logFilename` — extracted from the most recent
+ *   JSONL log event by `resolveProgress()`.
+ * - `projectExists` — populated directly from `getProjectLedgerStatus().exists`.
+ *   Use this flag (rather than inferring from `effectiveStatus`) to gate UI
+ *   elements that require a valid project ledger, e.g. the "View Project" link.
  */
 export interface QueueEntry extends RawQueueEntry {
   /** Lifecycle state computed in-memory — not persisted to the queue file. */
@@ -66,6 +78,13 @@ export interface QueueEntry extends RawQueueEntry {
    * matching log file was found.
    */
   logFilename: string | null;
+  /**
+   * `true` when the project ledger file exists on disk for this entry's
+   * `expectedSlug`; `false` when it does not (e.g. the project has not been
+   * initialised yet). Use this flag to gate the "View Project" link — it is
+   * authoritative and avoids heuristic inference from `effectiveStatus`.
+   */
+  projectExists: boolean;
 }
 
 // ---------------------------------------------------------------------------

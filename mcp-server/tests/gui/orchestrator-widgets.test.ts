@@ -11,7 +11,7 @@
  *   AC-3: renderDismissButton calls API.orchestratorDismiss() and
  *         invokes the callback.
  *   AC-4: renderLogPreview auto-polls API.getRunLogEntries() and
- *         appends new events. Returns a cleanup function that stops polling.
+ *         prepends new events (most-recent-first ordering). Returns a cleanup function that stops polling.
  *   AC-5: renderProgressBadge maps lastAction to appropriate icon/color.
  *   AC-6: renderCliReference returns static HTML with the CLI commands
  *         reference.
@@ -46,6 +46,7 @@ const widgetsJs = readFileSync(
 declare global {
   // eslint-disable-next-line no-var
   var OrchestratorWidgets: {
+    formatLogAction:     (entry: Record<string, unknown>) => string;
     renderStatusCard:    (entry: Record<string, unknown>) => string;
     renderKillButton:    (entryId: string, onDone: () => void) => HTMLButtonElement;
     renderDismissButton: (entryId: string, onDone: () => void) => HTMLButtonElement;
@@ -123,6 +124,7 @@ describe('OrchestratorWidgets — AC-7: global namespace', () => {
 
   it('exposes all required functions', () => {
     const w = globalThis.OrchestratorWidgets;
+    expect(typeof w.formatLogAction).toBe('function');
     expect(typeof w.renderStatusCard).toBe('function');
     expect(typeof w.renderKillButton).toBe('function');
     expect(typeof w.renderDismissButton).toBe('function');
@@ -296,6 +298,93 @@ describe('OrchestratorWidgets.renderDismissButton — AC-3', () => {
 });
 
 // ---------------------------------------------------------------------------
+// formatLogAction — human-friendly log preview labels (WP-002)
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.formatLogAction', () => {
+  const fmt = (entry: Record<string, unknown>) =>
+    globalThis.OrchestratorWidgets.formatLogAction(entry);
+
+  it('run_start → "Starting the run"', () => {
+    expect(fmt({ action: 'run_start' })).toBe('Starting the run');
+  });
+
+  it('stage_start with stage → "Starting stage: {stage}"', () => {
+    expect(fmt({ action: 'stage_start', stage: 'implementation' }))
+      .toBe('Starting stage: implementation');
+  });
+
+  it('stage_start without stage → "Starting stage: "', () => {
+    expect(fmt({ action: 'stage_start' })).toBe('Starting stage: ');
+  });
+
+  it('stage_complete with stage → "Stage complete: {stage}"', () => {
+    expect(fmt({ action: 'stage_complete', stage: 'qa' }))
+      .toBe('Stage complete: qa');
+  });
+
+  it('progress_snapshot → "Progress snapshot"', () => {
+    expect(fmt({ action: 'progress_snapshot' })).toBe('Progress snapshot');
+  });
+
+  it('tool_call with tool_name → "Tool call: {tool_name}"', () => {
+    expect(fmt({ action: 'tool_call', tool_name: 'ledger_help' }))
+      .toBe('Tool call: ledger_help');
+  });
+
+  it('tool_call without tool_name → "Tool call" (graceful fallback)', () => {
+    expect(fmt({ action: 'tool_call' })).toBe('Tool call');
+  });
+
+  it('wp_complete with wp_id → "Work package complete: {wp_id}"', () => {
+    expect(fmt({ action: 'wp_complete', wp_id: 'WP-003' }))
+      .toBe('Work package complete: WP-003');
+  });
+
+  it('wp_status_change with new_status → "WP status → {new_status}"', () => {
+    expect(fmt({ action: 'wp_status_change', new_status: 'IN_PROGRESS' }))
+      .toBe('WP status \u2192 IN_PROGRESS');
+  });
+
+  it('run_end → "Run ended"', () => {
+    expect(fmt({ action: 'run_end' })).toBe('Run ended');
+  });
+
+  it('run_error → "Run error"', () => {
+    expect(fmt({ action: 'run_error' })).toBe('Run error');
+  });
+
+  it('signal_shutdown → "Interrupted by signal"', () => {
+    expect(fmt({ action: 'signal_shutdown' })).toBe('Interrupted by signal');
+  });
+
+  it('heartbeat → "Heartbeat"', () => {
+    expect(fmt({ action: 'heartbeat' })).toBe('Heartbeat');
+  });
+
+  it('mcp_error → "MCP error"', () => {
+    expect(fmt({ action: 'mcp_error' })).toBe('MCP error');
+  });
+
+  it('route → "Routing decision"', () => {
+    expect(fmt({ action: 'route' })).toBe('Routing decision');
+  });
+
+  it('unknown action → title-cased version of raw action', () => {
+    expect(fmt({ action: 'some_custom_event' })).toBe('Some Custom Event');
+  });
+
+  it('unknown single-word action → title-cased', () => {
+    expect(fmt({ action: 'ping' })).toBe('Ping');
+  });
+
+  it('entry with no action field → JSON fallback', () => {
+    const result = fmt({ foo: 'bar' });
+    expect(result).toContain('foo');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC-4: renderLogPreview
 // ---------------------------------------------------------------------------
 
@@ -325,11 +414,11 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
     expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledWith('my-slug', 'run.jsonl', 0);
   });
 
-  it('appends new event entries to the container', async () => {
+  it('prepends new event entries to the container with human-friendly labels (most-recent-first)', async () => {
     const container = document.createElement('div');
     (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
       vi.fn().mockResolvedValue({
-        entries:    [{ action: 'run_start' }, { action: 'stage_start' }],
+        entries:    [{ action: 'run_start' }, { action: 'stage_start', stage: 'implementation' }],
         totalLines: 2,
       });
 
@@ -338,12 +427,14 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
     // Flush the initial fetch promise
     await flushPromises();
 
+    // Within a single batch the earliest entry should be at the top (index 0)
+    // and the latest at the bottom — chronological order is preserved within a batch.
     expect(container.children).toHaveLength(2);
-    expect(container.children[0]!.textContent).toBe('run_start');
-    expect(container.children[1]!.textContent).toBe('stage_start');
+    expect(container.children[0]!.textContent).toBe('Starting the run');
+    expect(container.children[1]!.textContent).toBe('Starting stage: implementation');
   });
 
-  it('polls again after 3 seconds and appends incremental entries', async () => {
+  it('places entries from a later poll above entries from an earlier poll (most-recent-first)', async () => {
     const container = document.createElement('div');
 
     let callCount = 0;
@@ -353,7 +444,32 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
         if (callCount === 1) {
           return Promise.resolve({ entries: [{ action: 'run_start' }], totalLines: 1 });
         }
-        return Promise.resolve({ entries: [{ action: 'stage_start' }], totalLines: 2 });
+        return Promise.resolve({ entries: [{ action: 'stage_start', stage: 'qa' }], totalLines: 2 });
+      });
+
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+    await flushPromises();
+
+    vi.advanceTimersByTime(3001);
+    await flushPromises();
+
+    // The second-poll entry (stage_start/qa) is newer so it should be at the top.
+    expect(container.children).toHaveLength(2);
+    expect(container.children[0]!.textContent).toBe('Starting stage: qa');
+    expect(container.children[1]!.textContent).toBe('Starting the run');
+  });
+
+  it('polls again after 3 seconds and prepends incremental entries', async () => {
+    const container = document.createElement('div');
+
+    let callCount = 0;
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
+      vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ entries: [{ action: 'run_start' }], totalLines: 1 });
+        }
+        return Promise.resolve({ entries: [{ action: 'stage_start', stage: 'qa' }], totalLines: 2 });
       });
 
     globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');

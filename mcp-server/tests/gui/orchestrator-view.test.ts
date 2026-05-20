@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 /**
- * Tests for gui/public/views/orchestrator.js — WP-011
+ * Tests for gui/public/views/orchestrator.js
  *
  * All acceptance criteria tested:
  *   AC-1: "Run Preflight" calls API.orchestratorStart(planPath, true) and
@@ -27,6 +27,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock }
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import type { QueueEntry } from '../../src/gui/queue/types.js';
 
 // ---------------------------------------------------------------------------
 // Load scripts
@@ -46,10 +47,11 @@ declare global {
   var renderOrchestrator: (app: HTMLElement) => void;
   // eslint-disable-next-line no-var
   var API: {
-    orchestratorStart:    Mock;
-    orchestratorGetQueue: Mock;
-    orchestratorKill:     Mock;
-    orchestratorDismiss:  Mock;
+    orchestratorStart:       Mock;
+    orchestratorGetQueue:    Mock;
+    orchestratorKill:        Mock;
+    orchestratorDismiss:     Mock;
+    orchestratorGetRunStatus: Mock;
   };
   // eslint-disable-next-line no-var
   var Router: {
@@ -77,10 +79,11 @@ beforeAll(() => {
 
   // Stub API — individual tests override as needed via mockResolvedValue.
   (globalThis as Record<string, unknown>)['API'] = {
-    orchestratorStart:    vi.fn().mockResolvedValue({ checks: [], started: false }),
-    orchestratorGetQueue: vi.fn().mockResolvedValue([]),
-    orchestratorKill:     vi.fn().mockResolvedValue(null),
-    orchestratorDismiss:  vi.fn().mockResolvedValue(null),
+    orchestratorStart:       vi.fn().mockResolvedValue({ checks: [], started: false }),
+    orchestratorGetQueue:    vi.fn().mockResolvedValue([]),
+    orchestratorKill:        vi.fn().mockResolvedValue(null),
+    orchestratorDismiss:     vi.fn().mockResolvedValue(null),
+    orchestratorGetRunStatus: vi.fn().mockResolvedValue(null),
   };
 
   // Stub Router.
@@ -118,8 +121,9 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Reset to safe defaults.
-  globalThis.API.orchestratorStart    = vi.fn().mockResolvedValue({ checks: [], started: false });
-  globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+  globalThis.API.orchestratorStart       = vi.fn().mockResolvedValue({ checks: [], started: false });
+  globalThis.API.orchestratorGetQueue    = vi.fn().mockResolvedValue([]);
+  globalThis.API.orchestratorGetRunStatus = vi.fn().mockResolvedValue(null);
   globalThis.OrchestratorWidgets.renderCliReference = vi.fn()
     .mockReturnValue('<div class="cli-reference">CLI Ref</div>');
   globalThis.OrchestratorWidgets.renderProgressBadge = vi.fn()
@@ -150,7 +154,17 @@ afterEach(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Flush pending microtask queues (multi-hop Promise chains). */
+/**
+ * Flush pending microtask queues so that chained Promise callbacks resolve
+ * before assertions run.
+ *
+ * The loop runs 10 times because the async paths under test involve multiple
+ * hops — e.g. orchestratorGetQueue resolves → renderQueueTable is called →
+ * DOM mutations fire — each of which queues a fresh microtask tick.  One or
+ * two iterations are not sufficient to drain these chains; 10 was chosen
+ * empirically to cover all current paths with a comfortable margin.  If a
+ * future test introduces a longer chain, increase this count accordingly.
+ */
 async function flushPromises(): Promise<void> {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
@@ -168,14 +182,16 @@ function cleanupApp(app: HTMLElement): void {
 }
 
 /** Build a minimal queue entry object. */
-function makeEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function makeEntry(overrides: Partial<QueueEntry> = {}): QueueEntry {
   return {
     id:              'entry-abc',
     pid:             12345,
     planPath:        '/home/user/project/plan.md',
     expectedSlug:    'my-project',
     startedAt:       new Date(Date.now() - 70_000).toISOString(),
+    status:          'pending' as const,
     effectiveStatus: 'pending',
+    projectExists:   true,
     progress:        null,
     lastAction:      null,
     logFilename:     null,
@@ -534,6 +550,144 @@ describe('renderOrchestrator — AC-2: start run button', () => {
 
       expect((document.getElementById('orch-plan-path') as HTMLInputElement).value).toBe('');
     } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Banner clearing
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — banner clearing', () => {
+  it('removes a .success-banner from #orch-preflight-results when renderQueueTable runs with non-empty entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ id: 'e1' }),
+      ]);
+
+      // 1. Call renderOrchestrator — queue fetch is async, hasn't resolved yet.
+      renderOrchestrator(app);
+
+      // 2. Inject a success banner synchronously before the promise resolves.
+      const resultsEl = document.getElementById('orch-preflight-results')!;
+      const banner = document.createElement('p');
+      banner.className = 'success-banner';
+      banner.textContent = '✓ Orchestrator launched.';
+      resultsEl.appendChild(banner);
+
+      // 3. Flush promises so renderQueueTable runs.
+      await flushPromises();
+
+      // 4. Assert the success banner was removed.
+      expect(resultsEl.querySelector('.success-banner')).toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('does NOT remove an .error-banner from #orch-preflight-results when renderQueueTable runs with non-empty entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ id: 'e1' }),
+      ]);
+
+      // 1. Call renderOrchestrator — queue fetch is async, hasn't resolved yet.
+      renderOrchestrator(app);
+
+      // 2. Inject an error banner synchronously before the promise resolves.
+      const resultsEl = document.getElementById('orch-preflight-results')!;
+      const banner = document.createElement('p');
+      banner.className = 'error-banner';
+      banner.textContent = 'Run failed: something went wrong.';
+      resultsEl.appendChild(banner);
+
+      // 3. Flush promises so renderQueueTable runs.
+      await flushPromises();
+
+      // 4. Assert the error banner was preserved.
+      expect(resultsEl.querySelector('.error-banner')).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('leaves a .success-banner intact when the queue returns an empty array', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+
+      // 1. Call renderOrchestrator — queue fetch is async, hasn't resolved yet.
+      renderOrchestrator(app);
+
+      // 2. Inject a success banner synchronously before the promise resolves.
+      const resultsEl = document.getElementById('orch-preflight-results')!;
+      const banner = document.createElement('p');
+      banner.className = 'success-banner';
+      banner.textContent = '✓ Orchestrator launched.';
+      resultsEl.appendChild(banner);
+
+      // 3. Flush promises so renderQueueTable runs (with an empty queue).
+      await flushPromises();
+
+      // 4. Assert the success banner is still present (empty-queue path skips banner removal).
+      expect(resultsEl.querySelector('.success-banner')).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registry separation invariant
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — registry separation invariant', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('refreshQueue() does not drain _orchStatusPollCleanups', async () => {
+    vi.useFakeTimers();
+
+    const app = makeApp();
+    try {
+      // Preflight → all checks pass; Start Run → launched with a runStatusFilename so
+      // that _handleStartRun creates a status-poll setInterval.
+      globalThis.API.orchestratorStart = vi.fn()
+        .mockResolvedValueOnce({
+          checks: [{ name: 'Venv', pass: true, detail: 'OK' }],
+          started: false,
+        })
+        .mockResolvedValueOnce({ started: true, runStatusFilename: 'run-status.json' });
+      globalThis.API.orchestratorGetRunStatus = vi.fn().mockResolvedValue(null);
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+
+      // Render — registers Router._setPolling(refreshQueue, 5000).
+      renderOrchestrator(app);
+      await flushPromises();
+
+      // Run preflight — enables the Start Run button.
+      const planInput = document.getElementById('orch-plan-path') as HTMLInputElement;
+      planInput.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      // Start the run — _handleStartRun() will create a setInterval and push its
+      // clearInterval teardown into _orchStatusPollCleanups.
+      (document.getElementById('orch-start-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      // One pending timer (the status-poll setInterval) should now exist.
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Extract refreshQueue from the Router._setPolling mock and invoke it directly.
+      // (Router._setPolling is a vi.fn() — it does not create a real interval, so
+      // the callback must be called manually to simulate a polling tick.)
+      const refreshQueueCb = (globalThis.Router._setPolling as Mock).mock.calls[0][0] as () => void;
+      refreshQueueCb();
+      await flushPromises();
+
+      // The status-poll timer must still be pending — refreshQueue() must NOT have
+      // drained _orchStatusPollCleanups (only renderOrchestrator() may do that).
+      expect(vi.getTimerCount()).toBe(1);
+    } finally {
+      cleanupApp(app);
+    }
   });
 });
 
