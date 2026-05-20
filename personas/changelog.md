@@ -2,6 +2,7 @@
 
 ## v3.20.1 - Git Committer Improvement
 - Standalone: Git Committer (v1.0.3) now handles `implementation-history` organized into suboldfers.
+- Ledger: Planner (v1.5.0) now has a Synthesis rework mode.
 
 ## v3.20.0 - Plan Audit Tracking and WP Context Preservation
 - Standalone: Plan Auditor (v1.3.0) and Plan Architect Reviewer (v1.4.0) gain Audit
