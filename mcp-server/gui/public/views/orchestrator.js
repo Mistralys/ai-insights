@@ -7,14 +7,49 @@
      Section B: live run queue table with polling
      Footer: CLI reference card
 
+   renderOrchestrator delegates the Start Run click to one helper
+   and renderQueueTable delegates to four helpers, all closure-scoped
+   inside renderOrchestrator():
+     _handleStartRun()      — handles the Start Run button click:
+                              validates state, calls the API, shows
+                              a success banner, and starts a
+                              status-poll timer.
+     _clearSuccessBanner()  — removes the success banner from the
+                              preflight results area when the queue
+                              receives its first live entry; error
+                              banners are intentionally left intact.
+     _buildQueueHtml()      — builds the complete <table>…</table>
+                              HTML string from the entries array.
+     _bindQueueActions()    — injects Kill/Dismiss/View-Project
+                              buttons and row-toggle listeners into
+                              the already-rendered table DOM.
+     _mountLogPreviews()    — starts live log-preview widgets for
+                              all currently-expanded rows and
+                              registers their cleanup callbacks.
+
+   Module-scoped cleanup registries:
+     _orchLogPreviewCleanups — log-preview widget teardowns; drained by
+                               both renderOrchestrator() and refreshQueue().
+     _orchStatusPollCleanups — status-poll timer teardowns; drained ONLY
+                               by renderOrchestrator() so that in-flight
+                               polls are not cancelled by queue refreshes.
+
    Depends on: API (api-client.js), Router (router.js),
                OrchestratorWidgets (js/orchestrator-widgets.js),
                escapeHtml (utils.js)
    ============================================================ */
 
 // Module-scoped log-preview cleanup registry.
-// Each renderOrchestrator() call drains this array before creating new widgets.
+// Drained by both renderOrchestrator() (full re-render) and refreshQueue()
+// (queue-only re-render).  Each widget registered here is tied to a specific
+// expanded queue row and must be cancelled whenever the table is rebuilt.
 var _orchLogPreviewCleanups = [];
+
+// Module-scoped status-poll cleanup registry.
+// Drained ONLY by renderOrchestrator() (full re-render).  Entries here are
+// long-lived setInterval timers that must survive refreshQueue() calls so that
+// an in-flight status poll is not cancelled prematurely by a queue refresh.
+var _orchStatusPollCleanups = [];
 
 /**
  * Top-level orchestrator view entry point.
@@ -23,9 +58,11 @@ var _orchLogPreviewCleanups = [];
  * @param {HTMLElement} app - The root #app container element.
  */
 function renderOrchestrator(app) {
-  // 1. Drain log preview cleanup callbacks from the previous render.
+  // 1. Drain all cleanup callbacks from the previous render.
   _orchLogPreviewCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
   _orchLogPreviewCleanups = [];
+  _orchStatusPollCleanups.forEach(function (fn) { try { fn(); } catch (_) {} });
+  _orchStatusPollCleanups = [];
 
   // 2. Render the static skeleton.
   app.innerHTML =
@@ -114,8 +151,32 @@ function renderOrchestrator(app) {
     });
   });
 
-  // 6. Start Run button handler.
-  startBtn.addEventListener('click', function () {
+  /**
+   * Handles the Start Run button click: validates state, calls the API to
+   * start the orchestrator, then either shows a success banner + status-poll
+   * timer, or falls back to re-rendering the preflight checklist on failure.
+   *
+   * Closure dependencies (from renderOrchestrator() scope):
+   *   `allChecksPassed`          — guards against starting when preflight has
+   *                                not passed; mutated to false after a successful
+   *                                launch so the button cannot be clicked twice.
+   *   `refreshQueue`             — called immediately after a successful launch
+   *                                to populate the queue with the new entry;
+   *                                read-only (function reference).
+   *   `renderPreflightResults`   — called when the server re-evaluates checks on
+   *                                a failed start attempt; read-only (function
+   *                                reference).
+   *   `_orchStatusPollCleanups`  — the module-level status-poll cleanup registry;
+   *                                the new setInterval cleanup callback is pushed
+   *                                here so it is cancelled on full re-render;
+   *                                mutated.
+   *
+   * @param {HTMLButtonElement} startBtn  - The #orch-start-btn element.
+   * @param {HTMLInputElement}  planInput - The #orch-plan-path input element.
+   * @param {HTMLElement}       resultsEl - The #orch-preflight-results container
+   *                                        (passed as parameter; not captured from closure).
+   */
+  function _handleStartRun(startBtn, planInput, resultsEl) {
     var planPath = planInput.value.trim();
     if (!planPath || !allChecksPassed) return;
 
@@ -158,6 +219,7 @@ function renderOrchestrator(app) {
               clearInterval(statusPollTimer);
             }
           }, 2000);
+          _orchStatusPollCleanups.push(function () { clearInterval(statusPollTimer); });
         }
       } else {
         // Checks re-evaluated by server — update the checklist.
@@ -170,7 +232,10 @@ function renderOrchestrator(app) {
     }).then(function () {
       startBtn.textContent = 'Start Run';
     });
-  });
+  }
+
+  // 6. Start Run button handler.
+  startBtn.addEventListener('click', function () { _handleStartRun(startBtn, planInput, resultsEl); });
 
   // 7. Queue refresh and rendering — tracks expanded row IDs across refreshes.
   var expandedIds = {};
@@ -190,27 +255,35 @@ function renderOrchestrator(app) {
     });
   }
 
-  function renderQueueTable(container, entries) {
-    if (!entries.length) {
-      container.innerHTML = '<p class="text-muted orch-empty-queue">No active runs in the queue.</p>';
-      return;
-    }
+  // ---- renderQueueTable helpers (closure-scoped) ----------------------------
 
+  /** Removes the success banner from the preflight results area, if present.
+   *  Error banners are intentionally left intact.
+   *
+   *  Closure dependency: `resultsEl` — the #orch-preflight-results element
+   *  captured by renderOrchestrator() at line 64. */
+  function _clearSuccessBanner() {
+    var successBanner = resultsEl.querySelector('.success-banner');
+    if (successBanner) {
+      successBanner.remove();
+    }
+  }
+
+  /** Builds the queue table HTML string from the entries array.
+   *  Returns the complete <table>…</table> markup ready to be assigned to
+   *  container.innerHTML. */
+  function _buildQueueHtml(entries) {
     var html = '<table class="table orch-queue-table"><thead>' +
       '<tr><th></th><th>Plan</th><th>Status</th><th>Elapsed</th><th>Progress</th><th>Actions</th></tr>' +
       '</thead><tbody>';
-
     entries.forEach(function (entry) {
-      var id       = entry.id || '';
-      var status   = entry.effectiveStatus || 'pending';
-      var planName = _orchBasename(entry.planPath || '');
-      var elapsed  = _orchElapsed(entry.startedAt);
+      var id         = entry.id || '';
+      var status     = entry.effectiveStatus || 'pending';
+      var planName   = _orchBasename(entry.planPath || '');
+      var elapsed    = _orchElapsed(entry.startedAt);
       var isExpanded = !!expandedIds[id];
-
-      var statusBadgeHtml =
-        '<span class="badge badge-' + escapeHtml(status) + '">' +
+      var statusBadgeHtml = '<span class="badge badge-' + escapeHtml(status) + '">' +
         escapeHtml(_orchStatusLabel(status)) + '</span>';
-
       // Progress cell: badge + text summary + optional log link.
       var progressHtml = OrchestratorWidgets.renderProgressBadge(entry.lastAction || null);
       if (entry.progress) {
@@ -223,23 +296,18 @@ function renderOrchestrator(app) {
       } else if (!entry.progress) {
         progressHtml += ' <span class="text-muted">Waiting for log…</span>';
       }
-
       html += '<tr class="orch-queue-row orch-row-' + escapeHtml(status) + '"' +
         ' data-entry-id="' + escapeHtml(id) + '">';
-
       html += '<td class="orch-toggle-cell">' +
         '<button type="button" class="orch-row-toggle btn-icon" data-entry-id="' + escapeHtml(id) + '">' +
         (isExpanded ? '▼' : '▶') + '</button></td>';
-
       html += '<td class="orch-plan-cell" title="' + escapeHtml(entry.planPath || '') + '">' +
         escapeHtml(planName) + '</td>';
-
       html += '<td class="orch-status-cell">' + statusBadgeHtml + '</td>';
       html += '<td class="orch-elapsed-cell">' + escapeHtml(elapsed) + '</td>';
       html += '<td class="orch-progress-cell">' + progressHtml + '</td>';
       html += '<td class="orch-actions-cell" data-actions-for="' + escapeHtml(id) + '"></td>';
       html += '</tr>';
-
       if (isExpanded) {
         html += '<tr class="orch-log-row" data-entry-id="' + escapeHtml(id) + '">' +
           '<td colspan="6">' +
@@ -247,11 +315,26 @@ function renderOrchestrator(app) {
           '</td></tr>';
       }
     });
-
     html += '</tbody></table>';
-    container.innerHTML = html;
+    return html;
+  }
 
-    // Inject DOM-based action buttons (can't be serialised to HTML strings).
+  /** Injects DOM-based action buttons and toggle listeners into the rendered
+   *  table. Must be called after container.innerHTML has been set.
+   *
+   *  Branch priority (dismissibility-first):
+   *    1. pending  → Kill button   (process is still running)
+   *    2. dead     → Dismiss button (process has exited without completing)
+   *    3. projectExists → View Project link (project ledger is on disk)
+   *  The dead branch precedes the projectExists branch so that a dead entry
+   *  that also has a known project slug always renders Dismiss, not View Project.
+   *
+   *  Closure dependencies (from renderOrchestrator() scope):
+   *    `expandedIds`            — tracks which queue rows are expanded; mutated
+   *                               by toggle clicks to persist state across refreshes.
+   *    `refreshQueue`           — triggers a fresh API fetch + re-render after
+   *                               a Kill/Dismiss action or toggle click. */
+  function _bindQueueActions(container, entries) {
     entries.forEach(function (entry) {
       var id     = entry.id || '';
       var status = entry.effectiveStatus || 'pending';
@@ -263,35 +346,20 @@ function renderOrchestrator(app) {
           delete expandedIds[id];
           refreshQueue();
         }));
-      } else if (status === 'started' && entry.expectedSlug) {
-        var link = document.createElement('a');
-        link.href = '#/projects/' + encodeURIComponent(entry.expectedSlug);
-        link.className = 'btn btn-sm btn-secondary orch-project-link';
-        link.textContent = 'View Project';
-        cell.appendChild(link);
       } else if (status === 'dead') {
         cell.appendChild(OrchestratorWidgets.renderDismissButton(id, function () {
           delete expandedIds[id];
           refreshQueue();
         }));
+      } else if (entry.projectExists === true && entry.expectedSlug) {
+        var link = document.createElement('a');
+        link.href = '#/projects/' + encodeURIComponent(entry.expectedSlug);
+        link.className = 'btn btn-sm btn-secondary orch-project-link';
+        link.textContent = 'View Project';
+        cell.appendChild(link);
       }
     });
 
-    // Start log previews for expanded rows.
-    entries.forEach(function (entry) {
-      var id = entry.id || '';
-      if (!expandedIds[id] || !entry.logFilename || !entry.expectedSlug) return;
-      var previewEl = document.getElementById('orch-log-' + id);
-      if (!previewEl) return;
-      var cleanup = OrchestratorWidgets.renderLogPreview(
-        previewEl,
-        entry.expectedSlug,
-        entry.logFilename,
-      );
-      _orchLogPreviewCleanups.push(cleanup);
-    });
-
-    // Attach expand/collapse toggle listeners.
     var toggleBtns = container.querySelectorAll('.orch-row-toggle');
     Array.prototype.forEach.call(toggleBtns, function (btn) {
       btn.addEventListener('click', function () {
@@ -300,6 +368,60 @@ function renderOrchestrator(app) {
         refreshQueue();
       });
     });
+  }
+
+  /** Starts log previews for all currently expanded rows and registers their
+   *  cleanup callbacks in _orchLogPreviewCleanups.
+   *
+   *  Closure dependencies (from renderOrchestrator() scope):
+   *    `expandedIds`              — read to determine which rows are currently
+   *                                 expanded; only those rows get a live preview.
+   *    `_orchLogPreviewCleanups`  — the module-level log-preview cleanup registry;
+   *                                 each preview's cleanup callback is pushed here
+   *                                 so it is cancelled when renderOrchestrator() or
+   *                                 refreshQueue() next runs.
+   *
+   *  Note: _orchStatusPollCleanups is a separate registry for status-poll timers
+   *  and is intentionally excluded from this function's scope. Status-poll cleanups
+   *  are only drained by renderOrchestrator() (full view re-render), never by
+   *  refreshQueue() or _mountLogPreviews(). */
+  function _mountLogPreviews(container, entries) {
+    entries.forEach(function (entry) {
+      var id = entry.id || '';
+      if (!expandedIds[id] || !entry.logFilename || !entry.expectedSlug) return;
+      var previewEl = document.getElementById('orch-log-' + id);
+      if (!previewEl) return;
+      var cleanup = OrchestratorWidgets.renderLogPreview(
+        previewEl,
+        entry.expectedSlug,
+        entry.logFilename
+      );
+      _orchLogPreviewCleanups.push(cleanup);
+    });
+  }
+
+  // ---- renderQueueTable coordinator ----------------------------------------
+
+  function renderQueueTable(container, entries) {
+    // Save viewport scroll position before replacing innerHTML — the document
+    // viewport is the scrolling context (not the container, which has no
+    // overflow CSS), so window.scrollY is the correct save/restore target.
+    var savedScrollY = window.scrollY;
+
+    if (!entries.length) {
+      container.innerHTML = '<p class="text-muted orch-empty-queue">No active runs in the queue.</p>';
+      return;
+    }
+
+    _clearSuccessBanner();
+    container.innerHTML = _buildQueueHtml(entries);
+    _bindQueueActions(container, entries);
+    _mountLogPreviews(container, entries);
+
+    // Restore scroll position after all DOM manipulation is complete.
+    // Must be the last statement so intermediate DOM mutations do not
+    // interfere with the restored position.
+    window.scrollTo(0, savedScrollY);
   }
 
   // 8. Kick off the first queue fetch and register the polling interval.

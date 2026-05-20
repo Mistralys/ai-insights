@@ -162,17 +162,108 @@ var OrchestratorWidgets = (function () {
   }
 
   // ------------------------------------------------------------------
+  // formatLogAction(entry) → string
+  // ------------------------------------------------------------------
+
+  /**
+   * Maps a raw JSONL log entry object to a human-friendly display string
+   * for use in the log preview widget.
+   *
+   * The mapping is:
+   *   run_start        → "Starting the run"
+   *   stage_start      → "Starting stage: {stage}"
+   *   stage_complete   → "Stage complete: {stage}"
+   *   progress_snapshot→ "Progress snapshot"
+   *   tool_call        → "Tool call: {tool_name}"  (or "Tool call" if no tool_name)
+   *   wp_complete      → "Work package complete: {wp_id}"
+   *   wp_status_change → "WP status → {new_status}"
+   *   run_end          → "Run ended"
+   *   run_error        → "Run error"
+   *   signal_shutdown  → "Interrupted by signal"
+   *   heartbeat        → "Heartbeat"
+   *   mcp_error        → "MCP error"
+   *   route            → "Routing decision"
+   *   <unknown>        → title-cased version of the raw action, or JSON fallback
+   *
+   * NOTE: This function is intentionally scoped to the log preview only.
+   * It does NOT affect renderProgressBadge, which continues to use the
+   * raw action string.
+   *
+   * @param {object|null|undefined} entry - A JSONL log entry object. Null and
+   *   undefined are safely handled: a falsy entry (or an entry without an
+   *   `action` field) falls through to `JSON.stringify(entry)` as the
+   *   last-resort fallback.
+   * @returns {string} Human-friendly display label.
+   */
+  function formatLogAction(entry) {
+    var action = (entry && entry.action) ? String(entry.action) : '';
+
+    switch (action) {
+      case 'run_start':
+        return 'Starting the run';
+
+      case 'stage_start':
+        return 'Starting stage: ' + (entry.stage || '');
+
+      case 'stage_complete':
+        return 'Stage complete: ' + (entry.stage || '');
+
+      case 'progress_snapshot':
+        return 'Progress snapshot';
+
+      case 'tool_call':
+        return entry.tool_name
+          ? 'Tool call: ' + String(entry.tool_name)
+          : 'Tool call';
+
+      case 'wp_complete':
+        return 'Work package complete: ' + (entry.wp_id || '');
+
+      case 'wp_status_change':
+        return 'WP status \u2192 ' + (entry.new_status || '');
+
+      case 'run_end':
+        return 'Run ended';
+
+      case 'run_error':
+        return 'Run error';
+
+      case 'signal_shutdown':
+        return 'Interrupted by signal';
+
+      case 'heartbeat':
+        return 'Heartbeat';
+
+      case 'mcp_error':
+        return 'MCP error';
+
+      case 'route':
+        return 'Routing decision';
+
+      default:
+        if (action) {
+          // Title-case the raw action string (replace underscores with spaces).
+          return action
+            .replace(/_/g, ' ')
+            .replace(/\b\w/g, function (ch) { return ch.toUpperCase(); });
+        }
+        return JSON.stringify(entry);
+    }
+  }
+
+  // ------------------------------------------------------------------
   // renderLogPreview(container, slug, filename) → cleanup()
   // ------------------------------------------------------------------
 
   /**
-   * Starts auto-polling the run log for a queue entry and appends new
-   * JSONL events to `container` as they arrive.
+   * Starts auto-polling the run log for a queue entry and prepends new
+   * JSONL events to `container` as they arrive, keeping the most-recent
+   * entry at the top (most-recent-first ordering).
    *
    * Polling begins immediately (one fetch on call), then repeats every
-   * 3 seconds.  Only events after the last seen line are appended.
+   * 3 seconds.  Only events after the last seen line are prepended.
    *
-   * @param {HTMLElement} container - The element to append log entries to.
+   * @param {HTMLElement} container - The element to prepend log entries into.
    * @param {string}      slug      - Project slug used for the API call.
    * @param {string}      filename  - JSONL log filename.
    * @returns {Function} cleanup — call to stop polling and clear the interval.
@@ -191,13 +282,17 @@ var OrchestratorWidgets = (function () {
           ? data.totalLines
           : afterLine;
 
-        entries.forEach(function (entry) {
+        // Iterate in reverse so that within a batch the earliest entry
+        // ends up at the top after prepending (each insertBefore pushes
+        // the previous div down, so the last-iterated entry — the oldest
+        // in the batch — ends up topmost).  Overall result: newest events
+        // are always visible at the top without scrolling.
+        for (var i = entries.length - 1; i >= 0; i--) {
           var div = document.createElement('div');
           div.className = 'log-preview-entry';
-          var action = (entry && entry.action) ? String(entry.action) : '';
-          div.textContent = action || JSON.stringify(entry);
-          container.appendChild(div);
-        });
+          div.textContent = formatLogAction(entries[i]);
+          container.insertBefore(div, container.firstChild);
+        }
 
         afterLine = totalLines;
       }).catch(function () {
@@ -288,6 +383,7 @@ var OrchestratorWidgets = (function () {
   // ------------------------------------------------------------------
 
   return {
+    formatLogAction:     formatLogAction,
     renderStatusCard:    renderStatusCard,
     renderKillButton:    renderKillButton,
     renderDismissButton: renderDismissButton,

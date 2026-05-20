@@ -1764,3 +1764,23 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 **Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
 
 **Test coverage note:** As of WP-009, orchestrator routes have strong handler-level test coverage in `tests/gui/api-orchestrator.test.ts` but no `handleRequest()`-level integration test (unlike `tests/gui/api.test.ts` which exercises `handleRequest()` directly). A future `handleRequest()` integration test for orchestrator routes would provide defence-in-depth.
+
+---
+
+### 72. JSDoc Closure-Dependency Documentation for GUI Helpers
+
+**Rule:** Every closure-scoped helper function in `gui/public/views/*.js` that reads or mutates variables from its enclosing scope MUST include a `Closure dependencies (from <parent>() scope):` JSDoc block listing each closed-over variable with a one-line description of whether it is read-only or mutated by this helper.
+
+**Example:**
+```javascript
+/** Injects action buttons into the rendered table.
+ *
+ *  Closure dependencies (from renderOrchestrator() scope):
+ *    `expandedIds`   — mutated; toggle clicks update row expansion state.
+ *    `refreshQueue`  — read-only; called after Kill/Dismiss actions. */
+function _bindQueueActions(container, entries) { /* ... */ }
+```
+
+**Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function. This convention was established during the `2026-05-20-orchestrator-gui-polish-rework` sprint and should be applied to all new closure-scoped helpers going forward.
+
+**Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.

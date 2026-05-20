@@ -2071,9 +2071,38 @@ export interface RunStatus {
 
 ---
 
+### `src/gui/queue/validate-entry.ts` — pure `RawQueueEntry` type-guard (WP-001 rework, WP-003)
+
+Pure module. No I/O, no side effects. Imports only `RawQueueEntry` from `./types.js`. Extracted from `get-queue.ts` so that `isRawQueueEntry()` can be unit-tested directly without filesystem setup.
+
+```typescript
+/**
+ * Type-guard that validates a raw JSON value as a `RawQueueEntry`.
+ *
+ * Returns `true` only when **all five** of the following rules pass:
+ *
+ * 1. **Type check** — `entry` is a non-null object.
+ * 2. **String fields** — `id`, `planPath`, and `startedAt` are strings; `id` must be
+ *    non-empty and non-whitespace-only (guard: `id.trim().length > 0`).
+ * 3. **PID integer** — `pid` is a finite integer (rejects floats).
+ * 4. **PID positive** — `pid` is greater than zero (rejects zero and negatives).
+ * 5. **Non-empty slug** — `expectedSlug` is a non-empty, non-whitespace-only string
+ *    (rejects missing, empty-string, and whitespace-only slugs).
+ *    Guard: `expectedSlug.trim().length > 0` (whitespace-only slugs are rejected).
+ *
+ * Used by `readQueueFile` in `get-queue.ts` to filter the parsed JSON array
+ * before it is returned as `RawQueueEntry[]`.
+ *
+ * @returns `true` when every rule passes; `false` otherwise.
+ */
+export function isRawQueueEntry(entry: unknown): entry is RawQueueEntry;
+```
+
+---
+
 ### `src/gui/queue/get-queue.ts` — queue reading internals and public `getQueue()` (WP-B)
 
-Async, I/O (reads queue file and project ledger files). Imports from `./types.js`, `./resolve-progress.js`, and `./compute-effective-status.js`.
+Async, I/O (reads queue file and project ledger files). Imports from `./types.js`, `./validate-entry.js`, `./resolve-progress.js`, and `./compute-effective-status.js`. The `isRawQueueEntry` validator was extracted to `validate-entry.ts` (WP-003) — `get-queue.ts` imports and delegates to it; the filter call site is unchanged.
 
 ```typescript
 /**
@@ -2253,6 +2282,7 @@ export async function startOrchestrator(
  *
  * TOCTOU safety: ESRCH on SIGTERM delivery is swallowed — process already gone.
  * PID validation: isRawQueueEntry() rejects zero, negative, and float PIDs.
+ * Slug validation: also rejects entries with an empty-string expectedSlug.
  */
 export async function killQueueEntry(params: {
   id: string;          // Queue entry ID to kill.
@@ -2808,7 +2838,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
-| `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010) |
+| `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
 
@@ -2943,7 +2973,8 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
   - `renderStatusCard(entry)` → `string` — HTML card with status badge (`.badge-pending` / `.badge-started` / `.badge-dead`), PID, elapsed running time, and progress summary; all user-controlled values are XSS-escaped via `escapeHtml()`
   - `renderKillButton(entryId, onDone)` → `HTMLButtonElement` — requires `window.confirm` before calling `API.orchestratorKill(entryId)`; invokes `onDone` on success
   - `renderDismissButton(entryId, onDone)` → `HTMLButtonElement` — calls `API.orchestratorDismiss(entryId)`; invokes `onDone` on success
-  - `renderLogPreview(container, slug, filename)` → `() => void` — auto-polls `API.getRunLogEntries()` at a 2-second interval; appends new events as `<div class="log-preview-entry">` elements via `textContent` (no `innerHTML`); returns a cleanup function; stopped-flag guard prevents stale `.then()` callbacks from appending after cleanup
+  - `formatLogAction(entry)` → `string` — maps a raw JSONL log entry object to a human-friendly display string for the log preview widget; covers all 13 action types (`run_start`, `stage_start`, `stage_complete`, `progress_snapshot`, `tool_call`, `wp_complete`, `wp_status_change`, `run_end`, `run_error`, `signal_shutdown`, `heartbeat`, `mcp_error`, `route`); dynamic cases interpolate `entry.stage`, `entry.tool_name`, `entry.wp_id`, `entry.new_status` with empty-string fallbacks; unknown non-empty actions are title-cased (underscores → spaces); null/undefined entry or missing/falsy `action` field falls through to `JSON.stringify(entry)`; intentionally scoped to the log preview only — does **not** affect `renderProgressBadge`
+  - `renderLogPreview(container, slug, filename)` → `() => void` — auto-polls `API.getRunLogEntries()` at a 2-second interval; appends new events as `<div class="log-preview-entry">` elements via `textContent` (no `innerHTML`); display text is produced by `formatLogAction(entry)`; returns a cleanup function; stopped-flag guard prevents stale `.then()` callbacks from appending after cleanup
   - `renderProgressBadge(lastAction)` → `string` — maps `lastAction` strings to badge classes: `run_start/stage_start/progress_snapshot` → `badge-info`; `stage_complete/wp_complete` → `badge-success`; `run_end/heartbeat` → `badge-neutral`; `run_error/stage_error` → `badge-error`; `signal_shutdown` → `badge-warning`; unknown/null → `badge-neutral` with idle label
   - `renderCliReference()` → `string` — static HTML with `orchestrate`, `--resume`, `--dry-run`, and `kill-orchestrator.js` command references; keep in sync with `orchestrator/src/cli.py` (CLI flags), `scripts/kill-orchestrator.js`, and `scripts/preflight-orchestrator.js`
 
