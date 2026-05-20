@@ -2,6 +2,7 @@
 
 ## v3.20.1 - Git Committer Improvement
 - Standalone: Git Committer (v1.0.3) now handles `implementation-history` organized into suboldfers.
+- Standalone: Added Plan Refiner (v1.0.0) — orchestrates iterative plan refinement.
 - Ledger: Planner (v1.5.0) now has a Synthesis rework mode.
 
 ## v3.20.0 - Plan Audit Tracking and WP Context Preservation

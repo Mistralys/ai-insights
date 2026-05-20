@@ -27,6 +27,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── persona-curator.yaml
                 └── plan-architect-reviewer.yaml
                 └── plan-auditor.yaml
+                └── plan-refiner.yaml
                 └── readme-curator.yaml
                 └── researcher.yaml
                 └── unit-test-auditor.yaml
@@ -529,6 +530,33 @@ tools:
   - web
   - agent
   - todo
+
+```
+###  Path: `/personas/standalone/src/meta/plan-refiner.yaml`
+
+```yaml
+slug: plan-refiner
+name: "Plan Refiner"
+description: "Orchestrate iterative plan refinement: architectural review, finding integration, and repeated auditing until audit-clean or ceiling reached."
+vs_file_name: plan-refiner.agent.md
+id: standalone-plan-refiner
+cc_file_name: plan-refiner.md
+version: "1.0.0"
+last_updated: "2026-05-20"
+
+tools:
+  - vscode
+  - execute
+  - read
+  - edit
+  - search
+  - web
+  - agent
+  - todo
+
+subagents:
+  - plan-architect-reviewer
+  - plan-auditor
 
 ```
 ###  Path: `/personas/standalone/src/meta/readme-curator.yaml`
