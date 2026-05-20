@@ -518,8 +518,8 @@ description: "Audit technical plans for technical defects — hallucinated refer
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.3.0"
-last_updated: "2026-05-18"
+version: "1.3.1"
+last_updated: "2026-05-20"
 
 tools:
   - vscode

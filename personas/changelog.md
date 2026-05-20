@@ -1,6 +1,7 @@
 # Personas Changelog
 
 ## v3.20.1 - Git Committer Improvement
+- Standalone: Plan Auditor (v1.3.1) now with implementer-friction filter.
 - Standalone: Git Committer (v1.0.3) now handles `implementation-history` organized into suboldfers.
 - Standalone: Added Plan Refiner (v1.0.0) — orchestrates iterative plan refinement.
 - Ledger: Planner (v1.5.0) now has a Synthesis rework mode.
