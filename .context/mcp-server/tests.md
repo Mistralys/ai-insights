@@ -25,7 +25,9 @@ _SOURCE: Test suite (unit, integration)_
             ├── queue/
             │   ├── compute-effective-status.test.ts
             │   ├── format-progress-entry.test.ts
+            │   ├── get-queue.test.ts
             │   ├── resolve-progress.test.ts
+            │   ├── validate-entry.test.ts
             ├── run-log-handlers.test.ts
             ├── run-log-server.test.ts
             ├── run-log.test.ts
@@ -7808,7 +7810,7 @@ describe('startOrchestrator — live API key liveness checks (AC-9)', () => {
 // @vitest-environment jsdom
 
 /**
- * Tests for gui/public/views/orchestrator.js — WP-011
+ * Tests for gui/public/views/orchestrator.js
  *
  * All acceptance criteria tested:
  *   AC-1: "Run Preflight" calls API.orchestratorStart(planPath, true) and
@@ -7834,6 +7836,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi, type Mock }
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
+import type { QueueEntry } from '../../src/gui/queue/types.js';
 
 // ---------------------------------------------------------------------------
 // Load scripts
@@ -7853,10 +7856,11 @@ declare global {
   var renderOrchestrator: (app: HTMLElement) => void;
   // eslint-disable-next-line no-var
   var API: {
-    orchestratorStart:    Mock;
-    orchestratorGetQueue: Mock;
-    orchestratorKill:     Mock;
-    orchestratorDismiss:  Mock;
+    orchestratorStart:       Mock;
+    orchestratorGetQueue:    Mock;
+    orchestratorKill:        Mock;
+    orchestratorDismiss:     Mock;
+    orchestratorGetRunStatus: Mock;
   };
   // eslint-disable-next-line no-var
   var Router: {
@@ -7884,10 +7888,11 @@ beforeAll(() => {
 
   // Stub API — individual tests override as needed via mockResolvedValue.
   (globalThis as Record<string, unknown>)['API'] = {
-    orchestratorStart:    vi.fn().mockResolvedValue({ checks: [], started: false }),
-    orchestratorGetQueue: vi.fn().mockResolvedValue([]),
-    orchestratorKill:     vi.fn().mockResolvedValue(null),
-    orchestratorDismiss:  vi.fn().mockResolvedValue(null),
+    orchestratorStart:       vi.fn().mockResolvedValue({ checks: [], started: false }),
+    orchestratorGetQueue:    vi.fn().mockResolvedValue([]),
+    orchestratorKill:        vi.fn().mockResolvedValue(null),
+    orchestratorDismiss:     vi.fn().mockResolvedValue(null),
+    orchestratorGetRunStatus: vi.fn().mockResolvedValue(null),
   };
 
   // Stub Router.
@@ -7925,8 +7930,9 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Reset to safe defaults.
-  globalThis.API.orchestratorStart    = vi.fn().mockResolvedValue({ checks: [], started: false });
-  globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+  globalThis.API.orchestratorStart       = vi.fn().mockResolvedValue({ checks: [], started: false });
+  globalThis.API.orchestratorGetQueue    = vi.fn().mockResolvedValue([]);
+  globalThis.API.orchestratorGetRunStatus = vi.fn().mockResolvedValue(null);
   globalThis.OrchestratorWidgets.renderCliReference = vi.fn()
     .mockReturnValue('<div class="cli-reference">CLI Ref</div>');
   globalThis.OrchestratorWidgets.renderProgressBadge = vi.fn()
@@ -7957,7 +7963,17 @@ afterEach(() => {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Flush pending microtask queues (multi-hop Promise chains). */
+/**
+ * Flush pending microtask queues so that chained Promise callbacks resolve
+ * before assertions run.
+ *
+ * The loop runs 10 times because the async paths under test involve multiple
+ * hops — e.g. orchestratorGetQueue resolves → renderQueueTable is called →
+ * DOM mutations fire — each of which queues a fresh microtask tick.  One or
+ * two iterations are not sufficient to drain these chains; 10 was chosen
+ * empirically to cover all current paths with a comfortable margin.  If a
+ * future test introduces a longer chain, increase this count accordingly.
+ */
 async function flushPromises(): Promise<void> {
   for (let i = 0; i < 10; i++) await Promise.resolve();
 }
@@ -7975,14 +7991,16 @@ function cleanupApp(app: HTMLElement): void {
 }
 
 /** Build a minimal queue entry object. */
-function makeEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function makeEntry(overrides: Partial<QueueEntry> = {}): QueueEntry {
   return {
     id:              'entry-abc',
     pid:             12345,
     planPath:        '/home/user/project/plan.md',
     expectedSlug:    'my-project',
     startedAt:       new Date(Date.now() - 70_000).toISOString(),
+    status:          'pending' as const,
     effectiveStatus: 'pending',
+    projectExists:   true,
     progress:        null,
     lastAction:      null,
     logFilename:     null,
@@ -8345,6 +8363,144 @@ describe('renderOrchestrator — AC-2: start run button', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Banner clearing
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — banner clearing', () => {
+  it('removes a .success-banner from #orch-preflight-results when renderQueueTable runs with non-empty entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ id: 'e1' }),
+      ]);
+
+      // 1. Call renderOrchestrator — queue fetch is async, hasn't resolved yet.
+      renderOrchestrator(app);
+
+      // 2. Inject a success banner synchronously before the promise resolves.
+      const resultsEl = document.getElementById('orch-preflight-results')!;
+      const banner = document.createElement('p');
+      banner.className = 'success-banner';
+      banner.textContent = '✓ Orchestrator launched.';
+      resultsEl.appendChild(banner);
+
+      // 3. Flush promises so renderQueueTable runs.
+      await flushPromises();
+
+      // 4. Assert the success banner was removed.
+      expect(resultsEl.querySelector('.success-banner')).toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('does NOT remove an .error-banner from #orch-preflight-results when renderQueueTable runs with non-empty entries', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([
+        makeEntry({ id: 'e1' }),
+      ]);
+
+      // 1. Call renderOrchestrator — queue fetch is async, hasn't resolved yet.
+      renderOrchestrator(app);
+
+      // 2. Inject an error banner synchronously before the promise resolves.
+      const resultsEl = document.getElementById('orch-preflight-results')!;
+      const banner = document.createElement('p');
+      banner.className = 'error-banner';
+      banner.textContent = 'Run failed: something went wrong.';
+      resultsEl.appendChild(banner);
+
+      // 3. Flush promises so renderQueueTable runs.
+      await flushPromises();
+
+      // 4. Assert the error banner was preserved.
+      expect(resultsEl.querySelector('.error-banner')).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+
+  it('leaves a .success-banner intact when the queue returns an empty array', async () => {
+    const app = makeApp();
+    try {
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+
+      // 1. Call renderOrchestrator — queue fetch is async, hasn't resolved yet.
+      renderOrchestrator(app);
+
+      // 2. Inject a success banner synchronously before the promise resolves.
+      const resultsEl = document.getElementById('orch-preflight-results')!;
+      const banner = document.createElement('p');
+      banner.className = 'success-banner';
+      banner.textContent = '✓ Orchestrator launched.';
+      resultsEl.appendChild(banner);
+
+      // 3. Flush promises so renderQueueTable runs (with an empty queue).
+      await flushPromises();
+
+      // 4. Assert the success banner is still present (empty-queue path skips banner removal).
+      expect(resultsEl.querySelector('.success-banner')).not.toBeNull();
+    } finally { cleanupApp(app); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registry separation invariant
+// ---------------------------------------------------------------------------
+
+describe('renderOrchestrator — registry separation invariant', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('refreshQueue() does not drain _orchStatusPollCleanups', async () => {
+    vi.useFakeTimers();
+
+    const app = makeApp();
+    try {
+      // Preflight → all checks pass; Start Run → launched with a runStatusFilename so
+      // that _handleStartRun creates a status-poll setInterval.
+      globalThis.API.orchestratorStart = vi.fn()
+        .mockResolvedValueOnce({
+          checks: [{ name: 'Venv', pass: true, detail: 'OK' }],
+          started: false,
+        })
+        .mockResolvedValueOnce({ started: true, runStatusFilename: 'run-status.json' });
+      globalThis.API.orchestratorGetRunStatus = vi.fn().mockResolvedValue(null);
+      globalThis.API.orchestratorGetQueue = vi.fn().mockResolvedValue([]);
+
+      // Render — registers Router._setPolling(refreshQueue, 5000).
+      renderOrchestrator(app);
+      await flushPromises();
+
+      // Run preflight — enables the Start Run button.
+      const planInput = document.getElementById('orch-plan-path') as HTMLInputElement;
+      planInput.value = '/my/plan.md';
+      (document.getElementById('orch-preflight-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      // Start the run — _handleStartRun() will create a setInterval and push its
+      // clearInterval teardown into _orchStatusPollCleanups.
+      (document.getElementById('orch-start-btn') as HTMLButtonElement).click();
+      await flushPromises();
+
+      // One pending timer (the status-poll setInterval) should now exist.
+      expect(vi.getTimerCount()).toBe(1);
+
+      // Extract refreshQueue from the Router._setPolling mock and invoke it directly.
+      // (Router._setPolling is a vi.fn() — it does not create a real interval, so
+      // the callback must be called manually to simulate a polling tick.)
+      const refreshQueueCb = (globalThis.Router._setPolling as Mock).mock.calls[0][0] as () => void;
+      refreshQueueCb();
+      await flushPromises();
+
+      // The status-poll timer must still be pending — refreshQueue() must NOT have
+      // drained _orchStatusPollCleanups (only renderOrchestrator() may do that).
+      expect(vi.getTimerCount()).toBe(1);
+    } finally {
+      cleanupApp(app);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC-5 + AC-7: Log preview cleanup
 // ---------------------------------------------------------------------------
 
@@ -8407,7 +8563,7 @@ describe('renderOrchestrator — AC-5 + AC-7: log preview', () => {
  *   AC-3: renderDismissButton calls API.orchestratorDismiss() and
  *         invokes the callback.
  *   AC-4: renderLogPreview auto-polls API.getRunLogEntries() and
- *         appends new events. Returns a cleanup function that stops polling.
+ *         prepends new events (most-recent-first ordering). Returns a cleanup function that stops polling.
  *   AC-5: renderProgressBadge maps lastAction to appropriate icon/color.
  *   AC-6: renderCliReference returns static HTML with the CLI commands
  *         reference.
@@ -8442,6 +8598,7 @@ const widgetsJs = readFileSync(
 declare global {
   // eslint-disable-next-line no-var
   var OrchestratorWidgets: {
+    formatLogAction:     (entry: Record<string, unknown>) => string;
     renderStatusCard:    (entry: Record<string, unknown>) => string;
     renderKillButton:    (entryId: string, onDone: () => void) => HTMLButtonElement;
     renderDismissButton: (entryId: string, onDone: () => void) => HTMLButtonElement;
@@ -8519,6 +8676,7 @@ describe('OrchestratorWidgets — AC-7: global namespace', () => {
 
   it('exposes all required functions', () => {
     const w = globalThis.OrchestratorWidgets;
+    expect(typeof w.formatLogAction).toBe('function');
     expect(typeof w.renderStatusCard).toBe('function');
     expect(typeof w.renderKillButton).toBe('function');
     expect(typeof w.renderDismissButton).toBe('function');
@@ -8692,6 +8850,93 @@ describe('OrchestratorWidgets.renderDismissButton — AC-3', () => {
 });
 
 // ---------------------------------------------------------------------------
+// formatLogAction — human-friendly log preview labels (WP-002)
+// ---------------------------------------------------------------------------
+
+describe('OrchestratorWidgets.formatLogAction', () => {
+  const fmt = (entry: Record<string, unknown>) =>
+    globalThis.OrchestratorWidgets.formatLogAction(entry);
+
+  it('run_start → "Starting the run"', () => {
+    expect(fmt({ action: 'run_start' })).toBe('Starting the run');
+  });
+
+  it('stage_start with stage → "Starting stage: {stage}"', () => {
+    expect(fmt({ action: 'stage_start', stage: 'implementation' }))
+      .toBe('Starting stage: implementation');
+  });
+
+  it('stage_start without stage → "Starting stage: "', () => {
+    expect(fmt({ action: 'stage_start' })).toBe('Starting stage: ');
+  });
+
+  it('stage_complete with stage → "Stage complete: {stage}"', () => {
+    expect(fmt({ action: 'stage_complete', stage: 'qa' }))
+      .toBe('Stage complete: qa');
+  });
+
+  it('progress_snapshot → "Progress snapshot"', () => {
+    expect(fmt({ action: 'progress_snapshot' })).toBe('Progress snapshot');
+  });
+
+  it('tool_call with tool_name → "Tool call: {tool_name}"', () => {
+    expect(fmt({ action: 'tool_call', tool_name: 'ledger_help' }))
+      .toBe('Tool call: ledger_help');
+  });
+
+  it('tool_call without tool_name → "Tool call" (graceful fallback)', () => {
+    expect(fmt({ action: 'tool_call' })).toBe('Tool call');
+  });
+
+  it('wp_complete with wp_id → "Work package complete: {wp_id}"', () => {
+    expect(fmt({ action: 'wp_complete', wp_id: 'WP-003' }))
+      .toBe('Work package complete: WP-003');
+  });
+
+  it('wp_status_change with new_status → "WP status → {new_status}"', () => {
+    expect(fmt({ action: 'wp_status_change', new_status: 'IN_PROGRESS' }))
+      .toBe('WP status \u2192 IN_PROGRESS');
+  });
+
+  it('run_end → "Run ended"', () => {
+    expect(fmt({ action: 'run_end' })).toBe('Run ended');
+  });
+
+  it('run_error → "Run error"', () => {
+    expect(fmt({ action: 'run_error' })).toBe('Run error');
+  });
+
+  it('signal_shutdown → "Interrupted by signal"', () => {
+    expect(fmt({ action: 'signal_shutdown' })).toBe('Interrupted by signal');
+  });
+
+  it('heartbeat → "Heartbeat"', () => {
+    expect(fmt({ action: 'heartbeat' })).toBe('Heartbeat');
+  });
+
+  it('mcp_error → "MCP error"', () => {
+    expect(fmt({ action: 'mcp_error' })).toBe('MCP error');
+  });
+
+  it('route → "Routing decision"', () => {
+    expect(fmt({ action: 'route' })).toBe('Routing decision');
+  });
+
+  it('unknown action → title-cased version of raw action', () => {
+    expect(fmt({ action: 'some_custom_event' })).toBe('Some Custom Event');
+  });
+
+  it('unknown single-word action → title-cased', () => {
+    expect(fmt({ action: 'ping' })).toBe('Ping');
+  });
+
+  it('entry with no action field → JSON fallback', () => {
+    const result = fmt({ foo: 'bar' });
+    expect(result).toContain('foo');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC-4: renderLogPreview
 // ---------------------------------------------------------------------------
 
@@ -8721,11 +8966,11 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
     expect(globalThis.API['getRunLogEntries']).toHaveBeenCalledWith('my-slug', 'run.jsonl', 0);
   });
 
-  it('appends new event entries to the container', async () => {
+  it('prepends new event entries to the container with human-friendly labels (most-recent-first)', async () => {
     const container = document.createElement('div');
     (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
       vi.fn().mockResolvedValue({
-        entries:    [{ action: 'run_start' }, { action: 'stage_start' }],
+        entries:    [{ action: 'run_start' }, { action: 'stage_start', stage: 'implementation' }],
         totalLines: 2,
       });
 
@@ -8734,12 +8979,14 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
     // Flush the initial fetch promise
     await flushPromises();
 
+    // Within a single batch the earliest entry should be at the top (index 0)
+    // and the latest at the bottom — chronological order is preserved within a batch.
     expect(container.children).toHaveLength(2);
-    expect(container.children[0]!.textContent).toBe('run_start');
-    expect(container.children[1]!.textContent).toBe('stage_start');
+    expect(container.children[0]!.textContent).toBe('Starting the run');
+    expect(container.children[1]!.textContent).toBe('Starting stage: implementation');
   });
 
-  it('polls again after 3 seconds and appends incremental entries', async () => {
+  it('places entries from a later poll above entries from an earlier poll (most-recent-first)', async () => {
     const container = document.createElement('div');
 
     let callCount = 0;
@@ -8749,7 +8996,32 @@ describe('OrchestratorWidgets.renderLogPreview — AC-4', () => {
         if (callCount === 1) {
           return Promise.resolve({ entries: [{ action: 'run_start' }], totalLines: 1 });
         }
-        return Promise.resolve({ entries: [{ action: 'stage_start' }], totalLines: 2 });
+        return Promise.resolve({ entries: [{ action: 'stage_start', stage: 'qa' }], totalLines: 2 });
+      });
+
+    globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
+    await flushPromises();
+
+    vi.advanceTimersByTime(3001);
+    await flushPromises();
+
+    // The second-poll entry (stage_start/qa) is newer so it should be at the top.
+    expect(container.children).toHaveLength(2);
+    expect(container.children[0]!.textContent).toBe('Starting stage: qa');
+    expect(container.children[1]!.textContent).toBe('Starting the run');
+  });
+
+  it('polls again after 3 seconds and prepends incremental entries', async () => {
+    const container = document.createElement('div');
+
+    let callCount = 0;
+    (globalThis.API as Record<string, ReturnType<typeof vi.fn>>)['getRunLogEntries'] =
+      vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({ entries: [{ action: 'run_start' }], totalLines: 1 });
+        }
+        return Promise.resolve({ entries: [{ action: 'stage_start', stage: 'qa' }], totalLines: 2 });
       });
 
     globalThis.OrchestratorWidgets.renderLogPreview(container, 'slug', 'run.jsonl');
@@ -9711,6 +9983,199 @@ describe('formatProgressEntry — tool_call (WP-002)', () => {
 });
 
 ```
+###  Path: `/mcp-server/tests/gui/queue/get-queue.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/queue/get-queue.ts — WP-005 + WP-001 (rework)
+ *
+ * Verifies:
+ *   AC-1 (WP-005): getQueue() returns entries with projectExists: true when the
+ *         project ledger file exists on disk.
+ *   AC-2 (WP-005): getQueue() returns entries with projectExists: false when no
+ *         project ledger file exists for the entry's expectedSlug.
+ *   AC-3 (WP-001 rework — validator): isRawQueueEntry() rejects entries whose
+ *         expectedSlug is an empty string or a whitespace-only string (e.g. '   ').
+ *         getQueue() returns an empty array for such malformed entries.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+import { getQueue } from '../../../src/gui/queue/get-queue.js';
+import { QUEUE_FILENAME } from '../../../src/gui/queue/types.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+interface TestEnv {
+  tempDir: string;
+  logsDir: string;
+  ledgerRoot: string;
+}
+
+async function setup(): Promise<TestEnv> {
+  const tempDir    = await mkdtemp(join(tmpdir(), 'get-queue-test-'));
+  const logsDir    = join(tempDir, 'logs');
+  const ledgerRoot = join(tempDir, 'ledger');
+  await mkdir(logsDir,    { recursive: true });
+  await mkdir(ledgerRoot, { recursive: true });
+  return { tempDir, logsDir, ledgerRoot };
+}
+
+async function teardown(tempDir: string): Promise<void> {
+  await rm(tempDir, { recursive: true, force: true });
+}
+
+/**
+ * Writes a minimal `.run-queue.json` with a single entry whose PID is
+ * intentionally unreachable. Avoid PID 0 — `process.kill(0, 0)` targets the
+ * current process group on POSIX systems. Use a very large integer that is
+ * almost certainly unused instead.
+ */
+async function writeQueue(logsDir: string, slug: string, pid = 999_999_999): Promise<void> {
+  const entry = {
+    id:          'test-id-1',
+    pid,
+    planPath:    `/fake/plans/${slug}`,
+    expectedSlug: slug,
+    startedAt:   '2026-05-20T00:00:00Z',
+    status:      'pending',
+  };
+  await writeFile(join(logsDir, QUEUE_FILENAME), JSON.stringify([entry]), 'utf-8');
+}
+
+/**
+ * Creates a minimal project-ledger.json at `<ledgerRoot>/<slug>/project-ledger.json`.
+ */
+async function createProjectLedger(ledgerRoot: string, slug: string): Promise<void> {
+  const projectDir = join(ledgerRoot, slug);
+  await mkdir(projectDir, { recursive: true });
+  await writeFile(
+    join(projectDir, 'project-ledger.json'),
+    JSON.stringify({ synthesis_generated: false }),
+    'utf-8',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AC-1: projectExists is true when the ledger file exists
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-1: projectExists is true when ledger file exists', () => {
+  let env: TestEnv;
+
+  beforeEach(async () => {
+    env = await setup();
+  });
+
+  afterEach(async () => {
+    await teardown(env.tempDir);
+  });
+
+  it('returns projectExists: true for an entry whose project ledger exists', async () => {
+    const slug = '2026-05-20-my-feature';
+    await writeQueue(env.logsDir, slug);
+    await createProjectLedger(env.ledgerRoot, slug);
+
+    const entries = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].projectExists).toBe(true);
+    expect(entries[0].expectedSlug).toBe(slug);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-2: projectExists is false when the ledger file does not exist
+// ---------------------------------------------------------------------------
+
+describe('getQueue — AC-2: projectExists is false when ledger file is absent', () => {
+  let env: TestEnv;
+
+  beforeEach(async () => {
+    env = await setup();
+  });
+
+  afterEach(async () => {
+    await teardown(env.tempDir);
+  });
+
+  it('returns projectExists: false for an entry with no project ledger on disk', async () => {
+    const slug = '2026-05-20-no-ledger';
+    await writeQueue(env.logsDir, slug);
+    // Intentionally do NOT create a project ledger for this slug.
+
+    const entries = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].projectExists).toBe(false);
+    expect(entries[0].expectedSlug).toBe(slug);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-3 (rework): isRawQueueEntry rejects entries with empty-string expectedSlug
+// ---------------------------------------------------------------------------
+
+describe('getQueue — validator: rejects entry with empty expectedSlug', () => {
+  let env: TestEnv;
+
+  beforeEach(async () => {
+    env = await setup();
+  });
+
+  afterEach(async () => {
+    await teardown(env.tempDir);
+  });
+
+  it('filters out an entry whose expectedSlug is an empty string', async () => {
+    // Write a queue with one entry that has an empty expectedSlug.
+    const invalidEntry = {
+      id:           'test-empty-slug',
+      pid:          999_999_999,
+      planPath:     '/fake/plans/empty-slug',
+      expectedSlug: '',
+      startedAt:    '2026-05-20T00:00:00Z',
+      status:       'pending',
+    };
+    await writeFile(
+      join(env.logsDir, QUEUE_FILENAME),
+      JSON.stringify([invalidEntry]),
+      'utf-8',
+    );
+
+    const entries = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(entries).toHaveLength(0);
+  });
+
+  it('filters out an entry whose expectedSlug is whitespace-only', async () => {
+    // Write a queue with one entry that has a whitespace-only expectedSlug.
+    const invalidEntry = {
+      id:           'test-whitespace-slug',
+      pid:          999_999_999,
+      planPath:     '/fake/plans/whitespace-slug',
+      expectedSlug: '   ',
+      startedAt:    '2026-05-20T00:00:00Z',
+      status:       'pending',
+    };
+    await writeFile(
+      join(env.logsDir, QUEUE_FILENAME),
+      JSON.stringify([invalidEntry]),
+      'utf-8',
+    );
+
+    const entries = await getQueue({ logsDir: env.logsDir, ledgerRoot: env.ledgerRoot });
+
+    expect(entries).toHaveLength(0);
+  });
+});
+
+```
 ###  Path: `/mcp-server/tests/gui/queue/resolve-progress.test.ts`
 
 ```ts
@@ -10118,6 +10583,159 @@ describe('resolveProgress — malformed JSONL lines', () => {
   });
 });
 
+
+```
+###  Path: `/mcp-server/tests/gui/queue/validate-entry.test.ts`
+
+```ts
+/**
+ * Tests for src/gui/queue/validate-entry.ts — WP-005
+ *
+ * Verifies:
+ *   AC-1: At least 10 test cases for isRawQueueEntry().
+ *   AC-2: Tests import directly from validate-entry.js (no filesystem setup).
+ *   AC-3: All 5 validation rules exercised:
+ *         (a) non-null object check
+ *         (b) string id
+ *         (c) positive integer pid
+ *         (d) string planPath
+ *         (e) non-empty non-whitespace expectedSlug and string startedAt
+ *   AC-4: All tests pass when run via `npm test` in mcp-server/.
+ *   AC-5: Pure-function tests — no filesystem or I/O setup.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { isRawQueueEntry } from '../../../src/gui/queue/validate-entry.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** A canonical valid entry that satisfies every validation rule. */
+const VALID_ENTRY = {
+  id:           'run-abc-123',
+  pid:          42,
+  planPath:     '/fake/plans/2026-05-20-my-feature',
+  expectedSlug: '2026-05-20-my-feature',
+  startedAt:    '2026-05-20T00:00:00Z',
+  status:       'pending' as const,
+};
+
+// ---------------------------------------------------------------------------
+// Happy-path: valid entry
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — valid entry', () => {
+  it('TC-01: returns true for a fully valid entry', () => {
+    expect(isRawQueueEntry(VALID_ENTRY)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule (a): non-null object check
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — (a) non-null object check', () => {
+  it('TC-02: returns false for null', () => {
+    expect(isRawQueueEntry(null)).toBe(false);
+  });
+
+  it('TC-03: returns false for a primitive string', () => {
+    expect(isRawQueueEntry('not-an-object')).toBe(false);
+  });
+
+  it('TC-04: returns false for a number', () => {
+    expect(isRawQueueEntry(42)).toBe(false);
+  });
+
+  it('TC-05: returns false for undefined', () => {
+    expect(isRawQueueEntry(undefined)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule (b): string id
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — (b) string id', () => {
+  it('TC-06: returns false when id is missing', () => {
+    const { id: _removed, ...entry } = VALID_ENTRY;
+    expect(isRawQueueEntry(entry)).toBe(false);
+  });
+
+  it('TC-07: returns false when id is a number', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, id: 99 })).toBe(false);
+  });
+
+  it('TC-18: returns false when id is an empty string', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, id: '' })).toBe(false);
+  });
+
+  it('TC-19: returns false when id is whitespace-only', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, id: '   ' })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule (c): positive integer pid
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — (c) positive integer pid', () => {
+  it('TC-08: returns false when pid is zero', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, pid: 0 })).toBe(false);
+  });
+
+  it('TC-09: returns false when pid is negative', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, pid: -1 })).toBe(false);
+  });
+
+  it('TC-10: returns false when pid is a float', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, pid: 1.5 })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule (d): string planPath
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — (d) string planPath', () => {
+  it('TC-11: returns false when planPath is missing', () => {
+    const { planPath: _removed, ...entry } = VALID_ENTRY;
+    expect(isRawQueueEntry(entry)).toBe(false);
+  });
+
+  it('TC-12: returns false when planPath is null', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, planPath: null })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rule (e): non-empty non-whitespace expectedSlug and string startedAt
+// ---------------------------------------------------------------------------
+
+describe('isRawQueueEntry — (e) expectedSlug and startedAt', () => {
+  it('TC-13: returns false when expectedSlug is an empty string', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, expectedSlug: '' })).toBe(false);
+  });
+
+  it('TC-14: returns false when expectedSlug is whitespace-only', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, expectedSlug: '   ' })).toBe(false);
+  });
+
+  it('TC-15: returns false when expectedSlug is missing', () => {
+    const { expectedSlug: _removed, ...entry } = VALID_ENTRY;
+    expect(isRawQueueEntry(entry)).toBe(false);
+  });
+
+  it('TC-16: returns false when startedAt is missing', () => {
+    const { startedAt: _removed, ...entry } = VALID_ENTRY;
+    expect(isRawQueueEntry(entry)).toBe(false);
+  });
+
+  it('TC-17: returns false when startedAt is a number', () => {
+    expect(isRawQueueEntry({ ...VALID_ENTRY, startedAt: 1234567890 })).toBe(false);
+  });
+});
 
 ```
 ###  Path: `/mcp-server/tests/gui/run-log-handlers.test.ts`

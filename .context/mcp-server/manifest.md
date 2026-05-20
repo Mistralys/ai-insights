@@ -2160,9 +2160,38 @@ export interface RunStatus {
 
 ---
 
+### `src/gui/queue/validate-entry.ts` — pure `RawQueueEntry` type-guard (WP-001 rework, WP-003)
+
+Pure module. No I/O, no side effects. Imports only `RawQueueEntry` from `./types.js`. Extracted from `get-queue.ts` so that `isRawQueueEntry()` can be unit-tested directly without filesystem setup.
+
+```typescript
+/**
+ * Type-guard that validates a raw JSON value as a `RawQueueEntry`.
+ *
+ * Returns `true` only when **all five** of the following rules pass:
+ *
+ * 1. **Type check** — `entry` is a non-null object.
+ * 2. **String fields** — `id`, `planPath`, and `startedAt` are strings; `id` must be
+ *    non-empty and non-whitespace-only (guard: `id.trim().length > 0`).
+ * 3. **PID integer** — `pid` is a finite integer (rejects floats).
+ * 4. **PID positive** — `pid` is greater than zero (rejects zero and negatives).
+ * 5. **Non-empty slug** — `expectedSlug` is a non-empty, non-whitespace-only string
+ *    (rejects missing, empty-string, and whitespace-only slugs).
+ *    Guard: `expectedSlug.trim().length > 0` (whitespace-only slugs are rejected).
+ *
+ * Used by `readQueueFile` in `get-queue.ts` to filter the parsed JSON array
+ * before it is returned as `RawQueueEntry[]`.
+ *
+ * @returns `true` when every rule passes; `false` otherwise.
+ */
+export function isRawQueueEntry(entry: unknown): entry is RawQueueEntry;
+```
+
+---
+
 ### `src/gui/queue/get-queue.ts` — queue reading internals and public `getQueue()` (WP-B)
 
-Async, I/O (reads queue file and project ledger files). Imports from `./types.js`, `./resolve-progress.js`, and `./compute-effective-status.js`.
+Async, I/O (reads queue file and project ledger files). Imports from `./types.js`, `./validate-entry.js`, `./resolve-progress.js`, and `./compute-effective-status.js`. The `isRawQueueEntry` validator was extracted to `validate-entry.ts` (WP-003) — `get-queue.ts` imports and delegates to it; the filter call site is unchanged.
 
 ```typescript
 /**
@@ -2342,6 +2371,7 @@ export async function startOrchestrator(
  *
  * TOCTOU safety: ESRCH on SIGTERM delivery is swallowed — process already gone.
  * PID validation: isRawQueueEntry() rejects zero, negative, and float PIDs.
+ * Slug validation: also rejects entries with an empty-string expectedSlug.
  */
 export async function killQueueEntry(params: {
   id: string;          // Queue entry ID to kill.
@@ -2897,7 +2927,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
-| `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010) |
+| `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
 
@@ -3032,7 +3062,8 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
   - `renderStatusCard(entry)` → `string` — HTML card with status badge (`.badge-pending` / `.badge-started` / `.badge-dead`), PID, elapsed running time, and progress summary; all user-controlled values are XSS-escaped via `escapeHtml()`
   - `renderKillButton(entryId, onDone)` → `HTMLButtonElement` — requires `window.confirm` before calling `API.orchestratorKill(entryId)`; invokes `onDone` on success
   - `renderDismissButton(entryId, onDone)` → `HTMLButtonElement` — calls `API.orchestratorDismiss(entryId)`; invokes `onDone` on success
-  - `renderLogPreview(container, slug, filename)` → `() => void` — auto-polls `API.getRunLogEntries()` at a 2-second interval; appends new events as `<div class="log-preview-entry">` elements via `textContent` (no `innerHTML`); returns a cleanup function; stopped-flag guard prevents stale `.then()` callbacks from appending after cleanup
+  - `formatLogAction(entry)` → `string` — maps a raw JSONL log entry object to a human-friendly display string for the log preview widget; covers all 13 action types (`run_start`, `stage_start`, `stage_complete`, `progress_snapshot`, `tool_call`, `wp_complete`, `wp_status_change`, `run_end`, `run_error`, `signal_shutdown`, `heartbeat`, `mcp_error`, `route`); dynamic cases interpolate `entry.stage`, `entry.tool_name`, `entry.wp_id`, `entry.new_status` with empty-string fallbacks; unknown non-empty actions are title-cased (underscores → spaces); null/undefined entry or missing/falsy `action` field falls through to `JSON.stringify(entry)`; intentionally scoped to the log preview only — does **not** affect `renderProgressBadge`
+  - `renderLogPreview(container, slug, filename)` → `() => void` — auto-polls `API.getRunLogEntries()` at a 2-second interval; appends new events as `<div class="log-preview-entry">` elements via `textContent` (no `innerHTML`); display text is produced by `formatLogAction(entry)`; returns a cleanup function; stopped-flag guard prevents stale `.then()` callbacks from appending after cleanup
   - `renderProgressBadge(lastAction)` → `string` — maps `lastAction` strings to badge classes: `run_start/stage_start/progress_snapshot` → `badge-info`; `stage_complete/wp_complete` → `badge-success`; `run_end/heartbeat` → `badge-neutral`; `run_error/stage_error` → `badge-error`; `signal_shutdown` → `badge-warning`; unknown/null → `badge-neutral` with idle label
   - `renderCliReference()` → `string` — static HTML with `orchestrate`, `--resume`, `--dry-run`, and `kill-orchestrator.js` command references; keep in sync with `orchestrator/src/cli.py` (CLI flags), `scripts/kill-orchestrator.js`, and `scripts/preflight-orchestrator.js`
 
@@ -5406,6 +5437,26 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 
 **Test coverage note:** As of WP-009, orchestrator routes have strong handler-level test coverage in `tests/gui/api-orchestrator.test.ts` but no `handleRequest()`-level integration test (unlike `tests/gui/api.test.ts` which exercises `handleRequest()` directly). A future `handleRequest()` integration test for orchestrator routes would provide defence-in-depth.
 
+---
+
+### 72. JSDoc Closure-Dependency Documentation for GUI Helpers
+
+**Rule:** Every closure-scoped helper function in `gui/public/views/*.js` that reads or mutates variables from its enclosing scope MUST include a `Closure dependencies (from <parent>() scope):` JSDoc block listing each closed-over variable with a one-line description of whether it is read-only or mutated by this helper.
+
+**Example:**
+```javascript
+/** Injects action buttons into the rendered table.
+ *
+ *  Closure dependencies (from renderOrchestrator() scope):
+ *    `expandedIds`   — mutated; toggle clicks update row expansion state.
+ *    `refreshQueue`  — read-only; called after Kill/Dismiss actions. */
+function _bindQueueActions(container, entries) { /* ... */ }
+```
+
+**Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function. This convention was established during the `2026-05-20-orchestrator-gui-polish-rework` sprint and should be applied to all new closure-scoped helpers going forward.
+
+**Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
+
 ```
 ###  Path: `/mcp-server/docs/agents/project-manifest/data-flows.md`
 
@@ -6760,9 +6811,9 @@ mcp-server/
 │   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
 │   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
 │   │   ├── insights.js        # renderInsights — project health stats; 15 s polling
-│   │   └── orchestrator.js    # renderOrchestrator — plan path input, preflight checklist (Section A), Start Run button gated on allChecksPassed (Section B), live queue table with 5 s polling via Router._setPolling, per-row expand/collapse inline log preview; cleanup managed via _orchLogPreviewCleanups array; CLI reference card footer (WP-011)
+│   │   └── orchestrator.js    # renderOrchestrator — plan path input, preflight checklist (Section A), Start Run button gated on allChecksPassed (Section B), live queue table with 5 s polling via Router._setPolling, per-row expand/collapse inline log preview; cleanup managed via _orchLogPreviewCleanups array; CLI reference card footer (WP-011); renderQueueTable delegates to four closure-scoped helpers: _clearSuccessBanner (removes success banner when queue is non-empty; leaves error banners intact), _buildQueueHtml (builds table HTML string), _bindQueueActions (injects Kill/Dismiss/View-Project buttons and toggle listeners), _mountLogPreviews (starts live log-preview widgets for expanded rows) (WP-006)
 │       ├── js/
-│   │   └── orchestrator-widgets.js  # OrchestratorWidgets IIFE — shared orchestrator UI components: kill/dismiss row buttons, renderLogPreview (returns cleanup fn), renderCliReference; depends on API (api-client.js) and escapeHtml (utils.js) (WP-011)
+│   │   └── orchestrator-widgets.js  # OrchestratorWidgets IIFE — shared orchestrator UI components: kill/dismiss row buttons, formatLogAction (maps JSONL entry → human-friendly label; null/undefined-safe; WP-002), renderLogPreview (returns cleanup fn), renderCliReference; depends on API (api-client.js) and escapeHtml (utils.js) (WP-011)
 │       └── libs/
 │           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB)
 │
@@ -6775,9 +6826,10 @@ mcp-server/
 │   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
 │   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir; migrateOrphanedLogs
 │   │   ├── orchestrator-manager.ts  # Queue mutation (killQueueEntry, dismissQueueEntry), preflight checks, startOrchestrator, getRunStatus, runStatusFilename; re-exports getQueue, all types, QUEUE_FILENAME from queue/ sub-modules for backward compat (WP-005, WP-006, WP-007, WP-A, WP-B)
-│   │   ├── queue/               # Run-queue helpers: types, reading, progress resolution, status computation (WP-001, WP-004, WP-A, WP-B)
+│   │   ├── queue/               # Run-queue helpers: types, reading, validation, progress resolution, status computation (WP-001, WP-003, WP-004, WP-A, WP-B)
 │   │   │   ├── types.ts             # Shared type definitions and QUEUE_FILENAME constant: RawQueueEntry, QueueEntry, KillResult, PreflightResult, StartResult, RunStatus — leaf module, no intra-queue deps beyond compute-effective-status.ts (WP-A)
-│   │   │   ├── get-queue.ts         # Queue reading: readQueueFile, isRawQueueEntry, getProjectLedgerStatus (private); isProcessAlive, readQueueFile, getProjectLedgerStatus (exported for orchestrator-manager.ts); getQueue (public API) (WP-B)
+│   │   │   ├── validate-entry.ts    # Pure isRawQueueEntry() type-guard — extracted from get-queue.ts for direct unit testability; validates all 5 RawQueueEntry rules including whitespace-only slug rejection (.trim().length > 0); no I/O (WP-001 rework, WP-003)
+│   │   │   ├── get-queue.ts         # Queue reading: imports isRawQueueEntry from validate-entry.ts; readQueueFile, getProjectLedgerStatus (private); isProcessAlive, readQueueFile, getProjectLedgerStatus (exported for orchestrator-manager.ts); getQueue (public API) (WP-B)
 │   │   │   ├── compute-effective-status.ts  # Pure status computation; computeEffectiveStatus(alive, projectExists, hasLogActivity?): EffectiveStatus — 4 priority-ordered transition rules; zero I/O (WP-004)
 │   │   │   ├── format-progress-entry.ts  # Pure JSONL-entry → string mapper; no I/O; formatProgressEntry(); empty-string tool_name treated as absent (WP-D)
 │   │   │   └── resolve-progress.ts  # ProgressResolution interface + resolveProgress() async resolver; EMPTY_RESOLUTION frozen sentinel; re-exports formatProgressEntry as a convenience barrel (two-level re-export chain: format-progress-entry → resolve-progress → orchestrator-manager) (WP-D)
@@ -6848,10 +6900,11 @@ mcp-server/
     │   ├── orchestrator-manager.test.ts  # 77 tests: getQueue() lifecycle transitions (AC-1 through AC-6), formatProgressEntry() (11 event types), progress resolution (WP-005); killQueueEntry()/dismissQueueEntry() lifecycle gates, SIGTERM→SIGKILL flow, TOCTOU ESRCH handling, queue-file removal, lock-file cleanup; PID validation (negative/zero/float rejection) (WP-006); 7 lastAction/logFilename population cases (WP-003 AC-6)
     │   ├── orchestrator-widgets.test.ts  # 41 tests: OrchestratorWidgets functions, all 7 ACs + 7 refined variants; vm.runInThisContext + jsdom, fake timers for renderLogPreview (WP-010)
     │   ├── project-detail-runs.test.ts
-    │   ├── queue/               # Unit tests for src/gui/queue/ modules (WP-001, WP-004, WP-A, WP-B, WP-C, WP-D)
+    │   ├── queue/               # Unit tests for src/gui/queue/ modules (WP-001, WP-003, WP-004, WP-A, WP-B, WP-C, WP-D)
     │   │   ├── compute-effective-status.test.ts  # 6 pure unit tests: AC-1/2/3 transitions, default hasLogActivity=false, projectExists-always-wins across all 4 alive/hasLogActivity combinations (WP-004)
     │   │   ├── format-progress-entry.test.ts  # Unit tests for formatProgressEntry() (11 event types + empty tool_name WP-D)
-    │   │   └── resolve-progress.test.ts  # 29 unit tests covering all 5 acceptance criteria + 3 edge-case tests (malformed JSONL, all-malformed, 0-byte log) (WP-001, WP-C)
+    │   │   ├── resolve-progress.test.ts  # 29 unit tests covering all 5 acceptance criteria + 3 edge-case tests (malformed JSONL, all-malformed, 0-byte log) (WP-001, WP-C)
+    │   │   └── validate-entry.test.ts  # 17 pure-function unit tests for isRawQueueEntry() across all 5 validation rules: valid entry, null/primitive/object rejection, non-string id/planPath, zero/negative/float pid, empty/whitespace-only/missing expectedSlug, missing/non-string startedAt; no I/O setup (WP-003)
     │   ├── run-log-handlers.test.ts
     │   ├── run-log-server.test.ts
     │   ├── run-log.test.ts

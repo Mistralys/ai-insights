@@ -146,6 +146,7 @@ _SOURCE: Directory tree_
         │   │   └── get-queue.ts
         │   │   └── resolve-progress.ts
         │   │   └── types.ts
+        │   │   └── validate-entry.ts
         ├── index.ts
         ├── schema/
         │   ├── enums.ts
@@ -207,7 +208,9 @@ _SOURCE: Directory tree_
         │   ├── queue/
         │   │   ├── compute-effective-status.test.ts
         │   │   ├── format-progress-entry.test.ts
+        │   │   ├── get-queue.test.ts
         │   │   ├── resolve-progress.test.ts
+        │   │   ├── validate-entry.test.ts
         │   ├── run-log-handlers.test.ts
         │   ├── run-log-server.test.ts
         │   ├── run-log.test.ts
