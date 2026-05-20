@@ -1,9 +1,9 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.30.5 - Orchestrator GUI Polish
+## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.
 - Queue: Entry validation now rejects empty-string and whitespace-only id and slug values.
-- GUI: Refactored queue table renderer, timer registry, and start-run handler into closure-scoped helpers.
+- GUI: Refactored queue renderer, timer registry, and start-run handler as closure helpers.
 - GUI: Success banner auto-cleared when the Run Queue renders with at least one entry.
 - Tests: Added entry-validation unit tests and timer registry regression test.
 - Constraints: Added §72 — JSDoc closure-dependency convention for GUI view helpers.

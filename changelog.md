@@ -1,10 +1,13 @@
 # AI Insights Changelog
 
-## v1.26.0 - Orchestrator API Key Validation
-> orchestrator v0.20.0
+## v1.26.0 - API Key Validation and Plan Refiner
+> mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0
 
-- Orchestrator: Live API key validation for Anthropic and Google AI Studio, available in both
-  the CLI preflight tool and the GUI start flow.
+- Orchestrator: Live API key validation for Anthropic and Google AI Studio in the CLI
+  preflight tool and GUI start flow.
+- MCP: GUI run-queue entry validation extracted into a dedicated module; closure-scoped helpers.
+- Personas: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.
+- Personas: Plan Auditor gained implementer-friction filter; Planner gained Synthesis rework mode.
 
 ## v1.25.0 - Plan Audit Tracking and WP Context Preservation
 > personas v3.20.0

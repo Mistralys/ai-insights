@@ -1,10 +1,10 @@
 # Personas Changelog
 
-## v3.20.1 - Git Committer Improvement
-- Standalone: Plan Auditor (v1.3.1) now with implementer-friction filter.
-- Standalone: Git Committer (v1.0.3) now handles `implementation-history` organized into suboldfers.
-- Standalone: Added Plan Refiner (v1.0.0) — orchestrates iterative plan refinement.
-- Ledger: Planner (v1.5.0) now has a Synthesis rework mode.
+## v3.21.0 - Plan Refiner and Persona Improvements
+- Standalone: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.
+- Standalone: Plan Auditor gained implementer-friction filter to suppress low-value findings.
+- Standalone: Git Committer now handles `implementation-history` organized into subfolders.
+- Ledger: Planner gained a Synthesis rework mode.
 
 ## v3.20.0 - Plan Audit Tracking and WP Context Preservation
 - Standalone: Plan Auditor (v1.3.0) and Plan Architect Reviewer (v1.4.0) gain Audit
