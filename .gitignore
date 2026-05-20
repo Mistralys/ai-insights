@@ -1,11 +1,16 @@
 .DS_Store
 /mcp-server/node_modules/
 /.mcp.json
+
+# Ledger temporary plan artefacts
 /docs/agents/**/work.md
 /docs/agents/**/work/
 /docs/agents/**/dependency-analysis.md
 /docs/agents/**/pipeline-configuration.md
 /docs/agents/**/work-packages-draft.md
+/docs/agents/**/audit.md
+/docs/agents/**/design-review.md
+
 /mcp-server/dist/
 /personas/node_modules/
 /build/
