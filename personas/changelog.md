@@ -1,5 +1,8 @@
 # Personas Changelog
 
+## v3.21.1 - Git Committer Branch Safety
+- Standalone: Git Committer (v1.0.4) exclude CTX files in feature branches.
+
 ## v3.21.0 - Plan Refiner and Persona Improvements
 - Standalone: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.
 - Standalone: Plan Auditor gained implementer-friction filter to suppress low-value findings.
