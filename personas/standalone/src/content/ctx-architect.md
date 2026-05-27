@@ -126,7 +126,6 @@ documents:
       - type: tree
         sourcePaths: [ src/classes ]
         filePattern: '*'
-        renderFormat: ascii
         maxDepth: 8
 
   - description: 'Project - Overview'
@@ -211,11 +210,49 @@ Additional domain-specific documents (e.g., `architecture-countries.md`, `archit
   maxDepth: 5
 ```
 
-> **⚠ `excludePatterns` vs `notPath`:** These are **not interchangeable** across source types. `type: file` uses `excludePatterns` to skip directories. `type: tree` uses `notPath` — it does **not** recognize `excludePatterns`. Using the wrong field is silently ignored, producing bloated output with no error. Always match the field to the source type.
+> **⚠ `excludePatterns` vs `notPath`:** On `type: file` sources, `excludePatterns` and `notPath` are **aliases** — both work. On `type: tree` sources, **only `notPath` is recognised**; `excludePatterns` is silently ignored, producing bloated output with no error. Always use `notPath` on tree sources.
 
-### Content Filters
+**`type: text`** — Inject static Markdown content. Best practice: **always add a `text` source as the first source in every document** to give the LLM context about what it is reading.
 
-For PHP projects, use the canonical `php-content-filter` to extract public API signatures:
+```yaml
+- type: text
+  content: |
+    # Authentication Module
+
+    This document contains the public API surface of the auth module.
+```
+
+### Other Source Types
+
+| Type | Use When | Key Fields |
+|---|---|---|
+| `url` | Fetching external web documentation | `urls`, `selector`, `headers` |
+| `git_diff` | Showing recent code changes | `commit` (preset or range), `render.strategy` |
+| `github` | Including files from a remote GitHub repository | `repository`, `sourcePaths`, `githubToken` |
+
+> For remote sources (`github`, `url`), set `overwrite: false` on the document to skip re-fetching when the output file already exists.
+
+### Modifiers
+
+Modifiers transform source content before it is written to output. They apply at the **source level** (one source) or the **document level** (all sources in the document).
+
+**`sanitizer`** — Redacts sensitive data. Apply at the document level for any config that might expose `.env` examples, connection strings, or API keys:
+
+```yaml
+- description: "Project Config"
+  outputPath: ".context/config.md"
+  modifiers:                        # document-level: covers all sources
+    - name: sanitizer
+      options:
+        rules:
+          - type: regex
+            usePatterns: [ "api-key", "database-conn", "jwt" ]
+  sources:
+    - type: file
+      ...
+```
+
+**`php-content-filter`** — PHP projects only. Extracts public API signatures without method bodies:
 
 ```yaml
 modifiers:
@@ -258,6 +295,25 @@ The CTX generator handles multiple content types:
 
 When a module has important non-code artifacts (API response examples, OpenAPI specs), include them as additional documents.
 
+### Variables
+
+CTX supports reusable variables in `{{variable_name}}` (Mustache) or `${VARIABLE_NAME}` (shell) syntax. Define them at the top of `context.yaml` to avoid repeating paths, versions, or environment names across documents:
+
+```yaml
+variables:
+  src: "src"
+  output_dir: ".context"
+
+documents:
+  - description: "Source Code — Generated on ${DATE}"
+    outputPath: "{{output_dir}}/source.md"
+    sources:
+      - type: file
+        sourcePaths: [ "{{src}}" ]
+```
+
+Predefined system variables are also available: `${DATE}`, `${ROOT_PATH}`, `${OS}`, and others. Variables work in `outputPath`, `sourcePaths`, `content`, and `description` fields.
+
 ---
 
 ## Self-Validation Checklist
@@ -266,12 +322,14 @@ Before running `ctx generate`, verify:
 
 - [ ] All `moduleMetaData.id` values are unique across the project.
 - [ ] No import glob patterns start with `./` (explicit file paths may use `./`).
-- [ ] `type: file` sources use `excludePatterns` for exclusions — never `notPath`.
-- [ ] `type: tree` sources use `notPath` for exclusions — never `excludePatterns`.
+- [ ] `type: tree` sources use `notPath` for exclusions — `excludePatterns` is silently ignored on tree sources.
 - [ ] Every `type: tree` source excludes package manager artifacts (`node_modules/`, `vendor/`, `.venv/`, etc.).
 - [ ] All `relatedModules` entries reference IDs that exist in other module configs.
 - [ ] Parent module configs exclude submodule directories from their own architecture documents.
 - [ ] Each module has at minimum an Overview document sourcing from `README.md`.
+- [ ] Each document's first source is `type: text` to frame the content for the LLM.
+- [ ] Remote sources (`github`, `url`) set `overwrite: false` on the document to avoid redundant fetches.
+- [ ] Documents that may include config files or `.env` examples apply the `sanitizer` modifier.
 
 ---
 
@@ -289,7 +347,7 @@ Before running `ctx generate`, verify:
   - **Python:** `.venv/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`
   - **General:** `.git/`, `build/`, `coverage/`
 
-  For `type: file` sources, use `excludePatterns` instead (tree and file sources use **different** field names for exclusions).
+  For `type: file` sources, both `notPath` and `excludePatterns` work (they are aliases on file sources).
 
 ---
 
