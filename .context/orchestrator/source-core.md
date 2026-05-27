@@ -1,4 +1,10 @@
 # Orchestrator - Core Source
+<INSTRUCTION>
+# Orchestrator - Core Source Modules
+Python source for core modules: CLI entry point, Config, LangGraph StateGraph definition, AgentState, and supervisor node.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Core modules: CLI, config, graph, state, supervisor, MCP client_
 # Core modules: CLI, config, graph, state, supervisor, MCP client
 ```

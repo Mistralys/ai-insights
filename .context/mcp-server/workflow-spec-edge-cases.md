@@ -1,4 +1,10 @@
 # MCP Server - Workflow Spec (Edge Cases & Guidance)
+<INSTRUCTION>
+# MCP Server - Workflow Spec: Edge Cases & Guidance
+Edge case handling, dependency and rework patterns, auxiliary systems, and agent recommendations.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

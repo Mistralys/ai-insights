@@ -1,4 +1,10 @@
 # MCP Server - Manifest (Constraints)
+<INSTRUCTION>
+# MCP Server - Manifest: Constraints
+Architectural invariants, naming conventions, status transition rules, and known limitations. Read this before making any changes to the MCP server.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

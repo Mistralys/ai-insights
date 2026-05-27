@@ -1,4 +1,10 @@
 # MCP Server - Source (Tools: Workflow)
+<INSTRUCTION>
+# MCP Server - Source: Workflow & Handoff Tools
+TypeScript source for workflow tools: get_next_action, handoff routing, next_action_batch, and workflow state queries.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

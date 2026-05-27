@@ -1,4 +1,10 @@
 # Personas - Standalone Suite Guide
+<INSTRUCTION>
+# Personas - Standalone Suite Guide
+Standalone personas user guide: PM sub-agent cluster, full persona catalog, and Claude Code injection workflow.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Standalone personas guide (PM sub-agent cluster, persona catalog, Claude Code injection)_
 # Standalone personas guide (PM sub-agent cluster, persona catalog, Claude Code injection)
 ```

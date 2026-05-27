@@ -1,4 +1,10 @@
 # Personas - File Structure
+<INSTRUCTION>
+# Personas - File Structure
+Complete directory tree of the personas build system (depth 8). Covers source templates, shared partials, and generated output for all suites and targets.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Directory tree_
 # Directory tree
 ###  

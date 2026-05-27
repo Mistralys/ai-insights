@@ -1,4 +1,10 @@
 # MCP Server - Source (Tools: Project)
+<INSTRUCTION>
+# MCP Server - Source: Project Lifecycle Tools
+TypeScript source for project-level tools: create_project, load_project, and complete_project.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

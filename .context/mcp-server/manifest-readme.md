@@ -1,4 +1,10 @@
 # MCP Server - Manifest (README)
+<INSTRUCTION>
+# MCP Server - Manifest: Project Overview
+Project manifest README: module scope, architectural summary, and index of all manifest documents.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

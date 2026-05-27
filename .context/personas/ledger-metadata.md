@@ -1,4 +1,10 @@
 # Personas - Ledger Metadata
+<INSTRUCTION>
+# Personas - Ledger Persona Metadata
+YAML metadata for all 9 ledger personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, role name, file names, and feature flags.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: YAML metadata for all 9 ledger personas (shared defaults + per-persona overrides)_
 # YAML metadata for all 9 ledger personas (shared defaults + per-persona overrides)
 ```

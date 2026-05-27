@@ -1,4 +1,10 @@
 # MCP Server - Workflow Spec (Operations & Routing)
+<INSTRUCTION>
+# MCP Server - Workflow Spec: Operations & Routing
+Tool operations, pipeline routing maps, agent handoff logic, and step-by-step workflow walkthrough.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

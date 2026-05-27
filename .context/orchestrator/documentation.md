@@ -1,4 +1,10 @@
 # Orchestrator - Documentation
+<INSTRUCTION>
+# Orchestrator - Technical Documentation
+Deep-dive docs: routing architecture, JSONL log schema, smoke test guide, and public API reference.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Technical deep-dives (architecture, routing, log schema, smoke tests, public API)_
 # Technical deep-dives (architecture, routing, log schema, smoke tests, public API)
 ```

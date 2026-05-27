@@ -1,4 +1,10 @@
 # MCP Server - Overview
+<INSTRUCTION>
+# MCP Server - Overview
+README for the Project Ledger MCP Server: purpose, full tool catalog, quick-start, and usage notes for agent workflows.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Overview_
 # Overview
 ```

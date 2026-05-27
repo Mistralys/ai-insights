@@ -1,4 +1,4 @@
-moduleMetaData:
+﻿moduleMetaData:
   id: "personas"
   label: "Ledger Personas Build System"
   description: "Template engine that assembles ledger and standalone persona Markdown files from YAML/Markdown sources."
@@ -15,6 +15,10 @@ documents:
   - description: 'Personas - Overview'
     outputPath: 'personas/overview.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Overview
+          README for the Ledger Personas Build System: suites, build pipeline, quick-start, and usage guide.
       - type: file
         description: "Overview"
         sourcePaths:
@@ -24,6 +28,10 @@ documents:
   - description: 'Personas - Manifest'
     outputPath: 'personas/manifest.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Project Manifest
+          Complete project manifest: tech stack, architectural constraints, API surface (template syntax, feature flags, partials), data flows, and file tree.
       - type: file
         description: "Project manifest (tech stack, constraints, API surface, data flows, file tree)"
         sourcePaths:
@@ -33,6 +41,10 @@ documents:
   - description: 'Personas - File Structure'
     outputPath: 'personas/file-structure.md'
     sources:
+      - type: text
+        content: |
+          # Personas - File Structure
+          Complete directory tree of the personas build system (depth 8). Covers source templates, shared partials, and generated output for all suites and targets.
       - type: tree
         description: 'Directory tree'
         sourcePaths:
@@ -47,6 +59,10 @@ documents:
   - description: 'Personas - Ledger Suite Guide'
     outputPath: 'personas/ledger-suite.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Ledger Suite Guide
+          9-agent ledger workflow user guide: prerequisites, step-by-step pipeline usage for VS Code and Claude Code.
       - type: file
         description: "Ledger workflow user guide (9-agent pipeline usage, prerequisites, step-by-step)"
         sourcePaths:
@@ -56,6 +72,10 @@ documents:
   - description: 'Personas - Standalone Suite Guide'
     outputPath: 'personas/standalone-suite.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Standalone Suite Guide
+          Standalone personas user guide: PM sub-agent cluster, full persona catalog, and Claude Code injection workflow.
       - type: file
         description: "Standalone personas guide (PM sub-agent cluster, persona catalog, Claude Code injection)"
         sourcePaths:
@@ -65,6 +85,10 @@ documents:
   - description: 'Personas - Shared Partials'
     outputPath: 'personas/shared-partials.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Shared Partials
+          Cross-suite Markdown partials shared between ledger and standalone suites: operational protocols, output format standards, and incident logging conventions.
       - type: file
         description: "Cross-suite Markdown partials (operational protocols, output formats, incident logging)"
         sourcePaths:
@@ -74,6 +98,10 @@ documents:
   - description: 'Personas - Ledger Metadata'
     outputPath: 'personas/ledger-metadata.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Ledger Persona Metadata
+          YAML metadata for all 9 ledger personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, role name, file names, and feature flags.
       - type: file
         description: "YAML metadata for all 9 ledger personas (shared defaults + per-persona overrides)"
         sourcePaths:
@@ -83,6 +111,10 @@ documents:
   - description: 'Personas - Standalone Metadata'
     outputPath: 'personas/standalone-metadata.md'
     sources:
+      - type: text
+        content: |
+          # Personas - Standalone Persona Metadata
+          YAML metadata for all standalone personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, slugs, descriptions, and feature flags.
       - type: file
         description: "YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)"
         sourcePaths:

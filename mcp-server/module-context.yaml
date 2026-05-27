@@ -1,4 +1,4 @@
-moduleMetaData:
+﻿moduleMetaData:
   id: "mcp-server"
   label: "Project Ledger MCP Server"
   description: "MCP server providing typed tools for managing project ledgers in AI agent workflows."
@@ -16,6 +16,10 @@ documents:
   - description: 'MCP Server - Overview'
     outputPath: 'mcp-server/overview.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Overview
+          README for the Project Ledger MCP Server: purpose, full tool catalog, quick-start, and usage notes for agent workflows.
       - type: file
         description: "Overview"
         sourcePaths:
@@ -25,6 +29,10 @@ documents:
   - description: 'MCP Server - Manifest (README)'
     outputPath: 'mcp-server/manifest-readme.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Project Overview
+          Project manifest README: module scope, architectural summary, and index of all manifest documents.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "README.md"
@@ -32,6 +40,10 @@ documents:
   - description: 'MCP Server - Manifest (API Surface)'
     outputPath: 'mcp-server/manifest-api-surface.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: API Surface
+          All MCP tool signatures, input schemas, return types, and error codes. The authoritative reference for any agent calling MCP tools.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "api-surface.md"
@@ -39,6 +51,10 @@ documents:
   - description: 'MCP Server - Manifest (Constraints)'
     outputPath: 'mcp-server/manifest-constraints.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Constraints
+          Architectural invariants, naming conventions, status transition rules, and known limitations. Read this before making any changes to the MCP server.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "constraints.md"
@@ -46,6 +62,10 @@ documents:
   - description: 'MCP Server - Manifest (Tech Stack)'
     outputPath: 'mcp-server/manifest-tech-stack.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Tech Stack
+          Runtime, frameworks, architectural patterns, build tooling, and testing conventions for the MCP server.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "tech-stack.md"
@@ -53,6 +73,10 @@ documents:
   - description: 'MCP Server - Manifest (Data Flows)'
     outputPath: 'mcp-server/manifest-data-flows.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: Data Flows
+          Tool invocation lifecycle, storage paths, inter-module data movement, and ledger read/write patterns.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "data-flows.md"
@@ -60,6 +84,10 @@ documents:
   - description: 'MCP Server - Manifest (File Tree)'
     outputPath: 'mcp-server/manifest-file-tree.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Manifest: File Tree
+          Annotated directory listing of every source file with its role and relationships. Use to locate files before reading them.
       - type: file
         sourcePaths: [ docs/agents/project-manifest ]
         filePattern: "file-tree.md"
@@ -67,6 +95,10 @@ documents:
   - description: 'MCP Server - Workflow Spec (State & Data)'
     outputPath: 'mcp-server/workflow-spec-state.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Workflow Spec: State Machines & Data Model
+          Specification overview, project/WP/pipeline lifecycle state machines, and the complete ledger data model.
       - type: file
         sourcePaths: [ docs/agents/workflow-specification ]
         filePattern: "README.md"
@@ -80,6 +112,10 @@ documents:
   - description: 'MCP Server - Workflow Spec (Operations & Routing)'
     outputPath: 'mcp-server/workflow-spec-operations.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Workflow Spec: Operations & Routing
+          Tool operations, pipeline routing maps, agent handoff logic, and step-by-step workflow walkthrough.
       - type: file
         sourcePaths: [ docs/agents/workflow-specification ]
         filePattern: "operations.md"
@@ -96,6 +132,10 @@ documents:
   - description: 'MCP Server - Workflow Spec (Edge Cases & Guidance)'
     outputPath: 'mcp-server/workflow-spec-edge-cases.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Workflow Spec: Edge Cases & Guidance
+          Edge case handling, dependency and rework patterns, auxiliary systems, and agent recommendations.
       - type: file
         sourcePaths: [ docs/agents/workflow-specification ]
         filePattern: "edge-cases.md"
@@ -112,6 +152,10 @@ documents:
   - description: 'MCP Server - Source (Tools: Project)'
     outputPath: 'mcp-server/source-tools-project.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Project Lifecycle Tools
+          TypeScript source for project-level tools: create_project, load_project, and complete_project.
       - type: file
         sourcePaths: [ src/tools ]
         filePattern: "project-lifecycle.ts"
@@ -119,6 +163,10 @@ documents:
   - description: 'MCP Server - Source (Tools: Work Package)'
     outputPath: 'mcp-server/source-tools-workpackage.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Work Package & Begin-Work Tools
+          TypeScript source for work package management tools (create/update/complete WPs), begin_work, and agent observations.
       - type: file
         sourcePaths: [ src/tools ]
         filePattern: "work-package.ts"
@@ -132,6 +180,10 @@ documents:
   - description: 'MCP Server - Source (Tools: Pipeline)'
     outputPath: 'mcp-server/source-tools-pipeline.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Pipeline Tools
+          TypeScript source for pipeline stage tools: start_pipeline_stage, complete_pipeline_stage, and fail_pipeline_stage.
       - type: file
         sourcePaths: [ src/tools ]
         filePattern: "pipeline.ts"
@@ -139,6 +191,10 @@ documents:
   - description: 'MCP Server - Source (Tools: Workflow)'
     outputPath: 'mcp-server/source-tools-workflow.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Workflow & Handoff Tools
+          TypeScript source for workflow tools: get_next_action, handoff routing, next_action_batch, and workflow state queries.
       - type: file
         sourcePaths: [ src/tools ]
         filePattern: "workflow.ts"
@@ -155,6 +211,10 @@ documents:
   - description: 'MCP Server - Source (Tools: Help)'
     outputPath: 'mcp-server/source-tools-help.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Help Tools
+          TypeScript source for help display tools and the static help content they serve.
       - type: file
         sourcePaths: [ src/tools ]
         filePattern: "help.ts"
@@ -165,6 +225,10 @@ documents:
   - description: 'MCP Server - Source (Storage & Schema)'
     outputPath: 'mcp-server/source-storage.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Storage Layer & Schema
+          TypeScript source for LedgerStore (file-based repository), JSON schema validation, and ledger data models.
       - type: file
         description: "LedgerStore, schema validation, and data models"
         sourcePaths:
@@ -175,6 +239,10 @@ documents:
   - description: 'MCP Server - Source (Utils)'
     outputPath: 'mcp-server/source-utils.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: Utilities
+          TypeScript source for utility modules: AGENT_ROLES/AGENT_NAMES constants, agent registry scanner, pipeline routing maps, and output formatters.
       - type: file
         description: "Utility modules: constants, agent registry, pipeline maps, formatters"
         sourcePaths:
@@ -184,6 +252,10 @@ documents:
   - description: 'MCP Server - Source (GUI)'
     outputPath: 'mcp-server/source-gui.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Source: GUI Layer
+          TypeScript source for the GUI integration layer: run queue management, run-log event handlers, server configuration, and GUI-specific error types.
       - type: file
         description: "GUI layer: queue management, run-log handlers, config, error types"
         sourcePaths:
@@ -193,28 +265,32 @@ documents:
   - description: 'MCP Server - Tests'
     outputPath: 'mcp-server/tests.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - Tests
+          Directory tree of the Vitest test suite. Use to locate test files before running or editing them.
       - type: tree
         description: 'Test suite directory structure'
         sourcePaths:
           - tests
         filePattern: '*'
-        renderFormat: ascii
-        maxDepth: 4
-        notPath:
-          - 'helpers/'
 
   - description: 'MCP Server - File Structure'
     outputPath: 'mcp-server/file-structure.md'
     sources:
+      - type: text
+        content: |
+          # MCP Server - File Structure
+          Full directory tree of the MCP server module. Use to locate source files before reading them.
       - type: tree
-        description: 'Directory tree'
+        description: 'MCP server source directory tree'
         sourcePaths:
           - ./
         filePattern: '*'
-        renderFormat: ascii
-        maxDepth: 8
+        maxDepth: 6
         notPath:
           - 'node_modules/'
           - 'dist/'
-          - 'storage/ledger/'
+          - 'coverage/'
+          - 'storage/'
 

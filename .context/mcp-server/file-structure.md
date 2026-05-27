@@ -1,85 +1,17 @@
 # MCP Server - File Structure
-_SOURCE: Directory tree_
-# Directory tree
+<INSTRUCTION>
+# MCP Server - File Structure
+Full directory tree of the MCP server module. Use to locate source files before reading them.
+</INSTRUCTION>
+------------------------------------------------------------
+_SOURCE: MCP server source directory tree_
+# MCP server source directory tree
 ###  
 ```
 └── mcp-server/
     └── AGENTS.md
     └── README.md
     └── changelog.md
-    └── coverage/
-        ├── base.css
-        ├── block-navigation.js
-        ├── clover.xml
-        ├── coverage-final.json
-        ├── favicon.png
-        ├── gui/
-        │   ├── api.ts.html
-        │   ├── chunk-renderer.ts.html
-        │   ├── index.html
-        │   ├── server.ts.html
-        ├── index.html
-        ├── prettify.css
-        ├── prettify.js
-        ├── sort-arrow-sprite.png
-        ├── sorter.js
-        ├── src/
-        │   ├── gui/
-        │   │   ├── auto-archive.ts.html
-        │   │   ├── config.ts.html
-        │   │   ├── errors.ts.html
-        │   │   ├── handlers/
-        │   │   │   ├── index.html
-        │   │   │   ├── run-log-handlers.ts.html
-        │   │   ├── index.html
-        │   │   ├── log-resolver.ts.html
-        │   ├── schema/
-        │   │   ├── enums.ts.html
-        │   │   ├── index.html
-        │   │   ├── project-meta.ts.html
-        │   │   ├── root-index.ts.html
-        │   │   ├── validators.ts.html
-        │   │   ├── work-package.ts.html
-        │   │   ├── workflow-manifest-schema.ts.html
-        │   ├── storage/
-        │   │   ├── atomic-writer.ts.html
-        │   │   ├── file-lock.ts.html
-        │   │   ├── index.html
-        │   │   ├── ledger-store.ts.html
-        │   ├── tools/
-        │   │   ├── begin-work.ts.html
-        │   │   ├── help-content.ts.html
-        │   │   ├── help.ts.html
-        │   │   ├── index.html
-        │   │   ├── observations.ts.html
-        │   │   ├── pipeline.ts.html
-        │   │   ├── project-lifecycle.ts.html
-        │   │   ├── work-package.ts.html
-        │   │   ├── workflow-handoff.ts.html
-        │   │   ├── workflow-next-action-batch.ts.html
-        │   │   ├── workflow-next-action.ts.html
-        │   │   ├── workflow.ts.html
-        │   ├── utils/
-        │   │   └── agent-registry.ts.html
-        │   │   └── client-info.ts.html
-        │   │   └── constants.ts.html
-        │   │   └── if-defined.ts.html
-        │   │   └── index.html
-        │   │   └── ledger-root.ts.html
-        │   │   └── path-validator.ts.html
-        │   │   └── pipeline-maps.ts.html
-        │   │   └── project-reset.ts.html
-        │   │   └── read-project-name.ts.html
-        │   │   └── runner.ts.html
-        │   │   └── server-version.ts.html
-        │   │   └── timestamp.ts.html
-        │   │   └── workflow-helpers.ts.html
-        │   │   └── wp-id.ts.html
-        ├── tests/
-        │   └── helpers/
-        │       └── create-temp-store.ts.html
-        │       └── fixtures.ts.html
-        │       └── index.html
     └── docs/
         ├── agents/
         │   └── project-manifest/
@@ -155,10 +87,6 @@ _SOURCE: Directory tree_
         │   ├── validators.ts
         │   ├── work-package.ts
         │   ├── workflow-manifest-schema.ts
-        ├── storage/
-        │   ├── atomic-writer.ts
-        │   ├── file-lock.ts
-        │   ├── ledger-store.ts
         ├── tools/
         │   ├── begin-work.ts
         │   ├── help-content.ts
@@ -233,9 +161,6 @@ _SOURCE: Directory tree_
         │   ├── root-index.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
-        ├── storage/
-        │   ├── ledger-store.test.ts
-        │   ├── project-meta.test.ts
         ├── tools/
         │   ├── begin-work.test.ts
         │   ├── cancelled-status.test.ts

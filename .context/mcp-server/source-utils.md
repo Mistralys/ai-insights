@@ -1,4 +1,10 @@
 # MCP Server - Source (Utils)
+<INSTRUCTION>
+# MCP Server - Source: Utilities
+TypeScript source for utility modules: AGENT_ROLES/AGENT_NAMES constants, agent registry scanner, pipeline routing maps, and output formatters.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Utility modules: constants, agent registry, pipeline maps, formatters_
 # Utility modules: constants, agent registry, pipeline maps, formatters
 ```

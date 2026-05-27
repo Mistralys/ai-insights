@@ -1,4 +1,10 @@
 # MCP Server - Source (Tools: Work Package)
+<INSTRUCTION>
+# MCP Server - Source: Work Package & Begin-Work Tools
+TypeScript source for work package management tools (create/update/complete WPs), begin_work, and agent observations.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

@@ -1,4 +1,10 @@
 # MCP Server - Manifest (File Tree)
+<INSTRUCTION>
+# MCP Server - Manifest: File Tree
+Annotated directory listing of every source file with its role and relationships. Use to locate files before reading them.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

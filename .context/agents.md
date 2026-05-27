@@ -1,4 +1,10 @@
 # AI Insights - Agent Operating System
+<INSTRUCTION>
+# AI Insights - Agent Operating System
+Authoritative entry point for AI agents. Covers workspace architecture, manifest navigation, efficiency rules, failure protocol, cross-system dependencies, and changelog conventions.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Authoritative entry point for AI agents entering this workspace_
 # Authoritative entry point for AI agents entering this workspace
 ```

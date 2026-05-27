@@ -1,4 +1,10 @@
 # AI Insights - Scripts
+<INSTRUCTION>
+# AI Insights - Root Scripts
+All root-level Node.js scripts: CLI command centre, persona sync and build, version checks, orchestrator management, changelog extraction, and CTX generation.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
 # Workspace scripts (CLI, persona sync, build, bundling, validation)
 ```

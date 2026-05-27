@@ -1,4 +1,10 @@
 # Orchestrator - Stage Nodes
+<INSTRUCTION>
+# Orchestrator - Pipeline Stage Nodes
+Python source for all pipeline stage node factories: Planner, Project Manager, Developer, QA, Security Auditor, Reviewer, Release Engineer, Documentation, and Synthesis.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Pipeline stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis)_
 # Pipeline stage node factories (pm, developer, qa, security_auditor, reviewer, release_engineer, docs, synthesis)
 ```

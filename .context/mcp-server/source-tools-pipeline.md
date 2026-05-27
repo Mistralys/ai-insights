@@ -1,4 +1,10 @@
 # MCP Server - Source (Tools: Pipeline)
+<INSTRUCTION>
+# MCP Server - Source: Pipeline Tools
+TypeScript source for pipeline stage tools: start_pipeline_stage, complete_pipeline_stage, and fail_pipeline_stage.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

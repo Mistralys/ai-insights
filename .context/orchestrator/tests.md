@@ -1,4 +1,9 @@
 # Orchestrator - Tests
+<INSTRUCTION>
+# Orchestrator - Tests
+Directory tree of the pytest test suite. Use to locate test files before running or editing them.
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Test suite directory structure_
 # Test suite directory structure
 ###  

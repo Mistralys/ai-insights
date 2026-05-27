@@ -1,4 +1,10 @@
 # MCP Server - Manifest (Data Flows)
+<INSTRUCTION>
+# MCP Server - Manifest: Data Flows
+Tool invocation lifecycle, storage paths, inter-module data movement, and ledger read/write patterns.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

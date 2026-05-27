@@ -1,4 +1,10 @@
 # MCP Server - Source (Tools: Help)
+<INSTRUCTION>
+# MCP Server - Source: Help Tools
+TypeScript source for help display tools and the static help content they serve.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

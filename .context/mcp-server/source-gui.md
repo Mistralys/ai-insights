@@ -1,4 +1,10 @@
 # MCP Server - Source (GUI)
+<INSTRUCTION>
+# MCP Server - Source: GUI Layer
+TypeScript source for the GUI integration layer: run queue management, run-log event handlers, server configuration, and GUI-specific error types.
+
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: GUI layer: queue management, run-log handlers, config, error types_
 # GUI layer: queue management, run-log handlers, config, error types
 ```

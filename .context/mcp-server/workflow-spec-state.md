@@ -1,4 +1,10 @@
 # MCP Server - Workflow Spec (State & Data)
+<INSTRUCTION>
+# MCP Server - Workflow Spec: State Machines & Data Model
+Specification overview, project/WP/pipeline lifecycle state machines, and the complete ledger data model.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

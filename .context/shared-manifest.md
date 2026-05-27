@@ -1,4 +1,9 @@
 # AI Insights - Shared Manifest
+<INSTRUCTION>
+# AI Insights - Shared Workflow Manifest
+workflow-manifest.json: the single source of truth for all 9 agent roles, 6 pipeline types, and status/workflow constants. All sub-projects derive their constants from this file.
+</INSTRUCTION>
+------------------------------------------------------------
 _SOURCE: Workflow manifest (single source of truth for roles, pipelines, statuses)_
 # Workflow manifest (single source of truth for roles, pipelines, statuses)
 ```

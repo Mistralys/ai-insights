@@ -1,4 +1,10 @@
 # MCP Server - Manifest (API Surface)
+<INSTRUCTION>
+# MCP Server - Manifest: API Surface
+All MCP tool signatures, input schemas, return types, and error codes. The authoritative reference for any agent calling MCP tools.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/

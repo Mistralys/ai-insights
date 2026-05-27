@@ -1,4 +1,10 @@
 # MCP Server - Manifest (Tech Stack)
+<INSTRUCTION>
+# MCP Server - Manifest: Tech Stack
+Runtime, frameworks, architectural patterns, build tooling, and testing conventions for the MCP server.
+
+</INSTRUCTION>
+------------------------------------------------------------
 ```
 // Structure of documents
 └── mcp-server/
