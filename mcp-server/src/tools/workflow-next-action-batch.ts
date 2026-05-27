@@ -39,6 +39,10 @@ import { computeHandoffStatus } from './workflow-handoff.js';
  * When `opts.store`, `opts.rootIndex`, and `opts.wpDetails` are all provided, they
  * are forwarded to `computeHandoffStatus` to avoid redundant disk reads — the handoff
  * computation reuses the already-loaded data instead of creating a new LedgerStore.
+ *
+ * If the embedded handoff_status contains an `auto_handoff` entry, the action is
+ * promoted from `WAIT` to `INVOKE_AGENT` — the current agent's work is complete and
+ * it should immediately invoke the next agent using `auto_handoff.prompt`.
  * @internal — exposed via _internal for unit tests
  */
 export async function embedHandoffStatusInWait(
@@ -63,6 +67,13 @@ export async function embedHandoffStatusInWait(
     payload['handoff_status'] = await computeHandoffStatus(projectPath, agentRole, opts);
   } catch (err) {
     payload['handoff_status_error'] = (err as Error).message;
+  }
+
+  // Promote WAIT → INVOKE_AGENT when the handoff includes an auto_handoff entry.
+  // WAIT means "genuinely blocked/waiting"; INVOKE_AGENT means "work complete — invoke next agent now".
+  const hs = payload['handoff_status'] as Record<string, unknown> | undefined;
+  if (hs?.['auto_handoff'] !== undefined) {
+    payload['action'] = 'INVOKE_AGENT';
   }
 
   return {

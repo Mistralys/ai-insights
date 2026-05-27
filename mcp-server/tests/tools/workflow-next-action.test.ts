@@ -1572,7 +1572,8 @@ describe('getNextAction — handoff_status embedded in WAIT responses', () => {
         const result = await parseResult(
           _internal.getNextAction({ project_path: PLAN_PATH, agent_role: 'Developer' })
         );
-        expect(result.action).toBe('WAIT');
+        // auto_handoff is present → action is promoted from WAIT to INVOKE_AGENT
+        expect(result.action).toBe('INVOKE_AGENT');
         expect(result.handoff_status).toBeDefined();
         // next_agent is present at the handoff_status level
         expect(result.handoff_status.next_agent).toBe('QA');
