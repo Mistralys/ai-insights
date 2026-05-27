@@ -22,32 +22,145 @@ documents:
           - README.md
         filePattern: "README.md"
 
-  - description: 'MCP Server - Manifest'
-    outputPath: 'mcp-server/manifest.md'
+  - description: 'MCP Server - Manifest (README)'
+    outputPath: 'mcp-server/manifest-readme.md'
     sources:
       - type: file
-        description: "Public Interfaces and APIs"
-        sourcePaths:
-          - docs/agents/project-manifest
-        filePattern: "*.md"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "README.md"
 
-  - description: 'MCP Server - Workflow Specification'
-    outputPath: 'mcp-server/workflow-specification.md'
+  - description: 'MCP Server - Manifest (API Surface)'
+    outputPath: 'mcp-server/manifest-api-surface.md'
     sources:
       - type: file
-        description: "Workflow logic: state machines, routing, handoffs, edge cases"
-        sourcePaths:
-          - docs/agents/workflow-specification
-        filePattern: "*.md"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "api-surface.md"
 
-  - description: 'MCP Server - Source (Tools)'
-    outputPath: 'mcp-server/source-tools.md'
+  - description: 'MCP Server - Manifest (Constraints)'
+    outputPath: 'mcp-server/manifest-constraints.md'
     sources:
       - type: file
-        description: "MCP tool handler implementations"
-        sourcePaths:
-          - src/tools
-        filePattern: "*.ts"
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "constraints.md"
+
+  - description: 'MCP Server - Manifest (Tech Stack)'
+    outputPath: 'mcp-server/manifest-tech-stack.md'
+    sources:
+      - type: file
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "tech-stack.md"
+
+  - description: 'MCP Server - Manifest (Data Flows)'
+    outputPath: 'mcp-server/manifest-data-flows.md'
+    sources:
+      - type: file
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "data-flows.md"
+
+  - description: 'MCP Server - Manifest (File Tree)'
+    outputPath: 'mcp-server/manifest-file-tree.md'
+    sources:
+      - type: file
+        sourcePaths: [ docs/agents/project-manifest ]
+        filePattern: "file-tree.md"
+
+  - description: 'MCP Server - Workflow Spec (State & Data)'
+    outputPath: 'mcp-server/workflow-spec-state.md'
+    sources:
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "README.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "state-machines.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "data-model.md"
+
+  - description: 'MCP Server - Workflow Spec (Operations & Routing)'
+    outputPath: 'mcp-server/workflow-spec-operations.md'
+    sources:
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "operations.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "pipeline-routing.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "handoff.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "walkthrough.md"
+
+  - description: 'MCP Server - Workflow Spec (Edge Cases & Guidance)'
+    outputPath: 'mcp-server/workflow-spec-edge-cases.md'
+    sources:
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "edge-cases.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "dependencies-and-rework.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "auxiliary-systems.md"
+      - type: file
+        sourcePaths: [ docs/agents/workflow-specification ]
+        filePattern: "recommendations.md"
+
+  - description: 'MCP Server - Source (Tools: Project)'
+    outputPath: 'mcp-server/source-tools-project.md'
+    sources:
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "project-lifecycle.ts"
+
+  - description: 'MCP Server - Source (Tools: Work Package)'
+    outputPath: 'mcp-server/source-tools-workpackage.md'
+    sources:
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "work-package.ts"
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "begin-work.ts"
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "observations.ts"
+
+  - description: 'MCP Server - Source (Tools: Pipeline)'
+    outputPath: 'mcp-server/source-tools-pipeline.md'
+    sources:
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "pipeline.ts"
+
+  - description: 'MCP Server - Source (Tools: Workflow)'
+    outputPath: 'mcp-server/source-tools-workflow.md'
+    sources:
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "workflow.ts"
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "workflow-handoff.ts"
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "workflow-next-action.ts"
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "workflow-next-action-batch.ts"
+
+  - description: 'MCP Server - Source (Tools: Help)'
+    outputPath: 'mcp-server/source-tools-help.md'
+    sources:
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "help.ts"
+      - type: file
+        sourcePaths: [ src/tools ]
+        filePattern: "help-content.ts"
 
   - description: 'MCP Server - Source (Storage & Schema)'
     outputPath: 'mcp-server/source-storage.md'
@@ -80,12 +193,14 @@ documents:
   - description: 'MCP Server - Tests'
     outputPath: 'mcp-server/tests.md'
     sources:
-      - type: file
-        description: "Test suite (unit, integration)"
+      - type: tree
+        description: 'Test suite directory structure'
         sourcePaths:
           - tests
-        filePattern: "*.ts"
-        excludePatterns:
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 4
+        notPath:
           - 'helpers/'
 
   - description: 'MCP Server - File Structure'

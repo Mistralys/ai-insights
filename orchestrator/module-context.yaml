@@ -98,10 +98,12 @@ documents:
   - description: 'Orchestrator - Tests'
     outputPath: 'orchestrator/tests.md'
     sources:
-      - type: file
-        description: "Test suite (unit, integration, live marks)"
+      - type: tree
+        description: 'Test suite directory structure'
         sourcePaths:
           - tests
-        filePattern: "*.py"
-        excludePatterns:
+        filePattern: '*'
+        renderFormat: ascii
+        maxDepth: 3
+        notPath:
           - '__pycache__/'
