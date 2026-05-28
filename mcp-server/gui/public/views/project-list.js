@@ -254,6 +254,17 @@ function renderProjectList(app) {
     var statusCounts = envelope.status_counts || {};
     var runnerCounts = envelope.runner_counts || {};
 
+    // Preserve search input focus state across DOM rebuild
+    var searchHadFocus = false;
+    var searchSelStart = 0;
+    var searchSelEnd = 0;
+    var prevSearchEl = document.getElementById('project-search');
+    if (prevSearchEl && document.activeElement === prevSearchEl) {
+      searchHadFocus = true;
+      searchSelStart = prevSearchEl.selectionStart || 0;
+      searchSelEnd = prevSearchEl.selectionEnd || 0;
+    }
+
     app.innerHTML =
       '<div class="page-header">' +
         '<h1>Projects</h1>' +
@@ -337,6 +348,12 @@ function renderProjectList(app) {
           load();
         }, 300);
       });
+
+      // Restore focus and cursor position if search was active before re-render
+      if (searchHadFocus) {
+        searchEl.focus();
+        searchEl.setSelectionRange(searchSelStart, searchSelEnd);
+      }
     }
 
     // Pagination buttons

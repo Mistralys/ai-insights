@@ -354,7 +354,7 @@ function renderOrchestrator(app) {
       } else if (entry.projectExists === true && entry.expectedSlug) {
         var link = document.createElement('a');
         link.href = '#/projects/' + encodeURIComponent(entry.expectedSlug);
-        link.className = 'btn btn-sm btn-secondary orch-project-link';
+        link.className = 'btn btn-sm btn-secondary orch-queue-action-btn';
         link.textContent = 'View Project';
         cell.appendChild(link);
       }

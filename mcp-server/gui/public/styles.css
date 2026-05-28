@@ -343,6 +343,7 @@ th.sort-desc::after {
 
 .btn:hover {
   opacity: 0.85;
+  text-decoration: none;
 }
 
 .btn-primary {
@@ -366,6 +367,7 @@ th.sort-desc::after {
 .btn-sm {
   padding: 4px 10px;
   font-size: 12px;
+  line-height: 1;
 }
 
 /* ----------------------------------------------------------
@@ -2242,8 +2244,12 @@ th[data-sort="total_work_packages"] {
   white-space: nowrap;
 }
 
-.orch-project-link {
-  font-size: 12px;
+/* Shared class for secondary action buttons in the run queue (Dismiss, View Project).
+   Normalises rendering so <a> and <button> look identical. */
+.orch-queue-action-btn {
+  line-height: 1;
+  font-weight: 500;
+  font-family: inherit;
 }
 
 .orch-row-pending  { /* no tint */ }
@@ -2383,8 +2389,8 @@ th[data-sort="total_work_packages"] {
 
 /* Kill/Dismiss buttons — visual handled by .btn.btn-danger/.btn-secondary,
    these selectors exist only so all class names referenced in markup resolve. */
-.orchestrator-kill-btn { /* no extra rules */ }
-.orchestrator-dismiss-btn { /* no extra rules */ }
+.orchestrator-kill-btn  { /* no extra rules */ }
+.orchestrator-dismiss-btn { /* no extra rules — inherits .orch-queue-action-btn */ }
 
 /* Log preview entries (appended by OrchestratorWidgets.renderLogPreview) */
 .log-preview-entry {

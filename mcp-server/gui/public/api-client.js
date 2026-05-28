@@ -94,6 +94,6 @@ var API = (function () {
     orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
-    orchestratorDismiss:     function (id)               { return request('DELETE', '/orchestrator/queue/'      + encodeURIComponent(id)); },
+    orchestratorDismiss:     function (id)               { return request('POST',   '/orchestrator/dismiss/'    + encodeURIComponent(id)); },
   };
 })();
