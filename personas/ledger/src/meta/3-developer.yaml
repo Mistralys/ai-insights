@@ -38,6 +38,8 @@ mcp_tools:
     purpose: "Add a Code Insight observation to a completed pipeline (use when you discover something after calling `ledger_complete_pipeline`)."
   - tool: ledger_get_work_package
     purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
+  - tool: ledger_search_insights
+    purpose: "Search knowledge store for coding principles and patterns relevant to the current implementation."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
