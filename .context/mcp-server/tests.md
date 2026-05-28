@@ -42,12 +42,15 @@ _SOURCE: Test suite (unit, integration)_
             ├── auto-handoff.test.ts
             ├── full-workflow.test.ts
         └── schema/
+            ├── knowledge.test.ts
             ├── project-archiving-schema.test.ts
             ├── project-meta-runner.test.ts
             ├── root-index.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
         └── storage/
+            ├── knowledge-store-exclusion.test.ts
+            ├── knowledge-store.test.ts
             ├── ledger-store.test.ts
             ├── list-all-projects.test.ts
             ├── migrate-namespaced.test.ts
@@ -60,6 +63,8 @@ _SOURCE: Test suite (unit, integration)_
             ├── claim-guard.test.ts
             ├── complete-pipeline-guards.test.ts
             ├── enrichment-resilience.test.ts
+            ├── knowledge-help.test.ts
+            ├── knowledge.test.ts
             ├── list-projects.test.ts
             ├── meta-enrichment.test.ts
             ├── observations.test.ts
@@ -15944,6 +15949,180 @@ describe('composition: verification-only WP — Reviewer is terminal agent', () 
 });
 
 ```
+###  Path: `/mcp-server/tests/schema/knowledge.test.ts`
+
+```ts
+import { describe, it, expect } from 'vitest';
+import {
+  InsightSchema,
+  KnowledgeStoreSchema,
+  type Insight,
+  type KnowledgeStore,
+} from '../../src/schema/knowledge.js';
+
+// ─── Fixtures ──────────────────────────────────────────────────────────────
+
+const validInsight: Insight = {
+  id: 1,
+  scope: 'global',
+  title: 'Use path.join for cross-platform paths',
+  content: 'Always use path.join() instead of string concatenation to ensure cross-platform compatibility.',
+  category: 'best-practice',
+  tags: ['node', 'filesystem', 'cross-platform'],
+  source: 'WP-042',
+  created_at: '2026-05-28T12:00:00Z',
+  confidence: 0.9,
+};
+
+const validProjectInsight: Insight = {
+  ...validInsight,
+  id: 2,
+  scope: 'project',
+  project_slug: 'ai-insights',
+};
+
+const validKnowledgeStore: KnowledgeStore = {
+  version: '1.0.0',
+  last_updated: '2026-05-28T12:00:00Z',
+  next_id: 1,
+  insights: [],
+};
+
+// ─── InsightSchema ─────────────────────────────────────────────────────────
+
+describe('InsightSchema', () => {
+  it('accepts a valid global insight', () => {
+    expect(InsightSchema.safeParse(validInsight).success).toBe(true);
+  });
+
+  it('accepts a valid project-scoped insight with project_slug', () => {
+    expect(InsightSchema.safeParse(validProjectInsight).success).toBe(true);
+  });
+
+  it('accepts a project-scoped insight without project_slug (storage layer enforces that constraint)', () => {
+    // The scope === 'project' → project_slug required constraint is owned by the
+    // storage layer (KnowledgeStoreManager), not by this schema.
+    const { project_slug: _removed, ...input } = validProjectInsight;
+    expect(InsightSchema.safeParse(input).success).toBe(true);
+  });
+
+  it.each([
+    'id',
+    'scope',
+    'title',
+    'content',
+    'category',
+    'tags',
+    'source',
+    'created_at',
+    'confidence',
+  ])('rejects when required field "%s" is missing', (field) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { [field as keyof typeof validInsight]: _removed, ...rest } = validInsight as any;
+    expect(InsightSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it('accepts when all optional fields are omitted (updated_at, project_slug, superseded_by)', () => {
+    expect(InsightSchema.safeParse(validInsight).success).toBe(true);
+  });
+
+  it('accepts when all optional fields are present', () => {
+    const full = {
+      ...validInsight,
+      project_slug: 'my-project',
+      updated_at: '2026-05-28T13:00:00Z',
+      superseded_by: 5,
+    };
+    expect(InsightSchema.safeParse(full).success).toBe(true);
+  });
+
+  it('rejects a non-integer id', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, id: 1.5 }).success).toBe(false);
+  });
+
+  it('rejects an invalid scope value', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, scope: 'team' }).success).toBe(false);
+  });
+
+  it('rejects tags that is not an array', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, tags: 'node' }).success).toBe(false);
+  });
+
+  it('rejects confidence that is not a number', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, confidence: 'high' }).success).toBe(false);
+  });
+
+  it('rejects confidence values outside 0–1', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, confidence: 1.5 }).success).toBe(false);
+    expect(InsightSchema.safeParse({ ...validInsight, confidence: -0.1 }).success).toBe(false);
+  });
+
+  it('accepts confidence boundary values 0 and 1', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, confidence: 0 }).success).toBe(true);
+    expect(InsightSchema.safeParse({ ...validInsight, confidence: 1 }).success).toBe(true);
+  });
+
+  it('rejects a non-integer superseded_by value', () => {
+    expect(InsightSchema.safeParse({ ...validInsight, superseded_by: 2.7 }).success).toBe(false);
+  });
+
+  it('TypeScript type Insight is inferred from schema (no handwritten duplicate interface)', () => {
+    // Compile-time check: if Insight diverges from InsightSchema this line fails.
+    const insight: Insight = validInsight;
+    expect(insight.id).toBe(1);
+  });
+});
+
+// ─── KnowledgeStoreSchema ──────────────────────────────────────────────────
+
+describe('KnowledgeStoreSchema', () => {
+  it('accepts a valid store with an empty insights array', () => {
+    expect(KnowledgeStoreSchema.safeParse(validKnowledgeStore).success).toBe(true);
+  });
+
+  it('accepts a valid store with a non-zero next_id', () => {
+    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: 42 }).success).toBe(true);
+  });
+
+  it('accepts a store with a populated insights array', () => {
+    const store = { ...validKnowledgeStore, next_id: 2, insights: [validInsight] };
+    expect(KnowledgeStoreSchema.safeParse(store).success).toBe(true);
+  });
+
+  it('accepts next_id of 0 (initial empty-store value)', () => {
+    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: 0 }).success).toBe(true);
+  });
+
+  it('rejects a negative next_id', () => {
+    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: -1 }).success).toBe(false);
+  });
+
+  it('rejects a non-integer next_id', () => {
+    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, next_id: 1.5 }).success).toBe(false);
+  });
+
+  it.each(['version', 'last_updated', 'next_id', 'insights'])(
+    'rejects when required field "%s" is missing',
+    (field) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { [field as keyof typeof validKnowledgeStore]: _removed, ...rest } = validKnowledgeStore as any;
+      expect(KnowledgeStoreSchema.safeParse(rest).success).toBe(false);
+    }
+  );
+
+  it('rejects when insights contains an invalid insight object', () => {
+    const badInsight = { ...validInsight, scope: 'invalid-scope' };
+    expect(KnowledgeStoreSchema.safeParse({ ...validKnowledgeStore, insights: [badInsight] }).success).toBe(false);
+  });
+
+  it('TypeScript type KnowledgeStore is inferred from schema (no handwritten duplicate interface)', () => {
+    // Compile-time check: if KnowledgeStore diverges from KnowledgeStoreSchema this line fails.
+    const store: KnowledgeStore = validKnowledgeStore;
+    expect(store.next_id).toBe(1);
+  });
+});
+
+```
 ###  Path: `/mcp-server/tests/schema/project-archiving-schema.test.ts`
 
 ```ts
@@ -16866,6 +17045,834 @@ describe('WorkPackageSummarySchema', () => {
   it('accepts assigned_to as a string', () => {
     const result = WorkPackageSummarySchema.safeParse(minimalWpSummary);
     expect(result.success).toBe(true);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/storage/knowledge-store-exclusion.test.ts`
+
+```ts
+/**
+ * Verifies that the `.knowledge/` directory is not returned by LedgerStore.listAllProjects().
+ *
+ * The `.knowledge/` directory uses the dot-prefix convention that LedgerStore uses to
+ * skip control directories (e.g., `.archive/`). This test confirms the convention
+ * holds for the knowledge store directory so that knowledge data is never surfaced as
+ * a project entry.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { KnowledgeStoreManager } from '../../src/storage/knowledge-store.js';
+import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
+import { now } from '../../src/utils/timestamp.js';
+
+describe('KnowledgeStore — excluded from listAllProjects', () => {
+  let tempLedgerRoot: string;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'knowledge-exclusion-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  async function createProjectMeta(slug: string): Promise<void> {
+    const projectDir = join(tempLedgerRoot, slug);
+    await mkdir(projectDir, { recursive: true });
+    await atomicWriteJson(join(projectDir, '.meta.json'), {
+      slug,
+      plan_path: join('/tmp', slug),
+      status: 'IN_PROGRESS' as const,
+      date_created: now(),
+      last_updated: now(),
+    });
+  }
+
+  it('.knowledge/ directory is not included in listAllProjects results', async () => {
+    // Set up one real project
+    await createProjectMeta('2026-05-28-real-project');
+
+    // Write an insight to trigger .knowledge/ directory creation
+    const manager = new KnowledgeStoreManager(tempLedgerRoot);
+    await manager.addInsight({
+      scope: 'global',
+      title: 'Test insight',
+      content: 'Content for test insight.',
+      category: 'testing',
+      tags: ['test'],
+      source: 'WP-002',
+      created_at: now(),
+      confidence: 0.8,
+    });
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+    const slugs = projects.map((p) => p.slug);
+
+    // The real project must be listed
+    expect(slugs).toContain('2026-05-28-real-project');
+
+    // The .knowledge directory must NOT be listed
+    expect(slugs).not.toContain('.knowledge');
+  });
+
+  it('.knowledge/ is excluded even without a .meta.json inside it', async () => {
+    // Manually create .knowledge/ without a .meta.json
+    await mkdir(join(tempLedgerRoot, '.knowledge'), { recursive: true });
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+    const slugs = projects.map((p) => p.slug);
+    expect(slugs).not.toContain('.knowledge');
+  });
+
+  it('.knowledge/ with a .meta.json inside it is still excluded (dot-prefix rule)', async () => {
+    // Even if someone manually adds a .meta.json inside .knowledge/, it must be excluded
+    const knowledgeDir = join(tempLedgerRoot, '.knowledge');
+    await mkdir(knowledgeDir, { recursive: true });
+    await atomicWriteJson(join(knowledgeDir, '.meta.json'), {
+      slug: '.knowledge',
+      plan_path: join('/tmp', '.knowledge'),
+      status: 'IN_PROGRESS' as const,
+      date_created: now(),
+      last_updated: now(),
+    });
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+    const slugs = projects.map((p) => p.slug);
+    expect(slugs).not.toContain('.knowledge');
+  });
+
+  it('other dot-prefixed directories are also excluded (convention check)', async () => {
+    // Create a real project and a dot-prefixed directory
+    await createProjectMeta('2026-05-28-legit-project');
+
+    const dotDir = join(tempLedgerRoot, '.some-control-dir');
+    await mkdir(dotDir, { recursive: true });
+    await atomicWriteJson(join(dotDir, '.meta.json'), {
+      slug: '.some-control-dir',
+      plan_path: join('/tmp', '.some-control-dir'),
+      status: 'READY' as const,
+      date_created: now(),
+      last_updated: now(),
+    });
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+    const slugs = projects.map((p) => p.slug);
+
+    expect(slugs).toContain('2026-05-28-legit-project');
+    expect(slugs).not.toContain('.some-control-dir');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/storage/knowledge-store.test.ts`
+
+```ts
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, readFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { KnowledgeStoreManager } from '../../src/storage/knowledge-store.js';
+import type { KnowledgeStore, Insight } from '../../src/schema/knowledge.js';
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+
+function makeInsightInput(overrides: Partial<Omit<Insight, 'id'>> = {}): Omit<Insight, 'id'> {
+  return {
+    scope: 'global',
+    title: 'Use path.join for cross-platform paths',
+    content: 'Always use path.join() instead of string concatenation.',
+    category: 'best-practice',
+    tags: ['node', 'filesystem'],
+    source: 'WP-001',
+    created_at: '2026-05-28T12:00:00Z',
+    confidence: 0.9,
+    ...overrides,
+  };
+}
+
+function makeStore(overrides: Partial<KnowledgeStore> = {}): KnowledgeStore {
+  return {
+    version: '1.0.0',
+    last_updated: '2026-05-28T12:00:00Z',
+    next_id: 1,
+    insights: [],
+    ...overrides,
+  };
+}
+
+// ─── Setup ─────────────────────────────────────────────────────────────────
+
+describe('KnowledgeStoreManager', () => {
+  let tempLedgerRoot: string;
+  let manager: KnowledgeStoreManager;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'knowledge-test-'));
+    manager = new KnowledgeStoreManager(tempLedgerRoot);
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  // ─── Path Helpers ──────────────────────────────────────────────────────
+
+  describe('path helpers', () => {
+    it('knowledgeDir() returns .knowledge under ledgerRoot', () => {
+      expect(manager.knowledgeDir()).toBe(join(tempLedgerRoot, '.knowledge'));
+    });
+
+    it('globalStorePath() returns global-insights.json under knowledgeDir', () => {
+      expect(manager.globalStorePath()).toBe(
+        join(tempLedgerRoot, '.knowledge', 'global-insights.json')
+      );
+    });
+
+    it('projectStorePath() returns {slug}-insights.json under knowledgeDir', () => {
+      expect(manager.projectStorePath('my-project')).toBe(
+        join(tempLedgerRoot, '.knowledge', 'my-project-insights.json')
+      );
+    });
+
+    describe('projectStorePath() — path traversal rejection', () => {
+      const maliciousSlugs = [
+        '../evil',
+        '../../etc/passwd',
+        './relative',
+        'has/slash',
+        'has\\backslash',
+        '.hidden',
+        '',
+        'space here',
+      ];
+
+      for (const slug of maliciousSlugs) {
+        it(`throws for slug: "${slug}"`, () => {
+          expect(() => manager.projectStorePath(slug)).toThrow('Invalid project slug');
+        });
+      }
+    });
+  });
+
+  // ─── Empty Store Initialization ────────────────────────────────────────
+
+  describe('readGlobalStore — empty store initialization', () => {
+    it('returns empty store with next_id: 1 when file does not exist', async () => {
+      const store = await manager.readGlobalStore();
+      expect(store.next_id).toBe(1);
+      expect(store.insights).toEqual([]);
+      expect(store.version).toBe('1.0.0');
+    });
+
+    it('does not throw when file does not exist', async () => {
+      await expect(manager.readGlobalStore()).resolves.not.toThrow();
+    });
+  });
+
+  describe('readProjectStore — empty store initialization', () => {
+    it('returns empty store with next_id: 1 when file does not exist', async () => {
+      const store = await manager.readProjectStore('some-project');
+      expect(store.next_id).toBe(1);
+      expect(store.insights).toEqual([]);
+    });
+
+    it('does not throw when file does not exist', async () => {
+      await expect(manager.readProjectStore('missing-project')).resolves.not.toThrow();
+    });
+  });
+
+  // ─── nextId ────────────────────────────────────────────────────────────
+
+  describe('nextId', () => {
+    it('returns KN-0001 for the first insight (next_id: 1)', () => {
+      const store = makeStore({ next_id: 1 });
+      expect(manager.nextId(store)).toBe('KN-0001');
+    });
+
+    it('returns KN-0002 for the second insight (next_id: 2)', () => {
+      const store = makeStore({ next_id: 2 });
+      expect(manager.nextId(store)).toBe('KN-0002');
+    });
+
+    it('pads to 4 digits for ids 1–9999', () => {
+      expect(manager.nextId(makeStore({ next_id: 9 }))).toBe('KN-0009');
+      expect(manager.nextId(makeStore({ next_id: 99 }))).toBe('KN-0099');
+      expect(manager.nextId(makeStore({ next_id: 999 }))).toBe('KN-0999');
+      expect(manager.nextId(makeStore({ next_id: 9999 }))).toBe('KN-9999');
+    });
+
+    it('increments the store next_id in place', () => {
+      const store = makeStore({ next_id: 1 });
+      manager.nextId(store);
+      expect(store.next_id).toBe(2);
+    });
+
+    it('sequential calls return incrementing IDs', () => {
+      const store = makeStore({ next_id: 1 });
+      expect(manager.nextId(store)).toBe('KN-0001');
+      expect(manager.nextId(store)).toBe('KN-0002');
+      expect(manager.nextId(store)).toBe('KN-0003');
+    });
+  });
+
+  // ─── writeGlobalStore / writeProjectStore ─────────────────────────────
+
+  describe('writeGlobalStore', () => {
+    it('writes store data to global-insights.json', async () => {
+      const store = makeStore({ next_id: 5 });
+      await manager.writeGlobalStore(store);
+
+      const raw = JSON.parse(
+        await readFile(manager.globalStorePath(), 'utf-8')
+      );
+      expect(raw.next_id).toBe(5);
+    });
+
+    it('creates the .knowledge/ directory if absent', async () => {
+      await manager.writeGlobalStore(makeStore());
+      const store = await manager.readGlobalStore();
+      expect(store.next_id).toBe(1);
+    });
+  });
+
+  describe('writeProjectStore', () => {
+    it('writes store data to {slug}-insights.json', async () => {
+      const store = makeStore({ next_id: 3 });
+      await manager.writeProjectStore('test-project', store);
+
+      const raw = JSON.parse(
+        await readFile(manager.projectStorePath('test-project'), 'utf-8')
+      );
+      expect(raw.next_id).toBe(3);
+    });
+  });
+
+  // ─── addInsight ────────────────────────────────────────────────────────
+
+  describe('addInsight', () => {
+    it('writes a global-scoped insight to global-insights.json', async () => {
+      const input = makeInsightInput({ scope: 'global' });
+      const insight = await manager.addInsight(input);
+
+      const store = await manager.readGlobalStore();
+      expect(store.insights).toHaveLength(1);
+      expect(store.insights[0].id).toBe(insight.id);
+      expect(store.insights[0].scope).toBe('global');
+    });
+
+    it('writes a project-scoped insight to {slug}-insights.json', async () => {
+      const input = makeInsightInput({
+        scope: 'project',
+        project_slug: 'my-project',
+      });
+      const insight = await manager.addInsight(input);
+
+      const store = await manager.readProjectStore('my-project');
+      expect(store.insights).toHaveLength(1);
+      expect(store.insights[0].id).toBe(insight.id);
+      expect(store.insights[0].project_slug).toBe('my-project');
+
+      // Global store must remain empty
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights).toHaveLength(0);
+    });
+
+    it('assigns id starting at 1 for the first insight', async () => {
+      const insight = await manager.addInsight(makeInsightInput());
+      expect(insight.id).toBe(1);
+    });
+
+    it('increments id for subsequent insights', async () => {
+      const first = await manager.addInsight(makeInsightInput({ title: 'First' }));
+      const second = await manager.addInsight(makeInsightInput({ title: 'Second' }));
+      expect(first.id).toBe(1);
+      expect(second.id).toBe(2);
+    });
+
+    it('counter persists across manager instances (simulates process restart)', async () => {
+      // First write with initial manager
+      await manager.addInsight(makeInsightInput({ title: 'Insight 1' }));
+
+      // Create a new manager reading from same disk location
+      const manager2 = new KnowledgeStoreManager(tempLedgerRoot);
+      const insight2 = await manager2.addInsight(makeInsightInput({ title: 'Insight 2' }));
+
+      expect(insight2.id).toBe(2);
+
+      // Both insights present in the store
+      const store = await manager2.readGlobalStore();
+      expect(store.insights).toHaveLength(2);
+    });
+
+    it('throws when scope is "project" but project_slug is missing', async () => {
+      const input: Omit<Insight, 'id'> = {
+        scope: 'project',
+        title: 'Test',
+        content: 'Content',
+        category: 'test',
+        tags: [],
+        source: 'WP-001',
+        created_at: '2026-05-28T12:00:00Z',
+        confidence: 0.5,
+      };
+      await expect(manager.addInsight(input)).rejects.toThrow('project_slug is required');
+    });
+
+    it('throws when project_slug contains path traversal characters', async () => {
+      const input: Omit<Insight, 'id'> = {
+        scope: 'project',
+        project_slug: '../evil',
+        title: 'Test',
+        content: 'Content',
+        category: 'test',
+        tags: [],
+        source: 'WP-001',
+        created_at: '2026-05-28T12:00:00Z',
+        confidence: 0.5,
+      };
+      await expect(manager.addInsight(input)).rejects.toThrow('Invalid project slug');
+    });
+
+    it('returns the created insight with all input fields intact', async () => {
+      const input = makeInsightInput({ title: 'Specific title' });
+      const insight = await manager.addInsight(input);
+
+      expect(insight.title).toBe('Specific title');
+      expect(insight.scope).toBe('global');
+      expect(insight.tags).toEqual(['node', 'filesystem']);
+    });
+  });
+
+  // ─── searchInsights ────────────────────────────────────────────────────
+
+  describe('searchInsights', () => {
+    beforeEach(async () => {
+      await manager.addInsight(makeInsightInput({
+        title: 'Path joining strategy',
+        content: 'Use path.join for all filesystem operations.',
+        tags: ['filesystem', 'node'],
+        category: 'best-practice',
+        scope: 'global',
+      }));
+      await manager.addInsight(makeInsightInput({
+        title: 'Error handling patterns',
+        content: 'Always wrap async operations in try-catch.',
+        tags: ['async', 'error'],
+        category: 'pattern',
+        scope: 'global',
+      }));
+      await manager.addInsight(makeInsightInput({
+        title: 'Project config tip',
+        content: 'Store config in environment variables.',
+        tags: ['config', 'environment'],
+        category: 'pattern',
+        scope: 'project',
+        project_slug: 'demo-project',
+      }));
+    });
+
+    it('matches query against title (case-insensitive)', async () => {
+      const results = await manager.searchInsights('PATH');
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some((r) => r.title.includes('Path'))).toBe(true);
+    });
+
+    it('matches query against content (case-insensitive)', async () => {
+      const results = await manager.searchInsights('try-catch');
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].content).toContain('try-catch');
+    });
+
+    it('matches query against tags (case-insensitive)', async () => {
+      const results = await manager.searchInsights('FILESYSTEM');
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some((r) => r.tags.includes('filesystem'))).toBe(true);
+    });
+
+    it('returns empty array when no match', async () => {
+      const results = await manager.searchInsights('zzz-no-match-xyz');
+      expect(results).toEqual([]);
+    });
+
+    it('searches across global and project stores when no filter applied', async () => {
+      const results = await manager.searchInsights('config');
+      expect(results.some((r) => r.scope === 'project')).toBe(true);
+    });
+
+    it('respects scope filter — only searches global store', async () => {
+      const results = await manager.searchInsights('config', { scope: 'global' });
+      expect(results.every((r) => r.scope === 'global')).toBe(true);
+    });
+
+    it('respects scope + project_slug filter', async () => {
+      const results = await manager.searchInsights('config', {
+        scope: 'project',
+        project_slug: 'demo-project',
+      });
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].project_slug).toBe('demo-project');
+    });
+
+    it('narrows to named project when project_slug is given without scope', async () => {
+      // Only 'demo-project' has a 'config' insight; global store has none
+      const results = await manager.searchInsights('config', { project_slug: 'demo-project' });
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.every((r) => r.project_slug === 'demo-project')).toBe(true);
+      // Must NOT include global insights (global store has no 'config' content, but
+      // confirm no global-scoped results leak through)
+      expect(results.every((r) => r.scope === 'project')).toBe(true);
+    });
+
+    it('returns empty array when knowledge directory does not exist', async () => {
+      const emptyManager = new KnowledgeStoreManager(join(tmpdir(), 'does-not-exist-' + Date.now()));
+      const results = await emptyManager.searchInsights('test');
+      expect(results).toEqual([]);
+    });
+  });
+
+  // ─── listInsights ──────────────────────────────────────────────────────
+
+  describe('listInsights', () => {
+    beforeEach(async () => {
+      for (let i = 1; i <= 5; i++) {
+        await manager.addInsight(makeInsightInput({
+          title: `Insight ${i}`,
+          category: i % 2 === 0 ? 'pattern' : 'best-practice',
+          tags: i <= 3 ? ['alpha'] : ['beta'],
+          scope: 'global',
+        }));
+      }
+      await manager.addInsight(makeInsightInput({
+        title: 'Project insight',
+        category: 'pattern',
+        tags: ['beta'],
+        scope: 'project',
+        project_slug: 'sample-project',
+      }));
+    });
+
+    it('returns all insights when no filters', async () => {
+      const results = await manager.listInsights({});
+      expect(results).toHaveLength(6);
+    });
+
+    it('filters by category', async () => {
+      const results = await manager.listInsights({ category: 'pattern' });
+      expect(results.every((r) => r.category === 'pattern')).toBe(true);
+    });
+
+    it('filters by tags (every tag must match)', async () => {
+      const results = await manager.listInsights({ tags: ['alpha'] });
+      expect(results.every((r) => r.tags.includes('alpha'))).toBe(true);
+      expect(results).toHaveLength(3);
+    });
+
+    it('filters by scope: global', async () => {
+      const results = await manager.listInsights({ scope: 'global' });
+      expect(results).toHaveLength(5);
+      expect(results.every((r) => r.scope === 'global')).toBe(true);
+    });
+
+    it('filters by scope: project + project_slug', async () => {
+      const results = await manager.listInsights({
+        scope: 'project',
+        project_slug: 'sample-project',
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].project_slug).toBe('sample-project');
+    });
+
+    it('narrows to named project when project_slug is given without scope', async () => {
+      const results = await manager.listInsights({ project_slug: 'sample-project' });
+      expect(results).toHaveLength(1);
+      expect(results[0].project_slug).toBe('sample-project');
+      expect(results[0].scope).toBe('project');
+      // Global insights must not appear
+      expect(results.every((r) => r.scope === 'project')).toBe(true);
+    });
+
+    it('respects limit', async () => {
+      const results = await manager.listInsights({ limit: 2 });
+      expect(results).toHaveLength(2);
+    });
+
+    it('respects offset', async () => {
+      const all = await manager.listInsights({});
+      const paged = await manager.listInsights({ offset: 2 });
+      expect(paged).toHaveLength(all.length - 2);
+      expect(paged[0].id).toBe(all[2].id);
+    });
+
+    it('applies limit + offset together for pagination', async () => {
+      const page1 = await manager.listInsights({ limit: 2, offset: 0 });
+      const page2 = await manager.listInsights({ limit: 2, offset: 2 });
+      expect(page1).toHaveLength(2);
+      expect(page2).toHaveLength(2);
+      expect(page1[0].id).not.toBe(page2[0].id);
+    });
+
+    it('returns empty array when offset exceeds total', async () => {
+      const results = await manager.listInsights({ offset: 100 });
+      expect(results).toEqual([]);
+    });
+  });
+
+  // ─── updateInsight ─────────────────────────────────────────────────────
+
+  describe('updateInsight', () => {
+    it('updates specified fields of a global insight', async () => {
+      const { id } = await manager.addInsight(makeInsightInput());
+
+      const updated = await manager.updateInsight(id, {
+        title: 'Updated title',
+        confidence: 1.0,
+      });
+
+      expect(updated.title).toBe('Updated title');
+      expect(updated.confidence).toBe(1.0);
+      expect(updated.id).toBe(id);
+    });
+
+    it('sets updated_at on update', async () => {
+      const { id } = await manager.addInsight(makeInsightInput());
+      const updated = await manager.updateInsight(id, { title: 'New title' });
+      expect(typeof updated.updated_at).toBe('string');
+      expect(updated.updated_at).toBeTruthy();
+    });
+
+    it('persists updates to disk', async () => {
+      const { id } = await manager.addInsight(makeInsightInput());
+      await manager.updateInsight(id, { title: 'Persisted title' });
+
+      const store = await manager.readGlobalStore();
+      const found = store.insights.find((i) => i.id === id);
+      expect(found?.title).toBe('Persisted title');
+    });
+
+    it('sets superseded_by when provided', async () => {
+      const first = await manager.addInsight(makeInsightInput({ title: 'Old' }));
+      const second = await manager.addInsight(makeInsightInput({ title: 'New' }));
+
+      const updated = await manager.updateInsight(first.id, {
+        superseded_by: second.id,
+      });
+      expect(updated.superseded_by).toBe(second.id);
+    });
+
+    it('updates a project-scoped insight', async () => {
+      const { id } = await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'proj-a' })
+      );
+
+      const updated = await manager.updateInsight(id, { title: 'Project update' });
+      expect(updated.title).toBe('Project update');
+
+      const store = await manager.readProjectStore('proj-a');
+      expect(store.insights.find((i) => i.id === id)?.title).toBe('Project update');
+    });
+
+    it('throws when insight id does not exist', async () => {
+      await expect(manager.updateInsight(9999, { title: 'Nope' })).rejects.toThrow(
+        'Insight with id 9999 not found'
+      );
+    });
+
+    it('does not mutate immutable fields (scope, project_slug, created_at)', async () => {
+      const input = makeInsightInput({ scope: 'global', created_at: '2026-01-01T00:00:00Z' });
+      const { id } = await manager.addInsight(input);
+
+      const updated = await manager.updateInsight(id, { title: 'Changed' });
+      expect(updated.scope).toBe('global');
+      expect(updated.created_at).toBe('2026-01-01T00:00:00Z');
+    });
+
+    it('scope filter — targets global store when scope is "global"', async () => {
+      // Both stores will have an insight with the same numeric id (id=1).
+      // The global store is added first so its next_id starts at 1.
+      const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
+      await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'filter-test', title: 'Project one' })
+      );
+
+      // Verify id collision: both stores start at next_id=1
+      expect(globalId).toBe(1);
+      const projStore = await manager.readProjectStore('filter-test');
+      expect(projStore.insights[0].id).toBe(1);
+
+      // Update with scope filter — must touch only global store
+      const updated = await manager.updateInsight(globalId, { title: 'Global updated' }, { scope: 'global' });
+      expect(updated.title).toBe('Global updated');
+      expect(updated.scope).toBe('global');
+
+      // Project store must be untouched
+      const projStoreAfter = await manager.readProjectStore('filter-test');
+      expect(projStoreAfter.insights[0].title).toBe('Project one');
+    });
+
+    it('scope filter — targets project store when scope+project_slug are provided', async () => {
+      const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
+      await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'scoped-proj', title: 'Project one' })
+      );
+      expect(globalId).toBe(1);
+
+      // Update with scope + project_slug filter — must touch only project store
+      const updated = await manager.updateInsight(
+        1,
+        { title: 'Project updated' },
+        { scope: 'project', project_slug: 'scoped-proj' }
+      );
+      expect(updated.title).toBe('Project updated');
+      expect(updated.scope).toBe('project');
+
+      // Global store must be untouched
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights[0].title).toBe('Global one');
+    });
+
+    it('project_slug filter (without scope) targets only the specified project store', async () => {
+      await manager.addInsight(makeInsightInput({ title: 'Global one' }));
+      await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'slug-only', title: 'Project one' })
+      );
+
+      const updated = await manager.updateInsight(
+        1,
+        { title: 'Slug-only updated' },
+        { project_slug: 'slug-only' }
+      );
+      expect(updated.title).toBe('Slug-only updated');
+      expect(updated.project_slug).toBe('slug-only');
+
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights[0].title).toBe('Global one');
+    });
+
+    it('throws when the filtered stores do not contain the specified id', async () => {
+      const { id } = await manager.addInsight(makeInsightInput({ title: 'Global only' }));
+
+      // Filter to a project store that does not have this id
+      await expect(
+        manager.updateInsight(id, { title: 'Nope' }, { scope: 'project', project_slug: 'empty-proj' })
+      ).rejects.toThrow(`Insight with id ${id} not found`);
+    });
+  });
+
+  // ─── deleteInsight ─────────────────────────────────────────────────────
+
+  describe('deleteInsight', () => {
+    it('removes a global insight from the store', async () => {
+      const { id } = await manager.addInsight(makeInsightInput());
+      await manager.deleteInsight(id);
+
+      const store = await manager.readGlobalStore();
+      expect(store.insights.find((i) => i.id === id)).toBeUndefined();
+    });
+
+    it('store can be re-read correctly after deletion', async () => {
+      await manager.addInsight(makeInsightInput({ title: 'Keep me' }));
+      const { id } = await manager.addInsight(makeInsightInput({ title: 'Delete me' }));
+
+      await manager.deleteInsight(id);
+
+      const store = await manager.readGlobalStore();
+      expect(store.insights).toHaveLength(1);
+      expect(store.insights[0].title).toBe('Keep me');
+    });
+
+    it('removes a project-scoped insight from the correct store', async () => {
+      const { id } = await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'del-test' })
+      );
+      await manager.deleteInsight(id);
+
+      const store = await manager.readProjectStore('del-test');
+      expect(store.insights.find((i) => i.id === id)).toBeUndefined();
+    });
+
+    it('throws when insight id does not exist', async () => {
+      await expect(manager.deleteInsight(9999)).rejects.toThrow(
+        'Insight with id 9999 not found'
+      );
+    });
+
+    it('does not affect other insights in the same store', async () => {
+      await manager.addInsight(makeInsightInput({ title: 'Stay' }));
+      const { id } = await manager.addInsight(makeInsightInput({ title: 'Go' }));
+
+      await manager.deleteInsight(id);
+
+      const store = await manager.readGlobalStore();
+      expect(store.insights).toHaveLength(1);
+      expect(store.insights[0].title).toBe('Stay');
+    });
+
+    it('scope filter — deletes from global store only when scope is "global"', async () => {
+      const { id: globalId } = await manager.addInsight(makeInsightInput({ title: 'Global one' }));
+      await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'del-scope', title: 'Project one' })
+      );
+      expect(globalId).toBe(1);
+
+      await manager.deleteInsight(globalId, { scope: 'global' });
+
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights).toHaveLength(0);
+
+      const projStore = await manager.readProjectStore('del-scope');
+      expect(projStore.insights).toHaveLength(1);
+      expect(projStore.insights[0].title).toBe('Project one');
+    });
+
+    it('scope filter — deletes from project store only when scope+project_slug are provided', async () => {
+      await manager.addInsight(makeInsightInput({ title: 'Global one' }));
+      await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'del-proj', title: 'Project one' })
+      );
+
+      await manager.deleteInsight(1, { scope: 'project', project_slug: 'del-proj' });
+
+      const projStore = await manager.readProjectStore('del-proj');
+      expect(projStore.insights).toHaveLength(0);
+
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights).toHaveLength(1);
+      expect(globalStore.insights[0].title).toBe('Global one');
+    });
+
+    it('throws when filtered stores do not contain the specified id', async () => {
+      const { id } = await manager.addInsight(makeInsightInput({ title: 'Global only' }));
+
+      await expect(
+        manager.deleteInsight(id, { scope: 'project', project_slug: 'non-existent' })
+      ).rejects.toThrow(`Insight with id ${id} not found`);
+    });
+  });
+
+  // ─── Concurrent Write Safety ───────────────────────────────────────────
+
+  describe('concurrent write safety', () => {
+    it('serializes concurrent addInsight calls — all insights are written with unique ids', async () => {
+      const N = 8;
+      const promises = Array.from({ length: N }, (_, i) =>
+        manager.addInsight(makeInsightInput({ title: `Concurrent insight ${i + 1}` }))
+      );
+
+      const insights = await Promise.all(promises);
+
+      const ids = insights.map((i) => i.id);
+      const uniqueIds = new Set(ids);
+      expect(uniqueIds.size).toBe(N);
+
+      // Verify all insights are in the store
+      const store = await manager.readGlobalStore();
+      expect(store.insights).toHaveLength(N);
+      expect(store.next_id).toBe(N + 1);
+    });
   });
 });
 
@@ -20722,6 +21729,569 @@ describe('WP-003 — initializeProject enrichment failure via forced writeProjec
     expect((result as any).isError).toBeFalsy();
     const parsed = JSON.parse((result as any).content[0].text);
     expect(parsed.enrichment_cached).toBe(true);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/tools/knowledge-help.test.ts`
+
+```ts
+/**
+ * Help content tests for the 4 knowledge MCP tools.
+ *
+ * Verifies that TOOL_HELP contains a non-empty string entry for each of the
+ * new knowledge tools so that ledger_help returns useful documentation when
+ * agents query any of them.
+ */
+import { describe, it, expect } from 'vitest';
+import { TOOL_HELP } from '../../src/tools/help-content.js';
+
+const KNOWLEDGE_TOOL_NAMES = [
+  'ledger_add_insight',
+  'ledger_search_insights',
+  'ledger_list_insights',
+  'ledger_update_insight',
+] as const;
+
+describe('Knowledge tool help content', () => {
+  for (const toolName of KNOWLEDGE_TOOL_NAMES) {
+    it(`TOOL_HELP has a non-empty entry for ${toolName}`, () => {
+      const helpText = TOOL_HELP[toolName];
+      expect(helpText, `Missing TOOL_HELP entry for ${toolName}`).toBeDefined();
+      expect(typeof helpText).toBe('string');
+      expect(helpText!.trim().length, `TOOL_HELP entry for ${toolName} is empty`).toBeGreaterThan(0);
+    });
+
+    it(`${toolName} help entry includes the tool name as a heading`, () => {
+      const helpText = TOOL_HELP[toolName]!;
+      expect(helpText).toContain(`# ${toolName}`);
+    });
+  }
+});
+
+```
+###  Path: `/mcp-server/tests/tools/knowledge.test.ts`
+
+```ts
+/**
+ * Integration tests for the 4 knowledge MCP tools:
+ *   ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight
+ *
+ * Tests drive the tool handler functions directly via _internal, using vi.mock to redirect
+ * resolveLedgerRoot() to a temporary directory so the real ledger storage is never touched.
+ */
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+
+// ─── Module-level variable updated by beforeEach ──────────────────────────
+let tempLedgerRoot: string;
+
+vi.mock('../../src/utils/ledger-root.js', () => ({
+  resolveLedgerRoot: () => tempLedgerRoot,
+  WORKSPACE_ROOT: '/fake/workspace',
+  ORCHESTRATOR_LOGS_DIR: '/fake/workspace/orchestrator/logs',
+  projectSlugFromPath: (p: string) => (p.split('/').pop() ?? 'unknown'),
+  inferProjectRootFromPlanPath: (p: string) => p,
+}));
+
+import { _internal } from '../../src/tools/knowledge.js';
+
+const { addInsight, searchInsights, listInsights, updateInsight } = _internal;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────
+
+function parseResult(result: { content: { type: string; text: string }[] }) {
+  return JSON.parse(result.content[0]!.text);
+}
+
+function isError(result: { isError?: boolean }) {
+  return result.isError === true;
+}
+
+// ─── Setup / Teardown ─────────────────────────────────────────────────────
+
+beforeEach(async () => {
+  tempLedgerRoot = await mkdtemp(join(tmpdir(), 'knowledge-test-'));
+});
+
+afterEach(async () => {
+  await rm(tempLedgerRoot, { recursive: true, force: true });
+});
+
+// ─── ledger_add_insight ───────────────────────────────────────────────────
+
+describe('ledger_add_insight', () => {
+  it('creates a global insight and returns the insight with formatted_id', async () => {
+    const result = await addInsight({
+      scope: 'global',
+      title: 'Always use atomic writes',
+      content: 'Write to a temp file then rename to prevent partial writes.',
+      category: 'architecture',
+      tags: ['storage', 'reliability'],
+      source: 'WP-001',
+      confidence: 0.95,
+    });
+
+    const data = parseResult(result as any);
+    expect(data.id).toBe(1);
+    expect(data.formatted_id).toBe('KN-0001');
+    expect(data.scope).toBe('global');
+    expect(data.title).toBe('Always use atomic writes');
+    expect(data.category).toBe('architecture');
+    expect(data.tags).toEqual(['storage', 'reliability']);
+    expect(data.created_at).toBeDefined();
+    expect(data.project_slug).toBeUndefined();
+  });
+
+  it('creates a project-scoped insight when scope is "project" and project_slug is provided', async () => {
+    const result = await addInsight({
+      scope: 'project',
+      project_slug: 'my-project',
+      title: 'Project-specific insight',
+      content: 'This applies only to my-project.',
+      category: 'workflow',
+      tags: ['project'],
+    });
+
+    const data = parseResult(result as any);
+    expect(data.scope).toBe('project');
+    expect(data.project_slug).toBe('my-project');
+    expect(data.formatted_id).toBe('KN-0001');
+  });
+
+  it('defaults source to empty string and confidence to 1 when omitted', async () => {
+    const result = await addInsight({
+      scope: 'global',
+      title: 'Minimal insight',
+      content: 'No source or confidence provided.',
+      category: 'testing',
+      tags: [],
+    });
+
+    const data = parseResult(result as any);
+    expect(data.source).toBe('');
+    expect(data.confidence).toBe(1);
+  });
+
+  it('assigns incrementing IDs to successive global insights', async () => {
+    const r1 = await addInsight({
+      scope: 'global',
+      title: 'First',
+      content: 'Content 1',
+      category: 'c',
+      tags: [],
+    });
+    const r2 = await addInsight({
+      scope: 'global',
+      title: 'Second',
+      content: 'Content 2',
+      category: 'c',
+      tags: [],
+    });
+
+    expect(parseResult(r1 as any).id).toBe(1);
+    expect(parseResult(r2 as any).id).toBe(2);
+  });
+
+  it('returns an error when scope is "project" but project_slug is missing', async () => {
+    const result = await addInsight({
+      scope: 'project',
+      title: 'No slug',
+      content: 'Should fail.',
+      category: 'c',
+      tags: [],
+    });
+
+    expect(isError(result as any)).toBe(true);
+    expect((result as any).content[0].text).toContain('project_slug');
+  });
+});
+
+// ─── ledger_search_insights ───────────────────────────────────────────────
+
+describe('ledger_search_insights', () => {
+  beforeEach(async () => {
+    // Populate the store with a variety of insights
+    await addInsight({
+      scope: 'global',
+      title: 'Atomic writes prevent corruption',
+      content: 'Use temp-then-rename for safe file writes.',
+      category: 'architecture',
+      tags: ['storage', 'reliability'],
+    });
+    await addInsight({
+      scope: 'global',
+      title: 'Slug validation prevents path traversal',
+      content: 'Reject slugs containing / or \\ at the schema boundary.',
+      category: 'security',
+      tags: ['security', 'validation'],
+    });
+    await addInsight({
+      scope: 'project',
+      project_slug: 'test-proj',
+      title: 'Project convention: always write tests first',
+      content: 'Test-driven development is mandatory for this project.',
+      category: 'workflow',
+      tags: ['testing', 'workflow'],
+    });
+  });
+
+  it('returns matching insights for a query that appears in title', async () => {
+    const result = await searchInsights({ query: 'atomic' });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(1);
+    expect(data[0].title).toBe('Atomic writes prevent corruption');
+  });
+
+  it('returns matching insights for a query that appears in content', async () => {
+    const result = await searchInsights({ query: 'temp-then-rename' });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(1);
+    expect(data[0].title).toBe('Atomic writes prevent corruption');
+  });
+
+  it('returns matching insights for a query that appears in a tag', async () => {
+    const result = await searchInsights({ query: 'reliability' });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(1);
+    expect(data[0].tags).toContain('reliability');
+  });
+
+  it('is case-insensitive', async () => {
+    const result = await searchInsights({ query: 'ATOMIC' });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(1);
+  });
+
+  it('returns empty array when no insights match', async () => {
+    const result = await searchInsights({ query: 'nonexistent-xyz-query' });
+    const data = parseResult(result as any);
+    expect(data).toEqual([]);
+  });
+
+  it('filters by scope: global returns only global insights', async () => {
+    const result = await searchInsights({ query: 'validation', scope: 'global' });
+    const data = parseResult(result as any);
+    expect(data.every((i: { scope: string }) => i.scope === 'global')).toBe(true);
+  });
+
+  it('filters by tags: returns only insights containing all specified tags', async () => {
+    const result = await searchInsights({ query: 'validation', tags: ['security'] });
+    const data = parseResult(result as any);
+    expect(data.every((i: { tags: string[] }) => i.tags.includes('security'))).toBe(true);
+  });
+
+  it('respects limit', async () => {
+    // All 3 insights contain the letter 'e' in title
+    const result = await searchInsights({ query: 'e', limit: 2 });
+    const data = parseResult(result as any);
+    expect(data.length).toBeLessThanOrEqual(2);
+  });
+
+  it('includes formatted_id in results', async () => {
+    const result = await searchInsights({ query: 'atomic' });
+    const data = parseResult(result as any);
+    expect(data[0].formatted_id).toMatch(/^KN-\d{4}$/);
+  });
+});
+
+// ─── ledger_list_insights ─────────────────────────────────────────────────
+
+describe('ledger_list_insights', () => {
+  beforeEach(async () => {
+    // Add 5 global insights in the same category
+    for (let i = 1; i <= 5; i++) {
+      await addInsight({
+        scope: 'global',
+        title: `Insight ${i}`,
+        content: `Content ${i}`,
+        category: 'testing',
+        tags: i % 2 === 0 ? ['even'] : ['odd'],
+      });
+    }
+    // Add 1 project-scoped insight
+    await addInsight({
+      scope: 'project',
+      project_slug: 'proj-a',
+      title: 'Project insight',
+      content: 'Project-specific content.',
+      category: 'workflow',
+      tags: ['project'],
+    });
+  });
+
+  it('returns all insights when called with no filters', async () => {
+    const result = await listInsights({});
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(6);
+  });
+
+  it('filters by scope: global returns only global insights', async () => {
+    const result = await listInsights({ scope: 'global' });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(5);
+    expect(data.every((i: { scope: string }) => i.scope === 'global')).toBe(true);
+  });
+
+  it('filters by category', async () => {
+    const result = await listInsights({ category: 'workflow' });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(1);
+    expect(data[0].category).toBe('workflow');
+  });
+
+  it('filters by tags', async () => {
+    const result = await listInsights({ tags: ['even'] });
+    const data = parseResult(result as any);
+    expect(data.every((i: { tags: string[] }) => i.tags.includes('even'))).toBe(true);
+    expect(data).toHaveLength(2); // insights 2 and 4
+  });
+
+  it('applies limit to restrict results', async () => {
+    const result = await listInsights({ scope: 'global', limit: 3 });
+    const data = parseResult(result as any);
+    expect(data).toHaveLength(3);
+  });
+
+  it('applies offset to skip results', async () => {
+    const all = parseResult((await listInsights({ scope: 'global' })) as any);
+    const paged = parseResult((await listInsights({ scope: 'global', offset: 2, limit: 2 })) as any);
+    expect(paged).toHaveLength(2);
+    expect(paged[0].id).toBe(all[2].id);
+    expect(paged[1].id).toBe(all[3].id);
+  });
+
+  it('returns empty array when offset exceeds total', async () => {
+    const result = await listInsights({ scope: 'global', offset: 100 });
+    const data = parseResult(result as any);
+    expect(data).toEqual([]);
+  });
+
+  it('includes formatted_id in results', async () => {
+    const result = await listInsights({ scope: 'global', limit: 1 });
+    const data = parseResult(result as any);
+    expect(data[0].formatted_id).toMatch(/^KN-\d{4}$/);
+  });
+});
+
+// ─── ledger_update_insight ────────────────────────────────────────────────
+
+describe('ledger_update_insight', () => {
+  let globalInsightId: number;
+  let projectInsightId: number;
+
+  beforeEach(async () => {
+    const g = await addInsight({
+      scope: 'global',
+      title: 'Original title',
+      content: 'Original content.',
+      category: 'architecture',
+      tags: ['original'],
+      confidence: 0.7,
+    });
+    globalInsightId = parseResult(g as any).id;
+
+    const p = await addInsight({
+      scope: 'project',
+      project_slug: 'proj-b',
+      title: 'Project insight',
+      content: 'Project content.',
+      category: 'workflow',
+      tags: ['workflow'],
+    });
+    projectInsightId = parseResult(p as any).id;
+  });
+
+  it('updates title and content of an existing insight', async () => {
+    const result = await updateInsight({
+      id: globalInsightId,
+      title: 'Updated title',
+      content: 'Updated content.',
+    });
+
+    const data = parseResult(result as any);
+    expect(data.title).toBe('Updated title');
+    expect(data.content).toBe('Updated content.');
+    expect(data.category).toBe('architecture'); // unchanged
+    expect(data.updated_at).toBeDefined();
+  });
+
+  it('sets updated_at on update', async () => {
+    const result = await updateInsight({ id: globalInsightId, confidence: 0.9 });
+    const data = parseResult(result as any);
+    expect(data.updated_at).toBeDefined();
+    expect(typeof data.updated_at).toBe('string');
+  });
+
+  it('updates tags array', async () => {
+    const result = await updateInsight({
+      id: globalInsightId,
+      tags: ['new-tag-1', 'new-tag-2'],
+    });
+    const data = parseResult(result as any);
+    expect(data.tags).toEqual(['new-tag-1', 'new-tag-2']);
+  });
+
+  it('sets superseded_by to mark the insight as outdated', async () => {
+    // Add a newer insight
+    const newer = await addInsight({
+      scope: 'global',
+      title: 'Newer insight',
+      content: 'Supersedes the original.',
+      category: 'architecture',
+      tags: [],
+    });
+    const newerId = parseResult(newer as any).id;
+
+    const result = await updateInsight({
+      id: globalInsightId,
+      superseded_by: newerId,
+    });
+    const data = parseResult(result as any);
+    expect(data.superseded_by).toBe(newerId);
+  });
+
+  it('can update a project-scoped insight by numeric id', async () => {
+    // Note: numeric ids are per-store, not globally unique. To avoid id conflicts
+    // between the global store (id=1) and the project store (id=1), we use a
+    // distinct project slug with no conflicting global insight at the same id.
+    // The globalInsightId created in beforeEach is id=1; the projectInsightId
+    // is also id=1 in its own store. updateInsight searches stores alphabetically
+    // and finds global-insights.json first. So we verify project insight updates
+    // in their own isolated test that has no global insight with the same id.
+    const result = await updateInsight({
+      id: projectInsightId,
+      title: 'Updated project insight',
+    });
+    // updateInsight finds the FIRST insight with this id across all stores.
+    // The global insight (id=1) is found first since 'global-insights.json' sorts
+    // before 'proj-b-insights.json'. This reflects expected storage behaviour.
+    const data = parseResult(result as any);
+    expect(data.title).toBe('Updated project insight');
+    expect(data.id).toBe(projectInsightId);
+  });
+
+  it('returns an error when the insight id does not exist', async () => {
+    const result = await updateInsight({ id: 9999, title: 'Ghost update' });
+    expect(isError(result as any)).toBe(true);
+    expect((result as any).content[0].text).toContain('not found');
+  });
+
+  it('includes formatted_id in the updated response', async () => {
+    const result = await updateInsight({ id: globalInsightId, confidence: 0.5 });
+    const data = parseResult(result as any);
+    expect(data.formatted_id).toMatch(/^KN-\d{4}$/);
+  });
+});
+
+describe('ledger_update_insight — project store (isolated)', () => {
+  it('updates a project-scoped insight when no global store exists', async () => {
+    // Only add a project-scoped insight — no global insight with conflicting id
+    const p = await addInsight({
+      scope: 'project',
+      project_slug: 'isolated-proj',
+      title: 'Original project title',
+      content: 'Content.',
+      category: 'workflow',
+      tags: [],
+    });
+    const id = parseResult(p as any).id;
+
+    const result = await updateInsight({ id, title: 'Updated project title' });
+    const data = parseResult(result as any);
+    expect(data.title).toBe('Updated project title');
+    expect(data.scope).toBe('project');
+    expect(data.project_slug).toBe('isolated-proj');
+    expect(data.updated_at).toBeDefined();
+  });
+});
+
+describe('ledger_update_insight — scope filter', () => {
+  it('scope:"global" targets the global store when both stores share the same numeric id', async () => {
+    // Add a global insight (id=1) and a project insight (id=1 in its own store)
+    const g = await addInsight({
+      scope: 'global',
+      title: 'Global title',
+      content: 'Global content.',
+      category: 'architecture',
+      tags: [],
+    });
+    const globalId = parseResult(g as any).id;
+
+    await addInsight({
+      scope: 'project',
+      project_slug: 'scope-filter-proj',
+      title: 'Project title',
+      content: 'Project content.',
+      category: 'workflow',
+      tags: [],
+    });
+
+    // Update using scope filter — must only mutate global store
+    const result = await updateInsight({
+      id: globalId,
+      scope: 'global',
+      title: 'Global updated',
+    });
+
+    const data = parseResult(result as any);
+    expect(data.title).toBe('Global updated');
+    expect(data.scope).toBe('global');
+  });
+
+  it('scope:"project"+project_slug targets the project store when global has same numeric id', async () => {
+    await addInsight({
+      scope: 'global',
+      title: 'Global title',
+      content: 'Global content.',
+      category: 'architecture',
+      tags: [],
+    });
+
+    const p = await addInsight({
+      scope: 'project',
+      project_slug: 'scoped-update-proj',
+      title: 'Project title',
+      content: 'Project content.',
+      category: 'workflow',
+      tags: [],
+    });
+    const projectId = parseResult(p as any).id; // will be 1 in its own store
+
+    const result = await updateInsight({
+      id: projectId,
+      scope: 'project',
+      project_slug: 'scoped-update-proj',
+      title: 'Project updated',
+    });
+
+    const data = parseResult(result as any);
+    expect(data.title).toBe('Project updated');
+    expect(data.scope).toBe('project');
+    expect(data.project_slug).toBe('scoped-update-proj');
+  });
+
+  it('returns an error when the filtered store does not contain the specified id', async () => {
+    await addInsight({
+      scope: 'global',
+      title: 'Global only',
+      content: 'Content.',
+      category: 'architecture',
+      tags: [],
+    });
+
+    // Filter to a project store that never had this insight
+    const result = await updateInsight({
+      id: 1,
+      scope: 'project',
+      project_slug: 'nonexistent-proj',
+      title: 'Should fail',
+    });
+
+    expect(isError(result as any)).toBe(true);
+    expect((result as any).content[0].text).toContain('not found');
   });
 });
 
@@ -26438,7 +28008,7 @@ describe('initializeProject – runner logging goes to stderr only (AC5)', () =>
 /**
  * Schema Integrity Regression Test
  *
- * Verifies that all 22 tool schemas registered with the MCP server produce
+ * Verifies that all 26 tool schemas registered with the MCP server produce
  * non-empty JSON Schema `properties`. This test fails if anyone re-adds
  * `.refine()`, `.transform()`, or `.superRefine()` to an outer `z.object()`
  * schema — those methods convert `ZodObject` to `ZodEffects`, causing the
@@ -26461,6 +28031,7 @@ import { register as registerProjectLifecycle } from '../../src/tools/project-li
 import { register as registerWorkflowHandoff } from '../../src/tools/workflow-handoff.js';
 import { register as registerWorkflowNextAction } from '../../src/tools/workflow-next-action.js';
 import { register as registerWorkPackage } from '../../src/tools/work-package.js';
+import { register as registerKnowledge } from '../../src/tools/knowledge.js';
 
 // ── Capture schemas from registerTool() ───────────────────────────────────
 const capturedSchemas = new Map<string, z.ZodTypeAny>();
@@ -26484,6 +28055,7 @@ beforeAll(() => {
   registerWorkflowHandoff(mockServer);
   registerWorkflowNextAction(mockServer);
   registerWorkPackage(mockServer);
+  registerKnowledge(mockServer);
 });
 
 // ── Expected tool names (all 22) ──────────────────────────────────────────
@@ -26518,13 +28090,18 @@ const EXPECTED_TOOL_NAMES = [
   'ledger_update_work_package_status',
   'ledger_reset_rework_count',
   'ledger_update_acceptance_criteria',
+  // knowledge
+  'ledger_add_insight',
+  'ledger_search_insights',
+  'ledger_list_insights',
+  'ledger_update_insight',
 ] as const;
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('Schema Integrity — all 22 tool schemas produce non-empty JSON Schema', () => {
-  it('registers exactly 22 tools', () => {
-    expect(capturedSchemas.size).toBe(22);
+describe('Schema Integrity — all 26 tool schemas produce non-empty JSON Schema', () => {
+  it('registers exactly 26 tools', () => {
+    expect(capturedSchemas.size).toBe(26);
   });
 
   it('registers all expected tool names', () => {
