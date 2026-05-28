@@ -17,6 +17,7 @@ import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
+import { migrateToNamespacedLayout } from './storage/migrate-namespaced.js';
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
@@ -95,6 +96,20 @@ async function main(): Promise<void> {
   const ledgerRoot = resolveLedgerRoot();
   mkdirSync(ledgerRoot, { recursive: true });
   process.stderr.write(`[mcp-server] Ledger root: ${ledgerRoot}\n`);
+
+  // Run one-time startup migration from flat layout to repo-namespaced layout.
+  try {
+    const migration = await migrateToNamespacedLayout(ledgerRoot);
+    if (!migration.skipped && migration.moved.length > 0) {
+      process.stderr.write(
+        `[migrate-namespaced] Moved ${migration.moved.length} project(s) to namespaced layout.\n`
+      );
+    }
+  } catch (err) {
+    // Log but do not abort startup — partial failures are already reported
+    // inside migrateToNamespacedLayout via stderr.
+    process.stderr.write(`[migrate-namespaced] Migration error: ${(err as Error).message}\n`);
+  }
 
   // Initialise runtime config from gui-config.json
   const configPath = join(ledgerRoot, 'gui-config.json');
