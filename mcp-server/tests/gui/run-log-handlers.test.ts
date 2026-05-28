@@ -48,38 +48,79 @@ describe('handleListRunLogs', () => {
   // ── Security: slug validation ──────────────────────────────────────────────
 
   it('throws ApiError NOT_FOUND for a slug containing /', async () => {
-    await expect(handleListRunLogs('bad/slug', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('bad/slug', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
-    await expect(handleListRunLogs('..', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('..', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ../ traversal', async () => {
-    await expect(handleListRunLogs('../etc', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('../etc', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for an empty slug', async () => {
-    await expect(handleListRunLogs('', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
+  });
+
+  // ── Security: repoName validation (AC2) ─────────────────────────────────
+
+  it('throws ApiError NOT_FOUND for a repoName containing / (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', 'bad/repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for a repoName containing .. (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', '..', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for a repoName with uppercase letters (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', 'My-Repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for an empty repoName (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', '', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('rejects invalid repoName before any filesystem access occurs (AC2)', async () => {
+    // Use a non-existent logsDir — the guard must throw before attempting filesystem I/O
+    const nonExistentDir = join(logsDir, 'does', 'not', 'exist');
+    await expect(
+      handleListRunLogs('my-project', 'INVALID_REPO', nonExistentDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects invalid slug before any filesystem access occurs (AC3)', async () => {
+    const nonExistentDir = join(logsDir, 'does', 'not', 'exist');
+    await expect(
+      handleListRunLogs('INVALID_SLUG', 'my-repo', nonExistentDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   // ── Happy path ─────────────────────────────────────────────────────────────
 
   it('returns an empty array when no matching files exist', async () => {
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toEqual([]);
   });
 
   it('returns an empty array when the directory is empty', async () => {
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(0);
   });
 
@@ -87,7 +128,7 @@ describe('handleListRunLogs', () => {
     await writeFile(join(logsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
     await writeFile(join(logsDir, '2024-01-02T10-00-00-my-project.jsonl'), '', 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(2);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
@@ -103,7 +144,7 @@ describe('handleListRunLogs', () => {
     await writeFile(join(logsDir, '2024-01-01T10-00-00-other-project.jsonl'), '', 'utf-8');
     await writeFile(join(logsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
@@ -115,7 +156,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260323T120000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(false);
   });
@@ -125,7 +166,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
     await writeFile(join(logsDir, '20260323T130000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(true);
   });
@@ -135,7 +176,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260324T100000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_dry_run).toBe(true);
   });
@@ -145,7 +186,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260324T110000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_dry_run).toBe(false);
   });
@@ -158,7 +199,7 @@ describe('handleListRunLogs', () => {
                           JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
     await writeFile(join(orchestratorLogsDir, '20260323T140000-my-project.jsonl'), activeContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('20260323T140000-my-project.jsonl');
     const entry = result.find((r) => r.filename === '20260323T140000-my-project.jsonl');
@@ -171,7 +212,7 @@ describe('handleListRunLogs', () => {
                              JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260322T100000-my-project.jsonl'), completedContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('20260322T100000-my-project.jsonl');
     const entry = result.find((r) => r.filename === '20260322T100000-my-project.jsonl');
@@ -186,7 +227,7 @@ describe('handleListRunLogs', () => {
     await writeFile(join(logsDir, filename), completedContent, 'utf-8');
     await writeFile(join(orchestratorLogsDir, filename), completedContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const matching = result.filter((r) => r.filename === filename);
     // Must appear exactly once in the merged result.
     expect(matching).toHaveLength(1);
@@ -202,11 +243,73 @@ describe('handleListRunLogs', () => {
     await writeFile(join(orchestratorLogsDir, filename), activeContent, 'utf-8');
     await writeFile(join(logsDir, filename), completedContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const entry = result.find((r) => r.filename === filename);
     expect(entry).toBeDefined();
     // logsDir (archive) wins: run is marked completed
     expect(entry!.is_active).toBe(false);
+  });
+
+  // ── AC1: logsDir resolves to namespaced path ──────────────────────────────
+
+  it('correctly uses a namespaced logsDir ({ledgerRoot}/{repoName}/{slug}/orchestrator/logs) (AC1)', async () => {
+    const ledgerRoot = await mkdtemp(join(tmpdir(), 'run-log-handlers-ledger-'));
+    const repoName = 'ai-insights';
+    const slug = 'my-project';
+    const namespacedLogsDir = join(ledgerRoot, repoName, slug, 'orchestrator', 'logs');
+    await mkdir(namespacedLogsDir, { recursive: true });
+    await writeFile(join(namespacedLogsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+
+    try {
+      const result = await handleListRunLogs(slug, repoName, namespacedLogsDir, orchestratorLogsDir);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.filename).toBe('2024-01-01T10-00-00-my-project.jsonl');
+    } finally {
+      await rm(ledgerRoot, { recursive: true, force: true });
+    }
+  });
+
+  // ── AC4: legacy migration uses namespaced logsDir as destination ─────────────
+
+  it('migrates orphaned logs from a legacy flat dir into the namespaced logsDir (AC4)', async () => {
+    const ledgerRoot = await mkdtemp(join(tmpdir(), 'run-log-handlers-ledger2-'));
+    const repoName = 'my-repo';
+    const slug = 'my-project';
+    const namespacedLogsDir = join(ledgerRoot, repoName, slug, 'orchestrator', 'logs');
+    const legacyFlatDir = join(ledgerRoot, slug); // old flat layout: {ledgerRoot}/{slug}/
+    // Create a log file in the legacy location only
+    await mkdir(legacyFlatDir, { recursive: true });
+    await writeFile(join(legacyFlatDir, '2024-06-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+    // namespacedLogsDir does not exist yet
+
+    try {
+      const result = await handleListRunLogs(
+        slug,
+        repoName,
+        namespacedLogsDir,
+        orchestratorLogsDir,
+        legacyFlatDir,
+      );
+      // Legacy file must have been migrated into namespacedLogsDir and returned
+      const filenames = result.map((r) => r.filename);
+      expect(filenames).toContain('2024-06-01T10-00-00-my-project.jsonl');
+    } finally {
+      await rm(ledgerRoot, { recursive: true, force: true });
+    }
+  });
+
+  // ── assertSafeSlug throws ApiError — type assertion (AC2) ─────────────────
+
+  it('invalid slug throws an instance of ApiError (not a plain Error)', async () => {
+    await expect(
+      handleListRunLogs('INVALID_SLUG', 'my-repo', logsDir, orchestratorLogsDir)
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('invalid repoName throws an instance of ApiError (not a plain Error)', async () => {
+    await expect(
+      handleListRunLogs('my-project', 'INVALID_REPO', logsDir, orchestratorLogsDir)
+    ).rejects.toBeInstanceOf(ApiError);
   });
 });
 
@@ -232,13 +335,27 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError NOT_FOUND for a slug containing /', async () => {
     await expect(
-      handleGetRunLog('bad/slug', 'run.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('bad/slug', 'my-repo', 'run.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
     await expect(
-      handleGetRunLog('..', 'run.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('..', 'my-repo', 'run.jsonl', logsDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  // ── Security: repoName validation (AC2/AC3) ─────────────────────────────
+
+  it('throws ApiError NOT_FOUND for a repoName containing / (AC2)', async () => {
+    await expect(
+      handleGetRunLog('my-project', 'bad/repo', 'run.jsonl', logsDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('throws ApiError NOT_FOUND for a repoName with uppercase letters (AC2)', async () => {
+    await expect(
+      handleGetRunLog('my-project', 'My-Repo', 'run.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -246,27 +363,27 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError FORBIDDEN for a filename containing ..', async () => {
     await expect(
-      handleGetRunLog('my-project', '../etc/passwd', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', '../etc/passwd', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('throws ApiError FORBIDDEN for a filename containing /', async () => {
     await expect(
-      handleGetRunLog('my-project', 'sub/file.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', 'sub/file.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('throws ApiError FORBIDDEN for a malicious filename with special characters', async () => {
     for (const bad of ['file;name.jsonl', 'file|name.jsonl', 'file\x00name.jsonl']) {
       await expect(
-        handleGetRunLog('my-project', bad, logsDir, orchestratorLogsDir)
+        handleGetRunLog('my-project', 'my-repo', bad, logsDir, orchestratorLogsDir)
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }
   });
 
   it('throws ApiError FORBIDDEN for an empty filename', async () => {
     await expect(
-      handleGetRunLog('my-project', '', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', '', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
@@ -274,7 +391,7 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError NOT_FOUND when a valid filename does not exist on disk', async () => {
     await expect(
-      handleGetRunLog('my-project', 'nonexistent.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', 'nonexistent.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -285,7 +402,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ type: 'start' }, { type: 'step' }, { type: 'end' }];
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result).toHaveProperty('entries');
     expect(result).toHaveProperty('totalLines');
     expect(result.totalLines).toBe(3);
@@ -299,7 +416,7 @@ describe('handleGetRunLog', () => {
     const entries = Array.from({ length: 5 }, (_, i) => ({ line: i + 1 }));
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir, 3);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir, 3);
     expect(result.totalLines).toBe(5);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ line: 4 });
@@ -311,7 +428,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ n: 1 }, { n: 2 }];
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir, 10);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir, 10);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(0);
   });
@@ -321,7 +438,7 @@ describe('handleGetRunLog', () => {
     const content = '{"ok": true}\nnot-json\n{"also": "ok"}\n';
     await writeFile(join(logsDir, logFile), content, 'utf-8');
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(3);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ ok: true });
@@ -332,7 +449,7 @@ describe('handleGetRunLog', () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
     await writeFile(join(logsDir, logFile), '', 'utf-8');
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(0);
     expect(result.entries).toHaveLength(0);
   });
@@ -345,7 +462,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ action: 'run_start' }, { action: 'step_start', step_name: 'qa' }];
     await writeJsonl(join(orchestratorLogsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ action: 'run_start' });
@@ -358,7 +475,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ action: 'run_start' }, { action: 'run_end' }];
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[1]).toEqual({ action: 'run_end' });
@@ -372,7 +489,7 @@ describe('handleGetRunLog', () => {
     await writeJsonl(join(logsDir, logFile), entries);
     await writeJsonl(join(orchestratorLogsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(2);
     expect(result.entries[1]).toEqual({ action: 'run_end' });
   });

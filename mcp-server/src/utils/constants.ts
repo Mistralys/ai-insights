@@ -94,27 +94,27 @@ export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
 
 /**
  * Subdirectory path used to store agent dialogue capture files, relative to
- * the project's ledger storage root (`{ledgerRoot}/{slug}/`).
+ * the project's ledger storage root (`{ledgerRoot}/{repo}/{slug}/`).
  *
  * The orchestrator's `write_dialogue()` utility writes Markdown files to
  * `orchestrator/dialogues/` inside the ledger folder.  This constant keeps
  * the path in sync between the MCP server and the orchestrator.
  *
- * Usage: `path.join(ledgerRoot, slug, DIALOGUES_DIR)`
- * → `{ledgerRoot}/{slug}/orchestrator/dialogues/`
+ * Usage: `path.join(store.storageDir, DIALOGUES_DIR)`
+ * → `{ledgerRoot}/{repo}/{slug}/orchestrator/dialogues/`
  */
 export const DIALOGUES_DIR = 'orchestrator/dialogues' as const;
 
 /**
  * Subdirectory path used to store streaming chunk capture files, relative to
- * the project's ledger storage root (`{ledgerRoot}/{slug}/`).
+ * the project's ledger storage root (`{ledgerRoot}/{repo}/{slug}/`).
  *
  * The orchestrator's `ChunkWriter` writes JSONL files to
  * `orchestrator/chunks/` inside the ledger folder.  This constant keeps
  * the path in sync between the MCP server and the orchestrator.
  *
- * Usage: `path.join(ledgerRoot, slug, CHUNKS_DIR)`
- * → `{ledgerRoot}/{slug}/orchestrator/chunks/`
+ * Usage: `path.join(store.storageDir, CHUNKS_DIR)`
+ * → `{ledgerRoot}/{repo}/{slug}/orchestrator/chunks/`
  */
 export const CHUNKS_DIR = 'orchestrator/chunks' as const;
 

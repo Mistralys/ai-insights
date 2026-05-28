@@ -352,7 +352,7 @@ describe('renderOrchestrator — AC-4: row actions', () => {
       ]);
       renderOrchestrator(app);
       await flushPromises();
-      const link = app.querySelector('.orch-project-link') as HTMLAnchorElement | null;
+      const link = app.querySelector('.orch-queue-action-btn') as HTMLAnchorElement | null;
       expect(link).not.toBeNull();
       expect(link?.href).toContain('/projects/');
       expect(link?.href).toContain('my-project');

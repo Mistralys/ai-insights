@@ -1,5 +1,11 @@
 # Orchestrator Changelog
 
+## v0.21.0 - Namespaced Ledger Path Derivation
+- Nodes: _derive_slug_dir() now constructs {ledgerRoot}/{repo_name}/{slug} namespaced paths.
+- Nodes: repo_name derived via Path(project_path).parents[3].name with 'unknown' fallback.
+- CLI: Ledger log copy path updated to {ledger_root}/{repo_name}/{slug}/orchestrator/logs.
+- Tests: Added test_slug_dir.py with 9 unit tests for namespaced path construction.
+
 ## v0.20.0 - API Key Liveness Validation
 - Preflight: Added `--check-api-key` flag to live-validate API keys (no tokens consumed).
 - Preflight: Supports Anthropic and Google AI Studio; checks run via provider model-list endpoints.

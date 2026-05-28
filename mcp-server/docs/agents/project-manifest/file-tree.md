@@ -12,18 +12,25 @@ mcp-server/
 │   └── ledger/
 │       ├── .gitkeep             # Ensures directory is tracked in version control
 │       ├── gui-config.json      # Runtime-generated GUI config (auto_handoff_enabled, max_handoff_depth, ledger_root) — created on first GUI or MCP server start
-│       └── {slug}/              # Per-project subfolder — runtime-generated
-│           ├── .meta.json       # Project metadata (slug, status, timestamps)
-│           ├── .lock            # Lock file for concurrent-write protection
-│           ├── project-ledger.json  # Root index
-│           ├── WP-001.json      # Work package detail files
-│           ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
-│           └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── .migration-state.json  # Written after migration completes; contains { storage_version: 2 }; absent on first run
+│       ├── .migration-in-progress # Transient sentinel file written before any dir moves; removed on success (enables crash recovery)
+│       ├── ai-insights/         # Example repo-namespace dir — derived from project-root dirname via deriveRepoName()
+│       │   └── 2026-05-01-my-plan/  # Per-project subfolder — runtime-generated
+│       │       ├── .meta.json       # Project metadata (slug, status, timestamps)
+│       │       ├── .lock            # Lock file for concurrent-write protection
+│       │       ├── project-ledger.json  # Root index
+│       │       ├── WP-001.json      # Work package detail files
+│       │       ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
+│       │       └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── other-repo/          # Second repo-namespace dir (another repository on the same machine)
+│       │   └── {slug}/              # Each repo manages its own slug namespace independently
+│       │       └── …
+│       └── unknown/             # Fallback namespace — used when repo-root name fails slug validation
 │
 ├── gui/                         # GUI server process code
 │   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers (WP-008): handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss
 │   ├── chunk-renderer.ts    # renderChunksToMarkdown(jsonlContent) — pure JSONL→Markdown renderer; merges AIMessageChunk token fragments by id; groups by namespace; mirrors serialize_messages_to_markdown() output format
-│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles segment-count-based dispatch (parameter-free routes and GET routes needing signature args), special-case blocks in handleRequest() handle routes needing body parsing (POST /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) or path-parameter extraction (PATCH /api/projects/:slug, POST /api/orchestrator/kill/:id, POST /api/orchestrator/dismiss/:id); serves static files from gui/public/
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles segment-count-based dispatch for all /:slug and /:repo/:slug GET routes plus DELETE/PATCH/POST routes with only path-derived params; special-case blocks in handleRequest() handle routes needing body parsing (PUT /api/config, POST /api/projects/:slug/reset, POST /api/projects/:repo/:slug/reset, POST /api/orchestrator/start) or path-parameter extraction (PATCH /api/projects/:slug, PATCH /api/projects/:repo/:slug, POST /api/orchestrator/kill/:id, POST /api/orchestrator/dismiss/:id, GET /api/server-info); resolveRepoName() private helper reads .meta.json to resolve canonical repository_name from a /:repo/:slug URL pair; serves static files from gui/public/
 │   └── public/              # Static assets served by gui/server.ts
 │       ├── index.html       # Dashboard SPA shell; nav links: Projects (#/), Insights (#/insights), Orchestrator (#/orchestrator), Configuration (#/config); scripts load in dependency order: api-client → theme → router → utils → views → orchestrator-widgets → orchestrator.js → stale-check → app
 │       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides; orchestrator widget block: .orchestrator-status-card/header/body/elapsed/pid/progress-summary (OrchestratorWidgets.renderStatusCard), .orchestrator-kill-btn/.orchestrator-dismiss-btn (OrchestratorWidgets.renderKillButton/renderDismissButton — visual delegated to .btn.btn-danger/.btn.btn-secondary), .log-preview-entry (OrchestratorWidgets.renderLogPreview), .orchestrator-cli-reference h4/pre (OrchestratorWidgets.renderCliReference), .orch-status-cell (orchestrator.js queue table), .orch-active-run-section/.orch-cli-kill-hint (views/project-detail.js orchestrator section), .section-title/.btn-icon (general utilities used by orchestrator views); dark-mode overrides for .orchestrator-status-card, .orchestrator-cli-reference, .log-preview-entry
@@ -75,7 +82,8 @@ mcp-server/
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
 │   │   ├── file-lock.ts         # File locking with proper-lockfile
-│   │   └── ledger-store.ts      # Central storage abstraction
+│   │   ├── ledger-store.ts      # Central storage abstraction
+│   │   └── migrate-namespaced.ts  # One-shot startup migration: flat {slug}/ → namespaced {repoName}/{slug}/; exports migrateToNamespacedLayout()
 │   │
 │   ├── tools/                   # MCP tool implementations
 │   │   ├── help.ts              # ledger_help
@@ -96,7 +104,7 @@ mcp-server/
 │       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; loads AGENT_NAMES (TargetNames, NameMappingEntry) from personas/name-mapping.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
-│       ├── path-validator.ts    # Project path validation
+│       ├── path-validator.ts    # Project path validation; assertSafeSegment() slug-segment predicate
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
 │       ├── project-reset.ts     # Semi-intelligent project reset
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
@@ -107,6 +115,7 @@ mcp-server/
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
+    ├── gui-server.test.ts       # 10 tests for resolveRepoName() in gui/server.ts: 9 guard-failure cases (traversal, empty, uppercase, hyphens, separators for both repoUrlParam and slugUrlParam) + 1 positive case confirming the guard passes valid inputs
     ├── helpers/                 # Shared test utilities (NEVER write to production storage)
     │   ├── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
     │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline(), makeWorkPackageSummary()
@@ -150,7 +159,8 @@ mcp-server/
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
     ├── storage/                 # Storage layer tests
-    │   ├── ledger-store.test.ts # LedgerStore unit tests
+        ├── ledger-store.test.ts # LedgerStore unit tests
+        └── migrate-namespaced.test.ts  # 10 tests: clean run, unknown fallbacks, idempotency, sentinel cleanup, move-failure, crash-resume
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
@@ -215,5 +225,5 @@ The workflow tools are split across four files: `workflow.ts` (thin aggregator),
 The following directories are not version-controlled:
 - node_modules/ — npm dependencies
 - dist/ — TypeScript compilation output
-- storage/ledger/{slug}/ — per-project ledger runtime data
+- storage/ledger/{repoName}/{slug}/ — per-project ledger runtime data (repo-namespaced since WP-002)
 
