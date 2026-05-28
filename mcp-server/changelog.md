@@ -1,5 +1,17 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.31.0 - Repo-Namespaced Ledger Storage
+- Storage: LedgerStore storageDir now resolves to {ledgerRoot}/{repoName}/{slug}/.
+- Storage: deriveRepoName() infers repo namespace from plan path; returns 'unknown' on failure.
+- Storage: listAllProjects() now scans two directory levels (repo namespace → slug directory).
+- Storage: resolveProjectDir() — resolves a bare slug or {repo}/{slug} composite to storageDir.
+- Storage: Bare-slug resolution scans all repo namespaces; throws AMBIGUOUS on collision.
+- Storage: migrate-namespaced.ts — one-time idempotent startup migration to namespaced layout.
+- GUI: run-log-handlers.ts — handleListRunLogs and handleGetRunLog accept a repoName parameter.
+- GUI: server.ts — added /:repo/:slug/runs and /:repo/:slug/runs/:filename routes.
+- GUI: api.ts — all LedgerStore call sites migrated to resolveProjectStore() helper.
+- Tests: Added coverage for deriveRepoName, resolveProjectDir, migration, and API routes.
+
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.
 - Queue: Entry validation now rejects empty-string and whitespace-only id and slug values.
