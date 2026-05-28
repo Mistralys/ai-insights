@@ -27,6 +27,10 @@ mcp-server/
 │       │       └── …
 │       └── unknown/             # Fallback namespace — used when repo-root name fails slug validation
 │
+├── scripts/                     # Node.js utility scripts (run directly with `node`)
+│   ├── sync-version.js          # Syncs version from changelog.md → package.json
+│   └── move-unknown-project.js  # Moves a project from the unknown/ namespace to its correct repo namespace; updates .meta.json; use when repository_name was not set at init time
+│
 ├── gui/                         # GUI server process code
 │   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers (WP-008): handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss
 │   ├── chunk-renderer.ts    # renderChunksToMarkdown(jsonlContent) — pure JSONL→Markdown renderer; merges AIMessageChunk token fragments by id; groups by namespace; mirrors serialize_messages_to_markdown() output format
