@@ -36,6 +36,7 @@ All are private (prefixed `_`) but documented here for agent navigation.
 | `_accumulate_stream` | `async (agent, user_prompt, slug_dir, wp_id, stage) -> tuple[list, Path \| None]` | Runs the `astream()` loop, writes JSONL chunks via `ChunkWriter`, accumulates and reconstructs `msgs` in stream order. Returns `(msgs, chunk_file_path)`. Closes `ChunkWriter` in `finally` so partial messages survive stream errors. |
 | `_handle_rollback` | `async (begin_work_state, complete_pipeline_state, wp_id, wrapped_tools, stage, exc, run_logger) -> list[dict]` | Cancels any orphaned IN_PROGRESS pipeline using `ledger_cancel_pipeline` when `ledger_begin_work` fired before the error but `ledger_complete_pipeline` did not succeed. Returns zero or one `pipeline_rollback` log entry dicts. |
 | `_read_pipeline_result` | `async (wp_id, wrapped_tools, stage, project_path, run_logger) -> list[dict]` | Best-effort read-back of the latest WP pipeline via `ledger_get_work_package`. Swallows all exceptions (logged at DEBUG). Returns zero or one `pipeline_result` log entry dicts. |
+| `_derive_slug_dir` | `(project_path: str, workspace_root: Path) -> Path \| None` | Constructs the namespaced ledger storage path `workspace_root / "mcp-server" / "storage" / "ledger" / repo_name / slug`. `repo_name` is `Path(project_path).parents[3].name` with `'unknown'` fallback (also guards the empty-string case for filesystem-root ancestors). Returns `None` when `project_path` is falsy or path construction raises `Exception`. |
 
 ### Tool wrapper events (`src/utils/tool_wrappers.py`)
 
@@ -154,7 +155,7 @@ class ChunkWriter:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `slug_dir` | `Path` | Root directory for the project's ledger storage (e.g. `{workspace_root}/mcp-server/storage/ledger/{slug}`). |
+| `slug_dir` | `Path` | Root directory for the project's ledger storage (e.g. `{workspace_root}/mcp-server/storage/ledger/{repo_name}/{slug}`). `repo_name` is derived from the fourth ancestor of the plan directory; defaults to `'unknown'` when the path is too short. |
 | `wp_id` | `str` | Work-package identifier (e.g. `"WP-001"`). |
 | `stage` | `str` | Pipeline stage name (e.g. `"developer"`). |
 
