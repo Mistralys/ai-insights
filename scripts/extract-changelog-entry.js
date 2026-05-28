@@ -16,13 +16,13 @@
  *   1 — changelog.md not found, unreadable, or malformed (no parseable entry)
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 // ---------------------------------------------------------------------------
 // Locate changelog.md (always relative to workspace root = parent of scripts/)
 // ---------------------------------------------------------------------------
-const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 const CHANGELOG_PATH = path.join(WORKSPACE_ROOT, 'changelog.md');
 
 // ---------------------------------------------------------------------------

@@ -15,12 +15,10 @@
  *   - personas:      changelog.md  vs  package.json
  */
 
-'use strict';
+import path from 'path';
+import fs from 'fs';
 
-const path = require('path');
-const fs   = require('fs');
-
-const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 
 // ─── Module definitions ──────────────────────────────────────────────────────
 

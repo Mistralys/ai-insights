@@ -20,16 +20,14 @@
  * No external dependencies — stdlib only (fs, path, child_process, readline).
  */
 
-'use strict';
-
-const fs            = require('fs');
-const path          = require('path');
-const readline      = require('readline');
-const { spawnSync } = require('child_process');
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { spawnSync } from 'child_process';
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 const LOGS_DIR       = path.join(WORKSPACE_ROOT, 'orchestrator', 'logs');
 
 // ─── Platform ─────────────────────────────────────────────────────────────────
@@ -133,7 +131,7 @@ function detectProcesses() {
 
   if (!r.stdout || !r.stdout.trim()) return [];
 
-  const SELF_SCRIPT = path.basename(__filename);
+  const SELF_SCRIPT = path.basename(import.meta.filename);
   const procs = [];
 
   for (const line of r.stdout.trim().split('\n')) {

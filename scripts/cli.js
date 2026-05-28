@@ -14,9 +14,7 @@
  *   node scripts/cli.js <command> [flags]   Run a command directly
  */
 
-'use strict';
-
-const {
+import {
   createMenu,
   C,
   log,
@@ -27,24 +25,24 @@ const {
   runLongScript,
   checkNodeVersion,
   PreflightError,
-} = require('@mistralys/cli-menu');
+} from '@mistralys/cli-menu';
 
-const {
+import {
   readChangelogVersion,
   readPackageVersion,
   readPyprojectVersion,
-} = require('@mistralys/cli-menu/changelog');
+} from '@mistralys/cli-menu/changelog';
 
-const path     = require('path');
-const fs       = require('fs');
-const readline = require('readline');
-const { spawnSync } = require('child_process');
-const { getPublishLocations } = require('./publish-locations');
+import path from 'path';
+import fs from 'fs';
+import readline from 'readline';
+import { spawnSync } from 'child_process';
+import { getPublishLocations } from './publish-locations.js';
 
 // --- Constants ---
 
-const WORKSPACE_ROOT   = path.resolve(__dirname, '..');
-const SCRIPTS_DIR      = __dirname;
+const WORKSPACE_ROOT   = path.resolve(import.meta.dirname, '..');
+const SCRIPTS_DIR      = import.meta.dirname;
 const MCP_SERVER_DIR   = path.join(WORKSPACE_ROOT, 'mcp-server');
 const PERSONAS_DIR     = path.join(WORKSPACE_ROOT, 'personas');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');

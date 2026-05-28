@@ -2,6 +2,7 @@
   "name": "ai-insights-workspace",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Workspace root — dev tooling for scripts/ test suite",
   "scripts": {
     "test": "npm run test:scripts",

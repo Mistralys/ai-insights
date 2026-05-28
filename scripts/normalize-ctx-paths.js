@@ -1,33 +1,10 @@
 #!/usr/bin/env node
-'use strict';
 
-/**
- * normalize-ctx-paths.js
- *
- * Post-processes CTX-generated Markdown files in .context/ to normalise
- * two OS-dependent artefacts so output is stable across platforms:
- *
- *   1. **Path separators** — CTX emits OS-native separators in its
- *      "###  Path:" header lines and directory-tree drawings.  On Windows
- *      these contain backslashes; we replace them with forward slashes.
- *
- *   2. **Line endings** — On Windows the CTX binary (or Node `writeFileSync`)
- *      may produce CRLF line endings.  We normalise every file to LF so
- *      regenerating on a different OS never causes a full-file diff.
- *
- * Fenced code blocks are left untouched by rule (1) so source-code
- * content is never mangled.  Rule (2) applies unconditionally.
- *
- * Usage:
- *   node scripts/normalize-ctx-paths.js          # default: .context/
- *   node scripts/normalize-ctx-paths.js <dir>    # custom directory
- */
-
-const fs   = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 const targetDir = process.argv[2]
-  || path.join(__dirname, '..', '.context');
+  || path.join(import.meta.dirname, '..', '.context');
 
 if (!fs.existsSync(targetDir)) {
   console.error(`Directory not found: ${targetDir}`);

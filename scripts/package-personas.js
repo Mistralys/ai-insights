@@ -1,29 +1,9 @@
-'use strict';
+import fs from 'fs';
+import path from 'path';
+import zlib from 'zlib';
+import { execSync } from 'child_process';
 
-/**
- * package-personas.js
- *
- * Builds the standalone personas and packages them into ZIP archives
- * under /dist. Zero external dependencies — ZIP is written in pure Node.js
- * using the built-in zlib module, so this works identically on Windows,
- * macOS, and Linux.
- *
- * Usage (from workspace root):
- *   node scripts/package-personas.js
- *   node scripts/package-personas.js --skip-build        # zip existing output only
- *   node scripts/package-personas.js --version v1.2.3    # override version stamp
- *
- * Outputs (in dist/):
- *   ai-insights-personas-vscode-<version>.zip
- *   ai-insights-personas-claudecode-<version>.zip
- */
-
-const fs   = require('fs');
-const path = require('path');
-const zlib = require('zlib');
-const { execSync } = require('child_process');
-
-const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 
 // ---------------------------------------------------------------------------
 // CLI flags
