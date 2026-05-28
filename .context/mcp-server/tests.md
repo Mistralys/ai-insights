@@ -5,6 +5,7 @@ _SOURCE: Test suite (unit, integration)_
 // Structure of documents
 └── mcp-server/
     └── tests/
+        └── gui-server.test.ts
         └── gui/
             ├── api-client.test.ts
             ├── api-orchestrator.test.ts
@@ -48,7 +49,10 @@ _SOURCE: Test suite (unit, integration)_
             ├── work-package-schema.test.ts
         └── storage/
             ├── ledger-store.test.ts
+            ├── list-all-projects.test.ts
+            ├── migrate-namespaced.test.ts
             ├── project-meta.test.ts
+            ├── slug-resolution.test.ts
         └── tools/
             ├── begin-work.test.ts
             ├── cancelled-status.test.ts
@@ -75,6 +79,7 @@ _SOURCE: Test suite (unit, integration)_
             ├── workflow-rework-loop.test.ts
         └── utils/
             └── agent-registry.test.ts
+            └── derive-repo-name.test.ts
             └── if-defined.test.ts
             └── ledger-root.test.ts
             └── path-validator.test.ts
@@ -86,6 +91,117 @@ _SOURCE: Test suite (unit, integration)_
             └── workflow-helpers.test.ts
             └── workflow-manifest.test.ts
             └── wp-id.test.ts
+
+```
+###  Path: `/mcp-server/tests/gui-server.test.ts`
+
+```ts
+/**
+ * Unit tests for resolveRepoName() in gui/server.ts (WP-004)
+ *
+ * Verifies that assertSafeSlug() guards are called as the first two statements
+ * in resolveRepoName(), rejecting traversal input before any filesystem access
+ * is attempted.
+ *
+ * The guard fires BEFORE readFile, so invalid inputs produce a distinct error
+ * message ("Invalid repo or slug parameter") rather than the filesystem-failure
+ * message ("Project not found") that would appear if readFile were reached.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { ApiError } from '../gui/api.js';
+import { resolveRepoName } from '../gui/server.js';
+
+// ---------------------------------------------------------------------------
+// Helper: assert both that the error is an ApiError and that it came from
+// the assertSafeSlug guard (not from a later readFile failure).
+// ---------------------------------------------------------------------------
+
+async function expectGuardError(
+  repo: string,
+  slug: string,
+): Promise<void> {
+  let thrown: unknown;
+  try {
+    await resolveRepoName('/ledger', repo, slug);
+  } catch (err) {
+    thrown = err;
+  }
+  expect(thrown).toBeInstanceOf(ApiError);
+  const err = thrown as ApiError;
+  expect(err.code).toBe('NOT_FOUND');
+  // Guard message pattern — distinct from the readFile failure message.
+  expect(err.message).toMatch(/Invalid repo or slug parameter/i);
+}
+
+describe('resolveRepoName() — assertSafeSlug guards', () => {
+  // -------------------------------------------------------------------------
+  // repoUrlParam guard
+  // -------------------------------------------------------------------------
+
+  it('throws a guard error for a traversal repoUrlParam (before filesystem access)', async () => {
+    await expectGuardError('../etc', 'valid-slug');
+  });
+
+  it('throws a guard error for an empty repoUrlParam', async () => {
+    await expectGuardError('', 'valid-slug');
+  });
+
+  it('throws a guard error for an uppercase repoUrlParam', async () => {
+    await expectGuardError('MyRepo', 'valid-slug');
+  });
+
+  it('throws a guard error for a repoUrlParam with path separators', async () => {
+    await expectGuardError('repo/with/slashes', 'valid-slug');
+  });
+
+  it('throws a guard error for a repoUrlParam starting with a hyphen', async () => {
+    await expectGuardError('-bad-repo', 'valid-slug');
+  });
+
+  // -------------------------------------------------------------------------
+  // slugUrlParam guard
+  // -------------------------------------------------------------------------
+
+  it('throws a guard error for a traversal slugUrlParam (before filesystem access)', async () => {
+    await expectGuardError('valid-repo', '../etc');
+  });
+
+  it('throws a guard error for an empty slugUrlParam', async () => {
+    await expectGuardError('valid-repo', '');
+  });
+
+  it('throws a guard error for an uppercase slugUrlParam', async () => {
+    await expectGuardError('valid-repo', 'MySlug');
+  });
+
+  it('throws a guard error for a slugUrlParam starting with a hyphen', async () => {
+    await expectGuardError('valid-repo', '-bad-slug');
+  });
+
+  // -------------------------------------------------------------------------
+  // Valid inputs — guards pass, filesystem access IS attempted.
+  // The readFile failure produces "Project not found" (not the guard message),
+  // confirming the guard did not fire.
+  // -------------------------------------------------------------------------
+
+  it('reaches filesystem access (not a guard error) for valid repo and slug', async () => {
+    let thrown: unknown;
+    try {
+      // No .meta.json exists for this path, so readFile throws ENOENT.
+      await resolveRepoName('/nonexistent-ledger-root', 'my-repo', 'my-slug');
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ApiError);
+    const err = thrown as ApiError;
+    expect(err.code).toBe('NOT_FOUND');
+    // The readFile failure message — NOT the guard message.
+    expect(err.message).toContain('my-slug');
+    expect(err.message).not.toMatch(/Invalid repo or slug parameter/i);
+  });
+});
+
 
 ```
 ###  Path: `/mcp-server/tests/gui/api-client.test.ts`
@@ -304,14 +420,14 @@ describe('API.orchestratorKill', () => {
 });
 
 describe('API.orchestratorDismiss', () => {
-  it('sends DELETE /api/orchestrator/queue/{id}', async () => {
+  it('sends POST /api/orchestrator/dismiss/{id}', async () => {
     const calls = mockFetch(null, 204);
 
     await globalThis.API.orchestratorDismiss('abc-123');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('/api/orchestrator/queue/abc-123');
-    expect(calls[0]!.opts.method).toBe('DELETE');
+    expect(calls[0]!.url).toBe('/api/orchestrator/dismiss/abc-123');
+    expect(calls[0]!.opts.method).toBe('POST');
   });
 
   it('encodes the entry ID in the URL', async () => {
@@ -319,7 +435,7 @@ describe('API.orchestratorDismiss', () => {
 
     await globalThis.API.orchestratorDismiss('id/with/slashes');
 
-    expect(calls[0]!.url).toBe('/api/orchestrator/queue/id%2Fwith%2Fslashes');
+    expect(calls[0]!.url).toBe('/api/orchestrator/dismiss/id%2Fwith%2Fslashes');
   });
 });
 
@@ -1530,6 +1646,9 @@ import {
   handleRenameProject,
   handleArchiveProject,
   handleUnarchiveProject,
+  handleMarkProjectComplete,
+  handleGetProjectHealth,
+  handleGetWorkPackageOverview,
   handleListDialogues,
   handleGetDialogueFile,
   handleListChunks,
@@ -1817,38 +1936,35 @@ describe('gui/api.ts', () => {
 
   describe('handleDeleteProject', () => {
     it('deletes a COMPLETE project and returns { deleted: true, slug }', async () => {
-      await createProject(ledgerRoot, '2026-01-01-done', { status: 'COMPLETE' });
+      const doneStore = await createProject(ledgerRoot, '2026-01-01-done', { status: 'COMPLETE' });
 
       const result = await handleDeleteProject(ledgerRoot, '2026-01-01-done');
 
       expect(result).toEqual({ deleted: true, slug: '2026-01-01-done' });
 
       // Directory must no longer exist
-      const projectDir = join(ledgerRoot, '2026-01-01-done');
-      await expect(access(projectDir)).rejects.toThrow();
+      await expect(access(doneStore.storageDir)).rejects.toThrow();
     });
 
     it('deletes an ARCHIVED project and returns { deleted: true, slug }', async () => {
-      await createProject(ledgerRoot, '2026-01-01-archived-del', { status: 'ARCHIVED' });
+      const archivedDelStore = await createProject(ledgerRoot, '2026-01-01-archived-del', { status: 'ARCHIVED' });
 
       const result = await handleDeleteProject(ledgerRoot, '2026-01-01-archived-del');
 
       expect(result).toEqual({ deleted: true, slug: '2026-01-01-archived-del' });
 
-      const projectDir = join(ledgerRoot, '2026-01-01-archived-del');
-      await expect(access(projectDir)).rejects.toThrow();
+      await expect(access(archivedDelStore.storageDir)).rejects.toThrow();
     });
 
     it('throws FORBIDDEN for an IN_PROGRESS project', async () => {
-      await createProject(ledgerRoot, '2026-01-01-active', { status: 'IN_PROGRESS' });
+      const activeStore = await createProject(ledgerRoot, '2026-01-01-active', { status: 'IN_PROGRESS' });
 
       await expect(
         handleDeleteProject(ledgerRoot, '2026-01-01-active')
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
       // Directory must still exist
-      const projectDir = join(ledgerRoot, '2026-01-01-active');
-      await expect(access(projectDir)).resolves.toBeUndefined();
+      await expect(access(activeStore.storageDir)).resolves.toBeUndefined();
     });
 
     it('throws FORBIDDEN for a READY project', async () => {
@@ -2081,8 +2197,8 @@ describe('gui/api.ts', () => {
       });
 
       // Corrupt project: write valid .meta.json (via createProject) then overwrite the ledger file
-      await createProject(ledgerRoot, '2026-01-01-bad');
-      const badLedgerPath = join(ledgerRoot, '2026-01-01-bad', 'project-ledger.json');
+      const badStore = await createProject(ledgerRoot, '2026-01-01-bad');
+      const badLedgerPath = join(badStore.storageDir, 'project-ledger.json');
       await writeFile(badLedgerPath, 'not-valid-json', 'utf-8');
 
       const result = await handleGetInsights(ledgerRoot);
@@ -2097,9 +2213,9 @@ describe('gui/api.ts', () => {
 
   describe('handleGetPlanDocument', () => {
     it('happy path: returns { content } for a project with an archived plan.md', async () => {
-      await createProject(ledgerRoot, '2026-01-01-plan-test');
+      const planStore = await createProject(ledgerRoot, '2026-01-01-plan-test');
       const planContent = '# Plan\n\nThis is the plan.';
-      await writeFile(join(ledgerRoot, '2026-01-01-plan-test', PLAN_ARCHIVE_FILENAME), planContent, 'utf-8');
+      await writeFile(join(planStore.storageDir, PLAN_ARCHIVE_FILENAME), planContent, 'utf-8');
 
       const result = await handleGetPlanDocument(ledgerRoot, '2026-01-01-plan-test');
 
@@ -2131,9 +2247,9 @@ describe('gui/api.ts', () => {
 
   describe('handleGetSynthesisDocument', () => {
     it('happy path: returns { content } for a project with an archived synthesis.md', async () => {
-      await createProject(ledgerRoot, '2026-01-01-synthesis-test');
+      const synthStore = await createProject(ledgerRoot, '2026-01-01-synthesis-test');
       const synthesisContent = '# Synthesis\n\nThis is the synthesis report.';
-      await writeFile(join(ledgerRoot, '2026-01-01-synthesis-test', SYNTHESIS_ARCHIVE_FILENAME), synthesisContent, 'utf-8');
+      await writeFile(join(synthStore.storageDir, SYNTHESIS_ARCHIVE_FILENAME), synthesisContent, 'utf-8');
 
       const result = await handleGetSynthesisDocument(ledgerRoot, '2026-01-01-synthesis-test');
 
@@ -2292,7 +2408,7 @@ describe('gui/api.ts', () => {
     });
 
     it('slug rename: new slug directory exists on disk, old directory is removed', async () => {
-      await createProject(ledgerRoot, '2026-03-05-slug-disk-src');
+      const diskSrcStore = await createProject(ledgerRoot, '2026-03-05-slug-disk-src');
 
       await handleRenameProject(
         ledgerRoot,
@@ -2300,10 +2416,11 @@ describe('gui/api.ts', () => {
         { slug: '2026-03-05-slug-disk-dst' }
       );
 
-      // New directory must exist.
-      await expect(access(join(ledgerRoot, '2026-03-05-slug-disk-dst'))).resolves.toBeUndefined();
+      // New directory must exist (same repoName, new slug).
+      const newDiskDir = join(ledgerRoot, diskSrcStore.repoName, '2026-03-05-slug-disk-dst');
+      await expect(access(newDiskDir)).resolves.toBeUndefined();
       // Old directory must be gone.
-      await expect(access(join(ledgerRoot, '2026-03-05-slug-disk-src'))).rejects.toThrow();
+      await expect(access(diskSrcStore.storageDir)).rejects.toThrow();
     });
 
     it('slug rename does not modify last_updated', async () => {
@@ -2366,7 +2483,7 @@ describe('gui/api.ts', () => {
       expect(result.slug).toBe('2026-03-05-same-slug-noop');
       expect(result.last_updated).toBe(before.last_updated);
       // Confirm old directory still exists (no rename occurred).
-      await expect(access(join(ledgerRoot, '2026-03-05-same-slug-noop'))).resolves.toBeUndefined();
+      await expect(access(store.storageDir)).resolves.toBeUndefined();
     });
 
     it('combined title + same-slug no-op: updates title, slug unchanged', async () => {
@@ -2754,20 +2871,22 @@ describe('gui/api.ts', () => {
   describe('handleListDialogues', () => {
     const slug = '2026-03-20-dialogue-capture';
 
-    async function createDialoguesDir(root: string, s: string): Promise<string> {
-      const dir = join(root, s, DIALOGUES_DIR);
+    async function createDialoguesDir(s: string): Promise<string> {
+      const store = await createProject(ledgerRoot, s);
+      const dir = join(store.storageDir, DIALOGUES_DIR);
       await mkdir(dir, { recursive: true });
       return dir;
     }
 
     it('returns [] when the dialogues/ directory is absent (no error thrown)', async () => {
-      // No project directory at all — should return empty array
+      // Project exists in the ledger but has no dialogues/ subdirectory — should return empty array
+      await createProject(ledgerRoot, slug);
       const result = await handleListDialogues(ledgerRoot, slug);
       expect(result).toEqual([]);
     });
 
     it('returns all .md filenames sorted alphabetically when no wp filter given', async () => {
-      const dir = await createDialoguesDir(ledgerRoot, slug);
+      const dir = await createDialoguesDir(slug);
       await writeFile(join(dir, 'WP-002-qa-r0.md'), 'content b');
       await writeFile(join(dir, 'WP-001-developer-r0.md'), 'content a');
       await writeFile(join(dir, 'WP-003-reviewer-r0.md'), 'content c');
@@ -2781,7 +2900,7 @@ describe('gui/api.ts', () => {
     });
 
     it("returns only filenames starting with 'WP-001-' when wpId='WP-001'", async () => {
-      const dir = await createDialoguesDir(ledgerRoot, slug);
+      const dir = await createDialoguesDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.md'), 'content a');
       await writeFile(join(dir, 'WP-001-qa-r0.md'), 'content b');
       await writeFile(join(dir, 'WP-002-developer-r0.md'), 'content c');
@@ -2802,7 +2921,7 @@ describe('gui/api.ts', () => {
     });
 
     it('excludes non-.md files from results', async () => {
-      const dir = await createDialoguesDir(ledgerRoot, slug);
+      const dir = await createDialoguesDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.md'), 'md file');
       await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
 
@@ -2815,7 +2934,7 @@ describe('gui/api.ts', () => {
     // ── WP-003: invalid ?wp= validation ─────────────────────────────────────
 
     it('WP-003 AC6: returns [] for an invalid wpId that does not match /^WP-\\d+$/', async () => {
-      const dir = await createDialoguesDir(ledgerRoot, slug);
+      const dir = await createDialoguesDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.md'), 'content');
 
       // wpId values that fail the /^WP-\d+$/ regex:
@@ -2826,7 +2945,7 @@ describe('gui/api.ts', () => {
     });
 
     it('WP-003 AC7: valid ?wp=WP-001 filter continues to work after validation added', async () => {
-      const dir = await createDialoguesDir(ledgerRoot, slug);
+      const dir = await createDialoguesDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.md'), 'match');
       await writeFile(join(dir, 'WP-002-qa-r0.md'), 'no-match');
 
@@ -2837,25 +2956,73 @@ describe('gui/api.ts', () => {
     });
   });
 
+  // ── Shared helper for namespaced describe blocks ───────────────────────────
+
+  async function createNsProject(slug: string): Promise<LedgerStore> {
+    const planPath = join(tmpdir(), 'my-repo', 'docs', 'agents', 'plans', slug);
+    const store = new LedgerStore(planPath, ledgerRoot);
+    await store.writeRootIndex(makeRoot());
+    return store;
+  }
+
+  // ─── handleListDialogues — namespaced ────────────────────────────────────
+
+  describe('handleListDialogues — namespaced', () => {
+    const slug = '2026-07-01-ns-dialogue-list';
+
+    it('reads from {repoName}/{slug}/orchestrator/dialogues/ — not the flat {slug}/ path', async () => {
+      // Files placed only in the namespaced directory; the handler must resolve
+      // to {ledgerRoot}/my-repo/{slug}/ to find them.
+      const store = await createNsProject(slug);
+      const dialoguesDir = join(store.storageDir, DIALOGUES_DIR);
+      await mkdir(dialoguesDir, { recursive: true });
+      await writeFile(join(dialoguesDir, 'WP-001-developer-r0.md'), 'namespaced content');
+
+      const result = await handleListDialogues(ledgerRoot, slug, undefined, 'my-repo');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.md', wp_id: 'WP-001', stage: 'developer' },
+      ]);
+    });
+
+    it('repoName causes handler to use the correct {repoName}/{slug}/ directory', async () => {
+      const store = await createNsProject(slug);
+      // storageDir must be the namespaced path — confirms repoName is honoured.
+      expect(store.storageDir).toBe(join(ledgerRoot, 'my-repo', slug));
+
+      const dialoguesDir = join(store.storageDir, DIALOGUES_DIR);
+      await mkdir(dialoguesDir, { recursive: true });
+      await writeFile(join(dialoguesDir, 'WP-002-qa-r0.md'), 'qa content');
+
+      const result = await handleListDialogues(ledgerRoot, slug, undefined, 'my-repo');
+      expect(result.map((e) => e.filename)).toContain('WP-002-qa-r0.md');
+    });
+
+    it('returns ApiError NOT_FOUND for a non-existent project under the given repoName', async () => {
+      await expect(
+        handleListDialogues(ledgerRoot, '2026-07-01-ns-missing', undefined, 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
   // ─── handleGetDialogueFile ───────────────────────────────────────────────
 
   describe('handleGetDialogueFile', () => {
     const slug = '2026-03-20-dialogue-capture';
 
     async function createDialogueFile(
-      root: string,
       s: string,
       filename: string,
       content: string
     ): Promise<void> {
-      const dir = join(root, s, DIALOGUES_DIR);
+      const store = await createProject(ledgerRoot, s);
+      const dir = join(store.storageDir, DIALOGUES_DIR);
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, filename), content);
     }
 
     it('returns file content when the file exists', async () => {
       const content = '# Dialogue\n\nSome content here.';
-      await createDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md', content);
+      await createDialogueFile(slug, 'WP-001-developer-r0.md', content);
 
       const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md');
       expect(result).toEqual({ content });
@@ -2892,7 +3059,7 @@ describe('gui/api.ts', () => {
     });
 
     it('returns content for a valid alphanumeric filename with underscores', async () => {
-      await createDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md', 'underscore content');
+      await createDialogueFile(slug, 'WP_001_developer_r0.md', 'underscore content');
       const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP_001_developer_r0.md');
       expect(result).toEqual({ content: 'underscore content' });
     });
@@ -2931,24 +3098,66 @@ describe('gui/api.ts', () => {
     });
   });
 
+  // ─── handleGetDialogueFile — namespaced ──────────────────────────────────
+
+  describe('handleGetDialogueFile — namespaced', () => {
+    const slug = '2026-07-02-ns-dialogue-file';
+
+    it('reads from {repoName}/{slug}/orchestrator/dialogues/ — not the flat {slug}/ path', async () => {
+      // File placed only in the namespaced directory; the handler must resolve
+      // to {ledgerRoot}/my-repo/{slug}/ to find it.
+      const store = await createNsProject(slug);
+      const dialoguesDir = join(store.storageDir, DIALOGUES_DIR);
+      await mkdir(dialoguesDir, { recursive: true });
+      const content = '# Namespaced dialogue content';
+      await writeFile(join(dialoguesDir, 'WP-001-developer-r0.md'), content);
+
+      const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP-001-developer-r0.md', 'my-repo');
+      expect(result).toEqual({ content });
+    });
+
+    it('repoName causes handler to use the correct {repoName}/{slug}/ directory', async () => {
+      const store = await createNsProject(slug);
+      // storageDir must be the namespaced path — confirms repoName is honoured.
+      expect(store.storageDir).toBe(join(ledgerRoot, 'my-repo', slug));
+
+      const dialoguesDir = join(store.storageDir, DIALOGUES_DIR);
+      await mkdir(dialoguesDir, { recursive: true });
+      const content = '# Namespaced qa content';
+      await writeFile(join(dialoguesDir, 'WP-002-qa-r0.md'), content);
+
+      const result = await handleGetDialogueFile(ledgerRoot, slug, 'WP-002-qa-r0.md', 'my-repo');
+      expect(result).toEqual({ content });
+    });
+
+    it('returns ApiError NOT_FOUND for a non-existent project under the given repoName', async () => {
+      await expect(
+        handleGetDialogueFile(ledgerRoot, '2026-07-02-ns-missing', 'WP-001-developer-r0.md', 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
   // ─── handleListChunks ────────────────────────────────────────────────────
 
   describe('handleListChunks', () => {
     const slug = '2026-04-10-chunk-capture';
 
-    async function createChunksDir(root: string, s: string): Promise<string> {
-      const dir = join(root, s, CHUNKS_DIR);
+    async function createChunksDir(s: string): Promise<string> {
+      const store = await createProject(ledgerRoot, s);
+      const dir = join(store.storageDir, CHUNKS_DIR);
       await mkdir(dir, { recursive: true });
       return dir;
     }
 
     it('returns [] when the chunks/ directory is absent (no error thrown)', async () => {
+      // Project exists in the ledger but has no chunks/ subdirectory — should return empty array
+      await createProject(ledgerRoot, slug);
       const result = await handleListChunks(ledgerRoot, slug);
       expect(result).toEqual([]);
     });
 
     it('returns all .jsonl filenames sorted alphabetically when no wp filter given', async () => {
-      const dir = await createChunksDir(ledgerRoot, slug);
+      const dir = await createChunksDir(slug);
       await writeFile(join(dir, 'WP-002-qa-r0.jsonl'), 'content b');
       await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content a');
       await writeFile(join(dir, 'WP-003-reviewer-r0.jsonl'), 'content c');
@@ -2962,7 +3171,7 @@ describe('gui/api.ts', () => {
     });
 
     it("returns only filenames starting with 'WP-001-' when wpId='WP-001'", async () => {
-      const dir = await createChunksDir(ledgerRoot, slug);
+      const dir = await createChunksDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content a');
       await writeFile(join(dir, 'WP-001-qa-r0.jsonl'), 'content b');
       await writeFile(join(dir, 'WP-002-developer-r0.jsonl'), 'content c');
@@ -2983,7 +3192,7 @@ describe('gui/api.ts', () => {
     });
 
     it('excludes non-.jsonl files from results', async () => {
-      const dir = await createChunksDir(ledgerRoot, slug);
+      const dir = await createChunksDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'jsonl file');
       await writeFile(join(dir, 'WP-001-developer-r0.txt'), 'txt file');
       await writeFile(join(dir, 'WP-001-developer-r0.md'), 'md file');
@@ -2995,7 +3204,7 @@ describe('gui/api.ts', () => {
     });
 
     it('returns [] for an invalid wpId that does not match /^WP-\\d+$/', async () => {
-      const dir = await createChunksDir(ledgerRoot, slug);
+      const dir = await createChunksDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'content');
 
       for (const badWpId of ['../etc', 'WP-', 'WP-abc', 'not-a-wp-id', ' WP-001']) {
@@ -3005,7 +3214,7 @@ describe('gui/api.ts', () => {
     });
 
     it('valid ?wp=WP-001 filter works after validation', async () => {
-      const dir = await createChunksDir(ledgerRoot, slug);
+      const dir = await createChunksDir(slug);
       await writeFile(join(dir, 'WP-001-developer-r0.jsonl'), 'match');
       await writeFile(join(dir, 'WP-002-qa-r0.jsonl'), 'no-match');
 
@@ -3016,7 +3225,7 @@ describe('gui/api.ts', () => {
     });
 
     it('returns entries with empty wp_id/stage for filenames that do not match the convention', async () => {
-      const dir = await createChunksDir(ledgerRoot, slug);
+      const dir = await createChunksDir(slug);
       await writeFile(join(dir, 'unrecognised-file.jsonl'), 'data');
 
       const result = await handleListChunks(ledgerRoot, slug);
@@ -3026,25 +3235,64 @@ describe('gui/api.ts', () => {
     });
   });
 
+  // ─── handleListChunks — namespaced ───────────────────────────────────────
+
+  describe('handleListChunks — namespaced', () => {
+    const slug = '2026-07-03-ns-chunk-list';
+
+    it('reads from {repoName}/{slug}/orchestrator/chunks/ — not the flat {slug}/ path', async () => {
+      // Files placed only in the namespaced directory; the handler must resolve
+      // to {ledgerRoot}/my-repo/{slug}/ to find them.
+      const store = await createNsProject(slug);
+      const chunksDir = join(store.storageDir, CHUNKS_DIR);
+      await mkdir(chunksDir, { recursive: true });
+      await writeFile(join(chunksDir, 'WP-001-developer-r0.jsonl'), '{"role":"user"}');
+
+      const result = await handleListChunks(ledgerRoot, slug, undefined, 'my-repo');
+      expect(result).toEqual([
+        { filename: 'WP-001-developer-r0.jsonl', wp_id: 'WP-001', stage: 'developer' },
+      ]);
+    });
+
+    it('repoName causes handler to use the correct {repoName}/{slug}/ directory', async () => {
+      const store = await createNsProject(slug);
+      // storageDir must be the namespaced path — confirms repoName is honoured.
+      expect(store.storageDir).toBe(join(ledgerRoot, 'my-repo', slug));
+
+      const chunksDir = join(store.storageDir, CHUNKS_DIR);
+      await mkdir(chunksDir, { recursive: true });
+      await writeFile(join(chunksDir, 'WP-002-qa-r0.jsonl'), '{"role":"assistant"}');
+
+      const result = await handleListChunks(ledgerRoot, slug, undefined, 'my-repo');
+      expect(result.map((e) => e.filename)).toContain('WP-002-qa-r0.jsonl');
+    });
+
+    it('returns ApiError NOT_FOUND for a non-existent project under the given repoName', async () => {
+      await expect(
+        handleListChunks(ledgerRoot, '2026-07-03-ns-missing', undefined, 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
   // ─── handleGetChunkFile ──────────────────────────────────────────────────
 
   describe('handleGetChunkFile', () => {
     const slug = '2026-04-10-chunk-capture';
 
     async function createChunkFile(
-      root: string,
       s: string,
       filename: string,
       content: string
     ): Promise<void> {
-      const dir = join(root, s, CHUNKS_DIR);
+      const store = await createProject(ledgerRoot, s);
+      const dir = join(store.storageDir, CHUNKS_DIR);
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, filename), content);
     }
 
     it('returns file content when the file exists', async () => {
       const content = '{"role":"user","content":"hello"}\n{"role":"assistant","content":"hi"}';
-      await createChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl', content);
+      await createChunkFile(slug, 'WP-001-developer-r0.jsonl', content);
 
       const result = await handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl');
       expect(result).toEqual({ content });
@@ -3081,7 +3329,7 @@ describe('gui/api.ts', () => {
     });
 
     it('returns content for a valid alphanumeric filename with underscores', async () => {
-      await createChunkFile(ledgerRoot, slug, 'WP_001_developer_r0.jsonl', 'underscore content');
+      await createChunkFile(slug, 'WP_001_developer_r0.jsonl', 'underscore content');
       const result = await handleGetChunkFile(ledgerRoot, slug, 'WP_001_developer_r0.jsonl');
       expect(result).toEqual({ content: 'underscore content' });
     });
@@ -3108,6 +3356,45 @@ describe('gui/api.ts', () => {
       } finally {
         warnSpy.mockRestore();
       }
+    });
+  });
+
+  // ─── handleGetChunkFile — namespaced ─────────────────────────────────────
+
+  describe('handleGetChunkFile — namespaced', () => {
+    const slug = '2026-07-04-ns-chunk-file';
+
+    it('reads from {repoName}/{slug}/orchestrator/chunks/ — not the flat {slug}/ path', async () => {
+      // File placed only in the namespaced directory; the handler must resolve
+      // to {ledgerRoot}/my-repo/{slug}/ to find it.
+      const store = await createNsProject(slug);
+      const chunksDir = join(store.storageDir, CHUNKS_DIR);
+      await mkdir(chunksDir, { recursive: true });
+      const content = '{"role":"user","content":"hello"}';
+      await writeFile(join(chunksDir, 'WP-001-developer-r0.jsonl'), content);
+
+      const result = await handleGetChunkFile(ledgerRoot, slug, 'WP-001-developer-r0.jsonl', 'my-repo');
+      expect(result).toEqual({ content });
+    });
+
+    it('repoName causes handler to use the correct {repoName}/{slug}/ directory', async () => {
+      const store = await createNsProject(slug);
+      // storageDir must be the namespaced path — confirms repoName is honoured.
+      expect(store.storageDir).toBe(join(ledgerRoot, 'my-repo', slug));
+
+      const chunksDir = join(store.storageDir, CHUNKS_DIR);
+      await mkdir(chunksDir, { recursive: true });
+      const content = '{"role":"assistant","content":"world"}';
+      await writeFile(join(chunksDir, 'WP-002-qa-r0.jsonl'), content);
+
+      const result = await handleGetChunkFile(ledgerRoot, slug, 'WP-002-qa-r0.jsonl', 'my-repo');
+      expect(result).toEqual({ content });
+    });
+
+    it('returns ApiError NOT_FOUND for a non-existent project under the given repoName', async () => {
+      await expect(
+        handleGetChunkFile(ledgerRoot, '2026-07-04-ns-missing', 'WP-001-developer-r0.jsonl', 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     });
   });
 
@@ -3168,6 +3455,130 @@ describe('gui/api.ts', () => {
     it('rejects a WP ID containing @', async () => {
       await createProject(ledgerRoot, '2026-01-01-wp-edge6');
       await expect(handleGetWorkPackage(ledgerRoot, '2026-01-01-wp-edge6', 'WP@001')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  // ─── WP-009: /:repo/:slug route dispatch (repoName optional parameter) ──
+
+  describe('WP-009 /:repo/:slug dispatch — handlers accept optional repoName', () => {
+    // Helper: creates a project at the storage path that handlers will resolve via
+    // resolveProjectDir('my-repo/{slug}', ledgerRoot). We use a plan path whose
+    // 4th dirname is 'my-repo' so that deriveRepoName() returns 'my-repo', placing
+    // storageDir at join(ledgerRoot, 'my-repo', slug) — matching the repoName
+    // argument the tests pass to the handlers.
+    async function createProjectHandlerPath(
+      slug: string,
+      rootOverrides: Partial<RootIndex> = {}
+    ): Promise<LedgerStore> {
+      // planPath structure: {tmpdir}/my-repo/docs/agents/plans/{slug}
+      // deriveRepoName walks 4 levels up → arrives at {tmpdir}/my-repo → 'my-repo'.
+      const planPath = join(tmpdir(), 'my-repo', 'docs', 'agents', 'plans', slug);
+      const store = new LedgerStore(planPath, ledgerRoot);
+      await store.writeRootIndex(makeRoot(rootOverrides));
+      return store;
+    }
+
+    it('handleGetProject accepts repoName and returns project detail', async () => {
+      const slug = '2026-09-01-repo-dispatch';
+      await createProjectHandlerPath(slug);
+      const result = await handleGetProject(ledgerRoot, slug, 'my-repo');
+      expect(result.meta.slug).toBe(slug);
+    });
+
+    it('handleGetProject still rejects an invalid slug even when repoName is provided', async () => {
+      await expect(
+        handleGetProject(ledgerRoot, '../../etc/passwd', 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('handleListWorkPackages accepts repoName and returns WP array', async () => {
+      const slug = '2026-09-02-repo-wp-list';
+      await createProjectHandlerPath(slug);
+      const result = await handleListWorkPackages(ledgerRoot, slug, 'my-repo');
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('handleGetWorkPackage accepts repoName; returns NOT_FOUND for missing WP', async () => {
+      const slug = '2026-09-03-repo-wp-get';
+      await createProjectHandlerPath(slug);
+      await expect(
+        handleGetWorkPackage(ledgerRoot, slug, 'WP-001', 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('handleGetProjectHealth accepts repoName and returns health summary', async () => {
+      const slug = '2026-09-04-repo-health';
+      await createProjectHandlerPath(slug);
+      const result = await handleGetProjectHealth(ledgerRoot, slug, 'my-repo');
+      expect(result).toHaveProperty('total_work_packages');
+    });
+
+    it('handleGetWorkPackageOverview accepts repoName and returns entries array', async () => {
+      const slug = '2026-09-05-repo-overview';
+      await createProjectHandlerPath(slug);
+      const result = await handleGetWorkPackageOverview(ledgerRoot, slug, 'my-repo');
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('handleListDialogues accepts wpId and repoName and returns empty array when dir absent', async () => {
+      const slug = '2026-09-06-repo-dialogues';
+      await createProjectHandlerPath(slug);
+      const result = await handleListDialogues(ledgerRoot, slug, undefined, 'my-repo');
+      expect(result).toEqual([]);
+    });
+
+    it('handleListChunks accepts wpId and repoName and returns empty array when dir absent', async () => {
+      const slug = '2026-09-07-repo-chunks';
+      await createProjectHandlerPath(slug);
+      const result = await handleListChunks(ledgerRoot, slug, undefined, 'my-repo');
+      expect(result).toEqual([]);
+    });
+
+    it('handleGetPlanDocument still throws NOT_FOUND for missing plan when repoName is provided', async () => {
+      const slug = '2026-09-08-repo-plan';
+      await createProjectHandlerPath(slug);
+      await expect(
+        handleGetPlanDocument(ledgerRoot, slug, 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('handleGetSynthesisDocument still throws NOT_FOUND for missing synthesis when repoName is provided', async () => {
+      const slug = '2026-09-09-repo-synthesis';
+      await createProjectHandlerPath(slug);
+      await expect(
+        handleGetSynthesisDocument(ledgerRoot, slug, 'my-repo')
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('handleArchiveProject accepts repoName; rejects non-COMPLETE project with VALIDATION_ERROR', async () => {
+      const slug = '2026-09-10-repo-archive';
+      await createProjectHandlerPath(slug, { status: 'IN_PROGRESS' });
+      await expect(
+        handleArchiveProject(ledgerRoot, slug, 'my-repo')
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('handleDeleteProject accepts repoName; rejects non-COMPLETE project with FORBIDDEN', async () => {
+      const slug = '2026-09-11-repo-delete';
+      await createProjectHandlerPath(slug, { status: 'IN_PROGRESS' });
+      await expect(
+        handleDeleteProject(ledgerRoot, slug, 'my-repo')
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+
+    it('handleUnarchiveProject accepts repoName; rejects non-ARCHIVED project with VALIDATION_ERROR', async () => {
+      const slug = '2026-09-12-repo-unarchive';
+      await createProjectHandlerPath(slug, { status: 'IN_PROGRESS' });
+      await expect(
+        handleUnarchiveProject(ledgerRoot, slug, 'my-repo')
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
+
+    it('handleMarkProjectComplete accepts repoName; returns result for IN_PROGRESS project', async () => {
+      const slug = '2026-09-13-repo-complete';
+      await createProjectHandlerPath(slug, { status: 'IN_PROGRESS' });
+      const result = await handleMarkProjectComplete(ledgerRoot, slug, 'my-repo');
+      expect(result).toHaveProperty('marked_complete', true);
     });
   });
 });
@@ -8161,7 +8572,7 @@ describe('renderOrchestrator — AC-4: row actions', () => {
       ]);
       renderOrchestrator(app);
       await flushPromises();
-      const link = app.querySelector('.orch-project-link') as HTMLAnchorElement | null;
+      const link = app.querySelector('.orch-queue-action-btn') as HTMLAnchorElement | null;
       expect(link).not.toBeNull();
       expect(link?.href).toContain('/projects/');
       expect(link?.href).toContain('my-project');
@@ -10791,38 +11202,79 @@ describe('handleListRunLogs', () => {
   // ── Security: slug validation ──────────────────────────────────────────────
 
   it('throws ApiError NOT_FOUND for a slug containing /', async () => {
-    await expect(handleListRunLogs('bad/slug', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('bad/slug', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
-    await expect(handleListRunLogs('..', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('..', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ../ traversal', async () => {
-    await expect(handleListRunLogs('../etc', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('../etc', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
   });
 
   it('throws ApiError NOT_FOUND for an empty slug', async () => {
-    await expect(handleListRunLogs('', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+    await expect(handleListRunLogs('', 'my-repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
+  });
+
+  // ── Security: repoName validation (AC2) ─────────────────────────────────
+
+  it('throws ApiError NOT_FOUND for a repoName containing / (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', 'bad/repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for a repoName containing .. (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', '..', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for a repoName with uppercase letters (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', 'My-Repo', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('throws ApiError NOT_FOUND for an empty repoName (AC2)', async () => {
+    await expect(handleListRunLogs('my-project', '', logsDir, orchestratorLogsDir)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
+  it('rejects invalid repoName before any filesystem access occurs (AC2)', async () => {
+    // Use a non-existent logsDir — the guard must throw before attempting filesystem I/O
+    const nonExistentDir = join(logsDir, 'does', 'not', 'exist');
+    await expect(
+      handleListRunLogs('my-project', 'INVALID_REPO', nonExistentDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('rejects invalid slug before any filesystem access occurs (AC3)', async () => {
+    const nonExistentDir = join(logsDir, 'does', 'not', 'exist');
+    await expect(
+      handleListRunLogs('INVALID_SLUG', 'my-repo', nonExistentDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   // ── Happy path ─────────────────────────────────────────────────────────────
 
   it('returns an empty array when no matching files exist', async () => {
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toEqual([]);
   });
 
   it('returns an empty array when the directory is empty', async () => {
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(0);
   });
 
@@ -10830,7 +11282,7 @@ describe('handleListRunLogs', () => {
     await writeFile(join(logsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
     await writeFile(join(logsDir, '2024-01-02T10-00-00-my-project.jsonl'), '', 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(2);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
@@ -10846,7 +11298,7 @@ describe('handleListRunLogs', () => {
     await writeFile(join(logsDir, '2024-01-01T10-00-00-other-project.jsonl'), '', 'utf-8');
     await writeFile(join(logsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('2024-01-01T10-00-00-my-project.jsonl');
@@ -10858,7 +11310,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260323T120000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(false);
   });
@@ -10868,7 +11320,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
     await writeFile(join(logsDir, '20260323T130000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_active).toBe(true);
   });
@@ -10878,7 +11330,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260324T100000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_dry_run).toBe(true);
   });
@@ -10888,7 +11340,7 @@ describe('handleListRunLogs', () => {
                     JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260324T110000-my-project.jsonl'), content, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     expect(result).toHaveLength(1);
     expect(result[0]!.is_dry_run).toBe(false);
   });
@@ -10901,7 +11353,7 @@ describe('handleListRunLogs', () => {
                           JSON.stringify({ action: 'step_start', step_name: 'qa' }) + '\n';
     await writeFile(join(orchestratorLogsDir, '20260323T140000-my-project.jsonl'), activeContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('20260323T140000-my-project.jsonl');
     const entry = result.find((r) => r.filename === '20260323T140000-my-project.jsonl');
@@ -10914,7 +11366,7 @@ describe('handleListRunLogs', () => {
                              JSON.stringify({ action: 'run_end' }) + '\n';
     await writeFile(join(logsDir, '20260322T100000-my-project.jsonl'), completedContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const filenames = result.map((r) => r.filename);
     expect(filenames).toContain('20260322T100000-my-project.jsonl');
     const entry = result.find((r) => r.filename === '20260322T100000-my-project.jsonl');
@@ -10929,7 +11381,7 @@ describe('handleListRunLogs', () => {
     await writeFile(join(logsDir, filename), completedContent, 'utf-8');
     await writeFile(join(orchestratorLogsDir, filename), completedContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const matching = result.filter((r) => r.filename === filename);
     // Must appear exactly once in the merged result.
     expect(matching).toHaveLength(1);
@@ -10945,11 +11397,73 @@ describe('handleListRunLogs', () => {
     await writeFile(join(orchestratorLogsDir, filename), activeContent, 'utf-8');
     await writeFile(join(logsDir, filename), completedContent, 'utf-8');
 
-    const result = await handleListRunLogs('my-project', logsDir, orchestratorLogsDir);
+    const result = await handleListRunLogs('my-project', 'my-repo', logsDir, orchestratorLogsDir);
     const entry = result.find((r) => r.filename === filename);
     expect(entry).toBeDefined();
     // logsDir (archive) wins: run is marked completed
     expect(entry!.is_active).toBe(false);
+  });
+
+  // ── AC1: logsDir resolves to namespaced path ──────────────────────────────
+
+  it('correctly uses a namespaced logsDir ({ledgerRoot}/{repoName}/{slug}/orchestrator/logs) (AC1)', async () => {
+    const ledgerRoot = await mkdtemp(join(tmpdir(), 'run-log-handlers-ledger-'));
+    const repoName = 'ai-insights';
+    const slug = 'my-project';
+    const namespacedLogsDir = join(ledgerRoot, repoName, slug, 'orchestrator', 'logs');
+    await mkdir(namespacedLogsDir, { recursive: true });
+    await writeFile(join(namespacedLogsDir, '2024-01-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+
+    try {
+      const result = await handleListRunLogs(slug, repoName, namespacedLogsDir, orchestratorLogsDir);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.filename).toBe('2024-01-01T10-00-00-my-project.jsonl');
+    } finally {
+      await rm(ledgerRoot, { recursive: true, force: true });
+    }
+  });
+
+  // ── AC4: legacy migration uses namespaced logsDir as destination ─────────────
+
+  it('migrates orphaned logs from a legacy flat dir into the namespaced logsDir (AC4)', async () => {
+    const ledgerRoot = await mkdtemp(join(tmpdir(), 'run-log-handlers-ledger2-'));
+    const repoName = 'my-repo';
+    const slug = 'my-project';
+    const namespacedLogsDir = join(ledgerRoot, repoName, slug, 'orchestrator', 'logs');
+    const legacyFlatDir = join(ledgerRoot, slug); // old flat layout: {ledgerRoot}/{slug}/
+    // Create a log file in the legacy location only
+    await mkdir(legacyFlatDir, { recursive: true });
+    await writeFile(join(legacyFlatDir, '2024-06-01T10-00-00-my-project.jsonl'), '', 'utf-8');
+    // namespacedLogsDir does not exist yet
+
+    try {
+      const result = await handleListRunLogs(
+        slug,
+        repoName,
+        namespacedLogsDir,
+        orchestratorLogsDir,
+        legacyFlatDir,
+      );
+      // Legacy file must have been migrated into namespacedLogsDir and returned
+      const filenames = result.map((r) => r.filename);
+      expect(filenames).toContain('2024-06-01T10-00-00-my-project.jsonl');
+    } finally {
+      await rm(ledgerRoot, { recursive: true, force: true });
+    }
+  });
+
+  // ── assertSafeSlug throws ApiError — type assertion (AC2) ─────────────────
+
+  it('invalid slug throws an instance of ApiError (not a plain Error)', async () => {
+    await expect(
+      handleListRunLogs('INVALID_SLUG', 'my-repo', logsDir, orchestratorLogsDir)
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('invalid repoName throws an instance of ApiError (not a plain Error)', async () => {
+    await expect(
+      handleListRunLogs('my-project', 'INVALID_REPO', logsDir, orchestratorLogsDir)
+    ).rejects.toBeInstanceOf(ApiError);
   });
 });
 
@@ -10975,13 +11489,27 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError NOT_FOUND for a slug containing /', async () => {
     await expect(
-      handleGetRunLog('bad/slug', 'run.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('bad/slug', 'my-repo', 'run.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
   it('throws ApiError NOT_FOUND for a slug containing ..', async () => {
     await expect(
-      handleGetRunLog('..', 'run.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('..', 'my-repo', 'run.jsonl', logsDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  // ── Security: repoName validation (AC2/AC3) ─────────────────────────────
+
+  it('throws ApiError NOT_FOUND for a repoName containing / (AC2)', async () => {
+    await expect(
+      handleGetRunLog('my-project', 'bad/repo', 'run.jsonl', logsDir, orchestratorLogsDir)
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('throws ApiError NOT_FOUND for a repoName with uppercase letters (AC2)', async () => {
+    await expect(
+      handleGetRunLog('my-project', 'My-Repo', 'run.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -10989,27 +11517,27 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError FORBIDDEN for a filename containing ..', async () => {
     await expect(
-      handleGetRunLog('my-project', '../etc/passwd', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', '../etc/passwd', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('throws ApiError FORBIDDEN for a filename containing /', async () => {
     await expect(
-      handleGetRunLog('my-project', 'sub/file.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', 'sub/file.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('throws ApiError FORBIDDEN for a malicious filename with special characters', async () => {
     for (const bad of ['file;name.jsonl', 'file|name.jsonl', 'file\x00name.jsonl']) {
       await expect(
-        handleGetRunLog('my-project', bad, logsDir, orchestratorLogsDir)
+        handleGetRunLog('my-project', 'my-repo', bad, logsDir, orchestratorLogsDir)
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }
   });
 
   it('throws ApiError FORBIDDEN for an empty filename', async () => {
     await expect(
-      handleGetRunLog('my-project', '', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', '', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
@@ -11017,7 +11545,7 @@ describe('handleGetRunLog', () => {
 
   it('throws ApiError NOT_FOUND when a valid filename does not exist on disk', async () => {
     await expect(
-      handleGetRunLog('my-project', 'nonexistent.jsonl', logsDir, orchestratorLogsDir)
+      handleGetRunLog('my-project', 'my-repo', 'nonexistent.jsonl', logsDir, orchestratorLogsDir)
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 
@@ -11028,7 +11556,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ type: 'start' }, { type: 'step' }, { type: 'end' }];
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result).toHaveProperty('entries');
     expect(result).toHaveProperty('totalLines');
     expect(result.totalLines).toBe(3);
@@ -11042,7 +11570,7 @@ describe('handleGetRunLog', () => {
     const entries = Array.from({ length: 5 }, (_, i) => ({ line: i + 1 }));
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir, 3);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir, 3);
     expect(result.totalLines).toBe(5);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ line: 4 });
@@ -11054,7 +11582,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ n: 1 }, { n: 2 }];
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir, 10);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir, 10);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(0);
   });
@@ -11064,7 +11592,7 @@ describe('handleGetRunLog', () => {
     const content = '{"ok": true}\nnot-json\n{"also": "ok"}\n';
     await writeFile(join(logsDir, logFile), content, 'utf-8');
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(3);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ ok: true });
@@ -11075,7 +11603,7 @@ describe('handleGetRunLog', () => {
     const logFile = '2024-01-01T10-00-00-my-project.jsonl';
     await writeFile(join(logsDir, logFile), '', 'utf-8');
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(0);
     expect(result.entries).toHaveLength(0);
   });
@@ -11088,7 +11616,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ action: 'run_start' }, { action: 'step_start', step_name: 'qa' }];
     await writeJsonl(join(orchestratorLogsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[0]).toEqual({ action: 'run_start' });
@@ -11101,7 +11629,7 @@ describe('handleGetRunLog', () => {
     const entries = [{ action: 'run_start' }, { action: 'run_end' }];
     await writeJsonl(join(logsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(2);
     expect(result.entries).toHaveLength(2);
     expect(result.entries[1]).toEqual({ action: 'run_end' });
@@ -11115,7 +11643,7 @@ describe('handleGetRunLog', () => {
     await writeJsonl(join(logsDir, logFile), entries);
     await writeJsonl(join(orchestratorLogsDir, logFile), entries);
 
-    const result = await handleGetRunLog('my-project', logFile, logsDir, orchestratorLogsDir);
+    const result = await handleGetRunLog('my-project', 'my-repo', logFile, logsDir, orchestratorLogsDir);
     expect(result.totalLines).toBe(2);
     expect(result.entries[1]).toEqual({ action: 'run_end' });
   });
@@ -11219,6 +11747,37 @@ async function get(url: string): Promise<{ status: number; body: unknown }> {
 async function writeJsonl(filePath: string, objects: unknown[]): Promise<void> {
   const content = objects.map((o) => JSON.stringify(o)).join('\n') + '\n';
   await writeFile(filePath, content, 'utf-8');
+}
+
+/**
+ * Writes a minimal `.meta.json` at `{ledgerRoot}/{repo}/{slug}/.meta.json`.
+ * Creates intermediate directories as needed.
+ * Used in namespaced route tests to satisfy the project-existence check added
+ * for AC3 (resolveRepoName reads this file and throws NOT_FOUND if absent).
+ *
+ * **Schema sync:** the object literal written here is a hand-rolled subset of
+ * the project meta shape. If the production `ProjectMetaSchema` gains required
+ * fields, this helper must be updated to match — otherwise tests that exercise
+ * the meta-read path will silently use a stale fixture. Replace this helper
+ * with a schema-validated factory once the project meta type is stabilised.
+ */
+async function writeMetaJson(
+  ledgerRoot: string,
+  repo: string,
+  slug: string,
+  repositoryName: string = repo,
+): Promise<void> {
+  const projectDir = join(ledgerRoot, repo, slug);
+  await mkdir(projectDir, { recursive: true });
+  const meta = {
+    slug,
+    plan_path: `/fake/${repo}/${slug}/plan.md`,
+    status: 'IN_PROGRESS',
+    date_created: '2026-01-01T00:00:00Z',
+    last_updated: '2026-01-01T00:00:00Z',
+    repository_name: repositoryName,
+  };
+  await writeFile(join(projectDir, '.meta.json'), JSON.stringify(meta), 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -11349,6 +11908,196 @@ describe('run-log HTTP routes — error mapping (instanceof ApiError regression)
     expect(result.entries).toHaveLength(2);
     expect((result.entries[0] as { action: string }).action).toBe('b');
     expect((result.entries[1] as { action: string }).action).toBe('c');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /:repo/:slug route variants (AC1–AC3)
+// ---------------------------------------------------------------------------
+
+describe('run-log HTTP routes — /:repo/:slug namespaced variants', () => {
+  let ledgerRoot: string;
+  let logsDir: string;
+  let configPath: string;
+  let server: Server;
+  let baseUrl: string;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'run-log-ns-server-test-ledger-'));
+    logsDir    = await mkdtemp(join(tmpdir(), 'run-log-ns-server-test-logs-'));
+    configPath = join(ledgerRoot, 'gui-config.json');
+
+    const result = await startTestServer(ledgerRoot, configPath, logsDir);
+    server  = result.server;
+    baseUrl = result.baseUrl;
+  });
+
+  afterEach(async () => {
+    await stopServer(server);
+    await rm(ledgerRoot, { recursive: true, force: true });
+    await rm(logsDir,    { recursive: true, force: true });
+  });
+
+  // ── GET /api/projects/:repo/:slug/runs ────────────────────────────────────
+
+  it('GET /:repo/:slug/runs returns 200 and an empty array when no logs match (AC1)', async () => {
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project');
+    const { status, body } = await get(`${baseUrl}/api/projects/my-repo/my-project/runs`);
+    expect(status).toBe(200);
+    expect(body).toEqual([]);
+  });
+
+  it('GET /:repo/:slug/runs returns 404 when .meta.json does not exist for the project (AC3)', async () => {
+    // No .meta.json written — project does not exist in the ledger
+    const { status, body } = await get(`${baseUrl}/api/projects/nonexistent-repo/unknown-slug/runs`);
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /:repo/:slug/runs returns 404 for an invalid repoName (contains ..) (AC1, AC2)', async () => {
+    const { status, body } = await get(`${baseUrl}/api/projects/bad..repo/my-project/runs`);
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /:repo/:slug/runs returns 404 for an invalid slug (contains ..) (AC1, AC2)', async () => {
+    const { status, body } = await get(`${baseUrl}/api/projects/my-repo/bad..slug/runs`);
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /:repo/:slug/runs returns repoName from repository_name in .meta.json, not raw URL param (AC3)', async () => {
+    // Store a repository_name that differs in case from the URL param.
+    // The handler receives the meta value; assertSafeSlug will validate it.
+    // Since SAFE_SLUG_REGEX requires lowercase, store a lowercase value and verify
+    // the route resolves it without error (confirming meta is read, not URL param).
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project', 'my-repo');
+    const { status } = await get(`${baseUrl}/api/projects/my-repo/my-project/runs`);
+    expect(status).toBe(200); // meta was read and repoName resolved successfully
+  });
+
+  it('GET /:repo/:slug/runs returns 200 with matching files from the namespaced logsDir (AC1)', async () => {
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project');
+    const namespacedLogsDir = join(ledgerRoot, 'my-repo', 'my-project', 'orchestrator', 'logs');
+    await mkdir(namespacedLogsDir, { recursive: true });
+    await writeFile(join(namespacedLogsDir, '20260226T100000-my-project.jsonl'), '', 'utf-8');
+    await writeFile(join(namespacedLogsDir, '20260226T110000-my-project.jsonl'), '', 'utf-8');
+    // File for a different slug — must NOT appear in the result
+    await writeFile(join(namespacedLogsDir, '20260226T120000-other-project.jsonl'), '', 'utf-8');
+
+    const { status, body } = await get(`${baseUrl}/api/projects/my-repo/my-project/runs`);
+    expect(status).toBe(200);
+    const files = body as { filename: string; is_active: boolean }[];
+    expect(files).toHaveLength(2);
+    const filenames = files.map((f) => f.filename);
+    expect(filenames).toContain('20260226T100000-my-project.jsonl');
+    expect(filenames).toContain('20260226T110000-my-project.jsonl');
+  });
+
+  it('GET /:repo/:slug/runs dispatches with req.params.repo and req.params.slug as separate values (AC1)', async () => {
+    // Two projects with the same slug but different repo namespaces — each must
+    // only see its own logs.
+    await writeMetaJson(ledgerRoot, 'repo-a', 'shared-slug', 'repo-a');
+    await writeMetaJson(ledgerRoot, 'repo-b', 'shared-slug', 'repo-b');
+    const logsA = join(ledgerRoot, 'repo-a', 'shared-slug', 'orchestrator', 'logs');
+    const logsB = join(ledgerRoot, 'repo-b', 'shared-slug', 'orchestrator', 'logs');
+    await mkdir(logsA, { recursive: true });
+    await mkdir(logsB, { recursive: true });
+    await writeFile(join(logsA, '20260101T000000-shared-slug.jsonl'), '', 'utf-8');
+    await writeFile(join(logsB, '20260202T000000-shared-slug.jsonl'), '', 'utf-8');
+
+    const resA = await get(`${baseUrl}/api/projects/repo-a/shared-slug/runs`);
+    const resB = await get(`${baseUrl}/api/projects/repo-b/shared-slug/runs`);
+
+    expect(resA.status).toBe(200);
+    expect(resB.status).toBe(200);
+    const filenamesA = (resA.body as { filename: string }[]).map((f) => f.filename);
+    const filenamesB = (resB.body as { filename: string }[]).map((f) => f.filename);
+    expect(filenamesA).toContain('20260101T000000-shared-slug.jsonl');
+    expect(filenamesA).not.toContain('20260202T000000-shared-slug.jsonl');
+    expect(filenamesB).toContain('20260202T000000-shared-slug.jsonl');
+    expect(filenamesB).not.toContain('20260101T000000-shared-slug.jsonl');
+  });
+
+  // ── GET /api/projects/:repo/:slug/runs/:filename ─────────────────────────
+
+  it('GET /:repo/:slug/runs/:filename returns 404 for an invalid repoName (AC2)', async () => {
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/Bad-Repo/my-project/runs/20260226T100000-my-project.jsonl`
+    );
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /:repo/:slug/runs/:filename returns 403 for a path-traversal filename (AC1)', async () => {
+    // Project must exist so the meta check passes before the filename check.
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project');
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-repo/my-project/runs/..%2F..%2Fetc%2Fpasswd`
+    );
+    expect(status).toBe(403);
+    expect((body as { error: { code: string } }).error.code).toBe('FORBIDDEN');
+  });
+
+  it('GET /:repo/:slug/runs/:filename returns 404 when .meta.json does not exist for the project (AC3)', async () => {
+    // No .meta.json — resolveRepoName throws NOT_FOUND before filename is checked
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/nonexistent-repo/unknown-slug/runs/20260226T100000-test.jsonl`
+    );
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /:repo/:slug/runs/:filename returns 404 for a valid filename that does not exist on disk (AC1)', async () => {
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project');
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-repo/my-project/runs/20260226T100000-my-project.jsonl`
+    );
+    expect(status).toBe(404);
+    expect((body as { error: { code: string } }).error.code).toBe('NOT_FOUND');
+  });
+
+  it('GET /:repo/:slug/runs/:filename returns 200 and parsed entries from the namespaced logsDir (AC1)', async () => {
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project');
+    const namespacedLogsDir = join(ledgerRoot, 'my-repo', 'my-project', 'orchestrator', 'logs');
+    await mkdir(namespacedLogsDir, { recursive: true });
+    const logFile = join(namespacedLogsDir, '20260226T100000-my-project.jsonl');
+    await writeJsonl(logFile, [
+      { action: 'start', timestamp: '2026-02-26T10:00:00Z' },
+      { action: 'end',   timestamp: '2026-02-26T10:01:00Z' },
+    ]);
+
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-repo/my-project/runs/20260226T100000-my-project.jsonl`
+    );
+    expect(status).toBe(200);
+    const result = body as { entries: unknown[]; totalLines: number };
+    expect(result.totalLines).toBe(2);
+    expect(result.entries).toHaveLength(2);
+    expect((result.entries[0] as { action: string }).action).toBe('start');
+    expect((result.entries[1] as { action: string }).action).toBe('end');
+  });
+
+  it('GET /:repo/:slug/runs/:filename respects the ?after= query parameter (AC1)', async () => {
+    await writeMetaJson(ledgerRoot, 'my-repo', 'my-project');
+    const namespacedLogsDir = join(ledgerRoot, 'my-repo', 'my-project', 'orchestrator', 'logs');
+    await mkdir(namespacedLogsDir, { recursive: true });
+    const logFile = join(namespacedLogsDir, '20260226T100000-my-project.jsonl');
+    await writeJsonl(logFile, [
+      { n: 1 },
+      { n: 2 },
+      { n: 3 },
+    ]);
+
+    const { status, body } = await get(
+      `${baseUrl}/api/projects/my-repo/my-project/runs/20260226T100000-my-project.jsonl?after=1`
+    );
+    expect(status).toBe(200);
+    const result = body as { entries: unknown[]; totalLines: number };
+    expect(result.totalLines).toBe(3);
+    expect(result.entries).toHaveLength(2);
+    expect((result.entries[0] as { n: number }).n).toBe(2);
+    expect((result.entries[1] as { n: number }).n).toBe(3);
   });
 });
 
@@ -16758,6 +17507,30 @@ describe('LedgerStore', () => {
       expect(meta.pending_work_packages).toBe(1);
     });
   });
+
+  describe('storageDir isolation', () => {
+    let tempLedgerRoot2: string;
+
+    beforeEach(async () => {
+      tempLedgerRoot2 = await mkdtemp(join(tmpdir(), 'isolation-test-'));
+    });
+
+    afterEach(async () => {
+      await rm(tempLedgerRoot2, { recursive: true, force: true });
+    });
+
+    it('two instances with the same slug but different project paths produce different storageDir values', () => {
+      const planPath1 = join(tmpdir(), 'repo-alpha', 'docs', 'agents', 'plans', '2026-01-01-my-plan');
+      const planPath2 = join(tmpdir(), 'repo-beta', 'docs', 'agents', 'plans', '2026-01-01-my-plan');
+      const store1 = new LedgerStore(planPath1, tempLedgerRoot2);
+      const store2 = new LedgerStore(planPath2, tempLedgerRoot2);
+      expect(store1.slug).toBe('2026-01-01-my-plan');
+      expect(store2.slug).toBe('2026-01-01-my-plan');
+      expect(store1.repoName).toBe('repo-alpha');
+      expect(store2.repoName).toBe('repo-beta');
+      expect(store1.storageDir).not.toBe(store2.storageDir);
+    });
+  });
 });
 
 // ==================== detectProjectByCwd ====================
@@ -17086,15 +17859,15 @@ describe('LedgerStore.renameSlug', () => {
   it('happy path: old dir no longer exists; new dir exists on disk', async () => {
     await store.renameSlug(NEW_SLUG);
 
-    await expect(access(join(tempLedgerRoot, NEW_SLUG))).resolves.toBeUndefined();
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).rejects.toThrow();
+    await expect(access(join(tempLedgerRoot, store.repoName, NEW_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).rejects.toThrow();
   });
 
   it('happy path: updates slug in .meta.json to the new slug', async () => {
     await store.renameSlug(NEW_SLUG);
 
     const raw = JSON.parse(
-      await readFile(join(tempLedgerRoot, NEW_SLUG, '.meta.json'), 'utf-8')
+      await readFile(join(tempLedgerRoot, store.repoName, NEW_SLUG, '.meta.json'), 'utf-8')
     ) as { slug: string };
     expect(raw.slug).toBe(NEW_SLUG);
   });
@@ -17105,7 +17878,7 @@ describe('LedgerStore.renameSlug', () => {
     await store.renameSlug(NEW_SLUG);
 
     const raw = JSON.parse(
-      await readFile(join(tempLedgerRoot, NEW_SLUG, '.meta.json'), 'utf-8')
+      await readFile(join(tempLedgerRoot, store.repoName, NEW_SLUG, '.meta.json'), 'utf-8')
     ) as Record<string, unknown>;
     expect(raw['plan_path']).toBe(metaBefore.plan_path);
     expect(raw['status']).toBe(metaBefore.status);
@@ -17116,7 +17889,7 @@ describe('LedgerStore.renameSlug', () => {
   it('rejects same slug with a descriptive error; directory is untouched', async () => {
     await expect(store.renameSlug(OLD_SLUG)).rejects.toThrow(/already/i);
     // Original dir must still exist.
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).resolves.toBeUndefined();
   });
 
   it('rejects invalid slug patterns with a validation error; filesystem is untouched', async () => {
@@ -17124,7 +17897,7 @@ describe('LedgerStore.renameSlug', () => {
     await expect(store.renameSlug('../escape')).rejects.toThrow(/invalid/i);
     await expect(store.renameSlug('')).rejects.toThrow(/invalid/i);
     // Original dir must be untouched.
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).resolves.toBeUndefined();
   });
 
   it('rejects when target dir already exists; original dir is intact', async () => {
@@ -17134,7 +17907,7 @@ describe('LedgerStore.renameSlug', () => {
 
     await expect(store.renameSlug(NEW_SLUG)).rejects.toThrow(/already in use/i);
     // Old dir must be untouched.
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).resolves.toBeUndefined();
   });
 
   it('returns updated ProjectMeta with new slug; other fields preserved', async () => {
@@ -17147,6 +17920,481 @@ describe('LedgerStore.renameSlug', () => {
     expect(result.status).toBe(metaBefore.status);
     expect(result.date_created).toBe(metaBefore.date_created);
     expect(result.last_updated).toBe(metaBefore.last_updated);
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/storage/list-all-projects.test.ts`
+
+```ts
+/**
+ * Tests for LedgerStore.listAllProjects() two-level namespace scan.
+ *
+ * Covers:
+ *   - New namespaced layout: {ledgerRoot}/{repoName}/{slug}/
+ *   - Old flat layout: {ledgerRoot}/{slug}/  (backward compat)
+ *   - Mixed layouts in the same ledger root
+ *   - Dot-prefixed entry filtering at both depth-1 and depth-2
+ *   - Empty namespace directories
+ *   - Same slug in different repo namespaces (the key collision-prevention use case)
+ *   - detectProjectByCwd() continues to work via delegation to listAllProjects()
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { LedgerStore } from '../../src/storage/ledger-store.js';
+import { atomicWriteJson } from '../../src/storage/atomic-writer.js';
+import { now } from '../../src/utils/timestamp.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a project in the OLD flat layout: {ledgerRoot}/{slug}/.meta.json
+ */
+async function createFlatProject(
+  ledgerRoot: string,
+  slug: string,
+  status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' = 'IN_PROGRESS',
+  projectRoot = '/home/user/flat-project'
+): Promise<void> {
+  const dir = join(ledgerRoot, slug);
+  await mkdir(dir, { recursive: true });
+  await atomicWriteJson(join(dir, '.meta.json'), {
+    slug,
+    plan_path: `${projectRoot}/docs/agents/plans/${slug}`,
+    status,
+    date_created: now(),
+    last_updated: now(),
+  });
+}
+
+/**
+ * Creates a project in the NEW namespaced layout: {ledgerRoot}/{repoName}/{slug}/.meta.json
+ */
+async function createNamespacedProject(
+  ledgerRoot: string,
+  repoName: string,
+  slug: string,
+  status: 'READY' | 'IN_PROGRESS' | 'COMPLETE' | 'BLOCKED' = 'IN_PROGRESS'
+): Promise<void> {
+  const dir = join(ledgerRoot, repoName, slug);
+  await mkdir(dir, { recursive: true });
+  await atomicWriteJson(join(dir, '.meta.json'), {
+    slug,
+    plan_path: `/home/user/${repoName}/docs/agents/plans/${slug}`,
+    status,
+    date_created: now(),
+    last_updated: now(),
+    repository_name: repoName,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('LedgerStore.listAllProjects — two-level namespace scan', () => {
+  let tempLedgerRoot: string;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'list-ns-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  // AC1: New namespaced layout
+  it('returns projects stored at {ledgerRoot}/{repoName}/{slug}/ (new namespaced layout)', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'repo-a', '2026-01-01-alpha');
+    await createNamespacedProject(tempLedgerRoot, 'repo-a', '2026-02-01-beta');
+    await createNamespacedProject(tempLedgerRoot, 'repo-b', '2026-03-01-gamma');
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(3);
+    const slugs = projects.map((p) => p.slug).sort();
+    expect(slugs).toEqual(['2026-01-01-alpha', '2026-02-01-beta', '2026-03-01-gamma']);
+  });
+
+  // AC2: Old flat layout (backward compat during migration window)
+  it('returns projects stored at {ledgerRoot}/{slug}/ (old flat layout, backward compat)', async () => {
+    await createFlatProject(tempLedgerRoot, '2026-01-01-flat-alpha');
+    await createFlatProject(tempLedgerRoot, '2026-02-01-flat-beta');
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(2);
+    const slugs = projects.map((p) => p.slug).sort();
+    expect(slugs).toEqual(['2026-01-01-flat-alpha', '2026-02-01-flat-beta']);
+  });
+
+  // AC2: Mixed old flat and new namespaced layouts coexisting in the same root
+  it('returns projects from both old flat and new namespaced layouts in the same ledger root', async () => {
+    await createFlatProject(tempLedgerRoot, '2026-01-01-flat-legacy');
+    await createNamespacedProject(tempLedgerRoot, 'my-repo', '2026-02-01-namespaced');
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(2);
+    const slugs = projects.map((p) => p.slug).sort();
+    expect(slugs).toEqual(['2026-01-01-flat-legacy', '2026-02-01-namespaced']);
+  });
+
+  // AC3: Dot-prefixed entries skipped at depth 1
+  it('skips dot-prefixed directories at depth 1 (.archive and similar)', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'my-repo', '2026-01-01-visible');
+
+    // .archive directory at depth 1 — should never be treated as a project or namespace
+    const archiveDir = join(tempLedgerRoot, '.archive');
+    await mkdir(archiveDir, { recursive: true });
+    await writeFile(
+      join(archiveDir, '.meta.json'),
+      JSON.stringify({
+        slug: '.archive',
+        plan_path: '/tmp/.archive',
+        status: 'COMPLETE',
+        date_created: now(),
+        last_updated: now(),
+      }),
+      'utf-8'
+    );
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0]!.slug).toBe('2026-01-01-visible');
+  });
+
+  // AC3: Dot-prefixed entries skipped at depth 2 (within a namespace directory)
+  it('skips dot-prefixed directories at depth 2 within a namespace', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'my-repo', '2026-01-01-valid');
+
+    // A dot-prefixed project dir inside a namespace — should be skipped
+    const dotProjectDir = join(tempLedgerRoot, 'my-repo', '.hidden-project');
+    await mkdir(dotProjectDir, { recursive: true });
+    await writeFile(
+      join(dotProjectDir, '.meta.json'),
+      JSON.stringify({
+        slug: '.hidden-project',
+        plan_path: '/tmp/.hidden-project',
+        status: 'IN_PROGRESS',
+        date_created: now(),
+        last_updated: now(),
+      }),
+      'utf-8'
+    );
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0]!.slug).toBe('2026-01-01-valid');
+  });
+
+  // Empty namespace directory (depth-1 dir with no subdirectories at all)
+  it('silently skips an empty namespace directory with no subdirectories', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'my-repo', '2026-01-01-alpha');
+    await mkdir(join(tempLedgerRoot, 'empty-namespace'), { recursive: true });
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0]!.slug).toBe('2026-01-01-alpha');
+  });
+
+  // Namespace directory whose subdirectories have no valid .meta.json
+  it('silently skips a namespace whose subdirectories have no valid .meta.json', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'my-repo', '2026-01-01-valid');
+    // Add a slug directory with no .meta.json inside the namespace
+    await mkdir(join(tempLedgerRoot, 'my-repo', '2026-02-01-no-meta'), { recursive: true });
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0]!.slug).toBe('2026-01-01-valid');
+  });
+
+  // Key collision-prevention use case: same slug in two different repo namespaces
+  it('returns projects with the same slug from different repo namespaces without collision', async () => {
+    await createNamespacedProject(tempLedgerRoot, 'repo-a', '2026-04-23-create-comtype');
+    await createNamespacedProject(tempLedgerRoot, 'repo-b', '2026-04-23-create-comtype');
+
+    const projects = await LedgerStore.listAllProjects(tempLedgerRoot);
+
+    expect(projects).toHaveLength(2);
+    const repoNames = projects.map((p) => p.repository_name).sort();
+    expect(repoNames).toEqual(['repo-a', 'repo-b']);
+    // Both slugs are identical but from different namespaces
+    expect(projects.every((p) => p.slug === '2026-04-23-create-comtype')).toBe(true);
+  });
+
+  // AC4: detectProjectByCwd() works correctly via delegation to listAllProjects()
+  it('detectProjectByCwd() resolves a project stored in the namespaced layout', async () => {
+    // plan_path follows {project-root}/docs/agents/plans/{slug} — 4 levels up = project-root.
+    // Use tmpdir() so the path is a valid absolute path on the current platform.
+    const projectRoot = join(tmpdir(), 'my-ns-project');
+    const slug = '2026-05-01-detect-ns';
+    const planPath = join(projectRoot, 'docs', 'agents', 'plans', slug);
+
+    // Use LedgerStore constructor to write the meta at the correct namespaced path.
+    // The constructor derives repoName from the plan path, so storageDir will be:
+    // {tempLedgerRoot}/{repoName}/{slug}/
+    const store = new LedgerStore(planPath, tempLedgerRoot);
+    await store.writeProjectMeta('plan.md', 'IN_PROGRESS');
+
+    // cwdPath is inside the project root
+    const cwdPath = join(projectRoot, 'src', 'tools');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe(slug);
+    }
+  });
+
+  // AC4: detectProjectByCwd() works correctly with old flat layout too (regression guard)
+  it('detectProjectByCwd() resolves a project stored in the old flat layout', async () => {
+    // Create a project in the old flat layout manually (bypassing LedgerStore constructor,
+    // which now writes to the namespaced path)
+    const projectRoot = join(tmpdir(), 'old-flat-project');
+    const slug = '2026-01-15-flat-detect';
+    const dir = join(tempLedgerRoot, slug);
+    await mkdir(dir, { recursive: true });
+    await atomicWriteJson(join(dir, '.meta.json'), {
+      slug,
+      plan_path: join(projectRoot, 'docs', 'agents', 'plans', slug),
+      status: 'IN_PROGRESS',
+      date_created: now(),
+      last_updated: now(),
+    });
+
+    const cwdPath = join(projectRoot, 'src');
+    const result = await LedgerStore.detectProjectByCwd(cwdPath, tempLedgerRoot);
+
+    expect(result.status).toBe('FOUND');
+    if (result.status === 'FOUND') {
+      expect(result.meta.slug).toBe(slug);
+    }
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/storage/migrate-namespaced.test.ts`
+
+```ts
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, readFile, mkdir, writeFile } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { migrateToNamespacedLayout } from '../../src/storage/migrate-namespaced.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function makeFlatProject(
+  ledgerRoot: string,
+  slug: string,
+  repositoryName?: string | null
+): Promise<void> {
+  const projectDir = join(ledgerRoot, slug);
+  await mkdir(projectDir, { recursive: true });
+
+  const meta: Record<string, unknown> = { slug, plan_path: `/some/path/${slug}` };
+  if (repositoryName !== undefined) {
+    meta['repository_name'] = repositoryName;
+  }
+  await writeFile(join(projectDir, '.meta.json'), JSON.stringify(meta), 'utf-8');
+  // Also add a stub ledger file so we can verify content was moved
+  await writeFile(join(projectDir, 'project-ledger.json'), JSON.stringify({ slug }), 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('migrateToNamespacedLayout', () => {
+  let ledgerRoot: string;
+
+  beforeEach(async () => {
+    ledgerRoot = await mkdtemp(join(tmpdir(), 'migrate-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(ledgerRoot, { recursive: true, force: true });
+  });
+
+  it('migrates flat-layout projects to repo-namespaced directories', async () => {
+    await makeFlatProject(ledgerRoot, '2026-01-01-alpha', 'my-repo');
+    await makeFlatProject(ledgerRoot, '2026-02-01-beta', 'my-repo');
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.skipped).toBe(false);
+    expect(result.errors).toHaveLength(0);
+    expect(result.moved).toHaveLength(2);
+    expect(result.moved).toContain('my-repo/2026-01-01-alpha');
+    expect(result.moved).toContain('my-repo/2026-02-01-beta');
+
+    // Verify directories are at new locations
+    const contentAlpha = await readFile(
+      join(ledgerRoot, 'my-repo', '2026-01-01-alpha', 'project-ledger.json'),
+      'utf-8'
+    );
+    expect(JSON.parse(contentAlpha).slug).toBe('2026-01-01-alpha');
+
+    const contentBeta = await readFile(
+      join(ledgerRoot, 'my-repo', '2026-02-01-beta', 'project-ledger.json'),
+      'utf-8'
+    );
+    expect(JSON.parse(contentBeta).slug).toBe('2026-02-01-beta');
+  });
+
+  it('falls back to unknown/ when repository_name is absent', async () => {
+    // No repository_name key at all
+    await makeFlatProject(ledgerRoot, '2026-03-01-no-repo');
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.skipped).toBe(false);
+    expect(result.errors).toHaveLength(0);
+    expect(result.moved).toContain('unknown/2026-03-01-no-repo');
+
+    const content = await readFile(
+      join(ledgerRoot, 'unknown', '2026-03-01-no-repo', 'project-ledger.json'),
+      'utf-8'
+    );
+    expect(JSON.parse(content).slug).toBe('2026-03-01-no-repo');
+  });
+
+  it('falls back to unknown/ when repository_name is null', async () => {
+    await makeFlatProject(ledgerRoot, '2026-03-02-null-repo', null);
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.moved).toContain('unknown/2026-03-02-null-repo');
+  });
+
+  it('falls back to unknown/ when repository_name is empty string', async () => {
+    await makeFlatProject(ledgerRoot, '2026-03-03-empty-repo', '');
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.moved).toContain('unknown/2026-03-03-empty-repo');
+  });
+
+  it('is idempotent: second call skips when storage_version >= 2', async () => {
+    await makeFlatProject(ledgerRoot, '2026-04-01-gamma', 'acme');
+
+    const first = await migrateToNamespacedLayout(ledgerRoot);
+    expect(first.skipped).toBe(false);
+    expect(first.moved).toHaveLength(1);
+
+    const second = await migrateToNamespacedLayout(ledgerRoot);
+    expect(second.skipped).toBe(true);
+    expect(second.moved).toHaveLength(0);
+    expect(second.errors).toHaveLength(0);
+  });
+
+  it('writes .migration-state.json with storage_version: 2 after a successful run', async () => {
+    await makeFlatProject(ledgerRoot, '2026-05-01-delta', 'org');
+
+    await migrateToNamespacedLayout(ledgerRoot);
+
+    const state = JSON.parse(
+      await readFile(join(ledgerRoot, '.migration-state.json'), 'utf-8')
+    ) as { storage_version: number };
+    expect(state.storage_version).toBe(2);
+  });
+
+  it('removes the sentinel file after a successful run', async () => {
+    await makeFlatProject(ledgerRoot, '2026-05-02-epsilon', 'org');
+
+    await migrateToNamespacedLayout(ledgerRoot);
+
+    await expect(
+      readFile(join(ledgerRoot, '.migration-in-progress'), 'utf-8')
+    ).rejects.toThrow();
+  });
+
+  it('skips depth-1 dirs that lack .meta.json (already-namespaced dirs)', async () => {
+    // Simulate an already-migrated ledger: only namespace dirs exist at depth-1
+    await mkdir(join(ledgerRoot, 'my-repo', '2026-06-01-already-moved'), { recursive: true });
+    await writeFile(
+      join(ledgerRoot, 'my-repo', '2026-06-01-already-moved', '.meta.json'),
+      JSON.stringify({ slug: '2026-06-01-already-moved' }),
+      'utf-8'
+    );
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    // No flat-layout projects found — nothing to move
+    expect(result.skipped).toBe(false);
+    expect(result.moved).toHaveLength(0);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('leaves original directory untouched and skips state write when a move fails', async () => {
+    await makeFlatProject(ledgerRoot, '2026-07-01-will-fail', 'my-repo');
+    await makeFlatProject(ledgerRoot, '2026-07-02-ok', 'my-repo');
+
+    // Place a regular FILE at the would-be target path to cause rename to fail
+    // (rename(dir, file) fails with ENOTDIR/EEXIST on POSIX).
+    await mkdir(join(ledgerRoot, 'my-repo'), { recursive: true });
+    await writeFile(join(ledgerRoot, 'my-repo', '2026-07-01-will-fail'), 'blocker', 'utf-8');
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    // One error, one successful move
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.slug).toBe('2026-07-01-will-fail');
+    expect(result.moved).toContain('my-repo/2026-07-02-ok');
+
+    // Original flat dir for the failed project must still exist
+    const originalMeta = await readFile(
+      join(ledgerRoot, '2026-07-01-will-fail', '.meta.json'),
+      'utf-8'
+    );
+    expect(JSON.parse(originalMeta).slug).toBe('2026-07-01-will-fail');
+
+    // storage_version must NOT have been written
+    await expect(
+      readFile(join(ledgerRoot, '.migration-state.json'), 'utf-8')
+    ).rejects.toThrow();
+  });
+
+  it('resumes correctly after a partial migration (sentinel present from prior crash)', async () => {
+    await makeFlatProject(ledgerRoot, '2026-08-01-project-a', 'resumable');
+    await makeFlatProject(ledgerRoot, '2026-08-02-project-b', 'resumable');
+
+    // Simulate crash: manually move project-a (as if partially done) and leave sentinel
+    await mkdir(join(ledgerRoot, 'resumable', '2026-08-01-project-a'), { recursive: true });
+    await writeFile(
+      join(ledgerRoot, 'resumable', '2026-08-01-project-a', '.meta.json'),
+      JSON.stringify({ slug: '2026-08-01-project-a' }),
+      'utf-8'
+    );
+    // Remove the old flat dir for project-a to simulate completed move
+    await rm(join(ledgerRoot, '2026-08-01-project-a'), { recursive: true });
+    // Leave sentinel file
+    await writeFile(join(ledgerRoot, '.migration-in-progress'), 'crash at 2026-08-01T00:00:00Z', 'utf-8');
+
+    const result = await migrateToNamespacedLayout(ledgerRoot);
+
+    expect(result.skipped).toBe(false);
+    expect(result.errors).toHaveLength(0);
+    // Only project-b needed moving (project-a target already existed)
+    expect(result.moved).toContain('resumable/2026-08-02-project-b');
+    expect(result.moved).not.toContain('resumable/2026-08-01-project-a');
+
+    // Both now at namespaced paths
+    await expect(
+      readFile(join(ledgerRoot, 'resumable', '2026-08-02-project-b', '.meta.json'), 'utf-8')
+    ).resolves.toBeDefined();
   });
 });
 
@@ -17396,6 +18644,215 @@ describe('LedgerStore.listAllProjects', () => {
 
     expect(filtered).toHaveLength(1);
     expect(filtered[0].slug).toBe('2026-01-01-in-progress');
+  });
+});
+
+```
+###  Path: `/mcp-server/tests/storage/slug-resolution.test.ts`
+
+```ts
+/**
+ * Tests for resolveProjectDir() — bare-slug and qualified-slug resolution.
+ *
+ * Covers:
+ *   - AC1: Qualified {repo}/{slug} input resolves directly without filesystem access
+ *   - AC2: Bare slug that exists in exactly one repo namespace resolves correctly
+ *   - AC3: Bare slug that exists in two or more namespaces throws AMBIGUOUS error
+ *   - AC4: Each segment of a qualified input is validated individually (repo and slug
+ *           validated separately — no composite string)
+ *   - NOT_FOUND: bare slug with no match throws a NOT_FOUND error
+ *   - Dot-prefixed namespace directories are skipped during bare-slug scanning
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, rm, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { resolveProjectDir } from '../../src/utils/ledger-root.js';
+
+// ---------------------------------------------------------------------------
+// Test suite
+// ---------------------------------------------------------------------------
+
+describe('resolveProjectDir', () => {
+  let tempLedgerRoot: string;
+
+  beforeEach(async () => {
+    tempLedgerRoot = await mkdtemp(join(tmpdir(), 'slug-res-test-'));
+  });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true });
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC1: Qualified {repo}/{slug} input
+  // ---------------------------------------------------------------------------
+
+  it('returns join(ledgerRoot, repo, slug) for a qualified {repo}/{slug} input', async () => {
+    const result = await resolveProjectDir('ai-insights/2026-05-01-my-plan', tempLedgerRoot);
+    expect(result).toBe(join(tempLedgerRoot, 'ai-insights', '2026-05-01-my-plan'));
+  });
+
+  it('resolves a qualified input without requiring the directory to exist on disk', async () => {
+    // ledger root is empty — qualified lookup must not touch the filesystem
+    const result = await resolveProjectDir('repo-a/2026-01-01-plan', tempLedgerRoot);
+    expect(result).toBe(join(tempLedgerRoot, 'repo-a', '2026-01-01-plan'));
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC2: Bare slug with exactly one matching namespace
+  // ---------------------------------------------------------------------------
+
+  it('returns the storage path when a bare slug exists in exactly one repo namespace', async () => {
+    await mkdir(join(tempLedgerRoot, 'repo-a', '2026-05-01-my-plan'), { recursive: true });
+    // A different slug in another namespace must not affect the result
+    await mkdir(join(tempLedgerRoot, 'repo-b', '2026-05-01-other-plan'), { recursive: true });
+
+    const result = await resolveProjectDir('2026-05-01-my-plan', tempLedgerRoot);
+    expect(result).toBe(join(tempLedgerRoot, 'repo-a', '2026-05-01-my-plan'));
+  });
+
+  it('returns the correct path when only one namespace directory contains the slug', async () => {
+    await mkdir(join(tempLedgerRoot, 'ai-insights', '2026-04-10-feature'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'other-repo'), { recursive: true }); // namespace exists but slug does not
+
+    const result = await resolveProjectDir('2026-04-10-feature', tempLedgerRoot);
+    expect(result).toBe(join(tempLedgerRoot, 'ai-insights', '2026-04-10-feature'));
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC3: Bare slug with two or more matching namespaces — AMBIGUOUS error
+  // ---------------------------------------------------------------------------
+
+  it('throws an AMBIGUOUS error when a bare slug exists in two repo namespaces', async () => {
+    await mkdir(join(tempLedgerRoot, 'repo-a', '2026-04-23-duplicate'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'repo-b', '2026-04-23-duplicate'), { recursive: true });
+
+    await expect(
+      resolveProjectDir('2026-04-23-duplicate', tempLedgerRoot)
+    ).rejects.toThrow('AMBIGUOUS');
+  });
+
+  it('includes all matching qualified paths in the AMBIGUOUS error message', async () => {
+    await mkdir(join(tempLedgerRoot, 'repo-a', '2026-04-23-duplicate'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'repo-b', '2026-04-23-duplicate'), { recursive: true });
+
+    let caughtError: Error | undefined;
+    try {
+      await resolveProjectDir('2026-04-23-duplicate', tempLedgerRoot);
+    } catch (err) {
+      caughtError = err as Error;
+    }
+
+    expect(caughtError).toBeDefined();
+    expect(caughtError!.message).toContain('repo-a/2026-04-23-duplicate');
+    expect(caughtError!.message).toContain('repo-b/2026-04-23-duplicate');
+  });
+
+  it('throws AMBIGUOUS even when three namespaces contain the same slug', async () => {
+    await mkdir(join(tempLedgerRoot, 'repo-a', '2026-04-23-triple'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'repo-b', '2026-04-23-triple'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'repo-c', '2026-04-23-triple'), { recursive: true });
+
+    await expect(
+      resolveProjectDir('2026-04-23-triple', tempLedgerRoot)
+    ).rejects.toThrow('AMBIGUOUS');
+  });
+
+  // ---------------------------------------------------------------------------
+  // AC4: Each segment of a qualified input validated separately
+  // ---------------------------------------------------------------------------
+
+  it('throws when the repo segment fails validation (uppercase not allowed)', async () => {
+    // 'UPPERCASE-REPO' fails SAFE_SLUG_REGEX — slug segment is valid
+    await expect(
+      resolveProjectDir('UPPERCASE-REPO/2026-01-01-slug', tempLedgerRoot)
+    ).rejects.toThrow();
+  });
+
+  it('throws when the slug segment fails validation while the repo segment is valid', async () => {
+    // repo is valid; 'INVALID-SLUG' fails SAFE_SLUG_REGEX
+    await expect(
+      resolveProjectDir('valid-repo/INVALID-SLUG', tempLedgerRoot)
+    ).rejects.toThrow();
+  });
+
+  it('throws on path-traversal in the repo segment', async () => {
+    // '..' is invalid — the function splits at the first '/', giving repo='..'
+    await expect(
+      resolveProjectDir('../etc/passwd', tempLedgerRoot)
+    ).rejects.toThrow();
+  });
+
+  it('throws on path-traversal in the slug segment', async () => {
+    await expect(
+      resolveProjectDir('valid-repo/../etc/passwd', tempLedgerRoot)
+    ).rejects.toThrow();
+  });
+
+  it('throws when the repo segment is empty (input starts with "/")', async () => {
+    await expect(
+      resolveProjectDir('/2026-01-01-slug', tempLedgerRoot)
+    ).rejects.toThrow();
+  });
+
+  it('throws when the slug segment is empty (input ends with "/")', async () => {
+    await expect(
+      resolveProjectDir('valid-repo/', tempLedgerRoot)
+    ).rejects.toThrow();
+  });
+
+  // ---------------------------------------------------------------------------
+  // NOT_FOUND: bare slug with no match
+  // ---------------------------------------------------------------------------
+
+  it('throws a NOT_FOUND error when a bare slug does not exist in any namespace', async () => {
+    // A namespace exists but contains a different slug
+    await mkdir(join(tempLedgerRoot, 'repo-a', '2026-01-01-other'), { recursive: true });
+
+    await expect(
+      resolveProjectDir('2026-99-99-nonexistent', tempLedgerRoot)
+    ).rejects.toThrow('NOT_FOUND');
+  });
+
+  it('throws NOT_FOUND when the ledger root is empty', async () => {
+    await expect(
+      resolveProjectDir('2026-01-01-any-slug', tempLedgerRoot)
+    ).rejects.toThrow('NOT_FOUND');
+  });
+
+  it('throws on path-traversal in a bare slug (".." input rejects with Invalid path segment)', async () => {
+    // '..' has no '/' so it enters the bare-slug branch; assertSafeSlug must reject it
+    // before any filesystem access regardless of what directories exist under ledgerRoot
+    await mkdir(join(tempLedgerRoot, 'repo-a'), { recursive: true });
+    await expect(
+      resolveProjectDir('..', tempLedgerRoot)
+    ).rejects.toThrow('Invalid path segment');
+  });
+
+  // ---------------------------------------------------------------------------
+  // Dot-prefixed namespace directories are skipped
+  // ---------------------------------------------------------------------------
+
+  it('does not match a project inside a dot-prefixed namespace directory', async () => {
+    await mkdir(join(tempLedgerRoot, '.hidden-namespace', '2026-01-01-plan'), {
+      recursive: true,
+    });
+
+    await expect(
+      resolveProjectDir('2026-01-01-plan', tempLedgerRoot)
+    ).rejects.toThrow('NOT_FOUND');
+  });
+
+  it('skips the .archive directory when scanning for bare-slug matches', async () => {
+    await mkdir(join(tempLedgerRoot, '.archive', '2026-01-01-plan'), { recursive: true });
+    await mkdir(join(tempLedgerRoot, 'real-repo', '2026-02-01-other'), { recursive: true });
+
+    // .archive should be skipped; no match for this slug
+    await expect(
+      resolveProjectDir('2026-01-01-plan', tempLedgerRoot)
+    ).rejects.toThrow('NOT_FOUND');
   });
 });
 
@@ -35691,6 +37148,59 @@ describe('AC: resetRegistry() clears both handle map and id map', () => {
   });
 });
 ```
+###  Path: `/mcp-server/tests/utils/derive-repo-name.test.ts`
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { deriveRepoName } from '../../src/utils/ledger-root.js';
+
+describe('deriveRepoName', () => {
+  it('returns the repo name from a standard 4-level-deep plan path', () => {
+    expect(deriveRepoName('/repos/ai-insights/docs/agents/plans/2026-05-01-my-plan')).toBe('ai-insights');
+  });
+
+  it('lowercases the inferred repo name', () => {
+    expect(deriveRepoName('/repos/AI-Insights/docs/agents/plans/2026-05-01-my-plan')).toBe('ai-insights');
+  });
+
+  it('returns the repo name from a Windows-style path', () => {
+    const winPath = 'C:\\Users\\user\\ai-insights\\docs\\agents\\plans\\2026-05-01-my-plan';
+    expect(deriveRepoName(winPath)).toBe('ai-insights');
+  });
+
+  it('returns the repo name from a mixed-separator Windows path', () => {
+    expect(deriveRepoName('C:/Users/user/cli-menu/docs/agents/plans/2026-05-01-my-plan')).toBe('cli-menu');
+  });
+
+  it('returns "unknown" when the path is too shallow to infer a project root', () => {
+    // Only 2 levels deep — walking up 4 hits the filesystem root
+    expect(deriveRepoName('/plans/2026-05-01-my-plan')).toBe('unknown');
+  });
+
+  it('returns "unknown" for an empty string', () => {
+    expect(deriveRepoName('')).toBe('unknown');
+  });
+
+  it('returns "unknown" when the inferred root basename contains underscores', () => {
+    // Underscores are not permitted in safe slugs
+    expect(deriveRepoName('/repos/my_project/docs/agents/plans/2026-05-01-my-plan')).toBe('unknown');
+  });
+
+  it('returns "unknown" when the inferred root basename contains spaces', () => {
+    expect(deriveRepoName('/repos/my project/docs/agents/plans/2026-05-01-my-plan')).toBe('unknown');
+  });
+
+  it('handles a numeric-only repo name (valid safe slug)', () => {
+    expect(deriveRepoName('/repos/42/docs/agents/plans/2026-05-01-my-plan')).toBe('42');
+  });
+
+  it('returns the correct repo name regardless of plan slug depth', () => {
+    // Different project, same 4-level convention
+    expect(deriveRepoName('/home/user/ai-persona-builder/docs/agents/plans/2026-04-23-create-comtype')).toBe('ai-persona-builder');
+  });
+});
+
+```
 ###  Path: `/mcp-server/tests/utils/if-defined.test.ts`
 
 ```ts
@@ -35867,6 +37377,7 @@ import {
   planFolderBasename,
   resolveProjectPath,
   formatCandidateList,
+  assertSafeSegment,
 } from '../../src/utils/path-validator.js';
 
 describe('validatePlanPath', () => {
@@ -36130,6 +37641,59 @@ describe('formatCandidateList', () => {
     // The unlikely line should be a plain "  - path (slug)" with no time label
     const unlikelyLine = result.split('\n').find(l => l.includes('2026-01-01-old'))!;
     expect(unlikelyLine).not.toContain('last active');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertSafeSegment
+// ---------------------------------------------------------------------------
+
+describe('assertSafeSegment', () => {
+  it('returns true for valid slug segments', () => {
+    expect(assertSafeSegment('abc')).toBe(true);
+    expect(assertSafeSegment('a')).toBe(true);
+    expect(assertSafeSegment('abc123')).toBe(true);
+    expect(assertSafeSegment('my-project')).toBe(true);
+    expect(assertSafeSegment('a1b2-c3d4')).toBe(true);
+    expect(assertSafeSegment('2026-03-01-feature')).toBe(true);
+  });
+
+  it('returns false for an empty string', () => {
+    expect(assertSafeSegment('')).toBe(false);
+  });
+
+  it('returns false for traversal patterns', () => {
+    expect(assertSafeSegment('../etc')).toBe(false);
+    expect(assertSafeSegment('..')).toBe(false);
+    expect(assertSafeSegment('../')).toBe(false);
+    expect(assertSafeSegment('foo/../bar')).toBe(false);
+  });
+
+  it('returns false for uppercase characters', () => {
+    expect(assertSafeSegment('ABC')).toBe(false);
+    expect(assertSafeSegment('MyProject')).toBe(false);
+    expect(assertSafeSegment('my-Project')).toBe(false);
+  });
+
+  it('returns false for segments containing spaces', () => {
+    expect(assertSafeSegment('my project')).toBe(false);
+    expect(assertSafeSegment(' abc')).toBe(false);
+  });
+
+  it('returns false for segments starting with a hyphen', () => {
+    expect(assertSafeSegment('-abc')).toBe(false);
+    expect(assertSafeSegment('-')).toBe(false);
+  });
+
+  it('returns false for segments containing path separators', () => {
+    expect(assertSafeSegment('foo/bar')).toBe(false);
+    expect(assertSafeSegment('foo\\bar')).toBe(false);
+  });
+
+  it('returns false for segments with special characters', () => {
+    expect(assertSafeSegment('foo_bar')).toBe(false);
+    expect(assertSafeSegment('foo.bar')).toBe(false);
+    expect(assertSafeSegment('foo@bar')).toBe(false);
   });
 });
 

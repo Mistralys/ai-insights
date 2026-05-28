@@ -119,6 +119,33 @@ _INTERRUPT_STAGE_MAP: dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+def _derive_ledger_log_dir(plan_dir: Path, workspace_root: Path) -> Path:
+    """Derive the ledger storage log directory for a given plan.
+
+    Constructs::
+
+        workspace_root / "mcp-server" / "storage" / "ledger"
+        / repo_name / slug / "orchestrator" / "logs"
+
+    where ``slug`` is ``plan_dir.name`` and ``repo_name`` is
+    ``plan_dir.parents[3].name``, falling back to ``"unknown"`` when the path
+    has fewer than four ancestor levels or the ancestor name is empty.
+    """
+    slug = plan_dir.name
+    try:
+        repo_name = plan_dir.parents[3].name or "unknown"
+    except IndexError:
+        repo_name = "unknown"
+    return (
+        workspace_root / "mcp-server" / "storage" / "ledger"
+        / repo_name / slug / "orchestrator" / "logs"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Signal handling
 # ---------------------------------------------------------------------------
 
@@ -894,10 +921,7 @@ async def _run(args: argparse.Namespace, config: Any) -> int:
     # The original file is kept in orchestrator/logs/ to avoid files
     # disappearing from there for seemingly no reason.
     log_final_path = run_logger._path
-    slug = plan_dir.name
-    ledger_log_dir = (
-        config.workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
-    )
+    ledger_log_dir = _derive_ledger_log_dir(plan_dir, config.workspace_root)
     try:
         ledger_log_dir.mkdir(parents=True, exist_ok=True)
         dest = ledger_log_dir / run_logger._path.name
