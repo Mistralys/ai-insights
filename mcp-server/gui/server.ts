@@ -16,7 +16,7 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveLedgerRoot, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
+import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
 import { SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
@@ -954,7 +954,9 @@ function matchRoute(
 
   // GET /api/projects/:slug/runs
   // rest.length === 3, rest[2] === 'runs' — does not shadow work-packages (different rest[2] value)
-  // Backward-compat flat-layout route: logsDir uses the pre-namespace path {ledgerRoot}/{slug}/…
+  // Resolves the canonical namespaced storage directory first to avoid creating
+  // ghost directories under the legacy flat path when archiveCompletedLogs runs.
+  // Falls back to the legacy flat path for truly pre-namespace projects.
   if (
     method === 'GET' &&
     rest.length === 3 &&
@@ -962,7 +964,24 @@ function matchRoute(
     rest[2] === 'runs'
   ) {
     const slug = decodeURIComponent(rest[1]!);
-    return () => handleListRunLogs(slug, slug, join(ledgerRoot, slug, 'orchestrator', 'logs'), orchestratorLogsDir, join(ledgerRoot, slug));
+    return async () => {
+      const flatProjectDir = join(ledgerRoot, slug);
+      let projectStorageDir: string;
+      try {
+        projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
+      } catch {
+        // NOT_FOUND or AMBIGUOUS — fall back to the legacy flat layout.
+        projectStorageDir = flatProjectDir;
+      }
+      const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
+      // For namespaced projects, supply the old flat paths as legacy migration
+      // sources so logs written under the pre-namespace layout are carried over.
+      // For flat projects, preserve the original behaviour (migrate from the root).
+      const isNamespaced = projectStorageDir !== flatProjectDir;
+      const legacyLogsDir = isNamespaced ? join(flatProjectDir, 'orchestrator', 'logs') : flatProjectDir;
+      const legacyLogsDir2 = isNamespaced ? flatProjectDir : undefined;
+      return handleListRunLogs(slug, slug, logsDir, orchestratorLogsDir, legacyLogsDir, legacyLogsDir2);
+    };
   }
 
   // GET /api/projects/:repo/:slug/runs
@@ -994,7 +1013,8 @@ function matchRoute(
 
   // GET /api/projects/:slug/runs/:filename
   // rest.length === 4, rest[2] === 'runs' — does not shadow work-packages/:wpId (different rest[2] value)
-  // Backward-compat flat-layout route: logsDir uses the pre-namespace path {ledgerRoot}/{slug}/…
+  // Resolves the canonical namespaced storage directory first (same as the list
+  // route above) to avoid creating ghost directories under the legacy flat path.
   if (
     method === 'GET' &&
     rest.length === 4 &&
@@ -1008,7 +1028,17 @@ function matchRoute(
     const sp = new URLSearchParams(qStr);
     const afterParam = sp.get('after');
     const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
-    return () => handleGetRunLog(slug, slug, filename, join(ledgerRoot, slug, 'orchestrator', 'logs'), orchestratorLogsDir, afterLine);
+    return async () => {
+      const flatProjectDir = join(ledgerRoot, slug);
+      let projectStorageDir: string;
+      try {
+        projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
+      } catch {
+        projectStorageDir = flatProjectDir;
+      }
+      const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
+      return handleGetRunLog(slug, slug, filename, logsDir, orchestratorLogsDir, afterLine);
+    };
   }
 
   // GET /api/projects/:repo/:slug/runs/:filename
