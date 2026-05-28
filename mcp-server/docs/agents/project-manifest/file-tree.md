@@ -66,6 +66,7 @@ mcp-server/
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json
+│   │   ├── knowledge.ts         # InsightScope, InsightSchema / Insight, KnowledgeStoreSchema / KnowledgeStore — Zod schemas for the knowledge accumulation system (WP-001)
 │   │   ├── project-meta.ts      # ProjectMetaSchema / ProjectMeta — per-project .meta.json
 │   │   ├── root-index.ts        # RootIndex schema
 │   │   ├── validators.ts        # Business rule validators
@@ -75,11 +76,13 @@ mcp-server/
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
 │   │   ├── file-lock.ts         # File locking with proper-lockfile
+│   │   ├── knowledge-store.ts   # KnowledgeStoreManager — all CRUD/query operations for the .knowledge/ store: addInsight, searchInsights, listInsights, updateInsight; atomic writes + single lock scope on knowledgeDir() for all write operations; reads are lock-free (WP-001/002)
 │   │   └── ledger-store.ts      # Central storage abstraction
 │   │
 │   ├── tools/                   # MCP tool implementations
 │   │   ├── help.ts              # ledger_help
-│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 20 MCP tools
+│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 30 MCP tools
+│   │   ├── knowledge.ts         # ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight — knowledge accumulation tools; formatInsightId() helper (KN-NNNN format) (WP-001/003)
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis

@@ -1784,3 +1784,34 @@ function _bindQueueActions(container, entries) { /* ... */ }
 **Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function. This convention was established during the `2026-05-20-orchestrator-gui-polish-rework` sprint and should be applied to all new closure-scoped helpers going forward.
 
 **Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
+
+---
+
+## Knowledge Store Constraints
+
+### 73. `.knowledge/` Directory Uses a Single Lock Scope for All Writes; Excluded from Project Enumeration
+
+**Rule:** All write operations on the `.knowledge/` store (`addInsight`, `updateInsight`) MUST acquire a single `withLock(knowledgeDir(), ...)` scope that covers the entire read-modify-write sequence. Pure reads (`searchInsights`, `listInsights`) do NOT acquire a lock, consistent with the `LedgerStore` read pattern. The `.knowledge/` directory lives at `{ledgerRoot}/.knowledge/` and MUST NOT be included in project enumeration (`listAllProjects`, `detectProjectByCwd`) — it is global infrastructure, not a per-project ledger.
+
+**Rationale:** Using a single lock on `knowledgeDir()` (rather than per-file locks) prevents concurrent writers from interleaving across `global-insights.json` and `{slug}-insights.json` stores. Excluding `.knowledge/` from project enumeration prevents it from being misidentified as a project directory during `ledger_list_projects` or `ledger_detect_project` calls.
+
+**Lock target:** Always `knowledgeDir()` — never a per-file path and never `store.storageDir` (that is the per-project lock target, not the knowledge store lock target).
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — separate lock per store file; concurrent writers can interleave
+await withLock(globalStorePath(), async () => { /* write global store */ });
+await withLock(projectStorePath(slug), async () => { /* write project store */ });
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock on the knowledge directory for any write operation
+await withLock(knowledgeDir(), async () => {
+  const store = await _readStore(storePath);
+  // ... mutate store ...
+  await atomicWriteJson(storePath, store);
+});
+```
+
+**Project enumeration exclusion:** `LedgerStore.listAllProjects()` reads `readdir(ledgerRoot)` and filters to subdirectories. The `.knowledge` entry (which starts with `.`) is excluded by the existing filter that skips dot-prefixed entries — no additional code change is required. This constraint documents the expected behaviour so it is preserved if the filter is ever modified.

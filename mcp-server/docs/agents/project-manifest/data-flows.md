@@ -1302,3 +1302,76 @@ gui/api.ts — handleListProjects processing pipeline:
 - Per-project enrichment failures are isolated; one unreadable project never breaks the full response.
 - Out-of-range page returns empty `projects[]` with `total` and `total_pages` still correctly set.
 - The entire enrichment step runs in memory; pagination is applied last (no streaming).
+
+---
+
+## Flow N: Knowledge Accumulation (Synthesis → Insight Store)
+
+**Entry Point:** Synthesis agent calls `ledger_search_insights` and/or `ledger_add_insight` during the Knowledge Collection phase (before `ledger_complete_synthesis`).
+
+### N.1 Deduplication Check
+
+```
+Synthesis agent → ledger_search_insights(query, scope?, category?, project_slug?, limit?)
+  ↓
+resolveLedgerRoot()  ← centralised ledger root (same root used by all ledger operations)
+  ↓
+KnowledgeStoreManager.searchInsights(query, filters)
+  ↓
+_loadInsights(filters)
+  Store selection:
+    scope: 'project' + project_slug → readProjectStore(slug)   only
+    scope: 'global'                  → readGlobalStore()         only
+    no filters                       → readGlobalStore() +
+                                        all {slug}-insights.json stores
+  ↓
+For each loaded KnowledgeStore:
+  InsightSchema.parse() on each entry  ← schema validation; malformed entries skipped
+  Filter by scope / category (if specified)
+  ↓
+Substring match (case-insensitive) against title, content, each tag
+  ↓
+Post-filter by tags array (AND semantics, if provided)
+Apply limit slice (if provided)
+  ↓
+Return matched Insight[] (each augmented with formatted_id: 'KN-NNNN') to agent
+```
+
+**Result:** Agent receives a list of matching insights. If a substantively similar insight exists, agent skips the commit (deduplication). If no match or a complementary match, agent proceeds to commit.
+
+### N.2 Insight Commit
+
+```
+Synthesis agent → ledger_add_insight(scope, project_slug?, title, content, category, tags, source?, confidence?)
+  ↓
+KnowledgeStoreManager.addInsight(fields)
+  ↓
+Scope guard: scope === 'project' && !project_slug → throw Error (project_slug required)
+  ↓
+withLock(knowledgeDir(), async () => {        ← single lock scope for entire read-modify-write
+  storePath = scope === 'global'
+    ? globalStorePath()
+    : projectStorePath(slug)   ← _validateSlug(slug) enforced (PROJECT_SLUG_REGEX)
+    ↓
+  store = await _readStore(storePath)          ← returns empty KnowledgeStore if file absent
+    ↓
+  insight = { id: store.next_id, ...fields, created_at: now() }
+  store.insights.push(insight)
+  store.next_id += 1
+  store.last_updated = now()
+    ↓
+  await atomicWriteJson(storePath, store)      ← write-to-temp-then-rename
+})
+  ↓
+Return { ...insight, formatted_id: 'KN-NNNN' } to agent
+```
+
+**Result:** New insight committed to `{ledgerRoot}/.knowledge/global-insights.json` (scope: global) or `{ledgerRoot}/.knowledge/{slug}-insights.json` (scope: project). The `.knowledge/` directory is created on first write. All reads are lock-free; only write operations acquire the lock.
+
+**Storage layout:**
+```
+{ledgerRoot}/.knowledge/
+  .lock                     — lock file created by withLock
+  global-insights.json      — scope: 'global' insights
+  {slug}-insights.json      — scope: 'project' insights for each project slug
+```

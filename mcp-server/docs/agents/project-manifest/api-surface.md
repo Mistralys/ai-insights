@@ -4,7 +4,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (22 Total)
+## MCP Tools (30 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -528,6 +528,89 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
 
 ---
 
+### Knowledge Tools
+
+#### `ledger_add_insight`
+
+```typescript
+(args: {
+  scope: 'global' | 'project';    // "global" for cross-project, "project" for project-scoped
+  project_slug?: string;           // Required when scope is "project". Alphanumeric, hyphens, underscores only.
+  title: string;
+  content: string;
+  category: string;                // e.g. "architecture", "testing", "workflow", "security"
+  tags: string[];
+  source?: string;                 // Defaults to '' if omitted
+  confidence?: number;             // 0–1 float; defaults to 1 if omitted
+}) => Promise<MCPResult>
+```
+
+Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.addInsight()`.
+
+- **`scope: 'global'`** — stored in `global-insights.json` (cross-project knowledge).
+- **`scope: 'project'`** — stored in `{project_slug}-insights.json`; `project_slug` is required. Returns `isError: true` if `project_slug` is absent.
+- **Response:** Returns the full `Insight` object with an additional `formatted_id` field (e.g. `"KN-0001"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and project stores. If a global and a project store both contain an insight with `id: 1`, their `formatted_id` values will be identical.
+
+#### `ledger_search_insights`
+
+```typescript
+(args: {
+  query: string;                   // Case-insensitive substring match against title, content, and tags
+  scope?: 'global' | 'project';   // Optional. Filter by scope.
+  category?: string;               // Optional. Filter by category.
+  tags?: string[];                 // Optional. Filter to insights containing ALL specified tags (AND semantics).
+  project_slug?: string;           // Optional. Restrict search to a specific project store.
+  limit?: number;                  // Optional. Maximum results to return.
+}) => Promise<MCPResult>
+```
+
+Searches insights for the query string (case-insensitive substring match against `title`, `content`, and `tags`). Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found. Store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
+
+**Tags filter (AND semantics):** When `tags` is provided, only insights containing all specified tags are returned.
+
+#### `ledger_list_insights`
+
+```typescript
+(args: {
+  scope?: 'global' | 'project';   // Optional. Filter by scope.
+  category?: string;               // Optional. Filter by category.
+  tags?: string[];                 // Optional. Filter to insights containing ALL specified tags (AND semantics).
+  project_slug?: string;           // Optional. Restrict to a specific project store.
+  limit?: number;                  // Optional. Maximum results to return.
+  offset?: number;                 // Optional. Skip this many results (pagination). Default: 0.
+}) => Promise<MCPResult>
+```
+
+Lists insights with optional filters and pagination. Filter application order: store selection → category → tags → offset → limit. Returns each `Insight` augmented with a `formatted_id` field.
+
+#### `ledger_update_insight`
+
+```typescript
+(args: {
+  id: number;                     // Numeric ID as returned in the id field of a previous response
+  title?: string;
+  content?: string;
+  category?: string;
+  tags?: string[];                // Replaces the tags array
+  source?: string;
+  confidence?: number;            // 0–1 float
+  superseded_by?: number;        // Numeric ID of the insight that supersedes this one
+},
+filter?: {             // Optional scope filter — restricts which store is searched
+  scope?: 'global' | 'project';
+  project_slug?: string;
+}) => Promise<MCPResult>
+```
+
+Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()`. Immutable fields: `id`, `scope`, `project_slug`, `created_at`. Sets `updated_at` on success.
+
+- **Scope filter (new):** Pass `scope` and/or `project_slug` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'project'` + `project_slug` are set only `{slug}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
+- **Without filter:** All stores are searched in alphabetical order (`_enumerateStorePaths()`). `global-insights.json` sorts before `{slug}-insights.json`, so a global insight is updated before any project insight with the same `id`. Use the scope filter when disambiguation is needed.
+- **`formatted_id` in response:** Store-scoped — not globally unique. See `ledger_add_insight` for details.
+- **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
+
+---
+
 ## Storage API
 
 ### `SlugConflictError`
@@ -723,6 +806,140 @@ function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
 ```
 
 Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
+
+---
+
+### `KnowledgeStoreManager`
+
+Manages the `.knowledge/` directory under `ledgerRoot`. Provides full CRUD for insights with atomic writes, file locking, and in-memory search/filter logic. Exported from `src/storage/knowledge-store.ts`.
+
+**Storage layout** (relative to `ledgerRoot`):
+```
+.knowledge/
+  .lock                     — lock file created by withLock
+  global-insights.json      — insights with scope: 'global'
+  {slug}-insights.json      — insights scoped to a specific project
+```
+
+**Locking strategy:**
+- All read-modify-write sequences (`addInsight`, `updateInsight`, `deleteInsight`) acquire a single lock on `knowledgeDir()` for the entire operation.
+- All writes use `atomicWriteJson()` — write-to-temp-then-rename.
+- Pure reads (`readGlobalStore`, `readProjectStore`, `searchInsights`, `listInsights`) do not acquire a lock, consistent with the `LedgerStore` pattern.
+
+```typescript
+class KnowledgeStoreManager {
+  readonly ledgerRoot: string;
+
+  constructor(ledgerRoot: string);
+
+  // ── Path Helpers ──────────────────────────────────────────────────────────
+
+  // Returns {ledgerRoot}/.knowledge
+  knowledgeDir(): string;
+
+  // Returns {ledgerRoot}/.knowledge/global-insights.json
+  globalStorePath(): string;
+
+  // Returns {ledgerRoot}/.knowledge/{slug}-insights.json.
+  // @throws Error if slug fails PROJECT_SLUG_REGEX (path traversal protection)
+  projectStorePath(slug: string): string;
+
+  // ── Read Methods ──────────────────────────────────────────────────────────
+
+  // Reads and validates the global insights store.
+  // Returns a valid empty KnowledgeStore (version '1.0.0', next_id: 1, insights: [])
+  // when the file does not yet exist — no error thrown.
+  // @throws Error if the file exists but contains malformed JSON or fails schema validation
+  readGlobalStore(): Promise<KnowledgeStore>;
+
+  // Reads and validates a project-scoped insights store.
+  // Returns a valid empty KnowledgeStore when the file does not yet exist.
+  // @throws Error if the file exists but contains malformed JSON or fails schema validation
+  readProjectStore(slug: string): Promise<KnowledgeStore>;
+
+  // ── Write Methods (public, top-level only) ────────────────────────────────
+
+  // Writes the global insights store atomically under a lock.
+  // @warning Do NOT call from inside a withLock(knowledgeDir, ...) callback — will deadlock.
+  //   CRUD methods (addInsight, updateInsight, deleteInsight) bypass this method intentionally
+  //   and call atomicWriteJson directly to avoid nested lock acquisition.
+  writeGlobalStore(data: KnowledgeStore): Promise<void>;
+
+  // Writes a project-scoped insights store atomically under a lock.
+  // @warning Same nested-lock deadlock risk as writeGlobalStore.
+  writeProjectStore(slug: string, data: KnowledgeStore): Promise<void>;
+
+  // ── ID Generation ─────────────────────────────────────────────────────────
+
+  // Increments store.next_id in-place and returns the KN-NNNN formatted string
+  // (e.g. "KN-0001" for next_id === 1). Mutates the store object — caller must
+  // persist the updated store for the counter to survive process restarts.
+  // Note: the KN-NNNN return value is used by MCP tool consumers for display;
+  // the storage layer stores numeric ids (store.next_id before increment).
+  nextId(store: KnowledgeStore): string;
+
+  // ── CRUD Operations ───────────────────────────────────────────────────────
+
+  // Adds a new insight to the appropriate store (global or project-scoped).
+  // Auto-assigns numeric id from store.next_id. The entire read-modify-write
+  // sequence runs under a single lock on knowledgeDir().
+  // @throws Error if scope === 'project' and project_slug is absent
+  addInsight(input: Omit<Insight, 'id'>): Promise<Insight>;
+
+  // Searches insights for the query string (case-insensitive substring match
+  // against title, content, and every entry in tags).
+  // Store selection is governed by filters — see store-selection rules table below.
+  searchInsights(
+    query: string,
+    filters?: { scope?: InsightScope; project_slug?: string; category?: string }
+  ): Promise<Insight[]>;
+
+  // Lists insights with optional filters and pagination.
+  // Filter application order: store selection (scope/project_slug) → category →
+  // tags → offset → limit.
+  listInsights(filters: {
+    scope?: InsightScope;
+    category?: string;
+    tags?: string[];        // every tag must be present (AND semantics)
+    project_slug?: string;
+    limit?: number;
+    offset?: number;        // default: 0
+  }): Promise<Insight[]>;
+
+  // Updates an existing insight by numeric id. Searches ALL stores (global +
+  // all project stores) to locate the insight.
+  // Immutable fields: id, scope, project_slug, created_at.
+  // Sets updated_at to the current timestamp on success.
+  // @param filter — Optional scope/project_slug filter. When provided, restricts the
+  //   store search to matching stores only, preventing accidental global-insight mutation
+  //   when the same numeric id exists in both global and project stores.
+  //   Without a filter, all stores are searched in alphabetical order (original behaviour).
+  // @throws Error if no insight with the given id exists in the filtered stores
+  updateInsight(
+    id: number,
+    updates: Partial<Pick<Insight,
+      'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'
+    >>,
+    filter?: { scope?: InsightScope; project_slug?: string }
+  ): Promise<Insight>;
+
+  // Deletes an insight by numeric id.
+  // @param filter — Optional scope/project_slug filter (same semantics as updateInsight).
+  //   Without a filter, all stores are searched.
+  // @throws Error if no insight with the given id exists in the filtered stores
+  deleteInsight(id: number, filter?: { scope?: InsightScope; project_slug?: string }): Promise<void>;
+}
+```
+
+**`_loadInsights()` store-selection rules** (used internally by `searchInsights` and `listInsights`):
+
+| `scope` | `project_slug` | Stores loaded |
+|---------|----------------|---------------|
+| `'global'` | any | `global-insights.json` only |
+| `'project'` | provided | `{slug}-insights.json` only |
+| `'project'` | absent | all `{slug}-insights.json` files |
+| absent | provided | `{slug}-insights.json` only |
+| absent | absent | `global-insights.json` + all `{slug}-insights.json` files |
 
 ---
 
@@ -956,6 +1173,70 @@ const workflowManifest: Manifest;
 - `src/schema/enums.ts` — derives status enums from `workflowManifest`
 - `src/utils/pipeline-maps.ts` — derives pipeline routing maps from `workflowManifest`
 - `src/utils/workflow-helpers.ts` — derives `STALE_PIPELINE_HOURS`, `MAX_REWORK_COUNT`, `_DEFAULT_MAX_HANDOFF_DEPTH`, `_HANDOFF_DEPTH_MULTIPLIER` from `workflowManifest.constants.*`
+
+---
+
+## Knowledge Accumulation Schema
+
+### `src/schema/knowledge.ts` — Insight and KnowledgeStore schemas
+
+Zod schemas and inferred TypeScript types for the knowledge accumulation system. All types are inferred via `z.infer<>` — no handwritten duplicate interfaces.
+
+```typescript
+// Regex for valid project slugs: must start with an alphanumeric character, followed by
+// letters, digits, underscores, or hyphens only. Rejects '/', '\\', '.', spaces, and any
+// character that could escape the .knowledge/ directory.
+// Single source of truth — used by both InsightSchema.project_slug Zod refinement and
+// KnowledgeStoreManager._validateSlug(). Update this constant to change the slug policy
+// in both places simultaneously.
+export const PROJECT_SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+
+// Scope enum: 'global' (applies across all projects) | 'project' (scoped to a specific project).
+// Note: when scope === 'project', project_slug must be present. This constraint is enforced
+// by the storage layer (KnowledgeStoreManager), not by this schema, so the schema remains
+// composable and usable without runtime context.
+const InsightScope: z.ZodEnum<['global', 'project']>;
+type InsightScope = 'global' | 'project';
+
+// Single reusable knowledge record stored in the knowledge base.
+// Optional fields: project_slug (required by storage layer when scope === 'project'),
+// updated_at (set when an insight is amended after initial creation),
+// superseded_by (id of the insight that replaces this one — no referential integrity enforced at schema layer).
+// confidence: 0–1 float; no range constraint enforced — forward-looking field.
+const InsightSchema: z.ZodObject<{
+  id: z.ZodNumber;              // integer; storage layer should enforce id >= 1; per-store only — not globally unique across global and project stores
+  scope: typeof InsightScope;
+  project_slug: z.ZodOptional<z.ZodString>;
+  title: z.ZodString;
+  content: z.ZodString;
+  category: z.ZodString;
+  tags: z.ZodArray<z.ZodString>;
+  source: z.ZodString;
+  created_at: z.ZodString;      // ISO 8601 timestamp
+  updated_at: z.ZodOptional<z.ZodString>;
+  confidence: z.ZodNumber;      // 0–1 float; no range enforced at schema layer
+  superseded_by: z.ZodOptional<z.ZodNumber>; // integer id of superseding insight
+}>;
+type Insight = z.infer<typeof InsightSchema>;
+
+// Top-level structure for .knowledge/store.json.
+// - version: schema version string (e.g. "1.0.0") for forward-compatibility
+// - last_updated: ISO 8601 timestamp of the most recent write
+// - next_id: auto-increment counter; assigned to the next insight added
+// - insights: flat array of all stored Insight records
+const KnowledgeStoreSchema: z.ZodObject<{
+  version: z.ZodString;
+  last_updated: z.ZodString;
+  next_id: z.ZodNumber;         // nonnegative integer
+  insights: z.ZodArray<typeof InsightSchema>;
+}>;
+type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;
+```
+
+**Design notes:**
+- `scope === 'project'` → `project_slug` required constraint is owned by the storage layer (`KnowledgeStoreManager`, WP-002+), not this schema. The schema accepts `project_slug` as optional to remain context-free and composable.
+- Storage layer should enforce `z.number().int().positive()` for `id` (schema accepts 0) and `z.number().finite()` for `confidence` (schema accepts `Infinity`) when persisting.
+- Empty strings for `title`, `content`, `source`, `category` are accepted by the schema; storage layer should guard against them.
 
 ---
 

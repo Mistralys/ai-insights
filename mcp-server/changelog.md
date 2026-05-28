@@ -1,5 +1,20 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.31.0 - Knowledge Accumulation System
+- Storage: Added KnowledgeStoreManager with atomic read-modify-write and lock-free reads.
+- Storage: Per-scope store files — global-insights.json and {slug}-insights.json.
+- Storage: Single withLock(knowledgeDir()) scope for all write operations.
+- Schema: Added InsightSchema, KnowledgeStoreSchema, InsightScope enum, PROJECT_SLUG_REGEX.
+- Tools: Added ledger_add_insight — commit a reusable insight (global or project scope).
+- Tools: Added ledger_search_insights — case-insensitive substring search across all stores.
+- Tools: Added ledger_list_insights — paginated listing with scope/category/tags filters.
+- Tools: Added ledger_update_insight — amend existing insight; immutable fields enforced.
+- Tools: Insight IDs formatted as KN-NNNN in all responses.
+- Docs: api-surface.md updated with all 4 tool signatures and KnowledgeStoreManager API.
+- Docs: file-tree.md updated with knowledge-store.ts and knowledge.ts entries.
+- Docs: data-flows.md updated with Knowledge Accumulation flow (N.1 dedup, N.2 commit).
+- Docs: constraints.md updated with §73 — .knowledge/ lock scope and enumeration exclusion.
+
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.
 - Queue: Entry validation now rejects empty-string and whitespace-only id and slug values.
