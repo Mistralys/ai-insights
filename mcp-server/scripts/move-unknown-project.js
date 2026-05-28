@@ -34,8 +34,8 @@ const __dirname = dirname(__filename);
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Segments that are safe as directory names: lowercase alphanum + hyphens. */
-const SAFE_SLUG_REGEX = /^[a-z0-9][a-z0-9-]*$/;
+/** Segments that are safe as directory names: alphanum (upper or lower) + hyphens. */
+const SAFE_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9-]*$/;
 
 function isSafeSegment(s) {
   return typeof s === 'string' && SAFE_SLUG_REGEX.test(s);
@@ -181,7 +181,7 @@ async function main() {
 
   if (!isSafeSegment(repo)) {
     console.error(
-      `Error: Invalid repo name "${repo}". Must be lowercase alphanumeric with hyphens (e.g. ai-insights).`
+      `Error: Invalid repo name "${repo}". Must be alphanumeric with hyphens (e.g. ai-insights).`
     );
     process.exit(1);
   }
