@@ -144,7 +144,7 @@ var OrchestratorWidgets = (function () {
   function renderDismissButton(entryId, onDone) {
     var btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'btn btn-secondary btn-sm orchestrator-dismiss-btn';
+    btn.className = 'btn btn-secondary btn-sm orch-queue-action-btn orchestrator-dismiss-btn';
     btn.textContent = 'Dismiss';
 
     btn.addEventListener('click', function () {

@@ -578,6 +578,7 @@ async function serveStatic(
     res.writeHead(200, {
       'Content-Type': mimeType,
       'Content-Length': content.length,
+      'Cache-Control': 'no-store',
       ...corsHeaders(port),
       ...securityHeaders(),
     });
