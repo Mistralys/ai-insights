@@ -211,14 +211,14 @@ describe('API.orchestratorKill', () => {
 });
 
 describe('API.orchestratorDismiss', () => {
-  it('sends DELETE /api/orchestrator/queue/{id}', async () => {
+  it('sends POST /api/orchestrator/dismiss/{id}', async () => {
     const calls = mockFetch(null, 204);
 
     await globalThis.API.orchestratorDismiss('abc-123');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('/api/orchestrator/queue/abc-123');
-    expect(calls[0]!.opts.method).toBe('DELETE');
+    expect(calls[0]!.url).toBe('/api/orchestrator/dismiss/abc-123');
+    expect(calls[0]!.opts.method).toBe('POST');
   });
 
   it('encodes the entry ID in the URL', async () => {
@@ -226,6 +226,6 @@ describe('API.orchestratorDismiss', () => {
 
     await globalThis.API.orchestratorDismiss('id/with/slashes');
 
-    expect(calls[0]!.url).toBe('/api/orchestrator/queue/id%2Fwith%2Fslashes');
+    expect(calls[0]!.url).toBe('/api/orchestrator/dismiss/id%2Fwith%2Fslashes');
   });
 });
