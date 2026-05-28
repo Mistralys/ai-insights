@@ -380,27 +380,27 @@ export const SYNTHESIS_ARCHIVE_FILENAME = 'synthesis.md'  as const;
 
 /**
  * Subdirectory path used to store agent dialogue capture files, relative to
- * the project's ledger storage root (`{ledgerRoot}/{slug}/`).
+ * the project's ledger storage root (`{ledgerRoot}/{repo}/{slug}/`).
  *
  * The orchestrator's `write_dialogue()` utility writes Markdown files to
  * `orchestrator/dialogues/` inside the ledger folder.  This constant keeps
  * the path in sync between the MCP server and the orchestrator.
  *
- * Usage: `path.join(ledgerRoot, slug, DIALOGUES_DIR)`
- * → `{ledgerRoot}/{slug}/orchestrator/dialogues/`
+ * Usage: `path.join(store.storageDir, DIALOGUES_DIR)`
+ * → `{ledgerRoot}/{repo}/{slug}/orchestrator/dialogues/`
  */
 export const DIALOGUES_DIR = 'orchestrator/dialogues' as const;
 
 /**
  * Subdirectory path used to store streaming chunk capture files, relative to
- * the project's ledger storage root (`{ledgerRoot}/{slug}/`).
+ * the project's ledger storage root (`{ledgerRoot}/{repo}/{slug}/`).
  *
  * The orchestrator's `ChunkWriter` writes JSONL files to
  * `orchestrator/chunks/` inside the ledger folder.  This constant keeps
  * the path in sync between the MCP server and the orchestrator.
  *
- * Usage: `path.join(ledgerRoot, slug, CHUNKS_DIR)`
- * → `{ledgerRoot}/{slug}/orchestrator/chunks/`
+ * Usage: `path.join(store.storageDir, CHUNKS_DIR)`
+ * → `{ledgerRoot}/{repo}/{slug}/orchestrator/chunks/`
  */
 export const CHUNKS_DIR = 'orchestrator/chunks' as const;
 
@@ -490,7 +490,8 @@ export function ifDefined<T>(value: T | undefined, fn: (v: T) => void): void {
 ```ts
 import { join, dirname, posix } from 'path';
 import { fileURLToPath } from 'url';
-import { planFolderBasename } from './path-validator.js';
+import { readdir } from 'fs/promises';
+import { assertSafeSegment, planFolderBasename } from './path-validator.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -566,6 +567,139 @@ export function inferProjectRootFromPlanPath(planPath: string): string {
   return current;
 }
 
+/**
+ * Derives a filesystem-safe repository namespace key from an absolute plan folder path.
+ *
+ * Reuses the same derivation as `repository_name` enrichment in `initializeProject()`:
+ * the basename of the project root inferred by walking 4 levels up from the plan path.
+ *
+ * The result is lowercased and validated against {@link assertSafeSegment}
+ * (alphanumeric + hyphens, must start with alnum). Returns `'unknown'` when
+ * the inferred name is empty, `'.'`, `'..'`, or fails validation.
+ *
+ * This function is pure — it performs no filesystem access.
+ *
+ * @param projectPath - Absolute path to the plan folder
+ * @returns Lowercase repository name (e.g. `'ai-insights'`), or `'unknown'`
+ */
+export function deriveRepoName(projectPath: string): string {
+  if (!projectPath) {
+    return 'unknown';
+  }
+  // inferProjectRootFromPlanPath already normalises backslashes to forward slashes
+  const root = inferProjectRootFromPlanPath(projectPath);
+  const name = posix.basename(root).toLowerCase();
+  if (!name || !assertSafeSegment(name)) {
+    return 'unknown';
+  }
+  return name;
+}
+
+// ---------------------------------------------------------------------------
+// Slug resolution helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Guards a single path segment against path-traversal and invalid characters.
+ *
+ * Throws for segments that are empty or invalid (lowercase alphanumeric + hyphens,
+ * must start with an alphanumeric character). This rejects `/`, `..`, uppercase
+ * letters, and any other non-conforming input.
+ *
+ * **Layer note:** A parallel `assertSafeSlug` exists in
+ * `src/gui/handlers/run-log-handlers.ts` (GUI layer). Both delegate to
+ * {@link assertSafeSegment} from `path-validator.ts` but throw different error types:
+ * this function throws plain `Error` (storage layer); the GUI layer version
+ * throws `ApiError`. The separation is intentional — the storage layer must not
+ * depend on GUI error types.
+ *
+ * @throws {Error} When the segment is invalid.
+ */
+function assertSafeSlug(segment: string): void {
+  if (!assertSafeSegment(segment)) {
+    throw new Error(`Invalid path segment: '${segment}'.`);
+  }
+}
+
+/**
+ * Resolves a project storage directory from a bare slug or a qualified
+ * `{repo}/{slug}` input.
+ *
+ * - **Qualified** (`{repo}/{slug}`): each segment is individually validated
+ *   against {@link assertSafeSlug}, then `join(ledgerRoot, repo, slug)` is
+ *   returned directly — no filesystem access is performed.
+ * - **Bare slug**: scans all repo-namespace subdirectories of `ledgerRoot`
+ *   (skipping dot-prefixed entries and non-directories). Returns the resolved
+ *   path if exactly one match is found; throws an `AMBIGUOUS` error (listing
+ *   all matching qualified paths) if more than one match exists; throws a
+ *   `NOT_FOUND` error if no match exists.
+ *
+ * @param slugOrQualified - A bare slug (`2026-05-01-my-plan`) or a qualified
+ *   `{repo}/{slug}` string (`ai-insights/2026-05-01-my-plan`).
+ * @param ledgerRoot - Absolute path to the central ledger root.
+ * @returns Absolute path to the project storage directory.
+ * @throws {Error} On invalid segment format, ambiguous bare slug, or not-found bare slug.
+ */
+export async function resolveProjectDir(
+  slugOrQualified: string,
+  ledgerRoot: string
+): Promise<string> {
+  if (slugOrQualified.includes('/')) {
+    // Qualified input: split at the first '/'
+    const slashIndex = slugOrQualified.indexOf('/');
+    const repo = slugOrQualified.slice(0, slashIndex);
+    const slug = slugOrQualified.slice(slashIndex + 1);
+    // Validate each segment separately — never pass a composite string to the guard
+    assertSafeSlug(repo);
+    assertSafeSlug(slug);
+    return join(ledgerRoot, repo, slug);
+  }
+
+  // Bare slug: scan all repo-namespace subdirectories of ledgerRoot
+  const slug = slugOrQualified;
+  assertSafeSlug(slug);
+  let topDirents: import('fs').Dirent[];
+  try {
+    topDirents = await readdir(ledgerRoot, { withFileTypes: true });
+  } catch {
+    topDirents = [];
+  }
+
+  const matches: string[] = [];
+  for (const dirent of topDirents) {
+    if (!dirent.isDirectory()) continue;
+    if (dirent.name.startsWith('.')) continue;
+
+    // Probe whether {repoName}/{slug} exists as a directory
+    const candidatePath = join(ledgerRoot, dirent.name, slug);
+    try {
+      await readdir(candidatePath);
+      matches.push(`${dirent.name}/${slug}`);
+    } catch {
+      // Directory does not exist or is not accessible — skip
+    }
+  }
+
+  if (matches.length === 1) {
+    const qualified = matches[0]!;
+    const slashIndex = qualified.indexOf('/');
+    const repo = qualified.slice(0, slashIndex);
+    return join(ledgerRoot, repo, slug);
+  }
+
+  if (matches.length > 1) {
+    throw new Error(
+      `AMBIGUOUS: slug '${slug}' exists in ${matches.length} repo namespaces. ` +
+        `Use a qualified '{repo}/{slug}' identifier to disambiguate.\n\nMatches:\n` +
+        matches.map((m) => `  ${m}`).join('\n')
+    );
+  }
+
+  throw new Error(
+    `NOT_FOUND: project slug '${slug}' was not found in any repo namespace under '${ledgerRoot}'.`
+  );
+}
+
 ```
 ###  Path: `/mcp-server/src/utils/path-validator.ts`
 
@@ -574,10 +708,29 @@ import { basename } from 'path';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { ProjectMeta } from '../schema/project-meta.js';
 import { formatRelativeTime } from './timestamp.js';
+import { SAFE_SLUG_REGEX } from './constants.js';
 
 // Pattern: YYYY-MM-DD followed by a hyphen and at least one character
 // Example: 2026-02-16-technical-debt-cleanup
 const planFolderPattern = /^\d{4}-\d{2}-\d{2}-.+$/;
+
+/**
+ * Returns `true` when `segment` is a valid slug segment (lowercase alphanumeric
+ * with hyphens, must start with an alphanumeric character), `false` otherwise.
+ *
+ * Uses {@link SAFE_SLUG_REGEX} from `constants.ts` — callers are responsible for
+ * constructing their own layer-specific errors when this returns `false`.
+ *
+ * The `Boolean(segment)` guard is intentional defense-in-depth: {@link SAFE_SLUG_REGEX}
+ * (`/^[a-z0-9][a-z0-9-]*$/`) already rejects empty strings via its `^[a-z0-9]` anchor,
+ * so the guard does not change observable behavior. It is retained to make the
+ * empty-string rejection explicit and prevent it from being removed as apparent dead code.
+ *
+ * @param segment - The string to validate.
+ */
+export function assertSafeSegment(segment: string): boolean {
+  return Boolean(segment) && SAFE_SLUG_REGEX.test(segment);
+}
 
 /**
  * Extracts the plan folder basename from the given project path and validates

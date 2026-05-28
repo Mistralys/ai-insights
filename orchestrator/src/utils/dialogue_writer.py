@@ -232,7 +232,9 @@ def write_dialogue(
         Markdown string to write.
     slug_dir:
         Root directory for the project's ledger storage
-        (e.g. ``{workspace_root}/mcp-server/storage/ledger/{slug}``).
+        (e.g. ``{workspace_root}/mcp-server/storage/ledger/{repo_name}/{slug}``).  
+        *repo_name* is derived from the fourth ancestor of the plan directory;
+        it defaults to ``'unknown'`` when the path is too short.
     wp_id:
         Work-package identifier (e.g. ``"WP-001"``).
     stage:

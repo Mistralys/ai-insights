@@ -4,6 +4,36 @@ This document describes the main interaction paths through the system.
 
 ---
 
+## Storage Layout
+
+The centralized ledger uses a **two-level repo-namespaced directory structure**:
+
+```
+{ledgerRoot}/
+├── .migration-state.json        # Written on first startup after migration; absent on first run
+├── .migration-in-progress       # Transient sentinel; only present during an active migration
+├── gui-config.json              # Runtime config (auto_handoff_enabled, max_handoff_depth, …)
+├── ai-insights/                 # Example repo-namespace dir
+│   └── 2026-05-01-my-plan/          # Per-project subfolder
+│       ├── .meta.json
+│       ├── .lock
+│       ├── project-ledger.json
+│       └── WP-001.json
+├── other-repo/                  # Second repo-namespace dir (independent repository)
+│   └── 2026-06-01-another-plan/
+│       └── …
+└── unknown/                     # Fallback namespace (repo root failed slug validation)
+    └── …
+```
+
+**`{repoName}`** is derived by `deriveRepoName(projectPath)`: walks 4 directory levels up from the plan folder to the project root, takes its basename, lowercases it, and validates against `SAFE_SLUG_REGEX` (`/^[a-z0-9][a-z0-9-]*$/`). Falls back to `'unknown'` when the name is empty, `'.'`, `'..'`, or fails slug validation.
+
+**Two-level scan (`LedgerStore.listAllProjects`):** reads the top level of `{ledgerRoot}`. For every depth-1 directory that has a direct `.meta.json` it reads it as a legacy flat-layout project (backward compatibility). For directories without a direct `.meta.json` it treats them as repo-namespace dirs and scans one level deeper, reading `{repoName}/{slug}/.meta.json` for each depth-2 entry. Dot-prefixed directories are skipped at both levels.
+
+**One-time idempotent migration (`migrateToNamespacedLayout`):** on first startup after upgrade, moves each flat-layout `{ledgerRoot}/{slug}/` directory to `{ledgerRoot}/{repoName}/{slug}/` using the `repository_name` field stored in each project's `.meta.json`. The migration writes `.migration-state.json` on success and uses `.migration-in-progress` as a crash-recovery sentinel. Safe to call on every startup — skips immediately when `storage_version >= 2` is already written.
+
+---
+
 ## Flow 1: Project Initialization
 
 **Entry Point:** Agent invokes `ledger_initialize_project` tool
@@ -13,15 +43,15 @@ Agent → ledger_initialize_project(project_path, plan_file)
   ↓
 LedgerStore.writeRootIndex()
   ↓
-atomicWriteJson(storage/ledger/{slug}/project-ledger.json)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
   2. Write to {file}.tmp.{pid}
-  3. Atomically rename to storage/ledger/{slug}/project-ledger.json
+  3. Atomically rename to storage/ledger/{repoName}/{slug}/project-ledger.json
   ↓
 store.writeProjectMeta() — auto-synced after root index write
   ↓
-atomicWriteJson(storage/ledger/{slug}/.meta.json)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/.meta.json)
   ↓
 store.archiveDocuments([plan_file])  — best-effort; outside lock scope
   ↓
@@ -32,7 +62,7 @@ store.archiveDocuments([plan_file])  — best-effort; outside lock scope
 Return RootIndex + { archived_documents, archive_skipped? } to agent
 ```
 
-**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{slug}/` as archived reference (best-effort; missing source is silently skipped).
+**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{repoName}/{slug}/` as archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -47,16 +77,19 @@ LedgerStore.listAllProjects(ledgerRoot)
   ↓
 readdir(storage/ledger/)
   ↓
-For each entry (excluding .archive/):
-  readFile(storage/ledger/{slug}/.meta.json)
-  ProjectMetaSchema.parse(data)   ← invalid entries skipped, logged to stderr
+For each depth-1 entry (excluding .archive/):
+  If entry has a direct .meta.json → old flat-layout project; read it.
+  If entry has no .meta.json → treat as repo-namespace dir; scan depth-2:
+    For each depth-2 slug entry:
+      readFile(storage/ledger/{repoName}/{slug}/.meta.json)
+      ProjectMetaSchema.parse(data)   ← missing/invalid entries skipped, warning → stderr
   ↓
 Optional filter by status
   ↓
 Return ProjectMeta[] to agent
 ```
 
-**Result:** Array of project metadata for all valid projects in the central ledger, optionally filtered by status. Read-only — no lock acquired.
+**Result:** Array of project metadata for all valid projects in the central ledger (both legacy flat-layout and new repo-namespaced layout), optionally filtered by status. Read-only — no lock acquired.
 
 ---
 
@@ -122,7 +155,7 @@ Pre-lock validation (outside lock scope):
   ↓
 LedgerStore.createWorkPackageWithSync(creator)  ← primary choke point for WP creation
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
 LedgerStore.readRootIndex()
   ↓
@@ -161,7 +194,7 @@ Release lock
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `storage/ledger/{slug}/WP-###.json` and `storage/ledger/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
+**Result:** Both `storage/ledger/{repoName}/{slug}/WP-###.json` and `storage/ledger/{repoName}/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
 
 ---
 
@@ -174,10 +207,10 @@ Agent → ledger_claim_work_package(project_path, work_package_id, agent)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
-Read WorkPackageDetail (storage/ledger/{slug}/WP-###.json) — validated with Zod
-Read RootIndex (storage/ledger/{slug}/project-ledger.json) — validated with Zod
+Read WorkPackageDetail (storage/ledger/{repoName}/{slug}/WP-###.json) — validated with Zod
+Read RootIndex (storage/ledger/{repoName}/{slug}/project-ledger.json) — validated with Zod
   ↓
 updater function:
   1. Validate current status is READY
@@ -191,8 +224,8 @@ updater function:
   ↓
 Validate updated WP and root with Zod
   ↓
-atomicWriteJson(storage/ledger/{slug}/WP-###.json, updatedWP)
-atomicWriteJson(storage/ledger/{slug}/project-ledger.json, updatedRoot)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/WP-###.json, updatedWP)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json, updatedRoot)
 store.writeProjectMeta() — auto-synced inside same lock
   ↓
 Release lock
@@ -213,7 +246,7 @@ Agent → ledger_start_pipeline(project_path, work_package_id, type, agent_role)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -825,7 +858,7 @@ Return array of recommendations:
 ### 13a: Storage Location
 
 ```
-root index (storage/ledger/{slug}/project-ledger.json)
+root index (storage/ledger/{repoName}/{slug}/project-ledger.json)
   └── auto_handoff_depth: number   ← current chain depth (0 when absent)
 ```
 
@@ -1012,7 +1045,7 @@ withLock(store.storageDir, async () => {
 Return result + { archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -1077,7 +1110,7 @@ renderSynthesis(app, slug)
     ↓
     assertSafeSlug(slug)
     LedgerStore.ledgerDirExists()   ← NOT_FOUND if project absent
-    readFile(storage/ledger/{slug}/synthesis.md, 'utf-8')
+    readFile(storage/ledger/{repoName}/{slug}/synthesis.md, 'utf-8')
     → Return { content: "<markdown>" }
     ← 404 NOT_FOUND if synthesis.md absent or project absent
   ↓

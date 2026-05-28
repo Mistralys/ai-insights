@@ -636,14 +636,15 @@ Used by `gui/api.ts` `handleRenameProject` catch block (`err instanceof SlugConf
 
 ### `LedgerStore`
 
-Central storage abstraction for ledger file I/O. Files are stored in the centralized ledger root at `{ledgerRoot}/{slug}/` — never inside plan folders.
+Central storage abstraction for ledger file I/O. Files are stored in the centralized ledger root at `{ledgerRoot}/{repoName}/{slug}/` — never inside plan folders.
 
 ```typescript
 class LedgerStore {
   readonly planPath: string;
   readonly slug: string;
   readonly ledgerRoot: string;
-  readonly storageDir: string;   // {ledgerRoot}/{slug}/
+  readonly repoName: string;     // derived from the project-root dirname via deriveRepoName(); falls back to 'unknown'
+  readonly storageDir: string;   // {ledgerRoot}/{repoName}/{slug}/
 
   // Optional ledgerRoot enables test isolation (pass a temp directory)
   constructor(projectPath: string, ledgerRoot?: string);
@@ -774,6 +775,23 @@ class LedgerStore {
   renameSlug(newSlug: string): Promise<ProjectMeta>;
 
   // Static
+  //
+  // listAllProjects() — canonical entry point for slug-to-path resolution.
+  // Performs a two-level scan of the ledger root:
+  //   Level 1 (flat layout, backward compat): {ledgerRoot}/{slug}/.meta.json
+  //   Level 2 (namespaced layout, current):   {ledgerRoot}/{repoName}/{slug}/.meta.json
+  // Dot-prefixed entries (e.g. .archive) are skipped at both levels.
+  // Unreadable depth-2 .meta.json entries are logged to stderr and skipped;
+  //   the scan continues — errors here are non-fatal.
+  //
+  // ARCHITECTURAL CONSTRAINT: Any code that receives only a slug (not a plan_path)
+  // must call listAllProjects() to retrieve the ProjectMeta (which contains
+  // plan_path and the resolved storageDir) before constructing a LedgerStore
+  // instance. Constructing LedgerStore(slug, ledgerRoot) directly is incorrect
+  // for namespaced projects: deriveRepoName(slug) returns 'unknown' for a bare
+  // slug, causing storageDir to resolve to {ledgerRoot}/unknown/{slug}/ instead
+  // of the actual namespace path — the directory will not exist and all ledger
+  // operations on that store will fail with 'Project not found'.
   static listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]>;
   static detectProjectByCwd(
     cwdPath: string,
@@ -812,6 +830,36 @@ function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
 ```
 
 Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
+
+---
+
+### `migrateToNamespacedLayout()`
+
+```typescript
+// Exported from src/storage/migrate-namespaced.ts
+
+interface MigrationResult {
+  skipped: boolean;                              // true if storage_version >= 2 on entry (no-op)
+  moved: string[];                               // slugs successfully moved
+  errors: Array<{ slug: string; error: string }>; // individual move failures
+}
+
+function migrateToNamespacedLayout(ledgerRoot: string): Promise<MigrationResult>;
+```
+
+One-shot startup migration: scans `ledgerRoot` for depth-1 directories that contain a `.meta.json` (flat-layout projects) and moves each to `{ledgerRoot}/{repoName}/{slug}/` using `repository_name` from `.meta.json` (falls back to `'unknown'` when absent, `null`, or empty).
+
+**Idempotency:** Reads `{ledgerRoot}/.migration-state.json` at startup; returns `{ skipped: true }` immediately if `storage_version >= 2`. Safe to call on every server startup.
+
+**Crash recovery:** Writes a `.migration-in-progress` sentinel file before any directory moves, removed on success. If the process crashes mid-migration, the sentinel is present on the next run and the migration loop re-runs (already-moved directories are skipped).
+
+**EXDEV fallback:** If `fs.rename()` fails with `EXDEV` (cross-device rename), falls back to recursive copy-then-delete with top-level verification via `verifyDirCopied()`.
+
+**Partial failure:** Individual move errors leave the source directory untouched; the error is recorded in `result.errors`. `{ledgerRoot}/.migration-state.json` is only written when `errors.length === 0`.
+
+**Startup wiring:** Called from `src/index.ts` after `mkdirSync(ledgerRoot)` and before `readConfigFromDisk()`, wrapped in `try/catch` to prevent fatal startup failures.
+
+**`withLock` constraint:** Never calls `withLock(ledgerRoot)`. Race safety relies on the sentinel file and startup sequencing (no tool-call handlers are reachable during migration).
 
 ---
 
@@ -1330,6 +1378,45 @@ function projectSlugFromPath(projectPath: string): string;
 // Convention: {project-root}/docs/agents/plans/{slug}
 // Exported from src/utils/ledger-root.ts
 function inferProjectRootFromPlanPath(planPath: string): string;
+
+// Derives the repo name from an absolute plan folder path.
+// Calls inferProjectRootFromPlanPath(), lowercases the project-root basename, and
+// validates against assertSafeSegment() (alphanumeric + hyphens). Returns 'unknown' on
+// any failure (path too shallow, name fails slug validation, empty input).
+// Pure — no filesystem access. Exported from src/utils/ledger-root.ts
+function deriveRepoName(projectPath: string): string;
+
+// Resolves a project slug (or qualified {repo}/{slug} string) to an absolute storage path.
+// Qualified input (contains '/'): validates repo and slug segments individually against
+//   assertSafeSlug() (which delegates to assertSafeSegment()), then returns join(ledgerRoot, repo, slug) with no I/O.
+// Bare-slug input: first validates the slug via assertSafeSlug, then scans all non-dot
+//   subdirectories of ledgerRoot; returns join(ledgerRoot, repoName, slug) when exactly
+//   one match is found. Throws on ambiguity or not-found:
+//     'AMBIGUOUS: slug ... exists in N repo namespaces. Use a qualified ...'
+//     'NOT_FOUND: project slug ... was not found in any repo namespace under {ledgerRoot}'.
+// ⚠️ The NOT_FOUND message embeds the absolute ledgerRoot path — callers must sanitise
+//   before surfacing to API consumers (see Gotcha 13 in constraints.md).
+// Async (uses readdir for bare-slug scan). Exported from src/utils/ledger-root.ts
+async function resolveProjectDir(
+  slugOrQualified: string,  // bare slug ('my-plan') or qualified '{repo}/{slug}'
+  ledgerRoot: string,
+): Promise<string>;
+
+// Returns true when segment is a valid slug segment (lowercase alphanumeric with hyphens,
+// must start with an alphanumeric character); false otherwise.
+// Pure boolean predicate — no side effects, no errors thrown. Callers are responsible for
+// constructing their own layer-specific errors on false.
+// Boolean(segment) is retained as defense-in-depth (SAFE_SLUG_REGEX already rejects empty
+// strings via its ^[a-z0-9] anchor, but the guard makes the intent explicit).
+//
+// Canonical validation delegate: the single slug-segment validation function used by all
+// assertSafeSlug() wrappers in the codebase. Each wrapper delegates here and throws a
+// layer-appropriate error on false:
+//   - assertSafeSlug() in src/utils/ledger-root.ts (storage layer) → throws plain Error
+//   - assertSafeSlug() in src/gui/handlers/run-log-handlers.ts (GUI layer) → throws ApiError NOT_FOUND
+//   - assertSafeSlug() in gui/api.ts (GUI layer) → throws ApiError NOT_FOUND
+// Exported from src/utils/path-validator.ts.
+function assertSafeSegment(segment: string): boolean;
 
 // Extracts the plan folder basename and validates the YYYY-MM-DD naming convention.
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts
@@ -2115,7 +2202,7 @@ export async function handleGetRunLog(
 ): Promise<{ entries: unknown[]; totalLines: number }>;
 ```
 
-Slug validation: throws `ApiError NOT_FOUND` for slugs that are empty, contain `/`, or contain `..`.
+Slug validation: a module-private `assertSafeSlug()` wrapper delegates to `assertSafeSegment()` from `path-validator.ts` and throws `ApiError NOT_FOUND` on false. Valid slugs must pass `assertSafeSegment()` (lowercase alphanumeric + hyphens, starting with alphanumeric).
 
 ---
 
@@ -2425,11 +2512,33 @@ Pure async handler functions called by the HTTP server (`gui/server.ts`). All ha
 
 **Path-traversal guards:** three module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
-- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleGetWorkPackageOverview`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`, `handleListChunks`, `handleGetChunkFile`).
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleGetWorkPackageOverview`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`, `handleListDialogues`, `handleGetDialogueFile`, `handleListChunks`, `handleGetChunkFile`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
 - `assertSafeQueueId(id: string): void` — applied as the **first statement** in `handleOrchestratorKill` and `handleOrchestratorDismiss`; `id` is extracted from the URL path via `decodeURIComponent()` in `server.ts` **before** the guard is called, so percent-encoded slashes (`%2F`) are decoded first and then caught.
 
 All three guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
+
+**`assertSafeSegment()` vs `assertSafeSlug()` usage pattern:** The module-private `assertSafeSlug()` wrapper (which delegates to `assertSafeSegment()`) always throws `ApiError NOT_FOUND` — use it at handler entry points to reject invalid path slugs. When the calling site needs to produce a _different_ error type on an invalid value, call `assertSafeSegment()` directly and construct the error explicitly. Canonical example: `handleRenameProject` calls `assertSafeSegment(newSlug)` directly and then calls `validationError()` on `false`, because an invalid _proposed_ new slug is a validation error (`VALIDATION_ERROR`), not a not-found condition (`NOT_FOUND`).
+
+**Store resolution helper:** `resolveProjectStore()` is a module-private async helper used by all 13 URL-parameter-driven handlers to obtain a `LedgerStore` for the namespaced project directory.
+
+```typescript
+// Resolves a LedgerStore for URL-parameter-driven handlers.
+// Validates repoName (if provided) via assertSafeSlug, calls resolveProjectDir()
+// to locate the namespaced storageDir, reads .meta.json for plan_path, then
+// constructs LedgerStore(meta.plan_path, ledgerRoot).
+//
+// Security contract — AMBIGUOUS → NOT_FOUND downgrade:
+//   When resolveProjectDir() throws AMBIGUOUS (slug exists in multiple repos),
+//   this function downgrades it to NOT_FOUND. Callers must not learn that a slug
+//   exists across namespaces (cross-namespace existence leak prevention).
+//   Do not restore the original AMBIGUOUS error without a security review.
+async function resolveProjectStore(
+  ledgerRoot: string,
+  slug: string,       // must already be validated via assertSafeSlug() by the caller
+  repoName?: string   // optional; validated here via assertSafeSlug() before use
+): Promise<LedgerStore>;
+```
 
 ```typescript
 // Error type used by all handlers
@@ -2690,16 +2799,27 @@ export async function handleGetProjectHealth(
   slug: string
 ): Promise<ProjectHealthSummary>;
 
+// Structured representation of a single dialogue file, parsed from the filename convention
+// {WP_ID}-{stage}-r{N}.md.  wp_id and stage are empty strings for non-conforming names.
+export interface DialogueEntry {
+  filename: string;
+  wp_id: string;   // e.g. 'WP-001'
+  stage: string;   // e.g. 'developer'
+}
+
 // GET /api/projects/:slug/dialogues[?wp=WP-001]
-// Returns an array of dialogue filenames from the project's orchestrator/dialogues/ directory.
-// slug is validated via assertSafeSlug(). Returns [] when the directory is absent (no error thrown).
+// Returns an array of structured DialogueEntry objects from the project's orchestrator/dialogues/ directory.
+// Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
+// Returns [] when the project exists but the dialogues/ subdirectory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
-// All returned filenames are sorted alphabetically.
+// All returned entries are sorted alphabetically by filename.
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListDialogues(
   ledgerRoot: string,
   slug: string,
-  wpId?: string
-): Promise<string[]>;
+  wpId?: string,
+  repoName?: string
+): Promise<DialogueEntry[]>;
 
 // GET /api/projects/:slug/dialogues/:filename
 // Returns the raw Markdown content of a single dialogue file.
@@ -2709,10 +2829,12 @@ export async function handleListDialogues(
 //   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
 //      the project's orchestrator/dialogues/ directory.
 // Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleGetDialogueFile(
   ledgerRoot: string,
   slug: string,
-  filename: string
+  filename: string,
+  repoName?: string
 ): Promise<string>;
 
 // ---------------------------------------------------------------------------
@@ -2721,8 +2843,8 @@ export async function handleGetDialogueFile(
 
 // CHUNKS_DIR constant (src/utils/constants.ts)
 // Relative path from the per-project ledger storage root to the chunk files directory.
-// Usage: path.join(ledgerRoot, slug, CHUNKS_DIR)
-//   → {ledgerRoot}/{slug}/orchestrator/chunks/
+// Current usage in handleListChunks / handleGetChunkFile:
+//   path.join(store.storageDir, CHUNKS_DIR)  → {ledgerRoot}/{repo}/{slug}/orchestrator/chunks/
 // The orchestrator's ChunkWriter writes JSONL files to this path; this constant keeps
 // the path in sync between the MCP server and the orchestrator.
 export const CHUNKS_DIR: 'orchestrator/chunks';
@@ -2739,14 +2861,17 @@ export interface ChunkEntry {
 // Returns an array of structured ChunkEntry objects from the project's
 // orchestrator/chunks/ directory.  Each entry includes the filename plus the
 // wp_id and stage parsed from the {WP_ID}-{stage}-r{N}.jsonl convention.
-// slug is validated via assertSafeSlug().  Returns [] when the directory is absent (no error thrown).
+// Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
+// Returns [] when the project exists but the chunks/ subdirectory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned
 // (wpId validated against WP_ID_RE — invalid values return []).
 // All returned entries are sorted alphabetically by filename.
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListChunks(
   ledgerRoot: string,
   slug: string,
-  wpId?: string
+  wpId?: string,
+  repoName?: string
 ): Promise<ChunkEntry[]>;
 
 // GET /api/projects/:slug/chunks/:filename
@@ -2757,10 +2882,12 @@ export async function handleListChunks(
 //   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
 //      the project's orchestrator/chunks/ directory.
 // Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleGetChunkFile(
   ledgerRoot: string,
   slug: string,
-  filename: string
+  filename: string,
+  repoName?: string
 ): Promise<{ content: string }>;
 
 // GET /api/projects/:slug/chunks/:filename/rendered
@@ -2904,6 +3031,20 @@ Maps an `ApiError` error code to its HTTP status code. Exported for unit testing
 | `VALIDATION_ERROR` | 400 |
 | `CONFLICT` | 409 |
 | *(default)* | 500 |
+
+#### `resolveRepoName(ledgerRoot, repoUrlParam, slugUrlParam): Promise<string>`
+
+Reads `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json` and returns the stored
+`repository_name` value. Falls back to `repoUrlParam` when the field is absent/null or when
+the file contains malformed JSON (writes a `process.stderr` warning in the latter case).
+
+Validates both `repoUrlParam` and `slugUrlParam` via the file-local `assertSafeSlug()` guard
+before any filesystem access. Throws `ApiError NOT_FOUND` for invalid segments and for missing
+meta files. Using `NOT_FOUND` for both cases is intentional information-hiding: invalid input
+and missing projects are indistinguishable from the client side.
+
+Exported for direct unit testing (previously unexported/private). Used by all namespaced route
+handlers in `server.ts`.
 
 ---
 
@@ -3868,6 +4009,44 @@ node dist/index.js --ledger-dir /custom/path/to/ledger
 ```
 
 **Default:** `{mcp-server}/storage/ledger/` (relative to the server package root).
+
+---
+
+### 6b. Ledger Storage Paths Must Include the Repository Namespace Level
+
+**Rule:** Never construct a ledger storage path as `join(ledgerRoot, slug)` or `join(ledgerRoot, slug, filename)`. The canonical storage layout is `{ledgerRoot}/{repoName}/{slug}/` — all paths into the centralized ledger **must** include the `{repoName}` tier. Use one of the two canonical resolution functions:
+
+| Input available | Function | Returns |
+|-----------------|----------|---------|
+| Absolute plan folder path | `LedgerStore(planPath, ledgerRoot)` constructor | Instance whose `.storageDir` is `join(ledgerRoot, deriveRepoName(planPath), slug)` |
+| Bare slug or qualified `{repo}/{slug}` | `resolveProjectDir(slugOrQualified, ledgerRoot)` | Absolute `storageDir` path; then read `.meta.json` to obtain `plan_path` for the constructor |
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — missing the repo-namespace level; two repos with the same slug collide
+const store = new LedgerStore(slug, ledgerRoot);
+// storageDir resolves to join(ledgerRoot, 'unknown', slug) for most inputs
+// — correct only when deriveRepoName(planPath) happens to return 'unknown'
+```
+
+**Correct pattern — constructing from plan path (most common):**
+```typescript
+// ✅ CORRECT — LedgerStore(planPath, ledgerRoot) calls deriveRepoName internally
+const store = new LedgerStore(planPath, ledgerRoot);
+// storageDir === join(ledgerRoot, deriveRepoName(planPath), slug)
+```
+
+**Correct pattern — resolving from a URL slug parameter (GUI handlers):**
+```typescript
+// ✅ CORRECT — resolveProjectDir probes all namespace dirs to find the one containing slug
+const storageDir = await resolveProjectDir(slug, ledgerRoot);
+const meta = JSON.parse(await readFile(join(storageDir, '.meta.json'), 'utf-8'));
+const store = new LedgerStore(meta.plan_path, ledgerRoot);
+```
+
+**Rationale:** The repo-namespaced layout eliminates slug collisions when multiple repositories create identically-named plan folders (e.g., two developers each have a `2026-01-01-initial-setup` plan). Bypassing the namespace level causes different projects to share a storage directory, silently corrupting each other's ledger data.
+
+**See also:** `data-flows.md` §Storage Layout for the full directory structure; `api-surface.md` for `deriveRepoName()`, `resolveProjectDir()`, and `migrateToNamespacedLayout()` signatures.
 
 ---
 
@@ -4893,6 +5072,35 @@ Prefer `| undefined` over non-null assertion (`!`) when the accumulator cannot h
 
 ---
 
+### ⚠️ Gotcha 13: `resolveProjectDir()` NOT_FOUND Error Embeds the Absolute `ledgerRoot` Path
+
+The `NOT_FOUND` error thrown by `resolveProjectDir()` includes the absolute filesystem path to `ledgerRoot` in its message:
+
+```
+NOT_FOUND: project slug 'my-plan' was not found in any repo namespace under '/absolute/path/to/storage/ledger'.
+```
+
+**Caller responsibility:** When `resolveProjectDir()` is wired to a GUI or API handler, the handler **must sanitise this error message before returning it to callers** — strip the filesystem path and retain it only in server-side logs. Returning the raw message to an API consumer leaks internal infrastructure details (A09 — Information Disclosure).
+
+**The `AMBIGUOUS` error is safe** — it contains only `{repo}/{slug}` qualified path strings and does not embed any filesystem path.
+
+**Correct handler pattern:**
+```typescript
+try {
+  const projectPath = await resolveProjectDir(slug, ledgerRoot);
+  // ...
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.startsWith('NOT_FOUND:')) {
+    // Sanitise: strip the filesystem path before returning to the caller
+    throw new ApiError('NOT_FOUND', `Project '${slug}' was not found.`);
+  }
+  throw err;
+}
+```
+
+---
+
 ## Code Style Conventions
 
 ### 53. Test-Only Exports Must Use the `_internal` Naming Convention
@@ -5431,7 +5639,7 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 | Tier | Routes |
 |------|--------|
 | `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
-| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `PATCH /api/projects/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `POST /api/projects/:repo/:slug/reset`, `PATCH /api/projects/:slug`, `PATCH /api/projects/:repo/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
 
 **Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
 
@@ -5457,6 +5665,58 @@ function _bindQueueActions(container, entries) { /* ... */ }
 
 **Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
 
+---
+
+## Known Limitations
+
+### KL-1. `'unknown'` Namespace Collision When Repo Root Fails Slug Validation
+
+**Affected components:** `LedgerStore.storageDir` (via `deriveRepoName()` in `src/utils/ledger-root.ts`) and `migrateToNamespacedLayout()` (via `repository_name` field in `.meta.json`)
+
+**Trigger condition — `LedgerStore.storageDir`:** `deriveRepoName()` derives the repo name by lowercasing the project-root directory basename and delegates to `assertSafeSegment()` (which encapsulates `SAFE_SLUG_REGEX`) for validation (alphanumeric + hyphens only). When a repo's root directory name contains characters that fail this check — such as dots (e.g. `my.project`), underscores, non-ASCII characters, or a path too shallow to extract four levels — `deriveRepoName()` falls back to `'unknown'`. If two or more such repos exist on the same machine, their projects will share the `{ledgerRoot}/unknown/` namespace and can **collide by slug** — two projects with the same plan folder basename will map to the same `storageDir`.
+
+**Trigger condition — `migrateToNamespacedLayout()`:** The migration function uses `repository_name` from each project's `.meta.json` as the namespace. If `repository_name` is absent, `null`, or an empty string, the project is moved to `{ledgerRoot}/unknown/{slug}/`. Additionally, if a user has a repository literally named `'unknown'` (a valid, slug-compatible name), its projects will share the `{ledgerRoot}/unknown/` namespace with all fallback projects, and slug collisions may occur.
+
+**Mitigation:** Rename the repository root directory to a slug-compatible name (lowercase alphanumeric and hyphens only, e.g. rename `My.Project` → `my-project`). This is the only reliable fix; there is no server-side escape hatch once two repos produce the same `repoName`. For the migration-layer scenario, also avoid naming a repository `'unknown'`.
+
+**Detection:** If you suspect a collision, inspect `{ledgerRoot}/unknown/` — multiple slug subdirectories there indicate affected projects. Each `.meta.json` inside will identify the originating `plan_path`.
+
+---
+
+### KL-2. `listAllProjects()` Two-Level Scan Has No Direct Unit Tests *(Resolved — WP-004)*
+
+**Affected component:** `LedgerStore.listAllProjects()` in `src/storage/ledger-store.ts`
+
+**Status:** Resolved by WP-004 (2026-05-27). A dedicated test suite `tests/storage/list-all-projects.test.ts` was added with 10 tests covering:
+
+- New namespaced layout (`{ledgerRoot}/{repoName}/{slug}/`)
+- Old flat layout (`{ledgerRoot}/{slug}/`) for backward compatibility
+- Mixed flat-layout and namespaced-layout projects coexisting in the same ledger root
+- Dot-prefix filtering at depth-1 and depth-2
+- Empty namespace directories (no valid subdirectories)
+- Namespace directories containing invalid (non-project) subdirectories
+- Same-slug cross-namespace collision prevention
+- `detectProjectByCwd()` delegation with both layout types
+- The `stderr` log path for depth-2 slug directories with a missing `.meta.json` file
+
+All 97 storage tests pass. The known limitation below is retained for historical context only.
+
+**Historical details (pre-WP-004):** The two-level scan introduced in WP-002 was exercised indirectly through `detectProjectByCwd` tests but lacked a dedicated test suite. Mixed-layout coexistence and the `stderr` log path had no direct coverage.
+
+**See also:** `api-surface.md` §`LedgerStore` static methods — the canonical `listAllProjects()` architectural constraint (slug-only callers must use this method before constructing a `LedgerStore`).
+
+---
+
+### KL-3. `assertSafeSlug` Is Defined in Three Files — Storage Layer and GUI Layer *(Resolved)*
+
+**Affected components:** `src/utils/ledger-root.ts` (storage layer), `src/gui/handlers/run-log-handlers.ts` (GUI layer), and `gui/api.ts` (GUI layer)
+
+**Was:** All three files defined a local, module-private `assertSafeSlug` using an inline `SAFE_SLUG_REGEX.test()` call. The regex check was duplicated, requiring all three files to be updated in lockstep when validation logic changed.
+
+**Resolution:** All three `assertSafeSlug` implementations now delegate to `assertSafeSegment()` from `src/utils/path-validator.ts`, which encapsulates the `SAFE_SLUG_REGEX` check. The throw-type variants are preserved (`Error` in the storage layer; `ApiError NOT_FOUND` in the GUI layer) — the layer separation is unchanged. `deriveRepoName()` in `src/utils/ledger-root.ts` also delegates to `assertSafeSegment()` directly, completing the consolidation — `src/utils/ledger-root.ts` no longer imports `SAFE_SLUG_REGEX`.
+
+**Ongoing invariant:** When slug-segment validation logic changes, update `assertSafeSegment()` in `path-validator.ts` only — all three `assertSafeSlug` wrappers and `deriveRepoName()` pick up the change automatically.
+
 ```
 ###  Path: `/mcp-server/docs/agents/project-manifest/data-flows.md`
 
@@ -5464,6 +5724,36 @@ function _bindQueueActions(container, entries) { /* ... */ }
 # Key Data Flows
 
 This document describes the main interaction paths through the system.
+
+---
+
+## Storage Layout
+
+The centralized ledger uses a **two-level repo-namespaced directory structure**:
+
+```
+{ledgerRoot}/
+├── .migration-state.json        # Written on first startup after migration; absent on first run
+├── .migration-in-progress       # Transient sentinel; only present during an active migration
+├── gui-config.json              # Runtime config (auto_handoff_enabled, max_handoff_depth, …)
+├── ai-insights/                 # Example repo-namespace dir
+│   └── 2026-05-01-my-plan/          # Per-project subfolder
+│       ├── .meta.json
+│       ├── .lock
+│       ├── project-ledger.json
+│       └── WP-001.json
+├── other-repo/                  # Second repo-namespace dir (independent repository)
+│   └── 2026-06-01-another-plan/
+│       └── …
+└── unknown/                     # Fallback namespace (repo root failed slug validation)
+    └── …
+```
+
+**`{repoName}`** is derived by `deriveRepoName(projectPath)`: walks 4 directory levels up from the plan folder to the project root, takes its basename, lowercases it, and validates against `SAFE_SLUG_REGEX` (`/^[a-z0-9][a-z0-9-]*$/`). Falls back to `'unknown'` when the name is empty, `'.'`, `'..'`, or fails slug validation.
+
+**Two-level scan (`LedgerStore.listAllProjects`):** reads the top level of `{ledgerRoot}`. For every depth-1 directory that has a direct `.meta.json` it reads it as a legacy flat-layout project (backward compatibility). For directories without a direct `.meta.json` it treats them as repo-namespace dirs and scans one level deeper, reading `{repoName}/{slug}/.meta.json` for each depth-2 entry. Dot-prefixed directories are skipped at both levels.
+
+**One-time idempotent migration (`migrateToNamespacedLayout`):** on first startup after upgrade, moves each flat-layout `{ledgerRoot}/{slug}/` directory to `{ledgerRoot}/{repoName}/{slug}/` using the `repository_name` field stored in each project's `.meta.json`. The migration writes `.migration-state.json` on success and uses `.migration-in-progress` as a crash-recovery sentinel. Safe to call on every startup — skips immediately when `storage_version >= 2` is already written.
 
 ---
 
@@ -5476,15 +5766,15 @@ Agent → ledger_initialize_project(project_path, plan_file)
   ↓
 LedgerStore.writeRootIndex()
   ↓
-atomicWriteJson(storage/ledger/{slug}/project-ledger.json)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
   2. Write to {file}.tmp.{pid}
-  3. Atomically rename to storage/ledger/{slug}/project-ledger.json
+  3. Atomically rename to storage/ledger/{repoName}/{slug}/project-ledger.json
   ↓
 store.writeProjectMeta() — auto-synced after root index write
   ↓
-atomicWriteJson(storage/ledger/{slug}/.meta.json)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/.meta.json)
   ↓
 store.archiveDocuments([plan_file])  — best-effort; outside lock scope
   ↓
@@ -5495,7 +5785,7 @@ store.archiveDocuments([plan_file])  — best-effort; outside lock scope
 Return RootIndex + { archived_documents, archive_skipped? } to agent
 ```
 
-**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{slug}/` as archived reference (best-effort; missing source is silently skipped).
+**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{repoName}/{slug}/` as archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -5510,16 +5800,19 @@ LedgerStore.listAllProjects(ledgerRoot)
   ↓
 readdir(storage/ledger/)
   ↓
-For each entry (excluding .archive/):
-  readFile(storage/ledger/{slug}/.meta.json)
-  ProjectMetaSchema.parse(data)   ← invalid entries skipped, logged to stderr
+For each depth-1 entry (excluding .archive/):
+  If entry has a direct .meta.json → old flat-layout project; read it.
+  If entry has no .meta.json → treat as repo-namespace dir; scan depth-2:
+    For each depth-2 slug entry:
+      readFile(storage/ledger/{repoName}/{slug}/.meta.json)
+      ProjectMetaSchema.parse(data)   ← missing/invalid entries skipped, warning → stderr
   ↓
 Optional filter by status
   ↓
 Return ProjectMeta[] to agent
 ```
 
-**Result:** Array of project metadata for all valid projects in the central ledger, optionally filtered by status. Read-only — no lock acquired.
+**Result:** Array of project metadata for all valid projects in the central ledger (both legacy flat-layout and new repo-namespaced layout), optionally filtered by status. Read-only — no lock acquired.
 
 ---
 
@@ -5585,7 +5878,7 @@ Pre-lock validation (outside lock scope):
   ↓
 LedgerStore.createWorkPackageWithSync(creator)  ← primary choke point for WP creation
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
 LedgerStore.readRootIndex()
   ↓
@@ -5624,7 +5917,7 @@ Release lock
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `storage/ledger/{slug}/WP-###.json` and `storage/ledger/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
+**Result:** Both `storage/ledger/{repoName}/{slug}/WP-###.json` and `storage/ledger/{repoName}/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
 
 ---
 
@@ -5637,10 +5930,10 @@ Agent → ledger_claim_work_package(project_path, work_package_id, agent)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
-Read WorkPackageDetail (storage/ledger/{slug}/WP-###.json) — validated with Zod
-Read RootIndex (storage/ledger/{slug}/project-ledger.json) — validated with Zod
+Read WorkPackageDetail (storage/ledger/{repoName}/{slug}/WP-###.json) — validated with Zod
+Read RootIndex (storage/ledger/{repoName}/{slug}/project-ledger.json) — validated with Zod
   ↓
 updater function:
   1. Validate current status is READY
@@ -5654,8 +5947,8 @@ updater function:
   ↓
 Validate updated WP and root with Zod
   ↓
-atomicWriteJson(storage/ledger/{slug}/WP-###.json, updatedWP)
-atomicWriteJson(storage/ledger/{slug}/project-ledger.json, updatedRoot)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/WP-###.json, updatedWP)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json, updatedRoot)
 store.writeProjectMeta() — auto-synced inside same lock
   ↓
 Release lock
@@ -5676,7 +5969,7 @@ Agent → ledger_start_pipeline(project_path, work_package_id, type, agent_role)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -6288,7 +6581,7 @@ Return array of recommendations:
 ### 13a: Storage Location
 
 ```
-root index (storage/ledger/{slug}/project-ledger.json)
+root index (storage/ledger/{repoName}/{slug}/project-ledger.json)
   └── auto_handoff_depth: number   ← current chain depth (0 when absent)
 ```
 
@@ -6475,7 +6768,7 @@ withLock(store.storageDir, async () => {
 Return result + { archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -6540,7 +6833,7 @@ renderSynthesis(app, slug)
     ↓
     assertSafeSlug(slug)
     LedgerStore.ledgerDirExists()   ← NOT_FOUND if project absent
-    readFile(storage/ledger/{slug}/synthesis.md, 'utf-8')
+    readFile(storage/ledger/{repoName}/{slug}/synthesis.md, 'utf-8')
     → Return { content: "<markdown>" }
     ← 404 NOT_FOUND if synthesis.md absent or project absent
   ↓
@@ -6784,18 +7077,29 @@ mcp-server/
 │   └── ledger/
 │       ├── .gitkeep             # Ensures directory is tracked in version control
 │       ├── gui-config.json      # Runtime-generated GUI config (auto_handoff_enabled, max_handoff_depth, ledger_root) — created on first GUI or MCP server start
-│       └── {slug}/              # Per-project subfolder — runtime-generated
-│           ├── .meta.json       # Project metadata (slug, status, timestamps)
-│           ├── .lock            # Lock file for concurrent-write protection
-│           ├── project-ledger.json  # Root index
-│           ├── WP-001.json      # Work package detail files
-│           ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
-│           └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── .migration-state.json  # Written after migration completes; contains { storage_version: 2 }; absent on first run
+│       ├── .migration-in-progress # Transient sentinel file written before any dir moves; removed on success (enables crash recovery)
+│       ├── ai-insights/         # Example repo-namespace dir — derived from project-root dirname via deriveRepoName()
+│       │   └── 2026-05-01-my-plan/  # Per-project subfolder — runtime-generated
+│       │       ├── .meta.json       # Project metadata (slug, status, timestamps)
+│       │       ├── .lock            # Lock file for concurrent-write protection
+│       │       ├── project-ledger.json  # Root index
+│       │       ├── WP-001.json      # Work package detail files
+│       │       ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
+│       │       └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── other-repo/          # Second repo-namespace dir (another repository on the same machine)
+│       │   └── {slug}/              # Each repo manages its own slug namespace independently
+│       │       └── …
+│       └── unknown/             # Fallback namespace — used when repo-root name fails slug validation
+│
+├── scripts/                     # Node.js utility scripts (run directly with `node`)
+│   ├── sync-version.js          # Syncs version from changelog.md → package.json
+│   └── move-unknown-project.js  # Moves a project from the unknown/ namespace to its correct repo namespace; updates .meta.json; use when repository_name was not set at init time
 │
 ├── gui/                         # GUI server process code
 │   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers (WP-008): handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss
 │   ├── chunk-renderer.ts    # renderChunksToMarkdown(jsonlContent) — pure JSONL→Markdown renderer; merges AIMessageChunk token fragments by id; groups by namespace; mirrors serialize_messages_to_markdown() output format
-│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles segment-count-based dispatch (parameter-free routes and GET routes needing signature args), special-case blocks in handleRequest() handle routes needing body parsing (POST /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) or path-parameter extraction (PATCH /api/projects/:slug, POST /api/orchestrator/kill/:id, POST /api/orchestrator/dismiss/:id); serves static files from gui/public/
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles segment-count-based dispatch for all /:slug and /:repo/:slug GET routes plus DELETE/PATCH/POST routes with only path-derived params; special-case blocks in handleRequest() handle routes needing body parsing (PUT /api/config, POST /api/projects/:slug/reset, POST /api/projects/:repo/:slug/reset, POST /api/orchestrator/start) or path-parameter extraction (PATCH /api/projects/:slug, PATCH /api/projects/:repo/:slug, POST /api/orchestrator/kill/:id, POST /api/orchestrator/dismiss/:id, GET /api/server-info); resolveRepoName() private helper reads .meta.json to resolve canonical repository_name from a /:repo/:slug URL pair; serves static files from gui/public/
 │   └── public/              # Static assets served by gui/server.ts
 │       ├── index.html       # Dashboard SPA shell; nav links: Projects (#/), Insights (#/insights), Orchestrator (#/orchestrator), Configuration (#/config); scripts load in dependency order: api-client → theme → router → utils → views → orchestrator-widgets → orchestrator.js → stale-check → app
 │       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides; orchestrator widget block: .orchestrator-status-card/header/body/elapsed/pid/progress-summary (OrchestratorWidgets.renderStatusCard), .orchestrator-kill-btn/.orchestrator-dismiss-btn (OrchestratorWidgets.renderKillButton/renderDismissButton — visual delegated to .btn.btn-danger/.btn.btn-secondary), .log-preview-entry (OrchestratorWidgets.renderLogPreview), .orchestrator-cli-reference h4/pre (OrchestratorWidgets.renderCliReference), .orch-status-cell (orchestrator.js queue table), .orch-active-run-section/.orch-cli-kill-hint (views/project-detail.js orchestrator section), .section-title/.btn-icon (general utilities used by orchestrator views); dark-mode overrides for .orchestrator-status-card, .orchestrator-cli-reference, .log-preview-entry
@@ -6847,7 +7151,8 @@ mcp-server/
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
 │   │   ├── file-lock.ts         # File locking with proper-lockfile
-│   │   └── ledger-store.ts      # Central storage abstraction
+│   │   ├── ledger-store.ts      # Central storage abstraction
+│   │   └── migrate-namespaced.ts  # One-shot startup migration: flat {slug}/ → namespaced {repoName}/{slug}/; exports migrateToNamespacedLayout()
 │   │
 │   ├── tools/                   # MCP tool implementations
 │   │   ├── help.ts              # ledger_help
@@ -6868,7 +7173,7 @@ mcp-server/
 │       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; loads AGENT_NAMES (TargetNames, NameMappingEntry) from personas/name-mapping.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
-│       ├── path-validator.ts    # Project path validation
+│       ├── path-validator.ts    # Project path validation; assertSafeSegment() slug-segment predicate
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
 │       ├── project-reset.ts     # Semi-intelligent project reset
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
@@ -6879,6 +7184,7 @@ mcp-server/
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
+    ├── gui-server.test.ts       # 10 tests for resolveRepoName() in gui/server.ts: 9 guard-failure cases (traversal, empty, uppercase, hyphens, separators for both repoUrlParam and slugUrlParam) + 1 positive case confirming the guard passes valid inputs
     ├── helpers/                 # Shared test utilities (NEVER write to production storage)
     │   ├── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
     │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline(), makeWorkPackageSummary()
@@ -6922,7 +7228,8 @@ mcp-server/
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
     ├── storage/                 # Storage layer tests
-    │   ├── ledger-store.test.ts # LedgerStore unit tests
+        ├── ledger-store.test.ts # LedgerStore unit tests
+        └── migrate-namespaced.test.ts  # 10 tests: clean run, unknown fallbacks, idempotency, sentinel cleanup, move-failure, crash-resume
     │   └── project-meta.test.ts
     │
     ├── tools/                   # Tool-level tests
@@ -6987,7 +7294,7 @@ The workflow tools are split across four files: `workflow.ts` (thin aggregator),
 The following directories are not version-controlled:
 - node_modules/ — npm dependencies
 - dist/ — TypeScript compilation output
-- storage/ledger/{slug}/ — per-project ledger runtime data
+- storage/ledger/{repoName}/{slug}/ — per-project ledger runtime data (repo-namespaced since WP-002)
 
 
 ```

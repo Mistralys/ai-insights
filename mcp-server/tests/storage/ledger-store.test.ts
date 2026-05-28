@@ -632,6 +632,30 @@ describe('LedgerStore', () => {
       expect(meta.pending_work_packages).toBe(1);
     });
   });
+
+  describe('storageDir isolation', () => {
+    let tempLedgerRoot2: string;
+
+    beforeEach(async () => {
+      tempLedgerRoot2 = await mkdtemp(join(tmpdir(), 'isolation-test-'));
+    });
+
+    afterEach(async () => {
+      await rm(tempLedgerRoot2, { recursive: true, force: true });
+    });
+
+    it('two instances with the same slug but different project paths produce different storageDir values', () => {
+      const planPath1 = join(tmpdir(), 'repo-alpha', 'docs', 'agents', 'plans', '2026-01-01-my-plan');
+      const planPath2 = join(tmpdir(), 'repo-beta', 'docs', 'agents', 'plans', '2026-01-01-my-plan');
+      const store1 = new LedgerStore(planPath1, tempLedgerRoot2);
+      const store2 = new LedgerStore(planPath2, tempLedgerRoot2);
+      expect(store1.slug).toBe('2026-01-01-my-plan');
+      expect(store2.slug).toBe('2026-01-01-my-plan');
+      expect(store1.repoName).toBe('repo-alpha');
+      expect(store2.repoName).toBe('repo-beta');
+      expect(store1.storageDir).not.toBe(store2.storageDir);
+    });
+  });
 });
 
 // ==================== detectProjectByCwd ====================
@@ -960,15 +984,15 @@ describe('LedgerStore.renameSlug', () => {
   it('happy path: old dir no longer exists; new dir exists on disk', async () => {
     await store.renameSlug(NEW_SLUG);
 
-    await expect(access(join(tempLedgerRoot, NEW_SLUG))).resolves.toBeUndefined();
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).rejects.toThrow();
+    await expect(access(join(tempLedgerRoot, store.repoName, NEW_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).rejects.toThrow();
   });
 
   it('happy path: updates slug in .meta.json to the new slug', async () => {
     await store.renameSlug(NEW_SLUG);
 
     const raw = JSON.parse(
-      await readFile(join(tempLedgerRoot, NEW_SLUG, '.meta.json'), 'utf-8')
+      await readFile(join(tempLedgerRoot, store.repoName, NEW_SLUG, '.meta.json'), 'utf-8')
     ) as { slug: string };
     expect(raw.slug).toBe(NEW_SLUG);
   });
@@ -979,7 +1003,7 @@ describe('LedgerStore.renameSlug', () => {
     await store.renameSlug(NEW_SLUG);
 
     const raw = JSON.parse(
-      await readFile(join(tempLedgerRoot, NEW_SLUG, '.meta.json'), 'utf-8')
+      await readFile(join(tempLedgerRoot, store.repoName, NEW_SLUG, '.meta.json'), 'utf-8')
     ) as Record<string, unknown>;
     expect(raw['plan_path']).toBe(metaBefore.plan_path);
     expect(raw['status']).toBe(metaBefore.status);
@@ -990,7 +1014,7 @@ describe('LedgerStore.renameSlug', () => {
   it('rejects same slug with a descriptive error; directory is untouched', async () => {
     await expect(store.renameSlug(OLD_SLUG)).rejects.toThrow(/already/i);
     // Original dir must still exist.
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).resolves.toBeUndefined();
   });
 
   it('rejects invalid slug patterns with a validation error; filesystem is untouched', async () => {
@@ -998,7 +1022,7 @@ describe('LedgerStore.renameSlug', () => {
     await expect(store.renameSlug('../escape')).rejects.toThrow(/invalid/i);
     await expect(store.renameSlug('')).rejects.toThrow(/invalid/i);
     // Original dir must be untouched.
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).resolves.toBeUndefined();
   });
 
   it('rejects when target dir already exists; original dir is intact', async () => {
@@ -1008,7 +1032,7 @@ describe('LedgerStore.renameSlug', () => {
 
     await expect(store.renameSlug(NEW_SLUG)).rejects.toThrow(/already in use/i);
     // Old dir must be untouched.
-    await expect(access(join(tempLedgerRoot, OLD_SLUG))).resolves.toBeUndefined();
+    await expect(access(join(tempLedgerRoot, store.repoName, OLD_SLUG))).resolves.toBeUndefined();
   });
 
   it('returns updated ProjectMeta with new slug; other fields preserved', async () => {

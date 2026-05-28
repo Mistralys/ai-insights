@@ -147,17 +147,26 @@ def _is_cross_wp_error(exc: BaseException) -> bool:
 def _derive_slug_dir(project_path: str, workspace_root: Path) -> Path | None:
     """Return the ledger slug directory for *project_path*, or None on failure.
 
-    Computes ``workspace_root / "mcp-server" / "storage" / "ledger" / <slug>``
-    where ``<slug>`` is the last path segment (stem) of *project_path*.
+    Computes ``workspace_root / "mcp-server" / "storage" / "ledger" / <repo_name> / <slug>``
+    where ``<slug>`` is the last path segment of *project_path* and ``<repo_name>``
+    is derived from the 4th-level-up ancestor (``Path(project_path).parents[3].name``).
+
+    Falls back to ``'unknown'`` for ``repo_name`` when the path is too short
+    (fewer than 4 ancestor levels).
 
     Returns ``None`` when *project_path* is falsy or any path operation fails,
     so callers can treat ``None`` as "capture disabled" without further guards.
     """
     try:
-        slug = Path(project_path).name
+        p = Path(project_path)
+        slug = p.name
         if not slug:
             return None
-        return workspace_root / "mcp-server" / "storage" / "ledger" / slug
+        try:
+            repo_name = p.parents[3].name or "unknown"
+        except IndexError:
+            repo_name = "unknown"
+        return workspace_root / "mcp-server" / "storage" / "ledger" / repo_name / slug
     except Exception:  # noqa: BLE001
         return None
 

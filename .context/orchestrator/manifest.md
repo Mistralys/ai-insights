@@ -176,6 +176,7 @@ All are private (prefixed `_`) but documented here for agent navigation.
 | `_accumulate_stream` | `async (agent, user_prompt, slug_dir, wp_id, stage) -> tuple[list, Path \| None]` | Runs the `astream()` loop, writes JSONL chunks via `ChunkWriter`, accumulates and reconstructs `msgs` in stream order. Returns `(msgs, chunk_file_path)`. Closes `ChunkWriter` in `finally` so partial messages survive stream errors. |
 | `_handle_rollback` | `async (begin_work_state, complete_pipeline_state, wp_id, wrapped_tools, stage, exc, run_logger) -> list[dict]` | Cancels any orphaned IN_PROGRESS pipeline using `ledger_cancel_pipeline` when `ledger_begin_work` fired before the error but `ledger_complete_pipeline` did not succeed. Returns zero or one `pipeline_rollback` log entry dicts. |
 | `_read_pipeline_result` | `async (wp_id, wrapped_tools, stage, project_path, run_logger) -> list[dict]` | Best-effort read-back of the latest WP pipeline via `ledger_get_work_package`. Swallows all exceptions (logged at DEBUG). Returns zero or one `pipeline_result` log entry dicts. |
+| `_derive_slug_dir` | `(project_path: str, workspace_root: Path) -> Path \| None` | Constructs the namespaced ledger storage path `workspace_root / "mcp-server" / "storage" / "ledger" / repo_name / slug`. `repo_name` is `Path(project_path).parents[3].name` with `'unknown'` fallback (also guards the empty-string case for filesystem-root ancestors). Returns `None` when `project_path` is falsy or path construction raises `Exception`. |
 
 ### Tool wrapper events (`src/utils/tool_wrappers.py`)
 
@@ -294,7 +295,7 @@ class ChunkWriter:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `slug_dir` | `Path` | Root directory for the project's ledger storage (e.g. `{workspace_root}/mcp-server/storage/ledger/{slug}`). |
+| `slug_dir` | `Path` | Root directory for the project's ledger storage (e.g. `{workspace_root}/mcp-server/storage/ledger/{repo_name}/{slug}`). `repo_name` is derived from the fourth ancestor of the plan directory; defaults to `'unknown'` when the path is too short. |
 | `wp_id` | `str` | Work-package identifier (e.g. `"WP-001"`). |
 | `stage` | `str` | Pipeline stage name (e.g. `"developer"`). |
 
@@ -904,6 +905,59 @@ runSubagent:
 - If the IDE's `findNextReadyDispatch` logic changes, no corresponding orchestrator change is needed.
 
 **References:** [MCP server edge-cases.md §21.71](../../mcp-server/docs/agents/workflow-specification/edge-cases.md), MCP server [Constraint 55](../../mcp-server/docs/agents/project-manifest/constraints.md).
+
+---
+
+## Storage Layout
+
+### 23. Log-Copy Path Derives `repo_name` From `plan_dir.parents[3]`
+
+**Rule:** In `orchestrator/src/cli.py`, the run-log copy path must be constructed as
+`{workspace_root}/mcp-server/storage/ledger/{repo_name}/{slug}/orchestrator/logs/`, where
+`repo_name` is derived from `plan_dir.parents[3].name` and `slug` is `plan_dir.name`.
+If `parents[3]` does not exist (`IndexError`) or resolves to an empty string, `repo_name`
+must fall back to the literal string `"unknown"`.
+
+**Layout convention:** This mirrors the repo-namespaced storage layout introduced in
+`mcp-server/src/storage/migrate-namespaced.ts` (`STORAGE_VERSION = 2`), where every ledger
+project lives under `{ledgerRoot}/{repoName}/{slug}/`. The expected `plan_dir` depth from the
+workspace root is `docs/agents/plans/{slug}/`, which places the workspace root folder (the
+Git repository name) at `parents[3]`.
+
+**`plan_dir` depth example:**
+```
+{workspace_root}/           ← parents[3] → repo_name
+  docs/
+    agents/
+      plans/
+        2026-05-27-my-project/   ← plan_dir (parents[0] = plans/, [1] = agents/, [2] = docs/, [3] = workspace_root)
+          plan.md
+```
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — flat slug path, misses repo namespace
+ledger_log_dir = workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — repo-namespaced path with 'unknown' fallback
+slug = plan_dir.name
+try:
+    repo_name = plan_dir.parents[3].name or "unknown"
+except IndexError:
+    repo_name = "unknown"
+ledger_log_dir = (
+    workspace_root / "mcp-server" / "storage" / "ledger" / repo_name / slug / "orchestrator" / "logs"
+)
+```
+
+**Sync note:** The `STORAGE_VERSION` constant in `mcp-server/src/storage/migrate-namespaced.ts`
+is the authoritative version-tracking source for the storage layout. Any change to the layout
+must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
+See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
+
 
 
 

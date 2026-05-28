@@ -199,6 +199,44 @@ node dist/index.js --ledger-dir /custom/path/to/ledger
 
 ---
 
+### 6b. Ledger Storage Paths Must Include the Repository Namespace Level
+
+**Rule:** Never construct a ledger storage path as `join(ledgerRoot, slug)` or `join(ledgerRoot, slug, filename)`. The canonical storage layout is `{ledgerRoot}/{repoName}/{slug}/` — all paths into the centralized ledger **must** include the `{repoName}` tier. Use one of the two canonical resolution functions:
+
+| Input available | Function | Returns |
+|-----------------|----------|---------|
+| Absolute plan folder path | `LedgerStore(planPath, ledgerRoot)` constructor | Instance whose `.storageDir` is `join(ledgerRoot, deriveRepoName(planPath), slug)` |
+| Bare slug or qualified `{repo}/{slug}` | `resolveProjectDir(slugOrQualified, ledgerRoot)` | Absolute `storageDir` path; then read `.meta.json` to obtain `plan_path` for the constructor |
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — missing the repo-namespace level; two repos with the same slug collide
+const store = new LedgerStore(slug, ledgerRoot);
+// storageDir resolves to join(ledgerRoot, 'unknown', slug) for most inputs
+// — correct only when deriveRepoName(planPath) happens to return 'unknown'
+```
+
+**Correct pattern — constructing from plan path (most common):**
+```typescript
+// ✅ CORRECT — LedgerStore(planPath, ledgerRoot) calls deriveRepoName internally
+const store = new LedgerStore(planPath, ledgerRoot);
+// storageDir === join(ledgerRoot, deriveRepoName(planPath), slug)
+```
+
+**Correct pattern — resolving from a URL slug parameter (GUI handlers):**
+```typescript
+// ✅ CORRECT — resolveProjectDir probes all namespace dirs to find the one containing slug
+const storageDir = await resolveProjectDir(slug, ledgerRoot);
+const meta = JSON.parse(await readFile(join(storageDir, '.meta.json'), 'utf-8'));
+const store = new LedgerStore(meta.plan_path, ledgerRoot);
+```
+
+**Rationale:** The repo-namespaced layout eliminates slug collisions when multiple repositories create identically-named plan folders (e.g., two developers each have a `2026-01-01-initial-setup` plan). Bypassing the namespace level causes different projects to share a storage directory, silently corrupting each other's ledger data.
+
+**See also:** `data-flows.md` §Storage Layout for the full directory structure; `api-surface.md` for `deriveRepoName()`, `resolveProjectDir()`, and `migrateToNamespacedLayout()` signatures.
+
+---
+
 ### 7. STDIO Logging Discipline
 
 **Rule:** Never log to `stdout`. All logs must go to `stderr`.
@@ -1221,6 +1259,35 @@ Prefer `| undefined` over non-null assertion (`!`) when the accumulator cannot h
 
 ---
 
+### ⚠️ Gotcha 13: `resolveProjectDir()` NOT_FOUND Error Embeds the Absolute `ledgerRoot` Path
+
+The `NOT_FOUND` error thrown by `resolveProjectDir()` includes the absolute filesystem path to `ledgerRoot` in its message:
+
+```
+NOT_FOUND: project slug 'my-plan' was not found in any repo namespace under '/absolute/path/to/storage/ledger'.
+```
+
+**Caller responsibility:** When `resolveProjectDir()` is wired to a GUI or API handler, the handler **must sanitise this error message before returning it to callers** — strip the filesystem path and retain it only in server-side logs. Returning the raw message to an API consumer leaks internal infrastructure details (A09 — Information Disclosure).
+
+**The `AMBIGUOUS` error is safe** — it contains only `{repo}/{slug}` qualified path strings and does not embed any filesystem path.
+
+**Correct handler pattern:**
+```typescript
+try {
+  const projectPath = await resolveProjectDir(slug, ledgerRoot);
+  // ...
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.startsWith('NOT_FOUND:')) {
+    // Sanitise: strip the filesystem path before returning to the caller
+    throw new ApiError('NOT_FOUND', `Project '${slug}' was not found.`);
+  }
+  throw err;
+}
+```
+
+---
+
 ## Code Style Conventions
 
 ### 53. Test-Only Exports Must Use the `_internal` Naming Convention
@@ -1759,7 +1826,7 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 | Tier | Routes |
 |------|--------|
 | `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
-| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `PATCH /api/projects/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `POST /api/projects/:repo/:slug/reset`, `PATCH /api/projects/:slug`, `PATCH /api/projects/:repo/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
 
 **Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
 
@@ -1815,3 +1882,55 @@ await withLock(knowledgeDir(), async () => {
 ```
 
 **Project enumeration exclusion:** `LedgerStore.listAllProjects()` reads `readdir(ledgerRoot)` and filters to subdirectories. The `.knowledge` entry (which starts with `.`) is excluded by the existing filter that skips dot-prefixed entries — no additional code change is required. This constraint documents the expected behaviour so it is preserved if the filter is ever modified.
+
+---
+
+## Known Limitations
+
+### KL-1. `'unknown'` Namespace Collision When Repo Root Fails Slug Validation
+
+**Affected components:** `LedgerStore.storageDir` (via `deriveRepoName()` in `src/utils/ledger-root.ts`) and `migrateToNamespacedLayout()` (via `repository_name` field in `.meta.json`)
+
+**Trigger condition — `LedgerStore.storageDir`:** `deriveRepoName()` derives the repo name by lowercasing the project-root directory basename and delegates to `assertSafeSegment()` (which encapsulates `SAFE_SLUG_REGEX`) for validation (alphanumeric + hyphens only). When a repo's root directory name contains characters that fail this check — such as dots (e.g. `my.project`), underscores, non-ASCII characters, or a path too shallow to extract four levels — `deriveRepoName()` falls back to `'unknown'`. If two or more such repos exist on the same machine, their projects will share the `{ledgerRoot}/unknown/` namespace and can **collide by slug** — two projects with the same plan folder basename will map to the same `storageDir`.
+
+**Trigger condition — `migrateToNamespacedLayout()`:** The migration function uses `repository_name` from each project's `.meta.json` as the namespace. If `repository_name` is absent, `null`, or an empty string, the project is moved to `{ledgerRoot}/unknown/{slug}/`. Additionally, if a user has a repository literally named `'unknown'` (a valid, slug-compatible name), its projects will share the `{ledgerRoot}/unknown/` namespace with all fallback projects, and slug collisions may occur.
+
+**Mitigation:** Rename the repository root directory to a slug-compatible name (lowercase alphanumeric and hyphens only, e.g. rename `My.Project` → `my-project`). This is the only reliable fix; there is no server-side escape hatch once two repos produce the same `repoName`. For the migration-layer scenario, also avoid naming a repository `'unknown'`.
+
+**Detection:** If you suspect a collision, inspect `{ledgerRoot}/unknown/` — multiple slug subdirectories there indicate affected projects. Each `.meta.json` inside will identify the originating `plan_path`.
+
+---
+
+### KL-2. `listAllProjects()` Two-Level Scan Has No Direct Unit Tests *(Resolved — WP-004)*
+
+**Affected component:** `LedgerStore.listAllProjects()` in `src/storage/ledger-store.ts`
+
+**Status:** Resolved by WP-004 (2026-05-27). A dedicated test suite `tests/storage/list-all-projects.test.ts` was added with 10 tests covering:
+
+- New namespaced layout (`{ledgerRoot}/{repoName}/{slug}/`)
+- Old flat layout (`{ledgerRoot}/{slug}/`) for backward compatibility
+- Mixed flat-layout and namespaced-layout projects coexisting in the same ledger root
+- Dot-prefix filtering at depth-1 and depth-2
+- Empty namespace directories (no valid subdirectories)
+- Namespace directories containing invalid (non-project) subdirectories
+- Same-slug cross-namespace collision prevention
+- `detectProjectByCwd()` delegation with both layout types
+- The `stderr` log path for depth-2 slug directories with a missing `.meta.json` file
+
+All 97 storage tests pass. The known limitation below is retained for historical context only.
+
+**Historical details (pre-WP-004):** The two-level scan introduced in WP-002 was exercised indirectly through `detectProjectByCwd` tests but lacked a dedicated test suite. Mixed-layout coexistence and the `stderr` log path had no direct coverage.
+
+**See also:** `api-surface.md` §`LedgerStore` static methods — the canonical `listAllProjects()` architectural constraint (slug-only callers must use this method before constructing a `LedgerStore`).
+
+---
+
+### KL-3. `assertSafeSlug` Is Defined in Three Files — Storage Layer and GUI Layer *(Resolved)*
+
+**Affected components:** `src/utils/ledger-root.ts` (storage layer), `src/gui/handlers/run-log-handlers.ts` (GUI layer), and `gui/api.ts` (GUI layer)
+
+**Was:** All three files defined a local, module-private `assertSafeSlug` using an inline `SAFE_SLUG_REGEX.test()` call. The regex check was duplicated, requiring all three files to be updated in lockstep when validation logic changed.
+
+**Resolution:** All three `assertSafeSlug` implementations now delegate to `assertSafeSegment()` from `src/utils/path-validator.ts`, which encapsulates the `SAFE_SLUG_REGEX` check. The throw-type variants are preserved (`Error` in the storage layer; `ApiError NOT_FOUND` in the GUI layer) — the layer separation is unchanged. `deriveRepoName()` in `src/utils/ledger-root.ts` also delegates to `assertSafeSegment()` directly, completing the consolidation — `src/utils/ledger-root.ts` no longer imports `SAFE_SLUG_REGEX`.
+
+**Ongoing invariant:** When slug-segment validation logic changes, update `assertSafeSegment()` in `path-validator.ts` only — all three `assertSafeSlug` wrappers and `deriveRepoName()` pick up the change automatically.

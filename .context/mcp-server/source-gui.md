@@ -498,10 +498,17 @@ export class ApiError extends Error {
 /**
  * Run Log API Handlers
  *
- * Pure async handler functions for the orchestrator run log endpoints:
+ * Pure async handler functions for the orchestrator run log endpoints. Both
+ * handlers accept `slug` (project identifier) and `repoName` (repository
+ * namespace) as their first two parameters. `repoName` is validated before
+ * `slug` (namespace-first fast-fail) via `assertSafeSlug()`, which rejects any
+ * segment that does not satisfy the safe-slug rules before any filesystem access
+ * is attempted.
  *
- *   GET /api/projects/:slug/runs         → handleListRunLogs
- *   GET /api/projects/:slug/runs/:file   → handleGetRunLog
+ * Intended route shape (server integration finalised in WP-007):
+ *
+ *   GET /api/projects/:repo/:slug/runs         → handleListRunLogs
+ *   GET /api/projects/:repo/:slug/runs/:file   → handleGetRunLog
  *
  * Both handlers re-use the security guards in `log-resolver.ts` and surface
  * `ApiError` codes as-is (the HTTP server maps them to status codes).
@@ -518,25 +525,34 @@ import {
   resolveLogSource,
 } from '../log-resolver.js';
 import type { RunLogEntry } from '../log-resolver.js';
+import { assertSafeSegment } from '../../utils/path-validator.js';
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Guards against path-traversal attacks on the project slug URL parameter.
+ * Guards a single path segment against path-traversal attacks and invalid characters.
  *
- * Throws `ApiError NOT_FOUND` for any slug that is empty, contains a
- * forward-slash, or contains a `..` component.
+ * Throws `ApiError NOT_FOUND` for any segment that is empty or does not satisfy
+ * the safe-slug rules (lowercase alphanumeric + hyphens, must start with an
+ * alphanumeric character). This rejects `/`, `..`, uppercase letters, and any
+ * other non-conforming input before any filesystem operations are attempted.
  *
- * This mirrors the `assertSafeSlug()` guard used in `gui/api.ts` to keep
- * security behaviour consistent across the codebase.
+ * Used to validate both `slug` and `repoName` parameters independently — never
+ * called with a composite `{repo}/{slug}` string.
  *
- * @param slug - The raw slug string extracted from the request URL.
+ * **Layer note:** A parallel `assertSafeSlug` exists in `src/utils/ledger-root.ts`
+ * (storage layer). Both delegate to {@link assertSafeSegment} from `path-validator.ts`
+ * but throw different error types: this function throws `ApiError` (GUI layer); the
+ * storage layer version throws plain `Error`. The separation is intentional — the GUI
+ * layer must not import storage-layer error types.
+ *
+ * @param segment - The raw segment string (slug or repoName) extracted from the request URL.
  */
-function assertSafeSlug(slug: string): void {
-  if (!slug || slug.includes('/') || slug.includes('..')) {
-    throw new ApiError('NOT_FOUND', `Invalid project slug: '${slug}'.`);
+function assertSafeSlug(segment: string): void {
+  if (!assertSafeSegment(segment)) {
+    throw new ApiError('NOT_FOUND', `Invalid path segment: '${segment}'.`);
   }
 }
 
@@ -559,12 +575,17 @@ function assertSafeSlug(slug: string): void {
  *   4. Active runs from `orchestratorLogsDir` that are not yet in `logsDir`
  *      are included in the response so they appear in the UI immediately.
  *
- * Security: `slug` is validated via `assertSafeSlug()` — slugs containing `/`
- * or `..` throw `ApiError NOT_FOUND` before any filesystem access occurs.
+ * Security: both `repoName` and `slug` are validated via `assertSafeSlug()` —
+ * segments containing `/`, `..`, uppercase letters, or other non-conforming characters
+ * throw `ApiError NOT_FOUND` before any filesystem access occurs.
+ * Each segment is validated independently; no composite `{repo}/{slug}` string is
+ * ever passed to the guard.
  *
  * @param slug               - Project slug (URL segment, already URL-decoded).
+ * @param repoName           - Repository namespace (URL segment, already URL-decoded).
+ *                             Must be a valid safe slug (lowercase alphanumeric + hyphens).
  * @param logsDir            - Absolute path to the ledger's log storage directory
- *                             (`{ledgerRoot}/{slug}/orchestrator/logs/`).
+ *                             (`{ledgerRoot}/{repoName}/{slug}/orchestrator/logs/`).
  * @param orchestratorLogsDir - Absolute path to the orchestrator's live logs
  *                             directory. Completed runs are archived from here
  *                             into `logsDir`; active runs are merged into the
@@ -578,11 +599,13 @@ function assertSafeSlug(slug: string): void {
  */
 export async function handleListRunLogs(
   slug: string,
+  repoName: string,
   logsDir: string,
   orchestratorLogsDir: string,
   legacyLogsDir?: string,
   legacyLogsDir2?: string,
 ): Promise<RunLogEntry[]> {
+  assertSafeSlug(repoName);
   assertSafeSlug(slug);
 
   // 1. Legacy migration (idempotent — no-op once logsDir has any slug files).
@@ -631,14 +654,16 @@ export async function handleListRunLogs(
  * If the source is newer than the archive copy, `resolveLogSource()` refreshes
  * the archive before returning the directory to use.
  *
- * Security: `slug` is validated via `assertSafeSlug()` and `filename` is
- * validated inside `readLogEntries()` (allowlist + resolved-path escape check).
- * These guards apply regardless of which source directory is ultimately used.
- * Malicious filenames throw `ApiError FORBIDDEN`; missing files throw
- * `ApiError NOT_FOUND`.
+ * Security: both `repoName` and `slug` are validated via `assertSafeSlug()` and
+ * `filename` is validated inside `readLogEntries()` (allowlist + resolved-path
+ * escape check). These guards apply regardless of which source directory is
+ * ultimately used. Malicious filenames throw `ApiError FORBIDDEN`; missing files
+ * throw `ApiError NOT_FOUND`.
  *
  * @param slug               - Project slug (validated but not used in file resolution —
  *                             the filename carries all path information).
+ * @param repoName           - Repository namespace (URL segment, already URL-decoded).
+ *                             Must be a valid safe slug (lowercase alphanumeric + hyphens).
  * @param filename           - Bare filename (no directory component) to read.
  * @param logsDir            - Absolute path to the ledger's log storage directory.
  * @param orchestratorLogsDir - Absolute path to the orchestrator's live logs directory.
@@ -647,11 +672,13 @@ export async function handleListRunLogs(
  */
 export async function handleGetRunLog(
   slug: string,
+  repoName: string,
   filename: string,
   logsDir: string,
   orchestratorLogsDir: string,
   afterLine?: number
 ): Promise<{ entries: unknown[]; totalLines: number }> {
+  assertSafeSlug(repoName);
   assertSafeSlug(slug);
   const resolvedDir = await resolveLogSource(logsDir, orchestratorLogsDir, filename);
   return readLogEntries(resolvedDir, filename, afterLine);

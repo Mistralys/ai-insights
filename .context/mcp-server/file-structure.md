@@ -131,6 +131,8 @@ _SOURCE: Directory tree_
     └── package-lock.json
     └── package.json
     └── scripts/
+        ├── move-unknown-project.js
+        ├── rename-repository.js
         ├── sync-version.js
     └── src/
         ├── gui/
@@ -159,6 +161,7 @@ _SOURCE: Directory tree_
         │   ├── atomic-writer.ts
         │   ├── file-lock.ts
         │   ├── ledger-store.ts
+        │   ├── migrate-namespaced.ts
         ├── tools/
         │   ├── begin-work.ts
         │   ├── help-content.ts
@@ -188,6 +191,7 @@ _SOURCE: Directory tree_
         │   └── workspace-versions.ts
         │   └── wp-id.ts
     └── tests/
+        ├── gui-server.test.ts
         ├── gui/
         │   ├── api-client.test.ts
         │   ├── api-orchestrator.test.ts
@@ -235,7 +239,10 @@ _SOURCE: Directory tree_
         │   ├── work-package-schema.test.ts
         ├── storage/
         │   ├── ledger-store.test.ts
+        │   ├── list-all-projects.test.ts
+        │   ├── migrate-namespaced.test.ts
         │   ├── project-meta.test.ts
+        │   ├── slug-resolution.test.ts
         ├── tools/
         │   ├── begin-work.test.ts
         │   ├── cancelled-status.test.ts
@@ -262,6 +269,7 @@ _SOURCE: Directory tree_
         │   ├── workflow-rework-loop.test.ts
         ├── utils/
         │   └── agent-registry.test.ts
+        │   └── derive-repo-name.test.ts
         │   └── if-defined.test.ts
         │   └── ledger-root.test.ts
         │   └── path-validator.test.ts

@@ -2,10 +2,29 @@ import { basename } from 'path';
 import { LedgerStore } from '../storage/ledger-store.js';
 import type { ProjectMeta } from '../schema/project-meta.js';
 import { formatRelativeTime } from './timestamp.js';
+import { SAFE_SLUG_REGEX } from './constants.js';
 
 // Pattern: YYYY-MM-DD followed by a hyphen and at least one character
 // Example: 2026-02-16-technical-debt-cleanup
 const planFolderPattern = /^\d{4}-\d{2}-\d{2}-.+$/;
+
+/**
+ * Returns `true` when `segment` is a valid slug segment (lowercase alphanumeric
+ * with hyphens, must start with an alphanumeric character), `false` otherwise.
+ *
+ * Uses {@link SAFE_SLUG_REGEX} from `constants.ts` — callers are responsible for
+ * constructing their own layer-specific errors when this returns `false`.
+ *
+ * The `Boolean(segment)` guard is intentional defense-in-depth: {@link SAFE_SLUG_REGEX}
+ * (`/^[a-z0-9][a-z0-9-]*$/`) already rejects empty strings via its `^[a-z0-9]` anchor,
+ * so the guard does not change observable behavior. It is retained to make the
+ * empty-string rejection explicit and prevent it from being removed as apparent dead code.
+ *
+ * @param segment - The string to validate.
+ */
+export function assertSafeSegment(segment: string): boolean {
+  return Boolean(segment) && SAFE_SLUG_REGEX.test(segment);
+}
 
 /**
  * Extracts the plan folder basename from the given project path and validates

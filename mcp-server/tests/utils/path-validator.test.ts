@@ -6,6 +6,7 @@ import {
   planFolderBasename,
   resolveProjectPath,
   formatCandidateList,
+  assertSafeSegment,
 } from '../../src/utils/path-validator.js';
 
 describe('validatePlanPath', () => {
@@ -269,5 +270,58 @@ describe('formatCandidateList', () => {
     // The unlikely line should be a plain "  - path (slug)" with no time label
     const unlikelyLine = result.split('\n').find(l => l.includes('2026-01-01-old'))!;
     expect(unlikelyLine).not.toContain('last active');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertSafeSegment
+// ---------------------------------------------------------------------------
+
+describe('assertSafeSegment', () => {
+  it('returns true for valid slug segments', () => {
+    expect(assertSafeSegment('abc')).toBe(true);
+    expect(assertSafeSegment('a')).toBe(true);
+    expect(assertSafeSegment('abc123')).toBe(true);
+    expect(assertSafeSegment('my-project')).toBe(true);
+    expect(assertSafeSegment('a1b2-c3d4')).toBe(true);
+    expect(assertSafeSegment('2026-03-01-feature')).toBe(true);
+  });
+
+  it('returns false for an empty string', () => {
+    expect(assertSafeSegment('')).toBe(false);
+  });
+
+  it('returns false for traversal patterns', () => {
+    expect(assertSafeSegment('../etc')).toBe(false);
+    expect(assertSafeSegment('..')).toBe(false);
+    expect(assertSafeSegment('../')).toBe(false);
+    expect(assertSafeSegment('foo/../bar')).toBe(false);
+  });
+
+  it('returns false for uppercase characters', () => {
+    expect(assertSafeSegment('ABC')).toBe(false);
+    expect(assertSafeSegment('MyProject')).toBe(false);
+    expect(assertSafeSegment('my-Project')).toBe(false);
+  });
+
+  it('returns false for segments containing spaces', () => {
+    expect(assertSafeSegment('my project')).toBe(false);
+    expect(assertSafeSegment(' abc')).toBe(false);
+  });
+
+  it('returns false for segments starting with a hyphen', () => {
+    expect(assertSafeSegment('-abc')).toBe(false);
+    expect(assertSafeSegment('-')).toBe(false);
+  });
+
+  it('returns false for segments containing path separators', () => {
+    expect(assertSafeSegment('foo/bar')).toBe(false);
+    expect(assertSafeSegment('foo\\bar')).toBe(false);
+  });
+
+  it('returns false for segments with special characters', () => {
+    expect(assertSafeSegment('foo_bar')).toBe(false);
+    expect(assertSafeSegment('foo.bar')).toBe(false);
+    expect(assertSafeSegment('foo@bar')).toBe(false);
   });
 });

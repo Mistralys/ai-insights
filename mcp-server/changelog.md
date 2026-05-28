@@ -1,6 +1,6 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.31.0 - Knowledge Accumulation System
+## v1.32.0 - Knowledge Accumulation System
 - Storage: Added KnowledgeStoreManager with atomic read-modify-write and lock-free reads.
 - Storage: Per-scope store files — global-insights.json and {slug}-insights.json.
 - Storage: Single withLock(knowledgeDir()) scope for all write operations.
@@ -14,6 +14,18 @@
 - Docs: file-tree.md updated with knowledge-store.ts and knowledge.ts entries.
 - Docs: data-flows.md updated with Knowledge Accumulation flow (N.1 dedup, N.2 commit).
 - Docs: constraints.md updated with §73 — .knowledge/ lock scope and enumeration exclusion.
+
+## v1.31.0 - Repo-Namespaced Ledger Storage
+- Storage: LedgerStore storageDir now resolves to {ledgerRoot}/{repoName}/{slug}/.
+- Storage: deriveRepoName() infers repo namespace from plan path; returns 'unknown' on failure.
+- Storage: listAllProjects() now scans two directory levels (repo namespace → slug directory).
+- Storage: resolveProjectDir() — resolves a bare slug or {repo}/{slug} composite to storageDir.
+- Storage: Bare-slug resolution scans all repo namespaces; throws AMBIGUOUS on collision.
+- Storage: migrate-namespaced.ts — one-time idempotent startup migration to namespaced layout.
+- GUI: run-log-handlers.ts — handleListRunLogs and handleGetRunLog accept a repoName parameter.
+- GUI: server.ts — added /:repo/:slug/runs and /:repo/:slug/runs/:filename routes.
+- GUI: api.ts — all LedgerStore call sites migrated to resolveProjectStore() helper.
+- Tests: Added coverage for deriveRepoName, resolveProjectDir, migration, and API routes.
 
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.

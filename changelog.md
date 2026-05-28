@@ -1,5 +1,11 @@
 # AI Insights Changelog
 
+## v1.27.0 - Repo-Namespaced Ledger Storage
+> mcp v1.31.0 · orchestrator v0.21.0
+
+- Storage: Repo-namespaced layout eliminates cross-repo slug collisions.
+- Storage: Auto-migration to namespaced storage on startup.
+
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0
 

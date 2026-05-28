@@ -415,4 +415,57 @@ runSubagent:
 
 **References:** [MCP server edge-cases.md §21.71](../../mcp-server/docs/agents/workflow-specification/edge-cases.md), MCP server [Constraint 55](../../mcp-server/docs/agents/project-manifest/constraints.md).
 
+---
+
+## Storage Layout
+
+### 23. Log-Copy Path Derives `repo_name` From `plan_dir.parents[3]`
+
+**Rule:** In `orchestrator/src/cli.py`, the run-log copy path must be constructed as
+`{workspace_root}/mcp-server/storage/ledger/{repo_name}/{slug}/orchestrator/logs/`, where
+`repo_name` is derived from `plan_dir.parents[3].name` and `slug` is `plan_dir.name`.
+If `parents[3]` does not exist (`IndexError`) or resolves to an empty string, `repo_name`
+must fall back to the literal string `"unknown"`.
+
+**Layout convention:** This mirrors the repo-namespaced storage layout introduced in
+`mcp-server/src/storage/migrate-namespaced.ts` (`STORAGE_VERSION = 2`), where every ledger
+project lives under `{ledgerRoot}/{repoName}/{slug}/`. The expected `plan_dir` depth from the
+workspace root is `docs/agents/plans/{slug}/`, which places the workspace root folder (the
+Git repository name) at `parents[3]`.
+
+**`plan_dir` depth example:**
+```
+{workspace_root}/           ← parents[3] → repo_name
+  docs/
+    agents/
+      plans/
+        2026-05-27-my-project/   ← plan_dir (parents[0] = plans/, [1] = agents/, [2] = docs/, [3] = workspace_root)
+          plan.md
+```
+
+**Anti-pattern:**
+```python
+# ❌ WRONG — flat slug path, misses repo namespace
+ledger_log_dir = workspace_root / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "logs"
+```
+
+**Correct pattern:**
+```python
+# ✅ CORRECT — repo-namespaced path with 'unknown' fallback
+slug = plan_dir.name
+try:
+    repo_name = plan_dir.parents[3].name or "unknown"
+except IndexError:
+    repo_name = "unknown"
+ledger_log_dir = (
+    workspace_root / "mcp-server" / "storage" / "ledger" / repo_name / slug / "orchestrator" / "logs"
+)
+```
+
+**Sync note:** The `STORAGE_VERSION` constant in `mcp-server/src/storage/migrate-namespaced.ts`
+is the authoritative version-tracking source for the storage layout. Any change to the layout
+must be reflected in both the MCP server migration logic and the orchestrator log-copy path.
+See the root `AGENTS.md` → Cross-System Dependencies → "Storage layout version" row.
+
+
 

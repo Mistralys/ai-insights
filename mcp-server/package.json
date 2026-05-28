@@ -6,6 +6,8 @@
   "main": "dist/index.js",
   "scripts": {
     "sync-version": "node scripts/sync-version.js",
+    "move-unknown-project": "node scripts/move-unknown-project.js",
+    "rename-repository": "node scripts/rename-repository.js",
     "predev": "npm run sync-version",
     "build": "tsc",
     "dev": "tsx src/index.ts",

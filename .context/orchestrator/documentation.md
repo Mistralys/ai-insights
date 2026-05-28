@@ -274,7 +274,7 @@ See root `AGENTS.md` → Cross-Platform Policy for the full workspace-wide polic
 
 ## JSONL Log Entry Types
 
-Each run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/` so that directory is never silently emptied. Key entry types:
+Each run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{repo_name}/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/` so that directory is never silently emptied. `repo_name` is derived from the fourth ancestor of the plan directory (defaults to `unknown`). Key entry types:
 
 | `action` value | Emitted by | Key fields |
 |---|---|---|
@@ -308,7 +308,7 @@ For the complete per-field type table, see [jsonl-log-schema.md](jsonl-log-schem
 
 > **Parent:** [orchestrator/README.md](../README.md) · **Sources:** `orchestrator/src/utils/logging.py` (logger), `orchestrator/src/nodes/__init__.py` (stage events), `orchestrator/src/supervisor.py` (routing events), `orchestrator/src/cli.py` (run lifecycle events)
 
-Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. Each line is a JSON object. The schema supports **24 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
+Every run writes a JSONL file to `orchestrator/logs/` during execution. At run completion it is **copied** to `mcp-server/storage/ledger/{repo_name}/{slug}/orchestrator/logs/` (path printed at run end); the original remains in `orchestrator/logs/`. `repo_name` is derived from the fourth ancestor of the plan directory (defaults to `unknown`). Each line is a JSON object. The schema supports **24 event types** across three emitters: the CLI (run lifecycle), the supervisor (routing and project progress), and stage nodes (pipeline execution and tool-call activity).
 
 > **Streaming guarantee:** Graph nodes call `stream_entry()` to persist events in real time via the `WorkflowLogger` instance passed through LangGraph's `configurable` dict (key: `run_logger`). For LangGraph to inject this, node functions must annotate their `config` parameter as `Optional[RunnableConfig]` — using `RunnableConfig | None` with `from __future__ import annotations` produces a string annotation that LangGraph's signature inspector does not recognise. When the logger is successfully injected, events appear in the JSONL file immediately as they occur. If the `WorkflowLogger` is unreachable inside graph nodes (e.g. incorrect annotation or the configurable key was stripped), events accumulate only in the LangGraph state's `run_log` list. At run exit, `cli.py` calls `flush_unstreamed(run_log)` to write any un-persisted entries as a batch before the `run_end` sentinel. In this fallback scenario, stage and supervisor events appear immediately before `run_end` rather than interleaved with heartbeats.
 
@@ -776,17 +776,17 @@ In `--dry-run` mode no agents are called — only the routing decisions are exec
 
 ## 3. Inspect the JSONL Log
 
-The JSONL log is written to `orchestrator/logs/` during the run and **copied** to `mcp-server/storage/ledger/<slug>/orchestrator/logs/<timestamp>-<plan-title>.jsonl` at run completion (path printed at run end; the original remains in `orchestrator/logs/`). To verify routing decisions:
+The JSONL log is written to `orchestrator/logs/` during the run and **copied** to `mcp-server/storage/ledger/<repo-name>/<slug>/orchestrator/logs/<timestamp>-<plan-title>.jsonl` at run completion (path printed at run end; the original remains in `orchestrator/logs/`). `<repo-name>` is derived from the fourth ancestor of the plan directory (defaults to `unknown`). To verify routing decisions:
 
 ```bash
 # Print all routing events
-grep '"action": "route"' mcp-server/storage/ledger/<slug>/orchestrator/logs/<your-log-file>.jsonl | python3 -m json.tool
+grep '"action": "route"' mcp-server/storage/ledger/<repo-name>/<slug>/orchestrator/logs/<your-log-file>.jsonl | python3 -m json.tool
 
 # Check for any WARNING or ERROR level entries
-grep -E '"level": "(WARNING|ERROR)"' mcp-server/storage/ledger/<slug>/orchestrator/logs/<your-log-file>.jsonl
+grep -E '"level": "(WARNING|ERROR)"' mcp-server/storage/ledger/<repo-name>/<slug>/orchestrator/logs/<your-log-file>.jsonl
 
 # Count stage dispatches
-grep '"action": "route"' mcp-server/storage/ledger/<slug>/orchestrator/logs/<your-log-file>.jsonl | wc -l
+grep '"action": "route"' mcp-server/storage/ledger/<repo-name>/<slug>/orchestrator/logs/<your-log-file>.jsonl | wc -l
 ```
 
 ---
