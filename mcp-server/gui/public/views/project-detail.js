@@ -178,6 +178,7 @@ function renderProjectDetail(app, slug) {
       : '<p class="text-muted">No comments yet.</p>';
 
     var displayTitle = (project.project_name && project.project_name.trim()) ? project.project_name : ((meta.title && meta.title.trim()) ? meta.title : slug);
+    ProjectNameCache.set(slug, displayTitle);
     app.innerHTML =
       breadcrumb().projects().leafSpan(displayTitle, 'breadcrumb-title').html() +
       (meta.status === 'ARCHIVED' ?

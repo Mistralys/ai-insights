@@ -134,6 +134,7 @@ function renderProjectList(app) {
 
     var rows = projects.map(function (p) {
       var projectName = (p.project_name != null && p.project_name !== '') ? escapeHtml(p.project_name) : escapeHtml(p.slug);
+      ProjectNameCache.set(p.slug, p.project_name || p.slug);
       var doneCellHtml;
       if (p.total_work_packages > 0) {
         var pct = p.progress_pct != null ? p.progress_pct : 0;

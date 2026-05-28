@@ -44,6 +44,20 @@ function statusBadge(status) {
   return '<span class="' + cls + '">' + escapeHtml(status) + '</span>';
 }
 
+// Cache of slug → display name, populated by views that fetch project data.
+// breadcrumb().project() reads from here automatically.
+var ProjectNameCache = (function () {
+  var _cache = {};
+  return {
+    set: function (slug, name) {
+      if (slug && name && name.trim()) _cache[slug] = name.trim();
+    },
+    get: function (slug) {
+      return _cache[slug] || slug;
+    },
+  };
+}());
+
 function breadcrumb() {
   var segments = [];
   var api = {
@@ -52,7 +66,7 @@ function breadcrumb() {
       return api;
     },
     project: function (slug) {
-      segments.push({ label: slug, href: '#/projects/' + encodeURIComponent(slug) });
+      segments.push({ label: ProjectNameCache.get(slug), href: '#/projects/' + encodeURIComponent(slug) });
       return api;
     },
     leaf: function (label) {
