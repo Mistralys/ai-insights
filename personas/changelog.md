@@ -1,5 +1,23 @@
 # Personas Changelog
 
+## v3.22.0 - Knowledge Accumulation System
+- Ledger: Synthesis persona (v3.x) gains Knowledge Collection phase via new shared partial.
+- Ledger: synthesis-knowledge-collection.md partial: 5-step protocol — gold-nugget
+  identification, scope decision (global/project), confidence heuristic (High 0.9-1.0 /
+  Medium 0.6-0.8 / Low 0.3-0.5), deduplication via ledger_search_insights, commit via
+  ledger_add_insight.
+- Ledger: 9-synthesis.yaml mcp_tools updated with ledger_add_insight and
+  ledger_search_insights.
+- Ledger: 9-synthesis.md workflow steps updated — Knowledge Collection is now step 8
+  (between Cross-cutting Observations and Complete Synthesis); step range reference in
+  step 2 updated from 3-7 to 3-8.
+- Ledger: Developer (3-developer.yaml) gains ledger_search_insights for coding-principle
+  lookups.
+- Ledger: QA, Security Auditor, Reviewer (4/5/6.yaml) each gain ledger_search_insights
+  for prior-findings lookups before verification/code-review.
+- Ledger: 6-reviewer.yaml ledger_search_insights purpose text tailored to code review
+  (not generic 'verification').
+
 ## v3.21.1 - Git Committer Branch Safety
 - Standalone: Git Committer (v1.0.4) exclude CTX files in feature branches.
 
