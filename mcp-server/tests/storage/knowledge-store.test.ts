@@ -359,6 +359,67 @@ describe('KnowledgeStoreManager', () => {
       const results = await emptyManager.searchInsights('test');
       expect(results).toEqual([]);
     });
+
+    // ── WP-005 additions ──────────────────────────────────────────────────
+
+    it('tags filter narrows searchInsights results to insights that include all specified tags', async () => {
+      // 'filesystem' insight has tags ['filesystem', 'node']
+      // 'error' insight has tags ['async', 'error']
+      // searching 'PATH' matches the filesystem insight; tag filter ['filesystem'] should keep it
+      const resultsWithTag = await manager.searchInsights('PATH', { tags: ['filesystem'] });
+      expect(resultsWithTag.length).toBeGreaterThan(0);
+      expect(resultsWithTag.every((r) => r.tags.includes('filesystem'))).toBe(true);
+
+      // tag filter that does not match any result of the query should return empty
+      const resultsNoMatch = await manager.searchInsights('PATH', { tags: ['async'] });
+      expect(resultsNoMatch).toEqual([]);
+    });
+
+    it('limit/offset paginates searchInsights results after text filtering', async () => {
+      // Add extra insights so we have enough data to paginate against.
+      // 'config' matches the project insight added in beforeEach; add more global ones too.
+      await manager.addInsight(makeInsightInput({
+        title: 'Config tip 2',
+        content: 'Another config insight.',
+        tags: ['config'],
+        scope: 'global',
+      }));
+      await manager.addInsight(makeInsightInput({
+        title: 'Config tip 3',
+        content: 'Yet another config insight.',
+        tags: ['config'],
+        scope: 'global',
+      }));
+
+      // All results for 'config'
+      const all = await manager.searchInsights('config');
+      expect(all.length).toBeGreaterThanOrEqual(3);
+
+      // First page: limit=2, offset=0
+      const page1 = await manager.searchInsights('config', { limit: 2, offset: 0 });
+      expect(page1).toHaveLength(2);
+      expect(page1[0]).toEqual(all[0]);
+      expect(page1[1]).toEqual(all[1]);
+
+      // Second page: limit=2, offset=2
+      const page2 = await manager.searchInsights('config', { limit: 2, offset: 2 });
+      expect(page2.length).toBeGreaterThanOrEqual(1);
+      expect(page2[0]).toEqual(all[2]);
+    });
+
+    it('combined query + tags filter returns only text-matching insights that also contain all specified tags', async () => {
+      // 'config' substring matches the project insight (tags: ['config', 'environment'])
+      // and any others added above (tags: ['config'])
+      // filter by tag 'environment' — only the original project insight has that tag
+      const results = await manager.searchInsights('config', { tags: ['environment'] });
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.every((r) => r.tags.includes('environment'))).toBe(true);
+      // Must not include any insight that matched only on text but lacks the 'environment' tag
+      expect(results.every((r) => r.content.toLowerCase().includes('config') ||
+        r.title.toLowerCase().includes('config') ||
+        r.tags.some((t) => t.toLowerCase().includes('config'))
+      )).toBe(true);
+    });
   });
 
   // ─── listInsights ──────────────────────────────────────────────────────
@@ -677,6 +738,134 @@ describe('KnowledgeStoreManager', () => {
       await expect(
         manager.deleteInsight(id, { scope: 'project', project_slug: 'non-existent' })
       ).rejects.toThrow(`Insight with id ${id} not found`);
+    });
+  });
+
+  // ─── moveInsight ───────────────────────────────────────────────────────
+
+  describe('moveInsight', () => {
+    it('happy path: moves a global insight into a project store', async () => {
+      const { id } = await manager.addInsight(makeInsightInput({ scope: 'global', title: 'Global insight' }));
+
+      const moved = await manager.moveInsight(
+        id,
+        { scope: 'global' },
+        'project',
+        'target-project'
+      );
+
+      expect(moved.scope).toBe('project');
+      expect(moved.project_slug).toBe('target-project');
+
+      // Moved insight appears in the target project store
+      const targetStore = await manager.readProjectStore('target-project');
+      expect(targetStore.insights).toHaveLength(1);
+      expect(targetStore.insights[0].id).toBe(moved.id);
+
+      // Original global store no longer contains the insight
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights.find((i) => i.id === id)).toBeUndefined();
+    });
+
+    it('happy path: moves a project insight into the global store', async () => {
+      const { id } = await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'source-project', title: 'Project insight' })
+      );
+
+      const moved = await manager.moveInsight(
+        id,
+        { scope: 'project', project_slug: 'source-project' },
+        'global'
+      );
+
+      expect(moved.scope).toBe('global');
+      expect(moved.project_slug).toBeUndefined();
+
+      // Moved insight appears in the global store
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights).toHaveLength(1);
+      expect(globalStore.insights[0].id).toBe(moved.id);
+
+      // Source project store no longer contains the insight
+      const sourceStore = await manager.readProjectStore('source-project');
+      expect(sourceStore.insights.find((i) => i.id === id)).toBeUndefined();
+    });
+
+    it('throws when the insight id is not found in the source store', async () => {
+      await expect(
+        manager.moveInsight(9999, { scope: 'global' }, 'project', 'some-project')
+      ).rejects.toThrow('Insight with id 9999 not found');
+    });
+
+    it('returned insight has a new id from the target store, correct scope, and a fresh updated_at', async () => {
+      // Pre-seed the target project store with one insight so its next_id is 2.
+      // This lets us verify the moved insight receives the target store's next_id
+      // rather than the source store's id (which is also 1 for an empty global store).
+      await manager.addInsight(
+        makeInsightInput({ scope: 'project', project_slug: 'new-project', title: 'Existing in target' })
+      );
+
+      const { id: originalId } = await manager.addInsight(
+        makeInsightInput({ scope: 'global', title: 'Move me' })
+      );
+
+      // Source global store next_id is 1 → originalId is 1.
+      // Target project store next_id is 2 → moved.id should be 2.
+      expect(originalId).toBe(1);
+
+      const moved = await manager.moveInsight(
+        originalId,
+        { scope: 'global' },
+        'project',
+        'new-project'
+      );
+
+      // New id is from target store's next_id (2, because the target already had one insight)
+      expect(typeof moved.id).toBe('number');
+      expect(moved.id).toBe(2);
+      expect(moved.id).not.toBe(originalId);
+
+      // Scope is correct
+      expect(moved.scope).toBe('project');
+      expect(moved.project_slug).toBe('new-project');
+
+      // updated_at is set and is a valid ISO 8601 timestamp string.
+      // now() truncates to whole seconds, so we just verify it is a parseable date
+      // rather than doing a sub-second millisecond comparison.
+      expect(typeof moved.updated_at).toBe('string');
+      expect(moved.updated_at).toBeTruthy();
+      expect(isNaN(new Date(moved.updated_at!).getTime())).toBe(false);
+    });
+
+    it('source store no longer contains the original insight after move', async () => {
+      const first = await manager.addInsight(makeInsightInput({ title: 'Stay in global' }));
+      const second = await manager.addInsight(makeInsightInput({ title: 'Move me out' }));
+
+      await manager.moveInsight(
+        second.id,
+        { scope: 'global' },
+        'project',
+        'dest-project'
+      );
+
+      const globalStore = await manager.readGlobalStore();
+      expect(globalStore.insights.find((i) => i.id === second.id)).toBeUndefined();
+      // The remaining global insight is still there
+      expect(globalStore.insights.find((i) => i.id === first.id)).toBeDefined();
+    });
+
+    it('target store next_id is incremented after move', async () => {
+      const { id } = await manager.addInsight(makeInsightInput({ scope: 'global', title: 'To move' }));
+
+      // Pre-condition: target project store starts with next_id = 1
+      const targetBefore = await manager.readProjectStore('incr-project');
+      expect(targetBefore.next_id).toBe(1);
+
+      await manager.moveInsight(id, { scope: 'global' }, 'project', 'incr-project');
+
+      // Post-condition: target store next_id is now 2
+      const targetAfter = await manager.readProjectStore('incr-project');
+      expect(targetAfter.next_id).toBe(2);
     });
   });
 
