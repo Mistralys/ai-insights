@@ -1,6 +1,6 @@
 author: Sebastian Mordziol
 last_updated: "2026-03-01 12:00"
-default_version: "3.5.0"
+default_version: "3.22.0"
 default_model: "Claude Sonnet 4.6"    # Human-readable model name; override per-persona via `model:` field
 default_model_slug: "claude-sonnet-4-6"  # API-compatible slug; override per-persona via `model_slug:` field
 mcp_server_name: "central_pm"

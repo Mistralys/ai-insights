@@ -1,7 +1,12 @@
 # Personas Changelog
 
-## v3.21.1 - Git Committer Branch Safety
-- Standalone: Git Committer (v1.0.4) exclude CTX files in feature branches.
+## v3.22.0 - Knowledge Collection and Browser Tool Support
+- Standalone: Git Committer (v1.0.4) excludes CTX files from commits on feature branches.
+- Ledger: Synthesis gains Knowledge Collection phase (step 8) — 5-step gold-nugget commit protocol.
+- Ledger: Synthesis `mcp_tools` updated with `ledger_add_insight` and `ledger_search_insights`.
+- Ledger: Developer, QA, Security Auditor, and Reviewer gain `ledger_search_insights` for lookups.
+- Standalone: Researcher, Plan Architect Reviewer, Plan Auditor, and Developer gain `browser` tool.
+- Ledger: Developer, QA, and Security Auditor gain `browser` tool for UI and security verification.
 
 ## v3.21.0 - Plan Refiner and Persona Improvements
 - Standalone: Added Plan Refiner — orchestrates iterative plan refinement with repeated auditing.

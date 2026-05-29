@@ -34,6 +34,10 @@ mcp_tools:
     purpose: Read full WP detail including all pipelines, metrics, and comments.
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
+  - tool: ledger_search_insights
+    purpose: Search the knowledge base for existing insights before committing new ones (deduplication).
+  - tool: ledger_add_insight
+    purpose: Commit a reusable insight (pattern, pitfall, principle, or architectural decision) to the knowledge base.
   - tool: ledger_complete_synthesis
     purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`."
   - tool: ledger_get_handoff_status

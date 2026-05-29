@@ -152,6 +152,7 @@ _SOURCE: Directory tree_
         ├── index.ts
         ├── schema/
         │   ├── enums.ts
+        │   ├── knowledge.ts
         │   ├── project-meta.ts
         │   ├── root-index.ts
         │   ├── validators.ts
@@ -160,12 +161,14 @@ _SOURCE: Directory tree_
         ├── storage/
         │   ├── atomic-writer.ts
         │   ├── file-lock.ts
+        │   ├── knowledge-store.ts
         │   ├── ledger-store.ts
         │   ├── migrate-namespaced.ts
         ├── tools/
         │   ├── begin-work.ts
         │   ├── help-content.ts
         │   ├── help.ts
+        │   ├── knowledge.ts
         │   ├── observations.ts
         │   ├── pipeline.ts
         │   ├── project-lifecycle.ts
@@ -232,12 +235,15 @@ _SOURCE: Directory tree_
         │   ├── auto-handoff.test.ts
         │   ├── full-workflow.test.ts
         ├── schema/
+        │   ├── knowledge.test.ts
         │   ├── project-archiving-schema.test.ts
         │   ├── project-meta-runner.test.ts
         │   ├── root-index.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
         ├── storage/
+        │   ├── knowledge-store-exclusion.test.ts
+        │   ├── knowledge-store.test.ts
         │   ├── ledger-store.test.ts
         │   ├── list-all-projects.test.ts
         │   ├── migrate-namespaced.test.ts
@@ -250,6 +256,8 @@ _SOURCE: Directory tree_
         │   ├── claim-guard.test.ts
         │   ├── complete-pipeline-guards.test.ts
         │   ├── enrichment-resilience.test.ts
+        │   ├── knowledge-help.test.ts
+        │   ├── knowledge.test.ts
         │   ├── list-projects.test.ts
         │   ├── meta-enrichment.test.ts
         │   ├── observations.test.ts

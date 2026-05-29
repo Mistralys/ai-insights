@@ -30,6 +30,7 @@ You will be provided with:
 * **Filesystem Access:** Read existing files and write new ones.
 * **Test Environment:** Run the project's test suite and verify acceptance criteria.
 * **Static Analysis:** Run the project's static analysis tools (linters, type checkers) and address violations.
+* **Browser:** Render and interact with the application UI directly — navigate pages, click elements, fill forms, and screenshot visual state to verify UI implementation against acceptance criteria and catch visual regressions before handoff.
 
 ---
 

@@ -10,10 +10,8 @@
  *   - filter: Function to match persona files in that directory
  */
 
-'use strict';
-
-const path = require('path');
-const os   = require('os');
+import path from 'path';
+import os from 'os';
 
 /**
  * Determine the VS Code User prompts directory based on the platform.
@@ -65,7 +63,7 @@ function getPublishLocations() {
   ];
 }
 
-module.exports = {
+export {
   getVSCodePromptsDir,
   getClaudeCodeAgentsDir,
   getClaudeCodeSkillsDir,

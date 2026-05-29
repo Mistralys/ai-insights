@@ -14,15 +14,17 @@
  *   node scripts/sync-personas.js --custom-path "C:\Custom\Path"  # Custom VS Code prompts dir
  */
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { execFileSync } = require('child_process');
-const { getVSCodePromptsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } = require('./publish-locations');
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { execFileSync } from 'child_process';
+import { getVSCodePromptsDir, getClaudeCodeAgentsDir, getClaudeCodeSkillsDir } from './publish-locations.js';
 
 // Role names are loaded from the shared workflow manifest — the single source
 // of truth for all agent roles across the workspace.
-const KNOWN_ROLES = require('../shared/workflow-manifest.json').roles.map(r => r.name);
+const KNOWN_ROLES = JSON.parse(
+  fs.readFileSync(path.join(import.meta.dirname, '../shared/workflow-manifest.json'), 'utf-8')
+).roles.map(r => r.name);
 
 // ANSI color codes for console output
 const colors = {
@@ -286,7 +288,7 @@ function syncFromDir(sourceDir, targetDir, extractFileNameFn, label, dryRun = fa
 
   for (const filePath of personaFiles) {
     const deployName = extractFileNameFn(filePath);
-    const relSrc = path.relative(path.join(__dirname, '..'), filePath);
+    const relSrc = path.relative(path.join(import.meta.dirname, '..'), filePath);
 
     if (!deployName) {
       console.log(`${colors.yellow}⊘ Skipped:${colors.reset} ${relSrc} ${colors.yellow}(no deployable filename in frontmatter)${colors.reset}`);
@@ -337,7 +339,7 @@ function syncFromDir(sourceDir, targetDir, extractFileNameFn, label, dryRun = fa
  * @param {string|null} customPath - Override the default VS Code prompts directory
  */
 function syncVSCode(dryRun = false, customPath = null) {
-  const sourceDir = path.join(__dirname, '..', 'personas', 'ledger', 'vs-code');
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger', 'vs-code');
   const targetDir = customPath || getVSCodePromptsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'VS Code', dryRun);
   validateVSCodeFrontmatter(sourceDir);
@@ -396,7 +398,7 @@ function validateStandaloneVSCodeFrontmatter(dir) {
  * @param {string|null} customPath - Override the default VS Code prompts directory
  */
 function syncStandaloneVSCode(dryRun = false, customPath = null) {
-  const sourceDir = path.join(__dirname, '..', 'personas', 'standalone', 'vs-code');
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'vs-code');
   const targetDir = customPath || getVSCodePromptsDir();
   syncFromDir(sourceDir, targetDir, extractVSFileName, 'Standalone VS Code', dryRun);
   validateStandaloneVSCodeFrontmatter(sourceDir);
@@ -407,7 +409,7 @@ function syncStandaloneVSCode(dryRun = false, customPath = null) {
  * @param {boolean} dryRun
  */
 function syncClaudeCode(dryRun = false) {
-  const sourceDir = path.join(__dirname, '..', 'personas', 'ledger', 'claude-code');
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'ledger', 'claude-code');
   const targetDir = getClaudeCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractCCFileName, 'Claude Code', dryRun);
   validateCCFrontmatter(sourceDir);
@@ -418,7 +420,7 @@ function syncClaudeCode(dryRun = false) {
  * @param {boolean} dryRun
  */
 function syncStandaloneClaudeCode(dryRun = false) {
-  const sourceDir = path.join(__dirname, '..', 'personas', 'standalone', 'claude-code');
+  const sourceDir = path.join(import.meta.dirname, '..', 'personas', 'standalone', 'claude-code');
   const targetDir = getClaudeCodeAgentsDir();
   syncFromDir(sourceDir, targetDir, extractCCFileName, 'Standalone Claude Code', dryRun);
   validateStandaloneCCFrontmatter(sourceDir);
@@ -431,7 +433,7 @@ function syncStandaloneClaudeCode(dryRun = false) {
  * @param {boolean} dryRun
  */
 function syncSkills(dryRun = false) {
-  const sourceDir = path.join(__dirname, '..', '.claude', 'skills');
+  const sourceDir = path.join(import.meta.dirname, '..', '.claude', 'skills');
   const targetDir = getClaudeCodeSkillsDir();
 
   if (!fs.existsSync(sourceDir)) {
@@ -543,7 +545,7 @@ ${colors.bright}Examples:${colors.reset}
 
   try {
     // Build personas from source templates, forwarding --target and --dry-run
-    const buildScript = path.join(__dirname, 'build-personas.js');
+    const buildScript = path.join(import.meta.dirname, 'build-personas.js');
     const buildArgs = ['--suite', 'ledger,standalone'];
     // NOTE: --dry-run is forwarded to build-personas.js, which previews but
     // does not regenerate output files. syncFromDir() then reads from the

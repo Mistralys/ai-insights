@@ -24,15 +24,13 @@
  *   1 — one or more checks failed
  */
 
-'use strict';
+import path from 'path';
+import fs from 'fs';
+import { spawnSync } from 'child_process';
 
-const path = require('path');
-const fs   = require('fs');
-const { spawnSync } = require('child_process');
+// ─── Constants ──────────────────────────────────────────────────────────────────
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const WORKSPACE_ROOT   = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT   = path.resolve(import.meta.dirname, '..');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
 const MCP_SRC          = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');

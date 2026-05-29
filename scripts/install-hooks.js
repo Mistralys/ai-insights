@@ -11,9 +11,7 @@
  *   node scripts/install-hooks.js
  */
 
-'use strict';
-
-const { execSync } = require('child_process');
+import { execSync } from 'child_process';
 
 execSync('git config core.hooksPath .githooks', { stdio: 'inherit' });
 console.log('Git hooks installed. Pre-commit persona guard active.');

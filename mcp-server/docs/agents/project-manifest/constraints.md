@@ -1041,6 +1041,85 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 ## GUI API Constraints
 
+### 58. `gui/api-knowledge.ts` Is the Canonical Location for All Knowledge Handler Code
+
+**Rule:** All knowledge-specific REST handler functions (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`), Zod schemas (`KnowledgeUpdateBodySchema`, `KnowledgeMoveBodySchema`), and supporting types/helpers (`KnowledgeListParams`, `parseKnowledgeId`) MUST reside in `gui/api-knowledge.ts`. No knowledge handler code may be added to or remain in `gui/api.ts`.
+
+**Rationale:** `gui/api.ts` had grown large enough to become a maintenance liability. Extracting all knowledge symbols into a dedicated module (`gui/api-knowledge.ts`) isolates the knowledge domain, makes ownership explicit, and prevents future drift back into `api.ts`. The cut is clean: `api-knowledge.ts` re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
+
+**Implication for `gui/server.ts`:** The HTTP server imports knowledge handlers from `./api-knowledge.js` — not `./api.js`. Both body-free routes (`matchRoute()` tier) and body-parsing routes (`handleRequest()` tier) source their handler references from `api-knowledge.ts`.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — knowledge handler in api.ts or re-exported via api.ts
+export function handleListKnowledge(...) { /* in gui/api.ts */ }
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — knowledge handler in the dedicated module
+// gui/api-knowledge.ts
+export async function handleListKnowledge(...) { /* ... */ }
+
+// gui/server.ts
+import { handleListKnowledge } from './api-knowledge.js';
+```
+
+---
+
+### 59. Knowledge Body-Parsing Routes Use Regex Path Matching in `handleRequest()`
+
+**Rule:** The two body-parsing knowledge routes (`PATCH /api/knowledge/:id` and `POST /api/knowledge/:id/move`) MUST use regex `.test()` or `.exec()` for path matching inside `handleRequest()`. `path.startsWith()` is prohibited for these routes because it cannot reliably extract the `:id` capture group and is inconsistent with the regex pattern used for the PATCH `/api/projects/` guard.
+
+**Correct patterns (from `gui/server.ts`):**
+```typescript
+// ✅ CORRECT — regex exec captures :id
+const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
+if (method === 'PATCH' && knowledgePatchMatch !== null) {
+  const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
+  // ...
+}
+
+const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
+if (method === 'POST' && knowledgeMoveMatch !== null) {
+  const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
+  // ...
+}
+```
+
+**Rationale:** The `.exec()` pattern is consistent with the PATCH `/api/projects/` guard (which also uses regex) and makes the capture-group extraction explicit. `startsWith()` cannot distinguish `/api/knowledge/42` from `/api/knowledge/42/move` without additional substring checks.
+
+---
+
+### 60. CSP `script-src` Must Not Use `'unsafe-inline'`; `style-src` Retains It
+
+**Rule:** The Content Security Policy header set by `gui/server.ts` must specify `script-src 'self'` (no `'unsafe-inline'`). Inline scripts in `gui/public/index.html` are prohibited — all JavaScript that runs at page load must be served as a static file. The `style-src` directive retains `'unsafe-inline'` because the SPA's view JS files generate HTML via `innerHTML` with inline `style=""` attributes.
+
+**Required CSP header value:**
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'
+```
+
+**FOUC prevention:** The theme-initialisation script (`gui/public/theme-init.js`) handles pre-paint theme application. It is a plain ES5 IIFE served as a static file and loaded via `<script src="/theme-init.js?v=1">` in `<head>` — not as an inline `<script>` block.
+
+**Anti-pattern:**
+```html
+<!-- ❌ WRONG — inline script; blocked by script-src 'self' CSP -->
+<script>
+  (function() { /* theme init logic */ })();
+</script>
+```
+
+**Correct pattern:**
+```html
+<!-- ✅ CORRECT — external file; allowed by script-src 'self' -->
+<script src="/theme-init.js?v=1"></script>
+```
+
+**Rationale for retaining `style-src 'unsafe-inline'`:** Six view JS files inject HTML via `innerHTML` with inline `style=""` attributes. Removing `'unsafe-inline'` from `style-src` would break these views in modern browsers that enforce CSP on inline styles inside `innerHTML`-injected content. This is deferred as a separate, larger-scope effort.
+
+---
+
 ### 40. All Slug- and WpId-Accepting GUI Handlers Must Call Their Path-Traversal Guard First
 
 **Rule:** Every GUI API handler in `gui/api.ts` that accepts a path segment parameter must call its corresponding guard as the **first** (slug) or **second** (wpId) statement, before any other processing.
@@ -1851,6 +1930,37 @@ function _bindQueueActions(container, entries) { /* ... */ }
 **Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function. This convention was established during the `2026-05-20-orchestrator-gui-polish-rework` sprint and should be applied to all new closure-scoped helpers going forward.
 
 **Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
+
+---
+
+## Knowledge Store Constraints
+
+### 73. `.knowledge/` Directory Uses a Single Lock Scope for All Writes; Excluded from Project Enumeration
+
+**Rule:** All write operations on the `.knowledge/` store (`addInsight`, `updateInsight`) MUST acquire a single `withLock(knowledgeDir(), ...)` scope that covers the entire read-modify-write sequence. Pure reads (`searchInsights`, `listInsights`) do NOT acquire a lock, consistent with the `LedgerStore` read pattern. The `.knowledge/` directory lives at `{ledgerRoot}/.knowledge/` and MUST NOT be included in project enumeration (`listAllProjects`, `detectProjectByCwd`) — it is global infrastructure, not a per-project ledger.
+
+**Rationale:** Using a single lock on `knowledgeDir()` (rather than per-file locks) prevents concurrent writers from interleaving across `global-insights.json` and `{slug}-insights.json` stores. Excluding `.knowledge/` from project enumeration prevents it from being misidentified as a project directory during `ledger_list_projects` or `ledger_detect_project` calls.
+
+**Lock target:** Always `knowledgeDir()` — never a per-file path and never `store.storageDir` (that is the per-project lock target, not the knowledge store lock target).
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — separate lock per store file; concurrent writers can interleave
+await withLock(globalStorePath(), async () => { /* write global store */ });
+await withLock(projectStorePath(slug), async () => { /* write project store */ });
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock on the knowledge directory for any write operation
+await withLock(knowledgeDir(), async () => {
+  const store = await _readStore(storePath);
+  // ... mutate store ...
+  await atomicWriteJson(storePath, store);
+});
+```
+
+**Project enumeration exclusion:** `LedgerStore.listAllProjects()` reads `readdir(ledgerRoot)` and filters to subdirectories. The `.knowledge` entry (which starts with `.`) is excluded by the existing filter that skips dot-prefixed entries — no additional code change is required. This constraint documents the expected behaviour so it is preserved if the filter is ever modified.
 
 ---
 

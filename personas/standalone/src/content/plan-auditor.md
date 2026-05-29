@@ -34,6 +34,7 @@ You will be provided with:
 - **Filesystem Access:** Read source files, configuration, tests, and documentation to verify plan references.
 - **Codebase Search:** Use grep, file search, and symbol lookup to verify references at scale across the project.
 - **Web Search:** Verify existence and maintenance status of external libraries, APIs, or frameworks referenced in the plan.
+- **Browser:** Navigate library homepages, changelogs, and issue trackers interactively to verify active maintenance, published breaking changes, and real API availability for plan-referenced dependencies.
 
 ---
 

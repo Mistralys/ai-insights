@@ -9,6 +9,7 @@ _SOURCE: MCP tool handler implementations_
             └── begin-work.ts
             └── help-content.ts
             └── help.ts
+            └── knowledge.ts
             └── observations.ts
             └── pipeline.ts
             └── project-lifecycle.ts
@@ -360,6 +361,10 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_add_project_comment | cwd_path or project_path, type, priority, agent, note | Add project-level comment |
 | ledger_get_next_action | cwd_path or project_path, agent_role | Get next recommended action (optional: max_results for batch mode) |
 | ledger_get_handoff_status | cwd_path or project_path, current_agent | Check handoff status |
+| ledger_add_insight | scope, title, content, category, tags | Add a reusable insight to the knowledge base |
+| ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, project_slug, limit) |
+| ledger_list_insights | None required | List insights with optional filters and pagination |
+| ledger_update_insight | id | Update an existing insight by numeric ID |
 
 ## Common Mistakes
 
@@ -1013,9 +1018,7 @@ Override with \`--ledger-dir <path>\` at server startup.
 `,
 
   ledger_complete_synthesis: `
-# ledger_complete_synthesis
-
-Mark the project synthesis as generated. Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
+# ledger_complete_synthesis Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
 
 Call this after the Synthesis agent has finished generating its synthesis report. Subsequent calls to \`ledger_get_next_action(Synthesis)\` will return WAIT once this flag is set.
 
@@ -1051,6 +1054,167 @@ ${PROJECT_PATH_PARAM}
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
   "synthesis_file": "${SYNTHESIS_ARCHIVE_FILENAME}"
 }
+\`\`\`
+`,
+
+  ledger_add_insight: `
+# ledger_add_insight
+
+Add a reusable insight to the global or project-scoped knowledge base.
+
+## Required Parameters
+- **scope** (string): \`"global"\` for cross-project insights; \`"project"\` for project-scoped insights.
+  When scope is \`"project"\`, **project_slug is also required**.
+- **title** (string): Short title for the insight.
+- **content** (string): Full description of the insight.
+- **category** (string): Category string (e.g., \`"architecture"\`, \`"testing"\`, \`"workflow"\`, \`"security"\`).
+- **tags** (array): Array of tag strings for filtering and search.
+
+## Optional Parameters
+- **project_slug** (string): Slug of the project store. Required when scope is \`"project"\`.
+  Alphanumeric characters, hyphens, and underscores only (e.g., \`"my-project"\`).
+- **source** (string): Source reference (e.g., WP ID, discussion link, or URL). Defaults to empty string.
+- **confidence** (number): Confidence score 0–1 indicating reliability. Defaults to 1.
+
+## Response
+The created insight object, including the auto-assigned numeric **id** and a **formatted_id** (KN-NNNN).
+
+## Examples
+\`\`\`json
+{
+  "scope": "global",
+  "title": "Always validate slugs at the schema boundary",
+  "content": "Use PROJECT_SLUG_REGEX to reject path-traversal slugs before they reach the storage layer.",
+  "category": "security",
+  "tags": ["security", "validation", "schema"],
+  "source": "WP-002",
+  "confidence": 0.95
+}
+\`\`\`
+\`\`\`json
+{
+  "scope": "project",
+  "project_slug": "2026-05-28-knowledge-system",
+  "title": "Knowledge store uses numeric IDs internally",
+  "content": "The KN-NNNN display format is produced at the tool layer; only the numeric id is stored.",
+  "category": "architecture",
+  "tags": ["storage", "ids"],
+  "source": "WP-003"
+}
+\`\`\`
+`,
+
+  ledger_search_insights: `
+# ledger_search_insights
+
+Search the knowledge base for insights matching a query string.
+
+Applies a case-insensitive substring match against each insight's **title**, **content**, and **tags**.
+Returns an empty array when no insights match.
+
+## Required Parameters
+- **query** (string): Search string — matched case-insensitively against title, content, and tags.
+
+## Optional Parameters
+- **scope** (string): Filter by scope: \`"global"\` or \`"project"\`.
+- **category** (string): Filter by category (exact match).
+- **tags** (array): Filter results to those containing ALL specified tags.
+- **project_slug** (string): Restrict search to a specific project store.
+- **limit** (number): Maximum number of results to return.
+
+## Response
+Array of matching insight objects, each including **formatted_id** (KN-NNNN).
+
+## Example
+\`\`\`json
+{
+  "query": "slug validation",
+  "scope": "global",
+  "category": "security",
+  "limit": 10
+}
+\`\`\`
+`,
+
+  ledger_list_insights: `
+# ledger_list_insights
+
+List all insights in the knowledge base with optional filters and pagination.
+
+All parameters are optional — calling with no parameters returns all insights across all stores.
+
+## Optional Parameters
+- **scope** (string): Filter by scope: \`"global"\` or \`"project"\`.
+- **category** (string): Filter by category (exact match).
+- **tags** (array): Filter to insights matching ALL specified tags.
+- **project_slug** (string): Restrict to a specific project store.
+- **limit** (number): Maximum number of results to return (for pagination).
+- **offset** (number): Number of results to skip (for pagination). Defaults to 0.
+
+## Response
+Array of insight objects (filtered and paginated), each including **formatted_id** (KN-NNNN).
+
+## Examples
+\`\`\`json
+{}
+\`\`\`
+\`\`\`json
+{ "scope": "global", "category": "architecture", "limit": 20, "offset": 0 }
+\`\`\`
+\`\`\`json
+{ "project_slug": "my-project", "tags": ["security"], "limit": 5, "offset": 10 }
+\`\`\`
+`,
+
+  ledger_update_insight: `
+# ledger_update_insight
+
+Update an existing insight by its numeric ID.
+
+Accepts any combination of updatable fields — only the specified fields are changed.
+The \`updated_at\` timestamp is set automatically.
+
+Immutable fields (id, scope, project_slug, created_at) cannot be changed.
+
+> **Tip:** Numeric IDs are per-store counters, so the same numeric ID (e.g. \`1\`) can exist
+> in both the global store and a project store. Use \`scope\` and/or \`project_slug\` to make
+> your intent unambiguous and prevent accidental global-insight mutation.
+
+## Required Parameters
+- **id** (number): Numeric insight ID (as returned in the \`id\` field of a previous response).
+
+## Optional Scope Parameters (recommended when IDs may overlap)
+- **scope** ("global" | "project"): Restrict the search to stores of this scope.
+  Use \`"global"\` to ensure only the global store is searched; use \`"project"\` combined
+  with \`project_slug\` to target a specific project store exclusively.
+- **project_slug** (string): Restrict the search to a specific project store.
+  Accepts only alphanumeric slugs with hyphens and underscores.
+
+## Optional Update Parameters (at least one recommended)
+- **title** (string): New title.
+- **content** (string): New content.
+- **category** (string): New category.
+- **tags** (array): Replacement tags array.
+- **source** (string): New source reference.
+- **confidence** (number): New confidence score (0–1).
+- **superseded_by** (number): Numeric ID of the insight that supersedes this one.
+  Use this to mark an insight as outdated when a newer insight replaces it.
+
+## Response
+The updated insight object, including **formatted_id** (KN-NNNN) and the new **updated_at** timestamp.
+
+## Examples
+\`\`\`json
+{ "id": 1, "confidence": 0.8, "content": "Updated content after further testing." }
+\`\`\`
+\`\`\`json
+{ "id": 1, "scope": "global", "confidence": 0.8 }
+\`\`\`
+\`\`\`json
+{ "id": 1, "scope": "project", "project_slug": "my-project", "title": "Revised title" }
+\`\`\`
+\`\`\`json
+{ "id": 1, "superseded_by": 5 }
 \`\`\`
 `,
 };
@@ -1140,6 +1304,371 @@ export function register(server: McpServer): void {
     // passthrough types for registerTool's inputSchema parameter.
     // Tracked: https://github.com/modelcontextprotocol/typescript-sdk (MCP SDK typing issue)
     help as any
+  );
+}
+
+```
+###  Path: `/mcp-server/src/tools/knowledge.ts`
+
+```ts
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { KnowledgeStoreManager } from '../storage/knowledge-store.js';
+import { resolveLedgerRoot } from '../utils/ledger-root.js';
+import { InsightScope, PROJECT_SLUG_REGEX } from '../schema/knowledge.js';
+import { now } from '../utils/timestamp.js';
+import type { Insight } from '../schema/knowledge.js';
+
+/**
+ * Formats a numeric insight ID as a human-readable KN-NNNN string.
+ */
+function formatInsightId(id: number): string {
+  return `KN-${String(id).padStart(4, '0')}`;
+}
+
+// ─── Tool: ledger_add_insight ─────────────────────────────────────────────
+
+const AddInsightSchema = z.object({
+  scope: InsightScope.describe(
+    '"global" for cross-project insights, "project" for project-scoped. project_slug is required when scope is "project".'
+  ),
+  project_slug: z
+    .string()
+    .regex(PROJECT_SLUG_REGEX)
+    .optional()
+    .describe(
+      'Required when scope is "project". Slug of the project (alphanumeric, hyphens, underscores only).'
+    ),
+  title: z.string().describe('Short title for the insight.'),
+  content: z.string().describe('Full description of the insight.'),
+  category: z
+    .string()
+    .describe('Category string (e.g., "architecture", "testing", "workflow", "security").'),
+  tags: z.array(z.string()).describe('Array of tag strings for filtering and search.'),
+  source: z
+    .string()
+    .optional()
+    .describe(
+      'Source reference (e.g., WP ID, discussion link, or URL). Defaults to empty string if omitted.'
+    ),
+  confidence: z
+    .number()
+    .optional()
+    .describe('Confidence score 0–1 indicating reliability. Defaults to 1 if omitted.'),
+});
+
+async function addInsight(args: z.infer<typeof AddInsightSchema>) {
+  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+
+  try {
+    const insight = await manager.addInsight({
+      scope: args.scope,
+      project_slug: args.project_slug,
+      title: args.title,
+      content: args.content,
+      category: args.category,
+      tags: args.tags,
+      source: args.source ?? '',
+      confidence: args.confidence ?? 1,
+      created_at: now(),
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id) }, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error adding insight: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// ─── Tool: ledger_search_insights ─────────────────────────────────────────
+
+const SearchInsightsSchema = z.object({
+  query: z
+    .string()
+    .describe(
+      'Search string — case-insensitive substring match against title, content, and tags.'
+    ),
+  scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "project".'),
+  category: z.string().optional().describe('Optional. Filter by category.'),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe('Optional. Filter results to those containing ALL specified tags.'),
+  project_slug: z
+    .string()
+    .regex(PROJECT_SLUG_REGEX)
+    .optional()
+    .describe('Optional. Restrict search to a specific project store.'),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Optional. Maximum number of results to return.'),
+});
+
+async function searchInsights(args: z.infer<typeof SearchInsightsSchema>) {
+  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+
+  try {
+    let results = await manager.searchInsights(args.query, {
+      scope: args.scope,
+      category: args.category,
+      project_slug: args.project_slug,
+    });
+
+    // Apply tags filter post-search (searchInsights supports scope/category/project_slug only)
+    if (args.tags && args.tags.length > 0) {
+      const filterTags = args.tags;
+      results = results.filter((insight) =>
+        filterTags.every((tag) => insight.tags.includes(tag))
+      );
+    }
+
+    if (args.limit !== undefined) {
+      results = results.slice(0, args.limit);
+    }
+
+    const formatted = results.map((insight) => ({
+      ...insight,
+      formatted_id: formatInsightId(insight.id),
+    }));
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(formatted, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error searching insights: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// ─── Tool: ledger_list_insights ───────────────────────────────────────────
+
+const ListInsightsSchema = z.object({
+  scope: InsightScope.optional().describe('Optional. Filter by scope: "global" or "project".'),
+  category: z.string().optional().describe('Optional. Filter by category.'),
+  tags: z
+    .array(z.string())
+    .optional()
+    .describe('Optional. Filter to insights matching ALL specified tags.'),
+  project_slug: z
+    .string()
+    .regex(PROJECT_SLUG_REGEX)
+    .optional()
+    .describe('Optional. Restrict to a specific project store.'),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Optional. Maximum number of results to return (for pagination).'),
+  offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Optional. Number of results to skip (for pagination). Defaults to 0.'),
+});
+
+async function listInsights(args: z.infer<typeof ListInsightsSchema>) {
+  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+
+  try {
+    const results = await manager.listInsights({
+      scope: args.scope,
+      category: args.category,
+      tags: args.tags,
+      project_slug: args.project_slug,
+      limit: args.limit,
+      offset: args.offset,
+    });
+
+    const formatted = results.map((insight) => ({
+      ...insight,
+      formatted_id: formatInsightId(insight.id),
+    }));
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(formatted, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error listing insights: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+// ─── Tool: ledger_update_insight ──────────────────────────────────────────
+
+const UpdateInsightSchema = z.object({
+  id: z
+    .number()
+    .int()
+    .describe(
+      'Numeric ID of the insight to update (as returned in the id field of a previous response).'
+    ),
+  scope: InsightScope.optional().describe(
+    'Optional. Restrict the update to stores of this scope ("global" or "project"). ' +
+    'Recommended when the same numeric ID may exist in both global and project stores — ' +
+    'prevents accidental global-insight mutation.'
+  ),
+  project_slug: z
+    .string()
+    .regex(PROJECT_SLUG_REGEX)
+    .optional()
+    .describe(
+      'Optional. Restrict the update to the specified project store. ' +
+      'When provided, only that project\'s store is searched — prevents ambiguous resolution ' +
+      'when the same numeric ID exists in multiple stores.'
+    ),
+  title: z.string().optional().describe('Optional. New title for the insight.'),
+  content: z.string().optional().describe('Optional. New content for the insight.'),
+  category: z.string().optional().describe('Optional. New category.'),
+  tags: z.array(z.string()).optional().describe('Optional. Replace the tags array.'),
+  source: z.string().optional().describe('Optional. New source reference.'),
+  confidence: z.number().optional().describe('Optional. New confidence score (0–1).'),
+  superseded_by: z
+    .number()
+    .int()
+    .optional()
+    .describe('Optional. Numeric ID of the insight that supersedes this one.'),
+});
+
+async function updateInsight(args: z.infer<typeof UpdateInsightSchema>) {
+  const manager = new KnowledgeStoreManager(resolveLedgerRoot());
+
+  const updates: Partial<
+    Pick<
+      Insight,
+      'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'
+    >
+  > = {};
+  if (args.title !== undefined) updates.title = args.title;
+  if (args.content !== undefined) updates.content = args.content;
+  if (args.category !== undefined) updates.category = args.category;
+  if (args.tags !== undefined) updates.tags = args.tags;
+  if (args.source !== undefined) updates.source = args.source;
+  if (args.confidence !== undefined) updates.confidence = args.confidence;
+  if (args.superseded_by !== undefined) updates.superseded_by = args.superseded_by;
+
+  try {
+    const insight = await manager.updateInsight(args.id, updates, {
+      scope: args.scope,
+      project_slug: args.project_slug,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ ...insight, formatted_id: formatInsightId(insight.id) }, null, 2),
+        },
+      ],
+    };
+  } catch (error) {
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: `Error updating insight: ${(error as Error).message}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * @internal — exported for unit testing only. Follows the `_internal` naming convention (§53).
+ */
+export const _internal = {
+  AddInsightSchema,
+  SearchInsightsSchema,
+  ListInsightsSchema,
+  UpdateInsightSchema,
+  addInsight,
+  searchInsights,
+  listInsights,
+  updateInsight,
+};
+
+export function register(server: McpServer): void {
+  server.registerTool(
+    'ledger_add_insight',
+    {
+      description:
+        'Add a reusable insight to the knowledge base. REQUIRED params: scope, title, content, category, tags. scope is "global" or "project" — if "project", project_slug is also required.',
+      inputSchema: AddInsightSchema,
+    },
+    addInsight as any
+  );
+
+  server.registerTool(
+    'ledger_search_insights',
+    {
+      description:
+        'Search the knowledge base for insights matching a query string. REQUIRED params: query. Optional filters: scope, category, tags, project_slug, limit.',
+      inputSchema: SearchInsightsSchema,
+    },
+    searchInsights as any
+  );
+
+  server.registerTool(
+    'ledger_list_insights',
+    {
+      description:
+        'List all insights in the knowledge base with optional filters and pagination. All params optional: scope, category, tags, project_slug, limit, offset.',
+      inputSchema: ListInsightsSchema,
+    },
+    listInsights as any
+  );
+
+  server.registerTool(
+    'ledger_update_insight',
+    {
+      description:
+        'Update an existing insight by numeric ID. REQUIRED params: id. Optional scope filters: scope, project_slug (recommended when the same numeric ID may exist in both global and project stores). Optional update fields: title, content, category, tags, source, confidence, superseded_by.',
+      inputSchema: UpdateInsightSchema,
+    },
+    updateInsight as any
   );
 }
 

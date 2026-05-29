@@ -18,12 +18,10 @@
  *   npm run check:roles                         # from mcp-server/ directory
  */
 
-'use strict';
+import path from 'path';
+import { execFileSync } from 'child_process';
 
-const path      = require('path');
-const { execFileSync } = require('child_process');
-
-const WORKSPACE_ROOT     = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT     = path.resolve(import.meta.dirname, '..');
 const VALIDATE_SCRIPT    = path.join(WORKSPACE_ROOT, 'scripts', 'validate-workflow-manifest.js');
 
 console.log('[check-known-roles] Role list is now derived from shared/workflow-manifest.json.');

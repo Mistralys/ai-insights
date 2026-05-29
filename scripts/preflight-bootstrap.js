@@ -1,9 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
 
 function bootstrap() {
-  const root = path.resolve(__dirname, '..');
+  const root = path.resolve(import.meta.dirname, '..');
   
   // In case of local dev, try to find original repos if they are siblings
   const workspaceRoot = path.resolve(root, '..');

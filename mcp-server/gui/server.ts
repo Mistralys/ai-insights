@@ -55,6 +55,13 @@ import {
   handleGetRunStatus,
   ApiError,
 } from './api.js';
+import {
+  handleListKnowledge,
+  handleUpdateKnowledge,
+  handleDeleteKnowledge,
+  handlePromoteKnowledge,
+  handleMoveKnowledge,
+} from './api-knowledge.js';
 import { renderChunksToMarkdown } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -112,7 +119,7 @@ function securityHeaders(): Record<string, string> {
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
   };
 }
 
@@ -1123,7 +1130,87 @@ function matchRoute(
   // POST /api/orchestrator/kill/:id and POST /api/orchestrator/dismiss/:id —
   // handled separately in handleRequest() (path-parameter extraction via path.slice).
 
-  // This comment block serves as a route-map reference for maintainability.
+  // ---------------------------------------------------------------------------
+  // Knowledge routes — added in WP-009.
+  // All three routes use the unique 'knowledge' first segment, so they cannot
+  // shadow any existing route. PATCH /api/knowledge/:id and
+  // POST /api/knowledge/:id/move are handled as special cases in handleRequest()
+  // because they require body parsing.
+  // ---------------------------------------------------------------------------
+
+  // GET /api/knowledge
+  // rest.length === 1, rest[0] === 'knowledge'
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'knowledge') {
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const params = {
+      scope: sp.get('scope') ?? undefined,
+      category: sp.get('category') ?? undefined,
+      tags: sp.get('tags') ?? undefined,
+      project_slug: sp.get('project_slug') ?? undefined,
+      query: sp.get('query') ?? undefined,
+      limit: sp.get('limit') ?? undefined,
+      offset: sp.get('offset') ?? undefined,
+    };
+    return () => handleListKnowledge(ledgerRoot, params);
+  }
+
+  // DELETE /api/knowledge/:id
+  // rest.length === 2, rest[0] === 'knowledge'
+  if (method === 'DELETE' && rest.length === 2 && rest[0] === 'knowledge') {
+    const rawId = rest[1]!;
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const scope = sp.get('scope') ?? undefined;
+    const project_slug = sp.get('project_slug') ?? undefined;
+    return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug);
+  }
+
+  // POST /api/knowledge/:id/promote
+  // rest.length === 3, rest[0] === 'knowledge', rest[2] === 'promote'
+  if (method === 'POST' && rest.length === 3 && rest[0] === 'knowledge' && rest[2] === 'promote') {
+    const rawId = rest[1]!;
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const scope = sp.get('scope') ?? undefined;
+    const project_slug = sp.get('project_slug') ?? undefined;
+    return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug);
+  }
+
+  // No match found — fall through to 404.
+  // Route map summary (body-free routes in matchRoute; body-parsing routes handled above in handleRequest):
+  //   GET    /api/insights
+  //   GET    /api/orchestrator/queue
+  //   GET    /api/orchestrator/run-status/:filename
+  //   GET    /api/projects[?page&limit&status&search&sort&dir&runner]
+  //   GET    /api/projects/:slug
+  //   GET    /api/projects/:slug/plan
+  //   GET    /api/projects/:slug/synthesis
+  //   GET    /api/projects/:slug/health
+  //   GET    /api/projects/:slug/work-packages
+  //   GET    /api/projects/:slug/work-packages/overview
+  //   GET    /api/projects/:slug/work-packages/:wpId
+  //   GET    /api/projects/:slug/dialogues[?wp=WP-001]
+  //   GET    /api/projects/:slug/dialogues/:filename
+  //   GET    /api/projects/:slug/chunks[?wp=WP-001]
+  //   GET    /api/projects/:slug/chunks/:filename
+  //   GET    /api/projects/:slug/chunks/:filename/rendered
+  //   GET    /api/projects/:slug/runs
+  //   GET    /api/projects/:slug/runs/:filename[?after=N]
+  //   DELETE /api/projects/:slug
+  //   POST   /api/projects/:slug/archive
+  //   POST   /api/projects/:slug/unarchive
+  //   POST   /api/projects/:slug/complete
+  //   (namespaced /:repo/:slug variants of the above also registered)
+  //   GET    /api/knowledge[?scope&category&tags&project_slug&query&limit&offset]
+  //   DELETE /api/knowledge/:id[?scope&project_slug]
+  //   POST   /api/knowledge/:id/promote[?scope&project_slug]
+  //   PATCH  /api/knowledge/:id           (body-parsing — handled in handleRequest)
+  //   POST   /api/knowledge/:id/move      (body-parsing — handled in handleRequest)
+  //   PATCH  /api/projects/:slug          (body-parsing — handled in handleRequest; guard: /^\/api\/projects\/.+$/.test(path))
 
   return null;
 }
@@ -1251,7 +1338,7 @@ export async function handleRequest(
   }
 
   // PATCH /api/projects/:slug — special case: requires body parsing
-  if (method === 'PATCH' && path.startsWith('/api/projects/')) {
+  if (method === 'PATCH' && /^\/api\/projects\/.+$/.test(path)) {
     const rawPath = path.slice('/api/projects/'.length);
     const patchSegs = rawPath.split('/').filter(Boolean);
     try {
@@ -1393,6 +1480,50 @@ export async function handleRequest(
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/dismiss/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // PATCH /api/knowledge/:id — special case: requires body parsing
+  // Regex match on path to extract the numeric ID segment.
+  const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
+  if (method === 'PATCH' && knowledgePatchMatch) {
+    const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleUpdateKnowledge(ledgerRoot, rawId, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in PATCH /api/knowledge/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/knowledge/:id/move — special case: requires body parsing
+  // Regex match on path to extract the numeric ID segment.
+  const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
+  if (method === 'POST' && knowledgeMoveMatch) {
+    const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleMoveKnowledge(ledgerRoot, rawId, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/knowledge/:id/move: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }

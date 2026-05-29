@@ -12,6 +12,7 @@ _SOURCE: Top-level directory tree_
     ├── 2026-02-26-ui-agentic-techniques.md
     ├── 2026-03-01-future-without-libraries.md
     ├── 2026-04-08-subagents-manifest-key-design.md
+    ├── 2026-05-28-ce-framework-audit.md
     ├── documentation-audit.md
     ├── loading-mcp-tools-explained.md
     ├── prompt-clarity.md
@@ -26,6 +27,7 @@ _SOURCE: Top-level directory tree_
     │       ├── agent-name-map.md
     │       ├── parallelization.md
     │   └── references/
+    │       ├── ce-framework-extended.md
     │       ├── langgraph-deep-agents-subagent-handbook.md
     │   └── research/
     │       └── 2026-05-05-qa-wait-cross-wp-dispatch.md
@@ -89,6 +91,7 @@ _SOURCE: Top-level directory tree_
     │   ├── index.ts
     │   ├── schema/
     │   │   ├── enums.ts
+    │   │   ├── knowledge.ts
     │   │   ├── project-meta.ts
     │   │   ├── root-index.ts
     │   │   ├── validators.ts
@@ -97,12 +100,14 @@ _SOURCE: Top-level directory tree_
     │   ├── storage/
     │   │   ├── atomic-writer.ts
     │   │   ├── file-lock.ts
+    │   │   ├── knowledge-store.ts
     │   │   ├── ledger-store.ts
     │   │   ├── migrate-namespaced.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
     │   │   ├── help-content.ts
     │   │   ├── help.ts
+    │   │   ├── knowledge.ts
     │   │   ├── observations.ts
     │   │   ├── pipeline.ts
     │   │   ├── project-lifecycle.ts
@@ -166,12 +171,15 @@ _SOURCE: Top-level directory tree_
     │   │   ├── auto-handoff.test.ts
     │   │   ├── full-workflow.test.ts
     │   ├── schema/
+    │   │   ├── knowledge.test.ts
     │   │   ├── project-archiving-schema.test.ts
     │   │   ├── project-meta-runner.test.ts
     │   │   ├── root-index.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
     │   ├── storage/
+    │   │   ├── knowledge-store-exclusion.test.ts
+    │   │   ├── knowledge-store.test.ts
     │   │   ├── ledger-store.test.ts
     │   │   ├── list-all-projects.test.ts
     │   │   ├── migrate-namespaced.test.ts
@@ -184,6 +192,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── claim-guard.test.ts
     │   │   ├── complete-pipeline-guards.test.ts
     │   │   ├── enrichment-resilience.test.ts
+    │   │   ├── knowledge-help.test.ts
+    │   │   ├── knowledge.test.ts
     │   │   ├── list-projects.test.ts
     │   │   ├── meta-enrichment.test.ts
     │   │   ├── observations.test.ts
@@ -373,6 +383,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── reviewer-output-format.md
     │   │   └── security-auditor-operational-protocol.md
     │   │   └── security-auditor-output-format.md
+    │   │   └── synthesis-knowledge-collection.md
     │   │   └── synthesis-operational-protocol.md
     │   │   └── synthesis-output-format.md
     ├── standalone/
@@ -461,6 +472,7 @@ _SOURCE: Top-level directory tree_
     ├── extract-changelog-entry.js
     ├── install-hooks.js
     ├── kill-orchestrator.js
+    ├── migrate-synthesis-insights.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-bootstrap.js

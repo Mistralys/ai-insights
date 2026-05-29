@@ -18,16 +18,14 @@
  * compatibility.
  */
 
-'use strict';
-
-const path = require('path');
-const fs = require('fs');
-const { spawnSync } = require('child_process');
+import path from 'path';
+import fs from 'fs';
+import { spawnSync } from 'child_process';
 
 // ---------------------------------------------------------------------------
 // 1. Resolve paths
 // ---------------------------------------------------------------------------
-const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 const MCP_SRC       = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
 const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
 
