@@ -1,5 +1,22 @@
 # Personas Changelog
 
+## v3.23.0 - Browser Tool Support
+- Standalone: Researcher (v1.2.0) gains `browser` tool; Capabilities sub-section added documenting
+  interactive navigation of documentation sites, changelogs, and issue trackers.
+- Standalone: Plan Architect Reviewer (v1.5.0) gains `browser` tool; Capabilities updated for
+  interactive verification of library pages, GitHub repos, and ecosystem health before recommending
+  alternatives.
+- Standalone: Plan Auditor (v1.4.0) gains `browser` tool; Capabilities updated for interactive
+  navigation of dependency changelogs and issue trackers to verify active maintenance.
+- Standalone: Developer (v1.1.0) gains `browser` tool; Capabilities updated for live UI rendering,
+  interaction, and visual verification against acceptance criteria.
+- Ledger: Developer (v3.6.3) gains `browser` tool; Capabilities updated for live UI rendering and
+  visual regression detection mid-implementation.
+- Ledger: QA (v3.6.2) gains `browser` tool; Capabilities sub-section added documenting UI rendering,
+  interaction, screenshotting, and visual AC verification.
+- Ledger: Security Auditor (v3.6.3) gains `browser` tool; Capabilities sub-section added for
+  active browser-based probing of client-side OWASP vulnerabilities.
+
 ## v3.22.0 - Knowledge Accumulation System
 - Ledger: Synthesis persona (v3.x) gains Knowledge Collection phase via new shared partial.
 - Ledger: synthesis-knowledge-collection.md partial: 5-step protocol — gold-nugget
