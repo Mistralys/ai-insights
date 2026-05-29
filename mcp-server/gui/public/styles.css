@@ -2392,6 +2392,154 @@ th[data-sort="total_work_packages"] {
 .orchestrator-kill-btn  { /* no extra rules */ }
 .orchestrator-dismiss-btn { /* no extra rules — inherits .orch-queue-action-btn */ }
 
+/* ============================================================
+   Knowledge Page
+   ============================================================ */
+
+/* ── Tab navigation ──────────────────────────────────────── */
+
+/* Flex container with a bottom border that acts as the tab underline track */
+.knowledge-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+/* Individual tab button — resets <button> defaults, adds transparent bottom border
+   that is promoted to --color-ready on hover/active to sit on top of the track */
+.knowledge-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px; /* overlap the track so the active border hides it */
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.knowledge-tab:hover {
+  color: var(--color-text);
+  border-bottom-color: var(--color-border);
+}
+
+/* Active tab — uses --color-ready for both text and border (AC: tab active state) */
+.knowledge-tab.active {
+  color: var(--color-ready);
+  border-bottom-color: var(--color-ready);
+  font-weight: 600;
+}
+
+/* ── Scope badges ────────────────────────────────────────── */
+
+/* Global scope — blue tones (AC: distinct colours per scope) */
+.badge-scope-global {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+/* Project scope — green tones (AC: distinct colours per scope) */
+.badge-scope-project {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* ── Category pill ───────────────────────────────────────── */
+
+.category-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+/* ── Tag chip ────────────────────────────────────────────── */
+
+.tag-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  background: #f3e8ff;
+  color: #7c3aed;
+  border: 1px solid #e9d5ff;
+  white-space: nowrap;
+}
+
+/* ── Confidence label ────────────────────────────────────── */
+
+.confidence-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ── Knowledge card action row ───────────────────────────── */
+
+/* Flex container for the row of action buttons inside a knowledge card */
+.knowledge-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+/* ── Move-to-project inline input ────────────────────────── */
+
+/* Inline flex container that groups the project-slug text input and
+   its confirm button into a single visual unit */
+.knowledge-move-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+/* ── Dark mode overrides ─────────────────────────────────── */
+
+/* Scope badge dark overrides (AC: dark mode for colour-dependent classes) */
+[data-theme="dark"] .badge-scope-global {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+
+[data-theme="dark"] .badge-scope-project {
+  background: #14532d;
+  color: #86efac;
+}
+
+/* Category pill dark override */
+[data-theme="dark"] .category-pill {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+/* Tag chip dark override */
+[data-theme="dark"] .tag-chip {
+  background: #3b0764;
+  color: #d8b4fe;
+  border-color: #7e22ce;
+}
+
+/* Move-to-project input dark override */
+[data-theme="dark"] .knowledge-move-input .form-control {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
 /* Log preview entries (appended by OrchestratorWidgets.renderLogPreview) */
 .log-preview-entry {
   padding: 1px 0;

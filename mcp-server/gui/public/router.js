@@ -70,6 +70,7 @@ var Router = (function () {
       return;
     }
 
+    /* ── Named singleton routes ──────────────────────────────── */
     if (path === '/config') {
       renderConfig(app);
       return;
@@ -77,6 +78,11 @@ var Router = (function () {
 
     if (path === '/insights') {
       renderInsights(app);
+      return;
+    }
+
+    if (path === '/knowledge') {
+      renderKnowledge(app);
       return;
     }
 
