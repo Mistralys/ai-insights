@@ -611,6 +611,256 @@ Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()
 
 ---
 
+## GUI API — Knowledge Endpoints
+
+These handler functions are exported from `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003) and called by the HTTP server in `gui/server.ts`. They sit between the HTTP request and the `KnowledgeStoreManager` storage layer.
+
+> **Route wiring note:** All knowledge handlers (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`) are implemented in `gui/api-knowledge.ts`, tested, and registered as HTTP routes in `server.ts`, which imports them from `./api-knowledge.js`.
+
+> **`handlePromoteKnowledge` / `handleMoveKnowledge` wiring:** Both handlers delegate to the atomic `KnowledgeStoreManager.moveInsight()` method (introduced in WP-002). The old add→delete compose logic is fully removed. The returned insight has a **different numeric ID** (assigned by the target store's `next_id` counter) — the original ID is no longer valid after a promote or move.
+
+### HTTP Route Table
+
+The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch tier:
+
+**Tier 1 — body-free routes (dispatched via `matchRoute()`)**
+
+| Method | Path | Query Parameters | Return Shape | Error Codes |
+|--------|------|-----------------|--------------|-------------|
+| `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `project_slug`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid scope — silently ignored, no error) |
+| `DELETE` | `/api/knowledge/:id` | `scope` (required), `project_slug` (required when `scope=project`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing project_slug), 404 (insight not found) |
+| `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"project"`), `project_slug` (required when `scope=project`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"project"`; missing project_slug), 404 (insight not found) |
+
+**Tier 2 — body-parsing routes (handled as special cases in `handleRequest()`)**
+
+| Method | Path | Request Body | Return Shape | Error Codes |
+|--------|------|-------------|--------------|-------------|
+| `PATCH` | `/api/knowledge/:id` | `KnowledgeUpdateBodySchema` — `scope` (required), `project_slug`?, `title`?, `content`?, `category`?, `tags`?, `source`?, `confidence`?, `superseded_by`? | HTTP 200 `{ data: Insight }` (updated insight) | 400 (non-integer/zero/float id; unknown body fields; type mismatches; missing scope), 404 (insight not found), 413 (body > 1 MiB) |
+| `POST` | `/api/knowledge/:id/move` | `KnowledgeMoveBodySchema` — `source_scope` (required), `source_project_slug`? (required when `source_scope=project`), `project_slug` (required, destination) | HTTP 200 `{ data: Insight }` (new target insight — ⚠ new ID) | 400 (non-integer/zero/float id; invalid body; missing source_project_slug; source === destination), 404 (insight not found), 413 (body > 1 MiB) |
+
+**Notes:**
+- `:id` must be a positive integer. Float strings (`"1.5"`), zero (`"0"`), and non-numeric strings are rejected with HTTP 400.
+- Body-parsing routes enforce a 1 MiB body size limit (`MAX_BODY_BYTES`). Exceeding it returns HTTP 413.
+- All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }` shape.
+- CORS is locked to `http://localhost:{port}` (same port as the server).
+- `GET /api/knowledge` validates `scope` via `InsightScope.safeParse()` — unrecognised values are silently ignored (no filter applied, no error returned).
+- **Search with tag-filter and pagination:** When `query` is supplied, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single `GET /api/knowledge` call.
+
+### `KnowledgeUpdateBodySchema`
+
+```typescript
+// Exported Zod schema for PATCH /api/knowledge/:id request bodies.
+// `.strict()` rejects unknown keys — prevents callers from setting immutable fields (id, created_at, …).
+// `superseded_by` accepts null to support field-clearing semantics; the handler maps null → undefined
+// before forwarding to KnowledgeStoreManager.updateInsight().
+export const KnowledgeUpdateBodySchema: z.ZodObject<{
+  scope: typeof InsightScope;                              // Required: 'global' | 'project'
+  project_slug?: z.ZodOptional<z.ZodString>;              // Required when scope === 'project'
+  title?: z.ZodOptional<z.ZodString>;
+  content?: z.ZodOptional<z.ZodString>;
+  category?: z.ZodOptional<z.ZodString>;
+  tags?: z.ZodOptional<z.ZodArray<z.ZodString>>;
+  source?: z.ZodOptional<z.ZodString>;
+  confidence?: z.ZodOptional<z.ZodNumber>;                // 0–1 float
+  superseded_by?: z.ZodOptional<z.ZodNullable<z.ZodNumber>>; // null clears the field; undefined omits it
+}>;
+```
+
+### `handleListKnowledge()`
+
+```typescript
+// GET /api/knowledge
+// Lists (or searches) knowledge insights.
+// When `query` is present, delegates to KnowledgeStoreManager.searchInsights().
+// Otherwise calls KnowledgeStoreManager.listInsights() with scope/category/tags filters.
+// `scope` is validated via InsightScope.safeParse() — unrecognised values fall back to undefined (no filter).
+// `tags` is a comma-separated string split on ','.
+// `limit` and `offset` are coerced to non-negative integers; invalid values default to undefined/0.
+//
+// When `query` is present, `tags`, `limit`, and `offset` are forwarded to searchInsights(),
+// enabling full-text search combined with tag filtering (AND semantics) and pagination in a
+// single call. Tag filtering is applied after the substring match; offset/limit pagination is
+// applied after tag filtering.
+export async function handleListKnowledge(
+  ledgerRoot: string,
+  params?: KnowledgeListParams
+): Promise<Insight[]>
+
+export interface KnowledgeListParams {
+  scope?: string;
+  category?: string;
+  tags?: string;          // Comma-separated tag list
+  project_slug?: string;
+  query?: string;         // Full-text search; delegates to searchInsights() when present
+  limit?: number | string;
+  offset?: number | string;
+}
+```
+
+### `handleUpdateKnowledge()`
+
+```typescript
+// PATCH /api/knowledge/:id
+// Updates an existing insight identified by its numeric ID.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings (e.g. "0", "1.5", "2.0" all rejected)
+//   - body validated via KnowledgeUpdateBodySchema.safeParse() — throws VALIDATION_ERROR
+//     for unknown fields or type mismatches (.strict() enforced)
+//
+// `superseded_by: null` in the body is mapped to `undefined` before the updateInsight() call,
+// causing the storage layer to remove the field from the stored insight.
+//
+// Scope disambiguation: `scope` and `project_slug` from the body are passed as the filter
+// parameter to KnowledgeStoreManager.updateInsight() — restricts the search to the correct
+// store and prevents accidental cross-scope updates when the same numeric id exists in
+// multiple stores.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, unknown body fields, type mismatches
+//   NOT_FOUND        — no insight with the given id in the specified scope
+//
+// @param ledgerRoot  Absolute path to the central ledger root.
+// @param rawId       Raw id string from the URL parameter (e.g. "42").
+// @param body        Parsed request body (any shape — validated here).
+// @returns The updated Insight.
+export async function handleUpdateKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  body: unknown
+): Promise<Insight>
+```
+
+### `handleDeleteKnowledge()`
+
+```typescript
+// DELETE /api/knowledge/:id
+// Deletes an existing insight identified by its numeric ID.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings. ID validation runs BEFORE scope validation;
+//     when both are invalid the caller receives a VALIDATION_ERROR for the id.
+//   - scope (query parameter) required; validated via InsightScope.safeParse() —
+//     throws VALIDATION_ERROR when absent or not 'global' | 'project'
+//   - project_slug (query parameter) required when scope === 'project';
+//     throws VALIDATION_ERROR when absent
+//
+// Scope disambiguation: `scope` and `project_slug` are passed as the filter to
+// KnowledgeStoreManager.deleteInsight(), restricting deletion to the correct store.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing project_slug
+//   NOT_FOUND        — no insight with the given id in the specified scope
+//
+// @param ledgerRoot   Absolute path to the central ledger root.
+// @param rawId        Raw id string from the URL parameter (e.g. "42").
+// @param scope        Required scope query parameter ('global' or 'project').
+// @param project_slug Required when scope is 'project'.
+// @returns null — consistent with other DELETE handlers.
+export async function handleDeleteKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  scope: string | undefined,
+  project_slug?: string
+): Promise<null>
+```
+
+### `handlePromoteKnowledge()`
+
+```typescript
+// POST /api/knowledge/:id/promote
+// Promotes a project-scoped insight to global scope.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - scope (query parameter) required; must be "project". Passing scope="global" throws
+//     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
+//   - project_slug (query parameter) required when scope is "project"; throws VALIDATION_ERROR
+//     when absent.
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+// — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
+// The old add→delete two-step compose is fully removed.
+//
+// The returned insight is the newly created global copy — it has a different numeric ID
+// (assigned by the global store's next_id counter).
+//
+// ⚠ ID-change semantics: the returned insight's `id` is NOT the same as the pre-promote
+// project-scoped insight's `id`. The global store assigns a new `next_id`-based ID.
+// Frontend consumers that need to track which insight was promoted must capture the
+// original ID before calling promote and match by pre-promote ID — not by the new ID
+// returned in the response.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing project_slug
+//   NOT_FOUND        — no insight with the given id in the specified project scope
+export async function handlePromoteKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  scope: string | undefined,
+  project_slug?: string
+): Promise<Insight>
+```
+
+### `KnowledgeMoveBodySchema`
+
+```typescript
+// Exported Zod schema for POST /api/knowledge/:id/move request bodies.
+// `.strict()` rejects unknown keys.
+//
+// source_project_slug is .optional() at the Zod layer — the conditional-required
+// constraint (required when source_scope is "project") is enforced in handler logic,
+// not in the schema. This matches the pattern used for project_slug in other handlers.
+export const KnowledgeMoveBodySchema: z.ZodObject<{
+  source_scope: typeof InsightScope;               // Required: 'global' | 'project'
+  source_project_slug?: z.ZodOptional<z.ZodString>; // Optional in schema; required by handler when source_scope === 'project'
+  project_slug: z.ZodString;                       // Required: destination project slug
+}>;
+```
+
+### `handleMoveKnowledge()`
+
+```typescript
+// POST /api/knowledge/:id/move
+// Moves an insight from one scope/project to a different project.
+//
+// Supports two move variants:
+//   - global → project: moves a global insight into a named project store
+//   - project → project: moves a project insight to a different project
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - body validated via KnowledgeMoveBodySchema.safeParse().
+//   - source_project_slug is required when source_scope is "project" (handler-enforced;
+//     the field is optional in the Zod schema — see KnowledgeMoveBodySchema).
+//   - Source and destination must differ: if source_scope is "project" and
+//     source_project_slug === project_slug, throws VALIDATION_ERROR.
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+// — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
+// The old non-atomic add→delete two-step compose is fully removed; no intermediate state
+// is observable.
+//
+// The returned insight is the newly created copy in the target project — it has a different
+// numeric ID (assigned by the target store's next_id counter).
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, invalid body, source_project_slug absent when required,
+//                      source and destination identical
+//   NOT_FOUND        — no insight with the given id in the specified source scope
+export async function handleMoveKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  body: unknown
+): Promise<Insight>
+```
+
+---
+
 ## Storage API
 
 ### `SlugConflictError`
@@ -840,9 +1090,10 @@ Manages the `.knowledge/` directory under `ledgerRoot`. Provides full CRUD for i
 ```
 
 **Locking strategy:**
-- All read-modify-write sequences (`addInsight`, `updateInsight`, `deleteInsight`) acquire a single lock on `knowledgeDir()` for the entire operation.
+- All read-modify-write sequences (`addInsight`, `updateInsight`, `deleteInsight`, `moveInsight`) acquire a single lock on `knowledgeDir()` for the entire operation.
 - All writes use `atomicWriteJson()` — write-to-temp-then-rename.
 - Pure reads (`readGlobalStore`, `readProjectStore`, `searchInsights`, `listInsights`) do not acquire a lock, consistent with the `LedgerStore` pattern.
+- `moveInsight` is a cross-store read-modify-write: it reads both the source and target stores, writes the target (with the new insight), then writes the source (with the original removed) — all within the same lock span. Do NOT call it from inside another `withLock(knowledgeDir, …)` callback.
 
 ```typescript
 class KnowledgeStoreManager {
@@ -907,9 +1158,18 @@ class KnowledgeStoreManager {
   // Searches insights for the query string (case-insensitive substring match
   // against title, content, and every entry in tags).
   // Store selection is governed by filters — see store-selection rules table below.
+  // After text match, optionally narrows by tags (AND intersection), then applies
+  // offset/limit pagination — in that order.
   searchInsights(
     query: string,
-    filters?: { scope?: InsightScope; project_slug?: string; category?: string }
+    filters?: {
+      scope?: InsightScope;
+      project_slug?: string;
+      category?: string;
+      tags?: string[];    // AND semantics — all listed tags must be present on the insight
+      limit?: number;
+      offset?: number;    // default: 0
+    }
   ): Promise<Insight[]>;
 
   // Lists insights with optional filters and pagination.
@@ -939,6 +1199,30 @@ class KnowledgeStoreManager {
       'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'
     >>,
     filter?: { scope?: InsightScope; project_slug?: string }
+  ): Promise<Insight>;
+
+  // Moves an insight from one store to another in a single atomic lock span,
+  // eliminating the TOCTOU window of the previous add→delete two-step pattern.
+  //
+  // Steps (all inside one withLock(knowledgeDir) span):
+  //   1. Resolve source store path(s) from sourceFilter.
+  //   2. Find insight by id in source store — throws if not found.
+  //   3. Construct moved insight: new id (from target store's next_id), corrected
+  //      scope/project_slug, and a fresh updated_at timestamp (captured once via now()).
+  //   4. Validate with InsightSchema.parse(…).
+  //   5. Write updated target store via atomicWriteJson.
+  //   6. Splice source and write updated source store via atomicWriteJson.
+  //
+  // Returns the moved Insight with new id, corrected scope/project_slug, and updated_at.
+  //
+  // @throws Error if the insight is not found in the source store(s)
+  // @throws Error if targetScope === 'project' and targetProjectSlug is absent
+  // @warning Do NOT call from inside a withLock(knowledgeDir, …) callback — will deadlock.
+  moveInsight(
+    id: number,
+    sourceFilter: { scope: InsightScope; project_slug?: string },
+    targetScope: InsightScope,
+    targetProjectSlug?: string
   ): Promise<Insight>;
 
   // Deletes an insight by numeric id.
@@ -3142,6 +3426,182 @@ export async function handleOrchestratorDismiss(
   logsDir: string,
   ledgerRoot: string,
 ): Promise<void>;
+
+// ---------------------------------------------------------------------------
+// Knowledge API — WP-001 foundations (CRUD + list/search); WP-005 added promote + move
+// Route registration in server.ts is deferred to WP-002.
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for the PATCH /api/knowledge/:id request body (exported module-level constant).
+ *
+ * `scope` is required; all other mutable Insight fields are optional.
+ * `.strict()` rejects unknown keys, preventing callers from sending immutable
+ * fields (id, created_at, …).
+ *
+ * Fields:
+ *   scope:         'global' | 'project'  — REQUIRED
+ *   project_slug?:  string matching PROJECT_SLUG_REGEX
+ *   title?:         string
+ *   content?:       string
+ *   category?:      string
+ *   tags?:          string[]
+ *   source?:        string
+ *   confidence?:    number (0–1)
+ *   superseded_by?: number (integer)
+ */
+export const KnowledgeUpdateBodySchema: z.ZodObject<...>;
+
+/** Raw query parameters accepted by GET /api/knowledge. */
+export interface KnowledgeListParams {
+  scope?: string;          // 'global' | 'project'; unrecognised values silently treated as no filter
+  category?: string;
+  /** Comma-separated list of tags; split on ',' with whitespace trimming. */
+  tags?: string;
+  project_slug?: string;
+  /** Full-text search query — when present, delegates to searchInsights instead of listInsights. */
+  query?: string;
+  limit?: number | string;   // coerced to positive integer; invalid/missing → undefined (no limit)
+  offset?: number | string;  // coerced to non-negative integer; invalid/missing → 0
+}
+
+// GET /api/knowledge
+// Lists or searches knowledge insights stored in the ledger's `.knowledge/` directory.
+//
+// Routing logic:
+//   - When `query` is present and non-empty: delegates to KnowledgeStoreManager.searchInsights().
+//   - Otherwise: delegates to KnowledgeStoreManager.listInsights() with scope/category/tags filters.
+//
+// Parameter handling:
+//   - `scope` is validated via InsightScope.safeParse(); unrecognised values fall back to undefined
+//     (no scope filter) rather than causing an error — tolerant API design.
+//   - `tags` is a comma-separated string split before being forwarded (e.g. "node,backend" → ["node","backend"]).
+//     Whitespace around commas is trimmed; empty segments are dropped.
+//   - `limit` and `offset` are coerced to integers; invalid or missing values are silently ignored.
+//
+// Query-mode behaviour:
+//   When `query` is present, `tags`, `limit`, and `offset` ARE forwarded to searchInsights().
+//   Full-text search (substring match), tag filtering (AND semantics), and pagination can be
+//   combined in a single call. Filter application order inside searchInsights():
+//     1. Substring match against title, content, and tags
+//     2. Tag intersection filter (if tags provided)
+//     3. offset/limit pagination slice
+//
+// Returns: Insight[] (empty array when no insights exist or no matches are found)
+export async function handleListKnowledge(
+  ledgerRoot: string,
+  params?: KnowledgeListParams
+): Promise<Insight[]>;
+
+// POST /api/knowledge/:id/promote
+// Promotes a project-scoped insight to global scope using the atomic moveInsight() method.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - scope (query parameter) required; must be "project". Passing scope="global" throws
+//     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
+//   - project_slug (query parameter) required when scope is "project"; throws VALIDATION_ERROR
+//     when absent.
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+// — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
+// add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
+//
+// The returned insight is the newly created global copy — it has a different numeric ID
+// (assigned by the global store's next_id counter). The original project-scoped insight
+// is atomically removed by the same moveInsight() call.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing project_slug
+//   NOT_FOUND        — no insight with the given id in the specified project scope
+//
+// @param ledgerRoot   Absolute path to the central ledger root.
+// @param rawId        Raw id string from the URL parameter (e.g. "42").
+// @param scope        Source scope query parameter — must be "project".
+// @param project_slug Required when scope is "project".
+// @returns The newly created global Insight.
+export async function handlePromoteKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  scope: string | undefined,
+  project_slug?: string
+): Promise<Insight>;
+
+/**
+ * Zod schema for the POST /api/knowledge/:id/move request body.
+ *
+ * Fields validated by the Zod schema (format/type constraints):
+ *   source_scope:         'global' | 'project'  — REQUIRED
+ *   source_project_slug?: string matching PROJECT_SLUG_REGEX  — OPTIONAL in schema;
+ *                         the conditional-required rule (required when source_scope is "project")
+ *                         is enforced in handler logic, not here.
+ *   project_slug:         string matching PROJECT_SLUG_REGEX  — REQUIRED (destination)
+ *
+ * Note: `source_project_slug` is `.optional()` at the Zod layer so the schema can parse a body
+ * that omits it. The handler validates the scope+slug combination and throws VALIDATION_ERROR if
+ * the conditional constraint is violated. `.strict()` rejects unknown keys.
+ */
+export const KnowledgeMoveBodySchema: z.ZodObject<{
+  source_scope: typeof InsightScope;
+  source_project_slug: z.ZodOptional<z.ZodString>;  // optional in schema; conditional-required in handler
+  project_slug: z.ZodString;
+}>;
+
+// POST /api/knowledge/:id/move
+// Moves an insight from one scope/project to a different project using the atomic moveInsight() method.
+//
+// Supports two move variants:
+//   - global → project: moves a global insight into a named project store
+//   - project → project: moves a project insight to a different project
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - body validated via KnowledgeMoveBodySchema.safeParse() — throws VALIDATION_ERROR for
+//     unknown fields or type mismatches.
+//   - source_project_slug is required when source_scope is "project" (handler-enforced conditional
+//     constraint; not enforced by the Zod schema itself where the field is optional).
+//   - Source and destination must differ: if source_scope is "project" and source_project_slug
+//     equals project_slug, throws VALIDATION_ERROR ("Source and destination project are identical").
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+// — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
+// add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
+//
+// The returned insight is the newly created copy — it has a different numeric ID (assigned by the
+// target store's next_id counter). The original source insight is atomically removed.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, invalid body, source_project_slug absent when required,
+//                      source and destination identical
+//   NOT_FOUND        — no insight with the given id in the specified source scope
+//
+// @param ledgerRoot  Absolute path to the central ledger root.
+// @param rawId       Raw id string from the URL parameter (e.g. "42").
+// @param body        Parsed request body (any shape — validated here via KnowledgeMoveBodySchema).
+// @returns The newly created Insight in the target project store.
+export async function handleMoveKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  body: unknown
+): Promise<Insight>;
+
+// ---------------------------------------------------------------------------
+// Knowledge — exported helpers (gui/api-knowledge.ts)
+// ---------------------------------------------------------------------------
+//
+// parseKnowledgeId(raw: string): number
+//   Exported helper (WP-003). Parses a raw string as a positive integer insight ID.
+//   Rejects: non-numeric strings (NaN), floating-point strings (any '.' in raw string checked
+//   BEFORE numeric coercion — catches "2.0" which Number("2.0") === 2 would miss), zero, negatives.
+//   Throws: ApiError VALIDATION_ERROR for any rejected value.
+//   Note: The raw.includes('.') check runs before Number() coercion — this is intentional.
+//   Number("2.0") === 2 (an integer), so Number.isInteger alone is insufficient for float-string
+//   rejection.
+//
+// findInsightById — REMOVED (WP-003). This helper was a dead code artifact after promote and move
+//   handlers were wired to moveInsight(). It has been deleted from the codebase.
 ```
 
 **HTTP status code mapping** (implemented in `gui/server.ts`):
@@ -3248,11 +3708,11 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 | File | Purpose |
 |------|---------|
-| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
+| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/knowledge` Knowledge, `#/orchestrator` Orchestrator, `#/config` Config), `<div id="app">` mount point |
 | `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success/stale banners, comment cards, reset modal, action menu dropdown |
 | `api-client.js` | `API` object — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx) |
 | `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
-| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch |
+| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/insights`, `/knowledge`, `/orchestrator` |
 | `utils.js` | Shared utilities: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()` |
 | `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
 | `views/project-list.js` | `renderProjectList(app)` — project list table with filter, search, pagination, and action menu |
@@ -3260,6 +3720,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
+| `views/knowledge.js` | `renderKnowledge(app)` — Knowledge page; tab navigation between Global and Repository scopes; client-side filtering; card-level edit/delete/promote/move actions |
 | `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
@@ -3418,6 +3879,77 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 
 **`views/insights.js`:**
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
+
+**`views/knowledge.js`:**
+- **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a move-to-project inline input. Uses the CSS classes documented below.
+
+  **State variables** (closure-scoped, all reset on tab switch):
+
+  | Variable | Type | Description |
+  |----------|------|-------------|
+  | `allInsights` | `Insight[]` | Full unfiltered dataset returned by `API.getKnowledge` |
+  | `activeTab` | `'global' \| 'project'` | Currently selected tab |
+  | `filterCategory` | `string` | Active category filter value (empty = all) |
+  | `filterProject` | `string` | Active project-slug filter value (empty = all; Repository tab only) |
+  | `filterQuery` | `string` | Active free-text search query (matches title, content, tags) |
+  | `editingId` | `number \| null` | ID of the card currently showing the inline edit form |
+  | `confirmDeleteId` | `number \| null` | ID of the card showing the delete-confirm step |
+  | `movingId` | `number \| null` | ID of the card showing the Move to Project inline slug input |
+
+  > **Note:** `movingId` is not listed in the original WP-006 deliverables spec but is required by the Move to Project feature. It is properly reset alongside the other state variables on tab switch.
+
+  **`formatConfidence(value)`** — converts a raw `[0, 1]` confidence float to a human-readable string (e.g. `"80% (High)"`). Uses `Math.round(value * 100)` before comparing against bucket constants:
+
+  | Constant | Value | Bucket |
+  |----------|-------|--------|
+  | `CONFIDENCE_HIGH_MIN` | `68` | 68–100 → **High** |
+  | `CONFIDENCE_MEDIUM_MIN` | `34` | 34–67 → **Medium** |
+  | *(implicit)* | | 0–33 → **Low** |
+
+  > **Rounding boundary note:** Because `Math.round()` is applied before threshold comparison, values just below `0.68` (e.g. `0.6799`) round to `68%` and are labelled **High**. Similarly, `0.3349` rounds to `33%` (Low) while `0.3350` rounds to `34%` (Medium). This is intentional UX behaviour — the displayed percentage and bucket are always consistent — but maintainers adjusting thresholds should account for the `±0.005` float rounding window at each boundary.
+
+  **Error-handling convention:** The view uses `showError(app, ...)` for all API failure paths **except** the inline edit form's save failure. The edit form catch block intentionally uses an inline `msgEl.innerHTML` error message instead:
+  - **Why:** `showError(app, ...)` replaces the entire app container, which would discard the user's in-progress edit form and cause data loss on a transient save failure.
+  - **Which paths use `showError`:** load, delete, promote, move — all destructive or navigating actions where losing form state is acceptable.
+  - **Which path uses inline error:** edit form save only — the inline `.error-banner` is injected into `#kn-edit-msg-{id}` and the form remains visible so the user can retry or correct input.
+  - This design is documented in-code with an explanatory comment in the `.catch()` block.
+
+  **Client-side filtering** (`applyFilters()`) — runs entirely in-browser with no round-trip; filters by scope (tab), category, project slug (Repository tab only), and free-text query (case-insensitive match on title, content, and tags). Filtering is triggered on every tab switch, dropdown change, and search-input keystroke.
+
+  > **UX note:** `renderList()` rebuilds the filter bar DOM on every keystroke (to keep dropdown selections in sync), which causes the search `<input>` to lose focus after each character. This is a known UX trade-off acknowledged during implementation and code review. A minimal fix (refocus the input after rebuild) is earmarked for a future follow-up pass.
+
+  **No polling:** `renderKnowledge` does not call `Router._setPolling()`. Knowledge insights are human-curated and change infrequently; the page loads once and relies on user-initiated actions to refresh state.
+
+**`styles.css` — Knowledge Page classes** (added in WP-002; all live in the `/* Knowledge Page */` section):
+
+| Class | Role |
+|-------|------|
+| `.knowledge-tabs` | `display:flex` container with `border-bottom: 2px solid var(--color-border)` acting as the tab underline track; `margin-bottom: 20px` |
+| `.knowledge-tab` | Tab button; resets `<button>` defaults; uses a transparent `border-bottom: 2px` that is promoted to `var(--color-ready)` on `:hover` / `.active`; `margin-bottom: -2px` overlaps the track so the active border sits on top of it |
+| `.knowledge-tab.active` | Active tab state — `color: var(--color-ready)`, `border-bottom-color: var(--color-ready)`, `font-weight: 600` |
+| `.badge-scope-global` | Blue-toned scope badge extending `.badge`; light: `#dbeafe` bg / `#1d4ed8` text |
+| `.badge-scope-project` | Green-toned scope badge extending `.badge`; light: `#dcfce7` bg / `#15803d` text |
+| `.category-pill` | Small inline pill for category display; `border-radius: var(--radius-pill)`; uses `var(--color-bg)`, `var(--color-text-muted)`, `var(--color-border)` tokens |
+| `.tag-chip` | Small inline chip for tag display; purple tones: `#f3e8ff` bg / `#7c3aed` text / `#e9d5ff` border; `border-radius: var(--radius-pill)` |
+| `.confidence-label` | Muted italic label for confidence display; `font-size: 12px`, `color: var(--color-text-muted)`, `font-style: italic` |
+| `.knowledge-actions` | `display:flex` row for per-card action buttons; `gap: 8px`, `flex-wrap: wrap`, `margin-top: 12px` |
+| `.knowledge-move-input` | `display:inline-flex` container grouping a project-slug text input and its confirm button; `gap: 6px`, `flex-wrap: nowrap` |
+
+Dark mode overrides (grouped at the bottom of the `/* Knowledge Page */` section via `[data-theme="dark"]` selectors):
+
+| Selector | Override |
+|----------|----------|
+| `[data-theme="dark"] .badge-scope-global` | `#1e3a5f` bg / `#93c5fd` text |
+| `[data-theme="dark"] .badge-scope-project` | `#14532d` bg / `#86efac` text |
+| `[data-theme="dark"] .category-pill` | `var(--color-surface)` bg / `var(--color-text-muted)` text / `var(--color-border)` border |
+| `[data-theme="dark"] .tag-chip` | `#3b0764` bg / `#d8b4fe` text / `#7e22ce` border |
+| `[data-theme="dark"] .knowledge-move-input .form-control` | `var(--color-surface)` bg / `var(--color-text)` text / `var(--color-border)` border |
+
+> **Dark-mode placement convention:** The Knowledge Page section places all `[data-theme="dark"]` overrides in a single block at the **bottom** of the section (after all light-mode rules), rather than co-locating each override with its light-mode counterpart. This is the preferred convention for new CSS sections. Earlier sections in `styles.css` use inline co-location — both patterns are valid, but the bottom-grouped approach is preferred going forward for readability.
+
+> **Fragility note:** `.knowledge-move-input .form-control` targets the child `.form-control` element for its dark override (consistent with the `.filter-bar` pattern). If the markup changes to no longer use `.form-control` as a direct child, the dark override will silently stop applying.
+
+> Token-based classes (`.knowledge-tabs`, `.knowledge-tab`, `.confidence-label`, `.knowledge-actions`, `.knowledge-move-input`) adapt automatically via CSS custom properties — no explicit `[data-theme="dark"]` override is needed for them.
 
 **XSS protection:** `escapeHtml()` wraps every piece of user-supplied data interpolated into HTML strings (20+ call sites).
 

@@ -1408,3 +1408,186 @@ Return { ...insight, formatted_id: 'KN-NNNN' } to agent
   global-insights.json      — scope: 'global' insights
   {slug}-insights.json      — scope: 'project' insights for each project slug
 ```
+
+---
+
+## Flow O: GUI Knowledge Endpoints (HTTP)
+
+These five HTTP endpoints expose the knowledge store to the browser dashboard. All routes are registered in `gui/server.ts` and delegate to handler functions in `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003), which call `KnowledgeStoreManager` for storage operations.
+
+**Dispatch tier summary:**
+
+| Tier | Routes | Mechanism |
+|------|--------|-----------|
+| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `matchRoute()` — segment-count and method guards; params from query string |
+| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | `handleRequest()` special cases — regex path match, `readJsonBody`, 1 MiB body limit |
+
+---
+
+### O.1: GET /api/knowledge — List or Search Insights
+
+```
+Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&query=timeout&limit=20&offset=0
+  ↓
+gui/server.ts matchRoute()
+  method === 'GET', rest === ['knowledge']
+  → parse query string: scope, category, tags (comma-split), project_slug, query, limit, offset
+  ↓
+handleListKnowledge(ledgerRoot, params)
+  ↓
+  query present?
+    YES → KnowledgeStoreManager.searchInsights(query, { scope, category, project_slug, tags, limit, offset })
+          (substring match → tag intersection filter → offset/limit pagination — all in searchInsights())
+    NO  → KnowledgeStoreManager.listInsights({ scope, category, tags, project_slug, limit, offset })
+  ↓
+  Return Insight[] (each augmented with formatted_id)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight[] }
+```
+
+**Key notes:**
+- `scope` validated via `InsightScope.safeParse()` — unknown values fall back to `undefined` (no scope filter), no error.
+- `tags` is comma-separated: `"ts,vitest"` → `["ts", "vitest"]`.
+- `limit` and `offset` coerced to non-negative integers; invalid values default to `undefined`/`0`.
+- When `query` is present, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call.
+
+---
+
+### O.2: DELETE /api/knowledge/:id — Delete Insight
+
+```
+Browser → DELETE /api/knowledge/42?scope=project&project_slug=my-repo
+  ↓
+gui/server.ts matchRoute()
+  method === 'DELETE', rest === ['knowledge', '42']
+  → parse :id (decodeURIComponent, raw string)
+  → parse scope, project_slug from query string
+  ↓
+handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'project'
+  project_slug required when scope === 'project'  ← throws VALIDATION_ERROR if absent
+  ↓
+  KnowledgeStoreManager.deleteInsight(id, { scope, project_slug })
+    withLock(knowledgeDir())
+      readStore → find insight by id → splice → atomicWriteJson
+  ↓
+  Return null
+  ↓
+gui/server.ts → HTTP 204 No Content
+```
+
+**ID validation order:** ID is validated first; scope validation runs second. When both are invalid, the caller receives a VALIDATION_ERROR for the ID.
+
+---
+
+### O.3: POST /api/knowledge/:id/promote — Promote Project Insight to Global
+
+```
+Browser → POST /api/knowledge/42/promote?scope=project&project_slug=my-repo
+  ↓
+gui/server.ts matchRoute()
+  method === 'POST', rest === ['knowledge', '42', 'promote']
+  → parse :id (decodeURIComponent)
+  → parse scope, project_slug from query string
+  ↓
+handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  scope must be 'project'  ← scope='global' throws VALIDATION_ERROR ("already global")
+  project_slug required    ← throws VALIDATION_ERROR if absent
+  ↓
+  KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+    ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
+    → new insight assigned next_id from global store; new ID differs from original
+    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+  ↓
+  Return new global Insight (new numeric ID — NOT the original project-scoped ID)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**⚠ ID-change semantics:** The returned insight's `id` is the new global store ID, NOT the pre-promote project-scoped ID. Frontend consumers that track which insight was promoted must capture the original ID before calling this endpoint — see `handlePromoteKnowledge` in `api-surface.md`.
+
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — eliminating the TOCTOU race between the former separate add and delete calls. No intermediate state is observable.
+
+---
+
+### O.4: PATCH /api/knowledge/:id — Update Insight Fields
+
+```
+Browser → PATCH /api/knowledge/42
+  Body: { "scope": "project", "project_slug": "my-repo", "title": "Updated title", "tags": ["ts"] }
+  ↓
+gui/server.ts handleRequest() special case
+  knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path)
+  method === 'PATCH' && knowledgePatchMatch !== null
+  → rawId = decodeURIComponent(knowledgePatchMatch[1])
+  ↓
+  readJsonBody(req)  ← enforces MAX_BODY_BYTES (1 MiB) limit
+    PayloadTooLargeError → HTTP 413
+  ↓
+handleUpdateKnowledge(ledgerRoot, rawId, body)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  KnowledgeUpdateBodySchema.safeParse(body)
+    .strict() — unknown fields rejected
+    scope required; project_slug required when scope === 'project'
+    superseded_by: null is valid (field-clearing semantics)
+    → throws VALIDATION_ERROR on parse failure
+  ↓
+  superseded_by: null → mapped to undefined before forwarding
+  ↓
+  KnowledgeStoreManager.updateInsight(id, updates, { scope, project_slug })
+    withLock(knowledgeDir())
+      readStore → find insight by id → merge updates → sets updated_at → atomicWriteJson
+  ↓
+  Return updated Insight
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**Immutable fields:** `id`, `scope`, `project_slug`, `created_at` cannot be changed via PATCH — they are excluded from `KnowledgeUpdateBodySchema`.
+
+---
+
+### O.5: POST /api/knowledge/:id/move — Move Insight to Another Project
+
+```
+Browser → POST /api/knowledge/42/move
+  Body: { "source_scope": "global", "project_slug": "target-repo" }
+  ↓
+gui/server.ts handleRequest() special case
+  knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path)
+  method === 'POST' && knowledgeMoveMatch !== null
+  → rawId = decodeURIComponent(knowledgeMoveMatch[1])
+  ↓
+  readJsonBody(req)  ← enforces MAX_BODY_BYTES (1 MiB) limit
+    PayloadTooLargeError → HTTP 413
+  ↓
+handleMoveKnowledge(ledgerRoot, rawId, body)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  KnowledgeMoveBodySchema.safeParse(body)
+    .strict() — unknown fields rejected
+    source_scope required; source_project_slug required (handler-enforced) when source_scope === 'project'
+    project_slug required (destination)
+    source and destination must differ (source_scope='project' + source_project_slug === project_slug → VALIDATION_ERROR)
+    → throws VALIDATION_ERROR on parse failure
+  ↓
+  KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+    ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
+    → new insight assigned next_id from target store; new ID differs from original
+    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+  ↓
+  Return new target Insight (new numeric ID — NOT the original source ID)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**Supported move variants:**
+- `global → project`: moves a global insight into a named project store.
+- `project → project`: moves a project insight to a different project (`source_project_slug !== project_slug` enforced).
+
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.

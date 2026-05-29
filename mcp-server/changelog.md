@@ -1,31 +1,29 @@
 # Project Ledger MCP Server - Changelog
 
-## v1.32.0 - Knowledge Accumulation System
-- Storage: Added KnowledgeStoreManager with atomic read-modify-write and lock-free reads.
-- Storage: Per-scope store files — global-insights.json and {slug}-insights.json.
-- Storage: Single withLock(knowledgeDir()) scope for all write operations.
-- Schema: Added InsightSchema, KnowledgeStoreSchema, InsightScope enum, PROJECT_SLUG_REGEX.
-- Tools: Added ledger_add_insight — commit a reusable insight (global or project scope).
-- Tools: Added ledger_search_insights — case-insensitive substring search across all stores.
-- Tools: Added ledger_list_insights — paginated listing with scope/category/tags filters.
-- Tools: Added ledger_update_insight — amend existing insight; immutable fields enforced.
-- Tools: Insight IDs formatted as KN-NNNN in all responses.
-- Docs: api-surface.md updated with all 4 tool signatures and KnowledgeStoreManager API.
-- Docs: file-tree.md updated with knowledge-store.ts and knowledge.ts entries.
-- Docs: data-flows.md updated with Knowledge Accumulation flow (N.1 dedup, N.2 commit).
-- Docs: constraints.md updated with §73 — .knowledge/ lock scope and enumeration exclusion.
-
-## v1.31.0 - Repo-Namespaced Ledger Storage
-- Storage: LedgerStore storageDir now resolves to {ledgerRoot}/{repoName}/{slug}/.
-- Storage: deriveRepoName() infers repo namespace from plan path; returns 'unknown' on failure.
-- Storage: listAllProjects() now scans two directory levels (repo namespace → slug directory).
-- Storage: resolveProjectDir() — resolves a bare slug or {repo}/{slug} composite to storageDir.
-- Storage: Bare-slug resolution scans all repo namespaces; throws AMBIGUOUS on collision.
-- Storage: migrate-namespaced.ts — one-time idempotent startup migration to namespaced layout.
-- GUI: run-log-handlers.ts — handleListRunLogs and handleGetRunLog accept a repoName parameter.
-- GUI: server.ts — added /:repo/:slug/runs and /:repo/:slug/runs/:filename routes.
-- GUI: api.ts — all LedgerStore call sites migrated to resolveProjectStore() helper.
-- Tests: Added coverage for deriveRepoName, resolveProjectDir, migration, and API routes.
+## v1.31.0 - Knowledge Store, GUI, and Namespaced Storage
+- Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo slug collisions.
+- Storage: One-time idempotent migration to namespaced layout runs on startup.
+- Storage: `resolveProjectDir()` resolves bare slugs or `{repo}/{slug}` composites; throws `AMBIGUOUS` on collision.
+- Storage: `listAllProjects()` now scans two directory levels (repo namespace → slug directory).
+- Storage: Added `KnowledgeStoreManager` with per-scope store files and atomic read-modify-write via single lock.
+- Storage: `moveInsight()` performs promote/move atomically — eliminates the previous add→delete TOCTOU gap.
+- Storage: `searchInsights()` extended with `tags`, `limit`, and `offset`; combinable with full-text query.
+- Tools: Added `ledger_add_insight`, `ledger_search_insights`, `ledger_list_insights`, `ledger_update_insight`.
+- Tools: Insight IDs formatted as `KN-NNNN` in all tool responses.
+- GUI: Added Knowledge page (`#/knowledge`) with Global/Repository tabs and client-side category/text filtering.
+- GUI: Five knowledge REST endpoints wired: list, update, delete, promote, and move.
+- GUI: Extracted all knowledge handlers from `api.ts` into dedicated `gui/api-knowledge.ts`.
+- GUI: Fixed project name not resolving in breadcrumb navigation.
+- GUI: Fixed Dismiss button for dead orchestrator runs; unified button layout in runs list.
+- GUI: Fixed filter input losing focus on list refresh in Knowledge and project list pages.
+- GUI: Fixed backward-compat run-log route creating ghost directories under legacy flat path.
+- Scripts: Added `move-unknown-project` — migrates a project from the `unknown` namespace to its correct repo.
+- Scripts: Added `rename-repository` — renames a repository namespace across all ledger storage.
+- Security: Extracted inline theme-init script to `theme-init.js`; CSP `script-src` is now `'self'` only.
+- Security: `parseKnowledgeId()` validates IDs as positive integers; rejects floats, zero, non-numeric (HTTP 400).
+- Security: PATCH `/api/projects/` guard updated from `startsWith()` to regex for consistency.
+- Tests: 173 knowledge store tests, 30 handler tests, 40 routing tests, and CSP `script-src` assertion.
+- Docs: Updated `api-surface.md`, `constraints.md`, `file-tree.md`, and `data-flows.md`.
 
 ## v1.30.2 - Orchestrator GUI Polish
 - Queue: Extracted entry validation into a dedicated module for direct unit testing.
