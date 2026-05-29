@@ -39,10 +39,10 @@
     "number": 3,
     "id": "ledger-3-dev",
     "role": "Developer",
-    "version": "3.6.2",
+    "version": "3.6.3",
     "vscode": {
       "file_name": "3-dev.agent.md",
-      "agent_name": "3 - Developer v3.6.2"
+      "agent_name": "3 - Developer v3.6.3"
     },
     "claude_code": {
       "file_name": "3-developer.md",
@@ -57,10 +57,10 @@
     "number": 4,
     "id": "ledger-4-qa",
     "role": "QA",
-    "version": "3.6.1",
+    "version": "3.6.2",
     "vscode": {
       "file_name": "4-qa.agent.md",
-      "agent_name": "4 - QA v3.6.1"
+      "agent_name": "4 - QA v3.6.2"
     },
     "claude_code": {
       "file_name": "4-qa.md",
@@ -75,10 +75,10 @@
     "number": 5,
     "id": "ledger-5-security-auditor",
     "role": "Security Auditor",
-    "version": "3.6.2",
+    "version": "3.6.3",
     "vscode": {
       "file_name": "5-security-auditor.agent.md",
-      "agent_name": "5 - Security Auditor v3.6.2"
+      "agent_name": "5 - Security Auditor v3.6.3"
     },
     "claude_code": {
       "file_name": "5-security-auditor.md",
