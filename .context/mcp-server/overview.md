@@ -330,12 +330,20 @@ npx tsx gui/server.ts --port 4000 --ledger-dir /path/to/ledger
 - **Project-level timing** — the Project Detail page shows a "Duration" field (elapsed time since project creation) and an "Active time" field (aggregate of all pipeline durations across all WPs); computed server-side by `handleGetProject` reading all WP detail files in parallel
 - Browse all project comments across every project on the **Insights page** (`#/insights`) — filter by type, priority, or project; auto-refreshes every 15 seconds
 - **Orchestrator view** (`#/orchestrator`) — launch and monitor orchestrator runs from the GUI: enter an absolute path to a `plan.md`, click **Run Preflight** to validate environment readiness (renders a pass/fail checklist per check), then click **Start Run** (enabled only when all preflight checks pass) to launch a run; after a successful launch a confirmation banner is shown in the preflight results area — the banner is **automatically cleared** once the Run Queue renders with at least one entry (only the success banner is cleared; error banners are intentionally left intact); a live **Run Queue** table polls every 5 seconds and shows each entry's status badge, elapsed time, and progress summary; rows are expandable for an inline log preview; pending entries show a Kill button, dead entries show a Dismiss button, and started entries link to their project detail page; a **CLI Reference** card at the bottom lists the equivalent shell commands; the view is reachable from the top nav bar and via direct URL (`#/orchestrator`)
+- **Knowledge page** (`#/knowledge`) — browse and manage knowledge insights stored in the ledger's `.knowledge/` store; tab navigation switches between **Global** (cross-project insights) and **Repository** (per-project insights) scopes; all filtering is client-side (no round-trip on tab switch, category change, or search keystroke); scope badges (`.badge-scope-global` blue, `.badge-scope-project` green) identify the insight origin at a glance; category pills (`.category-pill`) and tag chips (`.tag-chip`, purple tones) surface insight metadata; **confidence labels** (`.confidence-label`) show `formatConfidence()` output — e.g. `80% (High)` — using named bucket constants (`CONFIDENCE_HIGH_MIN = 68`, `CONFIDENCE_MEDIUM_MIN = 34`); card action rows (`.knowledge-actions`) expose per-insight operations: **Edit** (inline form that preserves the edit state on save failure — see error-handling note below), **Delete** (inline confirmation step), **Promote to Global** (project-scoped cards only), and **Move to Project** (slug input via `.knowledge-move-input`); all new classes are fully dark-mode covered
+
+  > **Error-handling note:** The inline edit form displays save errors via an in-card `msgEl.innerHTML` message (rather than the global `showError(app, ...)`) to preserve the user's in-progress edits on transient API failures. All other failure paths (load, delete, promote, move) use `showError(app, ...)` as normal. See [`api-surface.md`](docs/agents/project-manifest/api-surface.md) → `views/knowledge.js` for full details including the `formatConfidence()` rounding boundary note and the complete state variable list.
 - Delete completed projects permanently
 - Toggle auto-handoff, adjust the max handoff depth, and toggle dialogue capture at runtime (no restart required)
-- **Dark mode** — theme toggle button (🌙 / ☀️) in the nav header persists the preference to `localStorage`; defaults to dark on first visit. FOUC-prevention inline script in `<head>` applies the saved theme before first paint
+- **Dark mode** — theme toggle button (🌙 / ☀️) in the nav header persists the preference to `localStorage`; defaults to dark on first visit. FOUC-prevention is handled by `gui/public/theme-init.js` — a plain ES5 IIFE loaded via `<script src="/theme-init.js?v=1">` in `<head>`, served as a static asset with no build step; the CSP header enforces `script-src 'self'` (no `'unsafe-inline'`) so inline scripts are blocked
 - **Stale-instance detection** — `stale-check.js` polls the `/api/server-info` endpoint every 30 seconds and inserts a persistent `stale-banner` at the top of the page when the GUI detects that on-disk component versions (MCP Server, Personas, Orchestrator) differ from the versions present at boot time; the banner names each changed component and prompts the user to relaunch; polling stops once the banner is shown; the module is idempotent (safe to call `StaleCheck.init()` multiple times)
 
 > The GUI server is a **separate process** from the MCP server. Both can run simultaneously and share the same ledger directory. The MCP server monitors `gui-config.json` for configuration changes via `fs.watch()` — changes take effect immediately without restarting.
+
+> **Cache-busting convention (`?v=N`):** Every static asset in `gui/public/` is loaded with a `?v=N` query parameter (e.g. `router.js?v=3`, `views/knowledge.js?v=1`). This forces browsers to re-fetch the asset when the version number is bumped. The convention is:
+> - **New file introduced for the first time** → starts at `?v=1`.
+> - **Existing file modified** → increment `N` by 1 (e.g. `?v=2` → `?v=3`).
+> - `index.html` references must be updated by hand whenever a static asset changes; there is no automated build step.
 
 ### GUI Backend Modules
 
@@ -469,6 +477,22 @@ The WP Detail view's **Dialogues card** was updated in WP-006 to prefer streamin
 4. The rendered Markdown is parsed with `marked.parse()` and injected into `.dialogue-content` as HTML. Error handling follows the same inline `.text-danger` pattern as the dialogue path.
 
 > **Backward compatibility:** Projects created before the streaming capture feature have no `orchestrator/chunks/` directory. The silent `catch(() => [])` on `getChunks` ensures these projects fall back cleanly to the existing Markdown dialogue display with no UI change.
+
+#### GUI Frontend — Knowledge API client methods (`api-client.js`)
+
+Five methods on the `API` object (in `api-client.js`) back the Knowledge page (`#/knowledge`). All five encode the insight `id` path segment via `encodeURIComponent` and follow the same `request()` helper pattern as every other API client method.
+
+- **`API.getKnowledge(params)`** — `GET /api/knowledge[?scope=…&project_slug=…&…]`. Returns a parsed JSON response listing or searching knowledge insights. Builds the query string via `buildQueryString`; falsy/empty param values are silently omitted — pass `undefined` to leave a filter unset rather than sending `?key=undefined` to the server.
+
+- **`API.updateKnowledge(id, scope, projectSlug, data)`** — `PATCH /api/knowledge/:id`. Merges `scope` and `project_slug` into the JSON body **after** the caller-supplied `data` object (`Object.assign({}, data, { scope, project_slug })`), so scope/slug always take precedence over same-named keys in `data`. A falsy `projectSlug` (empty string, `null`, `undefined`) is coerced to `undefined` and omitted from JSON serialisation.
+
+- **`API.deleteKnowledge(id, scope, projectSlug)`** — `DELETE /api/knowledge/:id?scope=…[&project_slug=…]`. Passes scope/slug as URL query parameters so the server can locate the correct store file. A falsy `projectSlug` is omitted from the query string by `buildQueryString`.
+
+- **`API.promoteKnowledge(id, scope, projectSlug)`** — `POST /api/knowledge/:id/promote?scope=…[&project_slug=…]`. **Sends no request body** — the server identifies the source insight via the query parameters alone. Returns the newly created global insight (which receives a new ID from the global store's `next_id` counter, different from the original project insight ID).
+
+- **`API.moveKnowledge(id, sourceScope, sourceProjectSlug, targetProjectSlug)`** — `POST /api/knowledge/:id/move`. Sends `source_scope`, `source_project_slug` (omitted when falsy — global-scope moves have no source project slug), and `project_slug` (the target; always required, never coerced) in the JSON body. Returns the newly created insight in the target project (with a new ID from the target store).
+
+**Coercion rule:** All four mutating methods (`updateKnowledge`, `deleteKnowledge`, `promoteKnowledge`, `moveKnowledge`) use `projectSlug || undefined` to drop falsy slugs. This is safe in practice because project slugs are always non-empty strings — the only exception is `moveKnowledge`'s `targetProjectSlug`, which is intentionally **not** coerced because a move always requires an explicit destination.
 
 ---
 

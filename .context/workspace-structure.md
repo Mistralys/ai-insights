@@ -12,7 +12,6 @@ _SOURCE: Top-level directory tree_
     ├── 2026-02-26-ui-agentic-techniques.md
     ├── 2026-03-01-future-without-libraries.md
     ├── 2026-04-08-subagents-manifest-key-design.md
-    ├── 2026-05-28-ce-framework-audit.md
     ├── documentation-audit.md
     ├── loading-mcp-tools-explained.md
     ├── prompt-clarity.md
@@ -27,12 +26,8 @@ _SOURCE: Top-level directory tree_
     │       ├── agent-name-map.md
     │       ├── parallelization.md
     │   └── references/
-    │       ├── ce-framework-extended.md
     │       ├── langgraph-deep-agents-subagent-handbook.md
     │   └── research/
-    │       └── 2026-05-05-qa-wait-cross-wp-dispatch.md
-    │       └── 2026-05-08-autonomous-plan-refinement.md
-    │       └── 2026-05-11-plan-auditor-split.md
     │       └── chat.json
     │       └── handoff-diagram.svg
 └── history/
@@ -62,6 +57,7 @@ _SOURCE: Top-level directory tree_
     │   ├── sort-arrow-sprite.png
     │   ├── sorter.js
     ├── gui/
+    │   ├── api-knowledge.ts
     │   ├── api.ts
     │   ├── chunk-renderer.ts
     │   ├── orchestrator-manager.ts
@@ -72,6 +68,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── router.js
     │   │   ├── stale-check.js
     │   │   ├── styles.css
+    │   │   ├── theme-init.js
     │   │   ├── theme.js
     │   │   ├── utils.js
     │   ├── server.ts
@@ -139,6 +136,7 @@ _SOURCE: Top-level directory tree_
     │   ├── gui-server.test.ts
     │   ├── gui/
     │   │   ├── api-client.test.ts
+    │   │   ├── api-knowledge.test.ts
     │   │   ├── api-orchestrator.test.ts
     │   │   ├── api-reset.test.ts
     │   │   ├── api-wp-overview.test.ts
@@ -149,6 +147,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── config.test.ts
     │   │   ├── dialogue-qa.test.ts
     │   │   ├── handoff-config-integration.test.ts
+    │   │   ├── knowledge-api.test.ts
     │   │   ├── log-resolver.test.ts
     │   │   ├── orchestrator-manager.test.ts
     │   │   ├── orchestrator-view.test.ts
@@ -161,6 +160,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── server-body-limit.test.ts
     │   │   ├── server-error-mapping.test.ts
     │   │   ├── server-info.test.ts
+    │   │   ├── server-knowledge-routes.test.ts
     │   │   ├── server-queue.test.ts
     │   │   ├── stale-check.test.ts
     │   ├── helpers/
@@ -396,6 +396,7 @@ _SOURCE: Top-level directory tree_
     │       ├── developer-standalone.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
+    │       ├── knowledge-archiver.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -421,6 +422,7 @@ _SOURCE: Top-level directory tree_
     │       ├── developer.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
+    │       ├── knowledge-archiver.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -446,6 +448,7 @@ _SOURCE: Top-level directory tree_
     │       └── developer-standalone.agent.md
     │       └── documentation-curator.agent.md
     │       └── git-committer.agent.md
+    │       └── knowledge-archiver.agent.md
     │       └── ledger-bootstrapper.agent.md
     │       └── ledger-claude-coordinator.agent.md
     │       └── ledger-dependency-sequencer.agent.md

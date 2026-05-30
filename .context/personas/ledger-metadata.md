@@ -104,8 +104,8 @@ vs_file_name: 3-dev.agent.md
 id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
-version: "3.6.2"
-last_updated: "2026-04-08"
+version: "3.6.3"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -114,6 +114,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*
@@ -154,8 +155,8 @@ vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
-version: "3.6.1"
-last_updated: "2026-04-08"
+version: "3.6.2"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -164,6 +165,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*
@@ -202,8 +204,8 @@ vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
-version: "3.6.2"
-last_updated: "2026-04-08"
+version: "3.6.3"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -212,6 +214,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*

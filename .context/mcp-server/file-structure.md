@@ -102,6 +102,7 @@ _SOURCE: Directory tree_
         │       └── state-machines.md
         │       └── walkthrough.md
     └── gui/
+        ├── api-knowledge.ts
         ├── api.ts
         ├── chunk-renderer.ts
         ├── orchestrator-manager.ts
@@ -116,11 +117,13 @@ _SOURCE: Directory tree_
         │   ├── router.js
         │   ├── stale-check.js
         │   ├── styles.css
+        │   ├── theme-init.js
         │   ├── theme.js
         │   ├── utils.js
         │   ├── views/
         │   │   └── config.js
         │   │   └── insights.js
+        │   │   └── knowledge.js
         │   │   └── orchestrator.js
         │   │   └── project-detail.js
         │   │   └── project-list.js
@@ -197,6 +200,7 @@ _SOURCE: Directory tree_
         ├── gui-server.test.ts
         ├── gui/
         │   ├── api-client.test.ts
+        │   ├── api-knowledge.test.ts
         │   ├── api-orchestrator.test.ts
         │   ├── api-reset.test.ts
         │   ├── api-wp-overview.test.ts
@@ -207,6 +211,7 @@ _SOURCE: Directory tree_
         │   ├── config.test.ts
         │   ├── dialogue-qa.test.ts
         │   ├── handoff-config-integration.test.ts
+        │   ├── knowledge-api.test.ts
         │   ├── log-resolver.test.ts
         │   ├── orchestrator-manager.test.ts
         │   ├── orchestrator-view.test.ts
@@ -225,6 +230,7 @@ _SOURCE: Directory tree_
         │   ├── server-body-limit.test.ts
         │   ├── server-error-mapping.test.ts
         │   ├── server-info.test.ts
+        │   ├── server-knowledge-routes.test.ts
         │   ├── server-queue.test.ts
         │   ├── stale-check.test.ts
         ├── helpers/
