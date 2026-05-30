@@ -9,7 +9,10 @@
     "test:scripts": "vitest run scripts/tests/"
   },
   "dependencies": {
-    "@mistralys/cli-menu": "^1.0.0"
+    "@mistralys/cli-menu": "^1.1.0"
+  },
+  "bin": {
+    "ai-insights": "./scripts/cli.js"
   },
   "devDependencies": {
 

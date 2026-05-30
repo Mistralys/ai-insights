@@ -27,16 +27,22 @@
 import path from 'path';
 import fs from 'fs';
 import { spawnSync } from 'child_process';
+import { HEALTH_CHECKS } from './lib/health-checks.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
 const WORKSPACE_ROOT   = path.resolve(import.meta.dirname, '..');
 const ORCHESTRATOR_DIR = path.join(WORKSPACE_ROOT, 'orchestrator');
-const MCP_SRC          = path.join(WORKSPACE_ROOT, 'mcp-server', 'src');
-const MCP_DIST_SENTINEL = path.join(WORKSPACE_ROOT, 'mcp-server', 'dist', 'index.js');
 const IS_WIN           = process.platform === 'win32';
 const VENV_DIR         = path.join(ORCHESTRATOR_DIR, '.venv');
 const ENV_FILE         = path.join(ORCHESTRATOR_DIR, '.env');
+
+const hcMcpDist      = HEALTH_CHECKS.find(c => c.id === 'mcp-dist');
+const hcMcpDistFresh = HEALTH_CHECKS.find(c => c.id === 'mcp-dist-fresh');
+const hcOrcVenv      = HEALTH_CHECKS.find(c => c.id === 'orchestrator-venv');
+if (!hcMcpDist)      throw new Error("Health check 'mcp-dist' not found in HEALTH_CHECKS — was its id renamed?");
+if (!hcMcpDistFresh) throw new Error("Health check 'mcp-dist-fresh' not found in HEALTH_CHECKS — was its id renamed?");
+if (!hcOrcVenv)      throw new Error("Health check 'orchestrator-venv' not found in HEALTH_CHECKS — was its id renamed?");
 
 function venvBin(name) {
   return IS_WIN
@@ -104,15 +110,17 @@ function parseEnvVars() {
 
 /** Check that the Python venv exists and contains the orchestrate binary. */
 function checkVenv() {
-  if (!fs.existsSync(VENV_DIR)) {
+  // Delegate basic venv-dir detection to shared registry
+  if (!hcOrcVenv.detect()) {
     return {
       name: 'venv',
       pass: false,
       detail: '.venv directory not found',
-      fix: 'node scripts/cli.js setup --components orchestrator',
+      fix: hcOrcVenv.fix,
     };
   }
 
+  // orchestrate binary check is preflight-specific
   const orchestrateBin = venvBin('orchestrate');
   if (!fs.existsSync(orchestrateBin)) {
     return {
@@ -151,38 +159,24 @@ function checkEnv() {
   return { name: 'env', pass: true, detail: 'API key configured' };
 }
 
-/** Check that MCP server dist is up to date. */
+/** Check that MCP server dist is built and up to date. */
 function checkMcpDist() {
-  if (!fs.existsSync(MCP_DIST_SENTINEL)) {
+  // Delegate detection to shared registry — no local mtime logic needed.
+  if (!hcMcpDist.detect()) {
     return {
       name: 'mcp-dist',
       pass: false,
       detail: 'mcp-server/dist/index.js not found',
-      fix: 'cd mcp-server && npm run build',
+      fix: hcMcpDist.fix,
     };
   }
 
-  const sentinelMtime = fs.statSync(MCP_DIST_SENTINEL).mtimeMs;
-
-  function latestMtime(dir) {
-    let latest = -Infinity;
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        latest = Math.max(latest, latestMtime(full));
-      } else if (entry.isFile()) {
-        latest = Math.max(latest, fs.statSync(full).mtimeMs);
-      }
-    }
-    return latest;
-  }
-
-  if (latestMtime(MCP_SRC) > sentinelMtime) {
+  if (!hcMcpDistFresh.detect()) {
     return {
       name: 'mcp-dist',
       pass: false,
       detail: 'mcp-server/dist is stale (source is newer)',
-      fix: 'cd mcp-server && npm run build',
+      fix: hcMcpDistFresh.fix,
     };
   }
 
