@@ -31,24 +31,38 @@ mcp-server/
 │   └── ledger/
 │       ├── .gitkeep             # Ensures directory is tracked in version control
 │       ├── gui-config.json      # Runtime-generated GUI config (auto_handoff_enabled, max_handoff_depth, ledger_root) — created on first GUI or MCP server start
-│       └── {slug}/              # Per-project subfolder — runtime-generated
-│           ├── .meta.json       # Project metadata (slug, status, timestamps)
-│           ├── .lock            # Lock file for concurrent-write protection
-│           ├── project-ledger.json  # Root index
-│           ├── WP-001.json      # Work package detail files
-│           ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
-│           └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── .migration-state.json  # Written after migration completes; contains { storage_version: 2 }; absent on first run
+│       ├── .migration-in-progress # Transient sentinel file written before any dir moves; removed on success (enables crash recovery)
+│       ├── ai-insights/         # Example repo-namespace dir — derived from project-root dirname via deriveRepoName()
+│       │   └── 2026-05-01-my-plan/  # Per-project subfolder — runtime-generated
+│       │       ├── .meta.json       # Project metadata (slug, status, timestamps)
+│       │       ├── .lock            # Lock file for concurrent-write protection
+│       │       ├── project-ledger.json  # Root index
+│       │       ├── WP-001.json      # Work package detail files
+│       │       ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
+│       │       └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── other-repo/          # Second repo-namespace dir (another repository on the same machine)
+│       │   └── {slug}/              # Each repo manages its own slug namespace independently
+│       │       └── …
+│       └── unknown/             # Fallback namespace — used when repo-root name fails slug validation
+│
+├── scripts/                     # Node.js utility scripts (run directly with `node`)
+│   ├── sync-version.js          # Syncs version from changelog.md → package.json
+│   ├── move-unknown-project.js  # Moves a project from the unknown/ namespace to its correct repo namespace; updates .meta.json; use when repository_name was not set at init time
+│   └── rename-repository.js     # Renames a repository namespace across all ledger storage; moves all project folders and updates each .meta.json to reflect the new repo name; use when a repository's root directory has been renamed (--from, --to, --ledger-dir, --dry-run flags)
 │
 ├── gui/                         # GUI server process code
-│   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers (WP-008): handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss
+│   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers: handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss; knowledge handlers are NOT in this file — they were extracted to gui/api-knowledge.ts (WP-003)
+│   ├── api-knowledge.ts     # GUI REST handlers for the /api/knowledge/* endpoints — extracted from gui/api.ts (WP-003); exports: KnowledgeUpdateBodySchema, KnowledgeMoveBodySchema, KnowledgeListParams interface, parseKnowledgeId helper, handleListKnowledge, handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge; handlePromoteKnowledge and handleMoveKnowledge delegate to KnowledgeStoreManager.moveInsight() (atomic, no add→delete compose); re-exports ApiError for convenience; when query param is present, handleListKnowledge forwards tags, limit, and offset to searchInsights() — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call
 │   ├── chunk-renderer.ts    # renderChunksToMarkdown(jsonlContent) — pure JSONL→Markdown renderer; merges AIMessageChunk token fragments by id; groups by namespace; mirrors serialize_messages_to_markdown() output format
-│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles segment-count-based dispatch (parameter-free routes and GET routes needing signature args), special-case blocks in handleRequest() handle routes needing body parsing (POST /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) or path-parameter extraction (PATCH /api/projects/:slug, POST /api/orchestrator/kill/:id, POST /api/orchestrator/dismiss/:id); serves static files from gui/public/
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles body-free routes (GET /api/knowledge, DELETE /api/knowledge/:id, POST /api/knowledge/:id/promote, plus all /:slug and /:repo/:slug GET routes); handleRequest() handles body-parsing routes (PATCH /api/knowledge/:id, POST /api/knowledge/:id/move, PUT /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) and path-parameter extraction routes; resolveRepoName() private helper reads .meta.json to resolve canonical repository_name from a /:repo/:slug URL pair; serves static files from gui/public/
 │   └── public/              # Static assets served by gui/server.ts
-│       ├── index.html       # Dashboard SPA shell; nav links: Projects (#/), Insights (#/insights), Orchestrator (#/orchestrator), Configuration (#/config); scripts load in dependency order: api-client → theme → router → utils → views → orchestrator-widgets → orchestrator.js → stale-check → app
+│       ├── index.html       # Dashboard SPA shell; nav links: Projects (#/), Insights (#/insights), Knowledge (#/knowledge), Orchestrator (#/orchestrator), Configuration (#/config); scripts load in dependency order: api-client → theme → router → utils → views → orchestrator-widgets → orchestrator.js → stale-check → app; loads theme-init.js in <head> for FOUC prevention (no inline scripts — CSP enforces script-src 'self')
+│       ├── theme-init.js    # ES5 IIFE; reads localStorage key mcp-theme and sets data-theme="dark" on documentElement before first paint; plain ES5 (var, IIFE) intentional — no build step required; CSP script-src 'self' means this must remain a static file, not an inline script
 │       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides; orchestrator widget block: .orchestrator-status-card/header/body/elapsed/pid/progress-summary (OrchestratorWidgets.renderStatusCard), .orchestrator-kill-btn/.orchestrator-dismiss-btn (OrchestratorWidgets.renderKillButton/renderDismissButton — visual delegated to .btn.btn-danger/.btn.btn-secondary), .log-preview-entry (OrchestratorWidgets.renderLogPreview), .orchestrator-cli-reference h4/pre (OrchestratorWidgets.renderCliReference), .orch-status-cell (orchestrator.js queue table), .orch-active-run-section/.orch-cli-kill-hint (views/project-detail.js orchestrator section), .section-title/.btn-icon (general utilities used by orchestrator views); dark-mode overrides for .orchestrator-status-card, .orchestrator-cli-reference, .log-preview-entry
 │       ├── api-client.js    # API IIFE; buildQueryString(params) helper used by getProjects
 │       ├── theme.js         # Theme IIFE; localStorage key mcp-theme; init() applies saved theme
-│       ├── router.js        # Router IIFE; hash-based routing; dispatches '/' → renderProjectList, '/projects/*' → detail/plan/synthesis/WP/run-log views, '/config' → renderConfig, '/insights' → renderInsights, '/orchestrator' → renderOrchestrator; setPolling/clearPolling manage per-view auto-refresh; updateNavActive toggles active class on the matching nav link on each hash change
+│       ├── router.js        # Router IIFE; hash-based routing; dispatches '/' → renderProjectList, '/projects/*' → detail/plan/synthesis/WP/run-log views (pattern-matched first), then named singleton routes: '/config' → renderConfig, '/insights' → renderInsights, '/knowledge' → renderKnowledge, '/orchestrator' → renderOrchestrator; setPolling/clearPolling manage per-view auto-refresh; updateNavActive toggles active class on the matching nav link on each hash change
 │       ├── utils.js         # Shared helpers: escapeHtml, formatDate, statusBadge, showLoading, showError
 │       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init(); StaleCheck.init()
 │       ├── stale-check.js   # StaleCheck IIFE; init() polls API.getServerInfo() immediately then every 30 s; injects .stale-banner into document.body before <header> on stale:true; stops polling after banner; silently continues on network errors
@@ -58,6 +72,7 @@ mcp-server/
 │   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
 │   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
 │   │   ├── insights.js        # renderInsights — project health stats; 15 s polling
+│   │   ├── knowledge.js       # renderKnowledge — Knowledge page (#/knowledge); tab navigation (Global/Repository scopes); client-side filtering by category, project slug, and free-text query; formatConfidence() helper with named bucket constants (0.0–0.3 low / 0.3–0.7 medium / 0.7–1.0 high); card-level Edit (inline form with in-card error display), Delete (inline confirmation), Promote to Global, and Move to Project actions; buildKnowledgeHtml() — renders insight cards with escapeHtml() on all dynamic values; no polling (knowledge is human-curated)
 │   │   └── orchestrator.js    # renderOrchestrator — plan path input, preflight checklist (Section A), Start Run button gated on allChecksPassed (Section B), live queue table with 5 s polling via Router._setPolling, per-row expand/collapse inline log preview; cleanup managed via _orchLogPreviewCleanups array; CLI reference card footer (WP-011); renderQueueTable delegates to four closure-scoped helpers: _clearSuccessBanner (removes success banner when queue is non-empty; leaves error banners intact), _buildQueueHtml (builds table HTML string), _bindQueueActions (injects Kill/Dismiss/View-Project buttons and toggle listeners), _mountLogPreviews (starts live log-preview widgets for expanded rows) (WP-006)
 │       ├── js/
 │   │   └── orchestrator-widgets.js  # OrchestratorWidgets IIFE — shared orchestrator UI components: kill/dismiss row buttons, formatLogAction (maps JSONL entry → human-friendly label; null/undefined-safe; WP-002), renderLogPreview (returns cleanup fn), renderCliReference; depends on API (api-client.js) and escapeHtml (utils.js) (WP-011)
@@ -85,6 +100,7 @@ mcp-server/
 │   │
 │   ├── schema/                  # Zod schemas and type definitions
 │   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json
+│   │   ├── knowledge.ts         # InsightScope, InsightSchema / Insight, KnowledgeStoreSchema / KnowledgeStore — Zod schemas for the knowledge accumulation system (WP-001)
 │   │   ├── project-meta.ts      # ProjectMetaSchema / ProjectMeta — per-project .meta.json
 │   │   ├── root-index.ts        # RootIndex schema
 │   │   ├── validators.ts        # Business rule validators
@@ -94,11 +110,14 @@ mcp-server/
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
 │   │   ├── file-lock.ts         # File locking with proper-lockfile
-│   │   └── ledger-store.ts      # Central storage abstraction
+│   │   ├── knowledge-store.ts   # KnowledgeStoreManager — all CRUD/query operations for the .knowledge/ store: addInsight, searchInsights, listInsights, updateInsight, deleteInsight, moveInsight; atomic cross-store move via single withLock(knowledgeDir()) span (WP-002); reads are lock-free (WP-001/002)
+│   │   ├── ledger-store.ts      # Central storage abstraction
+│   │   └── migrate-namespaced.ts  # One-shot startup migration: flat {slug}/ → namespaced {repoName}/{slug}/; exports migrateToNamespacedLayout()
 │   │
 │   ├── tools/                   # MCP tool implementations
 │   │   ├── help.ts              # ledger_help
-│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 20 MCP tools
+│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 30 MCP tools
+│   │   ├── knowledge.ts         # ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight — knowledge accumulation tools; formatInsightId() helper (KN-NNNN format) (WP-001/003)
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
@@ -115,7 +134,7 @@ mcp-server/
 │       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; loads AGENT_NAMES (TargetNames, NameMappingEntry) from personas/name-mapping.json
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
-│       ├── path-validator.ts    # Project path validation
+│       ├── path-validator.ts    # Project path validation; assertSafeSegment() slug-segment predicate
 │       ├── pipeline-maps.ts     # Shared routing constants and utility functions
 │       ├── project-reset.ts     # Semi-intelligent project reset
 │       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
@@ -126,6 +145,7 @@ mcp-server/
 │       └── wp-id.ts             # Work package ID formatting (WP-###)
 │
 └── tests/                       # Test suites
+    ├── gui-server.test.ts       # 10 tests for resolveRepoName() in gui/server.ts: 9 guard-failure cases (traversal, empty, uppercase, hyphens, separators for both repoUrlParam and slugUrlParam) + 1 positive case confirming the guard passes valid inputs
     ├── helpers/                 # Shared test utilities (NEVER write to production storage)
     │   ├── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
     │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline(), makeWorkPackageSummary()
@@ -143,7 +163,10 @@ mcp-server/
     │   ├── dialogue-qa.test.ts
     │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
     │   ├── log-resolver.test.ts
-    │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers (WP-008): planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
+    │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers: planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
+    │   ├── api-knowledge.test.ts  # Unit tests for gui/api-knowledge.ts handlers (WP-003); imports from ../../gui/api-knowledge.js; complements knowledge-api.test.ts
+    │   ├── knowledge-api.test.ts  # 30 unit tests for the 5 knowledge REST handlers (handleListKnowledge, handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge): imports handlers from ../../gui/api-knowledge.js (updated WP-003); real temp directories + KnowledgeStoreManager fixtures; covers scope disambiguation (global vs project), ID validation (parseKnowledgeId — non-integer, zero, float rejection), VALIDATION_ERROR/NOT_FOUND paths, and promote/move cross-store ID-change semantics
+    │   ├── server-knowledge-routes.test.ts  # 40 HTTP-level routing integration tests for the 5 knowledge endpoints in gui/server.ts: verifies body-free routes (GET, DELETE, POST /promote) are dispatched via matchRoute() and body-parsing routes (PATCH, POST /move) via handleRequest() special cases; covers AC-1 through AC-7 — oversized body (413), invalid JSON (400), missing/invalid scope (400), float/zero/non-numeric IDs (400), missing project_slug when scope=project (400), 404 for absent insights, route isolation (no interference with /api/insights, /api/projects)
     │   ├── orchestrator-manager.test.ts  # 77 tests: getQueue() lifecycle transitions (AC-1 through AC-6), formatProgressEntry() (11 event types), progress resolution (WP-005); killQueueEntry()/dismissQueueEntry() lifecycle gates, SIGTERM→SIGKILL flow, TOCTOU ESRCH handling, queue-file removal, lock-file cleanup; PID validation (negative/zero/float rejection) (WP-006); 7 lastAction/logFilename population cases (WP-003 AC-6)
     │   ├── orchestrator-widgets.test.ts  # 41 tests: OrchestratorWidgets functions, all 7 ACs + 7 refined variants; vm.runInThisContext + jsdom, fake timers for renderLogPreview (WP-010)
     │   ├── project-detail-runs.test.ts
@@ -169,8 +192,13 @@ mcp-server/
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
     ├── storage/                 # Storage layer tests
-    │   ├── ledger-store.test.ts # LedgerStore unit tests
-    │   └── project-meta.test.ts
+        ├── knowledge-store-exclusion.test.ts  # Tests that knowledge store paths are excluded from project storage operations
+        ├── knowledge-store.test.ts  # KnowledgeStoreManager unit tests
+        ├── ledger-store.test.ts # LedgerStore unit tests
+        ├── list-all-projects.test.ts  # Tests for ledger_list_all_projects scan across all repo namespaces
+        ├── migrate-namespaced.test.ts  # 10 tests: clean run, unknown fallbacks, idempotency, sentinel cleanup, move-failure, crash-resume
+        ├── project-meta.test.ts
+        └── slug-resolution.test.ts  # Tests for slug resolution across project namespaces
     │
     ├── tools/                   # Tool-level tests
     │   ├── begin-work.test.ts
@@ -179,6 +207,8 @@ mcp-server/
     │   ├── claim-guard.test.ts
     │   ├── complete-pipeline-guards.test.ts
     │   ├── enrichment-resilience.test.ts
+    │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool
+    │   ├── knowledge.test.ts        # Tests for ledger_add_insight, ledger_search_insights, ledger_update_insight tools
     │   ├── list-projects.test.ts
     │   ├── meta-enrichment.test.ts
     │   ├── observations.test.ts
@@ -199,10 +229,12 @@ mcp-server/
     │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
+        ├── derive-repo-name.test.ts
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
         ├── pipeline-maps.test.ts
+        ├── progress.test.ts
         ├── project-reset.test.ts
         ├── runner.test.ts       # 10 unit tests for classifyRunner() (WP-005 verification of WP-001 ACs): all four output variants (vscode, claude-code, orchestrator, unknown), undefined input without throw, empty-string name, unrecognized client name, case-insensitive substring matching (vscode keyword, Claude uppercase, langchain variants), and raw runner_client/runner_version value preservation
         ├── timestamp.test.ts
@@ -234,7 +266,7 @@ The workflow tools are split across four files: `workflow.ts` (thin aggregator),
 The following directories are not version-controlled:
 - node_modules/ — npm dependencies
 - dist/ — TypeScript compilation output
-- storage/ledger/{slug}/ — per-project ledger runtime data
+- storage/ledger/{repoName}/{slug}/ — per-project ledger runtime data (repo-namespaced since WP-002)
 
 
 ```

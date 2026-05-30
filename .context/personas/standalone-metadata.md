@@ -4,8 +4,8 @@
 YAML metadata for all standalone personas: shared defaults (_shared.yaml) and per-persona overrides - model slug, slugs, descriptions, and feature flags.
 </INSTRUCTION>
 ------------------------------------------------------------
-_SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)_
-# YAML metadata for all 16 standalone personas (shared defaults + per-persona overrides)
+_SOURCE: YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)_
+# YAML metadata for all 25 standalone personas (shared defaults + per-persona overrides)
 ```
 // Structure of documents
 └── personas/

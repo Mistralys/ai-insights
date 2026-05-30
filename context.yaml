@@ -23,19 +23,6 @@ documents:
           - README.md
         filePattern: "README.md"
 
-  - description: 'AI Insights - Agent Operating System'
-    outputPath: agents.md
-    sources:
-      - type: text
-        content: |
-          # AI Insights - Agent Operating System
-          Authoritative entry point for AI agents. Covers workspace architecture, manifest navigation, efficiency rules, failure protocol, cross-system dependencies, and changelog conventions.
-      - type: file
-        description: "Authoritative entry point for AI agents entering this workspace"
-        sourcePaths:
-          - .
-        filePattern: "AGENTS.md"
-
   - description: 'AI Insights - Workspace Structure'
     outputPath: workspace-structure.md
     sources:

@@ -93,12 +93,6 @@ _SOURCE: MCP server source directory tree_
         │   ├── validators.ts
         │   ├── work-package.ts
         │   ├── workflow-manifest-schema.ts
-        ├── storage/
-        │   ├── atomic-writer.ts
-        │   ├── file-lock.ts
-        │   ├── knowledge-store.ts
-        │   ├── ledger-store.ts
-        │   ├── migrate-namespaced.ts
         ├── tools/
         │   ├── begin-work.ts
         │   ├── help-content.ts
@@ -179,14 +173,6 @@ _SOURCE: MCP server source directory tree_
         │   ├── root-index.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
-        ├── storage/
-        │   ├── knowledge-store-exclusion.test.ts
-        │   ├── knowledge-store.test.ts
-        │   ├── ledger-store.test.ts
-        │   ├── list-all-projects.test.ts
-        │   ├── migrate-namespaced.test.ts
-        │   ├── project-meta.test.ts
-        │   ├── slug-resolution.test.ts
         ├── tools/
         │   ├── begin-work.test.ts
         │   ├── cancelled-status.test.ts

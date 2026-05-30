@@ -11,7 +11,7 @@ This is a **monorepo-style workspace** containing two distinct sub-projects and 
 | Sub-Project | Path | Language | Purpose |
 |-------------|------|----------|---------|
 | **Project Ledger MCP Server** | `mcp-server/` | TypeScript (ESM) | MCP server that provides typed tools for managing project ledgers in AI agent workflows |
-| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Template engine that assembles 9 ledger persona Markdown files from YAML/Markdown sources |
+| **Ledger Personas Build System** | `personas/` | JavaScript (CJS) | Persona build system that assembles ledger and standalone persona files across 3 output targets (vs-code, claude-code, deep-agents) from YAML/Markdown sources via `@mistralys/persona-builder` |
 | **Orchestrator** | `orchestrator/` | Python (3.11+) | LangGraph + Deep Agents headless pipeline executor — deterministic alternative to IDE-based agent workflows |
 
 The `scripts/` directory contains cross-project scripts that orchestrate persona deployment and role-parity checks.
@@ -175,21 +175,11 @@ The [CTX Generator](https://github.com/context-hub/generator) produces Markdown 
 | `.context/mcp-server/workflow-spec-state.md` | Workflow spec: overview, state machines, data model |
 | `.context/mcp-server/workflow-spec-operations.md` | Workflow spec: operations, routing, handoffs, walkthrough |
 | `.context/mcp-server/workflow-spec-edge-cases.md` | Workflow spec: edge cases, dependencies, auxiliary systems |
-| `.context/mcp-server/source-tools-project.md` | Tool source: project lifecycle |
-| `.context/mcp-server/source-tools-workpackage.md` | Tool source: work packages, begin-work, observations |
-| `.context/mcp-server/source-tools-pipeline.md` | Tool source: pipeline |
-| `.context/mcp-server/source-tools-workflow.md` | Tool source: workflow, handoffs, next-action |
-| `.context/mcp-server/source-tools-help.md` | Tool source: help content |
-| `.context/mcp-server/source-storage.md` | LedgerStore + schema source |
-| `.context/mcp-server/source-utils.md` | Utility module source |
 | `.context/mcp-server/tests.md` | Test suite directory tree |
 | `.context/mcp-server/file-structure.md` | MCP server directory tree |
 | `.context/orchestrator/overview.md` | Orchestrator README |
 | `.context/orchestrator/documentation.md` | Architecture, routing, log schema, public API docs |
 | `.context/orchestrator/manifest.md` | Orchestrator project manifest |
-| `.context/orchestrator/source-core.md` | Core modules (CLI, config, graph, state, supervisor) |
-| `.context/orchestrator/source-nodes.md` | Pipeline stage node factories |
-| `.context/orchestrator/source-utils.md` | Utility modules (tool wrappers, persona loader, etc.) |
 | `.context/orchestrator/tests.md` | Test suite directory tree |
 | `.context/orchestrator/file-structure.md` | Orchestrator directory tree |
 | `.context/personas/overview.md` | Personas README |
@@ -260,7 +250,7 @@ These are the critical synchronization points between sub-projects. Breaking any
 | Workflow logic (state machines, routing maps, handoff logic, edge cases) | `mcp-server/docs/agents/workflow-specification/` | `mcp-server/src/` (TypeScript implementation), `orchestrator/src/` (Python implementation), `mcp-server/tests/` (test assertions) |
 | `security-audit` pipeline → Security Auditor role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['security-audit']` | `personas/ledger/src/meta/5-security-auditor.yaml` → `role: Security Auditor`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
 | `release-engineering` pipeline → Release Engineer role | `mcp-server/src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP['release-engineering']` | `personas/ledger/src/meta/7-release-engineer.yaml` → `role: Release Engineer`; `mcp-server/src/utils/constants.ts` → `AGENT_ROLES` |
-| Storage layout version | `mcp-server/src/storage/migrate-namespaced.ts` → `STORAGE_VERSION` constant | `mcp-server/src/storage/ledger-store.ts` (`LedgerStore`) — reads/writes `{ledgerRoot}/{repoName}/{slug}/`; `mcp-server/gui/api.ts` — `handleListProjects`, `handleGetProject`, and related handlers; `mcp-server/gui/server.ts` — static-file serving for ledger artefacts; `mcp-server/src/tools/run-log-handlers.ts` — constructs run-log paths; `orchestrator/src/cli.py` — log-copy path (`plan_dir.parents[3].name or "unknown"` → `{repo_name}/{slug}/orchestrator/logs/`) |
+| Storage layout version | `mcp-server/src/storage/migrate-namespaced.ts` → `STORAGE_VERSION` constant | `mcp-server/src/storage/ledger-store.ts` (`LedgerStore`) — reads/writes `{ledgerRoot}/{repoName}/{slug}/`; `mcp-server/gui/api.ts` — `handleListProjects`, `handleGetProject`, and related handlers; `mcp-server/gui/server.ts` — static-file serving for ledger artefacts; `mcp-server/src/gui/handlers/run-log-handlers.ts` — constructs run-log paths; `orchestrator/src/cli.py` — log-copy path (`plan_dir.parents[3].name or "unknown"` → `{repo_name}/{slug}/orchestrator/logs/`) |
 | Changelogs | Root `changelog.md` (Git-tagged releases) | `mcp-server/changelog.md`, `orchestrator/changelog.md`, `personas/changelog.md` (module-level detail, not tagged). Root entry references module versions via `> mcp vX · personas vY · orchestrator vZ`. |
 | Knowledge Collection (Synthesis persona) | `personas/standalone/src/content/knowledge-archiver.md` | `9-synthesis.yaml` → `subagents` field; `mcp-server/src/tools/knowledge.ts` (the underlying tools, now called by Knowledge Archiver). The `.knowledge/` store lives at `{ledgerRoot}/.knowledge/` — same ledger root as all other ledger operations. |
 
@@ -352,9 +342,9 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 | **Architecture** | MCP Server + Repository Pattern | Template Engine (3-Phase Pipeline) | LangGraph StateGraph + Deep Agents |
 | **Package Manager** | npm | npm | pip |
 | **Test Framework** | Vitest | — (manual `--check` flag) | pytest |
-| **Build Tool** | `tsc` | `build-personas.js` (self-contained) | — (source install) |
-| **Prod Dependencies** | 3 (`@modelcontextprotocol/sdk`, `zod`, `proper-lockfile`) | 1 (`js-yaml`) | 6 core (`langgraph`, `langgraph-checkpoint-sqlite`, `deepagents`, `langchain-mcp-adapters`, `langchain-core`, `python-dotenv`); optional extras: `anthropic`, `google` |
-| **Dev Dependencies** | 4 (`tsx`, `vitest`, `typescript`, `@types/node`) | 0 | 3 (`pytest`, `pytest-asyncio`, `ruff`) |
+| **Build Tool** | `tsc` | `build-personas.js` (via `@mistralys/persona-builder`) | — (source install) |
+| **Prod Dependencies** | `@modelcontextprotocol/sdk`, `zod`, `proper-lockfile` | `@mistralys/persona-builder`, `js-yaml` | core: `aiosqlite`, `deepagents`, `langchain-core`, `langchain-mcp-adapters`, `langgraph`, `langgraph-checkpoint-sqlite`, `python-dotenv`; optional: `anthropic`, `google` |
+| **Dev Dependencies** | `@types/node`, `@types/proper-lockfile`, `@vitest/coverage-v8`, `jsdom`, `tsx`, `typescript`, `vitest` | — | `pytest`, `pytest-asyncio`, `ruff` |
 
 ### Root-Level Tooling
 
@@ -362,15 +352,25 @@ See the root [README.md → Changelog Workflow](README.md) section for the copy-
 |------|---------|  
 | `scripts/cli.js` | **Interactive command center + direct CLI** for all workspace operations. Replaces `setup-orchestrator.js` as the user-facing entry point. |
 | `scripts/sync-personas.js` | Build personas + deploy to VS Code prompts directory and/or Claude Code `~/.claude/agents/` + validate frontmatter |
-| `scripts/build-personas.js` | Assemble 48 persona files (9 ledger + 15 standalone × 2 IDE targets) from `personas/ledger/src/` and `personas/standalone/src/` templates |
+| `scripts/publish-locations.js` | Single source of truth for persona publish locations (label, path, target type). Consumed by `sync-personas.js` and `cli.js` |
+| `scripts/package-personas.js` | Builds and packages persona output into a compressed archive for distribution |
+| `scripts/preview-prompts.py` | Python utility to preview rendered prompt output for a persona |
+| `scripts/build-personas.js` | Assemble all persona files (3 output targets each: `vs-code`, `claude-code`, `deep-agents`) from `personas/ledger/src/` and `personas/standalone/src/` templates |
 | `scripts/check-known-roles.js` | Manifest validation delegate (previously `KNOWN_ROLES` ↔ `AGENT_ROLES` drift check; superseded by `validate-workflow-manifest.js` now that both derive from the manifest) |
 | `scripts/check-version-sync.js` | Compares each module's changelog version against its package manifest version. Exits 1 on mismatch. Called by the pre-commit hook (blocking) and available via `node scripts/cli.js check-versions`. |
+| `scripts/extract-changelog-entry.js` | Parses the topmost root changelog entry for CI/GitHub Actions release automation |
 | `scripts/bundle-docs.js` | Bundle workspace docs (NotebookLM + Workflow Spec) into `build/` |
+| `scripts/normalize-ctx-paths.js` | Normalises absolute paths in `.context/` output to workspace-relative paths after CTX generation |
 | `scripts/preflight-orchestrator.js` | Pre-flight readiness checks for the orchestrator: validates venv, `.env` config, MCP server dist freshness, and absence of conflicting processes. Supports `--plan <path>`, `--json`, and `--check-api-key` (live-validates API key(s) against provider endpoints, no tokens consumed). Invokable via `node scripts/cli.js preflight`. |
+| `scripts/run-orchestrator.js` | Pre-flight dist freshness guard + orchestrate launcher. Rebuilds `mcp-server/dist/` when stale then delegates to the `orchestrate` CLI with all supplied arguments. |
+| `scripts/run-gui.js` | Launches the MCP GUI server from the workspace root and opens the default browser once the server is ready. Delegates to `tsx gui/server.ts` inside `mcp-server/`. |
 | `scripts/read-log.js` | Structured JSONL log reader for orchestrator runs: renders entries as human-readable colored output (default) or raw JSON array (`--format json`). Supports `--errors` to filter to error events only. |
 | `scripts/kill-orchestrator.js` | Finds and terminates stale orchestrator processes, cleans up lock files. Supports `--force` (kill without prompting), `--json` (list processes as JSON without killing), and `--depth N` (scan last N log files for lock cleanup; default 20). |
 | `scripts/install-hooks.js` | One-time setup: sets `git config core.hooksPath .githooks` to activate the pre-commit guard (persona freshness, version sync, ruff lint, CTX staleness warning, changelog drift warning) |
-| `shared/workflow-manifest.json` | **Single source of truth** for specification-derived constructs: 9 agent roles, 6 pipeline types, status enums (project/WP/pipeline/blocker), and workflow constants. All sub-projects derive their constants from this file. Validated by `shared/workflow-manifest.schema.json`. |
+| `scripts/preflight-bootstrap.js` | Local development bootstrap: resolves sibling repos (`cli-menu`, `ai-persona-builder`) and installs their packages when working in a local dev environment |
+| `scripts/migrate-synthesis-insights.js` | LLM-assisted migration of existing synthesis documents to the knowledge store: extracts, deduplicates, and commits insights as JSON entries |
+| `scripts/tests/` | Root workspace script test suite (Vitest). Run via `npm test` from the workspace root |
+| `shared/workflow-manifest.json` | **Single source of truth** for specification-derived constructs: agent roles, pipeline types, status enums (project/WP/pipeline/blocker), and workflow constants. All sub-projects derive their constants from this file. Validated by `shared/workflow-manifest.schema.json`. |
 | `shared/workflow-manifest.schema.json` | JSON Schema (Draft-07) enforcing structural constraints on `workflow-manifest.json`. Semantic cross-reference checks (unique IDs, fail_routing references, default_stages subset) are enforced by `scripts/validate-workflow-manifest.js`. |
 | `context.yaml` | [CTX Generator](https://github.com/context-hub/generator) root config. Imports `**/module-context.yaml` and defines workspace-wide documents. Run via `node scripts/cli.js ctx-generate` (requires `ctx` on PATH). Output goes to `.context/` (tracked in VCS). |
 | `.mcp.dist.json` | Template MCP server configuration (copy to `.mcp.json` and update paths) |

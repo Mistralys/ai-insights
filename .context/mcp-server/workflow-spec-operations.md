@@ -1287,11 +1287,14 @@ if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
 // Dynamic next-stage routing after PASS QA
 // nextAgent = resolveNextAgent("qa", wp.active_pipeline_stages)
 //   → "Security Auditor" when security-audit is active, "Reviewer" otherwise
+// Mixed-routing: when ready WPs route to different next agents, return the
+// first ready WP's READY_FOR_* status. Remaining WPs are dispatched via
+// subsequent per-agent handoff calls (each agent's getNextAction is role-scoped).
 if WPs with "qa" in activeStages have PASS QA but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
-    return readyStatusForAgent[nextAgent]  (READY_FOR_SECURITY_AUDIT or READY_FOR_REVIEW)
+    return readyStatusForAgent[firstReadyWp.nextAgent]  (first match wins)
 if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "QA":
@@ -1304,6 +1307,8 @@ return WAIT                      (no actionable work for QA)
 ```
 
 > **Re-engagement before FAIL rationale (v1.2.0):** Prior to v1.2.0, the QA handoff's FAIL check short-circuited before considering whether the Developer had already reworked. After `qa-1 FAIL → impl-2 PASS`, the handoff returned `READY_FOR_DEVELOPER`, but the Developer's `getNextAction` returned `WAIT_FOR_DOWNSTREAM`. In auto-handoff orchestration, nobody was routed to QA. The re-engagement check (using `hasNewUpstreamPassSince`) now fires first: if the Developer has re-PASSed since the QA FAIL, the handoff returns `IN_PROGRESS` for QA (mirroring §14.3 priority 4), allowing auto-handoff to keep QA in the loop.
+>
+> **Mixed-routing forward progress (v2.5.1):** When multiple ready WPs route to different next agents (e.g., WP-A → Security Auditor, WP-B → Reviewer due to different `active_pipeline_stages`), the handoff returns the first ready WP's `READY_FOR_*` status rather than `WAIT`. This is safe because `getNextAction` is role-scoped — dispatching Security Auditor does not cause that agent to claim WP-B (which needs Reviewer). WP-B is picked up on the next handoff cycle when the Reviewer's own handoff or `findNextReadyDispatch` fires. Prior to v2.5.1, the implementation returned `WAIT` in this scenario as a conservative safety guard, causing IDE stalls in mixed-stage projects.
 >
 > **Implementation note (hardcoded upstream):** The QA handoff implementation passes `'implementation'` as a hardcoded string to `hasNewUpstreamPassSince` — it does not call `resolvePrerequisite('qa', wp.active_pipeline_stages)`. For first-active-stage compositions (e.g., `active_pipeline_stages: ["qa", "code-review"]`), this means the re-engagement check always looks for an `implementation` PASS. If no `implementation` pipeline exists, `hasNewUpstreamPassSince` returns `false` and the check does not fire — which is the correct conservative behavior. This makes the handoff **immune to the null-prerequisite loop** ([§21.66](edge-cases.md#2166-first-active-stage-re-engagement-loop)): unlike `workflow-next-action.ts`, the implementation never collapses `null → true`. The tradeoff is that the re-engagement check is non-adaptive for unusual compositions where the conceptual upstream is not `implementation`. This is an intentional simplification — the hardcoded approach fails gracefully (returns `false`, falls through) rather than risking an infinite routing loop.
 
@@ -1333,11 +1338,14 @@ if any non-terminal, non-dependency-blocked WP with "code-review" in activeStage
 // Dynamic next-stage routing after PASS code-review
 // nextAgent = resolveNextAgent("code-review", wp.active_pipeline_stages)
 //   → "Release Engineer" when release-engineering is active, "Documentation" otherwise
+// Mixed-routing: when ready WPs route to different next agents, return the
+// first ready WP's READY_FOR_* status. Remaining WPs are dispatched via
+// subsequent per-agent handoff calls (each agent's getNextAction is role-scoped).
 if WPs with "code-review" in activeStages have PASS code-review but next stage not started:
   if all such WPs are dependency-blocked:
     return WAIT                  (nothing actionable until dependencies resolve)
   else:
-    return readyStatusForAgent[nextAgent]  (READY_FOR_RELEASE_ENGINEERING or READY_FOR_DOCS)
+    return readyStatusForAgent[firstReadyWp.nextAgent]  (first match wins)
 if all WPs are terminal (COMPLETE or CANCELLED):
   return READY_FOR_SYNTHESIS
 if any WP is IN_PROGRESS with assigned_to == "Reviewer":
@@ -1350,6 +1358,8 @@ return WAIT                      (no actionable work for Reviewer)
 ```
 
 > **Re-engagement before FAIL rationale (v1.2.0):** Identical to the QA handoff rationale. After `review-1 FAIL → impl-2 PASS → qa-2 PASS`, the handoff now returns `IN_PROGRESS` for Reviewer (re-engagement) instead of `READY_FOR_DEVELOPER` (stale FAIL routing). See QA Handoff rationale for the full explanation.
+>
+> **Mixed-routing forward progress (v2.5.1):** Same semantics as the QA handoff — when ready WPs route to different next agents (e.g., WP-A → Release Engineer, WP-B → Documentation), the handoff returns the first ready WP's `READY_FOR_*` status. See the QA handoff mixed-routing note for the full rationale.
 >
 > **Dynamic upstream (v2.0.0):** The re-engagement check uses `resolvePrerequisite("code-review", wp.active_pipeline_stages)` to determine the effective upstream — `"security-audit"` when the WP includes the optional security-audit stage, `"qa"` otherwise, or `null` for first-active-stage compositions. When `resolvePrerequisite` returns `null` (code-review is the first active stage), the re-engagement check is skipped entirely — there is no upstream to re-engage from, consistent with the [§21.66 null-prerequisite rule](edge-cases.md#2166-first-active-stage-re-engagement-loop). Similarly, the next-stage routing uses `resolveNextAgent` to determine whether PASS code-review flows to Release Engineer or Documentation.
 

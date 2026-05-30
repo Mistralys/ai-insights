@@ -23,6 +23,36 @@ This document describes the main interaction paths through the system.
 
 ---
 
+## Storage Layout
+
+The centralized ledger uses a **two-level repo-namespaced directory structure**:
+
+```
+{ledgerRoot}/
+├── .migration-state.json        # Written on first startup after migration; absent on first run
+├── .migration-in-progress       # Transient sentinel; only present during an active migration
+├── gui-config.json              # Runtime config (auto_handoff_enabled, max_handoff_depth, …)
+├── ai-insights/                 # Example repo-namespace dir
+│   └── 2026-05-01-my-plan/          # Per-project subfolder
+│       ├── .meta.json
+│       ├── .lock
+│       ├── project-ledger.json
+│       └── WP-001.json
+├── other-repo/                  # Second repo-namespace dir (independent repository)
+│   └── 2026-06-01-another-plan/
+│       └── …
+└── unknown/                     # Fallback namespace (repo root failed slug validation)
+    └── …
+```
+
+**`{repoName}`** is derived by `deriveRepoName(projectPath)`: walks 4 directory levels up from the plan folder to the project root, takes its basename, lowercases it, and validates against `SAFE_SLUG_REGEX` (`/^[a-z0-9][a-z0-9-]*$/`). Falls back to `'unknown'` when the name is empty, `'.'`, `'..'`, or fails slug validation.
+
+**Two-level scan (`LedgerStore.listAllProjects`):** reads the top level of `{ledgerRoot}`. For every depth-1 directory that has a direct `.meta.json` it reads it as a legacy flat-layout project (backward compatibility). For directories without a direct `.meta.json` it treats them as repo-namespace dirs and scans one level deeper, reading `{repoName}/{slug}/.meta.json` for each depth-2 entry. Dot-prefixed directories are skipped at both levels.
+
+**One-time idempotent migration (`migrateToNamespacedLayout`):** on first startup after upgrade, moves each flat-layout `{ledgerRoot}/{slug}/` directory to `{ledgerRoot}/{repoName}/{slug}/` using the `repository_name` field stored in each project's `.meta.json`. The migration writes `.migration-state.json` on success and uses `.migration-in-progress` as a crash-recovery sentinel. Safe to call on every startup — skips immediately when `storage_version >= 2` is already written.
+
+---
+
 ## Flow 1: Project Initialization
 
 **Entry Point:** Agent invokes `ledger_initialize_project` tool
@@ -32,15 +62,15 @@ Agent → ledger_initialize_project(project_path, plan_file)
   ↓
 LedgerStore.writeRootIndex()
   ↓
-atomicWriteJson(storage/ledger/{slug}/project-ledger.json)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
   2. Write to {file}.tmp.{pid}
-  3. Atomically rename to storage/ledger/{slug}/project-ledger.json
+  3. Atomically rename to storage/ledger/{repoName}/{slug}/project-ledger.json
   ↓
 store.writeProjectMeta() — auto-synced after root index write
   ↓
-atomicWriteJson(storage/ledger/{slug}/.meta.json)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/.meta.json)
   ↓
 store.archiveDocuments([plan_file])  — best-effort; outside lock scope
   ↓
@@ -51,7 +81,7 @@ store.archiveDocuments([plan_file])  — best-effort; outside lock scope
 Return RootIndex + { archived_documents, archive_skipped? } to agent
 ```
 
-**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{slug}/` as archived reference (best-effort; missing source is silently skipped).
+**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{repoName}/{slug}/` as archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -66,16 +96,19 @@ LedgerStore.listAllProjects(ledgerRoot)
   ↓
 readdir(storage/ledger/)
   ↓
-For each entry (excluding .archive/):
-  readFile(storage/ledger/{slug}/.meta.json)
-  ProjectMetaSchema.parse(data)   ← invalid entries skipped, logged to stderr
+For each depth-1 entry (excluding .archive/):
+  If entry has a direct .meta.json → old flat-layout project; read it.
+  If entry has no .meta.json → treat as repo-namespace dir; scan depth-2:
+    For each depth-2 slug entry:
+      readFile(storage/ledger/{repoName}/{slug}/.meta.json)
+      ProjectMetaSchema.parse(data)   ← missing/invalid entries skipped, warning → stderr
   ↓
 Optional filter by status
   ↓
 Return ProjectMeta[] to agent
 ```
 
-**Result:** Array of project metadata for all valid projects in the central ledger, optionally filtered by status. Read-only — no lock acquired.
+**Result:** Array of project metadata for all valid projects in the central ledger (both legacy flat-layout and new repo-namespaced layout), optionally filtered by status. Read-only — no lock acquired.
 
 ---
 
@@ -141,7 +174,7 @@ Pre-lock validation (outside lock scope):
   ↓
 LedgerStore.createWorkPackageWithSync(creator)  ← primary choke point for WP creation
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
 LedgerStore.readRootIndex()
   ↓
@@ -180,7 +213,7 @@ Release lock
 Return created WorkPackageDetail to agent
 ```
 
-**Result:** Both `storage/ledger/{slug}/WP-###.json` and `storage/ledger/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
+**Result:** Both `storage/ledger/{repoName}/{slug}/WP-###.json` and `storage/ledger/{repoName}/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
 
 ---
 
@@ -193,10 +226,10 @@ Agent → ledger_claim_work_package(project_path, work_package_id, agent)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
-Read WorkPackageDetail (storage/ledger/{slug}/WP-###.json) — validated with Zod
-Read RootIndex (storage/ledger/{slug}/project-ledger.json) — validated with Zod
+Read WorkPackageDetail (storage/ledger/{repoName}/{slug}/WP-###.json) — validated with Zod
+Read RootIndex (storage/ledger/{repoName}/{slug}/project-ledger.json) — validated with Zod
   ↓
 updater function:
   1. Validate current status is READY
@@ -210,8 +243,8 @@ updater function:
   ↓
 Validate updated WP and root with Zod
   ↓
-atomicWriteJson(storage/ledger/{slug}/WP-###.json, updatedWP)
-atomicWriteJson(storage/ledger/{slug}/project-ledger.json, updatedRoot)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/WP-###.json, updatedWP)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json, updatedRoot)
 store.writeProjectMeta() — auto-synced inside same lock
   ↓
 Release lock
@@ -232,7 +265,7 @@ Agent → ledger_start_pipeline(project_path, work_package_id, type, agent_role)
   ↓
 LedgerStore.updateWorkPackageWithSync(wpId, updater)
   ↓
-withLock(store.storageDir) — acquire storage/ledger/{slug}/.lock
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
   ↓
 Read WorkPackageDetail and RootIndex
   ↓
@@ -844,7 +877,7 @@ Return array of recommendations:
 ### 13a: Storage Location
 
 ```
-root index (storage/ledger/{slug}/project-ledger.json)
+root index (storage/ledger/{repoName}/{slug}/project-ledger.json)
   └── auto_handoff_depth: number   ← current chain depth (0 when absent)
 ```
 
@@ -1031,7 +1064,7 @@ withLock(store.storageDir, async () => {
 Return result + { archived_documents, archive_skipped? }
 ```
 
-**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
 
 ---
 
@@ -1096,7 +1129,7 @@ renderSynthesis(app, slug)
     ↓
     assertSafeSlug(slug)
     LedgerStore.ledgerDirExists()   ← NOT_FOUND if project absent
-    readFile(storage/ledger/{slug}/synthesis.md, 'utf-8')
+    readFile(storage/ledger/{repoName}/{slug}/synthesis.md, 'utf-8')
     → Return { content: "<markdown>" }
     ← 404 NOT_FOUND if synthesis.md absent or project absent
   ↓
@@ -1321,5 +1354,261 @@ gui/api.ts — handleListProjects processing pipeline:
 - Per-project enrichment failures are isolated; one unreadable project never breaks the full response.
 - Out-of-range page returns empty `projects[]` with `total` and `total_pages` still correctly set.
 - The entire enrichment step runs in memory; pagination is applied last (no streaming).
+
+---
+
+## Flow N: Knowledge Accumulation (Synthesis → Insight Store)
+
+**Entry Point:** Synthesis agent calls `ledger_search_insights` and/or `ledger_add_insight` during the Knowledge Collection phase (before `ledger_complete_synthesis`).
+
+### N.1 Deduplication Check
+
+```
+Synthesis agent → ledger_search_insights(query, scope?, category?, project_slug?, limit?)
+  ↓
+resolveLedgerRoot()  ← centralised ledger root (same root used by all ledger operations)
+  ↓
+KnowledgeStoreManager.searchInsights(query, filters)
+  ↓
+_loadInsights(filters)
+  Store selection:
+    scope: 'project' + project_slug → readProjectStore(slug)   only
+    scope: 'global'                  → readGlobalStore()         only
+    no filters                       → readGlobalStore() +
+                                        all {slug}-insights.json stores
+  ↓
+For each loaded KnowledgeStore:
+  InsightSchema.parse() on each entry  ← schema validation; malformed entries skipped
+  Filter by scope / category (if specified)
+  ↓
+Substring match (case-insensitive) against title, content, each tag
+  ↓
+Post-filter by tags array (AND semantics, if provided)
+Apply limit slice (if provided)
+  ↓
+Return matched Insight[] (each augmented with formatted_id: 'KN-NNNN') to agent
+```
+
+**Result:** Agent receives a list of matching insights. If a substantively similar insight exists, agent skips the commit (deduplication). If no match or a complementary match, agent proceeds to commit.
+
+### N.2 Insight Commit
+
+```
+Synthesis agent → ledger_add_insight(scope, project_slug?, title, content, category, tags, source?, confidence?)
+  ↓
+KnowledgeStoreManager.addInsight(fields)
+  ↓
+Scope guard: scope === 'project' && !project_slug → throw Error (project_slug required)
+  ↓
+withLock(knowledgeDir(), async () => {        ← single lock scope for entire read-modify-write
+  storePath = scope === 'global'
+    ? globalStorePath()
+    : projectStorePath(slug)   ← _validateSlug(slug) enforced (PROJECT_SLUG_REGEX)
+    ↓
+  store = await _readStore(storePath)          ← returns empty KnowledgeStore if file absent
+    ↓
+  insight = { id: store.next_id, ...fields, created_at: now() }
+  store.insights.push(insight)
+  store.next_id += 1
+  store.last_updated = now()
+    ↓
+  await atomicWriteJson(storePath, store)      ← write-to-temp-then-rename
+})
+  ↓
+Return { ...insight, formatted_id: 'KN-NNNN' } to agent
+```
+
+**Result:** New insight committed to `{ledgerRoot}/.knowledge/global-insights.json` (scope: global) or `{ledgerRoot}/.knowledge/{slug}-insights.json` (scope: project). The `.knowledge/` directory is created on first write. All reads are lock-free; only write operations acquire the lock.
+
+**Storage layout:**
+```
+{ledgerRoot}/.knowledge/
+  .lock                     — lock file created by withLock
+  global-insights.json      — scope: 'global' insights
+  {slug}-insights.json      — scope: 'project' insights for each project slug
+```
+
+---
+
+## Flow O: GUI Knowledge Endpoints (HTTP)
+
+These five HTTP endpoints expose the knowledge store to the browser dashboard. All routes are registered in `gui/server.ts` and delegate to handler functions in `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003), which call `KnowledgeStoreManager` for storage operations.
+
+**Dispatch tier summary:**
+
+| Tier | Routes | Mechanism |
+|------|--------|-----------|
+| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `matchRoute()` — segment-count and method guards; params from query string |
+| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | `handleRequest()` special cases — regex path match, `readJsonBody`, 1 MiB body limit |
+
+---
+
+### O.1: GET /api/knowledge — List or Search Insights
+
+```
+Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&query=timeout&limit=20&offset=0
+  ↓
+gui/server.ts matchRoute()
+  method === 'GET', rest === ['knowledge']
+  → parse query string: scope, category, tags (comma-split), project_slug, query, limit, offset
+  ↓
+handleListKnowledge(ledgerRoot, params)
+  ↓
+  query present?
+    YES → KnowledgeStoreManager.searchInsights(query, { scope, category, project_slug, tags, limit, offset })
+          (substring match → tag intersection filter → offset/limit pagination — all in searchInsights())
+    NO  → KnowledgeStoreManager.listInsights({ scope, category, tags, project_slug, limit, offset })
+  ↓
+  Return Insight[] (each augmented with formatted_id)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight[] }
+```
+
+**Key notes:**
+- `scope` validated via `InsightScope.safeParse()` — unknown values fall back to `undefined` (no scope filter), no error.
+- `tags` is comma-separated: `"ts,vitest"` → `["ts", "vitest"]`.
+- `limit` and `offset` coerced to non-negative integers; invalid values default to `undefined`/`0`.
+- When `query` is present, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call.
+
+---
+
+### O.2: DELETE /api/knowledge/:id — Delete Insight
+
+```
+Browser → DELETE /api/knowledge/42?scope=project&project_slug=my-repo
+  ↓
+gui/server.ts matchRoute()
+  method === 'DELETE', rest === ['knowledge', '42']
+  → parse :id (decodeURIComponent, raw string)
+  → parse scope, project_slug from query string
+  ↓
+handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'project'
+  project_slug required when scope === 'project'  ← throws VALIDATION_ERROR if absent
+  ↓
+  KnowledgeStoreManager.deleteInsight(id, { scope, project_slug })
+    withLock(knowledgeDir())
+      readStore → find insight by id → splice → atomicWriteJson
+  ↓
+  Return null
+  ↓
+gui/server.ts → HTTP 204 No Content
+```
+
+**ID validation order:** ID is validated first; scope validation runs second. When both are invalid, the caller receives a VALIDATION_ERROR for the ID.
+
+---
+
+### O.3: POST /api/knowledge/:id/promote — Promote Project Insight to Global
+
+```
+Browser → POST /api/knowledge/42/promote?scope=project&project_slug=my-repo
+  ↓
+gui/server.ts matchRoute()
+  method === 'POST', rest === ['knowledge', '42', 'promote']
+  → parse :id (decodeURIComponent)
+  → parse scope, project_slug from query string
+  ↓
+handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  scope must be 'project'  ← scope='global' throws VALIDATION_ERROR ("already global")
+  project_slug required    ← throws VALIDATION_ERROR if absent
+  ↓
+  KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+    ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
+    → new insight assigned next_id from global store; new ID differs from original
+    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+  ↓
+  Return new global Insight (new numeric ID — NOT the original project-scoped ID)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**⚠ ID-change semantics:** The returned insight's `id` is the new global store ID, NOT the pre-promote project-scoped ID. Frontend consumers that track which insight was promoted must capture the original ID before calling this endpoint — see `handlePromoteKnowledge` in `api-surface.md`.
+
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — eliminating the TOCTOU race between the former separate add and delete calls. No intermediate state is observable.
+
+---
+
+### O.4: PATCH /api/knowledge/:id — Update Insight Fields
+
+```
+Browser → PATCH /api/knowledge/42
+  Body: { "scope": "project", "project_slug": "my-repo", "title": "Updated title", "tags": ["ts"] }
+  ↓
+gui/server.ts handleRequest() special case
+  knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path)
+  method === 'PATCH' && knowledgePatchMatch !== null
+  → rawId = decodeURIComponent(knowledgePatchMatch[1])
+  ↓
+  readJsonBody(req)  ← enforces MAX_BODY_BYTES (1 MiB) limit
+    PayloadTooLargeError → HTTP 413
+  ↓
+handleUpdateKnowledge(ledgerRoot, rawId, body)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  KnowledgeUpdateBodySchema.safeParse(body)
+    .strict() — unknown fields rejected
+    scope required; project_slug required when scope === 'project'
+    superseded_by: null is valid (field-clearing semantics)
+    → throws VALIDATION_ERROR on parse failure
+  ↓
+  superseded_by: null → mapped to undefined before forwarding
+  ↓
+  KnowledgeStoreManager.updateInsight(id, updates, { scope, project_slug })
+    withLock(knowledgeDir())
+      readStore → find insight by id → merge updates → sets updated_at → atomicWriteJson
+  ↓
+  Return updated Insight
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**Immutable fields:** `id`, `scope`, `project_slug`, `created_at` cannot be changed via PATCH — they are excluded from `KnowledgeUpdateBodySchema`.
+
+---
+
+### O.5: POST /api/knowledge/:id/move — Move Insight to Another Project
+
+```
+Browser → POST /api/knowledge/42/move
+  Body: { "source_scope": "global", "project_slug": "target-repo" }
+  ↓
+gui/server.ts handleRequest() special case
+  knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path)
+  method === 'POST' && knowledgeMoveMatch !== null
+  → rawId = decodeURIComponent(knowledgeMoveMatch[1])
+  ↓
+  readJsonBody(req)  ← enforces MAX_BODY_BYTES (1 MiB) limit
+    PayloadTooLargeError → HTTP 413
+  ↓
+handleMoveKnowledge(ledgerRoot, rawId, body)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  KnowledgeMoveBodySchema.safeParse(body)
+    .strict() — unknown fields rejected
+    source_scope required; source_project_slug required (handler-enforced) when source_scope === 'project'
+    project_slug required (destination)
+    source and destination must differ (source_scope='project' + source_project_slug === project_slug → VALIDATION_ERROR)
+    → throws VALIDATION_ERROR on parse failure
+  ↓
+  KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+    ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
+    → new insight assigned next_id from target store; new ID differs from original
+    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+  ↓
+  Return new target Insight (new numeric ID — NOT the original source ID)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**Supported move variants:**
+- `global → project`: moves a global insight into a named project store.
+- `project → project`: moves a project insight to a different project (`source_project_slug !== project_slug` enforced).
+
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.
 
 ```
