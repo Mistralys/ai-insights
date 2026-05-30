@@ -29,7 +29,8 @@ mcp-server/
 │
 ├── scripts/                     # Node.js utility scripts (run directly with `node`)
 │   ├── sync-version.js          # Syncs version from changelog.md → package.json
-│   └── move-unknown-project.js  # Moves a project from the unknown/ namespace to its correct repo namespace; updates .meta.json; use when repository_name was not set at init time
+│   ├── move-unknown-project.js  # Moves a project from the unknown/ namespace to its correct repo namespace; updates .meta.json; use when repository_name was not set at init time
+│   └── rename-repository.js     # Renames a repository namespace across all ledger storage; moves all project folders and updates each .meta.json to reflect the new repo name; use when a repository's root directory has been renamed (--from, --to, --ledger-dir, --dry-run flags)
 │
 ├── gui/                         # GUI server process code
 │   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers: handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss; knowledge handlers are NOT in this file — they were extracted to gui/api-knowledge.ts (WP-003)
@@ -172,9 +173,13 @@ mcp-server/
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
     ├── storage/                 # Storage layer tests
+        ├── knowledge-store-exclusion.test.ts  # Tests that knowledge store paths are excluded from project storage operations
+        ├── knowledge-store.test.ts  # KnowledgeStoreManager unit tests
         ├── ledger-store.test.ts # LedgerStore unit tests
-        └── migrate-namespaced.test.ts  # 10 tests: clean run, unknown fallbacks, idempotency, sentinel cleanup, move-failure, crash-resume
-    │   └── project-meta.test.ts
+        ├── list-all-projects.test.ts  # Tests for ledger_list_all_projects scan across all repo namespaces
+        ├── migrate-namespaced.test.ts  # 10 tests: clean run, unknown fallbacks, idempotency, sentinel cleanup, move-failure, crash-resume
+        ├── project-meta.test.ts
+        └── slug-resolution.test.ts  # Tests for slug resolution across project namespaces
     │
     ├── tools/                   # Tool-level tests
     │   ├── begin-work.test.ts
@@ -183,6 +188,8 @@ mcp-server/
     │   ├── claim-guard.test.ts
     │   ├── complete-pipeline-guards.test.ts
     │   ├── enrichment-resilience.test.ts
+    │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool
+    │   ├── knowledge.test.ts        # Tests for ledger_add_insight, ledger_search_insights, ledger_update_insight tools
     │   ├── list-projects.test.ts
     │   ├── meta-enrichment.test.ts
     │   ├── observations.test.ts
@@ -203,10 +210,12 @@ mcp-server/
     │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
+        ├── derive-repo-name.test.ts
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
         ├── path-validator.test.ts
         ├── pipeline-maps.test.ts
+        ├── progress.test.ts
         ├── project-reset.test.ts
         ├── runner.test.ts       # 10 unit tests for classifyRunner() (WP-005 verification of WP-001 ACs): all four output variants (vscode, claude-code, orchestrator, unknown), undefined input without throw, empty-string name, unrecognized client name, case-insensitive substring matching (vscode keyword, Claude uppercase, langchain variants), and raw runner_client/runner_version value preservation
         ├── timestamp.test.ts

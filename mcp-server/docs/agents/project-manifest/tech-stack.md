@@ -41,7 +41,7 @@
 
 The application is structured as an **MCP (Model Context Protocol) server** that:
 - Runs as a standalone process communicating via STDIO
-- Registers multiple tools (22 total) that agents can invoke
+- Registers multiple tools (26 total) that agents can invoke
 - Returns structured JSON responses conforming to MCP specification
 - Logs diagnostics to `stderr` (never `stdout`, which is reserved for protocol)
 

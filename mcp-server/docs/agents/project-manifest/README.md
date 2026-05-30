@@ -1,7 +1,7 @@
 # Project Manifest: Project Ledger MCP Server
 
-**Version:** 1.0.0  
-**Last Updated:** 2026-02-16  
+**Version:** 1.1.0  
+**Last Updated:** 2026-05-30  
 **Purpose:** MCP server for Project Ledger workflow coordination
 
 ---
