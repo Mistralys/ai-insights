@@ -51,13 +51,16 @@ node scripts/cli.js gui                    # launch MCP GUI dashboard
 node scripts/cli.js orchestrator plan.md  # run orchestrator pipeline
 node scripts/cli.js ctx-generate          # generate context documentation
 node scripts/cli.js check-versions        # verify changelog vs manifest versions
+node scripts/cli.js doctor                 # run all health checks; exits 1 on any failure
+node scripts/cli.js install-mcp            # register central_pm in VS Code user-level MCP config
+node scripts/cli.js install-mcp --dry-run  # preview MCP config changes without writing
 node scripts/cli.js read-log               # tail and query orchestrator logs
 node scripts/cli.js kill-orchestrator      # terminate stale orchestrator processes
 node scripts/cli.js kill-orchestrator --depth 5  # scan only 5 log files for lock cleanup
 node scripts/cli.js help                  # list all commands, grouped by category
 ```
 
-> Commands are grouped in the help output by category: **Setup & Configuration**, **Validation & Utilities**, **Personas**, **MCP Server**, and **Orchestrator**. `read-log` and `kill-orchestrator` are available via direct dispatch but are not listed in the interactive help.
+> Commands are grouped in the help output by category: **Setup & Configuration** (includes `install-mcp`), **Validation & Utilities** (includes `doctor`, `check-versions`), **Personas**, **MCP Server**, and **Orchestrator**. `read-log` and `kill-orchestrator` are available via direct dispatch but are not listed in the interactive help.
 
 > **Prerequisites:** Node.js >= 18. Python 3.11+ is only required for the orchestrator component. The `cli-menu` repository must be cloned as a sibling directory — see [Workspace directory layout](#workspace-directory-layout).
 
@@ -100,6 +103,23 @@ node scripts/install-hooks.js
 
 This enables a pre-commit guard that fails the commit if any generated persona file is stale (out of sync with its source template).
 
+### Use the `ai-insights` CLI globally (optional)
+
+The root `package.json` declares a `bin` entry that maps the `ai-insights` command to
+`scripts/cli.js`. Running `npm link` from the repository root registers a global symlink,
+letting you invoke the CLI from any directory without specifying the full path:
+
+```bash
+npm link          # register symlink (run once, from the ai-insights/ root)
+ai-insights       # opens the interactive menu
+ai-insights sync-personas
+ai-insights doctor
+ai-insights install-mcp --dry-run
+```
+
+This is equivalent to `node scripts/cli.js <command>` in every respect.
+To remove the global symlink, run `npm unlink` from the `ai-insights/` root.
+
 ### CI — Automated Quality Gate
 
 A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and pull request to `main`. It runs five independent jobs:
@@ -130,6 +150,8 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/package-personas.js` | Package standalone personas into distributable ZIPs |
 | `node scripts/bundle-docs.js` | Compile project docs into bundles (e.g. for NotebookLM) |
 | `node scripts/cli.js ctx-generate` | Generate context documentation via [CTX Generator](https://github.com/context-hub/generator) |
+| `node scripts/cli.js doctor` | Run all 9 health checks (all tiers including async); exits 1 on any failure; fix hints shown per failing check |
+| `node scripts/cli.js install-mcp` | Register `central_pm` in VS Code user-level `mcp.json` via stable shim; `--dry-run` previews changes without writing |
 | `node scripts/run-gui.js` | Launch the MCP server GUI dashboard |
 | `node scripts/preflight-orchestrator.js` | Pre-flight readiness checks (venv, `.env`, dist, conflicts) |
 | `node scripts/run-orchestrator.js` | Launch the orchestrator (rebuilds MCP server if stale) |
