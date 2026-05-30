@@ -45,7 +45,13 @@ You will be provided with:
 
 ---
 
-{{> synthesis-knowledge-collection}}
+## Knowledge Collection
+
+Before completing synthesis, delegate knowledge extraction to the
+Knowledge Archiver. Pass both `cwd_path` (the workspace root, available from
+pre-flight) and `project_storage_path` (= `dirname(plan_path)`, derived from
+the pre-flight `plan_path` value). The Knowledge Archiver uses `cwd_path` for
+live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
 ---
 
@@ -62,7 +68,37 @@ You will be provided with:
 5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, record the failure via `ledger_add_project_comment` (e.g., `"Synthesis aborted: critical ledger data incomplete"`), then skip to Step 9 to obtain the handoff block from the ledger.
 6. **Generate Report:** Write the `synthesis.md` file to the plan folder.
 7. **Cross-cutting Observations:** Add any cross-cutting synthesis observations via `ledger_add_project_comment`.
-8. **Knowledge Collection:** Extract and commit reusable insights from this project (see Knowledge Collection section above). For each candidate insight: search for duplicates via `ledger_search_insights`, then commit non-duplicate insights via `ledger_add_insight`. Complete this step before calling `ledger_complete_synthesis`.
+8. **Knowledge Collection:** Invoke the Knowledge Archiver:
+{{#if target_vscode}}
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_standalone_knowledge_archiver}}"`
+   - `description`: `"Extract and commit insights from completed project"`
+   - `prompt`: Pass `cwd_path` (workspace root) and `project_storage_path`
+     (= `dirname(plan_path)` from pre-flight). The Knowledge Archiver uses
+     `cwd_path` for live MCP reads and `project_storage_path` to locate
+     `synthesis.md` on disk.
+{{else if target_claude_code}}
+   Use the `Task` tool with `description: Use the custom agent
+   "{{agent_standalone_knowledge_archiver}}"`. Pass: `cwd_path` (workspace
+   root) and `project_storage_path` (= `dirname(plan_path)` from pre-flight).
+{{else if target_deep_agents}}
+   Use the `task` tool with the following arguments:
+   - `subagent_type`: `"{{agent_slug_standalone_knowledge_archiver}}"`
+   - `task`: Pass `cwd_path` (workspace root) and `project_storage_path`
+     (= `dirname(plan_path)` from pre-flight). The Knowledge Archiver uses
+     `cwd_path` for live MCP reads and `project_storage_path` to locate
+     `synthesis.md` on disk.
+{{else}}
+   Call the **{{agent_standalone_knowledge_archiver}}** subagent with:
+   `cwd_path` (workspace root) and `project_storage_path`
+   (= `dirname(plan_path)` from pre-flight).
+{{/if}}
+
+   > **Important:** The sub-agent has its own built-in persona, so does not
+   > need any instructions. The data is sufficient.
+
+   Expected output: An extraction report summarizing insights committed to the
+   knowledge base. Review it before proceeding to Step 9.
 9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"` and `synthesis_file: "synthesis.md"`. This archives the synthesis document, sets `synthesis_generated: true`, and transitions the project to `COMPLETE`.
 10. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
     ```

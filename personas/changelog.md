@@ -1,5 +1,9 @@
 # Personas Changelog
 
+## v3.22.1 - Knowledge Collection Delegation
+- Standalone: Knowledge Archiver (v1.4.0) gains two-mode operation.
+- Ledger: Synthesis (v3.6.0) delegates knowledge extraction to the Knowledge Archiver.
+
 ## v3.22.0 - Knowledge Collection System
 - Ledger: Synthesis gains Knowledge Collection phase — 5-step gold-nugget commit protocol.
 - Ledger: Synthesis `mcp_tools` updated with `ledger_add_insight` and `ledger_search_insights`.
