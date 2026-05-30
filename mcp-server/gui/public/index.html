@@ -4,15 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Server Dashboard</title>
-  <link rel="stylesheet" href="/styles.css">
-  <script>
-    (function () {
-      var saved = localStorage.getItem('mcp-theme');
-      if (saved !== 'light') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-      }
-    })();
-  </script>
+  <link rel="stylesheet" href="/styles.css?v=3">
+  <script src="/theme-init.js?v=1"></script>
 </head>
 <body>
   <header>
@@ -20,6 +13,7 @@
       <nav>
         <a href="#/">Projects</a>
         <a href="#/insights">Insights</a>
+        <a href="#/knowledge">Knowledge</a>
         <a href="#/orchestrator">Orchestrator</a>
         <a href="#/config">Configuration</a>
         <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Toggle dark mode"></button>
@@ -31,20 +25,21 @@
       <div id="app"></div>
     </div>
   </main>
-  <script src="/libs/marked.min.js"></script>
-  <script src="/api-client.js"></script>
-  <script src="/theme.js"></script>
-  <script src="/router.js"></script>
-  <script src="/utils.js"></script>
-  <script src="/views/project-list.js"></script>
-  <script src="/views/project-detail.js"></script>
-  <script src="/views/work-package.js"></script>
-  <script src="/views/config.js"></script>
-  <script src="/views/insights.js"></script>
-  <script src="/views/run-log.js"></script>
-  <script src="/js/orchestrator-widgets.js"></script>
-  <script src="/views/orchestrator.js"></script>
-  <script src="/stale-check.js"></script>
-  <script src="/app.js"></script>
+  <script src="/libs/marked.min.js?v=2"></script>
+  <script src="/api-client.js?v=3"></script>
+  <script src="/theme.js?v=2"></script>
+  <script src="/router.js?v=3"></script>
+  <script src="/utils.js?v=2"></script>
+  <script src="/views/project-list.js?v=2"></script>
+  <script src="/views/project-detail.js?v=2"></script>
+  <script src="/views/work-package.js?v=2"></script>
+  <script src="/views/config.js?v=2"></script>
+  <script src="/views/insights.js?v=2"></script>
+  <script src="/views/knowledge.js?v=1"></script>
+  <script src="/views/run-log.js?v=2"></script>
+  <script src="/js/orchestrator-widgets.js?v=2"></script>
+  <script src="/views/orchestrator.js?v=2"></script>
+  <script src="/stale-check.js?v=2"></script>
+  <script src="/app.js?v=2"></script>
 </body>
 </html>

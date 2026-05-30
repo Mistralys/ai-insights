@@ -82,6 +82,13 @@ function expectSecurityHeaders(headers: Headers): void {
   expect(headers.get('content-security-policy')).toMatch(/default-src 'self'/);
 }
 
+/** Assert the CSP script-src directive is 'self' with no 'unsafe-inline'. */
+function expectStrictScriptSrc(headers: Headers): void {
+  const csp = headers.get('content-security-policy') ?? '';
+  expect(csp).toMatch(/script-src 'self'/);
+  expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
+}
+
 // ---------------------------------------------------------------------------
 // Test suite
 // ---------------------------------------------------------------------------
@@ -163,5 +170,13 @@ describe('Security headers — WP-001', () => {
     });
     expect(status).toBe(200);
     expectSecurityHeaders(headers);
+  });
+
+  // ── CSP script-src hardening (WP-004) ─────────────────────────────────────
+
+  it("CSP script-src is 'self' with no 'unsafe-inline' on a JSON API response", async () => {
+    const { status, headers } = await fetchHeaders(`${baseUrl}/api/projects`);
+    expect(status).toBe(200);
+    expectStrictScriptSrc(headers);
   });
 });

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-'use strict';
 
 /**
  * scripts/validate-workflow-manifest.js
@@ -24,10 +23,10 @@
  *   1  — one or more validation errors
  */
 
-const fs   = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
-const WORKSPACE_ROOT  = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT  = path.resolve(import.meta.dirname, '..');
 const MANIFEST_PATH   = path.join(WORKSPACE_ROOT, 'shared', 'workflow-manifest.json');
 const SCHEMA_PATH     = path.join(WORKSPACE_ROOT, 'shared', 'workflow-manifest.schema.json');
 

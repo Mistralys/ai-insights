@@ -1,5 +1,30 @@
 # Project Ledger MCP Server - Changelog
 
+## v1.31.0 - Knowledge Store, GUI, and Namespaced Storage
+- Storage: Namespaced layout `{ledgerRoot}/{repoName}/{slug}/` eliminates cross-repo slug collisions.
+- Storage: One-time idempotent migration to namespaced layout runs on startup.
+- Storage: `resolveProjectDir()` resolves bare slugs or `{repo}/{slug}` composites; throws `AMBIGUOUS` on collision.
+- Storage: `listAllProjects()` now scans two directory levels (repo namespace → slug directory).
+- Storage: Added `KnowledgeStoreManager` with per-scope store files and atomic read-modify-write via single lock.
+- Storage: `moveInsight()` performs promote/move atomically — eliminates the previous add→delete TOCTOU gap.
+- Storage: `searchInsights()` extended with `tags`, `limit`, and `offset`; combinable with full-text query.
+- Tools: Added `ledger_add_insight`, `ledger_search_insights`, `ledger_list_insights`, `ledger_update_insight`.
+- Tools: Insight IDs formatted as `KN-NNNN` in all tool responses.
+- GUI: Added Knowledge page (`#/knowledge`) with Global/Repository tabs and client-side category/text filtering.
+- GUI: Five knowledge REST endpoints wired: list, update, delete, promote, and move.
+- GUI: Extracted all knowledge handlers from `api.ts` into dedicated `gui/api-knowledge.ts`.
+- GUI: Fixed project name not resolving in breadcrumb navigation.
+- GUI: Fixed Dismiss button for dead orchestrator runs; unified button layout in runs list.
+- GUI: Fixed filter input losing focus on list refresh in Knowledge and project list pages.
+- GUI: Fixed backward-compat run-log route creating ghost directories under legacy flat path.
+- Scripts: Added `move-unknown-project` — migrates a project from the `unknown` namespace to its correct repo.
+- Scripts: Added `rename-repository` — renames a repository namespace across all ledger storage.
+- Security: Extracted inline theme-init script to `theme-init.js`; CSP `script-src` is now `'self'` only.
+- Security: `parseKnowledgeId()` validates IDs as positive integers; rejects floats, zero, non-numeric (HTTP 400).
+- Security: PATCH `/api/projects/` guard updated from `startsWith()` to regex for consistency.
+- Tests: 173 knowledge store tests, 30 handler tests, 40 routing tests, and CSP `script-src` assertion.
+- Docs: Updated `api-surface.md`, `constraints.md`, `file-tree.md`, and `data-flows.md`.
+
 ## v1.30.4 - INVOKE_AGENT Action for Auto-Handoff
 - Next-action: `embedHandoffStatusInWait` now promotes `action: WAIT` → `action: INVOKE_AGENT`
   when the embedded `handoff_status` contains an `auto_handoff` entry, eliminating the

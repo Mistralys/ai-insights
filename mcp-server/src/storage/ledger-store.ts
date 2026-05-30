@@ -9,7 +9,7 @@ import {
 import { ProjectMetaSchema, type ProjectMeta } from '../schema/project-meta.js';
 import { atomicWriteJson } from './atomic-writer.js';
 import { withLock } from './file-lock.js';
-import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath } from '../utils/ledger-root.js';
+import { resolveLedgerRoot, projectSlugFromPath, inferProjectRootFromPlanPath, deriveRepoName } from '../utils/ledger-root.js';
 import { SAFE_SLUG_REGEX } from '../utils/constants.js';
 import { now, parseTimestamp } from '../utils/timestamp.js';
 import { computePassedStages, computeProjectProgress } from '../utils/workflow-helpers.js';
@@ -48,20 +48,22 @@ export class SlugConflictError extends Error {
  * All reads validate with Zod schemas.
  * All writes use atomic operations and file locking.
  *
- * Files are stored in the centralized ledger root at `{ledgerRoot}/{slug}/`
+ * Files are stored in the centralized ledger root at `{ledgerRoot}/{repoName}/{slug}/`
  * rather than inside the plan folder.
  */
 export class LedgerStore {
   public readonly planPath: string;
   public readonly slug: string;
   public readonly ledgerRoot: string;
+  public readonly repoName: string;
   public readonly storageDir: string;
 
   constructor(projectPath: string, ledgerRoot?: string) {
     this.planPath = projectPath;
     this.slug = projectSlugFromPath(projectPath);
     this.ledgerRoot = ledgerRoot ?? resolveLedgerRoot();
-    this.storageDir = join(this.ledgerRoot, this.slug);
+    this.repoName = deriveRepoName(projectPath);
+    this.storageDir = join(this.ledgerRoot, this.repoName, this.slug);
   }
 
   // ==================== Path Helpers ====================
@@ -594,7 +596,7 @@ export class LedgerStore {
     if (newSlug === this.slug) {
       throw new Error(`Slug is already "${newSlug}"; no rename needed.`);
     }
-    const newStorageDir = join(this.ledgerRoot, newSlug);
+    const newStorageDir = join(this.ledgerRoot, this.repoName, newSlug);
     try {
       await access(newStorageDir);
       // If access() resolves, the directory exists — conflict.
@@ -690,16 +692,47 @@ export class LedgerStore {
       // break archive isolation.
       if (entry.startsWith('.')) continue;
 
-      const metaFile = join(root, entry, '.meta.json');
+      const depth1Dir = join(root, entry);
+      const depth1MetaFile = join(depth1Dir, '.meta.json');
+
+      // First, try reading .meta.json directly at depth 1 (old flat layout).
+      let foundAtDepth1 = false;
       try {
-        const content = await readFile(metaFile, 'utf-8');
+        const content = await readFile(depth1MetaFile, 'utf-8');
         const data = JSON.parse(content);
         const meta = ProjectMetaSchema.parse(data);
         results.push(meta);
-      } catch (err) {
-        process.stderr.write(
-          `[LedgerStore.listAllProjects] Skipping "${entry}": ${(err as Error).message}\n`
-        );
+        foundAtDepth1 = true;
+      } catch {
+        // No valid .meta.json at depth 1 — treat entry as a repo-namespace directory
+        // and scan its children for project slug directories (new namespaced layout).
+      }
+
+      if (!foundAtDepth1) {
+        let subDirents: import('fs').Dirent[];
+        try {
+          subDirents = await readdir(depth1Dir, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+
+        for (const subDirent of subDirents) {
+          const subEntry = subDirent.name;
+          if (!subDirent.isDirectory()) continue;
+          if (subEntry.startsWith('.')) continue;
+
+          const depth2MetaFile = join(depth1Dir, subEntry, '.meta.json');
+          try {
+            const content = await readFile(depth2MetaFile, 'utf-8');
+            const data = JSON.parse(content);
+            const meta = ProjectMetaSchema.parse(data);
+            results.push(meta);
+          } catch (err) {
+            process.stderr.write(
+              `[LedgerStore.listAllProjects] Skipping "${entry}/${subEntry}": ${(err as Error).message}\n`
+            );
+          }
+        }
       }
     }
 

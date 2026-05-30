@@ -4,8 +4,8 @@ vs_file_name: 3-dev.agent.md
 id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
-version: "3.6.2"
-last_updated: "2026-04-08"
+version: "3.6.3"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -14,6 +14,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*
@@ -38,6 +39,8 @@ mcp_tools:
     purpose: "Add a Code Insight observation to a completed pipeline (use when you discover something after calling `ledger_complete_pipeline`)."
   - tool: ledger_get_work_package
     purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
+  - tool: ledger_search_insights
+    purpose: "Search knowledge store for coding principles and patterns relevant to the current implementation."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."

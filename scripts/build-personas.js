@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-'use strict';
 
 /**
  * build-personas.js — thin wrapper around @mistralys/persona-builder.
@@ -7,11 +6,14 @@
  * Usage: node scripts/build-personas.js [--check] [--strict] [--dry-run]
  */
 
-const fs               = require('fs');
-const path             = require('path');
-const { execFileSync } = require('child_process');
+import fs from 'fs';
+import path from 'path';
+import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 
-const ROOT     = path.join(__dirname, '..');
+const _require = createRequire(import.meta.url);
+
+const ROOT     = path.join(import.meta.dirname, '..');
 const PERSONAS = path.join(ROOT, 'personas');
 const CONFIG   = path.join(PERSONAS, 'persona-build.config.js');
 const CLI      = path.join(PERSONAS, 'node_modules', '@mistralys', 'persona-builder', 'dist', 'cli.js');
@@ -23,7 +25,7 @@ const STRICT = process.argv.includes('--strict');
 // Pre-build: clean output directories so stale/renamed files don't linger.
 // Skipped in --check / --dry-run mode (read-only).
 if (!CHECK) {
-  const config = require(CONFIG);
+  const config = _require(CONFIG);
   const outputDirs = [];
   for (const suite of Object.values(config.suites)) {
     if (suite.outVscode)     outputDirs.push(suite.outVscode);

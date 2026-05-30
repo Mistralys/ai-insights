@@ -13,10 +13,12 @@ import * as beginWorkTools from './tools/begin-work.js';
 import * as observationTools from './tools/observations.js';
 import * as workflowTools from './tools/workflow.js';
 import * as helpTools from './tools/help.js';
+import * as knowledgeTools from './tools/knowledge.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
+import { migrateToNamespacedLayout } from './storage/migrate-namespaced.js';
 
 /**
  * Resolves the agents directory from CLI args or platform-specific defaults.
@@ -80,6 +82,7 @@ async function main(): Promise<void> {
   observationTools.register(server);
   workflowTools.register(server);
   helpTools.register(server);
+  knowledgeTools.register(server);
 
   // Connect to STDIO transport
   // Note: stdout is reserved for MCP protocol, all logs go to stderr
@@ -96,6 +99,20 @@ async function main(): Promise<void> {
   mkdirSync(ledgerRoot, { recursive: true });
   process.stderr.write(`[mcp-server] Ledger root: ${ledgerRoot}\n`);
 
+  // Run one-time startup migration from flat layout to repo-namespaced layout.
+  try {
+    const migration = await migrateToNamespacedLayout(ledgerRoot);
+    if (!migration.skipped && migration.moved.length > 0) {
+      process.stderr.write(
+        `[migrate-namespaced] Moved ${migration.moved.length} project(s) to namespaced layout.\n`
+      );
+    }
+  } catch (err) {
+    // Log but do not abort startup — partial failures are already reported
+    // inside migrateToNamespacedLayout via stderr.
+    process.stderr.write(`[migrate-namespaced] Migration error: ${(err as Error).message}\n`);
+  }
+
   // Initialise runtime config from gui-config.json
   const configPath = join(ledgerRoot, 'gui-config.json');
   await readConfigFromDisk(configPath);
@@ -106,7 +123,7 @@ async function main(): Promise<void> {
   // removed in src/tools/**. The MCP SDK does not expose a listTools() method
   // at startup, so dynamic generation is not currently possible.
   console.error(
-    '[project-ledger-mcp] Registered tools: ledger_help, ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_reset_rework_count, ledger_update_acceptance_criteria, ledger_start_pipeline, ledger_begin_work, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status'
+    '[project-ledger-mcp] Registered tools: ledger_help, ledger_get_project_status, ledger_initialize_project, ledger_get_work_package, ledger_list_work_packages, ledger_create_work_package, ledger_claim_work_package, ledger_update_work_package_status, ledger_reset_rework_count, ledger_update_acceptance_criteria, ledger_start_pipeline, ledger_begin_work, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress, ledger_add_observation, ledger_add_project_comment, ledger_get_next_action, ledger_get_handoff_status, ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight'
   );
 
   // Initialise agent registry for auto-handoff

@@ -12,6 +12,1142 @@ Edge case handling, dependency and rework patterns, auxiliary systems, and agent
         └── agents/
             └── workflow-specification/
                 └── edge-cases.md
+                └── handoff.md
+                └── operations.md
+                └── pipeline-routing.md
+                └── recommendations.md
+                └── state-machines.md
+                └── walkthrough.md
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/README.md`
+
+```md
+# Agent Workflow Specification
+
+> **Purpose:** This document is the **authoritative specification** of the 9-agent dynamic pipeline workflow. It defines all state machines, handoff logic, pipeline orchestration, edge cases, and invariants. Implementation code (TypeScript MCP server, Python orchestrator) and tests are **validated against this specification**. It also serves as a language-agnostic reference for porting the workflow logic to additional runtimes.
+
+**Version:** 2.5.1
+**Date:** 2026-05-30
+
+---
+
+## Changelog
+
+### v2.5.1 - Mixed-Routing Forward Progress
+
+- **Next-stage routing clarified (§13.1):** When multiple ready WPs route to different next agents (e.g., QA handoff with one WP routing to Security Auditor and another to Reviewer), the handoff returns the first ready WP's `READY_FOR_*` status rather than `WAIT`. Remaining WPs are dispatched via subsequent per-agent handoff calls — each agent's `getNextAction` is role-scoped, so dispatching the first agent never misroutes the other WPs. This eliminates false WAIT states that caused IDE stalls in mixed-stage projects.
+- **Design notes added (§13.1):** Added mixed-routing design notes to the QA and Reviewer handoff pseudocode blocks documenting the first-match dispatch behavior and its safety guarantees.
+
+### v2.5.0 - Cross-WP Dispatch from Non-PM Agents
+
+- **`findNextReadyDispatch()` helper (§13.5):** Introduced as the shared implementation for cross-WP dispatch used by the five non-PM pipeline agent handoff functions (QA, Security Auditor, Reviewer, Release Engineer, Documentation). The helper scans all READY, non-dependency-blocked WPs and routes to `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`, preventing IDE workflow stalls when a non-PM agent's role-specific work is done but other READY WPs have not yet started any pipelines. Returns `READY_FOR_SYNTHESIS` when all WPs are terminal; returns `null` when no deterministic dispatch is possible (caller falls through to WAIT).
+- **Five handoff functions updated (§13.1):** QA, Security Auditor, Reviewer, Release Engineer, and Documentation handoff functions each call `findNextReadyDispatch()` as the penultimate step (immediately before their final `return WAIT`). This closes the IDE stall gap documented in §21.71.
+- **Spec pseudocode updated (§13.5):** Corrected the `findNextReadyDispatch` pseudocode to match the implementation: (a) the helper does NOT consult `wp.assigned_to` — routing is always via `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`; (b) the helper accepts a `currentRole` parameter used only for the diagnostic `reason` string; (c) the all-terminal branch is guarded by a non-empty `wpDetails` check to prevent false `READY_FOR_SYNTHESIS` on empty projects; (d) dependency-blocked WPs are excluded from the READY scan via `!isBlockedByDependencies(wp)`.
+- **Release Engineer all-terminal asymmetry documented (§13.1):** Added a design note explaining that `getReleaseEngineerHandoff` scopes its all-terminal early-exit to `releaseWps` (not `wpDetails`), unlike the other four handoff functions. `findNextReadyDispatch()` serves as a safety net for zero-release-stage projects. Behaviour is functionally correct in all non-degenerate configurations.
+- **New edge case:** §21.71 (Cross-WP Dispatch from Non-PM Agents) — documents the stall scenario, the `findNextReadyDispatch` resolution, self-routing design decision, and invariants. *(Note: §21.71 was pre-populated in the spec prior to implementation; this version marks it as the authoritative implementation record.)*
+
+### v2.4.3 - PM Pipeline-Routing for IN_PROGRESS WPs
+- **PM Handoff step 2b (§13.1):** Added a new step 2b to the Project Manager Handoff algorithm, positioned between step 2 (READY WPs) and step 3 (all terminal). Step 2b scans non-terminal, non-dependency-blocked IN_PROGRESS WPs for pipeline stage transitions and routes to `PIPELINE_AGENT_MAP[nextStage]`. This closes the auto-handoff gap where the PM returned WAIT after a pipeline stage PASSed but no READY WPs remained, leaving no agent to dispatch to.
+- **PM Action priority 3d (§14.1.2):** Added `ROUTE_PIPELINE_AGENT` as priority 3d in the PM recommendation engine, positioned after `REPAIR_ORPHAN_BLOCKED` (3c) and before `CREATE_WORK_PACKAGES` (4). Applies the same stage-scanning logic as §13.1 step 2b to the recommendation path.
+- **Design notes (§13.1):** Added two design notes to the PM Handoff section explaining (a) the PM's prior blindness to intra-WP pipeline transitions and how step 2b resolves it, and (b) freshly-claimed WP coverage — WPs with zero pipelines are routed immediately to their first-active-stage agent, with REVIEW_ABANDONED still covering the staleness-threshold fallback.
+- **New edge case:** §21.70 (PM Pipeline-Routing for IN_PROGRESS WPs) — documents both covered scenarios (stage PASS → next stage, and zero-pipeline freshly-claimed WP), the four guards applied, and the priority ordering rationale.
+
+### v2.4.2 - Handoff Handler Active-Stage Scoping
+- **Handoff scope filters (§13.1):** Added explicit `active_pipeline_stages` scoping to Developer, QA, Reviewer, and Documentation handoff functions. Pipeline-specific conditions now include `with "<type>" in activeStages`, matching the pattern established by Security Auditor and Release Engineer handlers in v2.4.0. Without this scoping, non-default WP compositions (e.g., documentation-only) were misclassified as `IN_PROGRESS` by pipeline handlers that have no work on those WPs, suppressing auto-handoff.
+- **Documentation handoff null-prerequisite (§13.1):** Defined `hasPassEffectiveUpstream` as vacuously true when `resolvePrerequisite` returns `null` (documentation is the first or only active stage), consistent with `canStartPipeline` (§8.2).
+- **PM handoff dynamic routing (§13.1):** Replaced hardcoded `READY_FOR_DEVELOPER` fallback for unassigned READY WPs with `readyStatusForAgent(PIPELINE_AGENT_MAP[firstActiveStage(wp)])`, routing to the agent owning the WP's first active stage.
+- **New edge case:** §21.69 (Handoff Handler Active-Stage Scoping) — documents the invariant, consequences of violation, and correct pattern.
+
+### v2.4.1 - Spec-Implementation Sync Fixes
+- **Re-validation guard fix (§11.1):** Made the upstream rework check unconditional — it now fires regardless of whether the current pipeline type has prior runs. Previously, first-run scenarios were short-circuited, allowing stage-skipping (e.g., code-review starting for the first time while a new implementation pipeline is in progress). The two-layer guard structure is preserved: layer 1 (unconditional upstream rework) fires first, layer 2 (temporal consistency for same-type re-runs) handles self-rework allowance.
+- **Downstream fail active-stages fix (§11.1):** `hasDownstreamFail` in `startPipeline` rework detection now receives the WP's `activeStages`, ensuring rework is correctly detected for WPs with optional stages (security-audit, release-engineering) active.
+- **Artifact soft warning persisted (§12.1):** `completePipeline` now persists the empty-artifacts soft warning as a project comment (in addition to the response text), matching the §12.1 specification.
+- **Handoff depth multiplier increased (§18.2.1):** Updated formula from `total_work_packages × 20` to `total_work_packages × 30`, matching the implementation. Operational experience showed the original multiplier was insufficient for projects with complex rework patterns and wasted handoff cycles.
+- **`getDownstreamTypes`/`getUpstreamTypes` default aligned (§8.4, §8.5):** Spec pseudocode updated to default to `DEFAULT_PIPELINE_STAGES` (not `CANONICAL_PIPELINE_ORDERING`) when `activeStages` is omitted, matching the implementation's backward-compatible behavior.
+
+### v2.4.0 - PM-Composable Pipeline Stages
+- **Breaking conceptual change:** Removed the mandatory/optional pipeline stage distinction. All six stages are now PM-composable — the Project Manager selects any valid subsequence of the canonical ordering per WP. The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired and replaced by `DEFAULT_PIPELINE_STAGES` (§4.2).
+- **Generalized COMPLETE guard:** The `IN_PROGRESS → COMPLETE` transition is no longer hardcoded to the Documentation agent. The agent owning the WP's **last active stage** is now the terminal agent. Added `firstActiveStage`/`lastActiveStage` helpers (§6.2.1). Freshness check generalized from documentation-vs-implementation to lastActiveStage-vs-firstActiveStage.
+- **Generalized FAIL routing:** Added `resolveFailAgent` function (§9.3.1) with fallback rule — when the standard FAIL target's stage is not active, route to the first active stage's agent.
+- **Soft guardrails:** `validateActiveStages` (§9b.2) no longer rejects non-mandatory compositions. Instead, hard rejects catch structural errors (invalid types, duplicates, out-of-order, empty) while soft guardrails emit warning project comments for unusual compositions (implementation without QA, single-stage chains, non-default compositions).
+- **Artifact declaration:** `completePipeline` (§12.1) now emits a soft warning when a PASS result declares no `artifacts.files_modified`.
+- **New edge cases:** §21.60 (single-stage WP semantics), §21.61 (documentation-only WP), §21.62 (verification-only WP), §21.63 (FAIL routing fallback semantics), §21.64 (artifact declaration soft warning).
+- **Updated edge cases:** §21.10 generalized from "Documentation-Only COMPLETE Guard" to "Generalized COMPLETE Guard". §21.55 renamed from "Optional Pipeline Stage Backward Compatibility" to "Pipeline Stage Backward Compatibility".
+- **Updated appendices:** Appendix A adds `DEFAULT_PIPELINE_STAGES` and `CANONICAL_PIPELINE_ORDERING` constants. Appendix C adds soft warning conditions table.
+
+### v2.3.0 - Synthesis Timestamp, Ledger Versioning, Cross-WP Staleness
+- Added `synthesis_generated_at` timestamp to root index (§3.1, §19.1, §21.57): records when synthesis was last completed, enabling staleness detection and observability. Cleared alongside `synthesis_generated` on all reset paths (§6.2, §15.5, §21.51).
+- Added `ledger_version` field to root index (§3.1, §21.58): records the specification version that created the ledger, enabling forward-compatible migrations when the spec evolves.
+- Added §21.59 (Cross-WP Staleness After Dependency Reopens): documents the compounding staleness gap in transitive dependency chains after a WP reopen, and recommends a `completePipeline` dependency freshness check as a lightweight mitigation.
+
+### v2.2.0 - Audit Fixes
+- Fixed first-run stage-skipping exploit: upstream rework check is now unconditional, no longer gated by `effectiveSamePipelines` being non-empty (§11.1, §11.1.1).
+- Fixed dangling `IN_PROGRESS` pipelines on `COMPLETE`: added guard rejecting the transition when any pipeline is still `IN_PROGRESS` (§10b.1).
+- Removed `hasDownstreamFail` wrapper from re-validation guard: `hasUpstreamRework` alone correctly distinguishes self-rework from genuine upstream invalidation, eliminating the documented "Known limitation — WP reopen scenario" (§11.1, §11.1.1, §21.22).
+- Updated §21.42 and §21.48 references to reflect the improved re-validation guard coverage.
+
+### v2.1.0 - Agent Extension
+- Additional agents in the workflow.
+- Review cycle 1.
+
+### v2.0.0 - Fully Reviewed
+- Fully LLM-reviewed and solid after 20+ cycles.
+
+### v1.0.0 - Initial Version
+- As extracted from the Ledger MCP logic.
+
+---
+
+## Table of Contents
+
+| # | Document | Sections |
+|---|----------|----------|
+| 1 | [Data Model](data-model.md) | Glossary, Entities & Data Model, Agent Roles |
+| 2 | [State Machines](state-machines.md) | Project Lifecycle, Work Package State Machine, Pipeline State Machine |
+| 3 | [Pipeline Routing](pipeline-routing.md) | Pipeline Ordering & Prerequisites, Pipeline Routing Maps |
+| 4 | [Operations](operations.md) | Work Package Creation, Work Package Claiming, Updating Work Package Status, Starting a Pipeline, Completing a Pipeline |
+| 5a | [Handoff Logic](handoff.md) | Per-Agent Handoff Functions, Evaluation Order, Dependency-Blocked WP Exclusion, Next Agent Resolution |
+| 5b | [Recommendation Engine](recommendations.md) | Common Pre-checks, Role-Specific Action Logic, Helper Algorithms |
+| 6 | [Dependencies & Rework](dependencies-and-rework.md) | Dependency Management, Rework & Circuit Breaker |
+| 7 | [Auxiliary Systems](auxiliary-systems.md) | Self-Healing, Auto-Handoff Depth Counter, Synthesis Completion, Concurrency Model |
+| 8 | [Edge Cases](edge-cases.md) | Edge Cases & Invariants |
+| 9 | [Walkthrough](walkthrough.md) | Complete Workflow Walkthrough, Appendices (Constants, Action Types, Error Conditions) |
+
+---
+
+## Quick Section Reference
+
+Use the original section numbers to find content across the split files:
+
+| § | Title | File |
+|---|-------|------|
+| 1 | Overview | This README |
+| 2 | Glossary | [data-model.md](data-model.md) |
+| 3 | Entities & Data Model | [data-model.md](data-model.md) |
+| 4 | Agent Roles | [data-model.md](data-model.md) |
+| 5 | Project Lifecycle | [state-machines.md](state-machines.md) |
+| 6 | Work Package State Machine | [state-machines.md](state-machines.md) |
+| 7 | Pipeline State Machine | [state-machines.md](state-machines.md) |
+| 8 | Pipeline Ordering & Prerequisites | [pipeline-routing.md](pipeline-routing.md) |
+| 9 | Pipeline Routing Maps | [pipeline-routing.md](pipeline-routing.md) |
+| 9b | Work Package Creation | [operations.md](operations.md) |
+| 10 | Work Package Claiming | [operations.md](operations.md) |
+| 10b | Updating Work Package Status | [operations.md](operations.md) |
+| 11 | Starting a Pipeline | [operations.md](operations.md) |
+| 12 | Completing a Pipeline | [operations.md](operations.md) |
+| 13 | Handoff Logic | [handoff.md](handoff.md) |
+| 14 | Next-Action Recommendation Engine | [recommendations.md](recommendations.md) |
+| 15 | Dependency Management | [dependencies-and-rework.md](dependencies-and-rework.md) |
+| 16 | Rework & Circuit Breaker | [dependencies-and-rework.md](dependencies-and-rework.md) |
+| 17 | Self-Healing | [auxiliary-systems.md](auxiliary-systems.md) |
+| 18 | Auto-Handoff Depth Counter | [auxiliary-systems.md](auxiliary-systems.md) |
+| 19 | Synthesis Completion | [auxiliary-systems.md](auxiliary-systems.md) |
+| 20 | Concurrency Model | [auxiliary-systems.md](auxiliary-systems.md) |
+| 21 | Edge Cases & Invariants | [edge-cases.md](edge-cases.md) |
+| 22 | Complete Workflow Walkthrough | [walkthrough.md](walkthrough.md) |
+| A | Constant Reference | [walkthrough.md](walkthrough.md) |
+| B | Action Types Reference | [walkthrough.md](walkthrough.md) |
+| C | Error Conditions Summary | [walkthrough.md](walkthrough.md) |
+
+---
+
+## 1. Overview
+
+The workflow orchestrates **nine specialized agent roles** to execute software development tasks. A **centralized ledger** persists project state, enabling agents to collaborate across independent sessions without losing context.
+
+The core progression is:
+
+```
+Planner → Project Manager → [ Developer → QA → Security Auditor → Reviewer → Release Engineer → Documentation ] → Synthesis
+```
+
+All six pipeline stages are **PM-composable** — the Project Manager selects which stages are active for each work package at creation time via the `active_pipeline_stages` field. The default set (`DEFAULT_PIPELINE_STAGES`) is `["implementation", "qa", "code-review", "documentation"]`, providing backward compatibility. The PM may compose any valid subsequence of the canonical ordering, from a single stage (e.g., documentation-only) to all six stages.
+
+Work is organized into **work packages** (WPs), each of which progresses through a configurable sequence of **pipelines**:
+
+```
+implementation → qa → security-audit → code-review → release-engineering → documentation
+```
+
+Each pipeline is owned by a single agent role. Failures route back for rework (to Developer for QA/security-audit/code-review FAILs; to self for documentation/release-engineering FAILs; with a fallback to the first active stage's agent when the standard target's stage is not active). The system enforces ordering, validates transitions, and manages handoffs automatically. Dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`, `resolveFailAgent`) adapt the pipeline chain per WP based on its active stages.
+
+---
+
+## Machine-Readable Vocabulary
+
+`shared/workflow-manifest.json` is the **machine-readable encoding** of this specification's vocabulary. It captures the specification-derived constructs that must be consistent across all implementations (TypeScript MCP server, Python orchestrator, persona build system):
+
+| Construct | Manifest field | Consumers |
+|-----------|---------------|----------|
+| Agent role names & IDs | `roles[].name`, `roles[].id` | `src/utils/constants.ts` → `AGENT_ROLES`, `ROLE_IDS`; `scripts/sync-personas.js` → `KNOWN_ROLES`; persona YAML `role` fields (validated by `build-personas.js`) |
+| Orchestrating roles | `roles[].orchestrating` | `src/utils/constants.ts` → `ORCHESTRATING_ROLES` |
+| Pipeline types & canonical order | `pipelines.canonical_order` | `src/utils/pipeline-maps.ts` → `PIPELINE_TYPES`, `CANONICAL_PIPELINE_ORDERING` |
+| Default pipeline stages | `pipelines.default_stages` | `src/utils/pipeline-maps.ts` → `DEFAULT_PIPELINE_STAGES` |
+| Pipeline → agent mapping | `pipelines.agent_map` | `src/utils/pipeline-maps.ts` → `PIPELINE_AGENT_MAP` |
+| Specification version | `spec_version` | `src/utils/constants.ts` → `SPEC_VERSION` |
+| Status enums | `statuses.*` | `src/schema/enums.ts` |
+
+When this specification changes vocabulary (e.g., adding a role, renaming a pipeline type), update `shared/workflow-manifest.json` first — all consumers derive their constants from it at build/load time.
+
+The manifest is validated structurally by `shared/workflow-manifest.schema.json` (JSON Schema Draft-07) and semantically by `scripts/validate-workflow-manifest.js`.
+
+---
+
+## Compliance Model
+
+> **This specification is the single source of truth for all workflow logic.**
+
+### Authority Hierarchy
+
+| Layer | Document | Authority |
+|-------|----------|-----------|
+| **Specification** | This document (all sections) | Defines how the workflow **must** behave. Authoritative. |
+| **Implementation** | `mcp-server/src/` (TypeScript) | Implements the specification. Must conform to it. |
+| **Tests** | `mcp-server/tests/` | Validates that the implementation conforms to the specification. |
+| **Project Manifest** | `mcp-server/docs/agents/project-manifest/` | Documents how the implementation currently works. Descriptive, not prescriptive for workflow logic. |
+| **Orchestrator** | `orchestrator/src/` (Python) | Alternate implementation. Must also conform to this specification. |
+
+### Rules
+
+1. **Spec-first development.** All changes to pipeline types, routing maps, state machines, operational algorithms, edge-case behavior, and constant values MUST be made in this specification first. Implementation follows.
+2. **Code ≠ truth.** When implementation code contradicts this specification, the **code is wrong** unless the specification is explicitly amended first.
+3. **Tests validate the spec, not the code.** Test assertions must reflect the behavior defined in this specification. A passing test that diverges from the spec is a **false positive** and must be corrected.
+4. **Spec-section traceability.** Test descriptions SHOULD reference the specification section they validate (e.g., `§8.2`, `§14.13 row 1`). This enables automated auditing of spec coverage and makes the test's authority explicit.
+5. **Implementation notes within the spec.** Where the specification references implementation details (e.g., specific TypeScript exports), these are illustrative, not authoritative. If the implementation changes its internal structure, the spec's algorithmic definitions remain the authority; the implementation notes should be updated to match. *Example: if `CLAIMABLE_ROLES` is refactored into a different module, the algorithm defined in §10.1 remains authoritative — only the implementation note pointing to its location needs updating.*
+6. **Manifest documents the implementation.** The project manifest (`api-surface.md`, `constraints.md`, etc.) describes the current state of the code. When the specification changes, the implementation changes, and the manifest is updated to reflect the new implementation — in that order.
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/auxiliary-systems.md`
+
+```md
+# Auxiliary Systems
+
+> Part of the [Agent Workflow Specification](README.md).
+
+---
+
+## 17. Self-Healing
+
+The project status tool auto-corrects counters and project status on every read.
+
+### 17.1 Healed Fields
+
+- `total_work_packages`: recomputed as `work_packages.length`
+- `pending_work_packages`: recomputed as count of non-terminal WPs
+- `status`: corrected based on rules below
+
+### 17.2 Healing Rules (Applied in Order — First Match Wins)
+
+> **Numbering convention:** Rules are grouped by the project status they match against. Sub-rules (e.g., 1b, 1c) share the same status condition as their parent but differ in secondary conditions. Rules 1/1b/1c all match `pending == 0 AND total > 0` but diverge on `synthesis_generated` and the current project status.
+
+| # | Condition | Healed Status |
+|---|-----------|---------------|
+| 1 | (`IN_PROGRESS` or `READY`) AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
+| 1b | `READY` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis — see note below) |
+| 1c | `IN_PROGRESS` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | Preserve `IN_PROGRESS` (no change — awaiting synthesis) |
+| 2 | `COMPLETE` AND `pending > 0` | `IN_PROGRESS` (reopen/drift repair) |
+| 2b | `COMPLETE` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (synthesis not yet run — project completion requires synthesis) |
+| 3 | `READY` AND any WP is `IN_PROGRESS` | `IN_PROGRESS` |
+| 3b | `READY` AND `pending > 0` AND no WP is `READY` or `IN_PROGRESS` | `BLOCKED` (all remaining WPs are blocked) |
+| 3c | `IN_PROGRESS` AND `pending > 0` AND no WP is `READY` or `IN_PROGRESS` | `BLOCKED` (drift repair: all remaining WPs are blocked) |
+| 4 | `BLOCKED` AND any WP is `IN_PROGRESS` | `IN_PROGRESS` (progress possible despite some WPs still blocked) |
+| 4b | `BLOCKED` AND any WP is `READY` (none `IN_PROGRESS`) | `READY` (progress possible via READY WPs, even if other WPs remain blocked) |
+| 5a | `BLOCKED` AND `pending == 0` AND `total > 0` AND `synthesis_generated` | `COMPLETE` |
+| 5b | `BLOCKED` AND `pending == 0` AND `total > 0` AND NOT `synthesis_generated` | `IN_PROGRESS` (all WPs done, awaiting synthesis) |
+| 6 | Empty project (no WPs) | Never auto-healed to `COMPLETE` |
+| 6b | (`IN_PROGRESS` or `BLOCKED`) AND `total == 0` | `READY` (drift repair: no WPs exist to process) |
+| 6c | `COMPLETE` AND `total == 0` | `READY` (drift repair: project marked complete with no WPs — see note below) |
+
+> **Rule 1b/1c/5b semantic note:** In the "all WPs terminal, awaiting synthesis" state, no WP is actively being worked on, yet the project is healed to `IN_PROGRESS`. This extends the §5.2 definition of `IN_PROGRESS` beyond its literal meaning ("at least one WP is being worked on") to also cover the post-completion, pre-synthesis phase. `IN_PROGRESS` is the best available status — the project is neither `READY` (work has been done), `BLOCKED` (synthesis can proceed), nor `COMPLETE` (synthesis hasn't run). Implementations should treat `IN_PROGRESS` with `pending == 0` and `synthesis_generated == false` as the "awaiting synthesis" sub-state.
+
+> **Rule 6b rationale:** If data corruption or an interrupted operation leaves a project `IN_PROGRESS` or `BLOCKED` with zero work packages, no agent can make progress and no other healing rule matches. Healing to `READY` is the most conservative repair — the Project Manager can then re-create work packages.
+
+> **Rule 6c rationale:** A `COMPLETE` project with zero work packages is contradictory — `completeSynthesis` (§19.1) explicitly requires at least one WP. This state can only arise from data corruption (e.g., WP files deleted after synthesis). Healing to `READY` allows the Project Manager to re-create work packages. Without this rule, a COMPLETE-but-empty project would persist in an inconsistent state with no self-repair path.
+
+> **Rule 4 rationale:** A project should not stay `BLOCKED` when some WPs can make progress. Even if other WPs remain `BLOCKED`, the presence of an `IN_PROGRESS` WP means at least one agent can advance. This mirrors rule 3 (which handles the `READY` → `IN_PROGRESS` case) for the `BLOCKED` → `IN_PROGRESS` case.
+
+> **Rule 4b rationale:** Extends rule 4 to the `READY` case. After a partial auto-unblock (§15.4), some WPs may become `READY` while others remain `BLOCKED`. Per §5.2, the project should not be `BLOCKED` when any WP is `READY` or `IN_PROGRESS`. Without rule 4b, a partially-unblocked project would remain stuck in `BLOCKED` until all blocked WPs resolved — the prior rule 5b required "no WP is `BLOCKED`" in its condition, missing the mixed READY/BLOCKED case. Rule 4b subsumes former rule 5b (which was removed as unreachable once 4b was added). Rules 5a and 5b were renumbered (formerly 5a and 5c) and their "no WP is `BLOCKED`" condition was removed as redundant — after rules 4 and 4b filter out any project with `IN_PROGRESS` or `READY` WPs, a `BLOCKED` project with `pending == 0` can only contain terminal WPs (none `BLOCKED`).
+
+> **Completeness note:** The healing rules above are designed for the four-status model (`READY`, `IN_PROGRESS`, `COMPLETE`, `BLOCKED`). The initial project state — `READY` with `total == 0` — intentionally matches no rule: self-healing is a no-op for this state because it is already correct (the PM has not yet created WPs). No catch-all rule exists — if a project enters a state that matches no rule (e.g., due to a future status value being added without corresponding healing rules), self-healing silently does nothing. Implementations that extend the status model MUST add corresponding healing rules to maintain the self-repair guarantee.
+
+> **Known gap — stale `synthesis_generated` with pending WPs:** If data corruption sets `synthesis_generated = true` while WPs are still pending (`pending > 0`) and the project is `IN_PROGRESS`, no healing rule resets `synthesis_generated`. Self-healing only corrects project `status`, not the `synthesis_generated` flag (which is reset by COMPLETE → IN_PROGRESS transitions §6.2, cascade reblock §15.5, and WP creation on COMPLETE projects §21.51). If the pending WPs subsequently complete, rule 1 fires (`IN_PROGRESS AND pending == 0 AND synthesis_generated`) and auto-completes the project with a stale synthesis. **Mitigation:** Implementations SHOULD add a defensive check: if `synthesis_generated == true` AND `pending > 0`, reset `synthesis_generated = false` during self-healing. This is a corruption-only scenario (no normal operation produces this combination), so the risk is low, but the impact (silent stale completion) is high.
+
+### 17.3 Write Optimization
+
+```
+function healProject(root):
+  healed = computeHealedStatus(root)    // Pure function, no I/O
+  
+  if not healed.needsWrite:
+    return root                          // No correction needed
+  
+  acquire lock
+  freshRoot = readRootIndex()            // Re-read under lock
+  freshHealed = computeHealedStatus(freshRoot)
+  
+  if freshHealed.needsWrite:
+    apply corrections to freshRoot
+    writeRootIndex(freshRoot)
+  
+  release lock
+  return corrected root
+```
+
+The double-check (compute → lock → re-read → re-compute → write) prevents race conditions.
+
+### 17.4 Optional Pipeline Ordering Validation
+
+The `pipelines` array ordering invariant ([§3.4](data-model.md#34-pipeline)) is critical to the correctness of prerequisite checks, rework detection, and freshness checks. Implementations SHOULD add a defensive check during self-healing: verify that `started_at` timestamps across all pipelines in each WP are monotonically non-decreasing. If a violation is detected, emit a `"warning"` project comment identifying the affected WP. Self-healing does not attempt to reorder pipelines (the correct order may be ambiguous if timestamps were corrupted), but surfacing the violation allows the PM to investigate and repair the data.
+
+---
+
+## 18. Auto-Handoff Depth Counter
+
+Prevents infinite agent-chain loops.
+
+### 18.1 Storage
+
+`auto_handoff_depth` field on the root index. Optional; absent = 0.
+
+### 18.2 Constants
+
+```
+MAX_HANDOFF_DEPTH = 50    // Static floor; configurable at runtime via gui-config
+```
+
+### 18.2.1 Dynamic Effective Maximum
+
+The static constant serves as a floor. Once work packages exist, the effective maximum scales with project size:
+
+```
+effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)
+```
+
+| Project Size | Effective Max | Rationale |
+|-------------|--------------|----------|
+| 0 WPs (pre-planning) | 50 | Static floor applies |
+| 1 WP | 50 | 1 × 30 = 30 < 50, floor applies |
+| 3 WPs | 90 | 3 × 30 = 90 |
+| 5 WPs | 150 | 5 × 30 = 150 |
+| 8 WPs | 240 | 8 × 30 = 240 |
+
+The `× 30` multiplier accounts for:
+- **4–6 happy-path handoffs** per WP (Dev → QA → Security Auditor → Reviewer → Release Engineer → Doc; varies by active stages — 4 for the default pipeline, up to 6 when all stages are active)
+- **~6–9 rework handoffs** per WP for typical rework patterns (2–3 QA/security-audit → Dev cycles, plus occasional Review → Dev cycles that restart the Dev → QA → [Security Audit] → Review chain)
+- **~10–15 headroom** per WP for atypical rework, blocker resolution, self-rework cycles (Release Engineering, Documentation), and wasted handoff cycles from handoff/recommendation priority mismatches
+
+> **Multiplier increased from 20 to 30 (v2.4.1):** Operational experience showed that the original `× 20` multiplier was insufficient for projects with complex rework patterns, multi-stage WPs, and the overhead of wasted handoff cycles (§18.4). The increased multiplier provides adequate headroom without compromising the loop-guard safety net.
+
+> **Formula dependency on `MAX_REWORK_COUNT`:** The `× 30` multiplier assumes a `MAX_REWORK_COUNT` of 5 (the default). If `MAX_REWORK_COUNT` is configured higher, the rework handoff budget increases proportionally — roughly `MAX_REWORK_COUNT × 4` handoffs per WP for implementation rework (each cycle involves Dev → QA → potentially Security Auditor → Reviewer handoffs). Implementations that configure `MAX_REWORK_COUNT > 5` SHOULD increase the multiplier accordingly or adjust `MAX_HANDOFF_DEPTH` to ensure the effective maximum does not constrain legitimate rework.
+
+> **Design intent:** The auto-handoff depth counter is a **safeguard against infinite loops**, not a throttle. The effective maximum should be high enough that a legitimate project completes without ever hitting it. If the counter is reached, it indicates a pathological loop — not normal workflow activity.
+
+> **⚠ Shrinking effective maximum on WP cancellation:** The depth counter only resets on `completeSynthesis` (§18.4). If WPs are cancelled mid-project, `total_work_packages` decreases and `effectiveMax` shrinks accordingly (computed at handoff time via §18.3). However, the counter retains its accumulated value. This can retroactively exhaust the handoff budget — for example, a project that consumed 120 handoffs across 5 WPs has `effectiveMax = 150`; if 3 WPs are then cancelled, `effectiveMax = max(50, 2 × 30) = 60`, and the counter (120) already exceeds the new limit. No further auto-handoffs are possible. This is consistent with the design intent (loop guard, not throttle) but may surprise implementations. If this becomes a practical issue, implementations MAY add a PM action to manually reset the counter, or reset the counter as a side effect of WP cancellation.
+
+### 18.3 Increment Path
+
+```
+function buildHandoffResponse(currentAgent, status, ..., store):
+  if status in ["COMPLETE", "BLOCKED", "IN_PROGRESS"]:
+    skip auto-handoff
+  
+  nextAgent = resolveNextAgent(status, currentAgent)
+  if nextAgent is null:
+    skip auto-handoff
+  
+  root = store.readRootIndex()
+  currentDepth = root.auto_handoff_depth ?? 0
+  effectiveMax = max(MAX_HANDOFF_DEPTH, root.total_work_packages * 30)
+  
+  if currentDepth < effectiveMax:
+    root.auto_handoff_depth = currentDepth + 1
+    store.writeRootIndex(root)
+    agentId = getAgentId(nextAgent)  // null when persona has no id: field
+    names = AGENT_NAMES[nextAgent]   // loaded from personas/name-mapping.json at startup
+    include auto_handoff in response payload:
+      {
+        agent_name: nextAgentHandle,
+        ...(agentId !== null ? { agent_id: agentId } : {}),
+        cc_agent_name: names.claude_code.agent_name,   // e.g. "3-developer"
+        vs_agent_name: names.vscode.agent_name,        // e.g. "3 - Developer v3.6.1"
+        da_agent_name: names.deep_agents.agent_name,   // e.g. "3-developer"
+        prompt: buildHandoffPrompt(projectPath, agentId ?? undefined)
+        // prompt starts with "@{agentId}\n" when agentId is present — VS Code routes to the matching persona
+      }
+  else:
+    omit auto_handoff from response
+    // Emit warning for observability
+    root.project_comments.append({
+      type: "warning",
+      priority: "high",
+      timestamp: now(),
+      agent: "system",
+      note: "Auto-handoff depth limit reached ({currentDepth}/{effectiveMax}). "
+            + "Agent chain terminated. Manual routing required."
+    })
+    store.writeRootIndex(root)
+```
+
+> **Name fields source:** `cc_agent_name`, `vs_agent_name`, and `da_agent_name` are loaded from `personas/name-mapping.json` (generated by `scripts/build-personas.js`) via the `AGENT_NAMES` constant in `mcp-server/src/utils/constants.ts`. The existing `agent_name` field (VS Code display name from the Agent Registry) is preserved for backward compatibility.
+
+> **Concurrency note:** The depth-increment read-modify-write cycle (`readRootIndex` → increment → `writeRootIndex`) must be protected by the storage directory lock ([§20](#20-concurrency-model)) to prevent parallel handoff chains from racing past the depth limit. Implementations should acquire the lock before reading the depth counter.
+
+### 18.4 Reset Path
+
+The depth counter is reset to `0` **atomically inside `completeSynthesis`** (§19.1) when the project status transitions to `COMPLETE`. This ensures no window exists where the project is COMPLETE but the counter is stale.
+
+```
+// Inside completeSynthesis, after setting root.status = "COMPLETE":
+if (root.auto_handoff_depth ?? 0) != 0:
+  root.auto_handoff_depth = 0
+// Written as part of the same writeRootIndex(root) call
+```
+
+Individual WP completions do **not** reset the counter. This prevents the counter from being reset N times in a project with N work packages, which would allow `MAX_HANDOFF_DEPTH × N` total handoffs and undermine the loop guard.
+
+> **Wasted handoff cycles:** When the handoff function (§13.1) and the recommendation engine (§14) have different priority orderings (e.g., Documentation handoff checks new-work WPs before FAIL self-rework, while `getNextAction` checks FAIL self-rework first — see §14.5), a handoff may invoke an agent that immediately prioritizes different work than the handoff intended. Each such “wasted” handoff still increments the depth counter. Over many such cycles, this can consume depth budget without productive handoff progress. The dynamic scaling (§18.2.1) provides generous headroom to absorb this, but implementations that observe frequent wasted handoffs MAY consider aligning handoff and recommendation priorities for specific roles, or skipping the depth increment when the receiving agent's `getNextAction` targets a different WP than the handoff intended. Such optimizations are beyond the core specification.
+
+### 18.5 Depth-Exceeded Behavior
+
+- No error thrown
+- `auto_handoff` key simply omitted from response
+- A project comment of type `"warning"` with priority `"high"` is emitted: `"Auto-handoff depth limit reached ({currentDepth}/{effectiveMax}). Agent chain terminated. Manual routing required."`
+- Agent chain terminates; manual routing required
+
+> **Rationale:** Silent termination (without any diagnostic output) would cause headless orchestrators to stop processing with no indication of why. The warning comment ensures the Project Manager has visibility into the termination cause, mirroring the pattern used for null timestamp anomalies (§21.18).
+
+### 18.6 Auto-Handoff Eligibility
+
+`auto_handoff` is included in the response **only when ALL conditions are true**:
+
+1. `auto_handoff_enabled` is `true` in runtime config
+2. Agent registry is loaded (agent files discovered)
+3. Next agent has a known handle in the registry
+4. Status is not `COMPLETE`, `BLOCKED`, or `IN_PROGRESS`
+5. `auto_handoff_depth` < `effectiveMax` (where `effectiveMax = max(MAX_HANDOFF_DEPTH, total_work_packages × 30)` — see [§18.2.1](#1821-dynamic-effective-maximum))
+
+---
+
+## 19. Synthesis Completion
+
+### 19.1 Algorithm
+
+```
+function completeSynthesis(projectPath, agentRole):
+  // Guard: Only Synthesis agent (or PM override) can complete synthesis
+  if agentRole != "Synthesis" AND agentRole != "Project Manager":
+    ERROR("Only Synthesis agent can complete synthesis (PM override allowed)")
+  
+  acquire lock
+  root = readRootIndex()
+  
+  // Heal counters before checking (guard against stale pending count from
+  // a prior crash or interrupted write — see §17)
+  root.total_work_packages = root.work_packages.length
+  root.pending_work_packages = count(wp in root.work_packages where not isTerminalStatus(wp.status))
+  
+  // Guard: All WPs must be terminal before synthesis can complete
+  if root.pending_work_packages > 0:
+    release lock
+    ERROR("Cannot complete synthesis: {root.pending_work_packages} work packages still pending")
+  
+  // Guard: At least one WP must exist
+  if root.work_packages.length == 0:
+    release lock
+    ERROR("Cannot complete synthesis: no work packages exist")
+  
+  root.synthesis_generated = true
+  root.synthesis_generated_at = now()   // §21.57: enables staleness detection
+  root.status = "COMPLETE"
+  root.last_updated = now()
+  
+  // Reset auto-handoff depth counter atomically with project completion (§18.4)
+  if (root.auto_handoff_depth ?? 0) != 0:
+    root.auto_handoff_depth = 0
+  
+  writeRootIndex(root)
+  release lock
+```
+
+### 19.2 Idempotency
+
+Calling `completeSynthesis` multiple times after all WPs are terminal is safe. The flag is simply set to `true` again (and `synthesis_generated_at` is updated to the current time). However, calling it while WPs are still pending is rejected (not silently ignored).
+
+> **Crash recovery and statelessness:** Unlike pipeline-owning agents, the Synthesis agent has no pipeline-based state tracking — its only persistent artifact is the binary `synthesis_generated` flag. If the Synthesis agent crashes or is interrupted during report generation, there is no "synthesis in progress" state to resume from. The `synthesis_generated` flag remains `false`, and `getNextAction` for the Synthesis role will return `GENERATE_SYNTHESIS` again. Implementations MUST treat Synthesis as a **stateless, idempotent operation**: each invocation regenerates the complete synthesis report from scratch using the current state of all work packages. The Synthesis agent should not attempt to resume or append to a partial report from a prior session.
+
+### 19.3 Project Completion Condition
+
+A project is `COMPLETE` when:
+- All WPs have terminal status (COMPLETE or CANCELLED) ⟹ `pending_work_packages == 0`
+- At least one WP exists ⟹ `total_work_packages > 0`
+- `synthesis_generated == true` (and `synthesis_generated_at` records when)
+
+---
+
+## 20. Concurrency Model
+
+### 20.1 Atomic Writes
+
+All file writes use a write-to-temp-then-rename pattern:
+1. Write data to `{file}.tmp.{pid}`
+2. Atomically rename to target file
+
+This ensures readers never see partial writes.
+
+### 20.2 File Locking
+
+Dual-file updates (WP detail + root index) are protected by file locks:
+- Lock file: `{storageDir}/.lock`
+- Stale timeout: 10 seconds (locks older than this are forcibly acquired)
+- Retry: 50 attempts with 200ms–1000ms exponential backoff
+- Lock is always released in a `finally` block
+
+### 20.3 Lock Scoping
+
+| Operation | Lock Required? | Lock Scope |
+|-----------|---------------|------------|
+| Read-only (get status, list WPs) | No | — |
+| Single-file write (synthesis completion) | Yes | Root index |
+| Auto-handoff depth increment | Yes | Root index |
+| Dual-file write (WP + root) | Yes | Storage directory |
+| Dependency cascade (unblock/reblock) | Yes (separate) | Storage directory |
+
+### 20.4 Cascade Lock Separation
+
+`propagateDependencyUnblock` and `propagateDependencyReblock` acquire their own locks **after** the main update lock is released. This is intentional:
+- Avoids holding a lock during potentially slow cascade reads
+- Safe because cascade operations are idempotent
+- Brief window between locks where state may appear inconsistent
+
+> **Crash recovery:** If the process crashes during the gap between the main update lock release and cascade lock acquisition, WP-level blocking state may be left stale (e.g., a WP remains BLOCKED despite all its dependencies being terminal). Since `propagateDependencyUnblock` and `propagateDependencyReblock` are **idempotent and re-entrant**, the recovery path is to re-invoke the cascade function with the same arguments. This produces the correct end state regardless of how many times it runs.
+>
+> Self-healing (§17) repairs **project-level** status drift. For **WP-level** blocking inconsistency after a suspected cascade failure, re-invoking the cascade is the prescribed repair. Implementations SHOULD detect this condition (WP is BLOCKED but all dependencies are terminal and blocker type is `dependency`) during `getNextAction` and either auto-repair or surface it as a PM action.
+
+> **⚠ Stale PASS on direct dependents:** The lock gap can also produce **stale PASS pipelines** on direct dependents, not just stale blocking state. If a dependent WP's pipeline completes with PASS during the gap between the main update (reopening the dependency) and the cascade lock acquisition, the PASS result validated pre-reopen output. Since PASS is terminal (§7.2), cascade reblock cannot retroactively cancel it. The dependent WP now carries a PASS pipeline that validated stale assumptions. This is analogous to the transitive-dependent issue documented in §21.42, but affects **direct** dependents during the lock gap. Implementations SHOULD add a dependency-status re-check to `completePipeline` (verifying that all of the WP's dependencies are still terminal before accepting a PASS result) to guard against this race. This adds minor overhead to every pipeline completion but prevents stale PASS results from propagating through the dependency graph undetected. See [§21.59](edge-cases.md#2159-cross-wp-staleness-after-dependency-reopens) for the full dependency freshness check recommendation.
+
+> **Side-effect idempotency on concurrent unblock:** When two dependencies of the same WP complete near-simultaneously, `propagateDependencyUnblock` may be invoked twice. The state mutation is idempotent (both calls write `READY`), but **side effects** such as notifications, project comments, or webhook emissions may double-fire. Implementations SHOULD ensure that unblock side effects are either idempotent or deduplicated (e.g., via an idempotency key derived from the WP ID and target status).
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/data-model.md`
+
+```md
+# Data Model
+
+> Part of the [Agent Workflow Specification](README.md).
+
+---
+
+## 2. Glossary
+
+| Term | Definition |
+|------|-----------|
+| **Agent** | An AI persona with a specific role in the workflow |
+| **Work Package (WP)** | A discrete, trackable unit of work with acceptance criteria |
+| **Pipeline** | A single pass of a specific activity (implementation, QA, security-audit, code-review, release-engineering, documentation) on a work package |
+| **Handoff** | The transition of control from one agent to another |
+| **Root Index** | The project-level metadata file containing WP summaries and project status |
+| **Terminal Status** | A state from which no outward transitions are normally allowed. `CANCELLED` is strictly terminal. `COMPLETE` is *normally terminal* but may be reopened (see [§6.2](state-machines.md#62-transition-table)). |
+| **Rework** | Restarting a pipeline after a previous FAIL |
+| **Stale Pipeline** | An IN_PROGRESS pipeline that has exceeded the staleness threshold |
+
+---
+
+## 3. Entities & Data Model
+
+### 3.1 Project (Root Index)
+
+```
+Project {
+  plan_file:              string       // Path to the plan document
+  date_created:           timestamp    // ISO 8601 UTC
+  last_updated:           timestamp    // ISO 8601 UTC
+  status:                 ProjectStatus
+  total_work_packages:    integer
+  pending_work_packages:  integer      // WPs not in a terminal state
+  work_packages:          WorkPackageSummary[]
+  project_comments:       ProjectComment[]
+  auto_handoff_depth:     integer?     // Loop-guard counter (default: 0)
+  synthesis_generated:    boolean?     // True after synthesis completion
+  synthesis_generated_at: timestamp?   // When synthesis was last completed (§19.1)
+  ledger_version:         string?      // Spec version that created this ledger (§21.58)
+}
+```
+
+**ProjectStatus** = `READY` | `IN_PROGRESS` | `COMPLETE` | `BLOCKED`
+
+### 3.2 Work Package Summary
+
+Stored in the root index for fast listing without loading detail files.
+
+```
+WorkPackageSummary {
+  work_package_id:        string           // Format: "WP-###" (3+ digits)
+  status:                 WorkPackageStatus
+  assigned_to:            string           // Agent role name
+  dependencies:           string[]         // List of WP IDs this WP depends on
+  active_pipeline_stages: PipelineType[]?  // Mirrors detail field (§3.3); defaults to DEFAULT_PIPELINE_STAGES when absent
+  file:                   string           // Path to detail file
+}
+```
+
+> **Routing optimization:** `active_pipeline_stages` is included in the summary so that handoff and recommendation functions can filter WPs by stage membership (e.g., agents only see WPs where their owned stage is active) without loading detail files. The value is set at WP creation time and is immutable thereafter (see [§21.55](edge-cases.md#2155-pipeline-stage-backward-compatibility)).
+```
+
+### 3.3 Work Package Detail
+
+```
+WorkPackageDetail {
+  work_package_id:         string
+  work_package_file:       string
+  status:                  WorkPackageStatus
+  assigned_to:             string
+  dependencies:            string[]
+  blocked_by:              Blocker?
+  acceptance_criteria:     AcceptanceCriterion[]  // min 1 entry
+  revision:                integer                 // Incremented on COMPLETE → IN_PROGRESS
+  rework_counts:           ReworkCounts?            // Per-pipeline-type rework counters
+  active_pipeline_stages:  PipelineType[]?          // Optional; defaults to DEFAULT_PIPELINE_STAGES when absent
+  status_changed_at:       timestamp?              // Updated on every status transition (see §14.12)
+  handoff_notes:           HandoffNote[]?
+  pipelines:               Pipeline[]
+}
+```
+
+> **`active_pipeline_stages`** controls which pipeline types are active for this work package. When absent or `null`, it defaults to `DEFAULT_PIPELINE_STAGES` (`["implementation", "qa", "code-review", "documentation"]`) for full backward compatibility with existing ledger files. The value must always be a **subsequence** of the canonical pipeline ordering (§8.1). The Project Manager may compose any valid subsequence — there is no mandatory/optional distinction. See §9b.2 for validation rules including soft guardrails.
+```
+
+**WorkPackageStatus** = `READY` | `IN_PROGRESS` | `COMPLETE` | `BLOCKED` | `CANCELLED`
+
+### 3.4 Pipeline
+
+```
+Pipeline {
+  type:            PipelineType
+  status:          PipelineStatus
+  started_at:      timestamp?
+  completed_at:    timestamp?
+  summary:         string[]
+  artifacts:       Artifacts?
+  metrics:         Metrics?        // Extensible key-value map
+  comments:        PipelineComment[]?
+  auto_cancelled:  boolean?        // True when cancelled by cascade reblock or manual → BLOCKED
+}
+```
+
+**PipelineType** = `implementation` | `qa` | `security-audit` | `code-review` | `release-engineering` | `documentation`
+
+**PipelineStatus** = `IN_PROGRESS` | `PASS` | `FAIL`
+
+> Note: Pipelines have no READY state. They are always created directly as IN_PROGRESS.
+
+> **Ordering invariant:** The `pipelines` array is **append-only** and ordered by creation time. Implementations MUST NOT reorder, sort, or remove entries from this array. All algorithms in this specification that reference the "most recent" pipeline of a given type use positional lookup (`.last()` after filtering by type), not timestamp comparison. If the array is reordered, the entire state machine — including prerequisite checks, rework detection, re-validation guards, and freshness checks — will produce incorrect results.
+
+### 3.5 Supporting Types
+
+```
+AcceptanceCriterion {
+  criterion:  string
+  met:        boolean
+}
+
+Blocker {
+  type:                  BlockerType
+  description:           string
+  blocking_work_package: string?
+}
+
+BlockerType = "dependency" | "decision" | "external" | "technical"
+
+ReworkCounts {
+  implementation:       integer?    // Default: 0
+  qa:                   integer?    // Default: 0
+  security-audit:       integer?    // Default: 0 (only present when stage is active)
+  code-review:          integer?    // Default: 0
+  release-engineering:  integer?    // Default: 0 (only present when stage is active)
+  documentation:        integer?    // Default: 0
+}
+
+HandoffNote {
+  from_agent:  string
+  to_agent:    string
+  timestamp:   timestamp
+  notes:       string[]
+}
+
+Artifacts {
+  files_modified:  string[]?
+  commit_hash:     string?
+  pull_request:    string?
+}
+
+ProjectComment {
+  type:      string
+  priority:  "low" | "medium" | "high"
+  timestamp: timestamp
+  agent:     string
+  note:      string
+  context:   IncidentContext?    // Required when type = "incident"
+}
+
+PipelineComment {
+  type:      string
+  priority:  "low" | "medium" | "high"
+  timestamp: timestamp
+  note:      string
+}
+
+IncidentContext {
+  os:             string         // Operating system where incident occurred
+  tool:           string         // Tool/command that triggered the incident
+  resolved:       boolean        // Whether the incident has been resolved
+  work_package:   string?        // Related WP ID (optional)
+  workaround:     string?        // Description of workaround (optional)
+}
+```
+
+> **Informational fields:** `commit_hash` and `pull_request` in `Artifacts` are **pass-through metadata** — no algorithm, guard, or recommendation in this specification consumes them. They exist for external tooling integration (e.g., linking pipeline results to VCS history) and audit trail purposes. Implementations may populate or ignore them without affecting workflow correctness.
+
+### 3.6 WP ID Format
+
+- Pattern: `WP-` followed by 3 or more digits (regex: `/^WP-\d{3,}$/`)
+- Generation: scan existing WPs for highest numeric suffix, next = max + 1
+- Empty project: first WP is `WP-001`
+- IDs are monotonically increasing but may have gaps (deletions don't cause collisions)
+
+---
+
+## 4. Agent Roles
+
+Nine roles, in workflow order:
+
+| # | Role | Responsibility |
+|---|------|---------------|
+| 1 | **Planner** | Creates the implementation plan document |
+| 2 | **Project Manager** | Decomposes plan into work packages, initializes ledger, manages blockers, selects active pipeline stages per WP |
+| 3 | **Developer** | Implements work packages (owns `implementation` pipeline) |
+| 4 | **QA** | Validates implementation (owns `qa` pipeline) |
+| 5 | **Security Auditor** | Security review & threat analysis (owns `security-audit` pipeline) |
+| 6 | **Reviewer** | Code quality & architecture review (owns `code-review` pipeline) |
+| 7 | **Release Engineer** | Release curation & version management (owns `release-engineering` pipeline) |
+| 8 | **Documentation** | Updates documentation (owns `documentation` pipeline) |
+| 9 | **Synthesis** | Generates final project report when all WPs are terminal |
+
+The canonical role list is: `["Planner", "Project Manager", "Developer", "QA", "Security Auditor", "Reviewer", "Release Engineer", "Documentation", "Synthesis"]`
+
+> **Composable stages:** All six pipeline stages are PM-composable — the Project Manager selects any valid subsequence of the canonical ordering for each WP at creation time. Agents are only engaged when their corresponding pipeline type is included in a WP's `active_pipeline_stages`. Inactive stages are skipped by the dynamic routing functions (`resolvePrerequisite`, `resolveNextAgent`). The "last active stage" agent — whichever stage appears last in the WP's active ordering — is the agent that can mark the WP as COMPLETE (see [§6.2](state-machines.md#62-transition-table)).
+
+### 4.1 Pipeline Ownership
+
+Six of the nine roles own pipeline types:
+
+| Pipeline Type | Owning Agent |
+|--------------|-------------|
+| `implementation` | Developer |
+| `qa` | QA |
+| `security-audit` | Security Auditor |
+| `code-review` | Reviewer |
+| `release-engineering` | Release Engineer |
+| `documentation` | Documentation |
+
+All six stages are PM-composable — no stage is inherently mandatory or optional. The default set (`DEFAULT_PIPELINE_STAGES`) provides backward compatibility. Planner, Project Manager, and Synthesis do not own any pipeline type.
+
+### 4.2 Pipeline Stage Constants
+
+```
+DEFAULT_PIPELINE_STAGES     = ["implementation", "qa", "code-review", "documentation"]
+CANONICAL_PIPELINE_ORDERING = ["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]
+```
+
+`CANONICAL_PIPELINE_ORDERING` defines the fixed sequence in which pipeline types execute. A work package's `active_pipeline_stages` is always a subsequence of this ordering — any stage may be omitted, but the relative order must never change.
+
+`DEFAULT_PIPELINE_STAGES` is the backward-compatible default applied when `active_pipeline_stages` is absent or `null`. It corresponds to the 4-stage chain used by all ledgers created before composable stages were introduced.
+
+> **Removed constants:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. All six stages are now PM-composable — the PM selects any valid subsequence of the canonical ordering. The validation function ([§9b.2](operations.md#9b2-active-pipeline-stages-validation)) enforces structural correctness (valid types, no duplicates, canonical order) and emits soft guardrail warnings for unusual compositions, but does not reject any particular subset.
+
+**Common composition patterns:**
+
+| Pattern | `active_pipeline_stages` | Use Case |
+|---------|-------------------------|----------|
+| Default (4 stages) | `["implementation", "qa", "code-review", "documentation"]` | Standard development WP |
+| Full (6 stages) | `["implementation", "qa", "security-audit", "code-review", "release-engineering", "documentation"]` | Security-critical release |
+| Documentation-only | `["documentation"]` | Pure documentation task |
+| Verification-only | `["implementation", "qa", "code-review"]` | Spike/prototype; no docs needed |
+| Security-focused | `["implementation", "qa", "security-audit", "code-review", "documentation"]` | Security audit without release engineering |
+| Quick fix | `["implementation", "qa", "documentation"]` | Fast-track fix; skip code review |
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/dependencies-and-rework.md`
+
+```md
+# Dependencies & Rework
+
+> Part of the [Agent Workflow Specification](README.md).
+
+---
+
+## 15. Dependency Management
+
+### 15.1 Initial Status Based on Dependencies
+
+When creating a WP:
+
+```
+if dependencies is empty OR all dependencies have terminal status:
+  initial_status = READY
+  blocked_by = null
+else:
+  initial_status = BLOCKED
+  unresolvedDeps = dependencies.filter(d => NOT isTerminalStatus(d.status))
+  blocked_by = {
+    type: "dependency",
+    description: "Depends on " + unresolvedDeps.map(d => d.work_package_id).join(", "),
+    blocking_work_package: unresolvedDeps[0].work_package_id
+  }
+```
+
+> **Single-blocker limitation:** The `blocking_work_package` field references only the first unresolved dependency. The `description` field lists all unresolved dependencies for diagnostic visibility, but `blocked_by` is a single object (see [§21.35](edge-cases.md#2135-single-blocker-metadata-limitation)). This does not affect auto-unblock correctness — `propagateDependencyUnblock` (§15.4) checks **all** dependencies regardless of the `blocked_by` content.
+
+### 15.2 Dependency Validation on Creation
+
+All dependency IDs must exist in the root index. Unknown IDs are rejected.
+
+Dependency graphs must be **acyclic**. On creation, perform a cycle check:
+
+```
+function hasCycle(newWpId, dependencies, allSummaries):
+  visited = Set()
+  queue = [...dependencies]
+  
+  while queue is not empty:
+    current = queue.pop()
+    if current == newWpId:
+      return true    // Cycle detected
+    if visited.has(current):
+      continue
+    visited.add(current)
+    dep = allSummaries.find(s => s.work_package_id == current)
+    if dep is not null:
+      queue.pushAll(dep.dependencies)
+  
+  return false
+```
+
+If a cycle is detected, the WP creation is rejected with an error identifying the cycle path.
+
+> **Structural note — defense-in-depth only:** Under normal operation, cycles are impossible by construction. WP IDs are generated sequentially (§3.6) and dependencies must reference pre-existing IDs (§15.2 validation above), so no existing WP can list `newWpId` as a dependency — the traversal from the new WP's dependencies through the graph can never reach `newWpId`. This check exists as defense-in-depth against data corruption (e.g., a WP referencing a future ID due to manual file editing or interrupted writes). Implementations SHOULD still include it, but should not rely on it as the primary cycle-prevention mechanism — the sequential-ID + existing-ID-only invariants are the real guards.
+
+> **Deliberate limitation — no post-creation dependency updates:** The `dependencies` array is set at WP creation time and cannot be modified thereafter. No `updateDependencies` or `addDependency` operation exists. If the PM discovers mid-project that WP-005 depends on WP-003, the available workarounds are: (a) cancel WP-005 and recreate it with the correct dependencies (losing all pipeline history and rework counts), or (b) manually BLOCKED WP-005 with a `dependency` blocker referencing WP-003 — however, this workaround does not participate in `propagateDependencyUnblock` (§15.4) because auto-unblock checks the `dependencies` array, not the `blocked_by` field; the PM must manually unblock when WP-003 completes. This limitation keeps the dependency graph immutable after creation, simplifying cycle detection and cascade logic. Implementations that need post-creation dependency mutation SHOULD add an `updateDependencies` operation with cycle detection, auto-block/unblock re-evaluation, and root index synchronization.
+
+### 15.3 Dependency Check for Claiming
+
+```
+function canStartWorkPackage(wp, allSummaries):
+  for each depId in wp.dependencies:
+    dep = allSummaries.find(s => s.work_package_id == depId)
+    if dep is null:
+      return { allowed: false, reason: "Dependency not found" }
+    if not isTerminalStatus(dep.status):
+      return { allowed: false, reason: "Dependency not complete" }
+  return { allowed: true }
+```
+
+> Both COMPLETE and CANCELLED satisfy dependency requirements.
+>
+> **Design note on CANCELLED:** A cancelled WP unblocks its dependents even though the work was never completed. This is intentional — the Project Manager is responsible for validating that the dependency is no longer needed before cancelling. If dependent WPs still require the deliverables, the PM should restructure dependencies before cancelling.
+
+### 15.4 Automatic Unblocking (propagateDependencyUnblock)
+
+When a WP transitions to a terminal status (COMPLETE or CANCELLED):
+
+```
+function propagateDependencyUnblock(projectPath, completedWpId):
+  acquire lock
+  read root index
+  
+  candidates = root.work_packages.filter(
+    wp => wp.status == "BLOCKED" AND wp.dependencies.includes(completedWpId)
+  )
+  
+  for each candidate:
+    wpDetail = readWorkPackage(candidate.id)
+    
+    // Check ALL dependencies, not just the one that completed
+    if not canStartWorkPackage(wpDetail, root.work_packages).allowed:
+      continue    // Other dependencies still incomplete
+    
+    // Skip non-dependency blockers
+    if wpDetail.blocked_by AND wpDetail.blocked_by.type not in ["dependency", null]:
+      continue    // External/decision/technical blockers need manual resolution
+    
+    // Unblock
+    wpDetail.status = "READY"
+    wpDetail.blocked_by = null
+    root.work_packages[candidate.id].status = "READY"
+    
+    write wpDetail
+  
+  write root index
+  release lock
+```
+
+> **Design note — auto-unblock always transitions to READY (not back to IN_PROGRESS):**
+> When a WP was blocked, its context may have drifted — the agent that originally claimed it may no longer be in session, the implementation plan may have changed, or the unblocking dependency's output may differ from what was assumed. Requiring an explicit re-claim (READY → IN_PROGRESS) is a safe default that forces the agent to re-evaluate the WP before resuming.
+>
+> The `assigned_to` field is preserved through the block/unblock cycle, so the recommendation engine will still route the WP to the correct agent. The re-claim step is lightweight (single tool call) and provides explicit confirmation of intent.
+
+> **\u26a0 Stuck-agent limitation:** Because `assigned_to` is preserved through the block/unblock cycle, the WP is routed exclusively to the preserved agent after auto-unblock. If that agent is no longer available (session ended, agent crashed), no other pipeline agent can claim the WP without PM override (`claimWorkPackage` §10.1 rejects when `wp.assigned_to` is set and the caller differs). The WP will eventually be surfaced via the PM's `REVIEW_ABANDONED` action ([§14.1.2](recommendations.md#1412-project-manager-action-logic), priority 3b), but this requires the staleness threshold to elapse. Implementations that need faster recovery MAY detect assignment-to-absent-agent conditions (e.g., cross-referencing `assigned_to` with active agent sessions) and proactively unclaim the WP.
+
+### 15.5 Cascade Reblocking (propagateDependencyReblock)
+
+When a COMPLETE WP is reopened (COMPLETE → IN_PROGRESS):
+
+```
+function propagateDependencyReblock(projectPath, reopenedWpId):
+  acquire lock
+  read root index
+  
+  // Find non-terminal, non-BLOCKED WPs that depend on the reopened WP
+  candidates = root.work_packages.filter(
+    wp => not isTerminalStatus(wp.status)
+      AND wp.status != "BLOCKED"
+      AND wp.dependencies.includes(reopenedWpId)
+  )
+  
+  for each candidate:
+    wpDetail = readWorkPackage(candidate.id)
+    
+    // Cancel any IN_PROGRESS pipelines (they are now invalid)
+    for each pipeline in wpDetail.pipelines:
+      if pipeline.status == "IN_PROGRESS":
+        pipeline.status = "FAIL"
+        pipeline.completed_at = now()
+        pipeline.summary = ["Auto-cancelled: dependency {reopenedWpId} was reopened"]
+        pipeline.auto_cancelled = true    // Excludes from rework budget (§21.27)
+    
+    wpDetail.status = "BLOCKED"
+    wpDetail.blocked_by = {
+      type: "dependency",
+      description: "Dependency {reopenedWpId} was reopened",
+      blocking_work_package: reopenedWpId
+    }
+    root.work_packages[candidate.id].status = "BLOCKED"
+    
+    write wpDetail
+  
+  // Warn about transitive dependents that may be working on stale assumptions.
+  // Cascade reblock only targets DIRECT dependents of the reopened WP.
+  // Transitive dependents (WPs that depend on a direct dependent) are NOT
+  // automatically reblocked. Their in-flight pipelines continue executing
+  // against potentially invalidated assumptions. This is a known limitation:
+  // State-machine integrity is preserved: transitive dependents cannot
+  //   reach COMPLETE because their direct dependency (now BLOCKED) is
+  //   non-terminal, failing the freshness/dependency checks.
+  // - However, in-flight work on transitive dependents may be wasted.
+  // - Implementations MAY extend this function with recursive traversal to
+  //   reblock transitive dependents. If so, use the same auto_cancelled
+  //   pipeline closure pattern and dependency blocker as direct dependents.
+  // See §21.42 for the full discussion of this limitation.
+
+  // Warn about COMPLETE dependents that may now be stale
+  completeDependents = root.work_packages.filter(
+    wp => wp.status == "COMPLETE"
+      AND wp.dependencies.includes(reopenedWpId)
+  )
+  
+  for each completeDep in completeDependents:
+    root.project_comments.append({
+      type: "warning",
+      priority: "high",
+      timestamp: now(),
+      agent: "system",
+      note: "WP {completeDep.work_package_id} completed based on {reopenedWpId}, "
+            + "which has been reopened. Review whether {completeDep.work_package_id} "
+            + "needs rework."
+    })
+  
+  // Recompute pending counter
+  root.pending_work_packages = count(wp in root.work_packages where not isTerminalStatus(wp.status))
+  
+  // Safety net: ensure synthesis_generated is reset when a WP is reopened.
+  // Primary reset happens during the COMPLETE → IN_PROGRESS transition (§6.2);
+  // this catches the case where that reset was missed due to a crash.
+  if root.synthesis_generated:
+    root.synthesis_generated = false
+    root.synthesis_generated_at = null    // §21.57: clear staleness timestamp
+  
+  root.last_updated = now()
+  write root index
+  release lock
+```
+
+### 15.6 Blocker Types
+
+| Type | Auto-Clearable? | Description |
+|------|----------------|-------------|
+| `dependency` | Yes | Cleared when all dependencies become terminal |
+| `decision` | No | Requires human decision |
+| `external` | No | External factor (third-party, infrastructure) |
+| `technical` | No | Technical issue requiring investigation |
+
+Only `dependency` blockers (or absent `blocked_by.type`) are auto-cleared by `propagateDependencyUnblock`. All other types require manual intervention.
+
+---
+
+## 16. Rework & Circuit Breaker
+
+### 16.1 Rework Detection
+
+Rework is detected when starting a pipeline where either:
+1. The most recent same-type pipeline has FAIL status (direct rework), OR
+2. The most recent same-type pipeline has PASS status but a downstream pipeline has FAIL status (downstream-triggered rework)
+
+```
+samePipelines = wp.pipelines.filter(p => p.type == pipelineType)
+isDirectRework = samePipelines is not empty AND samePipelines.last().status == "FAIL"
+isDownstreamRework = not isDirectRework AND hasDownstreamFail(wp.pipelines, pipelineType)
+needsRework = isDirectRework OR isDownstreamRework
+```
+
+### 16.2 Rework Counts (Per-Pipeline)
+
+- Field: `rework_counts` on WorkPackageDetail (map of PipelineType → integer)
+- Initial value: absent; lazily initialized on first rework. For WPs with `active_pipeline_stages`, the map includes one entry per active stage: e.g., `{ implementation: 0, qa: 0, security-audit: 0, code-review: 0, release-engineering: 0, documentation: 0 }` for a full 6-stage WP, or `{ implementation: 0, qa: 0, code-review: 0, documentation: 0 }` for a default 4-stage WP (see §11.1 for initialization logic)
+- Each pipeline type's counter increments independently when starting that pipeline type after a direct or downstream FAIL
+- Not incremented when: no previous pipeline, or most recent same-type is PASS with no downstream FAIL
+
+> **Backward compatibility:** If the legacy scalar `rework_count` field is present, treat its value as `rework_counts.implementation` and migrate to the map structure on next write.
+
+### 16.3 Circuit Breaker
+
+```
+MAX_REWORK_COUNT = 5
+
+When rework_counts[pipelineType] >= MAX_REWORK_COUNT:
+  - startPipeline REJECTS the call for that specific pipeline type
+  - getNextAction returns BLOCK_FOR_REWORK_LIMIT
+  - Human intervention required: cancel or restructure the WP
+```
+
+The circuit breaker is evaluated **per pipeline type**. Reaching the limit on `documentation` does not block `implementation` rework, and vice versa.
+
+### 16.3b Circuit Breaker Reset
+
+When the circuit breaker trips, the only prescribed recovery paths are cancelling or "restructuring" the WP — but restructuring is undefined, and cancellation loses all pipeline history. The following PM-only operation provides a targeted recovery path.
+
+```
+function resetReworkCount(wp, root, pipelineType, agentRole, reason):
+  // Guard: PM only
+  if agentRole != "Project Manager":
+    ERROR("Only the Project Manager can reset rework counts")
+
+  // Guard: Reason is required (audit trail)
+  if reason is empty:
+    ERROR("A reason is required when resetting rework counts")
+
+  counts = wp.rework_counts
+  if counts is null OR (counts[pipelineType] ?? 0) == 0:
+    return    // Nothing to reset
+
+  previousValue = counts[pipelineType]
+  counts[pipelineType] = 0
+  wp.rework_counts = counts
+
+  // Record the reset for auditability
+  root.project_comments.append({
+    type: "rework_reset",
+    priority: "high",
+    timestamp: now(),
+    agent: "Project Manager",
+    note: "Reset rework count for {pipelineType} on {wp.work_package_id} "
+          + "from {previousValue} to 0. Reason: {reason}"
+  })
+
+  root.last_updated = now()
+  write wp
+  write root
+```
+
+> **Use case:** After investigating a root cause (e.g., flaky test environment, misunderstood requirement), the PM resets the counter to allow retries. The mandatory reason and project comment ensure the decision is auditable. The PM should address the root cause before resetting — otherwise the circuit breaker will trip again after `MAX_REWORK_COUNT` additional attempts.
+
+### 16.3c Circuit Breaker Escalation for Automated Orchestrators
+
+The circuit breaker (§16.3) is designed around a human Project Manager who can review `REVIEW_REWORK_LIMIT` recommendations and decide whether to cancel or restructure the affected WP (see §16.3b for the PM reset operation). In **automated (headless) orchestrators** where no interactive PM is available, a circuit-broken WP would block indefinitely — `startPipeline` rejects the call, no human can reset the counter, and the project can never reach synthesis because `pending_work_packages > 0`.
+
+**Prescribed behavior for automated orchestrators:**
+
+When `getNextAction` returns a `REVIEW_REWORK_LIMIT` recommendation for a WP and no PM intervention is available (the system is running headlessly), the orchestrator SHOULD:
+
+1. **Log the circuit-breaker event** — Record the WP ID, the circuit-broken pipeline type, the rework count, and a diagnostic note explaining that the circuit breaker was reached. This ensures the operator has visibility into which WPs were affected and why.
+2. **Transition the WP to CANCELLED** — Call `updateWorkPackageStatus(CANCELLED)` on the circuit-broken WP. This is a PM-level operation; automated orchestrators acting as PM surrogates must invoke it with `agent_role: "Project Manager"`. Cancellation is terminal (§21.1) — the WP's pipeline history is preserved for post-run analysis, and `synthesis_generated` is not reset (§21.38).
+3. **Allow the project to proceed to synthesis** — Once all remaining WPs are terminal (COMPLETE or CANCELLED), `completeSynthesis` (§19.1) can proceed. The Synthesis agent's final report SHOULD document cancelled WPs and the reason for cancellation.
+
+> **Rationale:** The circuit breaker threshold (`MAX_REWORK_COUNT = 5`) represents a systemic failure — 5 rework cycles without resolution indicates either a persistent bug, a fundamentally flawed requirement, or an environmental issue. In a headless run, the correct recovery is to preserve the evidence (cancel rather than delete), proceed with the deliverable WPs, and document the failure in the synthesis report. This is preferable to leaving the project stuck indefinitely, which produces no output and obscures the partial progress made on other WPs.
+
+> **PM reset as alternative:** If the automated system has access to an emergency PM intervention path (e.g., a human-triggered override webhook), the PM MAY reset the rework count via `ledger_reset_rework_count` (§16.3b) and let the orchestrator retry. This is preferable to cancellation when the root cause has been identified and fixed (e.g., a flaky test environment was repaired). Cancellation should be the default when no such path exists.
+
+> **Halted WPs and synthesis:** Some orchestrators implement a local circuit breaker (e.g., 3 consecutive failures → "halted" state) that prevents further invocation of the agent for that WP within the current run, even though the WP remains `IN_PROGRESS` in the ledger. Such halted WPs must be transitioned to `CANCELLED` before `completeSynthesis` is called, because the synthesis guard requires `pending_work_packages == 0` — a halted `IN_PROGRESS` WP still counts as pending.
+
+**Related sections:** [§16.3b](#163b-circuit-breaker-reset) (PM rework count reset), [§21.68](edge-cases.md#2168-orphaned-pipeline-recovery-agent-crash-between-begin_work-and-complete_pipeline) (orphaned pipeline recovery), [§19.1](auxiliary-systems.md#191-algorithm) (`completeSynthesis` pending guard)
+
+### 16.4 Rework Flow
+
+The canonical 6-stage pipeline. Stages not in a WP's `active_pipeline_stages` are skipped via `resolveNextAgent` (§9.2).
+
+```
+                    ┌───────────┐
+                    │ Developer │
+                    │implements │
+                    └─────┬─────┘
+                          │
+                    ┌─────▼─────┐
+                    │  QA runs  │
+                    │  tests    │
+                    └─────┬─────┘
+                          │
+                   ┌──────┴──────┐
+                 PASS           FAIL ──► Developer fixes
+                   │                    (rework_counts.implementation++)
+            ┌──────▼──────────┐
+            │[Security Audit] │  ◄── optional; skipped if not in active stages
+            └──────┬──────────┘
+                   │
+            ┌──────┴──────┐
+          PASS           FAIL ──► Developer fixes
+            │                    (rework_counts.implementation++)
+            │
+            ┌──────▼──────┐
+            │  Reviewer   │
+            │  reviews    │
+            └──────┬──────┘
+                   │
+            ┌──────┴──────┐
+          PASS           FAIL ──► Developer fixes
+            │                    (rework_counts.implementation++)
+            │
+     ┌──────▼─────────────────┐
+     │[Release Engineering]   │  ◄── optional; skipped if not in active stages
+     └──────┬─────────────────┘
+            │
+         ┌──┴──┐
+       PASS   FAIL ──► Release Engineer self-reworks
+         │            (rework_counts.release-engineering++)
+         │
+     ┌───▼──────────┐
+     │Documentation │
+     │  writes      │
+     └──────┬───────┘
+            │
+         ┌──┴──┐
+       PASS   FAIL ──► Documentation self-reworks
+         │            (rework_counts.documentation++)
+         │
+      COMPLETE → Synthesis (after all WPs complete)
+```
+
+> **FAIL routing summary:** QA, Security Audit, and Code Review FAILs route to Developer (`rework_counts.implementation++`). Release Engineering and Documentation FAILs route to self-rework (`rework_counts.release-engineering++` and `rework_counts.documentation++` respectively). Each rework budget is independent — reaching the circuit breaker limit on one pipeline type does not block other pipeline types (§16.3).
+>
+> **Stage skipping:** When a stage is not in a WP's `active_pipeline_stages`, the corresponding box in the diagram is skipped entirely — PASS from the preceding stage flows directly to the next active stage via `resolveNextAgent` (§9.2).
 
 ```
 ###  Path: `/mcp-server/docs/agents/workflow-specification/edge-cases.md`
@@ -773,7 +1909,431 @@ Cross-WP dispatch is a **best-effort optimization for IDE runners**. The orchest
 ###  Path: `/mcp-server/docs/agents/workflow-specification/dependencies-and-rework.md`
 
 ```md
-# Dependencies & Rework
+# Handoff Logic
+
+> Part of the [Agent Workflow Specification](README.md). See also: [Recommendation Engine](recommendations.md).
+
+---
+
+## 13. Handoff Logic
+
+The handoff system determines which agent should act next, based on the current state of all work packages.
+
+### 13.1 Per-Agent Handoff Functions
+
+Each agent role has handoff logic that examines all WPs and determines the correct next agent.
+
+#### Planner Handoff
+
+```pseudocode
+if no WPs exist:
+  return READY_FOR_PM    (Project Manager should create WPs from the plan)
+else:
+  return WAIT            (Planner's work is done once WPs exist)
+```
+
+> **Design note:** The Planner operates before the ledger exists (it creates the plan document that the PM uses to initialize the ledger). Once the PM has created WPs, the Planner has no further role. The `getNextAction` for the Planner always returns `WAIT`. This handoff function is used only in the `getHandoffStatus` context.
+
+#### Developer Handoff
+
+Only considers non-terminal WPs that include `implementation` in their `active_pipeline_stages` for pipeline-specific conditions (FAIL routing, QA readiness). The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
+```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+// FAIL conditions first (§13.2 short-circuit semantics)
+// Temporal guard: only signal rework when the downstream agent has re-engaged
+// since the Developer's latest fix (hasDownstreamReengagedSince §14.13).
+// Without this, auto-handoff stalls after Developer delivers a fix — the handoff
+// returns IN_PROGRESS (Developer "must rework") while getNextAction returns
+// WAIT_FOR_DOWNSTREAM, preventing any agent from being routed to QA.
+if any non-terminal, non-dependency-blocked WP with "implementation" in activeStages
+   has a FAIL routed to Developer
+   AND hasDownstreamReengagedSince(wp.pipelines, "implementation") is true:
+  // Downstream validated the current fix and FAILed again — Developer must rework
+  return IN_PROGRESS               (Developer must rework)
+if any non-terminal, non-dependency-blocked WP with "implementation" in activeStages needs QA:
+  // "Needs QA" means: PASS implementation AND (no QA started yet
+  // OR hasNewUpstreamPassSince("implementation", "qa") — i.e., QA needs
+  // to run or re-run after upstream rework)
+  return READY_FOR_QA
+if all WPs are terminal (COMPLETE or CANCELLED):
+  return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "Developer":
+  return IN_PROGRESS               (Developer has active work)
+return WAIT                        (no actionable work for Developer)
+```
+
+> **Temporal guard rationale (v1.2.0):** Prior to v1.2.0, the Developer handoff checked for *any* FAIL routed to Developer without verifying whether the Developer had already delivered a fix. After `impl-1 PASS → qa-1 FAIL → impl-2 PASS`, the handoff would return `IN_PROGRESS` (qa-1 FAIL still exists), but `getNextAction` would return `WAIT_FOR_DOWNSTREAM` — the Developer has nothing to do. In auto-handoff–driven orchestration, this caused stalls: no agent was routed to QA for re-engagement. The temporal guard (`hasDownstreamReengagedSince`) aligns the handoff function with the recommendation engine's §14.2 priority 5/5b logic. Similarly, the "needs QA" condition now uses `hasNewUpstreamPassSince` to detect QA re-engagement needs after rework, mirroring the Documentation handoff's approach.
+
+> **Direct implementation FAIL routing gap:** When the most recent `implementation` pipeline is itself FAIL (not a downstream QA/review FAIL), the first condition does not match — `hasDownstreamReengagedSince` looks for the latest implementation PASS, which either doesn't exist or predates the FAIL. The WP is instead caught by the generic `assigned_to == "Developer"` fallback, which returns `IN_PROGRESS` ("Developer has active work") rather than the rework-specific `IN_PROGRESS` ("Developer must rework"). The handoff **routing** is correct (Developer stays engaged), but the **semantic signal** differs: the fallback does not distinguish "active work" from "must rework." This has no runtime impact — the recommendation engine (§14.2 priority 4) correctly returns `REWORK` regardless of how the handoff routed — but may cause misleading auto-handoff log entries. Implementations that require precise handoff semantics for logging or observability MAY add a separate condition before the temporal-guarded check: `if any non-terminal WP has a FAIL implementation pipeline (most recent, excluding auto-cancelled): return IN_PROGRESS (Developer must rework)`.
+
+#### QA Handoff
+
+Only considers non-terminal WPs that include `qa` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `qa` in their active stages are invisible to QA's pipeline checks. The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
+```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+// Re-engagement check (before FAIL short-circuit — see rationale below)
+// If QA previously FAILed but Developer has since re-PASSed implementation,
+// QA should re-engage rather than routing back to Developer.
+if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
+   has a FAIL QA pipeline
+   AND hasNewUpstreamPassSince(wp.pipelines, "implementation", "qa") is true:
+  return IN_PROGRESS             (QA should re-engage after upstream rework)
+
+// FAIL conditions (§13.2 short-circuit semantics)
+// Only reached when upstream has NOT re-PASSed since the QA FAIL.
+if any non-terminal, non-dependency-blocked WP with "qa" in activeStages
+   has a FAIL QA pipeline routed to Developer:
+  return READY_FOR_DEVELOPER     (Developer must rework)
+
+// Dynamic next-stage routing after PASS QA
+// nextAgent = resolveNextAgent("qa", wp.active_pipeline_stages)
+//   → "Security Auditor" when security-audit is active, "Reviewer" otherwise
+// Mixed-routing: when ready WPs route to different next agents, return the
+// first ready WP's READY_FOR_* status. Remaining WPs are dispatched via
+// subsequent per-agent handoff calls (each agent's getNextAction is role-scoped).
+if WPs with "qa" in activeStages have PASS QA but next stage not started:
+  if all such WPs are dependency-blocked:
+    return WAIT                  (nothing actionable until dependencies resolve)
+  else:
+    return readyStatusForAgent[firstReadyWp.nextAgent]  (first match wins)
+if all WPs are terminal (COMPLETE or CANCELLED):
+  return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "QA":
+  return IN_PROGRESS             (QA has active work)
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
+return WAIT                      (no actionable work for QA)
+```
+
+> **Re-engagement before FAIL rationale (v1.2.0):** Prior to v1.2.0, the QA handoff's FAIL check short-circuited before considering whether the Developer had already reworked. After `qa-1 FAIL → impl-2 PASS`, the handoff returned `READY_FOR_DEVELOPER`, but the Developer's `getNextAction` returned `WAIT_FOR_DOWNSTREAM`. In auto-handoff orchestration, nobody was routed to QA. The re-engagement check (using `hasNewUpstreamPassSince`) now fires first: if the Developer has re-PASSed since the QA FAIL, the handoff returns `IN_PROGRESS` for QA (mirroring §14.3 priority 4), allowing auto-handoff to keep QA in the loop.
+>
+> **Mixed-routing forward progress (v2.5.1):** When multiple ready WPs route to different next agents (e.g., WP-A → Security Auditor, WP-B → Reviewer due to different `active_pipeline_stages`), the handoff returns the first ready WP's `READY_FOR_*` status rather than `WAIT`. This is safe because `getNextAction` is role-scoped — dispatching Security Auditor does not cause that agent to claim WP-B (which needs Reviewer). WP-B is picked up on the next handoff cycle when the Reviewer's own handoff or `findNextReadyDispatch` fires. Prior to v2.5.1, the implementation returned `WAIT` in this scenario as a conservative safety guard, causing IDE stalls in mixed-stage projects.
+>
+> **Implementation note (hardcoded upstream):** The QA handoff implementation passes `'implementation'` as a hardcoded string to `hasNewUpstreamPassSince` — it does not call `resolvePrerequisite('qa', wp.active_pipeline_stages)`. For first-active-stage compositions (e.g., `active_pipeline_stages: ["qa", "code-review"]`), this means the re-engagement check always looks for an `implementation` PASS. If no `implementation` pipeline exists, `hasNewUpstreamPassSince` returns `false` and the check does not fire — which is the correct conservative behavior. This makes the handoff **immune to the null-prerequisite loop** ([§21.66](edge-cases.md#2166-first-active-stage-re-engagement-loop)): unlike `workflow-next-action.ts`, the implementation never collapses `null → true`. The tradeoff is that the re-engagement check is non-adaptive for unusual compositions where the conceptual upstream is not `implementation`. This is an intentional simplification — the hardcoded approach fails gracefully (returns `false`, falls through) rather than risking an infinite routing loop.
+
+#### Reviewer Handoff
+
+Only considers non-terminal WPs that include `code-review` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `code-review` in their active stages are invisible to Reviewer's pipeline checks. The "all WPs terminal" and `assigned_to` checks apply to all WPs regardless of active stages.
+
+```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+// Re-engagement check (before FAIL short-circuit — see QA handoff rationale)
+// If Reviewer previously FAILed but the effective upstream has since re-PASSed,
+// Reviewer should re-engage rather than routing back to Developer.
+// effectiveUpstream = resolvePrerequisite("code-review", wp.active_pipeline_stages)
+//   → "security-audit" when active, "qa" otherwise, or null for first-active-stage compositions
+//   When null (code-review is the first active stage), skip this re-engagement check entirely
+if any non-terminal, non-dependency-blocked WP with "code-review" in activeStages
+   has a FAIL code-review pipeline
+   AND hasNewUpstreamPassSince(wp.pipelines, effectiveUpstream, "code-review") is true:
+  return IN_PROGRESS             (Reviewer should re-engage after upstream rework)
+
+// FAIL conditions (§13.2 short-circuit semantics)
+// Only reached when upstream has NOT re-PASSed since the review FAIL.
+if any non-terminal, non-dependency-blocked WP with "code-review" in activeStages
+   has a FAIL code-review pipeline routed to Developer:
+  return READY_FOR_DEVELOPER     (Developer must rework)
+
+// Dynamic next-stage routing after PASS code-review
+// nextAgent = resolveNextAgent("code-review", wp.active_pipeline_stages)
+//   → "Release Engineer" when release-engineering is active, "Documentation" otherwise
+// Mixed-routing: when ready WPs route to different next agents, return the
+// first ready WP's READY_FOR_* status. Remaining WPs are dispatched via
+// subsequent per-agent handoff calls (each agent's getNextAction is role-scoped).
+if WPs with "code-review" in activeStages have PASS code-review but next stage not started:
+  if all such WPs are dependency-blocked:
+    return WAIT                  (nothing actionable until dependencies resolve)
+  else:
+    return readyStatusForAgent[firstReadyWp.nextAgent]  (first match wins)
+if all WPs are terminal (COMPLETE or CANCELLED):
+  return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "Reviewer":
+  return IN_PROGRESS             (Reviewer has active work)
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
+return WAIT                      (no actionable work for Reviewer)
+```
+
+> **Re-engagement before FAIL rationale (v1.2.0):** Identical to the QA handoff rationale. After `review-1 FAIL → impl-2 PASS → qa-2 PASS`, the handoff now returns `IN_PROGRESS` for Reviewer (re-engagement) instead of `READY_FOR_DEVELOPER` (stale FAIL routing). See QA Handoff rationale for the full explanation.
+>
+> **Mixed-routing forward progress (v2.5.1):** Same semantics as the QA handoff — when ready WPs route to different next agents (e.g., WP-A → Release Engineer, WP-B → Documentation), the handoff returns the first ready WP's `READY_FOR_*` status. See the QA handoff mixed-routing note for the full rationale.
+>
+> **Dynamic upstream (v2.0.0):** The re-engagement check uses `resolvePrerequisite("code-review", wp.active_pipeline_stages)` to determine the effective upstream — `"security-audit"` when the WP includes the optional security-audit stage, `"qa"` otherwise, or `null` for first-active-stage compositions. When `resolvePrerequisite` returns `null` (code-review is the first active stage), the re-engagement check is skipped entirely — there is no upstream to re-engage from, consistent with the [§21.66 null-prerequisite rule](edge-cases.md#2166-first-active-stage-re-engagement-loop). Similarly, the next-stage routing uses `resolveNextAgent` to determine whether PASS code-review flows to Release Engineer or Documentation.
+
+#### Security Auditor Handoff
+
+Only active for WPs that include `security-audit` in their `active_pipeline_stages`.
+
+```pseudocode
+// Re-engagement check (before FAIL short-circuit — same pattern as QA/Reviewer)
+if any non-terminal, non-dependency-blocked WP with "security-audit" in activeStages
+   has a FAIL security-audit pipeline
+   AND hasNewUpstreamPassSince(wp.pipelines, "qa", "security-audit") is true:
+  return IN_PROGRESS             (Security Auditor should re-engage after upstream rework)
+
+// FAIL conditions (§13.2 short-circuit semantics)
+if any non-terminal, non-dependency-blocked WP with "security-audit" in activeStages
+   has a FAIL security-audit pipeline routed to Developer:
+  return READY_FOR_DEVELOPER     (Developer must fix security issues)
+
+// WPs with PASS security-audit ready for next stage
+if WPs with "security-audit" in activeStages have PASS security-audit but no code-review started:
+  if all such WPs are dependency-blocked:
+    return WAIT
+  else:
+    return READY_FOR_REVIEW
+
+if all WPs are terminal:
+  return READY_FOR_SYNTHESIS
+if any WP is IN_PROGRESS with assigned_to == "Security Auditor":
+  return IN_PROGRESS
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
+return WAIT
+```
+
+> **Scope filter:** The Security Auditor handoff only considers WPs where `security-audit` is in `active_pipeline_stages`. WPs without the optional security-audit stage are invisible to this handoff function, even if they have FAIL pipelines routed to Developer.
+
+#### Release Engineer Handoff
+
+Only active for WPs that include `release-engineering` in their `active_pipeline_stages`.
+
+```pseudocode
+// WPs ready for release engineering (PASS code-review, no release-engineering pipeline yet or new upstream pass)
+readyForRelease = non-terminal WPs with "release-engineering" in activeStages where hasPassCodeReview AND (
+  no release-engineering pipeline yet OR hasNewUpstreamPassSince("code-review", "release-engineering")
+)
+if readyForRelease is not empty:
+  if all readyForRelease are dependency-blocked:
+    skip
+  else:
+    return IN_PROGRESS             (Release Engineer continues release work)
+
+// Release engineering FAIL → self-rework (not forwarded to Developer)
+if any non-terminal, non-dependency-blocked WP with "release-engineering" in activeStages
+   has FAIL release-engineering pipeline (most recent):
+  return IN_PROGRESS               (Release Engineer self-reworks)
+
+// WPs still in earlier pipeline stages — defer to orchestrator polling
+// (Release Engineer cannot dispatch to the correct upstream agent;
+//  returning READY_FOR_DEVELOPER would misroute WPs needing QA/Reviewer)
+if all WPs are terminal:
+  return READY_FOR_SYNTHESIS
+
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
+return WAIT
+```
+
+> **Self-rework pattern:** Release Engineer follows the same self-rework pattern as Documentation — release-engineering FAIL routes to Release Engineer itself (§9.3). Escalation for code-level issues uses the BLOCKED mechanism with a `technical` blocker, identical to the Documentation escalation path (§21.24).
+
+> **Upstream catch-all removed (v2.0.0):** Prior versions included a catch-all `READY_FOR_DEVELOPER` for WPs awaiting earlier pipeline stages. This was removed because the Release Engineer cannot accurately dispatch to the correct upstream agent — a WP awaiting `code-review` would be misrouted to Developer instead of Reviewer, causing the auto-handoff chain to terminate at Developer → WAIT. The orchestrator's hub-and-spoke polling (or the supervisor) is responsible for routing WPs to the correct upstream agent.
+
+> **All-terminal scope harmonized:** As of the cross-WP dispatch rework, the Release Engineer handoff's all-terminal early exit uses `wpDetails.every(isTerminal)` — the same scope as the QA, Security Auditor, Reviewer, and Documentation handoff functions. The previous asymmetry (scoped to `releaseWps`) has been removed for consistency. The check is placed before `scopeToStage()` so that projects with no `release-engineering` WPs still fire the early exit when all WPs are terminal.
+
+#### Documentation Handoff
+
+Only considers non-terminal WPs that include `documentation` in their `active_pipeline_stages` for pipeline-specific conditions. WPs without `documentation` in their active stages are invisible to Documentation's pipeline checks. The "all WPs terminal" check applies to all WPs regardless of active stages.
+
+```pseudocode
+// activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+// WPs ready for documentation — the effective upstream stage is determined
+// dynamically: "release-engineering" if active, otherwise "code-review",
+// or null when documentation is the first (or only) active stage.
+readyForDocs = non-terminal WPs with "documentation" in activeStages where
+  hasPassEffectiveUpstream AND (
+  no documentation pipeline yet OR hasNewUpstreamPassSince(effectiveUpstream, "documentation")
+)
+// Where effectiveUpstream = resolvePrerequisite("documentation", wp.active_pipeline_stages)
+// Where hasPassEffectiveUpstream:
+//   - When effectiveUpstream is not null: most recent pipeline of effectiveUpstream type is PASS
+//   - When effectiveUpstream is null (documentation is the first or only active stage):
+//     vacuously true — no prerequisite needed, consistent with canStartPipeline (§8.2)
+// Note: hasNewUpstreamPassSince(null, "documentation") returns false per §14.6
+// (no pipeline of type null exists), so first-active-stage WPs only match via
+// "no documentation pipeline yet" — once a documentation pipeline exists,
+// there is no upstream to re-engage from.
+if readyForDocs is not empty:
+  if all readyForDocs are dependency-blocked:
+    skip                           (fall through to check earlier-stage WPs)
+  else:
+    return IN_PROGRESS             (Documentation continues documenting)
+
+// Documentation FAIL → self-rework (not forwarded to Developer)
+if any non-terminal, non-dependency-blocked WP with "documentation" in activeStages
+   has FAIL documentation pipeline (most recent):
+  return IN_PROGRESS               (Documentation self-reworks)
+
+// WPs still in earlier pipeline stages — defer to orchestrator polling
+// (Documentation cannot dispatch to the correct upstream agent;
+//  returning READY_FOR_DEVELOPER would misroute WPs needing QA/Reviewer/etc.)
+if all WPs are terminal:
+  return READY_FOR_SYNTHESIS
+
+// Cross-WP dispatch: check for any other READY WP that can be dispatched
+dispatch = findNextReadyDispatch()
+if dispatch is not null:
+  return dispatch
+return WAIT
+```
+
+> **Upstream catch-all removed (v2.0.0):** Same rationale as the Release Engineer handoff — the Documentation agent cannot accurately dispatch to the correct upstream agent. WPs needing earlier-stage work are left for the orchestrator to route via polling.
+
+#### Synthesis Handoff
+
+```pseudocode
+// Synthesis is the terminal stage — no onward routing
+return COMPLETE   // Chain terminates; project COMPLETE status is the orchestrator's stop signal
+```
+
+> **Design note:** The Synthesis agent's handoff always returns `COMPLETE`. After `completeSynthesis` (§19.1) sets the project to `COMPLETE`, no further handoff is evaluated (§18.6 skips auto-handoff for `COMPLETE` status). This block exists for completeness — implementations that enumerate all agent handoff functions will not encounter a null/undefined case for Synthesis. The `COMPLETE` return value signals to auto-handoff orchestrators that the entire project workflow is finished — no next agent needs to be dispatched.
+
+#### Project Manager Handoff
+
+```pseudocode
+// Non-dependency blockers needing PM intervention
+for each non-terminal WP with status == "BLOCKED":
+  if wp.blocked_by.type in ["decision", "external", "technical"]:
+    return IN_PROGRESS                  (PM still has actionable work)
+
+// READY WPs need claiming by pipeline agents
+for each WP with status == "READY":
+  if wp.assigned_to is not null:
+    // Post auto-unblock: route to the assigned agent
+    return readyStatusForAgent(wp.assigned_to)
+  else:
+    // Unassigned: route to the agent owning the WP's first active stage
+    return readyStatusForAgent(PIPELINE_AGENT_MAP[firstActiveStage(wp)])
+
+// Step 2b: IN_PROGRESS WPs needing next pipeline stage
+for each non-terminal, non-dependency-blocked WP with status == "IN_PROGRESS":
+  activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+  for each stage in getOrderedActiveStages(activeStages):
+    if stage has a PASS pipeline (most recent non-auto-cancelled):
+      continue  // done, check next stage
+    // This is the first stage not yet PASS
+    if stage has a recent FAIL pipeline (most recent non-auto-cancelled):
+      break     // FAIL routing handles this WP; skip to next WP
+    if stage has an IN_PROGRESS pipeline (most recent non-auto-cancelled):
+      break     // stage already being worked on; skip to next WP
+    upstreamStage = resolvePrerequisite(stage, activeStages)
+    if upstreamStage != null AND upstreamStage has an IN_PROGRESS pipeline:
+      break     // upstream still running; skip to next WP
+    nextAgent = PIPELINE_AGENT_MAP[stage]
+    return readyStatusForAgent(nextAgent)
+
+// All WPs terminal
+if all WPs have terminal status:
+  return READY_FOR_SYNTHESIS
+
+// WPs are in-flight (IN_PROGRESS or dependency-BLOCKED) — no PM action needed
+return WAIT
+```
+
+> **`readyStatusForAgent` mapping:** Maps agent role to handoff status: `"Developer"` → `READY_FOR_DEVELOPER`, `"QA"` → `READY_FOR_QA`, `"Security Auditor"` → `READY_FOR_SECURITY_AUDIT`, `"Reviewer"` → `READY_FOR_REVIEW`, `"Release Engineer"` → `READY_FOR_RELEASE_ENGINEERING`, `"Documentation"` → `READY_FOR_DOCS`. Unknown roles fall back to `READY_FOR_DEVELOPER`.
+
+### 13.5 `findNextReadyDispatch` Algorithm
+
+The `findNextReadyDispatch` helper is called by QA, Security Auditor, Reviewer, Release Engineer, and Documentation handoff functions immediately before their final `return WAIT`. It provides cross-WP dispatch: when an agent finishes its own work for the current WP but other WPs are READY and awaiting a deterministic agent, the handoff can route directly to that agent rather than returning `WAIT` and relying on the orchestrator to poll.
+
+```pseudocode
+function findNextReadyDispatch(currentRole):
+  // Scan all READY, non-dependency-blocked WPs for a deterministic dispatch target.
+  // First matching WP wins (consistent with PM Step 2).
+  for each WP with status == "READY" AND !isBlockedByDependencies(wp):
+    // Route to the agent owning the WP's first active pipeline stage.
+    firstStage = firstActiveStage(wp.active_pipeline_stages)   // §6.2.1
+    targetRole = PIPELINE_AGENT_MAP[firstStage]
+    return readyStatusForRole(targetRole)  // e.g. READY_FOR_QA, READY_FOR_DOCS
+    // reason: "{WP-ID} is READY; routing to {targetRole} for {firstStage} stage.
+    //          (Cross-WP dispatch from {currentRole}.)"
+
+  // All WPs are terminal (COMPLETE or CANCELLED) — project ready for Synthesis.
+  // Guard: wpDetails must be non-empty (prevents false READY_FOR_SYNTHESIS on empty projects).
+  if wpDetails is non-empty AND all WPs have terminal status:
+    return READY_FOR_SYNTHESIS
+
+  // No deterministic dispatch possible (all non-terminal WPs are IN_PROGRESS
+  // or dependency-BLOCKED, or no READY WPs exist).
+  return null
+```
+
+**Behaviour summary:**
+
+| Condition | Return value |
+|---|---|
+| READY, non-dependency-blocked WP exists | `readyStatusForRole(PIPELINE_AGENT_MAP[firstActiveStage(wp)])` |
+| All WPs terminal (and at least one WP exists) | `READY_FOR_SYNTHESIS` |
+| No READY WPs; non-terminal WPs in-flight or dependency-blocked | `null` (caller returns `WAIT`) |
+
+> **`currentRole` parameter:** The `currentRole` string is the calling agent's role name (e.g. `"Documentation"`). It is used exclusively for the human-readable `reason` string in the return object — never as a routing filter. Pass it for diagnostic clarity; it has no effect on the returned status.
+
+> **Dependency-blocked exclusion:** READY WPs where `isBlockedByDependencies(wp)` returns true are excluded from Step 1. A WP is dependency-blocked when one or more of its declared dependency WP IDs have not yet reached a terminal status. Excluding them ensures `findNextReadyDispatch` does not route to agents who would immediately encounter a blocking dependency check.
+
+> **`assigned_to` not consulted:** Unlike the PM handoff Step 2 (which routes to `wp.assigned_to` when set), `findNextReadyDispatch` always routes via `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`. For the typical case where `assigned_to` matches the first-active-stage agent this is equivalent. For post-auto-unblock scenarios where `assigned_to` diverges from the first active stage, the PM handoff is the authoritative router — `findNextReadyDispatch` is a lightweight safety net intended for IDE stall prevention, not full PM-equivalent routing.
+
+> **Self-routing design decision:** `findNextReadyDispatch` may return a status that routes back to the calling agent (e.g., Documentation handoff calling `findNextReadyDispatch` which returns `READY_FOR_DOCS` for a different WP). This is intentional — it allows Documentation to continue working on another READY WP that still needs documentation, without forcing the orchestrator to re-poll. The calling agent's own `getNextAction` will then surface the next WP to act on. See also [§21.71](edge-cases.md#2171-cross-wp-dispatch-from-non-pm-agents).
+
+> **Relationship to PM handoff:** The PM handoff (§13.1 Project Manager Handoff) subsumes `findNextReadyDispatch` logic inline as Steps 2 and 2b, with additional depth for IN_PROGRESS WPs (pipeline-stage inspection) and `assigned_to` routing. `findNextReadyDispatch` is the lightweight variant used by pipeline agents — it only examines READY WPs and defers IN_PROGRESS WP routing to the PM or orchestrator polling.
+
+> **Dynamic routing for unassigned WPs (v2.4.2):** Prior to v2.4.2, unassigned READY WPs were hardcoded to route to `READY_FOR_DEVELOPER`. This caused misrouting for WPs with non-default `active_pipeline_stages` — a documentation-only WP (`["documentation"]`) would be routed to Developer, whose `getNextAction` returns `WAIT` (no implementation work), stalling auto-handoff. The routing now uses `firstActiveStage` (§6.2.1) to dynamically determine the correct starting agent for the WP's composition.
+
+> **Design note — PM pipeline blindness (v2.4.3):** Prior to v2.4.3, the PM handoff only examined WP-level statuses (READY, BLOCKED, COMPLETE, IN_PROGRESS). When all WPs were IN_PROGRESS and a pipeline stage completed (e.g., implementation PASS), the PM saw "in-flight work" and returned WAIT — even though the next pipeline agent (e.g., QA) needed to be engaged. This left auto-handoff with no target to dispatch to, stalling the pipeline chain. Step 2b closes this gap by examining pipeline states within each IN_PROGRESS WP, matching the approach used by all other pipeline agents' handoff functions. Step 2b fires only when step 2 (READY WPs) does not match, preserving the existing priority: READY WPs are always routed first.
+
+> **Design note — freshly-claimed WP coverage (v2.4.3):** Step 2b intentionally covers freshly-claimed IN_PROGRESS WPs with zero pipelines. When no pipelines exist yet, the first active stage has no PASS, no FAIL, and no IN_PROGRESS — so the algorithm routes to `PIPELINE_AGENT_MAP[firstActiveStage(wp)]`. This is correct: the WP was claimed but the owning agent has not yet called `startPipeline`. The REVIEW_ABANDONED priority (§14.1.2 priority 3b) separately handles the case where a claimed WP remains idle beyond the staleness grace period — step 2b provides immediate routing so that the auto-handoff chain does not stall while waiting for the staleness threshold to expire.
+
+### 13.2 Handoff Evaluation Order
+
+> **Important:** All per-agent handoff functions evaluate conditions **top-to-bottom with short-circuit semantics**. The first matching condition wins. For QA and Reviewer handoffs, re-engagement checks (after upstream rework) take priority over stale FAIL routing — this ensures auto-handoff correctly routes back to the downstream agent when the upstream agent has already delivered a fix. For the Developer handoff, the temporal guard on FAIL conditions prevents false IN_PROGRESS returns when the Developer has already reworked. See the per-handoff rationale notes (v1.2.0) for details.
+
+> **Auto-cancelled pipeline exclusion:** Throughout all handoff and recommendation functions, auto-cancelled pipelines (`auto_cancelled = true`) are excluded from FAIL detection. An auto-cancelled FAIL represents an external interruption (cascade reblock or manual BLOCKED transition), not a quality failure. Functions that filter pipeline history — `isMostRecentPipelineFail` ([§14.7](recommendations.md#147-ismostrecentpipelinefail-algorithm)), `hasDownstreamFail` (§11.3), and `hasNewUpstreamPassSince` ([§14.6](recommendations.md#146-hasnewupstreampasssince-algorithm)) — all exclude auto-cancelled pipelines. See [§21.27](edge-cases.md#2127-auto-cancelled-pipelines) for the full invariant.
+
+### 13.3 Dependency-Blocked WP Exclusion
+
+A critical invariant across Developer, QA, Reviewer, and Documentation handoff functions:
+
+**WPs blocked by incomplete dependencies are excluded from the "work remaining" count.** A WP is considered unblocked only when all its dependencies are COMPLETE or CANCELLED. If all unprocessed WPs are dependency-blocked, the handoff returns `WAIT` — not the next stage — because no agent can make progress until dependencies resolve.
+
+### 13.4 Next Agent Resolution
+
+```pseudocode
+function nextAgentFromStatus(status, currentAgent):
+  if isTerminalStatus(status):
+    return null                     // No next agent for terminal states
+  if status == "WAIT":
+    return null                     // No next agent when no actionable work
+  if status == "IN_PROGRESS":
+    return currentAgent             // Stay with current agent
+  
+  // Map READY_FOR_* statuses to agent roles
+  mapping = {
+    "READY_FOR_PM":                   "Project Manager",
+    "READY_FOR_DEVELOPER":            "Developer",
+    "READY_FOR_QA":                   "QA",
+    "READY_FOR_SECURITY_AUDIT":       "Security Auditor",
+    "READY_FOR_REVIEW":               "Reviewer",
+    "READY_FOR_RELEASE_ENGINEERING":  "Release Engineer",
+    "READY_FOR_DOCS":                 "Documentation",
+    "READY_FOR_SYNTHESIS":            "Synthesis"
+  }
+  return mapping[status] ?? null
+```
+
+```
+###  Path: `/mcp-server/docs/agents/workflow-specification/operations.md`
+
+```md
+# Operations
 
 > Part of the [Agent Workflow Specification](README.md).
 

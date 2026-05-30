@@ -1,5 +1,16 @@
 # AI Insights Changelog
 
+## v1.27.0 - Knowledge Store and Browser Tool Support
+> mcp v1.31.0 · orchestrator v0.21.0 · personas v3.22.0
+
+- MCP: Added knowledge accumulation system — 4 tools, per-scope store files, and GUI Knowledge page.
+- Storage: Repo-namespaced ledger layout eliminates cross-repo collisions; auto-migrates on startup.
+- Personas: Synthesis gains Knowledge Collection phase; 4 pipeline personas gain prior-findings lookup.
+- Personas: 7 personas gain `browser` tool for interactive web verification and live UI testing.
+- Scripts: Root scripts migrated to ESM; added `migrate-synthesis-insights` conversion utility.
+- Scripts: Added `move-unknown-project` and `rename-repository` ledger maintenance tools.
+- GUI: Fixed breadcrumb project name, dismiss button for dead orchestrator runs, and filter focus.
+
 ## v1.26.0 - API Key Validation and Plan Refiner
 > mcp v1.30.2 · orchestrator v0.20.0 · personas v3.21.0
 

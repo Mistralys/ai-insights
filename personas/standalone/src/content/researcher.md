@@ -27,6 +27,12 @@ You will be provided with:
 - **Optional: Constraints:** Performance targets, technology restrictions, compatibility requirements, team skill set, timeline.
 - **Optional: Prior Attempts:** What has already been tried and why it fell short.
 
+### Capabilities
+
+- **Web Search:** Discover libraries, frameworks, patterns, benchmarks, and technical references.
+- **Browser:** Navigate rendered documentation, library homepages, changelogs, and issue trackers interactively to verify claims and gather detailed evidence beyond what a single-page fetch provides.
+- **Sub-Agent Delegation:** Dispatch specialized sub-agents for deep investigation when a topic requires sustained focus beyond a quick web lookup.
+
 ---
 
 ## Outputs

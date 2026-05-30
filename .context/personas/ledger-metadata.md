@@ -110,8 +110,8 @@ vs_file_name: 3-dev.agent.md
 id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
-version: "3.6.2"
-last_updated: "2026-04-08"
+version: "3.6.3"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -120,6 +120,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*
@@ -144,6 +145,8 @@ mcp_tools:
     purpose: "Add a Code Insight observation to a completed pipeline (use when you discover something after calling `ledger_complete_pipeline`)."
   - tool: ledger_get_work_package
     purpose: "Read full WP detail (status, pipelines, acceptance criteria)."
+  - tool: ledger_search_insights
+    purpose: "Search knowledge store for coding principles and patterns relevant to the current implementation."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
@@ -158,8 +161,8 @@ vs_file_name: 4-qa.agent.md
 id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
-version: "3.6.1"
-last_updated: "2026-04-08"
+version: "3.6.2"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -168,6 +171,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*
@@ -190,6 +194,8 @@ mcp_tools:
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: "Add project-level comments (e.g., observations, notes)."
+  - tool: ledger_search_insights
+    purpose: "Search knowledge for prior findings and recurring patterns before starting verification."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
@@ -204,8 +210,8 @@ vs_file_name: 5-security-auditor.agent.md
 id: ledger-5-security-auditor
 cc_file_name: 5-security-auditor.md
 da_file_name: 5-security-auditor.md
-version: "3.6.2"
-last_updated: "2026-04-08"
+version: "3.6.3"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -214,6 +220,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
   - central_pm/*
@@ -236,6 +243,8 @@ mcp_tools:
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: "Add project-level security observations or incident reports."
+  - tool: ledger_search_insights
+    purpose: "Search knowledge for prior findings and recurring patterns before starting verification."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
@@ -282,6 +291,8 @@ mcp_tools:
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: Add project-level comments for cross-cutting architectural insights.
+  - tool: ledger_search_insights
+    purpose: "Search prior review findings and recurring patterns before beginning the code review."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
@@ -425,6 +436,10 @@ mcp_tools:
     purpose: Read full WP detail including all pipelines, metrics, and comments.
   - tool: ledger_add_project_comment
     purpose: Add project-level synthesis observations.
+  - tool: ledger_search_insights
+    purpose: Search the knowledge base for existing insights before committing new ones (deduplication).
+  - tool: ledger_add_insight
+    purpose: Commit a reusable insight (pattern, pitfall, principle, or architectural decision) to the knowledge base.
   - tool: ledger_complete_synthesis
     purpose: "Archive the synthesis document, set `synthesis_generated: true`, and transition the project to `COMPLETE`."
   - tool: ledger_get_handoff_status
@@ -439,7 +454,7 @@ mcp_tools:
 ```yaml
 author: Sebastian Mordziol
 last_updated: "2026-03-01 12:00"
-default_version: "3.5.0"
+default_version: "3.22.0"
 default_model: "Claude Sonnet 4.6"    # Human-readable model name; override per-persona via `model:` field
 default_model_slug: "claude-sonnet-4-6"  # API-compatible slug; override per-persona via `model_slug:` field
 mcp_server_name: "central_pm"

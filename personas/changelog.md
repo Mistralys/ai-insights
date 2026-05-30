@@ -1,5 +1,17 @@
 # Personas Changelog
 
+## v3.22.0 - Knowledge Collection System
+- Ledger: Synthesis gains Knowledge Collection phase — 5-step gold-nugget commit protocol.
+- Ledger: Synthesis `mcp_tools` updated with `ledger_add_insight` and `ledger_search_insights`.
+- Ledger: Developer, QA, Security Auditor, and Reviewer gain `ledger_search_insights` for lookups.
+- Ledger: Developer, QA, and Security Auditor gain `browser` tool for UI and security verification.
+- Standalone: Added Knowledge Archiver persona for retrospective extraction from archived projects.
+- Standalone: Researcher, Plan Architect Reviewer, Plan Auditor, and Developer gain `browser` tool.
+- Standalone: Git Committer excludes CTX files from commits on feature branches.
+- Shared: Knowledge Collection partial — non-obviousness filter and global scope writing rule added.
+- Shared: Knowledge Collection partial — content brevity cap (3–5 sentences) and two-pass review.
+- Shared: Knowledge Collection partial — scarcity expectation, universal filters, and technology tags.
+
 ## v3.21.2 - CTX Architect Brief Integration
 - Standalone: CTX Architect (v1.2.0) integrates CTX Generator brief findings: add `text`
   source type with best-practice guidance, add `url`/`git_diff`/`github` quick reference,

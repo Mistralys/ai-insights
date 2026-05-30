@@ -16,7 +16,8 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveLedgerRoot, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
+import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
+import { SAFE_SLUG_REGEX } from '../src/utils/constants.js';
 import { captureWorkspaceVersions } from '../src/utils/workspace-versions.js';
 import type { WorkspaceVersions } from '../src/utils/workspace-versions.js';
 import { readConfigFromDisk, startConfigWatcher } from '../src/gui/config.js';
@@ -54,6 +55,13 @@ import {
   handleGetRunStatus,
   ApiError,
 } from './api.js';
+import {
+  handleListKnowledge,
+  handleUpdateKnowledge,
+  handleDeleteKnowledge,
+  handlePromoteKnowledge,
+  handleMoveKnowledge,
+} from './api-knowledge.js';
 import { renderChunksToMarkdown } from './chunk-renderer.js';
 
 // ---------------------------------------------------------------------------
@@ -111,7 +119,7 @@ function securityHeaders(): Record<string, string> {
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'Content-Security-Policy':
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
   };
 }
 
@@ -246,6 +254,74 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 // ---------------------------------------------------------------------------
 
 type RouteHandler = () => Promise<unknown>;
+
+// ---------------------------------------------------------------------------
+// Meta helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Guards against path-traversal attacks on URL parameters that are used as
+ * filesystem path segments.
+ *
+ * Rejects any segment that is empty or does not match {@link SAFE_SLUG_REGEX}
+ * (`/^[a-z0-9][a-z0-9-]*$/`). Throws {@link ApiError} `NOT_FOUND` so that
+ * callers receive the same status as a missing project — no information leak.
+ *
+ * @param segment - The raw URL parameter value to validate.
+ */
+function assertSafeSlug(segment: string): void {
+  if (!segment || !SAFE_SLUG_REGEX.test(segment)) {
+    throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+  }
+}
+
+/**
+ * Reads the `.meta.json` for a namespaced project at
+ * `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json`.
+ *
+ * Returns the stored `repository_name` value, falling back to `repoUrlParam`
+ * when the field is absent or null.
+ *
+ * When the meta file exists but contains malformed JSON, the function still
+ * falls back to `repoUrlParam` — but writes a warning to `process.stderr`
+ * (format: `[server] Warning: malformed .meta.json at {path} — falling back
+ * to URL param '…'`) so operators can detect corrupt meta files during
+ * troubleshooting. API callers always receive the fallback value in this case.
+ *
+ * Throws {@link ApiError} `NOT_FOUND` when the meta file does not exist —
+ * indicating that the `{repo}/{slug}` combination is not a known project in
+ * this ledger. This is the project-existence check for namespaced routes.
+ * Using `NOT_FOUND` (rather than a 400 or `VALIDATION_ERROR`) is intentional
+ * information-hiding: invalid-input and missing-project cases are
+ * indistinguishable from the client side.
+ *
+ * Both `repoUrlParam` and `slugUrlParam` are validated via {@link assertSafeSlug}
+ * before any filesystem access is attempted (defence-in-depth).
+ */
+export async function resolveRepoName(
+  ledgerRoot: string,
+  repoUrlParam: string,
+  slugUrlParam: string,
+): Promise<string> {
+  assertSafeSlug(repoUrlParam);
+  assertSafeSlug(slugUrlParam);
+  const metaPath = join(ledgerRoot, repoUrlParam, slugUrlParam, '.meta.json');
+  let raw: string;
+  try {
+    raw = await readFile(metaPath, 'utf-8');
+  } catch {
+    throw new ApiError('NOT_FOUND', `Project not found: ${slugUrlParam}`);
+  }
+  try {
+    const meta = JSON.parse(raw) as { repository_name?: string | null };
+    return meta.repository_name ?? repoUrlParam;
+  } catch {
+    // Malformed .meta.json — project directory exists, fall back to URL param.
+    // Log to stderr so operators can detect corrupt meta files during troubleshooting.
+    process.stderr.write(`[server] Warning: malformed .meta.json at ${metaPath} — falling back to URL param '${repoUrlParam}'\n`);
+    return repoUrlParam;
+  }
+}
 
 /**
  * Matches a method + URL path to an API handler.
@@ -465,8 +541,429 @@ function matchRoute(
     return () => handleGetChunkFile(ledgerRoot, slug, filename);
   }
 
+  // ---------------------------------------------------------------------------
+  // Namespaced /:repo/:slug routes — added in WP-009.
+  // Each route validates repo and slug separately via SAFE_SLUG_REGEX (same
+  // enforcement as assertSafeSlug but applied before any handler call, giving
+  // explicit path-traversal defence at the routing layer).
+  // resolveRepoName() reads .meta.json to obtain the canonical repository_name
+  // and also serves as the project-existence check (throws NOT_FOUND when the
+  // meta file is absent).
+  //
+  // Ordering note: all keyword-specific /:slug/xxx routes at rest.length===3
+  // appear ABOVE the /:repo/:slug catch-all at the same length. The catch-all
+  // uses explicit keyword exclusion to prevent shadowing.
+  // ---------------------------------------------------------------------------
+
+  // GET /api/projects/:repo/:slug/plan
+  // rest.length === 4, rest[3] === 'plan' — does not conflict with /:slug/keyword (length 3)
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'plan' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetPlanDocument(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/synthesis
+  // rest.length === 4, rest[3] === 'synthesis'
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'synthesis' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetSynthesisDocument(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/health
+  // rest.length === 4, rest[3] === 'health'
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'health' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetProjectHealth(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/work-packages
+  // rest.length === 4, rest[3] === 'work-packages'
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'work-packages' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleListWorkPackages(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/dialogues[?wp=WP-001]
+  // rest.length === 4, rest[3] === 'dialogues'
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'dialogues' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const wpId = sp.get('wp') ?? undefined;
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleListDialogues(ledgerRoot, slug, wpId, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/chunks[?wp=WP-001]
+  // rest.length === 4, rest[3] === 'chunks'
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'chunks' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const wpId = sp.get('wp') ?? undefined;
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleListChunks(ledgerRoot, slug, wpId, repoName);
+    };
+  }
+
+  // POST /api/projects/:repo/:slug/archive
+  // rest.length === 4, rest[3] === 'archive'
+  if (
+    method === 'POST' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'archive' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleArchiveProject(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // POST /api/projects/:repo/:slug/unarchive
+  // rest.length === 4, rest[3] === 'unarchive'
+  if (
+    method === 'POST' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'unarchive' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleUnarchiveProject(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // POST /api/projects/:repo/:slug/complete
+  // rest.length === 4, rest[3] === 'complete'
+  if (
+    method === 'POST' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'complete' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleMarkProjectComplete(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/work-packages/overview
+  // rest.length === 5, rest[3] === 'work-packages', rest[4] === 'overview'
+  // Must appear BEFORE /:repo/:slug/work-packages/:wpId at the same rest.length.
+  if (
+    method === 'GET' &&
+    rest.length === 5 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'work-packages' &&
+    rest[4] === 'overview' &&
+    rest[2] !== 'work-packages'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetWorkPackageOverview(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/dialogues/:filename
+  // rest.length === 5, rest[3] === 'dialogues'
+  // Must appear BEFORE /:repo/:slug/work-packages/:wpId to keep ordering consistent.
+  if (
+    method === 'GET' &&
+    rest.length === 5 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'dialogues' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const filename = decodeURIComponent(rest[4]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetDialogueFile(ledgerRoot, slug, filename, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/work-packages/:wpId
+  // rest.length === 5, rest[3] === 'work-packages'
+  if (
+    method === 'GET' &&
+    rest.length === 5 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'work-packages' &&
+    rest[2] !== 'work-packages'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const wpId = rest[4]!;
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetWorkPackage(ledgerRoot, slug, wpId, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/chunks/:filename/rendered
+  // rest.length === 6, rest[3] === 'chunks', rest[5] === 'rendered'
+  if (
+    method === 'GET' &&
+    rest.length === 6 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'chunks' &&
+    rest[5] === 'rendered' &&
+    rest[2] !== 'chunks'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const filename = decodeURIComponent(rest[4]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetChunkFile(ledgerRoot, slug, filename, repoName).then(({ content }) => ({
+        content: renderChunksToMarkdown(content),
+      }));
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/chunks/:filename
+  // rest.length === 5, rest[3] === 'chunks'
+  if (
+    method === 'GET' &&
+    rest.length === 5 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'chunks' &&
+    rest[2] !== 'chunks'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const filename = decodeURIComponent(rest[4]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetChunkFile(ledgerRoot, slug, filename, repoName);
+    };
+  }
+
+  // DELETE /api/projects/:repo/:slug
+  // rest.length === 3, method === 'DELETE' — no conflict with DELETE /:slug (rest.length === 2)
+  if (
+    method === 'DELETE' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleDeleteProject(ledgerRoot, slug, repoName);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug
+  // rest.length === 3 — catch-all; must appear AFTER all /:slug/keyword routes at
+  // rest.length === 3 and uses explicit keyword exclusion to prevent shadowing them.
+  if (
+    method === 'GET' &&
+    rest.length === 3 &&
+    rest[0] === 'projects' &&
+    rest[2] !== 'plan' &&
+    rest[2] !== 'synthesis' &&
+    rest[2] !== 'health' &&
+    rest[2] !== 'work-packages' &&
+    rest[2] !== 'dialogues' &&
+    rest[2] !== 'chunks' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', 'Invalid repo or slug parameter.');
+      }
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetProject(ledgerRoot, slug, repoName);
+    };
+  }
+
   // GET /api/projects/:slug/runs
   // rest.length === 3, rest[2] === 'runs' — does not shadow work-packages (different rest[2] value)
+  // Resolves the canonical namespaced storage directory first to avoid creating
+  // ghost directories under the legacy flat path when archiveCompletedLogs runs.
+  // Falls back to the legacy flat path for truly pre-namespace projects.
   if (
     method === 'GET' &&
     rest.length === 3 &&
@@ -474,11 +971,57 @@ function matchRoute(
     rest[2] === 'runs'
   ) {
     const slug = decodeURIComponent(rest[1]!);
-    return () => handleListRunLogs(slug, join(ledgerRoot, slug, 'orchestrator', 'logs'), orchestratorLogsDir, join(ledgerRoot, slug));
+    return async () => {
+      const flatProjectDir = join(ledgerRoot, slug);
+      let projectStorageDir: string;
+      try {
+        projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
+      } catch {
+        // NOT_FOUND or AMBIGUOUS — fall back to the legacy flat layout.
+        projectStorageDir = flatProjectDir;
+      }
+      const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
+      // For namespaced projects, supply the old flat paths as legacy migration
+      // sources so logs written under the pre-namespace layout are carried over.
+      // For flat projects, preserve the original behaviour (migrate from the root).
+      const isNamespaced = projectStorageDir !== flatProjectDir;
+      const legacyLogsDir = isNamespaced ? join(flatProjectDir, 'orchestrator', 'logs') : flatProjectDir;
+      const legacyLogsDir2 = isNamespaced ? flatProjectDir : undefined;
+      return handleListRunLogs(slug, slug, logsDir, orchestratorLogsDir, legacyLogsDir, legacyLogsDir2);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/runs
+  // rest.length === 4, rest[3] === 'runs' — namespaced route; rest[2] !== 'runs' distinguishes from /:slug/runs/:filename
+  if (
+    method === 'GET' &&
+    rest.length === 4 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'runs' &&
+    rest[2] !== 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    return async () => {
+      // Explicit SAFE_SLUG_REGEX guard before any path construction — makes the
+      // path-traversal defence direct rather than relying on the indirect
+      // resolveRepoName NOT_FOUND guard (defence-in-depth per Security Auditor).
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', `Invalid repo or slug parameter.`);
+      }
+      // logsDir uses the URL segments (which locate the directory on disk); repoName
+      // is resolved from .meta.json so it comes from the stored repository_name, not
+      // a raw URL param (AC3). resolveRepoName also enforces 404 for unknown projects.
+      const logsDir = join(ledgerRoot, repoUrlParam, slug, 'orchestrator', 'logs');
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleListRunLogs(slug, repoName, logsDir, orchestratorLogsDir);
+    };
   }
 
   // GET /api/projects/:slug/runs/:filename
   // rest.length === 4, rest[2] === 'runs' — does not shadow work-packages/:wpId (different rest[2] value)
+  // Resolves the canonical namespaced storage directory first (same as the list
+  // route above) to avoid creating ghost directories under the legacy flat path.
   if (
     method === 'GET' &&
     rest.length === 4 &&
@@ -491,8 +1034,50 @@ function matchRoute(
     const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
     const sp = new URLSearchParams(qStr);
     const afterParam = sp.get('after');
-    const afterLine = afterParam !== null ? parseInt(afterParam, 10) : undefined;
-    return () => handleGetRunLog(slug, filename, join(ledgerRoot, slug, 'orchestrator', 'logs'), orchestratorLogsDir, afterLine);
+    const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
+    return async () => {
+      const flatProjectDir = join(ledgerRoot, slug);
+      let projectStorageDir: string;
+      try {
+        projectStorageDir = await resolveProjectDir(slug, ledgerRoot);
+      } catch {
+        projectStorageDir = flatProjectDir;
+      }
+      const logsDir = join(projectStorageDir, 'orchestrator', 'logs');
+      return handleGetRunLog(slug, slug, filename, logsDir, orchestratorLogsDir, afterLine);
+    };
+  }
+
+  // GET /api/projects/:repo/:slug/runs/:filename
+  // rest.length === 5, rest[3] === 'runs' — namespaced route
+  if (
+    method === 'GET' &&
+    rest.length === 5 &&
+    rest[0] === 'projects' &&
+    rest[3] === 'runs'
+  ) {
+    const repoUrlParam = decodeURIComponent(rest[1]!);
+    const slug = decodeURIComponent(rest[2]!);
+    const filename = decodeURIComponent(rest[4]!);
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const afterParam = sp.get('after');
+    const afterLine = afterParam !== null && !isNaN(parseInt(afterParam, 10)) ? parseInt(afterParam, 10) : undefined;
+    return async () => {
+      // Explicit SAFE_SLUG_REGEX guard before any path construction — makes the
+      // path-traversal defence direct rather than relying on the indirect
+      // resolveRepoName NOT_FOUND guard (defence-in-depth per Security Auditor).
+      if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+        throw new ApiError('NOT_FOUND', `Invalid repo or slug parameter.`);
+      }
+      // logsDir uses the URL segments (which locate the directory on disk); repoName
+      // is resolved from .meta.json so it comes from the stored repository_name, not
+      // a raw URL param (AC3). resolveRepoName also enforces 404 for unknown projects.
+      const logsDir = join(ledgerRoot, repoUrlParam, slug, 'orchestrator', 'logs');
+      const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+      return handleGetRunLog(slug, repoName, filename, logsDir, orchestratorLogsDir, afterLine);
+    };
   }
 
   // DELETE /api/projects/:slug
@@ -545,7 +1130,87 @@ function matchRoute(
   // POST /api/orchestrator/kill/:id and POST /api/orchestrator/dismiss/:id —
   // handled separately in handleRequest() (path-parameter extraction via path.slice).
 
-  // This comment block serves as a route-map reference for maintainability.
+  // ---------------------------------------------------------------------------
+  // Knowledge routes — added in WP-009.
+  // All three routes use the unique 'knowledge' first segment, so they cannot
+  // shadow any existing route. PATCH /api/knowledge/:id and
+  // POST /api/knowledge/:id/move are handled as special cases in handleRequest()
+  // because they require body parsing.
+  // ---------------------------------------------------------------------------
+
+  // GET /api/knowledge
+  // rest.length === 1, rest[0] === 'knowledge'
+  if (method === 'GET' && rest.length === 1 && rest[0] === 'knowledge') {
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const params = {
+      scope: sp.get('scope') ?? undefined,
+      category: sp.get('category') ?? undefined,
+      tags: sp.get('tags') ?? undefined,
+      project_slug: sp.get('project_slug') ?? undefined,
+      query: sp.get('query') ?? undefined,
+      limit: sp.get('limit') ?? undefined,
+      offset: sp.get('offset') ?? undefined,
+    };
+    return () => handleListKnowledge(ledgerRoot, params);
+  }
+
+  // DELETE /api/knowledge/:id
+  // rest.length === 2, rest[0] === 'knowledge'
+  if (method === 'DELETE' && rest.length === 2 && rest[0] === 'knowledge') {
+    const rawId = rest[1]!;
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const scope = sp.get('scope') ?? undefined;
+    const project_slug = sp.get('project_slug') ?? undefined;
+    return () => handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug);
+  }
+
+  // POST /api/knowledge/:id/promote
+  // rest.length === 3, rest[0] === 'knowledge', rest[2] === 'promote'
+  if (method === 'POST' && rest.length === 3 && rest[0] === 'knowledge' && rest[2] === 'promote') {
+    const rawId = rest[1]!;
+    const qIdx = url.indexOf('?');
+    const qStr = qIdx !== -1 ? url.slice(qIdx + 1) : '';
+    const sp = new URLSearchParams(qStr);
+    const scope = sp.get('scope') ?? undefined;
+    const project_slug = sp.get('project_slug') ?? undefined;
+    return () => handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug);
+  }
+
+  // No match found — fall through to 404.
+  // Route map summary (body-free routes in matchRoute; body-parsing routes handled above in handleRequest):
+  //   GET    /api/insights
+  //   GET    /api/orchestrator/queue
+  //   GET    /api/orchestrator/run-status/:filename
+  //   GET    /api/projects[?page&limit&status&search&sort&dir&runner]
+  //   GET    /api/projects/:slug
+  //   GET    /api/projects/:slug/plan
+  //   GET    /api/projects/:slug/synthesis
+  //   GET    /api/projects/:slug/health
+  //   GET    /api/projects/:slug/work-packages
+  //   GET    /api/projects/:slug/work-packages/overview
+  //   GET    /api/projects/:slug/work-packages/:wpId
+  //   GET    /api/projects/:slug/dialogues[?wp=WP-001]
+  //   GET    /api/projects/:slug/dialogues/:filename
+  //   GET    /api/projects/:slug/chunks[?wp=WP-001]
+  //   GET    /api/projects/:slug/chunks/:filename
+  //   GET    /api/projects/:slug/chunks/:filename/rendered
+  //   GET    /api/projects/:slug/runs
+  //   GET    /api/projects/:slug/runs/:filename[?after=N]
+  //   DELETE /api/projects/:slug
+  //   POST   /api/projects/:slug/archive
+  //   POST   /api/projects/:slug/unarchive
+  //   POST   /api/projects/:slug/complete
+  //   (namespaced /:repo/:slug variants of the above also registered)
+  //   GET    /api/knowledge[?scope&category&tags&project_slug&query&limit&offset]
+  //   DELETE /api/knowledge/:id[?scope&project_slug]
+  //   POST   /api/knowledge/:id/promote[?scope&project_slug]
+  //   PATCH  /api/knowledge/:id           (body-parsing — handled in handleRequest)
+  //   POST   /api/knowledge/:id/move      (body-parsing — handled in handleRequest)
+  //   PATCH  /api/projects/:slug          (body-parsing — handled in handleRequest; guard: /^\/api\/projects\/.+$/.test(path))
 
   return null;
 }
@@ -578,6 +1243,7 @@ async function serveStatic(
     res.writeHead(200, {
       'Content-Type': mimeType,
       'Content-Length': content.length,
+      'Cache-Control': 'no-store',
       ...corsHeaders(port),
       ...securityHeaders(),
     });
@@ -672,11 +1338,27 @@ export async function handleRequest(
   }
 
   // PATCH /api/projects/:slug — special case: requires body parsing
-  if (method === 'PATCH' && path.startsWith('/api/projects/')) {
-    const slug = decodeURIComponent(path.slice('/api/projects/'.length));
+  if (method === 'PATCH' && /^\/api\/projects\/.+$/.test(path)) {
+    const rawPath = path.slice('/api/projects/'.length);
+    const patchSegs = rawPath.split('/').filter(Boolean);
     try {
       const body = await readJsonBody(req);
-      const result = await handleRenameProject(ledgerRoot, slug, body);
+      let result: unknown;
+      if (patchSegs.length === 2) {
+        // Namespaced: PATCH /api/projects/:repo/:slug
+        const repoUrlParam = decodeURIComponent(patchSegs[0]!);
+        const slug = decodeURIComponent(patchSegs[1]!);
+        if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+          sendError(res, 404, 'NOT_FOUND', 'Invalid repo or slug parameter.', port);
+          return;
+        }
+        const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+        result = await handleRenameProject(ledgerRoot, slug, body, repoName);
+      } else {
+        // Flat: PATCH /api/projects/:slug
+        const slug = decodeURIComponent(rawPath);
+        result = await handleRenameProject(ledgerRoot, slug, body);
+      }
       sendJson(res, 200, result, port);
     } catch (err) {
       if (err instanceof PayloadTooLargeError) {
@@ -684,7 +1366,7 @@ export async function handleRequest(
       } else if (err instanceof ApiError) {
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
-        process.stderr.write(`[server] Unhandled error in PATCH /api/projects/:slug: ${String(err)}\n`);
+        process.stderr.write(`[server] Unhandled error in PATCH /api/projects/...: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }
@@ -694,6 +1376,7 @@ export async function handleRequest(
   // POST /api/projects/:slug/reset — special case: requires body parsing
   if (method === 'POST') {
     const postSegments = path.split('/').filter(Boolean);
+    // Flat: POST /api/projects/:slug/reset — postSegments.length === 4
     if (
       postSegments.length === 4 &&
       postSegments[0] === 'api' &&
@@ -712,6 +1395,36 @@ export async function handleRequest(
           sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
         } else {
           process.stderr.write(`[server] Unhandled error in POST /api/projects/:slug/reset: ${String(err)}\n`);
+          sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+        }
+      }
+      return;
+    }
+    // Namespaced: POST /api/projects/:repo/:slug/reset — postSegments.length === 5
+    if (
+      postSegments.length === 5 &&
+      postSegments[0] === 'api' &&
+      postSegments[1] === 'projects' &&
+      postSegments[4] === 'reset'
+    ) {
+      const repoUrlParam = decodeURIComponent(postSegments[2]!);
+      const slug = decodeURIComponent(postSegments[3]!);
+      try {
+        if (!SAFE_SLUG_REGEX.test(repoUrlParam) || !SAFE_SLUG_REGEX.test(slug)) {
+          sendError(res, 404, 'NOT_FOUND', 'Invalid repo or slug parameter.', port);
+          return;
+        }
+        const body = await readJsonBody(req);
+        const repoName = await resolveRepoName(ledgerRoot, repoUrlParam, slug);
+        const result = await handleResetProject(ledgerRoot, slug, body, repoName);
+        sendJson(res, 200, result, port);
+      } catch (err) {
+        if (err instanceof PayloadTooLargeError) {
+          sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+        } else if (err instanceof ApiError) {
+          sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+        } else {
+          process.stderr.write(`[server] Unhandled error in POST /api/projects/:repo/:slug/reset: ${String(err)}\n`);
           sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
         }
       }
@@ -767,6 +1480,50 @@ export async function handleRequest(
         sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
       } else {
         process.stderr.write(`[server] Unhandled error in POST /api/orchestrator/dismiss/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // PATCH /api/knowledge/:id — special case: requires body parsing
+  // Regex match on path to extract the numeric ID segment.
+  const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
+  if (method === 'PATCH' && knowledgePatchMatch) {
+    const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleUpdateKnowledge(ledgerRoot, rawId, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in PATCH /api/knowledge/:id: ${String(err)}\n`);
+        sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
+      }
+    }
+    return;
+  }
+
+  // POST /api/knowledge/:id/move — special case: requires body parsing
+  // Regex match on path to extract the numeric ID segment.
+  const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
+  if (method === 'POST' && knowledgeMoveMatch) {
+    const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleMoveKnowledge(ledgerRoot, rawId, body);
+      sendJson(res, 200, result, port);
+    } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Payload Too Large.', port);
+      } else if (err instanceof ApiError) {
+        sendError(res, apiErrorToStatus(err.code), err.code, err.message, port);
+      } else {
+        process.stderr.write(`[server] Unhandled error in POST /api/knowledge/:id/move: ${String(err)}\n`);
         sendError(res, 500, 'INTERNAL_ERROR', 'An unexpected error occurred.', port);
       }
     }

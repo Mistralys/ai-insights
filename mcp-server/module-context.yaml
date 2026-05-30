@@ -262,6 +262,17 @@ documents:
           - src/gui
         filePattern: "*.ts"
 
+  - description: 'MCP Server - Source (GUI Frontend)'
+    outputPath: 'mcp-server/source-gui-frontend.md'
+    sources:
+      - type: file
+        description: "GUI frontend SPA: API client, router, views, and utility modules"
+        sourcePaths:
+          - gui/public
+        filePattern: "*.js"
+        excludePatterns:
+          - 'libs/'
+
   - description: 'MCP Server - Tests'
     outputPath: 'mcp-server/tests.md'
     sources:

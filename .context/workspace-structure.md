@@ -64,6 +64,7 @@ _SOURCE: Top-level directory tree_
     │   ├── sort-arrow-sprite.png
     │   ├── sorter.js
     ├── gui/
+    │   ├── api-knowledge.ts
     │   ├── api.ts
     │   ├── chunk-renderer.ts
     │   ├── orchestrator-manager.ts
@@ -74,6 +75,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── router.js
     │   │   ├── stale-check.js
     │   │   ├── styles.css
+    │   │   ├── theme-init.js
     │   │   ├── theme.js
     │   │   ├── utils.js
     │   ├── server.ts
@@ -81,6 +83,8 @@ _SOURCE: Top-level directory tree_
     ├── package-lock.json
     ├── package.json
     ├── scripts/
+    │   ├── move-unknown-project.js
+    │   ├── rename-repository.js
     │   ├── sync-version.js
     ├── src/
     │   ├── gui/
@@ -91,6 +95,7 @@ _SOURCE: Top-level directory tree_
     │   ├── index.ts
     │   ├── schema/
     │   │   ├── enums.ts
+    │   │   ├── knowledge.ts
     │   │   ├── project-meta.ts
     │   │   ├── root-index.ts
     │   │   ├── validators.ts
@@ -99,11 +104,14 @@ _SOURCE: Top-level directory tree_
     │   ├── storage/
     │   │   ├── atomic-writer.ts
     │   │   ├── file-lock.ts
+    │   │   ├── knowledge-store.ts
     │   │   ├── ledger-store.ts
+    │   │   ├── migrate-namespaced.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
     │   │   ├── help-content.ts
     │   │   ├── help.ts
+    │   │   ├── knowledge.ts
     │   │   ├── observations.ts
     │   │   ├── pipeline.ts
     │   │   ├── project-lifecycle.ts
@@ -132,8 +140,10 @@ _SOURCE: Top-level directory tree_
     │   ├── ledger/
     │   │   └── gui-config.json
     ├── tests/
+    │   ├── gui-server.test.ts
     │   ├── gui/
     │   │   ├── api-client.test.ts
+    │   │   ├── api-knowledge.test.ts
     │   │   ├── api-orchestrator.test.ts
     │   │   ├── api-reset.test.ts
     │   │   ├── api-wp-overview.test.ts
@@ -144,6 +154,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── config.test.ts
     │   │   ├── dialogue-qa.test.ts
     │   │   ├── handoff-config-integration.test.ts
+    │   │   ├── knowledge-api.test.ts
     │   │   ├── log-resolver.test.ts
     │   │   ├── orchestrator-manager.test.ts
     │   │   ├── orchestrator-view.test.ts
@@ -156,6 +167,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── server-body-limit.test.ts
     │   │   ├── server-error-mapping.test.ts
     │   │   ├── server-info.test.ts
+    │   │   ├── server-knowledge-routes.test.ts
     │   │   ├── server-queue.test.ts
     │   │   ├── stale-check.test.ts
     │   ├── helpers/
@@ -166,14 +178,20 @@ _SOURCE: Top-level directory tree_
     │   │   ├── auto-handoff.test.ts
     │   │   ├── full-workflow.test.ts
     │   ├── schema/
+    │   │   ├── knowledge.test.ts
     │   │   ├── project-archiving-schema.test.ts
     │   │   ├── project-meta-runner.test.ts
     │   │   ├── root-index.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
     │   ├── storage/
+    │   │   ├── knowledge-store-exclusion.test.ts
+    │   │   ├── knowledge-store.test.ts
     │   │   ├── ledger-store.test.ts
+    │   │   ├── list-all-projects.test.ts
+    │   │   ├── migrate-namespaced.test.ts
     │   │   ├── project-meta.test.ts
+    │   │   ├── slug-resolution.test.ts
     │   ├── tools/
     │   │   ├── begin-work.test.ts
     │   │   ├── cancelled-status.test.ts
@@ -181,6 +199,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── claim-guard.test.ts
     │   │   ├── complete-pipeline-guards.test.ts
     │   │   ├── enrichment-resilience.test.ts
+    │   │   ├── knowledge-help.test.ts
+    │   │   ├── knowledge.test.ts
     │   │   ├── list-projects.test.ts
     │   │   ├── meta-enrichment.test.ts
     │   │   ├── observations.test.ts
@@ -200,6 +220,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── workflow-rework-loop.test.ts
     │   ├── utils/
     │   │   └── agent-registry.test.ts
+    │   │   └── derive-repo-name.test.ts
     │   │   └── if-defined.test.ts
     │   │   └── ledger-root.test.ts
     │   │   └── path-validator.test.ts
@@ -288,6 +309,7 @@ _SOURCE: Top-level directory tree_
     │   └── test_prompt_renderer.py
     │   └── test_revision.py
     │   └── test_run_queue.py
+    │   └── test_slug_dir.py
     │   └── test_state.py
     │   └── test_stream_retry.py
     │   └── test_streaming_capture.py
@@ -368,6 +390,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── reviewer-output-format.md
     │   │   └── security-auditor-operational-protocol.md
     │   │   └── security-auditor-output-format.md
+    │   │   └── synthesis-knowledge-collection.md
     │   │   └── synthesis-operational-protocol.md
     │   │   └── synthesis-output-format.md
     ├── standalone/
@@ -380,6 +403,7 @@ _SOURCE: Top-level directory tree_
     │       ├── developer-standalone.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
+    │       ├── knowledge-archiver.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -405,6 +429,7 @@ _SOURCE: Top-level directory tree_
     │       ├── developer.md
     │       ├── documentation-curator.md
     │       ├── git-committer.md
+    │       ├── knowledge-archiver.md
     │       ├── ledger-bootstrapper.md
     │       ├── ledger-claude-coordinator.md
     │       ├── ledger-dependency-sequencer.md
@@ -430,6 +455,7 @@ _SOURCE: Top-level directory tree_
     │       └── developer-standalone.agent.md
     │       └── documentation-curator.agent.md
     │       └── git-committer.agent.md
+    │       └── knowledge-archiver.agent.md
     │       └── ledger-bootstrapper.agent.md
     │       └── ledger-claude-coordinator.agent.md
     │       └── ledger-dependency-sequencer.agent.md
@@ -456,6 +482,7 @@ _SOURCE: Top-level directory tree_
     ├── extract-changelog-entry.js
     ├── install-hooks.js
     ├── kill-orchestrator.js
+    ├── migrate-synthesis-insights.js
     ├── normalize-ctx-paths.js
     ├── package-personas.js
     ├── preflight-bootstrap.js

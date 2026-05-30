@@ -18,16 +18,10 @@
  *   node scripts/bundle-docs.js --dry-run              # preview sizes, write nothing
  */
 
-'use strict';
+import fs from 'fs';
+import path from 'path';
 
-const fs   = require('fs');
-const path = require('path');
-
-// ---------------------------------------------------------------------------
-// Paths
-// ---------------------------------------------------------------------------
-
-const ROOT = path.resolve(__dirname, '..');
+const ROOT      = path.resolve(import.meta.dirname, '..');
 const BUILD_DIR = path.join(ROOT, 'build');
 
 // NotebookLM sources

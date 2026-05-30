@@ -4,8 +4,8 @@ description: "Implement scoped plan documents without ledger workflow, including
 vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
-version: "1.0.0"
-last_updated: "2026-03-29"
+version: "1.1.0"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -13,6 +13,7 @@ tools:
   - read
   - edit
   - search
+  - browser
   - todo
 
 cc_tools:

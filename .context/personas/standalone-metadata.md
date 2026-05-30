@@ -20,6 +20,7 @@ _SOURCE: YAML metadata for all 16 standalone personas (shared defaults + per-per
                 └── developer.yaml
                 └── documentation-curator.yaml
                 └── git-committer.yaml
+                └── knowledge-archiver.yaml
                 └── ledger-bootstrapper.yaml
                 └── ledger-claude-coordinator.yaml
                 └── ledger-dependency-sequencer.yaml
@@ -172,8 +173,8 @@ description: "Implement scoped plan documents without ledger workflow, including
 vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
-version: "1.0.0"
-last_updated: "2026-03-29"
+version: "1.1.0"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -181,6 +182,7 @@ tools:
   - read
   - edit
   - search
+  - browser
   - todo
 
 cc_tools:
@@ -238,6 +240,26 @@ cc_tools:
   - Read
   - Grep
   - Glob
+
+```
+###  Path: `/personas/standalone/src/meta/knowledge-archiver.yaml`
+
+```yaml
+slug: knowledge-archiver
+name: "Knowledge Archiver"
+description: "Extract and commit reusable knowledge from archived ledger project folders into the knowledge base."
+vs_file_name: knowledge-archiver.agent.md
+id: standalone-knowledge-archiver
+cc_file_name: knowledge-archiver.md
+version: "1.3.1"
+last_updated: "2026-05-29"
+mcp_server_name: central_pm
+
+tools:
+  - vscode
+  - read
+  - search
+  - central_pm/*
 
 ```
 ###  Path: `/personas/standalone/src/meta/ledger-bootstrapper.yaml`
@@ -500,8 +522,8 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.4.0"
-last_updated: "2026-05-18"
+version: "1.5.0"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -510,6 +532,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
 
@@ -523,8 +546,8 @@ description: "Audit technical plans for technical defects — hallucinated refer
 vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
-version: "1.3.1"
-last_updated: "2026-05-20"
+version: "1.4.0"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -533,6 +556,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
 
@@ -596,8 +620,8 @@ description: "Research solutions to complex problems through known patterns or c
 vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
-version: "1.1.0"
-last_updated: "2026-04-30"
+version: "1.2.0"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -606,6 +630,7 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo
 

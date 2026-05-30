@@ -199,6 +199,44 @@ node dist/index.js --ledger-dir /custom/path/to/ledger
 
 ---
 
+### 6b. Ledger Storage Paths Must Include the Repository Namespace Level
+
+**Rule:** Never construct a ledger storage path as `join(ledgerRoot, slug)` or `join(ledgerRoot, slug, filename)`. The canonical storage layout is `{ledgerRoot}/{repoName}/{slug}/` — all paths into the centralized ledger **must** include the `{repoName}` tier. Use one of the two canonical resolution functions:
+
+| Input available | Function | Returns |
+|-----------------|----------|---------|
+| Absolute plan folder path | `LedgerStore(planPath, ledgerRoot)` constructor | Instance whose `.storageDir` is `join(ledgerRoot, deriveRepoName(planPath), slug)` |
+| Bare slug or qualified `{repo}/{slug}` | `resolveProjectDir(slugOrQualified, ledgerRoot)` | Absolute `storageDir` path; then read `.meta.json` to obtain `plan_path` for the constructor |
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — missing the repo-namespace level; two repos with the same slug collide
+const store = new LedgerStore(slug, ledgerRoot);
+// storageDir resolves to join(ledgerRoot, 'unknown', slug) for most inputs
+// — correct only when deriveRepoName(planPath) happens to return 'unknown'
+```
+
+**Correct pattern — constructing from plan path (most common):**
+```typescript
+// ✅ CORRECT — LedgerStore(planPath, ledgerRoot) calls deriveRepoName internally
+const store = new LedgerStore(planPath, ledgerRoot);
+// storageDir === join(ledgerRoot, deriveRepoName(planPath), slug)
+```
+
+**Correct pattern — resolving from a URL slug parameter (GUI handlers):**
+```typescript
+// ✅ CORRECT — resolveProjectDir probes all namespace dirs to find the one containing slug
+const storageDir = await resolveProjectDir(slug, ledgerRoot);
+const meta = JSON.parse(await readFile(join(storageDir, '.meta.json'), 'utf-8'));
+const store = new LedgerStore(meta.plan_path, ledgerRoot);
+```
+
+**Rationale:** The repo-namespaced layout eliminates slug collisions when multiple repositories create identically-named plan folders (e.g., two developers each have a `2026-01-01-initial-setup` plan). Bypassing the namespace level causes different projects to share a storage directory, silently corrupting each other's ledger data.
+
+**See also:** `data-flows.md` §Storage Layout for the full directory structure; `api-surface.md` for `deriveRepoName()`, `resolveProjectDir()`, and `migrateToNamespacedLayout()` signatures.
+
+---
+
 ### 7. STDIO Logging Discipline
 
 **Rule:** Never log to `stdout`. All logs must go to `stderr`.
@@ -1003,6 +1041,85 @@ Acceptance criteria cannot be empty or whitespace-only.
 
 ## GUI API Constraints
 
+### 58. `gui/api-knowledge.ts` Is the Canonical Location for All Knowledge Handler Code
+
+**Rule:** All knowledge-specific REST handler functions (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`), Zod schemas (`KnowledgeUpdateBodySchema`, `KnowledgeMoveBodySchema`), and supporting types/helpers (`KnowledgeListParams`, `parseKnowledgeId`) MUST reside in `gui/api-knowledge.ts`. No knowledge handler code may be added to or remain in `gui/api.ts`.
+
+**Rationale:** `gui/api.ts` had grown large enough to become a maintenance liability. Extracting all knowledge symbols into a dedicated module (`gui/api-knowledge.ts`) isolates the knowledge domain, makes ownership explicit, and prevents future drift back into `api.ts`. The cut is clean: `api-knowledge.ts` re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
+
+**Implication for `gui/server.ts`:** The HTTP server imports knowledge handlers from `./api-knowledge.js` — not `./api.js`. Both body-free routes (`matchRoute()` tier) and body-parsing routes (`handleRequest()` tier) source their handler references from `api-knowledge.ts`.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — knowledge handler in api.ts or re-exported via api.ts
+export function handleListKnowledge(...) { /* in gui/api.ts */ }
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — knowledge handler in the dedicated module
+// gui/api-knowledge.ts
+export async function handleListKnowledge(...) { /* ... */ }
+
+// gui/server.ts
+import { handleListKnowledge } from './api-knowledge.js';
+```
+
+---
+
+### 59. Knowledge Body-Parsing Routes Use Regex Path Matching in `handleRequest()`
+
+**Rule:** The two body-parsing knowledge routes (`PATCH /api/knowledge/:id` and `POST /api/knowledge/:id/move`) MUST use regex `.test()` or `.exec()` for path matching inside `handleRequest()`. `path.startsWith()` is prohibited for these routes because it cannot reliably extract the `:id` capture group and is inconsistent with the regex pattern used for the PATCH `/api/projects/` guard.
+
+**Correct patterns (from `gui/server.ts`):**
+```typescript
+// ✅ CORRECT — regex exec captures :id
+const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
+if (method === 'PATCH' && knowledgePatchMatch !== null) {
+  const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
+  // ...
+}
+
+const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
+if (method === 'POST' && knowledgeMoveMatch !== null) {
+  const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
+  // ...
+}
+```
+
+**Rationale:** The `.exec()` pattern is consistent with the PATCH `/api/projects/` guard (which also uses regex) and makes the capture-group extraction explicit. `startsWith()` cannot distinguish `/api/knowledge/42` from `/api/knowledge/42/move` without additional substring checks.
+
+---
+
+### 60. CSP `script-src` Must Not Use `'unsafe-inline'`; `style-src` Retains It
+
+**Rule:** The Content Security Policy header set by `gui/server.ts` must specify `script-src 'self'` (no `'unsafe-inline'`). Inline scripts in `gui/public/index.html` are prohibited — all JavaScript that runs at page load must be served as a static file. The `style-src` directive retains `'unsafe-inline'` because the SPA's view JS files generate HTML via `innerHTML` with inline `style=""` attributes.
+
+**Required CSP header value:**
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'
+```
+
+**FOUC prevention:** The theme-initialisation script (`gui/public/theme-init.js`) handles pre-paint theme application. It is a plain ES5 IIFE served as a static file and loaded via `<script src="/theme-init.js?v=1">` in `<head>` — not as an inline `<script>` block.
+
+**Anti-pattern:**
+```html
+<!-- ❌ WRONG — inline script; blocked by script-src 'self' CSP -->
+<script>
+  (function() { /* theme init logic */ })();
+</script>
+```
+
+**Correct pattern:**
+```html
+<!-- ✅ CORRECT — external file; allowed by script-src 'self' -->
+<script src="/theme-init.js?v=1"></script>
+```
+
+**Rationale for retaining `style-src 'unsafe-inline'`:** Six view JS files inject HTML via `innerHTML` with inline `style=""` attributes. Removing `'unsafe-inline'` from `style-src` would break these views in modern browsers that enforce CSP on inline styles inside `innerHTML`-injected content. This is deferred as a separate, larger-scope effort.
+
+---
+
 ### 40. All Slug- and WpId-Accepting GUI Handlers Must Call Their Path-Traversal Guard First
 
 **Rule:** Every GUI API handler in `gui/api.ts` that accepts a path segment parameter must call its corresponding guard as the **first** (slug) or **second** (wpId) statement, before any other processing.
@@ -1218,6 +1335,35 @@ if (!result) throw new Error('Expected result to be set inside lock');
 ```
 
 Prefer `| undefined` over non-null assertion (`!`) when the accumulator cannot have a meaningful zero state.
+
+---
+
+### ⚠️ Gotcha 13: `resolveProjectDir()` NOT_FOUND Error Embeds the Absolute `ledgerRoot` Path
+
+The `NOT_FOUND` error thrown by `resolveProjectDir()` includes the absolute filesystem path to `ledgerRoot` in its message:
+
+```
+NOT_FOUND: project slug 'my-plan' was not found in any repo namespace under '/absolute/path/to/storage/ledger'.
+```
+
+**Caller responsibility:** When `resolveProjectDir()` is wired to a GUI or API handler, the handler **must sanitise this error message before returning it to callers** — strip the filesystem path and retain it only in server-side logs. Returning the raw message to an API consumer leaks internal infrastructure details (A09 — Information Disclosure).
+
+**The `AMBIGUOUS` error is safe** — it contains only `{repo}/{slug}` qualified path strings and does not embed any filesystem path.
+
+**Correct handler pattern:**
+```typescript
+try {
+  const projectPath = await resolveProjectDir(slug, ledgerRoot);
+  // ...
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.startsWith('NOT_FOUND:')) {
+    // Sanitise: strip the filesystem path before returning to the caller
+    throw new ApiError('NOT_FOUND', `Project '${slug}' was not found.`);
+  }
+  throw err;
+}
+```
 
 ---
 
@@ -1759,7 +1905,7 @@ var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
 | Tier | Routes |
 |------|--------|
 | `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
-| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `PATCH /api/projects/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `POST /api/projects/:repo/:slug/reset`, `PATCH /api/projects/:slug`, `PATCH /api/projects/:repo/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
 
 **Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
 
@@ -1784,3 +1930,86 @@ function _bindQueueActions(container, entries) { /* ... */ }
 **Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function. This convention was established during the `2026-05-20-orchestrator-gui-polish-rework` sprint and should be applied to all new closure-scoped helpers going forward.
 
 **Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
+
+---
+
+## Knowledge Store Constraints
+
+### 73. `.knowledge/` Directory Uses a Single Lock Scope for All Writes; Excluded from Project Enumeration
+
+**Rule:** All write operations on the `.knowledge/` store (`addInsight`, `updateInsight`) MUST acquire a single `withLock(knowledgeDir(), ...)` scope that covers the entire read-modify-write sequence. Pure reads (`searchInsights`, `listInsights`) do NOT acquire a lock, consistent with the `LedgerStore` read pattern. The `.knowledge/` directory lives at `{ledgerRoot}/.knowledge/` and MUST NOT be included in project enumeration (`listAllProjects`, `detectProjectByCwd`) — it is global infrastructure, not a per-project ledger.
+
+**Rationale:** Using a single lock on `knowledgeDir()` (rather than per-file locks) prevents concurrent writers from interleaving across `global-insights.json` and `{slug}-insights.json` stores. Excluding `.knowledge/` from project enumeration prevents it from being misidentified as a project directory during `ledger_list_projects` or `ledger_detect_project` calls.
+
+**Lock target:** Always `knowledgeDir()` — never a per-file path and never `store.storageDir` (that is the per-project lock target, not the knowledge store lock target).
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — separate lock per store file; concurrent writers can interleave
+await withLock(globalStorePath(), async () => { /* write global store */ });
+await withLock(projectStorePath(slug), async () => { /* write project store */ });
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock on the knowledge directory for any write operation
+await withLock(knowledgeDir(), async () => {
+  const store = await _readStore(storePath);
+  // ... mutate store ...
+  await atomicWriteJson(storePath, store);
+});
+```
+
+**Project enumeration exclusion:** `LedgerStore.listAllProjects()` reads `readdir(ledgerRoot)` and filters to subdirectories. The `.knowledge` entry (which starts with `.`) is excluded by the existing filter that skips dot-prefixed entries — no additional code change is required. This constraint documents the expected behaviour so it is preserved if the filter is ever modified.
+
+---
+
+## Known Limitations
+
+### KL-1. `'unknown'` Namespace Collision When Repo Root Fails Slug Validation
+
+**Affected components:** `LedgerStore.storageDir` (via `deriveRepoName()` in `src/utils/ledger-root.ts`) and `migrateToNamespacedLayout()` (via `repository_name` field in `.meta.json`)
+
+**Trigger condition — `LedgerStore.storageDir`:** `deriveRepoName()` derives the repo name by lowercasing the project-root directory basename and delegates to `assertSafeSegment()` (which encapsulates `SAFE_SLUG_REGEX`) for validation (alphanumeric + hyphens only). When a repo's root directory name contains characters that fail this check — such as dots (e.g. `my.project`), underscores, non-ASCII characters, or a path too shallow to extract four levels — `deriveRepoName()` falls back to `'unknown'`. If two or more such repos exist on the same machine, their projects will share the `{ledgerRoot}/unknown/` namespace and can **collide by slug** — two projects with the same plan folder basename will map to the same `storageDir`.
+
+**Trigger condition — `migrateToNamespacedLayout()`:** The migration function uses `repository_name` from each project's `.meta.json` as the namespace. If `repository_name` is absent, `null`, or an empty string, the project is moved to `{ledgerRoot}/unknown/{slug}/`. Additionally, if a user has a repository literally named `'unknown'` (a valid, slug-compatible name), its projects will share the `{ledgerRoot}/unknown/` namespace with all fallback projects, and slug collisions may occur.
+
+**Mitigation:** Rename the repository root directory to a slug-compatible name (lowercase alphanumeric and hyphens only, e.g. rename `My.Project` → `my-project`). This is the only reliable fix; there is no server-side escape hatch once two repos produce the same `repoName`. For the migration-layer scenario, also avoid naming a repository `'unknown'`.
+
+**Detection:** If you suspect a collision, inspect `{ledgerRoot}/unknown/` — multiple slug subdirectories there indicate affected projects. Each `.meta.json` inside will identify the originating `plan_path`.
+
+---
+
+### KL-2. `listAllProjects()` Two-Level Scan Has No Direct Unit Tests *(Resolved — WP-004)*
+
+**Affected component:** `LedgerStore.listAllProjects()` in `src/storage/ledger-store.ts`
+
+**Status:** Resolved by WP-004 (2026-05-27). A dedicated test suite `tests/storage/list-all-projects.test.ts` was added with 10 tests covering:
+
+- New namespaced layout (`{ledgerRoot}/{repoName}/{slug}/`)
+- Old flat layout (`{ledgerRoot}/{slug}/`) for backward compatibility
+- Mixed flat-layout and namespaced-layout projects coexisting in the same ledger root
+- Dot-prefix filtering at depth-1 and depth-2
+- Empty namespace directories (no valid subdirectories)
+- Namespace directories containing invalid (non-project) subdirectories
+- Same-slug cross-namespace collision prevention
+- `detectProjectByCwd()` delegation with both layout types
+- The `stderr` log path for depth-2 slug directories with a missing `.meta.json` file
+
+All 97 storage tests pass. The known limitation below is retained for historical context only.
+
+**Historical details (pre-WP-004):** The two-level scan introduced in WP-002 was exercised indirectly through `detectProjectByCwd` tests but lacked a dedicated test suite. Mixed-layout coexistence and the `stderr` log path had no direct coverage.
+
+**See also:** `api-surface.md` §`LedgerStore` static methods — the canonical `listAllProjects()` architectural constraint (slug-only callers must use this method before constructing a `LedgerStore`).
+
+---
+
+### KL-3. `assertSafeSlug` Is Defined in Three Files — Storage Layer and GUI Layer *(Resolved)*
+
+**Affected components:** `src/utils/ledger-root.ts` (storage layer), `src/gui/handlers/run-log-handlers.ts` (GUI layer), and `gui/api.ts` (GUI layer)
+
+**Was:** All three files defined a local, module-private `assertSafeSlug` using an inline `SAFE_SLUG_REGEX.test()` call. The regex check was duplicated, requiring all three files to be updated in lockstep when validation logic changed.
+
+**Resolution:** All three `assertSafeSlug` implementations now delegate to `assertSafeSegment()` from `src/utils/path-validator.ts`, which encapsulates the `SAFE_SLUG_REGEX` check. The throw-type variants are preserved (`Error` in the storage layer; `ApiError NOT_FOUND` in the GUI layer) — the layer separation is unchanged. `deriveRepoName()` in `src/utils/ledger-root.ts` also delegates to `assertSafeSegment()` directly, completing the consolidation — `src/utils/ledger-root.ts` no longer imports `SAFE_SLUG_REGEX`.
+
+**Ongoing invariant:** When slug-segment validation logic changes, update `assertSafeSegment()` in `path-validator.ts` only — all three `assertSafeSlug` wrappers and `deriveRepoName()` pick up the change automatically.

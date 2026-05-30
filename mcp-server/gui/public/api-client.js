@@ -94,6 +94,117 @@ var API = (function () {
     orchestratorGetQueue:    function ()                 { return request('GET',    '/orchestrator/queue'); },
     orchestratorGetRunStatus: function (slug)            { return request('GET',    '/orchestrator/run-status/' + encodeURIComponent(slug)); },
     orchestratorKill:        function (id)               { return request('POST',   '/orchestrator/kill/'       + encodeURIComponent(id)); },
-    orchestratorDismiss:     function (id)               { return request('DELETE', '/orchestrator/queue/'      + encodeURIComponent(id)); },
+    orchestratorDismiss:     function (id)               { return request('POST',   '/orchestrator/dismiss/'    + encodeURIComponent(id)); },
+
+    // -- Knowledge -----------------------------------------------------
+
+    /**
+     * List or search knowledge insights stored in the ledger's `.knowledge/`
+     * directory.
+     *
+     * Falsy or empty param values are silently omitted from the query string by
+     * `buildQueryString` — pass `undefined` to leave a filter unset rather than
+     * sending `?scope=undefined` to the server.
+     *
+     * @param {Record<string, any>|null|undefined} params - Query parameters
+     *   (e.g. `{ scope, project_slug, category, tags, q }`).
+     * @returns {Promise<object>} Parsed JSON response from `GET /api/knowledge`.
+     */
+    getKnowledge: function (params) {
+      return request('GET', '/knowledge' + buildQueryString(params));
+    },
+
+    /**
+     * Update a knowledge insight by ID.
+     *
+     * `scope` and `project_slug` are merged into the request body **after**
+     * the caller-supplied `data` object, so they always take precedence — a
+     * caller cannot override `scope` or `project_slug` via the `data` argument.
+     *
+     * A falsy `projectSlug` (empty string, `null`, `undefined`) is coerced to
+     * `undefined` before serialisation, which causes the key to be omitted from
+     * the JSON body.  Project slugs are always non-empty strings in practice, so
+     * a slug of `'0'` would be incorrectly dropped — this edge-case is a known
+     * limitation of the `|| undefined` pattern used throughout this module.
+     *
+     * @param {string|number} id          - Insight ID (URI-encoded automatically).
+     * @param {string}        scope       - Insight scope (`'global'` or `'project'`).
+     * @param {string|null}   projectSlug - Project slug; falsy values are omitted.
+     * @param {object}        data        - Fields to update (merged before scope/slug).
+     * @returns {Promise<object>} Updated insight from `PATCH /api/knowledge/:id`.
+     */
+    updateKnowledge: function (id, scope, projectSlug, data) {
+      return request('PATCH', '/knowledge/' + encodeURIComponent(id), Object.assign({}, data, {
+        scope: scope,
+        project_slug: projectSlug || undefined,
+      }));
+    },
+
+    /**
+     * Delete a knowledge insight by ID.
+     *
+     * `scope` and `project_slug` are passed as URL query parameters so the
+     * server can locate the correct store file.  A falsy `projectSlug` is
+     * coerced to `undefined` and omitted from the query string by
+     * `buildQueryString`.
+     *
+     * @param {string|number} id          - Insight ID (URI-encoded automatically).
+     * @param {string}        scope       - Insight scope (`'global'` or `'project'`).
+     * @param {string|null}   projectSlug - Project slug; falsy values are omitted.
+     * @returns {Promise<null>} `null` on success (HTTP 204 No Content).
+     */
+    deleteKnowledge: function (id, scope, projectSlug) {
+      return request('DELETE', '/knowledge/' + encodeURIComponent(id) + buildQueryString({
+        scope: scope,
+        project_slug: projectSlug || undefined,
+      }));
+    },
+
+    /**
+     * Promote a project-scoped insight to global scope.
+     *
+     * Sends `POST /api/knowledge/:id/promote` with `scope` and `project_slug`
+     * as URL query parameters.  **No request body is sent** — the server
+     * identifies the source insight via the query parameters alone.
+     *
+     * A falsy `projectSlug` is coerced to `undefined` and omitted from the
+     * query string by `buildQueryString`.
+     *
+     * @param {string|number} id          - Insight ID (URI-encoded automatically).
+     * @param {string}        scope       - Source scope (`'project'`).
+     * @param {string|null}   projectSlug - Source project slug; falsy values are omitted.
+     * @returns {Promise<object>} The newly created global insight (with a new ID
+     *   assigned by the global store — different from the original project insight ID).
+     */
+    promoteKnowledge: function (id, scope, projectSlug) {
+      return request('POST', '/knowledge/' + encodeURIComponent(id) + '/promote' + buildQueryString({
+        scope: scope,
+        project_slug: projectSlug || undefined,
+      }));
+    },
+
+    /**
+     * Move a knowledge insight from one scope/project to another.
+     *
+     * Sends `POST /api/knowledge/:id/move` with source and target identifiers
+     * in the JSON body.  A falsy `sourceProjectSlug` is coerced to `undefined`
+     * and omitted from JSON serialisation (moves from global scope have no
+     * source project slug).  `targetProjectSlug` is **always required** and is
+     * not coerced — a move always needs an explicit destination project slug.
+     *
+     * @param {string|number} id                - Insight ID (URI-encoded automatically).
+     * @param {string}        sourceScope       - Source scope (`'global'` or `'project'`).
+     * @param {string|null}   sourceProjectSlug - Source project slug; falsy values are omitted.
+     * @param {string}        targetProjectSlug - Destination project slug (always required).
+     * @returns {Promise<object>} The newly created insight in the target project (with a new
+     *   ID assigned by the target store — different from the original insight ID).
+     */
+    moveKnowledge: function (id, sourceScope, sourceProjectSlug, targetProjectSlug) {
+      return request('POST', '/knowledge/' + encodeURIComponent(id) + '/move', {
+        source_scope: sourceScope,
+        source_project_slug: sourceProjectSlug || undefined,
+        project_slug: targetProjectSlug,
+      });
+    },
   };
 })();

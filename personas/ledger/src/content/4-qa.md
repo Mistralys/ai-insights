@@ -20,6 +20,10 @@ You will be provided with:
 4. **Modified/created files:** Provided by the Developer Agent in the WP detail file's `implementation` pipeline `artifacts` (retrieve via `ledger_get_work_package`).
 5. **Test Environment:** Tools to execute shell commands, run test suites, and check logs.
 
+### Capabilities
+
+* **Browser:** Render and interact with the application UI directly — navigate pages, click elements, fill forms, screenshot visual state, and verify UI acceptance criteria that cannot be confirmed through code or test output alone. Use screenshots as evidence in bug reports.
+
 ---
 
 {{> mcp-intro}}

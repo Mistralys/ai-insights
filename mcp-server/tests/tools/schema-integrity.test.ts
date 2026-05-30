@@ -1,7 +1,7 @@
 /**
  * Schema Integrity Regression Test
  *
- * Verifies that all 22 tool schemas registered with the MCP server produce
+ * Verifies that all 26 tool schemas registered with the MCP server produce
  * non-empty JSON Schema `properties`. This test fails if anyone re-adds
  * `.refine()`, `.transform()`, or `.superRefine()` to an outer `z.object()`
  * schema — those methods convert `ZodObject` to `ZodEffects`, causing the
@@ -24,6 +24,7 @@ import { register as registerProjectLifecycle } from '../../src/tools/project-li
 import { register as registerWorkflowHandoff } from '../../src/tools/workflow-handoff.js';
 import { register as registerWorkflowNextAction } from '../../src/tools/workflow-next-action.js';
 import { register as registerWorkPackage } from '../../src/tools/work-package.js';
+import { register as registerKnowledge } from '../../src/tools/knowledge.js';
 
 // ── Capture schemas from registerTool() ───────────────────────────────────
 const capturedSchemas = new Map<string, z.ZodTypeAny>();
@@ -47,6 +48,7 @@ beforeAll(() => {
   registerWorkflowHandoff(mockServer);
   registerWorkflowNextAction(mockServer);
   registerWorkPackage(mockServer);
+  registerKnowledge(mockServer);
 });
 
 // ── Expected tool names (all 22) ──────────────────────────────────────────
@@ -81,13 +83,18 @@ const EXPECTED_TOOL_NAMES = [
   'ledger_update_work_package_status',
   'ledger_reset_rework_count',
   'ledger_update_acceptance_criteria',
+  // knowledge
+  'ledger_add_insight',
+  'ledger_search_insights',
+  'ledger_list_insights',
+  'ledger_update_insight',
 ] as const;
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
-describe('Schema Integrity — all 22 tool schemas produce non-empty JSON Schema', () => {
-  it('registers exactly 22 tools', () => {
-    expect(capturedSchemas.size).toBe(22);
+describe('Schema Integrity — all 26 tool schemas produce non-empty JSON Schema', () => {
+  it('registers exactly 26 tools', () => {
+    expect(capturedSchemas.size).toBe(26);
   });
 
   it('registers all expected tool names', () => {

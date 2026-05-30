@@ -15,11 +15,11 @@
  * CLI arguments after `--` are forwarded to the GUI server process.
  */
 
-const { spawn } = require('child_process');
-const { createInterface } = require('readline');
-const path = require('path');
+import { spawn } from 'child_process';
+import { createInterface } from 'readline';
+import path from 'path';
 
-const MCP_SERVER_DIR = path.resolve(__dirname, '..', 'mcp-server');
+const MCP_SERVER_DIR = path.resolve(import.meta.dirname, '..', 'mcp-server');
 
 // Collect args to forward: everything after a bare `--` separator, or all
 // extra args if no separator is present.

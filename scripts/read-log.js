@@ -20,14 +20,12 @@
  * No external dependencies — stdlib only (fs, path).
  */
 
-'use strict';
-
-const fs   = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..');
 const LOGS_DIR       = path.join(WORKSPACE_ROOT, 'orchestrator', 'logs');
 
 // ─── ANSI colors (disabled when stdout is not a TTY) ─────────────────────────

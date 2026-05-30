@@ -40,6 +40,10 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_add_project_comment | cwd_path or project_path, type, priority, agent, note | Add project-level comment |
 | ledger_get_next_action | cwd_path or project_path, agent_role | Get next recommended action (optional: max_results for batch mode) |
 | ledger_get_handoff_status | cwd_path or project_path, current_agent | Check handoff status |
+| ledger_add_insight | scope, title, content, category, tags | Add a reusable insight to the knowledge base |
+| ledger_search_insights | query | Search the knowledge base (optional: scope, category, tags, project_slug, limit) |
+| ledger_list_insights | None required | List insights with optional filters and pagination |
+| ledger_update_insight | id | Update an existing insight by numeric ID |
 
 ## Common Mistakes
 
@@ -693,9 +697,7 @@ Override with \`--ledger-dir <path>\` at server startup.
 `,
 
   ledger_complete_synthesis: `
-# ledger_complete_synthesis
-
-Mark the project synthesis as generated. Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
+# ledger_complete_synthesis Sets \`synthesis_generated = true\` on the root index and transitions the project status to COMPLETE.
 
 Call this after the Synthesis agent has finished generating its synthesis report. Subsequent calls to \`ledger_get_next_action(Synthesis)\` will return WAIT once this flag is set.
 
@@ -731,6 +733,167 @@ ${PROJECT_PATH_PARAM}
   "project_path": "f:\\\\project\\\\docs\\\\agents\\\\plans\\\\2026-02-16-feature",
   "synthesis_file": "${SYNTHESIS_ARCHIVE_FILENAME}"
 }
+\`\`\`
+`,
+
+  ledger_add_insight: `
+# ledger_add_insight
+
+Add a reusable insight to the global or project-scoped knowledge base.
+
+## Required Parameters
+- **scope** (string): \`"global"\` for cross-project insights; \`"project"\` for project-scoped insights.
+  When scope is \`"project"\`, **project_slug is also required**.
+- **title** (string): Short title for the insight.
+- **content** (string): Full description of the insight.
+- **category** (string): Category string (e.g., \`"architecture"\`, \`"testing"\`, \`"workflow"\`, \`"security"\`).
+- **tags** (array): Array of tag strings for filtering and search.
+
+## Optional Parameters
+- **project_slug** (string): Slug of the project store. Required when scope is \`"project"\`.
+  Alphanumeric characters, hyphens, and underscores only (e.g., \`"my-project"\`).
+- **source** (string): Source reference (e.g., WP ID, discussion link, or URL). Defaults to empty string.
+- **confidence** (number): Confidence score 0–1 indicating reliability. Defaults to 1.
+
+## Response
+The created insight object, including the auto-assigned numeric **id** and a **formatted_id** (KN-NNNN).
+
+## Examples
+\`\`\`json
+{
+  "scope": "global",
+  "title": "Always validate slugs at the schema boundary",
+  "content": "Use PROJECT_SLUG_REGEX to reject path-traversal slugs before they reach the storage layer.",
+  "category": "security",
+  "tags": ["security", "validation", "schema"],
+  "source": "WP-002",
+  "confidence": 0.95
+}
+\`\`\`
+\`\`\`json
+{
+  "scope": "project",
+  "project_slug": "2026-05-28-knowledge-system",
+  "title": "Knowledge store uses numeric IDs internally",
+  "content": "The KN-NNNN display format is produced at the tool layer; only the numeric id is stored.",
+  "category": "architecture",
+  "tags": ["storage", "ids"],
+  "source": "WP-003"
+}
+\`\`\`
+`,
+
+  ledger_search_insights: `
+# ledger_search_insights
+
+Search the knowledge base for insights matching a query string.
+
+Applies a case-insensitive substring match against each insight's **title**, **content**, and **tags**.
+Returns an empty array when no insights match.
+
+## Required Parameters
+- **query** (string): Search string — matched case-insensitively against title, content, and tags.
+
+## Optional Parameters
+- **scope** (string): Filter by scope: \`"global"\` or \`"project"\`.
+- **category** (string): Filter by category (exact match).
+- **tags** (array): Filter results to those containing ALL specified tags.
+- **project_slug** (string): Restrict search to a specific project store.
+- **limit** (number): Maximum number of results to return.
+
+## Response
+Array of matching insight objects, each including **formatted_id** (KN-NNNN).
+
+## Example
+\`\`\`json
+{
+  "query": "slug validation",
+  "scope": "global",
+  "category": "security",
+  "limit": 10
+}
+\`\`\`
+`,
+
+  ledger_list_insights: `
+# ledger_list_insights
+
+List all insights in the knowledge base with optional filters and pagination.
+
+All parameters are optional — calling with no parameters returns all insights across all stores.
+
+## Optional Parameters
+- **scope** (string): Filter by scope: \`"global"\` or \`"project"\`.
+- **category** (string): Filter by category (exact match).
+- **tags** (array): Filter to insights matching ALL specified tags.
+- **project_slug** (string): Restrict to a specific project store.
+- **limit** (number): Maximum number of results to return (for pagination).
+- **offset** (number): Number of results to skip (for pagination). Defaults to 0.
+
+## Response
+Array of insight objects (filtered and paginated), each including **formatted_id** (KN-NNNN).
+
+## Examples
+\`\`\`json
+{}
+\`\`\`
+\`\`\`json
+{ "scope": "global", "category": "architecture", "limit": 20, "offset": 0 }
+\`\`\`
+\`\`\`json
+{ "project_slug": "my-project", "tags": ["security"], "limit": 5, "offset": 10 }
+\`\`\`
+`,
+
+  ledger_update_insight: `
+# ledger_update_insight
+
+Update an existing insight by its numeric ID.
+
+Accepts any combination of updatable fields — only the specified fields are changed.
+The \`updated_at\` timestamp is set automatically.
+
+Immutable fields (id, scope, project_slug, created_at) cannot be changed.
+
+> **Tip:** Numeric IDs are per-store counters, so the same numeric ID (e.g. \`1\`) can exist
+> in both the global store and a project store. Use \`scope\` and/or \`project_slug\` to make
+> your intent unambiguous and prevent accidental global-insight mutation.
+
+## Required Parameters
+- **id** (number): Numeric insight ID (as returned in the \`id\` field of a previous response).
+
+## Optional Scope Parameters (recommended when IDs may overlap)
+- **scope** ("global" | "project"): Restrict the search to stores of this scope.
+  Use \`"global"\` to ensure only the global store is searched; use \`"project"\` combined
+  with \`project_slug\` to target a specific project store exclusively.
+- **project_slug** (string): Restrict the search to a specific project store.
+  Accepts only alphanumeric slugs with hyphens and underscores.
+
+## Optional Update Parameters (at least one recommended)
+- **title** (string): New title.
+- **content** (string): New content.
+- **category** (string): New category.
+- **tags** (array): Replacement tags array.
+- **source** (string): New source reference.
+- **confidence** (number): New confidence score (0–1).
+- **superseded_by** (number): Numeric ID of the insight that supersedes this one.
+  Use this to mark an insight as outdated when a newer insight replaces it.
+
+## Response
+The updated insight object, including **formatted_id** (KN-NNNN) and the new **updated_at** timestamp.
+
+## Examples
+\`\`\`json
+{ "id": 1, "confidence": 0.8, "content": "Updated content after further testing." }
+\`\`\`
+\`\`\`json
+{ "id": 1, "scope": "global", "confidence": 0.8 }
+\`\`\`
+\`\`\`json
+{ "id": 1, "scope": "project", "project_slug": "my-project", "title": "Revised title" }
+\`\`\`
+\`\`\`json
+{ "id": 1, "superseded_by": 5 }
 \`\`\`
 `,
 };

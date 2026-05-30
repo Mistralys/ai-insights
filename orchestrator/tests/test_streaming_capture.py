@@ -32,7 +32,7 @@ from tests.conftest import _NoCaptureConfig, _StreamCaptureConfig  # noqa: F401
 
 
 def _base_state(
-    project_path: str = "/some/ledger/root/2026-04-10-streaming-test",
+    project_path: str = "/workspaces/ai-insights/docs/agents/plans/2026-04-10-streaming-test",
     current_wp_id: str = "WP-001",
 ) -> dict:
     return {
@@ -120,15 +120,16 @@ class TestChunkFileCreation:
         with _patch_persona(), _patch_backend(), \
              patch("deepagents.create_deep_agent", return_value=agent):
             result = await node_fn(_base_state(
-                project_path="/some/ledger/root/2026-04-10-streaming-test",
+                project_path="/workspaces/ai-insights/docs/agents/plans/2026-04-10-streaming-test",
                 current_wp_id="WP-001",
             ))
 
         assert result["stage_success"] is True
         # slug = Path(project_path).name
         slug = "2026-04-10-streaming-test"
+        # project_path parents[3] = "ai-insights", so repo_name="ai-insights".
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
         )
         assert chunks_dir.is_dir(), f"chunks dir not created: {chunks_dir}"
         jsonl_files = list(chunks_dir.glob("WP-001-developer-r*.jsonl"))
@@ -149,8 +150,9 @@ class TestChunkFileCreation:
             await node_fn(_base_state(current_wp_id="WP-007"))
 
         slug = "2026-04-10-streaming-test"
+        # project_path parents[3] = "ai-insights", so repo_name="ai-insights".
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
         )
         jsonl_files = list(chunks_dir.glob("*.jsonl"))
         assert jsonl_files
@@ -178,8 +180,9 @@ class TestChunkFileCreation:
             await node_fn(_base_state(current_wp_id="WP-001"))
 
         slug = "2026-04-10-streaming-test"
+        # project_path parents[3] = "ai-insights", so repo_name="ai-insights".
         chunks_dir = (
-            tmp_path / "mcp-server" / "storage" / "ledger" / slug / "orchestrator" / "chunks"
+            tmp_path / "mcp-server" / "storage" / "ledger" / "ai-insights" / slug / "orchestrator" / "chunks"
         )
         jsonl_file = next(chunks_dir.glob("WP-001-developer-r*.jsonl"))
         lines = [json.loads(ln) for ln in jsonl_file.read_text().splitlines() if ln]

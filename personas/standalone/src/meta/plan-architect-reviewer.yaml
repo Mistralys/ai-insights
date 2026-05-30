@@ -4,8 +4,8 @@ description: "Advisory architectural review of technical plans — challenges de
 vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
-version: "1.4.0"
-last_updated: "2026-05-18"
+version: "1.5.0"
+last_updated: "2026-05-29"
 
 tools:
   - vscode
@@ -14,5 +14,6 @@ tools:
   - edit
   - search
   - web
+  - browser
   - agent
   - todo

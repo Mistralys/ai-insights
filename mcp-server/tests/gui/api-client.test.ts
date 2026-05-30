@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 /**
- * Tests for gui/public/api-client.js — run log methods and server-info endpoint.
+ * Tests for gui/public/api-client.js — run log, server-info, orchestrator,
+ * and knowledge methods.
  *
  * Uses jsdom + vm.runInThisContext to load the browser-side script, then mocks
  * globalThis.fetch to assert the URLs and options that API methods produce.
@@ -211,14 +212,14 @@ describe('API.orchestratorKill', () => {
 });
 
 describe('API.orchestratorDismiss', () => {
-  it('sends DELETE /api/orchestrator/queue/{id}', async () => {
+  it('sends POST /api/orchestrator/dismiss/{id}', async () => {
     const calls = mockFetch(null, 204);
 
     await globalThis.API.orchestratorDismiss('abc-123');
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe('/api/orchestrator/queue/abc-123');
-    expect(calls[0]!.opts.method).toBe('DELETE');
+    expect(calls[0]!.url).toBe('/api/orchestrator/dismiss/abc-123');
+    expect(calls[0]!.opts.method).toBe('POST');
   });
 
   it('encodes the entry ID in the URL', async () => {
@@ -226,6 +227,190 @@ describe('API.orchestratorDismiss', () => {
 
     await globalThis.API.orchestratorDismiss('id/with/slashes');
 
-    expect(calls[0]!.url).toBe('/api/orchestrator/queue/id%2Fwith%2Fslashes');
+    expect(calls[0]!.url).toBe('/api/orchestrator/dismiss/id%2Fwith%2Fslashes');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Knowledge methods
+// ---------------------------------------------------------------------------
+
+describe('API.getKnowledge', () => {
+  it('calls GET /api/knowledge with no query string when params is empty', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.getKnowledge({});
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/knowledge');
+    expect(calls[0]!.opts.method).toBe('GET');
+  });
+
+  it('builds the query string from the params object', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.getKnowledge({ scope: 'project', project_slug: 'my-proj' });
+
+    expect(calls[0]!.url).toBe('/api/knowledge?scope=project&project_slug=my-proj');
+  });
+
+  it('omits undefined and empty-string params from the query string', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.getKnowledge({ scope: 'global', project_slug: undefined });
+
+    expect(calls[0]!.url).toBe('/api/knowledge?scope=global');
+    expect(calls[0]!.url).not.toContain('project_slug');
+  });
+
+  it('encodes special characters in param values', async () => {
+    const calls = mockFetch([]);
+
+    await globalThis.API.getKnowledge({ scope: 'project', project_slug: 'a b' });
+
+    expect(calls[0]!.url).toBe('/api/knowledge?scope=project&project_slug=a%20b');
+  });
+});
+
+describe('API.updateKnowledge', () => {
+  it('sends PATCH /api/knowledge/:id with scope and project_slug merged into the body', async () => {
+    const calls = mockFetch({ id: 1 });
+
+    await globalThis.API.updateKnowledge('42', 'project', 'my-proj', { title: 'New title' });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/knowledge/42');
+    expect(calls[0]!.opts.method).toBe('PATCH');
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body).toMatchObject({ title: 'New title', scope: 'project', project_slug: 'my-proj' });
+  });
+
+  it('omits project_slug from body when projectSlug is empty/falsy', async () => {
+    const calls = mockFetch({ id: 1 });
+
+    await globalThis.API.updateKnowledge('7', 'global', '', { content: 'x' });
+
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body.scope).toBe('global');
+    expect(body.project_slug).toBeUndefined();
+  });
+
+  it('encodes the id path segment via encodeURIComponent', async () => {
+    const calls = mockFetch({ id: 1 });
+
+    await globalThis.API.updateKnowledge('a/b', 'global', '', {});
+
+    expect(calls[0]!.url).toBe('/api/knowledge/a%2Fb');
+  });
+});
+
+describe('API.deleteKnowledge', () => {
+  it('sends DELETE /api/knowledge/:id with scope and project_slug as query params', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.deleteKnowledge('5', 'project', 'proj-x');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/knowledge/5?scope=project&project_slug=proj-x');
+    expect(calls[0]!.opts.method).toBe('DELETE');
+  });
+
+  it('omits project_slug query param when projectSlug is empty', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.deleteKnowledge('3', 'global', '');
+
+    expect(calls[0]!.url).toBe('/api/knowledge/3?scope=global');
+    expect(calls[0]!.url).not.toContain('project_slug');
+  });
+
+  it('encodes the id path segment via encodeURIComponent', async () => {
+    const calls = mockFetch(null, 204);
+
+    await globalThis.API.deleteKnowledge('a/b', 'global', '');
+
+    expect(calls[0]!.url).toContain('/api/knowledge/a%2Fb');
+  });
+});
+
+describe('API.promoteKnowledge', () => {
+  it('sends POST /api/knowledge/:id/promote with scope and project_slug as query params', async () => {
+    const calls = mockFetch({ id: 99 });
+
+    await globalThis.API.promoteKnowledge('12', 'project', 'my-proj');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/knowledge/12/promote?scope=project&project_slug=my-proj');
+    expect(calls[0]!.opts.method).toBe('POST');
+  });
+
+  it('omits project_slug query param when projectSlug is empty', async () => {
+    const calls = mockFetch({ id: 99 });
+
+    await globalThis.API.promoteKnowledge('8', 'project', '');
+
+    expect(calls[0]!.url).toBe('/api/knowledge/8/promote?scope=project');
+    expect(calls[0]!.url).not.toContain('project_slug');
+  });
+
+  it('encodes the id path segment via encodeURIComponent', async () => {
+    const calls = mockFetch({ id: 99 });
+
+    await globalThis.API.promoteKnowledge('a/b', 'project', 'p');
+
+    expect(calls[0]!.url).toContain('/api/knowledge/a%2Fb/promote');
+  });
+
+  it('does not send a request body', async () => {
+    const calls = mockFetch({ id: 99 });
+
+    await globalThis.API.promoteKnowledge('1', 'project', 'proj');
+
+    expect(calls[0]!.opts.body).toBeUndefined();
+  });
+});
+
+describe('API.moveKnowledge', () => {
+  it('sends POST /api/knowledge/:id/move with source_scope, source_project_slug, and project_slug in the body', async () => {
+    const calls = mockFetch({ id: 55 });
+
+    await globalThis.API.moveKnowledge('10', 'project', 'src-proj', 'dst-proj');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/knowledge/10/move');
+    expect(calls[0]!.opts.method).toBe('POST');
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body).toEqual({
+      source_scope: 'project',
+      source_project_slug: 'src-proj',
+      project_slug: 'dst-proj',
+    });
+  });
+
+  it('omits source_project_slug from body when sourceProjectSlug is empty/falsy', async () => {
+    const calls = mockFetch({ id: 55 });
+
+    await globalThis.API.moveKnowledge('2', 'global', '', 'target-proj');
+
+    const body = JSON.parse(calls[0]!.opts.body as string);
+    expect(body.source_scope).toBe('global');
+    expect(body.source_project_slug).toBeUndefined();
+    expect(body.project_slug).toBe('target-proj');
+  });
+
+  it('encodes the id path segment via encodeURIComponent', async () => {
+    const calls = mockFetch({ id: 55 });
+
+    await globalThis.API.moveKnowledge('a/b', 'project', 'src', 'dst');
+
+    expect(calls[0]!.url).toBe('/api/knowledge/a%2Fb/move');
+  });
+
+  it('sends Content-Type: application/json header', async () => {
+    const calls = mockFetch({ id: 55 });
+
+    await globalThis.API.moveKnowledge('3', 'project', 'src', 'dst');
+
+    expect(calls[0]!.opts.headers).toMatchObject({ 'Content-Type': 'application/json' });
   });
 });

@@ -23,7 +23,7 @@ This document lists **public constructors, properties, and method signatures** f
 
 ---
 
-## MCP Tools (22 Total)
+## MCP Tools (30 Total)
 
 The primary public API is the set of **MCP tools** registered by the server. Agents invoke these tools via the MCP protocol.
 
@@ -547,6 +547,339 @@ Help content is sourced from `src/tools/help-content.ts` (`TOOL_HELP` map). The 
 
 ---
 
+### Knowledge Tools
+
+#### `ledger_add_insight`
+
+```typescript
+(args: {
+  scope: 'global' | 'project';    // "global" for cross-project, "project" for project-scoped
+  project_slug?: string;           // Required when scope is "project". Alphanumeric, hyphens, underscores only.
+  title: string;
+  content: string;
+  category: string;                // e.g. "architecture", "testing", "workflow", "security"
+  tags: string[];
+  source?: string;                 // Defaults to '' if omitted
+  confidence?: number;             // 0–1 float; defaults to 1 if omitted
+}) => Promise<MCPResult>
+```
+
+Adds a new insight to the knowledge store. Delegates to `KnowledgeStoreManager.addInsight()`.
+
+- **`scope: 'global'`** — stored in `global-insights.json` (cross-project knowledge).
+- **`scope: 'project'`** — stored in `{project_slug}-insights.json`; `project_slug` is required. Returns `isError: true` if `project_slug` is absent.
+- **Response:** Returns the full `Insight` object with an additional `formatted_id` field (e.g. `"KN-0001"`). The `formatted_id` and numeric `id` are **per-store only** — not globally unique across global and project stores. If a global and a project store both contain an insight with `id: 1`, their `formatted_id` values will be identical.
+
+#### `ledger_search_insights`
+
+```typescript
+(args: {
+  query: string;                   // Case-insensitive substring match against title, content, and tags
+  scope?: 'global' | 'project';   // Optional. Filter by scope.
+  category?: string;               // Optional. Filter by category.
+  tags?: string[];                 // Optional. Filter to insights containing ALL specified tags (AND semantics).
+  project_slug?: string;           // Optional. Restrict search to a specific project store.
+  limit?: number;                  // Optional. Maximum results to return.
+}) => Promise<MCPResult>
+```
+
+Searches insights for the query string (case-insensitive substring match against `title`, `content`, and `tags`). Returns an array of matching `Insight` objects, each augmented with `formatted_id`. Returns an empty array when no matches are found. Store selection follows the `_loadInsights()` store-selection table in the `KnowledgeStoreManager` section.
+
+**Tags filter (AND semantics):** When `tags` is provided, only insights containing all specified tags are returned.
+
+#### `ledger_list_insights`
+
+```typescript
+(args: {
+  scope?: 'global' | 'project';   // Optional. Filter by scope.
+  category?: string;               // Optional. Filter by category.
+  tags?: string[];                 // Optional. Filter to insights containing ALL specified tags (AND semantics).
+  project_slug?: string;           // Optional. Restrict to a specific project store.
+  limit?: number;                  // Optional. Maximum results to return.
+  offset?: number;                 // Optional. Skip this many results (pagination). Default: 0.
+}) => Promise<MCPResult>
+```
+
+Lists insights with optional filters and pagination. Filter application order: store selection → category → tags → offset → limit. Returns each `Insight` augmented with a `formatted_id` field.
+
+#### `ledger_update_insight`
+
+```typescript
+(args: {
+  id: number;                     // Numeric ID as returned in the id field of a previous response
+  title?: string;
+  content?: string;
+  category?: string;
+  tags?: string[];                // Replaces the tags array
+  source?: string;
+  confidence?: number;            // 0–1 float
+  superseded_by?: number;        // Numeric ID of the insight that supersedes this one
+},
+filter?: {             // Optional scope filter — restricts which store is searched
+  scope?: 'global' | 'project';
+  project_slug?: string;
+}) => Promise<MCPResult>
+```
+
+Updates an existing insight. Delegates to `KnowledgeStoreManager.updateInsight()`. Immutable fields: `id`, `scope`, `project_slug`, `created_at`. Sets `updated_at` on success.
+
+- **Scope filter (new):** Pass `scope` and/or `project_slug` to restrict which store is searched. When `scope: 'global'` is set only `global-insights.json` is searched; when `scope: 'project'` + `project_slug` are set only `{slug}-insights.json` is searched. Prevents accidental global-insight mutation when the same numeric `id` exists in multiple stores.
+- **Without filter:** All stores are searched in alphabetical order (`_enumerateStorePaths()`). `global-insights.json` sorts before `{slug}-insights.json`, so a global insight is updated before any project insight with the same `id`. Use the scope filter when disambiguation is needed.
+- **`formatted_id` in response:** Store-scoped — not globally unique. See `ledger_add_insight` for details.
+- **Error:** Returns `isError: true` if no insight with the given `id` exists in the filtered stores.
+
+---
+
+## GUI API — Knowledge Endpoints
+
+These handler functions are exported from `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003) and called by the HTTP server in `gui/server.ts`. They sit between the HTTP request and the `KnowledgeStoreManager` storage layer.
+
+> **Route wiring note:** All knowledge handlers (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`) are implemented in `gui/api-knowledge.ts`, tested, and registered as HTTP routes in `server.ts`, which imports them from `./api-knowledge.js`.
+
+> **`handlePromoteKnowledge` / `handleMoveKnowledge` wiring:** Both handlers delegate to the atomic `KnowledgeStoreManager.moveInsight()` method (introduced in WP-002). The old add→delete compose logic is fully removed. The returned insight has a **different numeric ID** (assigned by the target store's `next_id` counter) — the original ID is no longer valid after a promote or move.
+
+### HTTP Route Table
+
+The five knowledge endpoints registered in `gui/server.ts`, grouped by dispatch tier:
+
+**Tier 1 — body-free routes (dispatched via `matchRoute()`)**
+
+| Method | Path | Query Parameters | Return Shape | Error Codes |
+|--------|------|-----------------|--------------|-------------|
+| `GET` | `/api/knowledge` | `scope`, `category`, `tags` (comma-separated), `project_slug`, `query`, `limit`, `offset` | HTTP 200 `{ data: Insight[] }` | 400 (invalid scope — silently ignored, no error) |
+| `DELETE` | `/api/knowledge/:id` | `scope` (required), `project_slug` (required when `scope=project`) | HTTP 204 No Content | 400 (non-integer/zero/float id; missing/invalid scope; missing project_slug), 404 (insight not found) |
+| `POST` | `/api/knowledge/:id/promote` | `scope` (required, must be `"project"`), `project_slug` (required when `scope=project`) | HTTP 200 `{ data: Insight }` (new global insight — ⚠ new ID, see below) | 400 (non-integer/zero/float id; scope not `"project"`; missing project_slug), 404 (insight not found) |
+
+**Tier 2 — body-parsing routes (handled as special cases in `handleRequest()`)**
+
+| Method | Path | Request Body | Return Shape | Error Codes |
+|--------|------|-------------|--------------|-------------|
+| `PATCH` | `/api/knowledge/:id` | `KnowledgeUpdateBodySchema` — `scope` (required), `project_slug`?, `title`?, `content`?, `category`?, `tags`?, `source`?, `confidence`?, `superseded_by`? | HTTP 200 `{ data: Insight }` (updated insight) | 400 (non-integer/zero/float id; unknown body fields; type mismatches; missing scope), 404 (insight not found), 413 (body > 1 MiB) |
+| `POST` | `/api/knowledge/:id/move` | `KnowledgeMoveBodySchema` — `source_scope` (required), `source_project_slug`? (required when `source_scope=project`), `project_slug` (required, destination) | HTTP 200 `{ data: Insight }` (new target insight — ⚠ new ID) | 400 (non-integer/zero/float id; invalid body; missing source_project_slug; source === destination), 404 (insight not found), 413 (body > 1 MiB) |
+
+**Notes:**
+- `:id` must be a positive integer. Float strings (`"1.5"`), zero (`"0"`), and non-numeric strings are rejected with HTTP 400.
+- Body-parsing routes enforce a 1 MiB body size limit (`MAX_BODY_BYTES`). Exceeding it returns HTTP 413.
+- All routes return `application/json`. Errors follow `{ error: { code: string, message: string } }` shape.
+- CORS is locked to `http://localhost:{port}` (same port as the server).
+- `GET /api/knowledge` validates `scope` via `InsightScope.safeParse()` — unrecognised values are silently ignored (no filter applied, no error returned).
+- **Search with tag-filter and pagination:** When `query` is supplied, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single `GET /api/knowledge` call.
+
+### `KnowledgeUpdateBodySchema`
+
+```typescript
+// Exported Zod schema for PATCH /api/knowledge/:id request bodies.
+// `.strict()` rejects unknown keys — prevents callers from setting immutable fields (id, created_at, …).
+// `superseded_by` accepts null to support field-clearing semantics; the handler maps null → undefined
+// before forwarding to KnowledgeStoreManager.updateInsight().
+export const KnowledgeUpdateBodySchema: z.ZodObject<{
+  scope: typeof InsightScope;                              // Required: 'global' | 'project'
+  project_slug?: z.ZodOptional<z.ZodString>;              // Required when scope === 'project'
+  title?: z.ZodOptional<z.ZodString>;
+  content?: z.ZodOptional<z.ZodString>;
+  category?: z.ZodOptional<z.ZodString>;
+  tags?: z.ZodOptional<z.ZodArray<z.ZodString>>;
+  source?: z.ZodOptional<z.ZodString>;
+  confidence?: z.ZodOptional<z.ZodNumber>;                // 0–1 float
+  superseded_by?: z.ZodOptional<z.ZodNullable<z.ZodNumber>>; // null clears the field; undefined omits it
+}>;
+```
+
+### `handleListKnowledge()`
+
+```typescript
+// GET /api/knowledge
+// Lists (or searches) knowledge insights.
+// When `query` is present, delegates to KnowledgeStoreManager.searchInsights().
+// Otherwise calls KnowledgeStoreManager.listInsights() with scope/category/tags filters.
+// `scope` is validated via InsightScope.safeParse() — unrecognised values fall back to undefined (no filter).
+// `tags` is a comma-separated string split on ','.
+// `limit` and `offset` are coerced to non-negative integers; invalid values default to undefined/0.
+//
+// When `query` is present, `tags`, `limit`, and `offset` are forwarded to searchInsights(),
+// enabling full-text search combined with tag filtering (AND semantics) and pagination in a
+// single call. Tag filtering is applied after the substring match; offset/limit pagination is
+// applied after tag filtering.
+export async function handleListKnowledge(
+  ledgerRoot: string,
+  params?: KnowledgeListParams
+): Promise<Insight[]>
+
+export interface KnowledgeListParams {
+  scope?: string;
+  category?: string;
+  tags?: string;          // Comma-separated tag list
+  project_slug?: string;
+  query?: string;         // Full-text search; delegates to searchInsights() when present
+  limit?: number | string;
+  offset?: number | string;
+}
+```
+
+### `handleUpdateKnowledge()`
+
+```typescript
+// PATCH /api/knowledge/:id
+// Updates an existing insight identified by its numeric ID.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings (e.g. "0", "1.5", "2.0" all rejected)
+//   - body validated via KnowledgeUpdateBodySchema.safeParse() — throws VALIDATION_ERROR
+//     for unknown fields or type mismatches (.strict() enforced)
+//
+// `superseded_by: null` in the body is mapped to `undefined` before the updateInsight() call,
+// causing the storage layer to remove the field from the stored insight.
+//
+// Scope disambiguation: `scope` and `project_slug` from the body are passed as the filter
+// parameter to KnowledgeStoreManager.updateInsight() — restricts the search to the correct
+// store and prevents accidental cross-scope updates when the same numeric id exists in
+// multiple stores.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, unknown body fields, type mismatches
+//   NOT_FOUND        — no insight with the given id in the specified scope
+//
+// @param ledgerRoot  Absolute path to the central ledger root.
+// @param rawId       Raw id string from the URL parameter (e.g. "42").
+// @param body        Parsed request body (any shape — validated here).
+// @returns The updated Insight.
+export async function handleUpdateKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  body: unknown
+): Promise<Insight>
+```
+
+### `handleDeleteKnowledge()`
+
+```typescript
+// DELETE /api/knowledge/:id
+// Deletes an existing insight identified by its numeric ID.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings. ID validation runs BEFORE scope validation;
+//     when both are invalid the caller receives a VALIDATION_ERROR for the id.
+//   - scope (query parameter) required; validated via InsightScope.safeParse() —
+//     throws VALIDATION_ERROR when absent or not 'global' | 'project'
+//   - project_slug (query parameter) required when scope === 'project';
+//     throws VALIDATION_ERROR when absent
+//
+// Scope disambiguation: `scope` and `project_slug` are passed as the filter to
+// KnowledgeStoreManager.deleteInsight(), restricting deletion to the correct store.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, missing project_slug
+//   NOT_FOUND        — no insight with the given id in the specified scope
+//
+// @param ledgerRoot   Absolute path to the central ledger root.
+// @param rawId        Raw id string from the URL parameter (e.g. "42").
+// @param scope        Required scope query parameter ('global' or 'project').
+// @param project_slug Required when scope is 'project'.
+// @returns null — consistent with other DELETE handlers.
+export async function handleDeleteKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  scope: string | undefined,
+  project_slug?: string
+): Promise<null>
+```
+
+### `handlePromoteKnowledge()`
+
+```typescript
+// POST /api/knowledge/:id/promote
+// Promotes a project-scoped insight to global scope.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - scope (query parameter) required; must be "project". Passing scope="global" throws
+//     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
+//   - project_slug (query parameter) required when scope is "project"; throws VALIDATION_ERROR
+//     when absent.
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+// — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
+// The old add→delete two-step compose is fully removed.
+//
+// The returned insight is the newly created global copy — it has a different numeric ID
+// (assigned by the global store's next_id counter).
+//
+// ⚠ ID-change semantics: the returned insight's `id` is NOT the same as the pre-promote
+// project-scoped insight's `id`. The global store assigns a new `next_id`-based ID.
+// Frontend consumers that need to track which insight was promoted must capture the
+// original ID before calling promote and match by pre-promote ID — not by the new ID
+// returned in the response.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing project_slug
+//   NOT_FOUND        — no insight with the given id in the specified project scope
+export async function handlePromoteKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  scope: string | undefined,
+  project_slug?: string
+): Promise<Insight>
+```
+
+### `KnowledgeMoveBodySchema`
+
+```typescript
+// Exported Zod schema for POST /api/knowledge/:id/move request bodies.
+// `.strict()` rejects unknown keys.
+//
+// source_project_slug is .optional() at the Zod layer — the conditional-required
+// constraint (required when source_scope is "project") is enforced in handler logic,
+// not in the schema. This matches the pattern used for project_slug in other handlers.
+export const KnowledgeMoveBodySchema: z.ZodObject<{
+  source_scope: typeof InsightScope;               // Required: 'global' | 'project'
+  source_project_slug?: z.ZodOptional<z.ZodString>; // Optional in schema; required by handler when source_scope === 'project'
+  project_slug: z.ZodString;                       // Required: destination project slug
+}>;
+```
+
+### `handleMoveKnowledge()`
+
+```typescript
+// POST /api/knowledge/:id/move
+// Moves an insight from one scope/project to a different project.
+//
+// Supports two move variants:
+//   - global → project: moves a global insight into a named project store
+//   - project → project: moves a project insight to a different project
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - body validated via KnowledgeMoveBodySchema.safeParse().
+//   - source_project_slug is required when source_scope is "project" (handler-enforced;
+//     the field is optional in the Zod schema — see KnowledgeMoveBodySchema).
+//   - Source and destination must differ: if source_scope is "project" and
+//     source_project_slug === project_slug, throws VALIDATION_ERROR.
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+// — atomic cross-store read-modify-write inside a single withLock(knowledgeDir()) span.
+// The old non-atomic add→delete two-step compose is fully removed; no intermediate state
+// is observable.
+//
+// The returned insight is the newly created copy in the target project — it has a different
+// numeric ID (assigned by the target store's next_id counter).
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, invalid body, source_project_slug absent when required,
+//                      source and destination identical
+//   NOT_FOUND        — no insight with the given id in the specified source scope
+export async function handleMoveKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  body: unknown
+): Promise<Insight>
+```
+
+---
+
 ## Storage API
 
 ### `SlugConflictError`
@@ -566,14 +899,15 @@ Used by `gui/api.ts` `handleRenameProject` catch block (`err instanceof SlugConf
 
 ### `LedgerStore`
 
-Central storage abstraction for ledger file I/O. Files are stored in the centralized ledger root at `{ledgerRoot}/{slug}/` — never inside plan folders.
+Central storage abstraction for ledger file I/O. Files are stored in the centralized ledger root at `{ledgerRoot}/{repoName}/{slug}/` — never inside plan folders.
 
 ```typescript
 class LedgerStore {
   readonly planPath: string;
   readonly slug: string;
   readonly ledgerRoot: string;
-  readonly storageDir: string;   // {ledgerRoot}/{slug}/
+  readonly repoName: string;     // derived from the project-root dirname via deriveRepoName(); falls back to 'unknown'
+  readonly storageDir: string;   // {ledgerRoot}/{repoName}/{slug}/
 
   // Optional ledgerRoot enables test isolation (pass a temp directory)
   constructor(projectPath: string, ledgerRoot?: string);
@@ -704,6 +1038,23 @@ class LedgerStore {
   renameSlug(newSlug: string): Promise<ProjectMeta>;
 
   // Static
+  //
+  // listAllProjects() — canonical entry point for slug-to-path resolution.
+  // Performs a two-level scan of the ledger root:
+  //   Level 1 (flat layout, backward compat): {ledgerRoot}/{slug}/.meta.json
+  //   Level 2 (namespaced layout, current):   {ledgerRoot}/{repoName}/{slug}/.meta.json
+  // Dot-prefixed entries (e.g. .archive) are skipped at both levels.
+  // Unreadable depth-2 .meta.json entries are logged to stderr and skipped;
+  //   the scan continues — errors here are non-fatal.
+  //
+  // ARCHITECTURAL CONSTRAINT: Any code that receives only a slug (not a plan_path)
+  // must call listAllProjects() to retrieve the ProjectMeta (which contains
+  // plan_path and the resolved storageDir) before constructing a LedgerStore
+  // instance. Constructing LedgerStore(slug, ledgerRoot) directly is incorrect
+  // for namespaced projects: deriveRepoName(slug) returns 'unknown' for a bare
+  // slug, causing storageDir to resolve to {ledgerRoot}/unknown/{slug}/ instead
+  // of the actual namespace path — the directory will not exist and all ledger
+  // operations on that store will fail with 'Project not found'.
   static listAllProjects(ledgerRoot?: string): Promise<ProjectMeta[]>;
   static detectProjectByCwd(
     cwdPath: string,
@@ -742,6 +1093,204 @@ function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
 ```
 
 Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
+
+---
+
+### `KnowledgeStoreManager`
+
+Manages the `.knowledge/` directory under `ledgerRoot`. Provides full CRUD for insights with atomic writes, file locking, and in-memory search/filter logic. Exported from `src/storage/knowledge-store.ts`.
+
+**Storage layout** (relative to `ledgerRoot`):
+```
+.knowledge/
+  .lock                     — lock file created by withLock
+  global-insights.json      — insights with scope: 'global'
+  {slug}-insights.json      — insights scoped to a specific project
+```
+
+**Locking strategy:**
+- All read-modify-write sequences (`addInsight`, `updateInsight`, `deleteInsight`, `moveInsight`) acquire a single lock on `knowledgeDir()` for the entire operation.
+- All writes use `atomicWriteJson()` — write-to-temp-then-rename.
+- Pure reads (`readGlobalStore`, `readProjectStore`, `searchInsights`, `listInsights`) do not acquire a lock, consistent with the `LedgerStore` pattern.
+- `moveInsight` is a cross-store read-modify-write: it reads both the source and target stores, writes the target (with the new insight), then writes the source (with the original removed) — all within the same lock span. Do NOT call it from inside another `withLock(knowledgeDir, …)` callback.
+
+```typescript
+class KnowledgeStoreManager {
+  readonly ledgerRoot: string;
+
+  constructor(ledgerRoot: string);
+
+  // ── Path Helpers ──────────────────────────────────────────────────────────
+
+  // Returns {ledgerRoot}/.knowledge
+  knowledgeDir(): string;
+
+  // Returns {ledgerRoot}/.knowledge/global-insights.json
+  globalStorePath(): string;
+
+  // Returns {ledgerRoot}/.knowledge/{slug}-insights.json.
+  // @throws Error if slug fails PROJECT_SLUG_REGEX (path traversal protection)
+  projectStorePath(slug: string): string;
+
+  // ── Read Methods ──────────────────────────────────────────────────────────
+
+  // Reads and validates the global insights store.
+  // Returns a valid empty KnowledgeStore (version '1.0.0', next_id: 1, insights: [])
+  // when the file does not yet exist — no error thrown.
+  // @throws Error if the file exists but contains malformed JSON or fails schema validation
+  readGlobalStore(): Promise<KnowledgeStore>;
+
+  // Reads and validates a project-scoped insights store.
+  // Returns a valid empty KnowledgeStore when the file does not yet exist.
+  // @throws Error if the file exists but contains malformed JSON or fails schema validation
+  readProjectStore(slug: string): Promise<KnowledgeStore>;
+
+  // ── Write Methods (public, top-level only) ────────────────────────────────
+
+  // Writes the global insights store atomically under a lock.
+  // @warning Do NOT call from inside a withLock(knowledgeDir, ...) callback — will deadlock.
+  //   CRUD methods (addInsight, updateInsight, deleteInsight) bypass this method intentionally
+  //   and call atomicWriteJson directly to avoid nested lock acquisition.
+  writeGlobalStore(data: KnowledgeStore): Promise<void>;
+
+  // Writes a project-scoped insights store atomically under a lock.
+  // @warning Same nested-lock deadlock risk as writeGlobalStore.
+  writeProjectStore(slug: string, data: KnowledgeStore): Promise<void>;
+
+  // ── ID Generation ─────────────────────────────────────────────────────────
+
+  // Increments store.next_id in-place and returns the KN-NNNN formatted string
+  // (e.g. "KN-0001" for next_id === 1). Mutates the store object — caller must
+  // persist the updated store for the counter to survive process restarts.
+  // Note: the KN-NNNN return value is used by MCP tool consumers for display;
+  // the storage layer stores numeric ids (store.next_id before increment).
+  nextId(store: KnowledgeStore): string;
+
+  // ── CRUD Operations ───────────────────────────────────────────────────────
+
+  // Adds a new insight to the appropriate store (global or project-scoped).
+  // Auto-assigns numeric id from store.next_id. The entire read-modify-write
+  // sequence runs under a single lock on knowledgeDir().
+  // @throws Error if scope === 'project' and project_slug is absent
+  addInsight(input: Omit<Insight, 'id'>): Promise<Insight>;
+
+  // Searches insights for the query string (case-insensitive substring match
+  // against title, content, and every entry in tags).
+  // Store selection is governed by filters — see store-selection rules table below.
+  // After text match, optionally narrows by tags (AND intersection), then applies
+  // offset/limit pagination — in that order.
+  searchInsights(
+    query: string,
+    filters?: {
+      scope?: InsightScope;
+      project_slug?: string;
+      category?: string;
+      tags?: string[];    // AND semantics — all listed tags must be present on the insight
+      limit?: number;
+      offset?: number;    // default: 0
+    }
+  ): Promise<Insight[]>;
+
+  // Lists insights with optional filters and pagination.
+  // Filter application order: store selection (scope/project_slug) → category →
+  // tags → offset → limit.
+  listInsights(filters: {
+    scope?: InsightScope;
+    category?: string;
+    tags?: string[];        // every tag must be present (AND semantics)
+    project_slug?: string;
+    limit?: number;
+    offset?: number;        // default: 0
+  }): Promise<Insight[]>;
+
+  // Updates an existing insight by numeric id. Searches ALL stores (global +
+  // all project stores) to locate the insight.
+  // Immutable fields: id, scope, project_slug, created_at.
+  // Sets updated_at to the current timestamp on success.
+  // @param filter — Optional scope/project_slug filter. When provided, restricts the
+  //   store search to matching stores only, preventing accidental global-insight mutation
+  //   when the same numeric id exists in both global and project stores.
+  //   Without a filter, all stores are searched in alphabetical order (original behaviour).
+  // @throws Error if no insight with the given id exists in the filtered stores
+  updateInsight(
+    id: number,
+    updates: Partial<Pick<Insight,
+      'title' | 'content' | 'category' | 'tags' | 'source' | 'confidence' | 'superseded_by'
+    >>,
+    filter?: { scope?: InsightScope; project_slug?: string }
+  ): Promise<Insight>;
+
+  // Moves an insight from one store to another in a single atomic lock span,
+  // eliminating the TOCTOU window of the previous add→delete two-step pattern.
+  //
+  // Steps (all inside one withLock(knowledgeDir) span):
+  //   1. Resolve source store path(s) from sourceFilter.
+  //   2. Find insight by id in source store — throws if not found.
+  //   3. Construct moved insight: new id (from target store's next_id), corrected
+  //      scope/project_slug, and a fresh updated_at timestamp (captured once via now()).
+  //   4. Validate with InsightSchema.parse(…).
+  //   5. Write updated target store via atomicWriteJson.
+  //   6. Splice source and write updated source store via atomicWriteJson.
+  //
+  // Returns the moved Insight with new id, corrected scope/project_slug, and updated_at.
+  //
+  // @throws Error if the insight is not found in the source store(s)
+  // @throws Error if targetScope === 'project' and targetProjectSlug is absent
+  // @warning Do NOT call from inside a withLock(knowledgeDir, …) callback — will deadlock.
+  moveInsight(
+    id: number,
+    sourceFilter: { scope: InsightScope; project_slug?: string },
+    targetScope: InsightScope,
+    targetProjectSlug?: string
+  ): Promise<Insight>;
+
+  // Deletes an insight by numeric id.
+  // @param filter — Optional scope/project_slug filter (same semantics as updateInsight).
+  //   Without a filter, all stores are searched.
+  // @throws Error if no insight with the given id exists in the filtered stores
+  deleteInsight(id: number, filter?: { scope?: InsightScope; project_slug?: string }): Promise<void>;
+}
+```
+
+**`_loadInsights()` store-selection rules** (used internally by `searchInsights` and `listInsights`):
+
+| `scope` | `project_slug` | Stores loaded |
+|---------|----------------|---------------|
+| `'global'` | any | `global-insights.json` only |
+| `'project'` | provided | `{slug}-insights.json` only |
+| `'project'` | absent | all `{slug}-insights.json` files |
+| absent | provided | `{slug}-insights.json` only |
+| absent | absent | `global-insights.json` + all `{slug}-insights.json` files |
+
+---
+
+### `migrateToNamespacedLayout()`
+
+```typescript
+// Exported from src/storage/migrate-namespaced.ts
+
+interface MigrationResult {
+  skipped: boolean;                              // true if storage_version >= 2 on entry (no-op)
+  moved: string[];                               // slugs successfully moved
+  errors: Array<{ slug: string; error: string }>; // individual move failures
+}
+
+function migrateToNamespacedLayout(ledgerRoot: string): Promise<MigrationResult>;
+```
+
+One-shot startup migration: scans `ledgerRoot` for depth-1 directories that contain a `.meta.json` (flat-layout projects) and moves each to `{ledgerRoot}/{repoName}/{slug}/` using `repository_name` from `.meta.json` (falls back to `'unknown'` when absent, `null`, or empty).
+
+**Idempotency:** Reads `{ledgerRoot}/.migration-state.json` at startup; returns `{ skipped: true }` immediately if `storage_version >= 2`. Safe to call on every server startup.
+
+**Crash recovery:** Writes a `.migration-in-progress` sentinel file before any directory moves, removed on success. If the process crashes mid-migration, the sentinel is present on the next run and the migration loop re-runs (already-moved directories are skipped).
+
+**EXDEV fallback:** If `fs.rename()` fails with `EXDEV` (cross-device rename), falls back to recursive copy-then-delete with top-level verification via `verifyDirCopied()`.
+
+**Partial failure:** Individual move errors leave the source directory untouched; the error is recorded in `result.errors`. `{ledgerRoot}/.migration-state.json` is only written when `errors.length === 0`.
+
+**Startup wiring:** Called from `src/index.ts` after `mkdirSync(ledgerRoot)` and before `readConfigFromDisk()`, wrapped in `try/catch` to prevent fatal startup failures.
+
+**`withLock` constraint:** Never calls `withLock(ledgerRoot)`. Race safety relies on the sentinel file and startup sequencing (no tool-call handlers are reachable during migration).
 
 ---
 
@@ -975,6 +1524,70 @@ const workflowManifest: Manifest;
 - `src/schema/enums.ts` — derives status enums from `workflowManifest`
 - `src/utils/pipeline-maps.ts` — derives pipeline routing maps from `workflowManifest`
 - `src/utils/workflow-helpers.ts` — derives `STALE_PIPELINE_HOURS`, `MAX_REWORK_COUNT`, `_DEFAULT_MAX_HANDOFF_DEPTH`, `_HANDOFF_DEPTH_MULTIPLIER` from `workflowManifest.constants.*`
+
+---
+
+## Knowledge Accumulation Schema
+
+### `src/schema/knowledge.ts` — Insight and KnowledgeStore schemas
+
+Zod schemas and inferred TypeScript types for the knowledge accumulation system. All types are inferred via `z.infer<>` — no handwritten duplicate interfaces.
+
+```typescript
+// Regex for valid project slugs: must start with an alphanumeric character, followed by
+// letters, digits, underscores, or hyphens only. Rejects '/', '\\', '.', spaces, and any
+// character that could escape the .knowledge/ directory.
+// Single source of truth — used by both InsightSchema.project_slug Zod refinement and
+// KnowledgeStoreManager._validateSlug(). Update this constant to change the slug policy
+// in both places simultaneously.
+export const PROJECT_SLUG_REGEX: RegExp; // /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+
+// Scope enum: 'global' (applies across all projects) | 'project' (scoped to a specific project).
+// Note: when scope === 'project', project_slug must be present. This constraint is enforced
+// by the storage layer (KnowledgeStoreManager), not by this schema, so the schema remains
+// composable and usable without runtime context.
+const InsightScope: z.ZodEnum<['global', 'project']>;
+type InsightScope = 'global' | 'project';
+
+// Single reusable knowledge record stored in the knowledge base.
+// Optional fields: project_slug (required by storage layer when scope === 'project'),
+// updated_at (set when an insight is amended after initial creation),
+// superseded_by (id of the insight that replaces this one — no referential integrity enforced at schema layer).
+// confidence: 0–1 float; no range constraint enforced — forward-looking field.
+const InsightSchema: z.ZodObject<{
+  id: z.ZodNumber;              // integer; storage layer should enforce id >= 1; per-store only — not globally unique across global and project stores
+  scope: typeof InsightScope;
+  project_slug: z.ZodOptional<z.ZodString>;
+  title: z.ZodString;
+  content: z.ZodString;
+  category: z.ZodString;
+  tags: z.ZodArray<z.ZodString>;
+  source: z.ZodString;
+  created_at: z.ZodString;      // ISO 8601 timestamp
+  updated_at: z.ZodOptional<z.ZodString>;
+  confidence: z.ZodNumber;      // 0–1 float; no range enforced at schema layer
+  superseded_by: z.ZodOptional<z.ZodNumber>; // integer id of superseding insight
+}>;
+type Insight = z.infer<typeof InsightSchema>;
+
+// Top-level structure for .knowledge/store.json.
+// - version: schema version string (e.g. "1.0.0") for forward-compatibility
+// - last_updated: ISO 8601 timestamp of the most recent write
+// - next_id: auto-increment counter; assigned to the next insight added
+// - insights: flat array of all stored Insight records
+const KnowledgeStoreSchema: z.ZodObject<{
+  version: z.ZodString;
+  last_updated: z.ZodString;
+  next_id: z.ZodNumber;         // nonnegative integer
+  insights: z.ZodArray<typeof InsightSchema>;
+}>;
+type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;
+```
+
+**Design notes:**
+- `scope === 'project'` → `project_slug` required constraint is owned by the storage layer (`KnowledgeStoreManager`, WP-002+), not this schema. The schema accepts `project_slug` as optional to remain context-free and composable.
+- Storage layer should enforce `z.number().int().positive()` for `id` (schema accepts 0) and `z.number().finite()` for `confidence` (schema accepts `Infinity`) when persisting.
+- Empty strings for `title`, `content`, `source`, `category` are accepted by the schema; storage layer should guard against them.
 
 ---
 
@@ -1260,6 +1873,45 @@ function projectSlugFromPath(projectPath: string): string;
 // Convention: {project-root}/docs/agents/plans/{slug}
 // Exported from src/utils/ledger-root.ts
 function inferProjectRootFromPlanPath(planPath: string): string;
+
+// Derives the repo name from an absolute plan folder path.
+// Calls inferProjectRootFromPlanPath(), lowercases the project-root basename, and
+// validates against assertSafeSegment() (alphanumeric + hyphens). Returns 'unknown' on
+// any failure (path too shallow, name fails slug validation, empty input).
+// Pure — no filesystem access. Exported from src/utils/ledger-root.ts
+function deriveRepoName(projectPath: string): string;
+
+// Resolves a project slug (or qualified {repo}/{slug} string) to an absolute storage path.
+// Qualified input (contains '/'): validates repo and slug segments individually against
+//   assertSafeSlug() (which delegates to assertSafeSegment()), then returns join(ledgerRoot, repo, slug) with no I/O.
+// Bare-slug input: first validates the slug via assertSafeSlug, then scans all non-dot
+//   subdirectories of ledgerRoot; returns join(ledgerRoot, repoName, slug) when exactly
+//   one match is found. Throws on ambiguity or not-found:
+//     'AMBIGUOUS: slug ... exists in N repo namespaces. Use a qualified ...'
+//     'NOT_FOUND: project slug ... was not found in any repo namespace under {ledgerRoot}'.
+// ⚠️ The NOT_FOUND message embeds the absolute ledgerRoot path — callers must sanitise
+//   before surfacing to API consumers (see Gotcha 13 in constraints.md).
+// Async (uses readdir for bare-slug scan). Exported from src/utils/ledger-root.ts
+async function resolveProjectDir(
+  slugOrQualified: string,  // bare slug ('my-plan') or qualified '{repo}/{slug}'
+  ledgerRoot: string,
+): Promise<string>;
+
+// Returns true when segment is a valid slug segment (lowercase alphanumeric with hyphens,
+// must start with an alphanumeric character); false otherwise.
+// Pure boolean predicate — no side effects, no errors thrown. Callers are responsible for
+// constructing their own layer-specific errors on false.
+// Boolean(segment) is retained as defense-in-depth (SAFE_SLUG_REGEX already rejects empty
+// strings via its ^[a-z0-9] anchor, but the guard makes the intent explicit).
+//
+// Canonical validation delegate: the single slug-segment validation function used by all
+// assertSafeSlug() wrappers in the codebase. Each wrapper delegates here and throws a
+// layer-appropriate error on false:
+//   - assertSafeSlug() in src/utils/ledger-root.ts (storage layer) → throws plain Error
+//   - assertSafeSlug() in src/gui/handlers/run-log-handlers.ts (GUI layer) → throws ApiError NOT_FOUND
+//   - assertSafeSlug() in gui/api.ts (GUI layer) → throws ApiError NOT_FOUND
+// Exported from src/utils/path-validator.ts.
+function assertSafeSegment(segment: string): boolean;
 
 // Extracts the plan folder basename and validates the YYYY-MM-DD naming convention.
 // Throws if the basename does not match. Exported from src/utils/path-validator.ts
@@ -2045,7 +2697,7 @@ export async function handleGetRunLog(
 ): Promise<{ entries: unknown[]; totalLines: number }>;
 ```
 
-Slug validation: throws `ApiError NOT_FOUND` for slugs that are empty, contain `/`, or contain `..`.
+Slug validation: a module-private `assertSafeSlug()` wrapper delegates to `assertSafeSegment()` from `path-validator.ts` and throws `ApiError NOT_FOUND` on false. Valid slugs must pass `assertSafeSegment()` (lowercase alphanumeric + hyphens, starting with alphanumeric).
 
 ---
 
@@ -2355,11 +3007,33 @@ Pure async handler functions called by the HTTP server (`gui/server.ts`). All ha
 
 **Path-traversal guards:** three module-private guard functions in `gui/api.ts` protect against path-traversal attacks:
 
-- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleGetWorkPackageOverview`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`, `handleListChunks`, `handleGetChunkFile`).
+- `assertSafeSlug(slug: string): void` — applied as the **first statement** in all slug-bearing handlers (`handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleGetWorkPackageOverview`, `handleDeleteProject`, `handleArchiveProject`, `handleUnarchiveProject`, `handleMarkProjectComplete`, `handleGetPlanDocument`, `handleGetSynthesisDocument`, `handleResetProject`, `handleGetProjectHealth`, `handleRenameProject`, `handleListDialogues`, `handleGetDialogueFile`, `handleListChunks`, `handleGetChunkFile`).
 - `assertSafeWpId(wpId: string): void` — applied as the **second statement** in `handleGetWorkPackage`, immediately after `assertSafeSlug`.
 - `assertSafeQueueId(id: string): void` — applied as the **first statement** in `handleOrchestratorKill` and `handleOrchestratorDismiss`; `id` is extracted from the URL path via `decodeURIComponent()` in `server.ts` **before** the guard is called, so percent-encoded slashes (`%2F`) are decoded first and then caught.
 
 All three guards apply identical rejection criteria: throw `ApiError` with code `NOT_FOUND` (HTTP 404) if the value is empty, contains `'/'`, or contains `'..'`. Returning `NOT_FOUND` rather than `FORBIDDEN` is intentional — avoids leaking file-system structural information to potential attackers.
+
+**`assertSafeSegment()` vs `assertSafeSlug()` usage pattern:** The module-private `assertSafeSlug()` wrapper (which delegates to `assertSafeSegment()`) always throws `ApiError NOT_FOUND` — use it at handler entry points to reject invalid path slugs. When the calling site needs to produce a _different_ error type on an invalid value, call `assertSafeSegment()` directly and construct the error explicitly. Canonical example: `handleRenameProject` calls `assertSafeSegment(newSlug)` directly and then calls `validationError()` on `false`, because an invalid _proposed_ new slug is a validation error (`VALIDATION_ERROR`), not a not-found condition (`NOT_FOUND`).
+
+**Store resolution helper:** `resolveProjectStore()` is a module-private async helper used by all 13 URL-parameter-driven handlers to obtain a `LedgerStore` for the namespaced project directory.
+
+```typescript
+// Resolves a LedgerStore for URL-parameter-driven handlers.
+// Validates repoName (if provided) via assertSafeSlug, calls resolveProjectDir()
+// to locate the namespaced storageDir, reads .meta.json for plan_path, then
+// constructs LedgerStore(meta.plan_path, ledgerRoot).
+//
+// Security contract — AMBIGUOUS → NOT_FOUND downgrade:
+//   When resolveProjectDir() throws AMBIGUOUS (slug exists in multiple repos),
+//   this function downgrades it to NOT_FOUND. Callers must not learn that a slug
+//   exists across namespaces (cross-namespace existence leak prevention).
+//   Do not restore the original AMBIGUOUS error without a security review.
+async function resolveProjectStore(
+  ledgerRoot: string,
+  slug: string,       // must already be validated via assertSafeSlug() by the caller
+  repoName?: string   // optional; validated here via assertSafeSlug() before use
+): Promise<LedgerStore>;
+```
 
 ```typescript
 // Error type used by all handlers
@@ -2620,16 +3294,27 @@ export async function handleGetProjectHealth(
   slug: string
 ): Promise<ProjectHealthSummary>;
 
+// Structured representation of a single dialogue file, parsed from the filename convention
+// {WP_ID}-{stage}-r{N}.md.  wp_id and stage are empty strings for non-conforming names.
+export interface DialogueEntry {
+  filename: string;
+  wp_id: string;   // e.g. 'WP-001'
+  stage: string;   // e.g. 'developer'
+}
+
 // GET /api/projects/:slug/dialogues[?wp=WP-001]
-// Returns an array of dialogue filenames from the project's orchestrator/dialogues/ directory.
-// slug is validated via assertSafeSlug(). Returns [] when the directory is absent (no error thrown).
+// Returns an array of structured DialogueEntry objects from the project's orchestrator/dialogues/ directory.
+// Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
+// Returns [] when the project exists but the dialogues/ subdirectory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned.
-// All returned filenames are sorted alphabetically.
+// All returned entries are sorted alphabetically by filename.
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListDialogues(
   ledgerRoot: string,
   slug: string,
-  wpId?: string
-): Promise<string[]>;
+  wpId?: string,
+  repoName?: string
+): Promise<DialogueEntry[]>;
 
 // GET /api/projects/:slug/dialogues/:filename
 // Returns the raw Markdown content of a single dialogue file.
@@ -2639,10 +3324,12 @@ export async function handleListDialogues(
 //   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
 //      the project's orchestrator/dialogues/ directory.
 // Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleGetDialogueFile(
   ledgerRoot: string,
   slug: string,
-  filename: string
+  filename: string,
+  repoName?: string
 ): Promise<string>;
 
 // ---------------------------------------------------------------------------
@@ -2651,8 +3338,8 @@ export async function handleGetDialogueFile(
 
 // CHUNKS_DIR constant (src/utils/constants.ts)
 // Relative path from the per-project ledger storage root to the chunk files directory.
-// Usage: path.join(ledgerRoot, slug, CHUNKS_DIR)
-//   → {ledgerRoot}/{slug}/orchestrator/chunks/
+// Current usage in handleListChunks / handleGetChunkFile:
+//   path.join(store.storageDir, CHUNKS_DIR)  → {ledgerRoot}/{repo}/{slug}/orchestrator/chunks/
 // The orchestrator's ChunkWriter writes JSONL files to this path; this constant keeps
 // the path in sync between the MCP server and the orchestrator.
 export const CHUNKS_DIR: 'orchestrator/chunks';
@@ -2669,14 +3356,17 @@ export interface ChunkEntry {
 // Returns an array of structured ChunkEntry objects from the project's
 // orchestrator/chunks/ directory.  Each entry includes the filename plus the
 // wp_id and stage parsed from the {WP_ID}-{stage}-r{N}.jsonl convention.
-// slug is validated via assertSafeSlug().  Returns [] when the directory is absent (no error thrown).
+// Slug validation: assertSafeSlug() runs first; a missing or invalid project → NOT_FOUND.
+// Returns [] when the project exists but the chunks/ subdirectory is absent (no error thrown).
 // Optional ?wp= query parameter: when provided, only filenames starting with '{wpId}-' are returned
 // (wpId validated against WP_ID_RE — invalid values return []).
 // All returned entries are sorted alphabetically by filename.
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleListChunks(
   ledgerRoot: string,
   slug: string,
-  wpId?: string
+  wpId?: string,
+  repoName?: string
 ): Promise<ChunkEntry[]>;
 
 // GET /api/projects/:slug/chunks/:filename
@@ -2687,10 +3377,12 @@ export async function handleListChunks(
 //   2. Defence-in-depth: path.resolve() prefix check ensures the resolved file path stays inside
 //      the project's orchestrator/chunks/ directory.
 // Both layers throw ApiError NOT_FOUND on violation. slug validated via assertSafeSlug().
+// Storage paths use store.storageDir from resolveProjectStore().
 export async function handleGetChunkFile(
   ledgerRoot: string,
   slug: string,
-  filename: string
+  filename: string,
+  repoName?: string
 ): Promise<{ content: string }>;
 
 // GET /api/projects/:slug/chunks/:filename/rendered
@@ -2753,6 +3445,182 @@ export async function handleOrchestratorDismiss(
   logsDir: string,
   ledgerRoot: string,
 ): Promise<void>;
+
+// ---------------------------------------------------------------------------
+// Knowledge API — WP-001 foundations (CRUD + list/search); WP-005 added promote + move
+// Route registration in server.ts is deferred to WP-002.
+// ---------------------------------------------------------------------------
+
+/**
+ * Zod schema for the PATCH /api/knowledge/:id request body (exported module-level constant).
+ *
+ * `scope` is required; all other mutable Insight fields are optional.
+ * `.strict()` rejects unknown keys, preventing callers from sending immutable
+ * fields (id, created_at, …).
+ *
+ * Fields:
+ *   scope:         'global' | 'project'  — REQUIRED
+ *   project_slug?:  string matching PROJECT_SLUG_REGEX
+ *   title?:         string
+ *   content?:       string
+ *   category?:      string
+ *   tags?:          string[]
+ *   source?:        string
+ *   confidence?:    number (0–1)
+ *   superseded_by?: number (integer)
+ */
+export const KnowledgeUpdateBodySchema: z.ZodObject<...>;
+
+/** Raw query parameters accepted by GET /api/knowledge. */
+export interface KnowledgeListParams {
+  scope?: string;          // 'global' | 'project'; unrecognised values silently treated as no filter
+  category?: string;
+  /** Comma-separated list of tags; split on ',' with whitespace trimming. */
+  tags?: string;
+  project_slug?: string;
+  /** Full-text search query — when present, delegates to searchInsights instead of listInsights. */
+  query?: string;
+  limit?: number | string;   // coerced to positive integer; invalid/missing → undefined (no limit)
+  offset?: number | string;  // coerced to non-negative integer; invalid/missing → 0
+}
+
+// GET /api/knowledge
+// Lists or searches knowledge insights stored in the ledger's `.knowledge/` directory.
+//
+// Routing logic:
+//   - When `query` is present and non-empty: delegates to KnowledgeStoreManager.searchInsights().
+//   - Otherwise: delegates to KnowledgeStoreManager.listInsights() with scope/category/tags filters.
+//
+// Parameter handling:
+//   - `scope` is validated via InsightScope.safeParse(); unrecognised values fall back to undefined
+//     (no scope filter) rather than causing an error — tolerant API design.
+//   - `tags` is a comma-separated string split before being forwarded (e.g. "node,backend" → ["node","backend"]).
+//     Whitespace around commas is trimmed; empty segments are dropped.
+//   - `limit` and `offset` are coerced to integers; invalid or missing values are silently ignored.
+//
+// Query-mode behaviour:
+//   When `query` is present, `tags`, `limit`, and `offset` ARE forwarded to searchInsights().
+//   Full-text search (substring match), tag filtering (AND semantics), and pagination can be
+//   combined in a single call. Filter application order inside searchInsights():
+//     1. Substring match against title, content, and tags
+//     2. Tag intersection filter (if tags provided)
+//     3. offset/limit pagination slice
+//
+// Returns: Insight[] (empty array when no insights exist or no matches are found)
+export async function handleListKnowledge(
+  ledgerRoot: string,
+  params?: KnowledgeListParams
+): Promise<Insight[]>;
+
+// POST /api/knowledge/:id/promote
+// Promotes a project-scoped insight to global scope using the atomic moveInsight() method.
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - scope (query parameter) required; must be "project". Passing scope="global" throws
+//     VALIDATION_ERROR ("Insight is already global and cannot be promoted.").
+//   - project_slug (query parameter) required when scope is "project"; throws VALIDATION_ERROR
+//     when absent.
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+// — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
+// add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
+//
+// The returned insight is the newly created global copy — it has a different numeric ID
+// (assigned by the global store's next_id counter). The original project-scoped insight
+// is atomically removed by the same moveInsight() call.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, missing/invalid scope, scope is "global", missing project_slug
+//   NOT_FOUND        — no insight with the given id in the specified project scope
+//
+// @param ledgerRoot   Absolute path to the central ledger root.
+// @param rawId        Raw id string from the URL parameter (e.g. "42").
+// @param scope        Source scope query parameter — must be "project".
+// @param project_slug Required when scope is "project".
+// @returns The newly created global Insight.
+export async function handlePromoteKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  scope: string | undefined,
+  project_slug?: string
+): Promise<Insight>;
+
+/**
+ * Zod schema for the POST /api/knowledge/:id/move request body.
+ *
+ * Fields validated by the Zod schema (format/type constraints):
+ *   source_scope:         'global' | 'project'  — REQUIRED
+ *   source_project_slug?: string matching PROJECT_SLUG_REGEX  — OPTIONAL in schema;
+ *                         the conditional-required rule (required when source_scope is "project")
+ *                         is enforced in handler logic, not here.
+ *   project_slug:         string matching PROJECT_SLUG_REGEX  — REQUIRED (destination)
+ *
+ * Note: `source_project_slug` is `.optional()` at the Zod layer so the schema can parse a body
+ * that omits it. The handler validates the scope+slug combination and throws VALIDATION_ERROR if
+ * the conditional constraint is violated. `.strict()` rejects unknown keys.
+ */
+export const KnowledgeMoveBodySchema: z.ZodObject<{
+  source_scope: typeof InsightScope;
+  source_project_slug: z.ZodOptional<z.ZodString>;  // optional in schema; conditional-required in handler
+  project_slug: z.ZodString;
+}>;
+
+// POST /api/knowledge/:id/move
+// Moves an insight from one scope/project to a different project using the atomic moveInsight() method.
+//
+// Supports two move variants:
+//   - global → project: moves a global insight into a named project store
+//   - project → project: moves a project insight to a different project
+//
+// Validation:
+//   - rawId validated via parseKnowledgeId() — throws VALIDATION_ERROR for non-integer,
+//     zero, or floating-point strings.
+//   - body validated via KnowledgeMoveBodySchema.safeParse() — throws VALIDATION_ERROR for
+//     unknown fields or type mismatches.
+//   - source_project_slug is required when source_scope is "project" (handler-enforced conditional
+//     constraint; not enforced by the Zod schema itself where the field is optional).
+//   - Source and destination must differ: if source_scope is "project" and source_project_slug
+//     equals project_slug, throws VALIDATION_ERROR ("Source and destination project are identical").
+//
+// Delegates to KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+// — atomic cross-store operation (single withLock(knowledgeDir()) span). The former non-atomic
+// add-first-then-delete compose pattern (which left a TOCTOU window) is fully replaced (WP-002/WP-003).
+//
+// The returned insight is the newly created copy — it has a different numeric ID (assigned by the
+// target store's next_id counter). The original source insight is atomically removed.
+//
+// Error codes:
+//   VALIDATION_ERROR — non-integer id, invalid body, source_project_slug absent when required,
+//                      source and destination identical
+//   NOT_FOUND        — no insight with the given id in the specified source scope
+//
+// @param ledgerRoot  Absolute path to the central ledger root.
+// @param rawId       Raw id string from the URL parameter (e.g. "42").
+// @param body        Parsed request body (any shape — validated here via KnowledgeMoveBodySchema).
+// @returns The newly created Insight in the target project store.
+export async function handleMoveKnowledge(
+  ledgerRoot: string,
+  rawId: string,
+  body: unknown
+): Promise<Insight>;
+
+// ---------------------------------------------------------------------------
+// Knowledge — exported helpers (gui/api-knowledge.ts)
+// ---------------------------------------------------------------------------
+//
+// parseKnowledgeId(raw: string): number
+//   Exported helper (WP-003). Parses a raw string as a positive integer insight ID.
+//   Rejects: non-numeric strings (NaN), floating-point strings (any '.' in raw string checked
+//   BEFORE numeric coercion — catches "2.0" which Number("2.0") === 2 would miss), zero, negatives.
+//   Throws: ApiError VALIDATION_ERROR for any rejected value.
+//   Note: The raw.includes('.') check runs before Number() coercion — this is intentional.
+//   Number("2.0") === 2 (an integer), so Number.isInteger alone is insufficient for float-string
+//   rejection.
+//
+// findInsightById — REMOVED (WP-003). This helper was a dead code artifact after promote and move
+//   handlers were wired to moveInsight(). It has been deleted from the codebase.
 ```
 
 **HTTP status code mapping** (implemented in `gui/server.ts`):
@@ -2835,6 +3703,20 @@ Maps an `ApiError` error code to its HTTP status code. Exported for unit testing
 | `CONFLICT` | 409 |
 | *(default)* | 500 |
 
+#### `resolveRepoName(ledgerRoot, repoUrlParam, slugUrlParam): Promise<string>`
+
+Reads `{ledgerRoot}/{repoUrlParam}/{slugUrlParam}/.meta.json` and returns the stored
+`repository_name` value. Falls back to `repoUrlParam` when the field is absent/null or when
+the file contains malformed JSON (writes a `process.stderr` warning in the latter case).
+
+Validates both `repoUrlParam` and `slugUrlParam` via the file-local `assertSafeSlug()` guard
+before any filesystem access. Throws `ApiError NOT_FOUND` for invalid segments and for missing
+meta files. Using `NOT_FOUND` for both cases is intentional information-hiding: invalid input
+and missing projects are indistinguishable from the client side.
+
+Exported for direct unit testing (previously unexported/private). Used by all namespaced route
+handlers in `server.ts`.
+
 ---
 
 ## GUI Frontend
@@ -2845,11 +3727,11 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 
 | File | Purpose |
 |------|---------|
-| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/config` Config), `<div id="app">` mount point |
+| `index.html` | HTML shell — nav (`#/` Projects, `#/insights` Insights, `#/knowledge` Knowledge, `#/orchestrator` Orchestrator, `#/config` Config), `<div id="app">` mount point |
 | `styles.css` | CSS custom properties, status badges, tables, cards, forms, loading spinner, error/success/stale banners, comment cards, reset modal, action menu dropdown |
 | `api-client.js` | `API` object — async fetch wrappers for REST endpoints (throws `{ code, message }` on non-2xx) |
 | `theme.js` | `Theme` object — dark/light toggle; reads/writes `localStorage`; applies `data-theme` on `<html>`; `init()` wires the toggle button |
-| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch |
+| `router.js` | `Router` object — hash-based dispatch; manages `setInterval` polling lifecycle; calls `updateNavActive(path)` on every dispatch; routes include `'/'`, `/projects/*` (pattern-matched), `/config`, `/insights`, `/knowledge`, `/orchestrator` |
 | `utils.js` | Shared utilities: `escapeHtml()`, `formatDate()`, `statusBadge()`, `showLoading()`, `showError()` |
 | `app.js` | Bootstrap entry point — calls `Theme.init()` then `Router.init()` |
 | `views/project-list.js` | `renderProjectList(app)` — project list table with filter, search, pagination, and action menu |
@@ -2857,6 +3739,7 @@ Served as static assets by `gui/server.ts`. No ES modules, no framework, no buil
 | `views/work-package.js` | `renderWorkPackageDetail(app, slug, wpId)`, `buildWpDetailBar(wp)` |
 | `views/config.js` | `renderConfig(app)` — config settings form |
 | `views/insights.js` | `renderInsights(app)` — insights page with dynamic filter selects and comment cards |
+| `views/knowledge.js` | `renderKnowledge(app)` — Knowledge page; tab navigation between Global and Repository scopes; client-side filtering; card-level edit/delete/promote/move actions |
 | `js/orchestrator-widgets.js` | `OrchestratorWidgets` ES5 IIFE — shared orchestrator UI components: `renderStatusCard`, `renderKillButton`, `renderDismissButton`, `formatLogAction`, `renderLogPreview`, `renderProgressBadge`, `renderCliReference` (WP-010, WP-002) |
 
 **`styles.css` — Insights comment card classes** (added for the Insights page):
@@ -3015,6 +3898,77 @@ Dark mode override (`[data-theme="dark"] .stale-banner`): `#451a03` bg / `#fbbf2
 
 **`views/insights.js`:**
 - **`renderInsights(app)`** — Insights page; calls `GET /api/insights`, builds dynamic type/priority/project filter selects, renders one `.comment-card` per entry with `.priority-{level}` accent, incident context in `.comment-context`, 'No insights found.' empty state, in-memory re-filtering on select change, auto-refresh every 15 s
+
+**`views/knowledge.js`:**
+- **`renderKnowledge(app)`** — Knowledge page (`#/knowledge`); tab navigation between Global and Repository insight scopes; renders knowledge insight cards with scope badges, category pills, tag chips, confidence labels, and per-card action rows including a move-to-project inline input. Uses the CSS classes documented below.
+
+  **State variables** (closure-scoped, all reset on tab switch):
+
+  | Variable | Type | Description |
+  |----------|------|-------------|
+  | `allInsights` | `Insight[]` | Full unfiltered dataset returned by `API.getKnowledge` |
+  | `activeTab` | `'global' \| 'project'` | Currently selected tab |
+  | `filterCategory` | `string` | Active category filter value (empty = all) |
+  | `filterProject` | `string` | Active project-slug filter value (empty = all; Repository tab only) |
+  | `filterQuery` | `string` | Active free-text search query (matches title, content, tags) |
+  | `editingId` | `number \| null` | ID of the card currently showing the inline edit form |
+  | `confirmDeleteId` | `number \| null` | ID of the card showing the delete-confirm step |
+  | `movingId` | `number \| null` | ID of the card showing the Move to Project inline slug input |
+
+  > **Note:** `movingId` is not listed in the original WP-006 deliverables spec but is required by the Move to Project feature. It is properly reset alongside the other state variables on tab switch.
+
+  **`formatConfidence(value)`** — converts a raw `[0, 1]` confidence float to a human-readable string (e.g. `"80% (High)"`). Uses `Math.round(value * 100)` before comparing against bucket constants:
+
+  | Constant | Value | Bucket |
+  |----------|-------|--------|
+  | `CONFIDENCE_HIGH_MIN` | `68` | 68–100 → **High** |
+  | `CONFIDENCE_MEDIUM_MIN` | `34` | 34–67 → **Medium** |
+  | *(implicit)* | | 0–33 → **Low** |
+
+  > **Rounding boundary note:** Because `Math.round()` is applied before threshold comparison, values just below `0.68` (e.g. `0.6799`) round to `68%` and are labelled **High**. Similarly, `0.3349` rounds to `33%` (Low) while `0.3350` rounds to `34%` (Medium). This is intentional UX behaviour — the displayed percentage and bucket are always consistent — but maintainers adjusting thresholds should account for the `±0.005` float rounding window at each boundary.
+
+  **Error-handling convention:** The view uses `showError(app, ...)` for all API failure paths **except** the inline edit form's save failure. The edit form catch block intentionally uses an inline `msgEl.innerHTML` error message instead:
+  - **Why:** `showError(app, ...)` replaces the entire app container, which would discard the user's in-progress edit form and cause data loss on a transient save failure.
+  - **Which paths use `showError`:** load, delete, promote, move — all destructive or navigating actions where losing form state is acceptable.
+  - **Which path uses inline error:** edit form save only — the inline `.error-banner` is injected into `#kn-edit-msg-{id}` and the form remains visible so the user can retry or correct input.
+  - This design is documented in-code with an explanatory comment in the `.catch()` block.
+
+  **Client-side filtering** (`applyFilters()`) — runs entirely in-browser with no round-trip; filters by scope (tab), category, project slug (Repository tab only), and free-text query (case-insensitive match on title, content, and tags). Filtering is triggered on every tab switch, dropdown change, and search-input keystroke.
+
+  > **UX note:** `renderList()` rebuilds the filter bar DOM on every keystroke (to keep dropdown selections in sync), which causes the search `<input>` to lose focus after each character. This is a known UX trade-off acknowledged during implementation and code review. A minimal fix (refocus the input after rebuild) is earmarked for a future follow-up pass.
+
+  **No polling:** `renderKnowledge` does not call `Router._setPolling()`. Knowledge insights are human-curated and change infrequently; the page loads once and relies on user-initiated actions to refresh state.
+
+**`styles.css` — Knowledge Page classes** (added in WP-002; all live in the `/* Knowledge Page */` section):
+
+| Class | Role |
+|-------|------|
+| `.knowledge-tabs` | `display:flex` container with `border-bottom: 2px solid var(--color-border)` acting as the tab underline track; `margin-bottom: 20px` |
+| `.knowledge-tab` | Tab button; resets `<button>` defaults; uses a transparent `border-bottom: 2px` that is promoted to `var(--color-ready)` on `:hover` / `.active`; `margin-bottom: -2px` overlaps the track so the active border sits on top of it |
+| `.knowledge-tab.active` | Active tab state — `color: var(--color-ready)`, `border-bottom-color: var(--color-ready)`, `font-weight: 600` |
+| `.badge-scope-global` | Blue-toned scope badge extending `.badge`; light: `#dbeafe` bg / `#1d4ed8` text |
+| `.badge-scope-project` | Green-toned scope badge extending `.badge`; light: `#dcfce7` bg / `#15803d` text |
+| `.category-pill` | Small inline pill for category display; `border-radius: var(--radius-pill)`; uses `var(--color-bg)`, `var(--color-text-muted)`, `var(--color-border)` tokens |
+| `.tag-chip` | Small inline chip for tag display; purple tones: `#f3e8ff` bg / `#7c3aed` text / `#e9d5ff` border; `border-radius: var(--radius-pill)` |
+| `.confidence-label` | Muted italic label for confidence display; `font-size: 12px`, `color: var(--color-text-muted)`, `font-style: italic` |
+| `.knowledge-actions` | `display:flex` row for per-card action buttons; `gap: 8px`, `flex-wrap: wrap`, `margin-top: 12px` |
+| `.knowledge-move-input` | `display:inline-flex` container grouping a project-slug text input and its confirm button; `gap: 6px`, `flex-wrap: nowrap` |
+
+Dark mode overrides (grouped at the bottom of the `/* Knowledge Page */` section via `[data-theme="dark"]` selectors):
+
+| Selector | Override |
+|----------|----------|
+| `[data-theme="dark"] .badge-scope-global` | `#1e3a5f` bg / `#93c5fd` text |
+| `[data-theme="dark"] .badge-scope-project` | `#14532d` bg / `#86efac` text |
+| `[data-theme="dark"] .category-pill` | `var(--color-surface)` bg / `var(--color-text-muted)` text / `var(--color-border)` border |
+| `[data-theme="dark"] .tag-chip` | `#3b0764` bg / `#d8b4fe` text / `#7e22ce` border |
+| `[data-theme="dark"] .knowledge-move-input .form-control` | `var(--color-surface)` bg / `var(--color-text)` text / `var(--color-border)` border |
+
+> **Dark-mode placement convention:** The Knowledge Page section places all `[data-theme="dark"]` overrides in a single block at the **bottom** of the section (after all light-mode rules), rather than co-locating each override with its light-mode counterpart. This is the preferred convention for new CSS sections. Earlier sections in `styles.css` use inline co-location — both patterns are valid, but the bottom-grouped approach is preferred going forward for readability.
+
+> **Fragility note:** `.knowledge-move-input .form-control` targets the child `.form-control` element for its dark override (consistent with the `.filter-bar` pattern). If the markup changes to no longer use `.form-control` as a direct child, the dark override will silently stop applying.
+
+> Token-based classes (`.knowledge-tabs`, `.knowledge-tab`, `.confidence-label`, `.knowledge-actions`, `.knowledge-move-input`) adapt automatically via CSS custom properties — no explicit `[data-theme="dark"]` override is needed for them.
 
 **XSS protection:** `escapeHtml()` wraps every piece of user-supplied data interpolated into HTML strings (20+ call sites).
 
@@ -3595,5 +4549,4129 @@ function register(server: McpServer): void;
 ```
 
 These are called in `src/index.ts` to register all tools on the server instance.
+
+```
+###  Path: `/mcp-server/docs/agents/project-manifest/constraints.md`
+
+```md
+# Constraints & Conventions
+
+This document codifies established rules, conventions, and non-obvious gotchas.
+
+### Constraint Entry Format
+
+New constraint entries should follow this structure (modelled on Constraint 2):
+
+| Section | Content |
+|---------|---------|
+| **Rule** | The specific, actionable rule — include forbidden alternatives inline. |
+| **Rationale** | Why the rule exists. One or two sentences. |
+| **Anti-pattern** (if applicable) | A concrete ❌ code example showing the wrong approach. |
+| **Correct pattern** (if applicable) | A concrete ✅ code example showing the right approach. |
+| **Forbidden patterns** (if applicable) | A prose or list summary of every variant that must NOT be used. |
+
+---
+
+## Workflow Specification Governance
+
+### 0. The Workflow Specification Is the Source of Truth for All Workflow Logic
+
+**Rule:** The [Workflow Specification](../workflow-specification/README.md) is the authoritative definition of all workflow logic — state machines, pipeline routing, status transitions, handoff behavior, recommendation engine behavior, edge cases, and constants. Implementation code must conform to the specification. When code contradicts the specification, the code is wrong.
+
+**Spec-first development:** Changes to workflow logic MUST be made in the specification first, then implemented in code, then validated by tests, then documented in the project manifest — in that order.
+
+**Test traceability:** Test descriptions SHOULD reference the workflow specification section they validate (e.g., `// §14.13 row 1: returns true when QA FAIL started after impl PASS completed`). This convention is already practiced in several test files and should be followed consistently.
+
+**Rationale:** The specification was designed to be a language-agnostic, formally reviewed reference. Treating code as the source of truth defeats this purpose and leads to silent behavioral drift between the TypeScript (MCP server) and Python (orchestrator) implementations.
+
+**Scope:** This constraint applies to workflow logic only — file I/O, schema validation, concurrency primitives, and other infrastructure concerns are governed by their respective constraints below and the project manifest.
+
+---
+
+## File System Constraints
+
+### 1. All File I/O Must Be Atomic
+
+**Rule:** Never write directly to target files. Always use the `atomicWriteJson()` function.
+
+**Rationale:** Ensures readers never see partial writes or corrupt JSON.
+
+**Implementation:** Write to `{file}.tmp.{pid}`, then atomically rename to target.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — direct write; a crash mid-write leaves the target file truncated or corrupt
+await fs.writeFile(targetPath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — write to .tmp.{pid}, then rename; readers never see a partial file
+await atomicWriteJson(targetPath, data);
+```
+
+---
+
+### 2. Dual-File Updates Require Locking
+
+**Rule:** When writing both `storage/ledger/{slug}/project-ledger.json` and `storage/ledger/{slug}/WP-###.json`, always use the appropriate high-level method: `LedgerStore.createWorkPackageWithSync()` for creating a new WP, `LedgerStore.updateWorkPackageWithSync()` for updating a single existing WP, or `LedgerStore.batchUpdateWorkPackagesWithSync()` for updating multiple WPs in one operation (see Constraint 2b). Only fall back to a manual `withLock(store.storageDir, ...)` scope when none of these methods covers the use case. **`store.storageDir` is the only acceptable first argument to `withLock` — never pass `projectPath`, `ledgerRoot`, or `ledgerRoot ?? projectPath`.** Once a `LedgerStore` is constructed, use its `.storageDir` property to obtain the canonical lock directory.
+
+**Extension — Single-File Read-Modify-Write:** Even when updating only the root index, any read-modify-write sequence must also be wrapped in `withLock(store.storageDir, ...)` to prevent TOCTOU races. Example: `completeSynthesis` reads the root index, mutates `synthesis_generated` and project status, then writes it back — this entire sequence must occur inside a single lock scope.
+
+**Rationale:** Prevents race conditions and dual-file desync when multiple agents run concurrently.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — race condition risk
+await store.writeWorkPackage(wpId, updatedWp);
+await store.writeRootIndex(updatedRoot);
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — atomic dual-file creation (new WP)
+await store.createWorkPackageWithSync(async (root) => {
+  // ... build new WP detail and updated root ...
+  return { wpId, wp: newWpDetail, root: updatedRoot };
+});
+
+// ✅ CORRECT — atomic dual-file update (existing WP)
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  // ... update both wp and root ...
+  return { wp: updatedWp, root: updatedRoot };
+});
+```
+
+---
+
+### 2b. Batch Multi-WP Writes Must Use `batchUpdateWorkPackagesWithSync`
+
+**Rule:** When updating multiple work packages and the root index in a single operation, always use `LedgerStore.batchUpdateWorkPackagesWithSync()`. Never loop over `updateWorkPackageWithSync()` calls or acquire multiple separate `withLock` scopes to write a batch of WPs — this produces one lock acquisition per WP instead of one per operation.
+
+**Rationale:** A loop of per-WP lock acquisitions is not atomic at the operation level: a crash or concurrent write between iterations can leave some WPs updated while others are not, desynchronizing WP state and the root index. `batchUpdateWorkPackagesWithSync` consolidates all reads, validation, writes, and the root index sync into a single lock scope.
+
+**Atomicity invariant (two-pass validate-then-write):** The method validates all WPs via Zod **before** writing any of them. A validation failure on any WP in the batch aborts the entire operation with no disk writes. This is stronger than the per-WP atomicity provided by `updateWorkPackageWithSync`, which validates and writes one WP at a time.
+
+**Note on lock-scope vs. rollback-scope atomicity:** If a file write succeeds for WP-A but a subsequent I/O error prevents writing WP-B, WP-A's write is not rolled back. This characteristic is shared with `updateWorkPackageWithSync`. Validation failures are fully atomic (no writes); I/O failures after the write phase begin are not.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — multiple lock acquisitions; not atomic across the batch
+for (const wpId of candidateIds) {
+  await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+    // ...
+    return { wp: updatedWp, root: updatedRoot };
+  });
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock; all WPs validated before any write
+await store.batchUpdateWorkPackagesWithSync(async (root, readWp) => {
+  const updatedWps = new Map<string, WorkPackageDetail>();
+  for (const wpId of candidateIds) {
+    const wp = await readWp(wpId);
+    // ... mutate wp ...
+    updatedWps.set(wpId, wp);
+  }
+  // ... mutate root ...
+  return { updatedWps, root: updatedRoot };
+});
+```
+
+**Known callers:** `propagateDependencyUnblock` and `propagateDependencyReblock` in `src/tools/work-package.ts`; `applyProjectReset` and `markProjectComplete` in `src/utils/project-reset.ts`.
+
+---
+
+### 2c. `writeWorkPackage` and `writeRootIndex` Are `@internal` — Tool Code Must Not Call Them Directly
+
+**Rule:** `LedgerStore.writeWorkPackage()` and `LedgerStore.writeRootIndex()` are marked `@internal` in source. Tool functions (`src/tools/`) and shared helpers (`src/utils/`) must never call these methods directly. All WP+root writes must go through one of the three sync methods (Constraints 2 and 2b).
+
+**Rationale:** Bypassing the sync methods skips `last_updated` auto-stamping, Zod validation, `.meta.json` sync, and the single-lock atomicity guarantee. The `@internal` tag is documentation-only (TypeScript does not enforce it) — this constraint encodes the boundary as a project rule.
+
+**Legitimate direct callers of `writeRootIndex` (non-tool code):**
+- `src/tools/project-lifecycle.ts` — `getProjectStatus()` self-healing: repairs stale counter fields under an explicit `withLock` scope; `initializeProject()` and `completeSynthesis()` for root-index-only transitions that don't involve any WP file write
+- `auto-archive.ts` — sets `status: 'ARCHIVED'` with `preserveLastUpdated: true` (root-index write only; sync methods do not apply)
+- `observations.ts` — appends a project-level comment (root-index write only; no WP file involved)
+- `workflow-handoff.ts` — `buildHandoffResponse()`: increments or caps the `auto_handoff_depth` counter on every handoff-status response; root-index-only write with no WP file involvement
+
+**`writeWorkPackage` — zero external callers (post-WP-002):** As of the WP-002 migration (consolidate-wp-writes), `writeWorkPackage` has no legitimate external callers. Every previously-direct caller (e.g., `project-reset.ts`) has been migrated to a sync method. The `@internal` boundary for `writeWorkPackage` is now absolute.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — bypasses auto-stamping, validation, and .meta.json sync
+await store.writeWorkPackage(wpId, updatedWp);
+await store.writeRootIndex(updatedRoot);
+```
+
+**Correct pattern:** Use `updateWorkPackageWithSync`, `createWorkPackageWithSync`, or `batchUpdateWorkPackagesWithSync` as shown in Constraints 2 and 2b.
+
+---
+
+### 3. Paths Must Be Absolute
+
+**Rule:** All MCP tool inputs require absolute paths for `project_path`.
+
+**Rationale:** The server has no concept of "current working directory" — it must be told explicitly where files live.
+
+---
+
+### 4. Plan Folders Must Remain Human-Readable Markdown Only
+
+**Rule:** No machine-generated files (JSON, lock files, etc.) may be written inside plan folders.
+
+**Rationale:** Plan folders are the authoritative human source-of-truth. Machine output lives in the centralized ledger at `{mcp-server}/storage/ledger/{slug}/`.
+
+**Archiving clarification:** `archiveDocuments()` copies files **from** the plan folder **into** the centralized storage directory (`storage/ledger/{slug}/`). The direction is one-way: plan folder → ledger. The archived copy is read-only from the agent's perspective — it exists for retrieval by the GUI and tooling, not for editing. The original file in the plan folder remains the authoritative source and is never modified by the server. This is fully consistent with Constraint 4: no writes ever occur inside the plan folder.
+
+**`plan_file` validation:** the `plan_file` argument accepted by `ledger_initialize_project` is enforced at parse time by a Zod `.refine()` check: `v === PLAN_ARCHIVE_FILENAME`. Calls with any value other than `'plan.md'` are rejected with a Zod validation error before reaching handler logic. This ensures the GUI's `/api/projects/:slug/plan` endpoint can always rely on the archived plan document having the fixed filename `plan.md`.
+
+**Archive error contract:** `archiveDocuments()` uses a discriminated error strategy:
+- Missing source file (`ENOENT`) — the filename is silently added to `skipped[]` and a warning is written to `stderr`. The operation continues with remaining files.
+- All other I/O errors (e.g., `EACCES`, `ENOSPC`, `EISDIR`) — the error is **re-thrown** to the caller. Callers must not assume all errors from `archiveDocuments()` are benign; they must be prepared to handle re-thrown non-ENOENT errors.
+
+---
+
+### 5. `.meta.json` Must Be Written Under the Project Lock
+
+**Rule:** `writeProjectMeta()` must always be called inside the same `withLock()` scope as the root index write it synchronizes. Never call it outside a lock context except for the standalone `writeRootIndex()` (which manages its own internal sync). Note: `writeRootIndex` is `@internal` — see Constraint 2c for the list of legitimate direct callers.
+
+**Rationale:** Prevents `.meta.json` from lagging behind the root index in a concurrent environment.
+
+---
+
+### 6. Central Ledger Root Is Resolved Once at Startup
+
+**Rule:** `resolveLedgerRoot()` is called once at server startup. The `--ledger-dir <path>` CLI argument overrides the default `{mcp-server}/storage/ledger/` location. The resolved path is logged to stderr.
+
+**Usage:**
+```bash
+# Override ledger root:
+node dist/index.js --ledger-dir /custom/path/to/ledger
+```
+
+**Default:** `{mcp-server}/storage/ledger/` (relative to the server package root).
+
+---
+
+### 6b. Ledger Storage Paths Must Include the Repository Namespace Level
+
+**Rule:** Never construct a ledger storage path as `join(ledgerRoot, slug)` or `join(ledgerRoot, slug, filename)`. The canonical storage layout is `{ledgerRoot}/{repoName}/{slug}/` — all paths into the centralized ledger **must** include the `{repoName}` tier. Use one of the two canonical resolution functions:
+
+| Input available | Function | Returns |
+|-----------------|----------|---------|
+| Absolute plan folder path | `LedgerStore(planPath, ledgerRoot)` constructor | Instance whose `.storageDir` is `join(ledgerRoot, deriveRepoName(planPath), slug)` |
+| Bare slug or qualified `{repo}/{slug}` | `resolveProjectDir(slugOrQualified, ledgerRoot)` | Absolute `storageDir` path; then read `.meta.json` to obtain `plan_path` for the constructor |
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — missing the repo-namespace level; two repos with the same slug collide
+const store = new LedgerStore(slug, ledgerRoot);
+// storageDir resolves to join(ledgerRoot, 'unknown', slug) for most inputs
+// — correct only when deriveRepoName(planPath) happens to return 'unknown'
+```
+
+**Correct pattern — constructing from plan path (most common):**
+```typescript
+// ✅ CORRECT — LedgerStore(planPath, ledgerRoot) calls deriveRepoName internally
+const store = new LedgerStore(planPath, ledgerRoot);
+// storageDir === join(ledgerRoot, deriveRepoName(planPath), slug)
+```
+
+**Correct pattern — resolving from a URL slug parameter (GUI handlers):**
+```typescript
+// ✅ CORRECT — resolveProjectDir probes all namespace dirs to find the one containing slug
+const storageDir = await resolveProjectDir(slug, ledgerRoot);
+const meta = JSON.parse(await readFile(join(storageDir, '.meta.json'), 'utf-8'));
+const store = new LedgerStore(meta.plan_path, ledgerRoot);
+```
+
+**Rationale:** The repo-namespaced layout eliminates slug collisions when multiple repositories create identically-named plan folders (e.g., two developers each have a `2026-01-01-initial-setup` plan). Bypassing the namespace level causes different projects to share a storage directory, silently corrupting each other's ledger data.
+
+**See also:** `data-flows.md` §Storage Layout for the full directory structure; `api-surface.md` for `deriveRepoName()`, `resolveProjectDir()`, and `migrateToNamespacedLayout()` signatures.
+
+---
+
+### 7. STDIO Logging Discipline
+
+**Rule:** Never log to `stdout`. All logs must go to `stderr`.
+
+**Rationale:** `stdout` is reserved for the MCP protocol. Logging to `stdout` breaks protocol communication.
+
+**Implementation:**
+```typescript
+// ✅ CORRECT
+console.error('[project-ledger-mcp] Server started');
+
+// ❌ WRONG — breaks MCP protocol
+console.log('[project-ledger-mcp] Server started');
+```
+
+---
+
+## Schema Constraints
+
+### 8. Work Package IDs Must Follow WP-### Format
+
+**Rule:** All work package IDs must match the regex `/^WP-\d{3,}$/` (e.g., `WP-001`, `WP-042`, `WP-999`, `WP-1000`). The minimum is three digits; there is no upper bound to future-proof projects beyond WP-999.
+
+**Enforcement:** Validated by Zod schemas in `GetWorkPackageSchema`, `CreateWorkPackageSchema` (dependencies array), `ClaimWorkPackageSchema`, `StartPipelineSchema`, `CompletePipelineSchema`, `CancelPipelineSchema`, `UpdatePipelineProgressSchema`, and `AddObservationSchema`, as well as utility functions (`formatWpId()`, `parseWpId()`).
+
+---
+
+### 9. Timestamps Must Use UTC ISO 8601 Format (YYYY-MM-DDTHH:MM:SSZ)
+
+**Rule:** All timestamp fields use UTC ISO 8601 format with a trailing `Z`. Always use the `now()` utility function.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — local time, inconsistent format
+const timestamp = new Date().toLocaleString();
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — UTC with trailing Z
+const timestamp = now(); // "2026-02-16T18:00:00Z"
+```
+
+**Backward compatibility:** `parseTimestamp()` accepts legacy formats (`YYYY-MM-DD HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS` without Z) for ledger files written by earlier versions.
+
+---
+
+### 10. JSON Must Be Pretty-Printed
+
+**Rule:** All JSON files written by the server must use 2-space indentation and include a trailing newline.
+
+**Rationale:** Human readability and clean git diffs.
+
+**Enforcement:** `atomicWriteJson()` automatically formats as `JSON.stringify(data, null, 2) + '\n'`.
+
+---
+
+## Business Rule Constraints
+
+### 11. Status Transitions Are Enforced
+
+**Rule:** Work package status transitions must follow the legal transition table:
+
+| From | To | Special Conditions |
+|------|----|--------------------|
+| `READY` | `IN_PROGRESS` | Dependencies must be `COMPLETE` or `CANCELLED` |
+| `READY` | `BLOCKED` | None |
+| `READY` | `CANCELLED` | PM-only agent guard |
+| `IN_PROGRESS` | `COMPLETE` | All acceptance criteria must be met; Documentation agent only |
+| `IN_PROGRESS` | `BLOCKED` | None |
+| `IN_PROGRESS` | `READY` | None (unclaim path, spec §21.13) |
+| `IN_PROGRESS` | `CANCELLED` | PM-only agent guard |
+| `BLOCKED` | `IN_PROGRESS` | None (implicitly means blocker resolved); clears `blocked_by` |
+| `BLOCKED` | `READY` | All dependencies COMPLETE (auto-unblock); clears `blocked_by` |
+| `BLOCKED` | `CANCELLED` | PM-only agent guard |
+| `COMPLETE` | `IN_PROGRESS` | Triggers revision increment; Project Manager or Documentation agent only |
+| `COMPLETE` | `CANCELLED` | PM-only agent guard |
+
+`CANCELLED` is the only fully **terminal status** — it has no outward transitions. This includes `CANCELLED → CANCELLED` self-transitions — re-cancelling an already-cancelled WP is rejected. `COMPLETE` allows one outward transition (to `CANCELLED`, PM-only).
+**Rule:** A work package cannot be marked `COMPLETE` unless all acceptance criteria have `met: true`.
+
+**Enforcement:** `canCompleteWorkPackage()` validator in `ledger_update_work_package_status` tool.
+
+**Error message format:**
+```
+Cannot mark work package as COMPLETE: the following acceptance criteria are not met:
+  - Criterion 1
+  - Criterion 2
+```
+
+> Full specification: [Workflow Specification §6.2](../workflow-specification/state-machines.md#62-transition-table).
+
+---
+
+### 13. Only Documentation Agent Can Set COMPLETE
+
+**Rule:** The `ledger_update_work_package_status` tool rejects transitions to `COMPLETE` from any agent other than `"Documentation"` or `"Documentation Agent"`.
+
+**Enforcement:** Hard guard in `updateWorkPackageStatus()`. The error message includes the full workflow reminder (Developer → QA → Reviewer → Documentation → COMPLETE).
+
+**Rationale:** Enforces the multi-stage workflow at the MCP server level. Previously this was a persona-level convention only; the guard was added after the 2026-02-22 workflow failure where a Developer agent set COMPLETE directly. As of WP-005, auto-finalize on terminal-stage PASS (see Constraint 13b) is the preferred COMPLETE path — `ledger_update_work_package_status` remains registered for PM and edge-case use only.
+
+> Full specification: [Workflow Specification §6.5, §21.10](../workflow-specification/state-machines.md#65-agent-guards).
+
+---
+
+### 13b. Auto-Finalize on Terminal-Stage Pipeline PASS (WP-005)
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: "PASS"` and the calling agent owns the WP's **last active stage** (terminal stage), the server automatically evaluates whether all acceptance criteria are met **after** applying `acceptance_criteria_updates`. If all criteria are met, the WP is transitioned to `COMPLETE` **within the same lock scope** as the pipeline completion — no separate `ledger_update_work_package_status` call is required.
+
+The terminal stage is determined dynamically: `CANONICAL_PIPELINE_ORDERING.filter(t => activeStages.includes(t)).at(-1)`. For default WPs (`DEFAULT_PIPELINE_STAGES`), this is `documentation` (Documentation agent). For custom-stage WPs it may be any stage.
+
+**Conditions (all must apply):**
+- `type === lastActiveStage` (the last entry in the WP's ordered active stages)
+- `status === 'PASS'`
+- `agent_role === PIPELINE_AGENT_MAP[lastActiveStage]` (PM overrides bypass auto-finalize)
+- All `wp.acceptance_criteria[*].met === true` after applying `acceptance_criteria_updates`
+
+**Response signals:**
+- `auto_finalized: true` — WP transitioned to COMPLETE; `pending_work_packages` decremented.
+- `auto_finalize_blocked: true` + `unmet_criteria: string[]` — criteria check failed; WP stays IN_PROGRESS.
+
+**Enforcement:** Logic in `completePipeline()` in `src/tools/pipeline.ts` (added in WP-006).
+
+**Dependency unblocking side-effect (§6.3):** When auto-finalize transitions the WP to `COMPLETE`, `propagateDependencyUnblock` is called **after** the main lock is released (consistent with §12.2, Gotcha 8). This transitions eligible BLOCKED dependents to `READY`. Only dependents whose `blocked_by.type` is `'dependency'` (or absent) are eligible — WPs blocked by `'external'`, `'decision'`, or `'technical'` reasons remain BLOCKED.
+
+**Rationale:** The Documentation agent always called `ledger_update_work_package_status` immediately after a PASS pipeline — the transition was unconditional and never conditional. Automating it server-side removes a mandatory extra tool call from every Documentation pipeline, shortening the agent loop by one step.
+
+**`ledger_update_work_package_status` remains registered** for PM and edge-case use (e.g., re-opening a WP, manually completing a WP with prior pipeline history).
+
+---
+
+### 14. Claiming a WP Assigned to Another Agent Requires Override
+
+**Rule:** `ledger_claim_work_package` rejects the claim when the work package's `assigned_to` field differs from the calling `agent` parameter, unless `override: true` is explicitly passed.
+
+**Authorization:** Only the **Project Manager** (`"Project Manager"`) and the **current assignee** (`wp.assigned_to`) are permitted to use `override: true`. Any other agent passing `override: true` will receive a hard rejection error. The guard is conditional on `wp.assigned_to` being set — unassigned WPs bypass the identity check.
+
+**Error message (unauthorized override):**
+```
+override is restricted to "Project Manager" or the current assignee ("Developer"). You are "Reviewer".
+```
+
+**Enforcement:** Hard guard in `claimWorkPackage()` before dependency and status-transition checks.
+
+**Error message format:**
+```
+Cannot claim work package WP-002: it is assigned to "Documentation" but you are "Developer".
+
+If you need to re-assign this WP, pass override: true.
+Otherwise, only claim work packages assigned to your role.
+```
+
+**Rationale:** Prevents agents from silently re-assigning WPs outside their remit — the root cause of the 2026-02-22 workflow failure where the Developer agent claimed and completed a Documentation WP.
+
+---
+
+### 15. Dependencies Must Exist Before Creation
+
+**Rule:** When creating a work package, all dependency IDs must already exist in the root index.
+
+**Enforcement:** `ledger_create_work_package` validates dependencies before creating the work package.
+
+**Rationale:** Prevents dangling references.
+
+---
+
+### 16. BLOCKED Status Requires Blocker Object
+
+**Rule:** When transitioning a work package to `BLOCKED`, the `blocked_by` field must be provided.
+
+**Enforcement:** `ledger_update_work_package_status` throws an error if `status: 'BLOCKED'` is passed without `blocked_by`.
+
+---
+
+### 17. Pipelines Require IN_PROGRESS Work Package
+
+**Rule:** A pipeline can only be started on a work package with status `IN_PROGRESS`.
+
+**Enforcement:** `ledger_start_pipeline` validates WP status before creating pipeline.
+
+**Rationale:** Prevents starting work before a work package is claimed.
+
+---
+
+### 18. No Duplicate IN_PROGRESS Pipelines
+
+**Rule:** Only one pipeline of a given type can be `IN_PROGRESS` at a time for a work package.
+
+**Enforcement:** `ledger_start_pipeline` checks for existing `IN_PROGRESS` pipeline of the same type before creating a new one.
+
+**Rationale:** Forces agents to complete or fail a pipeline before retrying.
+
+---
+
+### 19. Pipelines Must Follow the Required Ordering
+
+**Rule:** Pipelines must be started in the order defined by the work package's `active_pipeline_stages` (defaults to `DEFAULT_PIPELINE_STAGES` — `['implementation', 'qa', 'code-review', 'documentation']` — when omitted). Each stage requires a PASS on its immediately preceding active stage. Attempting to start a pipeline without the **most recent** prerequisite pipeline having a `PASS` status throws a descriptive error. A historical PASS followed by a FAIL is not sufficient — the most recent entry is the only one that counts (per §8.2 most-recent-wins semantics).
+
+**Enforcement:** `ledger_start_pipeline` calls `resolvePrerequisite(type, activeStages)` — which filters `CANONICAL_PIPELINE_ORDERING` by the WP's `active_pipeline_stages` and returns the immediately preceding active stage — then finds the most recent pipeline of that prerequisite type via `.at(-1)`, and rejects if it is absent or its status is not `PASS`.
+
+**Error message format:**
+```
+Cannot start 'qa' pipeline: requires a PASS 'implementation' pipeline first.
+Active pipeline order: implementation → qa → code-review → documentation.
+```
+
+**Exception:** The first active stage in the WP's ordering has no prerequisite and can always be started (subject to other constraints). For `DEFAULT_PIPELINE_STAGES`, this is `implementation`.
+
+> Full specification: [Workflow Specification §8](../workflow-specification/pipeline-routing.md).
+
+---
+
+### 20. Pipeline Start Auto-Updates `assigned_to`
+
+**Rule:** When a pipeline starts, the work package's `assigned_to` field is automatically updated to the responsible agent according to the `PIPELINE_AGENT_MAP`:
+
+| Pipeline type | Assigned agent |
+|---|---|
+| `implementation` | `Developer` |
+| `qa` | `QA` |
+| `security-audit` | `Security Auditor` |
+| `code-review` | `Reviewer` |
+| `release-engineering` | `Release Engineer` |
+| `documentation` | `Documentation` |
+
+**Enforcement:** `ledger_start_pipeline` applies the map atomically alongside the pipeline creation. Both WP detail and root index summary are updated.
+
+---
+
+### 21. Rework Count Increments on Pipeline Retry
+
+**Rule:** When `ledger_start_pipeline` detects a rework, the work package's rework counters are automatically incremented. Rework is detected when either:
+- **Direct rework:** The most recent completed pipeline of the same type has `FAIL` status.
+- **Downstream rework:** A prerequisite pipeline type was reworked (re-failed) after the last PASS of the current pipeline type.
+
+Auto-cancelled pipelines (`.auto_cancelled === true`) are excluded from both rework-detection checks. This exclusion also applies to **temporal comparison functions** such as `checkRevalidationGuard` — a pipeline with `auto_cancelled: true` is invisible to all time-based guard logic. Auto-cancelled pipelines must never be counted by rework detection, circuit breakers, or any temporal comparison function.
+
+**Primary field:** `rework_counts` — a per-pipeline-type map (`{ implementation?, qa?, code-review?, documentation? }`). This is the authoritative counter going forward.
+
+**Legacy field:** `rework_count` — a scalar counter that was maintained during a prior transition period. **Fully retired as of 2026-02-28.** No production code path writes this field anymore. The in-memory migration in `LedgerStore.readWorkPackage()` (see below) handles any on-disk files that still contain it, but no new writes are emitted.
+
+**Backward-compat migration:** `LedgerStore.readWorkPackage()` performs a lazy in-memory migration: if a file contains `rework_count` but no `rework_counts`, it synthesises `rework_counts: { implementation: rework_count, qa: 0, 'code-review': 0, documentation: 0 }` and removes `rework_count`. This migration is **in-memory only** — no write is triggered; the on-disk file is updated lazily on the next `updateWorkPackageWithSync()` call.
+
+**Enforcement:** `ledger_start_pipeline` applies both rework-detection checks and excludes auto-cancelled pipelines. A history of `[FAIL, PASS]` does **not** trigger an increment because the most recent is `PASS`.
+
+**Initial value:** Both fields are absent (`undefined`) until the first rework; neither is ever initialised to `0` on creation.
+
+| Rework condition | rework_counts change |
+|---|---|
+| None (no prior failure, no downstream rework) | No increment |
+| Direct rework (last same-type FAIL) | rework_counts[type] +1 |
+| Downstream rework (prerequisite reworked after last PASS) | rework_counts[type] +1 |
+
+**Circuit breaker:** After incrementing, the effective count is computed as `rework_counts?.[type] ?? 0`. If this value reaches `MAX_REWORK_COUNT` (default: 5, from `workflow-helpers.ts`), `ledger_start_pipeline` rejects with an error guiding the caller to cancel or restructure. The `getDeveloperAction` function also surfaces `BLOCK_FOR_REWORK_LIMIT` as the highest-priority action for affected WPs.
+
+---
+
+### 22. Handoff Notes Are Routed via resolveNextAgent / resolveFailAgent
+
+**Rule:** When `ledger_complete_pipeline` is called with a `handoff_notes` array, a structured `HandoffNote` entry is appended to the work package. The `to_agent` is determined dynamically based on pipeline status and the WP's `active_pipeline_stages`:
+
+- **On PASS:** `resolveNextAgent(type, activeStages)` returns the owner of the next active stage in canonical order, or `'Synthesis'` when the type is the last active stage.
+- **On FAIL:** `resolveFailAgent(type, activeStages)` uses a base routing map extended to all 6 stages. If the base fail-target's stage is absent from `activeStages`, the fallback is the agent that owns the first active stage.
+
+**Routing for the default 4-stage pipeline (`DEFAULT_PIPELINE_STAGES`):**
+
+| Pipeline type | PASS → to_agent | FAIL → to_agent |
+|---|---|---|
+| `implementation` | `QA` | `Developer` |
+| `qa` | `Reviewer` | `Developer` |
+| `code-review` | `Documentation` | `Developer` |
+| `documentation` | `Synthesis` | `Documentation` |
+
+**Additional types (dynamic, per-WP routing):**
+
+| Pipeline type | PASS → to_agent (next active stage) | FAIL → to_agent (base routing) |
+|---|---|---|
+| `security-audit` | `Reviewer` (if `code-review` is next active) or subsequent active stage | `Developer` |
+| `release-engineering` | `Documentation` (if `documentation` is next active) or subsequent active stage | `Release Engineer` (self-rework) |
+
+> `documentation` and `release-engineering` self-rework on FAIL. All other FAIL paths route to the Developer (base routing). When the base fail-target's stage is absent from the WP's `active_pipeline_stages`, routing falls back to the first active stage's agent.
+
+**Schema:**
+```typescript
+interface HandoffNote {
+  from_agent: string; // PIPELINE_AGENT_MAP[type], or 'Project Manager (PM Override)' when PM override is active
+  to_agent: string;   // resolveNextAgent(type, activeStages) on PASS; resolveFailAgent(type, activeStages) on FAIL
+  timestamp: string;
+  notes: string[];    // The strings passed in handoff_notes
+}
+```
+
+**`ledger_complete_pipeline` guards (applied before pipeline lookup):**
+1. **WP status guard:** Rejects if `wp.status !== 'IN_PROGRESS'` (defense-in-depth).
+2. **Agent role guard:** `agent_role` must match `PIPELINE_AGENT_MAP[type]`. Exception: `agent_role === 'Project Manager'` bypasses this check (PM Override). When PM override is active, `from_agent` is set to `'Project Manager (PM Override)'`.
+
+**Consumption:** `ledger_get_next_action` and `ledger_get_next_actions` include any handoff notes addressed to the requesting agent in their response, so the next agent sees the notes immediately when they ask for their next action.
+
+> Full specification: [Workflow Specification §9, §12](../workflow-specification/pipeline-routing.md).
+
+---
+
+### 22b. PM Handoff Detects Pending Pipeline Stages on IN_PROGRESS WPs (Step 2b Invariant)
+
+**Rule:** Both `getProjectManagerHandoff()` (§13.1, `workflow-handoff.ts`) and `getProjectManagerAction()` (§14.1.2, `workflow-next-action.ts`) MUST scan non-terminal, non-dependency-blocked `IN_PROGRESS` work packages for pending pipeline stages when no `READY` WPs exist. This scan — called **step 2b** in the handoff function and **Priority 3d** in the recommendation engine — is the only mechanism that advances a WP between pipeline stages after a stage PASS, and that bootstraps freshly-claimed WPs with zero pipelines to their first active stage.
+
+**Invariant:** An IN_PROGRESS WP that has a PASS on stage N and no pipeline started for stage N+1 MUST surface as actionable by the PM (either via `ROUTE_PIPELINE_AGENT` action or the equivalent `READY_FOR_<AGENT>` handoff status) before the affected agent can be dispatched. Failure to implement step 2b would leave such WPs silently stuck — the PM would return `WAIT` instead of routing the next agent.
+
+**Guards (all must be applied):**
+1. **FAIL guard** — If the most recent non-auto-cancelled pipeline for the current stage is FAIL, break the stage scan for this WP. The stage's own agent handles rework; the PM does not route.
+2. **IN_PROGRESS guard** — If the most recent non-auto-cancelled pipeline for the current stage is IN_PROGRESS, break. The stage is already being worked on.
+3. **Upstream IN_PROGRESS guard** — If the preceding stage's most recent non-auto-cancelled pipeline is IN_PROGRESS, break. Routing the next stage now would be premature.
+4. **Dependency-blocked exclusion** — WPs where `wp.status === 'BLOCKED'` and `blocked_by.type === 'dependency'` (or `blocked_by` is absent) are excluded from step 2b entirely.
+
+**Coverage scenarios:**
+- **Stage-transition routing:** WP has implementation PASS and no QA pipeline → PM routes to QA.
+- **Zero-pipeline bootstrap:** Freshly-claimed IN_PROGRESS WP with no pipelines → PM routes to first active stage's agent (e.g., Developer for default stages).
+
+**Rationale:** The PM is the only agent whose action/handoff functions have visibility into all WPs simultaneously. Without step 2b, a WP that just received a pipeline PASS would not advance until something else triggered a re-scan. This invariant was added in v2.4.3 (WP-002/WP-003) to eliminate the gap where stage transitions required manual PM intervention.
+
+> Implementation: `workflow-handoff.ts` `getProjectManagerHandoff()` §13.1 step 2b; `workflow-next-action.ts` `getProjectManagerAction()` §14.1.2 Priority 3d.
+
+---
+
+### 23. Pipeline Comments Have No Agent Field
+
+**Rule:** Pipeline-level comments do not include an `agent` field. The agent is inferred from the pipeline type.
+
+**Convention:**
+- `implementation` pipeline → Developer
+- `qa` pipeline → QA
+- `code-review` pipeline → Reviewer
+- `documentation` pipeline → Documentation
+
+**Contrast:** Project-level comments include an explicit `agent` field because they are not tied to a specific pipeline.
+
+---
+
+### 24. Incident Comments Require Context
+
+**Rule:** When adding a project comment with `type: 'incident'`, the `context` field is required.
+
+**Enforcement:** `ledger_add_project_comment` throws an error if `type === 'incident'` and `context` is missing.
+
+**Required context fields:**
+- `os` — Operating system where incident occurred
+- `tool` — Tool or command that caused the incident
+- `work_package` (optional) — Associated work package
+- `resolved` — Whether the incident is resolved
+- `workaround` (optional) — Workaround description
+
+---
+
+## Concurrency Constraints
+
+### 25. Lock Timeout Is 10 Seconds
+
+**Rule:** File locks have a stale timeout of 10 seconds. Locks older than this are considered abandoned and can be forcibly acquired.
+
+**Implication:** If a process crashes while holding a lock, other processes will wait up to 10 seconds before retrying.
+
+---
+
+### 26. Lock Retry Count Is 50
+
+**Rule:** Lock acquisition is retried up to 50 times with 200ms–1000ms exponential backoff before failing.
+
+**Total retry window:** ~10–50 seconds, ensuring coverage of the 10s stale timeout.
+
+---
+
+## Testing Constraints
+
+> **CI gate:** The MCP server Vitest test suite (`npm test` in `mcp-server/`) is enforced on every push and pull request to `main` via `.github/workflows/ci.yml` (`mcp-server-tests` job, Node.js 20). All tests must pass before a PR can be merged.
+
+### 27. Test Timeout Is 10 Seconds
+
+**Rule:** All Vitest tests have a default timeout of 10 seconds.
+
+**Configuration:** Set in `vitest.config.ts`.
+
+**Rationale:** Integration tests may involve multiple file I/O operations and lock acquisitions.
+
+---
+
+### 28. Prefer Real Implementations Over `vi.mock` for Agent Registry and Ledger Tests
+
+**Rule:** When writing tests that involve the agent registry (`discoverAgents`, `isRegistryLoaded`, `getAgentHandle`, `getAgentId`) or `LedgerStore`, use the real implementations backed by a temporary directory rather than `vi.mock`.
+
+**Pattern:**
+```typescript
+import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
+
+beforeEach(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), 'test-'));
+  agentDir = join(tempDir, 'agents');
+  await mkdir(agentDir);
+  store = new LedgerStore(tempDir);
+});
+
+afterEach(async () => {
+  resetRegistry();
+  await rm(tempDir, { recursive: true, force: true });
+  await rm(agentDir, { recursive: true, force: true });
+});
+```
+
+**Rationale:** `vi.mock` creates module-level side-effects that can leak across test files, especially with ES module hoisting. Using real implementations with `resetRegistry()` cleanup eliminates mock side-effects, provides genuine end-to-end coverage, and is consistent with the approach in `tests/utils/agent-registry.test.ts`.
+
+**Reserve `vi.mock` for:** Code paths that touch the network, spawn child processes, or produce uncontrollable side-effects that cannot be isolated with a temp directory.
+
+---
+
+### 29. Always Supply an Isolated Ledger Root When Constructing `LedgerStore` in Tests
+
+**Rule:** Every test file that constructs a `LedgerStore` **must** pass a `mkdtemp`-based temporary directory as the second `ledgerRoot` argument. Omitting the argument (or passing the real `storage/ledger/` path) causes the store to write to production storage, accumulating stale artifact directories across CI and local runs.
+
+**Preferred pattern — use the shared helper:**
+```typescript
+import { createTempStore, cleanupTempStore } from '../helpers/create-temp-store.js';
+
+let handle: Awaited<ReturnType<typeof createTempStore>>;
+
+beforeEach(async () => {
+  handle = await createTempStore(join(tmpdir(), '2026-01-01-test-project'));
+});
+
+afterEach(async () => {
+  await cleanupTempStore(handle);
+});
+```
+
+**Why a helper?** `createTempStore(planPath)` in `tests/helpers/create-temp-store.ts` always injects a fresh `mkdtemp` root, making correct isolation the path of least resistance. Never construct `new LedgerStore(path)` with a single argument inside any test.
+
+**Anti-pattern (forbidden):**
+```typescript
+// ❌ WRONG — writes to production storage/ledger/
+const store = new LedgerStore('/absolute/path/to/my-plan');
+```
+
+---
+
+### 30. `afterEach` Teardown Variables Must Be Declared in the Same `describe` Scope
+
+**Rule:** Variables cleaned up in an `afterEach` block (e.g. a temp directory path) must be declared in the same `describe` block's scope, not in an outer scope. Referencing a variable from an outer scope is a silent bug — the inner `afterEach` compiles and runs but cleans up the *outer* variable, leaving the inner temp directory on disk.
+
+**Pattern:**
+```typescript
+describe('my feature', () => {
+  let tempDir: string;          // ← declared here
+  let store: LedgerStore;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'my-feature-'));
+    store = new LedgerStore(MY_PLAN_PATH, tempDir);
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true }); // ← same scope ✅
+  });
+});
+```
+
+**Anti-pattern:**
+```typescript
+let tempLedgerRoot: string; // ← outer scope
+
+describe('nested', () => {
+  let tempDir: string;      // ← different name / inner scope
+
+  beforeEach(async () => { tempDir = await mkdtemp(…); });
+
+  afterEach(async () => {
+    await rm(tempLedgerRoot, { recursive: true, force: true }); // ❌ wrong variable
+  });
+});
+```
+
+---
+
+## Module System Constraints
+
+### 31. All Imports Must Use .js Extensions
+
+**Rule:** Even when importing TypeScript files, use `.js` extensions.
+
+**Example:**
+```typescript
+// ✅ CORRECT
+import { LedgerStore } from '../storage/ledger-store.js';
+
+// ❌ WRONG
+import { LedgerStore } from '../storage/ledger-store';
+```
+
+**Rationale:** Node16 module resolution requires explicit file extensions for ESM.
+
+---
+
+### 32. No Default Exports
+
+**Convention:** All exports are named exports. No default exports are used.
+
+**Rationale:** Improves refactoring and tooling support.
+
+---
+
+## Validation Constraints
+
+### 33. All Reads Are Validated
+
+**Rule:** Every file read operation validates the JSON against a Zod schema before returning data.
+
+**Enforcement:** `LedgerStore.readRootIndex()` and `LedgerStore.readWorkPackage()` both parse and validate.
+
+**Failure modes:**
+- File not found → `ENOENT` error
+- Malformed JSON → `SyntaxError`
+- Schema mismatch → Zod validation error
+
+---
+
+### 34. All Writes Are Validated
+
+**Rule:** Every file write operation validates data against a Zod schema before writing.
+
+**Enforcement:** `LedgerStore.writeRootIndex()` and `LedgerStore.writeWorkPackage()` call `Schema.parse()` before writing.
+
+**Rationale:** Prevents writing invalid data to disk.
+
+---
+
+## Counter Self-Healing
+
+### 35. Project Status Tool Auto-Corrects Counters and Project Status
+
+**Rule:** `ledger_get_project_status` recomputes `total_work_packages`, `pending_work_packages`, and the project `status` from the `work_packages` array on every invocation.
+
+**Behavior:**
+- If counters are incorrect, they are silently corrected.
+- If `status === 'READY'` and any WP is `IN_PROGRESS`, status is healed to `IN_PROGRESS`.
+- If `status === 'BLOCKED'` and no WP is actually `BLOCKED`, status is healed to `IN_PROGRESS` (pending WPs exist) or `READY` (no pending WPs).
+- If `status === 'IN_PROGRESS'` and all WPs are complete (pending = 0, WPs exist), status is healed to `COMPLETE`.
+- If `status === 'COMPLETE'` and pending WPs exist, status is healed back to `IN_PROGRESS`.
+- An empty project (no WPs) is never auto-healed to `COMPLETE`.
+- Healing rules are mutually exclusive and applied in order; only the first matching rule fires.
+- The root index is rewritten only when a correction is made.
+
+**Rationale:** Provides fault tolerance against bugs that might cause counter or status drift.
+
+---
+
+## Development & Build Constraints
+
+### 36. Changelog Is the Source of Truth for Versioning
+
+**Rule:** All version changes must be made in `changelog.md` first, then synced to `package.json`.
+
+**Rationale:** Maintains a single source of truth and ensures version history is documented.
+
+**Process:**
+1. Update `changelog.md` with new version header:
+   ```markdown
+   ## v1.0.2 - 2026-02-20
+   
+   ### Added
+   - New feature...
+   ```
+2. Run `npm run sync-version` to extract version and update `package.json`
+3. The MCP server will display the version at startup in STDERR
+
+**Anti-pattern:**
+```bash
+# ❌ WRONG — manually editing package.json version
+vim package.json  # Don't do this!
+```
+
+**Correct pattern:**
+```bash
+# ✅ CORRECT — update changelog first, then sync
+vim changelog.md  # Add new version
+npm run sync-version
+```
+
+---
+
+### 37. Version Sync Runs Automatically Before Dev
+
+**Rule:** The `predev` hook ensures version is synced before running the development server.
+
+**Implication:** You can skip manual `npm run sync-version` if running `npm run dev` — it happens automatically.
+
+**Manual sync needed when:**
+- Building for distribution
+- Running in production
+- CI/CD pipelines
+- Testing version display without starting server
+
+---
+
+### 38. Server Version Displays at Startup
+
+**Rule:** The MCP server logs its version to STDERR on startup.
+
+**Example output:**
+```
+[project-ledger-mcp] Server v1.0.1 started successfully
+[project-ledger-mcp] Transport: STDIO
+[project-ledger-mcp] Registered tools: ledger_get_project_status, ...
+```
+
+**Purpose:** Allows users and CI systems to verify which version is running in their project.
+
+---
+
+### 39. Reopening a COMPLETE Work Package Requires Project Manager or Documentation Agent
+
+**Rule:** When transitioning a work package from `COMPLETE` back to `IN_PROGRESS`, the calling `agent` MUST be `"Project Manager"` (or `"Project Manager Agent"`) or `"Documentation"` (or `"Documentation Agent"`). All other agents are rejected.
+
+**Enforcement:** Hard guard in `updateWorkPackageStatus()` in `src/tools/work-package.ts`, applied before the status mutation.
+
+**Error message format:**
+```
+Cannot reopen work package WP-XXX: only the Project Manager or Documentation agent may transition COMPLETE → IN_PROGRESS.
+Hand off to the Project Manager or Documentation agent to formally reopen this work package.
+```
+
+**Rationale:** Prevents developer or QA agents from silently reopening completed work, bypassing the formal re-planning and documentation steps.
+
+**Additional effect:** On `COMPLETE → IN_PROGRESS`, rework state is fully reset: `rework_counts` is set to `{}`, `rework_count` is set to `0`, `root.synthesis_generated` is cleared, and `root.synthesis_generated_at` is set to `null`. This ensures that a reopened WP starts with a clean rework slate and prevents the Synthesis agent from being gated by stale synthesis state.
+
+---
+
+### 40. `READY → IN_PROGRESS` Must Use `ledger_claim_work_package`
+
+**Rule:** `ledger_update_work_package_status` rejects `status: 'IN_PROGRESS'` when the WP is currently `READY`. The caller must use `ledger_claim_work_package` instead.
+
+**Enforcement:** Early-return guard in `updateWorkPackageStatus()` that throws an actionable error naming `ledger_claim_work_package` as the correct tool.
+
+**Rationale:** `ledger_claim_work_package` enforces dependency checks and agent identity checks that `ledger_update_work_package_status` does not replicate.
+
+---
+
+### 41. `IN_PROGRESS → READY` (Unclaim) Requires No Active Pipelines
+
+**Rule:** When transitioning a WP from `IN_PROGRESS` back to `READY`, all pipelines must be in a terminal state (non-`IN_PROGRESS`). If any pipeline is currently `IN_PROGRESS`, the transition is rejected with an actionable error.
+
+**Side effect:** On success, `assigned_to` is cleared in both the WP detail file and the root index summary.
+
+**Enforcement:** Guard in `updateWorkPackageStatus()` step 4 in `src/tools/work-package.ts`.
+
+---
+
+### 42. `BLOCKED → BLOCKED` Replaces the Blocker with Guards
+
+**Rule:** A `BLOCKED` work package can be re-blocked with a different `blocked_by` object. This early-return path:
+1. **Agent guard:** Only the `"Project Manager"` (or `"Project Manager Agent"`) or the current `wp.assigned_to` may replace a blocker.
+2. **Type guard:** Changing a `'dependency'`-type blocker to a non-dependency type (or vice versa) is rejected. Dependency blockers are managed automatically by the system; manual replacement of dependency blockers is disallowed.
+3. **Side effect:** `status_changed_at` and `root.last_updated` are set; `pending_work_packages` is unchanged (status remains `BLOCKED`).
+
+**Enforcement:** Early-return guard in `updateWorkPackageStatus()` step 1a.
+
+---
+
+### 43. `IN_PROGRESS → BLOCKED` and `IN_PROGRESS → CANCELLED` Auto-Cancel Active Pipelines
+
+**Rule:** When a WP transitions from `IN_PROGRESS` to `BLOCKED` or `CANCELLED`, all currently `IN_PROGRESS` pipelines are automatically cancelled. Each cancelled pipeline receives `auto_cancelled: true` to distinguish it from deliberate FAIL pipelines.
+
+**Effect on rework detection:** Auto-cancelled pipelines are excluded from both direct and downstream rework detection in `ledger_start_pipeline` (see constraint 21).
+
+**Enforcement:** Pipeline auto-cancellation via `autoCancelActivePipelines(wp, reason)` helper called at steps 8a/8b in `updateWorkPackageStatus()` in `src/tools/work-package.ts`.
+
+---
+
+### 44. `→ COMPLETE` Freshness Check
+
+**Rule:** When transitioning a WP to `COMPLETE`, a freshness check is applied: the most recent non-auto-cancelled `documentation` pipeline PASS must have been recorded **after** the most recent `implementation` pipeline start. If the doc PASS predates the impl start (stale doc), the transition is rejected.
+
+**Exception:** If no `implementation` pipeline exists, or if no `documentation` pipeline has a PASS, the check is skipped (absent timestamps are accepted).
+
+**Absent timestamp permissive default:** If the most recent `documentation` pipeline lacks a `completed_at` timestamp, or if the most recent `implementation` pipeline lacks a `started_at` timestamp, the freshness check is skipped and the `→ COMPLETE` transition is allowed.
+
+**Enforcement:** Freshness check in `canCompleteWorkPackage()` or in `updateWorkPackageStatus()` step 2b.
+
+**Rationale:** Prevents a WP from being completed with documentation that was written before the current implementation cycle, ensuring the docs always reflect the current implementation.
+
+---
+
+### 45. `status_changed_at` Is Set on Every Status Transition
+
+**Rule:** The `status_changed_at` field on a work package is updated on every successful status transition, including `BLOCKED → BLOCKED` blocker replacements (even though the status value itself doesn't change).
+
+**Field type:** UTC ISO 8601 timestamp string (same format as `now()`).
+
+**Enforcement:** Set in `updateWorkPackageStatus()` after every mutation path (early-return paths and main path).
+
+---
+
+### 46. Work Package `assigned_to` Always Starts as `null`
+
+**Rule:** When creating a work package via `ledger_create_work_package`, the `assigned_to` input field is accepted silently but **ignored**. Both the WP detail file and the root index summary are written with `assigned_to: null`.
+
+**Rationale (§9b.1):** Assignment is managed by `ledger_claim_work_package` (transitions to `IN_PROGRESS`) and cleared by `IN_PROGRESS → READY` (unclaim). Pre-populating at creation time bypasses these guards.
+
+**Enforcement:** `createWorkPackage()` in `src/tools/work-package.ts` overwrites the input value.
+
+---
+
+### 47. New BLOCKED Work Packages Receive An Auto-Assigned `blocked_by`
+
+**Rule:** When a work package's initial status is `BLOCKED` (because at least one dependency is not terminal), `blocked_by` is automatically populated:
+```typescript
+{ type: 'dependency', description: 'Dependency WP-XXX is not complete', blocking_work_package: 'WP-XXX' }
+```
+where `WP-XXX` is the first unmet dependency.
+
+**Enforcement:** Inside `createWorkPackage()` initial status determination.
+
+---
+
+### 48. Creating a Work Package Must Not Introduce a Dependency Cycle
+
+**Rule:** Before persisting, `createWorkPackage` calls `hasCycle(newWpId, deps, allExistingWps)` (BFS) to verify the new dependency edges don't form a circular dependency. If a cycle is detected, the creation is rejected.
+
+**Error message format:**
+```
+Dependency cycle detected: WP X would create a circular dependency.
+```
+
+**Scope:** `hasCycle` checks forward-reference cycles among existing WPs. Simultaneous batch creation bypasses cycle detection — WPs should be created sequentially.
+
+**Enforcement:** `hasCycle()` pure function at module scope in `src/tools/work-package.ts`, called in `createWorkPackage` step 3b.
+
+---
+
+### 49. Acceptance Criteria Cannot Be Empty or Whitespace-Only
+
+**Rule:** Each string in the `acceptance_criteria` array must be non-empty and non-whitespace after trimming. An empty string or a string containing only spaces/tabs/newlines is rejected.
+
+**Error message format:**
+```
+Acceptance criteria cannot be empty or whitespace-only.
+```
+
+**Enforcement:** Validation loop in `createWorkPackage()` before WP creation, supplementing the Zod-level `.min(1)` array constraint.
+
+---
+
+### 50. Only CLAIMABLE_ROLES Can Claim Work Packages
+
+**Rule:** The `agent` field passed to `ledger_claim_work_package` must be a claimable role. 
+
+**Non-claimable roles:** `Planner`, `Planner Agent`, `Synthesis`, `Synthesis Agent` — these orchestrating roles are excluded from claiming WPs.
+
+**Claimable roles:** `Developer`, `Developer Agent`, `QA`, `QA Agent`, `Reviewer`, `Reviewer Agent`, `Documentation`, `Documentation Agent`, `Project Manager`, `Project Manager Agent`.
+
+**Guard ordering:** The CLAIMABLE_ROLES guard fires at step 1b — unconditionally, immediately after the `READY` status guard and **before** the assignment guard (step 2) and override-auth guard (step 2b). Consequence: a non-claimable role always receives the role error regardless of the WP's `assigned_to` field or whether `override: true` is passed.
+
+**Enforcement:** `CLAIMABLE_ROLES` is a named export at module scope in `src/tools/work-package.ts`, checked in `claimWorkPackage` step 1b. It is derived programmatically from `AGENT_ROLES` by filtering out `ORCHESTRATING_ROLES` (defined in `src/utils/constants.ts`), so adding a new orchestrating role automatically removes it from the claimable set without requiring manual updates.
+
+---
+
+### 52. `agent_role` Is Required for `ledger_start_pipeline` and `ledger_complete_pipeline`
+
+**Rule:** Both `ledger_start_pipeline` and `ledger_complete_pipeline` require an `agent_role` parameter. The value must match the pipeline type's owner role (per `PIPELINE_AGENT_MAP`). Calls that omit `agent_role` or provide a mismatched role are rejected with a descriptive error.
+
+**Exception:** `agent_role: 'Project Manager'` (or `'Project Manager Agent'`) bypasses the type-to-agent match check for any pipeline type (PM Override). When PM override is active, `startPipeline` adds a `[PM Override]` marker to the pipeline summary and `completePipeline` sets the handoff note's `from_agent` to `'Project Manager (PM Override)'`.
+
+**Enforcement:** Agent role guard in `startPipeline()` and `completePipeline()` in `src/tools/pipeline.ts` (steps 1b and 2b respectively), applied after the WP status guard.
+
+**Rationale:** Prevents agents from starting or completing pipelines outside their designated stage, ensuring the pipeline type-to-agent assignment invariant is upheld at runtime.
+
+---
+
+### 51. `propagateDependencyReblock` Auto-Cancels IN_PROGRESS Pipelines
+
+**Rule:** When `propagateDependencyReblock` transitions a non-COMPLETE, non-CANCELLED, non-BLOCKED dependent WP back to `BLOCKED`, all currently `IN_PROGRESS` pipelines on that WP are automatically cancelled with `auto_cancelled: true` (consistent with the `IN_PROGRESS → BLOCKED` behavior enforced by `updateWorkPackageStatus`).
+
+**Additional behaviors:**
+- **COMPLETE dependents:** For each `COMPLETE` WP that lists the reopened WP as a dependency, a warning comment is appended to its last pipeline (type: `"warning"`, priority: `"high"`).
+- **`synthesis_generated` reset:** If any WP was re-blocked (i.e., `candidates.length > 0`), `root.synthesis_generated` is reset to `false` and `root.synthesis_generated_at` is set to `null` to ensure the Synthesis agent must re-run.
+- If no candidates were re-blocked, `synthesis_generated` and `synthesis_generated_at` are **not** changed.
+
+**Enforcement:** `propagateDependencyReblock()` in `src/tools/work-package.ts`.
+
+---
+
+## Manifest Documentation Constraints
+
+### 53. No Implementation Provenance in Manifest Documents
+
+**Rule:** Project manifest documents (`api-surface.md`, `constraints.md`, `data-flows.md`, etc.) describe the **current state** of the codebase. They must not contain work package IDs, plan references, or other implementation-history markers (e.g., `WP-003`, `added in WP-005`, `wired in WP-004`).
+
+**Where provenance belongs:** Plan documents, synthesis reports, and changelog entries — not the manifest.
+
+**Rationale:** WP IDs are scoped to individual plans. A reader who has not ingested the plan history cannot resolve `WP-006` to a meaningful context. Provenance markers also accumulate over time and add noise without aiding comprehension of current behavior.
+
+**What is allowed:** References to `WP-###` as a *data format specifier* (e.g., `work_package_id: string // WP-### format`) are fine — these describe the runtime data model, not implementation history.
+
+---
+
+## GUI API Constraints
+
+### 58. `gui/api-knowledge.ts` Is the Canonical Location for All Knowledge Handler Code
+
+**Rule:** All knowledge-specific REST handler functions (`handleListKnowledge`, `handleUpdateKnowledge`, `handleDeleteKnowledge`, `handlePromoteKnowledge`, `handleMoveKnowledge`), Zod schemas (`KnowledgeUpdateBodySchema`, `KnowledgeMoveBodySchema`), and supporting types/helpers (`KnowledgeListParams`, `parseKnowledgeId`) MUST reside in `gui/api-knowledge.ts`. No knowledge handler code may be added to or remain in `gui/api.ts`.
+
+**Rationale:** `gui/api.ts` had grown large enough to become a maintenance liability. Extracting all knowledge symbols into a dedicated module (`gui/api-knowledge.ts`) isolates the knowledge domain, makes ownership explicit, and prevents future drift back into `api.ts`. The cut is clean: `api-knowledge.ts` re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
+
+**Implication for `gui/server.ts`:** The HTTP server imports knowledge handlers from `./api-knowledge.js` — not `./api.js`. Both body-free routes (`matchRoute()` tier) and body-parsing routes (`handleRequest()` tier) source their handler references from `api-knowledge.ts`.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — knowledge handler in api.ts or re-exported via api.ts
+export function handleListKnowledge(...) { /* in gui/api.ts */ }
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — knowledge handler in the dedicated module
+// gui/api-knowledge.ts
+export async function handleListKnowledge(...) { /* ... */ }
+
+// gui/server.ts
+import { handleListKnowledge } from './api-knowledge.js';
+```
+
+---
+
+### 59. Knowledge Body-Parsing Routes Use Regex Path Matching in `handleRequest()`
+
+**Rule:** The two body-parsing knowledge routes (`PATCH /api/knowledge/:id` and `POST /api/knowledge/:id/move`) MUST use regex `.test()` or `.exec()` for path matching inside `handleRequest()`. `path.startsWith()` is prohibited for these routes because it cannot reliably extract the `:id` capture group and is inconsistent with the regex pattern used for the PATCH `/api/projects/` guard.
+
+**Correct patterns (from `gui/server.ts`):**
+```typescript
+// ✅ CORRECT — regex exec captures :id
+const knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path);
+if (method === 'PATCH' && knowledgePatchMatch !== null) {
+  const rawId = decodeURIComponent(knowledgePatchMatch[1]!);
+  // ...
+}
+
+const knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path);
+if (method === 'POST' && knowledgeMoveMatch !== null) {
+  const rawId = decodeURIComponent(knowledgeMoveMatch[1]!);
+  // ...
+}
+```
+
+**Rationale:** The `.exec()` pattern is consistent with the PATCH `/api/projects/` guard (which also uses regex) and makes the capture-group extraction explicit. `startsWith()` cannot distinguish `/api/knowledge/42` from `/api/knowledge/42/move` without additional substring checks.
+
+---
+
+### 60. CSP `script-src` Must Not Use `'unsafe-inline'`; `style-src` Retains It
+
+**Rule:** The Content Security Policy header set by `gui/server.ts` must specify `script-src 'self'` (no `'unsafe-inline'`). Inline scripts in `gui/public/index.html` are prohibited — all JavaScript that runs at page load must be served as a static file. The `style-src` directive retains `'unsafe-inline'` because the SPA's view JS files generate HTML via `innerHTML` with inline `style=""` attributes.
+
+**Required CSP header value:**
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'
+```
+
+**FOUC prevention:** The theme-initialisation script (`gui/public/theme-init.js`) handles pre-paint theme application. It is a plain ES5 IIFE served as a static file and loaded via `<script src="/theme-init.js?v=1">` in `<head>` — not as an inline `<script>` block.
+
+**Anti-pattern:**
+```html
+<!-- ❌ WRONG — inline script; blocked by script-src 'self' CSP -->
+<script>
+  (function() { /* theme init logic */ })();
+</script>
+```
+
+**Correct pattern:**
+```html
+<!-- ✅ CORRECT — external file; allowed by script-src 'self' -->
+<script src="/theme-init.js?v=1"></script>
+```
+
+**Rationale for retaining `style-src 'unsafe-inline'`:** Six view JS files inject HTML via `innerHTML` with inline `style=""` attributes. Removing `'unsafe-inline'` from `style-src` would break these views in modern browsers that enforce CSP on inline styles inside `innerHTML`-injected content. This is deferred as a separate, larger-scope effort.
+
+---
+
+### 40. All Slug- and WpId-Accepting GUI Handlers Must Call Their Path-Traversal Guard First
+
+**Rule:** Every GUI API handler in `gui/api.ts` that accepts a path segment parameter must call its corresponding guard as the **first** (slug) or **second** (wpId) statement, before any other processing.
+
+**Guards:**
+
+| Guard | Parameter | Placement | Affected handlers |
+|-------|-----------|-----------|-------------------|
+| `assertSafeSlug(slug)` | project slug | 1st statement | `handleGetProject`, `handleListWorkPackages`, `handleGetWorkPackage`, `handleDeleteProject`, `handleGetPlanDocument` |
+| `assertSafeWpId(wpId)` | work-package ID | 2nd statement (after `assertSafeSlug`) | `handleGetWorkPackage` |
+
+**Rejection criteria (both guards):** throws `ApiError` with code `NOT_FOUND` (HTTP 404) if the value:
+- is empty (`''`)
+- contains a forward slash (`/`)
+- contains a double dot (`..`)
+
+**Rationale:** Returning `NOT_FOUND` (rather than `FORBIDDEN`) on traversal attempts is intentional — it avoids leaking structural information about the server's file system to potential attackers. Using HTTP 404 is consistent with the standard "project not found" response.
+
+**Implementation:** Both guards are module-private to `gui/api.ts` (not exported). They must not be bypassed or called after other parameter-dependent operations.
+
+**Acceptance criteria wording:** When writing AC for test cases that exercise `assertSafeSlug` rejection, use:
+> *"Invalid slug (e.g. path-traversal attempt) returns 404 NOT_FOUND."*
+
+Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection. (See [error-ledger.md](../../../../../history/error-ledger.md) — deviation recorded in 2026-03-04-project-reset-rework-1 synthesis.)
+
+---
+
+### 55. Non-PM Handoff Functions Must Dispatch to the Next READY Work Package Before Returning WAIT
+
+**Rule:** Each of the five non-PM handoff functions — `getQaHandoff`, `getSecurityAuditorHandoff`, `getReviewerHandoff`, `getReleaseEngineerHandoff`, and `getDocumentationHandoff` — MUST call `findNextReadyDispatch(wpDetails, '<RoleName>')` as the penultimate step, immediately before the final `return WAIT` fallthrough. If `findNextReadyDispatch` returns a non-null result, the function MUST return that dispatch rather than falling through to WAIT.
+
+**Rationale:** Without this step, completing the last pipeline stage on WP-N leaves the IDE in a stalled state when WP-N+1 is READY but has no pipelines yet. The five affected functions previously returned a bare `WAIT` in this scenario, requiring manual PM intervention to unblock the IDE workflow. The PM handoff already implements this cross-WP dispatch pattern (§13.1 Step 2); this rule extends the same behaviour to all non-PM handoff functions.
+
+**`findNextReadyDispatch` algorithm:**
+1. Finds the first READY work package whose dependencies are satisfied (using `isBlockedByDependencies`).
+2. Routes to the agent owning its first active pipeline stage (`PIPELINE_AGENT_MAP[firstActiveStage(wp.active_pipeline_stages ?? null)]`).
+3. If all WPs are terminal, returns `READY_FOR_SYNTHESIS` (safety-net branch for handoff functions that position cross-WP dispatch before their own all-terminal check).
+4. Returns `null` when no deterministic dispatch is possible — the caller falls through to WAIT.
+
+**Self-routing is intentional:** `findNextReadyDispatch` does NOT filter out cases where the target role equals the calling role (`targetRole === currentRole`). Self-routing causes the IDE to visibly declare a new handoff step for the new work package, improving auditability and keeping orchestrator and IDE behaviors aligned.
+
+**Scope:** This is a best-effort optimization for IDE runners. The orchestrator does not depend on it — its supervisor polling loop re-dispatches independently.
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — penultimate step, just before final WAIT return
+const dispatch = findNextReadyDispatch(wpDetails, 'Documentation');
+if (dispatch) {
+  return buildHandoffResponse(
+    'Documentation', dispatch.status, dispatch.reason,
+    undefined, projectPath, store
+  );
+}
+return buildHandoffResponse('Documentation', 'WAIT', 'No actionable documentation work.');
+```
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — returns WAIT without checking for READY WPs
+return buildHandoffResponse('Documentation', 'WAIT', 'No actionable documentation work.');
+```
+
+---
+
+## Cross-Platform Constraints
+
+### 54. All Code Must Run on Windows, macOS, and Linux
+
+**Rule:** The MCP server must work on all three supported platforms (Windows, macOS, Linux). Do not introduce OS-specific APIs without a cross-platform fallback. Use `path.join()` / `path.resolve()` for all file paths — never hardcode `/` or `\` separators.
+
+**File locking:** Uses `proper-lockfile` (cross-platform npm package). Do not replace with a platform-specific alternative.
+
+**Rationale:** The workspace-wide cross-platform policy (see root `AGENTS.md` → Cross-Platform Policy) applies to all sub-projects. The MCP server runs alongside the user's IDE on their desktop OS.
+
+---
+
+## Gotchas
+
+### ⚠️ Gotcha 1: Revision Only Increments on COMPLETE → IN_PROGRESS
+
+The `revision` field only increments when a work package transitions from `COMPLETE` back to `IN_PROGRESS`. It does not increment on other status changes.
+
+---
+
+### ⚠️ Gotcha 2: Lock File Persists After Server Exit
+
+The `.lock` file inside `storage/ledger/{slug}/` is not automatically deleted when the server exits. It will be left on disk and overwritten on the next lock acquisition.
+
+**Implication:** Safe to ignore — the lock system handles stale locks automatically.
+
+---
+
+### ⚠️ Gotcha 3: Metrics Object Is Extensible
+
+The `metrics` object in pipelines uses `.passthrough()` in Zod, meaning it accepts additional fields beyond the predefined ones (`test_coverage`, `tests_passed`, etc.).
+
+**Use case:** Custom metrics for different pipeline types (e.g., `build_time`, `bundle_size`).
+
+---
+
+### ⚠️ Gotcha 4: Work Package Summaries Are Duplicates
+
+Work package summaries in the root index duplicate a subset of data from the work package detail files.
+
+**Reason:** Performance — agents can list work packages without loading all detail files.
+
+**Invariant:** Summaries must always match the corresponding detail files. This is enforced by `createWorkPackageWithSync()` (creation) and `updateWorkPackageWithSync()` (updates).
+
+---
+
+### ⚠️ Gotcha 6: REWORK Is Triggered Only by the Most Recent FAIL
+
+The REWORK recommendation in `ledger_get_next_action` is based **only on the most recent pipeline** of a given type, not any historical FAIL. A work package with pipeline history `[FAIL, PASS]` does NOT receive a REWORK recommendation — the PASS pipeline means the issue was resolved.
+
+**Why it matters:** Before this was corrected, a WP that failed and then passed (e.g., tests failed, bugs were fixed, tests re-run and passed) would permanently trigger a REWORK recommendation, even though the work was complete. Now only a WP whose most recent pipeline is still `FAIL` will trigger REWORK.
+
+**Implementation:** `isMostRecentPipelineFail(pipelines, pipelineType)` — see [Internal Testing Utilities](api-surface.md#internal-testing-utilities).
+
+---
+
+### ⚠️ Gotcha 7: Documentation Handoff Skips Dependency-Blocked WPs
+
+`getDocumentationHandoff` (and `getQaHandoff`, `getReviewerHandoff`) treat WPs blocked by incomplete dependencies as ineligible for their stage. If all unreviewed/undocumented WPs are dependency-blocked, the handoff returns `READY_FOR_SYNTHESIS` rather than routing the agent back to the Developer.
+
+**Why it matters:** Without this check, a project where the only remaining WPs are blocked by incomplete dependencies would incorrectly route the Documentation Agent back to the Developer stage, stalling the workflow.
+
+---
+
+### ⚠️ Gotcha 8: Dependency Auto-Unblocking Uses a Separate Lock
+
+When a work package transitions to `COMPLETE`, `propagateDependencyUnblock` automatically transitions eligible downstream dependents from `BLOCKED` to `READY`. This runs **after** the main lock in `updateWorkPackageStatus` is released — it acquires its own lock.
+
+**Eligibility rule:** A BLOCKED WP is auto-unblocked only when **all its dependencies are terminal (COMPLETE or CANCELLED) AND its `blocked_by.type` is `"dependency"` or absent**. WPs blocked by `"external"`, `"decision"`, or `"technical"` reasons are intentionally skipped — their blockers must be resolved manually, even if all WP dependencies complete.
+
+**Implication:** There is a brief window between the COMPLETE write and the unblocking write during which the root index shows the WP as COMPLETE but dependents are still BLOCKED. This is safe for single-user workflows, but would be a race condition risk in a concurrent multi-agent environment.
+
+---
+
+### ⚠️ Gotcha 9: WP ID Generation Is Max-Based, Not Length-Based
+
+Work package IDs are generated by scanning the highest existing numeric suffix and adding 1. This means:
+- Deleting a WP does not cause ID collisions (unlike a length+1 approach)
+- IDs are monotonically increasing but may have gaps (e.g., WP-001, WP-003 if WP-002 was removed)
+- IDs can be 3+ digits: the schema regex `/^WP-\d{3,}$/` supports WP-001 through WP-9999+
+
+---
+
+### ⚠️ Gotcha 5: READY Status After Creation Depends on Dependencies
+
+When creating a work package:
+- If dependencies are empty or all `COMPLETE` → Initial status is `READY`
+- If any dependency is not `COMPLETE` → Initial status is `BLOCKED`
+
+This logic is automatic and transparent to the caller.
+
+---
+
+### ⚠️ Gotcha 10: `acceptance_criteria` Must Have At Least One Entry
+
+The `ledger_create_work_package` tool rejects requests with an empty `acceptance_criteria` array. Zod validation enforces `.min(1)` — at least one criterion string is required. This prevents the degenerate case of a WP that auto-passes all criterion checks.
+
+---
+
+### ⚠️ Gotcha 11: Unknown Criteria Text in `acceptance_criteria_updates` Is Appended
+
+When `ledger_complete_pipeline` is called with `acceptance_criteria_updates`, each update item is matched by exact criterion text:
+- **Matched:** updates the `met` flag on the existing entry.
+- **Not matched (unknown text):** appends a new `AcceptanceCriterion` entry `{ criterion, met }` to the WP's `acceptance_criteria` array.
+
+---
+
+### ⚠️ Gotcha 12: Pre-mutation State Capture in `updateWorkPackageWithSync` Callbacks
+
+**Rule:** Any variable holding pre-mutation WP or root-index state that is needed **after** the `updateWorkPackageWithSync` callback must be declared with `let` in the **outer scope** and assigned inside the callback. Variables declared with `const` inside the callback are lexically scoped to that callback and are invisible at the call site.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — const inside callback is NOT visible at the call site
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  const previousStatus = wp.status; // const → invisible outside callback
+  wp.status = 'IN_PROGRESS';
+  return { wp, root };
+});
+// TS2304: Cannot find name 'previousStatus'  ← compile error
+console.log(previousStatus); // ReferenceError at runtime if somehow not caught by TS
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — let declared in outer scope, assigned inside callback
+let previousStatus = '';
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  previousStatus = wp.status; // assigns to outer-scope let
+  wp.status = 'IN_PROGRESS';
+  return { wp, root };
+});
+console.log(previousStatus); // ✅ 'READY' — visible after lock completes
+```
+
+**Rationale:** `updateWorkPackageWithSync` (and `withLock`) discard the callback's return value for the state-capture use case. Any data produced inside the callback that is needed after it completes must be captured via closure by assigning to an outer-scope `let` variable before the callback runs. This pattern appears throughout `work-package.ts` (e.g., `let createdWpId = ''` in `createWorkPackage`). Failure to follow it produces a TS2304 compile error or, if TypeScript somehow does not catch it, a `ReferenceError` at the call site.
+
+**Alternative correct pattern (`| undefined` union):** When the captured value has no meaningful zero value, use `| undefined` union rather than a non-null assertion (`!`):
+
+```typescript
+// ✅ ALSO CORRECT — | undefined union (used in project-lifecycle.ts completeSynthesis)
+let result: { status: string } | undefined;
+await withLock(store.storageDir, async () => {
+  // ... read-modify-write ...
+  result = { status: 'COMPLETE' };
+});
+if (!result) throw new Error('Expected result to be set inside lock');
+// result is narrowed to { status: string } here
+```
+
+Prefer `| undefined` over non-null assertion (`!`) when the accumulator cannot have a meaningful zero state.
+
+---
+
+### ⚠️ Gotcha 13: `resolveProjectDir()` NOT_FOUND Error Embeds the Absolute `ledgerRoot` Path
+
+The `NOT_FOUND` error thrown by `resolveProjectDir()` includes the absolute filesystem path to `ledgerRoot` in its message:
+
+```
+NOT_FOUND: project slug 'my-plan' was not found in any repo namespace under '/absolute/path/to/storage/ledger'.
+```
+
+**Caller responsibility:** When `resolveProjectDir()` is wired to a GUI or API handler, the handler **must sanitise this error message before returning it to callers** — strip the filesystem path and retain it only in server-side logs. Returning the raw message to an API consumer leaks internal infrastructure details (A09 — Information Disclosure).
+
+**The `AMBIGUOUS` error is safe** — it contains only `{repo}/{slug}` qualified path strings and does not embed any filesystem path.
+
+**Correct handler pattern:**
+```typescript
+try {
+  const projectPath = await resolveProjectDir(slug, ledgerRoot);
+  // ...
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.startsWith('NOT_FOUND:')) {
+    // Sanitise: strip the filesystem path before returning to the caller
+    throw new ApiError('NOT_FOUND', `Project '${slug}' was not found.`);
+  }
+  throw err;
+}
+```
+
+---
+
+## Code Style Conventions
+
+### 53. Test-Only Exports Must Use the `_internal` Naming Convention
+
+**Rule:** Any module that exposes private symbols for unit testing must export them under a single named export called `_internal`. Do **not** introduce alternative names such as `_schemas`, `_test`, or `_utils`.
+
+**Pattern:**
+```typescript
+/**
+ * @internal — exported for unit testing only.
+ */
+export const _internal = {
+  MyPrivateClass,
+  MyInternalSchema,
+  myHelperFunction,
+};
+```
+
+**Rationale:** Consistency and grep-ability. A single naming convention makes it trivial to audit test-only surface (`grep -r '_internal'`) and eliminates `_schemas` / `_test` divergence. The convention was introduced in `work-package.ts` and standardised across all modules in 2026-02-28 (WP-009).
+
+**Enforcement:** `_schemas` exports were renamed to `_internal` in `pipeline.ts` and `observations.ts`. Do not re-introduce `_schemas` or any alternate name.
+
+---
+
+### 54. Prefer `for-of` Loops Over Indexed `for` Loops
+
+**Rule:** Use `for-of` loops for array iteration. Avoid `for (let i = 0; i < arr.length; i++)` indexed loops unless the index itself is required for logic, or a performance constraint is documented.
+
+**When an indexed loop is unavoidable** (e.g. pairwise comparison where both `i-1` and `i` are needed), use non-null-asserted access (`arr[i]!`) with an inline comment explaining the in-bounds guarantee:
+
+```typescript
+// TypeScript is compiled with noUncheckedIndexedAccess so array[i] returns T | undefined.
+// The loop invariant (i < arr.length) guarantees arr[i] is defined — safe to assert.
+for (let i = 1; i < pipelines.length; i++) {
+  const prev = pipelines[i - 1]!; // in-bounds: i >= 1
+  const curr = pipelines[i]!;     // in-bounds: i < pipelines.length
+}
+```
+
+**Context:** The project enables `noUncheckedIndexedAccess` in `tsconfig.json`. This means array element access returns `T | undefined`, which requires either a null-check or a `!` assertion. The `for-of` pattern avoids indexed access entirely and is therefore preferred.
+
+---
+
+### 55. Test Helper Infrastructure Mandate
+
+**Rule:** All new test files **must** import shared fixture factories and test utilities from `tests/helpers/fixtures.ts` and `tests/helpers/test-utils.ts`.
+
+**(a)** Any new test file that needs a project root index, WP detail object, or ledger directory must use the canonical factories from `tests/helpers/fixtures.ts` (e.g. `makeProject`, `makeWpDetail`, `injectLedgerDir`, `nowFloor`).
+
+**(b)** Defining a local test-scope fixture factory function is **prohibited** when a canonical equivalent already exists in `tests/helpers/fixtures.ts`. If the helper does not yet exist and is needed by multiple tests, add it to `tests/helpers/` first rather than duplicating it inline.
+
+**(c)** **Rationale:** Prevents per-file fixture divergence, eliminates test-replica maintenance burden, and ensures fixture behaviour (field defaults, schema shape, timestamps) stays consistent across the entire test suite.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — local factory duplicates the canonical makeWpDetail from tests/helpers/fixtures.ts
+function makeTestWp(overrides: Partial<WorkPackageDetail> = {}): WorkPackageDetail {
+  return {
+    work_package_id: 'WP-001',
+    status: 'READY',
+    revision: 0,
+    pipelines: [],
+    assigned_to: null,
+    dependencies: [],
+    acceptance_criteria: [],
+    ...overrides,
+  };
+}
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — import the canonical factory; field defaults and schema shape are guaranteed
+import { makeWpDetail } from '../helpers/fixtures.js';
+
+const wp = makeWpDetail({ work_package_id: 'WP-001', status: 'READY' });
+```
+
+---
+
+### 56. JSDoc Convention for Captured-Closure Variables
+
+**Rule:** When using the captured-closure pattern (an outer-scope `let` written inside a `withLock` / `updateWorkPackageWithSync` callback and read after the call returns), add a brief `// captured via closure in lock callback` inline comment on the `let` declaration.
+
+**Example:**
+```typescript
+let autoFinalizeResult: 'finalized' | 'blocked' | null = null; // captured via closure in lock callback
+await store.updateWorkPackageWithSync(wpId, (wp, root) => {
+  // ... logic that may set autoFinalizeResult ...
+  autoFinalizeResult = 'finalized';
+  return { wp, root };
+});
+if (autoFinalizeResult === 'finalized') { /* ... */ }
+```
+
+**Rationale:** The pattern is non-obvious to contributors unfamiliar with the lock-callback design. Without the comment, reviewers may assume the variable is always `null` after the call (it isn't — the callback executed synchronously within the lock and the `let` is live). See Gotcha 12 for a full explanation of the captured-closure mechanics.
+
+---
+
+### 57. `project_path` Takes Precedence Over `cwd_path` When Both Are Provided
+
+**Rule:** When a caller supplies both `project_path` and `cwd_path`, `resolveProjectPath()` uses `project_path` and silently ignores `cwd_path`. Supplying both parameters is **not** an error. Do **not** add `.refine()`, `.transform()`, or `.superRefine()` to the outer `z.object()` of any tool schema to enforce exclusivity.
+
+**Precedence rule (in `resolveProjectPath()`, `src/utils/path-validator.ts`):**
+1. If `project_path` is provided (truthy) → use it directly; `cwd_path` is ignored.
+2. If only `cwd_path` is provided → auto-detect the active project from the workspace root.
+3. If neither is provided → throw a missing-path error.
+
+**Guidance for callers:**
+- If you already have `project_path` (the plan folder path from a prior tool response), pass it — it is the fastest path with no auto-detection overhead.
+- If you only know your workspace root, pass `cwd_path` and let the server detect the project.
+- If you pass both, `project_path` wins; `cwd_path` is a no-op in that call.
+
+**Enforcement:**
+- `resolveProjectPath()` (`src/utils/path-validator.ts`) applies the precedence rule at the top of its body. Every tool handler that accepts both optional path fields calls `resolveProjectPath()`.
+- The predicate `mutuallyExclusivePaths` and the constant `MUTUAL_EXCLUSIVITY_PATH_MSG` remain exported from `src/utils/path-validator.ts` for backward compatibility and test coverage. They are **not used in production tool files**.
+- Schemas that only contain `project_path` (mandatory) or only `cwd_path` — but not both as optional fields — are exempt from this consideration. `DetectProjectSchema`, `InitializeProjectSchema`, and `ListProjectsSchema` fall into this category.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — .refine() converts ZodObject → ZodEffects. The MCP SDK cannot extract properties
+// from ZodEffects, resulting in empty { properties: {}, required: [] } in tools/list responses.
+const GetWorkPackageSchema = z.object({
+  project_path: z.string().optional().describe('…'),
+  cwd_path:     z.string().optional().describe('…'),
+  work_package_id: z.string().regex(/^WP-\d{3,}$/),
+})
+  .refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — plain ZodObject; project_path-wins precedence is enforced inside resolveProjectPath()
+const GetWorkPackageSchema = z.object({
+  project_path: z.string().optional().describe('…'),
+  cwd_path:     z.string().optional().describe('…'),
+  work_package_id: z.string().regex(/^WP-\d{3,}$/),
+});
+```
+
+**Rationale:** `.refine()` (and `.transform()`, `.superRefine()`) on the outer `z.object()` converts it from `ZodObject` to `ZodEffects`. The MCP SDK's `zodToJsonSchema` cannot extract properties from `ZodEffects` — every affected tool emits empty `{ properties: {}, required: [] }` in the `tools/list` response, preventing AI agents from passing arguments. Centralising the precedence logic in `resolveProjectPath()` keeps all tool schemas as plain `ZodObject` instances and eliminates spurious errors when callers pass both parameters. (Background: 2026-03-05 Zod `.refine()` empty schema fix — 18 of 22 tools were affected.)
+
+**See also:** §63 for the general rule covering all outer-schema uses of `.refine()`, `.transform()`, and `.superRefine()`.
+
+---
+
+### 58. MCP SDK Injects `RequestHandlerExtra` — Handler Registration Must Use Wrapper Functions
+
+**Rule:** Every internal tool handler that has a second positional parameter (`_ledgerRoot?: string`) **must** be registered via an arrow-function wrapper, **not** passed directly as the handler. Additionally, each such handler **must** apply a defensive type guard before using `_ledgerRoot`.
+
+**Root cause:** The MCP SDK (v1.0.4+) calls every registered tool handler as:
+```typescript
+typedHandler(args, extra)   // extra is RequestHandlerExtra
+```
+If the handler has a second positional parameter (`_ledgerRoot?: string`), the `extra` object is captured by it. Because `extra` is truthy, `_ledgerRoot ?? projectPath` resolves to the `extra` object, causing downstream `path.join()` calls to throw:
+```
+TypeError: The "path" argument must be of type string. Received an instance of Object
+```
+
+**Two-layer defence (belt-and-suspenders):**
+
+*Layer 1 — Registration wrapper (primary):*
+```typescript
+// ✅ CORRECT — extra never reaches the internal handler
+server.registerTool('ledger_create_work_package', { ... }, (args) => createWorkPackage(args));
+
+// ❌ WRONG — extra leaks into _ledgerRoot
+server.registerTool('ledger_create_work_package', { ... }, createWorkPackage as any);
+```
+
+*Layer 2 — Defensive type guard inside the handler (secondary):*
+```typescript
+async function createWorkPackage(args: ..., _ledgerRoot?: string) {
+  // ✅ Guard against the MCP SDK injecting a RequestHandlerExtra object
+  const ledgerRoot = typeof _ledgerRoot === 'string' ? _ledgerRoot : undefined;
+  // Use ledgerRoot throughout — never use _ledgerRoot directly after this line
+}
+```
+
+**Affected handlers (both layers applied as of 2026-03-01):**
+- `createWorkPackage` — `src/tools/work-package.ts`
+- `claimWorkPackage` — `src/tools/work-package.ts`
+- `updateWorkPackageStatus` — `src/tools/work-package.ts`
+- `resetReworkCount` — `src/tools/work-package.ts`
+- `updateAcceptanceCriteria` — `src/tools/work-package.ts`
+- `completeSynthesis` — `src/tools/project-lifecycle.ts`
+
+**Why single-argument handlers are unaffected:** Handlers with only one parameter (`initializeProject`, `getProjectStatus`, etc.) silently ignore any surplus arguments passed by the SDK — `extra` is discarded before it can cause harm.
+
+**Rationale:** A bug introduced when the SDK began passing `extra` went undetected because all unit tests call internal functions directly with an explicit string `_ledgerRoot`. The registration layer, where the SDK's extra injection occurs, had no test coverage. The two-layer defence ensures correctness both at the registration boundary and inside the function itself.
+
+---
+
+### 59. Acceptance Criteria Field-Name Verification
+
+**Rule:** Acceptance criteria text that references specific JSON field names, TypeScript parameter names, or object property names (e.g., `store`, `rootIndex`, `wpDetails`, `storageDir`) **must** be verified against the actual implementation source before the AC is committed to a work package. If the implementation uses a different name than what the AC states, the AC text must be updated to match.
+
+**Rationale:** Stale field-name references in ACs cause false-negative review outcomes. When a reviewer checks `wpDetails` against acceptance criteria but the implementation uses `allWpDetails`, the criterion is technically not met — yet neither the agent nor the QA reviewer notices. This constraint formalises the verification step that was retroactively identified in synthesis #4 of the Ledger Tool Simplification rework-1 cycle.
+
+**Anti-pattern:**
+```
+// AC text: "getNextActionsCollector receives `wpDetails` as a pre-loaded array"
+// Implementation: loads wp details internally, no wpDetails parameter
+// → AC text silently passes review because no one checks the parameter name
+```
+
+**Correct pattern:**
+```
+// AC text uses the exact parameter/field name from the source:
+// "getNextActionsCollector receives `rootIndex: RootIndex` and `store: LedgerStore`"
+// Verified against src/tools/workflow-next-action.ts before committing
+```
+
+---
+
+### 60. No Unused Locals (`noUnusedLocals`)
+
+**Rule:** `tsconfig.json` enables `"noUnusedLocals": true`. Every import, variable, parameter, and type alias that is declared must be consumed within its file. Dead imports and unused variables are compile errors — fix, never suppress.
+
+**Rationale:** Unused imports are structural noise left behind by refactors (e.g., when symbols move to a new module). They mislead agents and developers into thinking a dependency exists when it does not, and they obscure intent. The `noUnusedLocals` flag makes these errors hard build failures so they cannot accumulate silently.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — AGENT_PIPELINE_MAP moved to workflow-next-action-batch.ts but was
+// left in the import list of workflow-next-action.ts after a file-split refactor.
+import {
+  PIPELINE_TYPES,
+  AGENT_PIPELINE_MAP,   // ← never referenced in this file
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — only symbols actually used in this file are imported.
+import {
+  PIPELINE_TYPES,
+  type PipelineType,
+} from '../utils/pipeline-maps.js';
+```
+
+**Forbidden patterns:**
+- Adding `// @ts-ignore` or `// eslint-disable` to suppress unused-local errors.
+- Importing a symbol "for re-export" without an explicit re-export statement.
+- Leaving a symbol in an import group after moving its last consumer to another file.
+
+---
+
+### 61. `assigned_to` Requires a Canonical AgentRole; `project_comments.agent` Does Not
+
+**Rule:** The `assigned_to` field on a work package (`WorkPackageSchema.assigned_to`) must be a value from the `AGENT_ROLES` constant (a validated `AgentRole` union). The `agent` field on a project-level comment (`ProjectCommentSchema.agent`) is typed as `z.string()` and is intentionally **not** constrained to `AGENT_ROLES`.
+
+**Rationale:** `assigned_to` drives workflow routing, gate checks, and pipeline agent-map lookups — it must be a machine-readable canonical role value. `project_comments.agent` is a human-readable audit identifier; it records who wrote the comment as a narrative label, not as a workflow actor, so free-form strings are appropriate.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — using a non-canonical value in the role-validated field
+await claimWorkPackage({ ..., agent: "Developer Agent" });
+// Zod rejects "Developer Agent" — not a member of AGENT_ROLES
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — canonical AgentRole value required for assigned_to/agent in claim
+await claimWorkPackage({ ..., agent: "Developer" });
+
+// ✅ ALSO CORRECT — free-text is acceptable in project_comments.agent
+await addProjectComment({ ..., agent: "Developer Agent" });
+// z.string() accepts arbitrary strings here; this is intentional
+```
+
+**Forbidden patterns:**
+- Using `"Developer Agent"` (or any multi-word variant) as the `agent` argument to `ledger_claim_work_package` or `ledger_start_pipeline`.
+- Assuming `project_comments.agent` and `assigned_to` share the same validation rules — they do not.
+- Hardcoding role strings anywhere other than constants. Use `AGENT_ROLES` entries or the `AgentRole` type for `assigned_to`-typed fields.
+
+**Reference:** `AGENT_ROLES` is derived from `shared/workflow-manifest.json` (`roles[].name`) and re-exported from `src/utils/constants.ts`. `ProjectCommentSchema` is in `src/schema/validators.ts`. See [tech-stack.md — Architectural Pattern 10](tech-stack.md#10-manifest-derived-constants) for the full list of manifest-derived constants.
+
+---
+
+### 62. `ledger_begin_work` IN_PROGRESS Guard Accepts Pipeline-Type Owners
+
+**Rule:** When `ledger_begin_work` is called on a work package that is already `IN_PROGRESS`, the call is allowed if **either** condition holds:
+
+1. **Idempotent re-entry:** `wp.assigned_to === args.agent_role` (the same agent is continuing their own work).
+2. **Cross-agent handoff:** `PIPELINE_AGENT_MAP[args.type] === args.agent_role` (the caller is the legitimate pipeline-type owner per the workflow spec).
+
+If neither condition holds, the call is rejected.
+
+**Rationale (§9.1, §16.5):** The `assigned_to` field is a trailing bookkeeping field — a side-effect updated by the pipeline-start phase, not a security gate. Pipeline authorisation is defined by `PIPELINE_AGENT_MAP`. Using `assigned_to` as a hard gate would block every cross-agent handoff where `ledger_begin_work` is used instead of the two-step `ledger_claim_work_package + ledger_start_pipeline` sequence. This constraint restores consistency with `ledger_start_pipeline`, which enforces `PIPELINE_AGENT_MAP` only.
+
+**Contrast with `ledger_claim_work_package`:** Constraint 14 governs `ledger_claim_work_package`, which operates on `READY` WPs and does require an explicit `override: true` for cross-agent claims. The `READY → IN_PROGRESS` transition is a deliberate re-assignment; `ledger_begin_work` on an `IN_PROGRESS` WP is a pipeline-start handoff, not a RE-assignment.
+
+**Enforcement:** `isPipelineOwner` compound check in `beginWork()` in `src/tools/begin-work.ts`.
+
+**Error message (guard fires):**
+```
+Cannot begin work on WP-002: it is IN_PROGRESS and assigned to "Reviewer" but you are "Developer".
+Only the assigned agent or the legitimate pipeline-type owner may start a pipeline on an IN_PROGRESS work package.
+```
+
+---
+
+### 63. Do Not Use `.refine()`, `.transform()`, or `.superRefine()` on Outer Tool Schemas
+
+**Rule:** Never chain `.refine()`, `.transform()`, or `.superRefine()` on the outer `z.object({...})` schema passed as `inputSchema` to `server.registerTool()`. These methods convert a `ZodObject` into a `ZodEffects` wrapper, which the MCP SDK's JSON Schema converter cannot introspect — it emits `{ properties: {}, required: [] }` instead of the actual field list.
+
+**Reason:** The MCP `tools/list` response uses the JSON Schema to populate the tool definition shown to AI clients. An empty `properties` object means the client cannot see any parameters, so agents cannot pass arguments to the tool. This bug silently affects all callers, including VS Code Copilot agent mode.
+
+**Correct pattern:** Move cross-field validation inside the handler function (or a helper it calls, such as `resolveProjectPath()`):
+
+```typescript
+// ✅ CORRECT — plain ZodObject; SDK emits correct properties
+const MyToolSchema = z.object({
+  project_path: z.string().optional(),
+  cwd_path: z.string().optional(),
+});
+
+async function myToolHandler(args: z.infer<typeof MyToolSchema>) {
+  // Mutual exclusivity enforced at runtime by resolveProjectPath()
+  const projectPath = await resolveProjectPath(args);
+  // ...
+}
+```
+
+**Anti-pattern:**
+
+```typescript
+// ❌ WRONG — .refine() converts ZodObject → ZodEffects
+// SDK emits { properties: {}, required: [] } — agent cannot pass arguments
+const MyToolSchema = z.object({
+  project_path: z.string().optional(),
+  cwd_path: z.string().optional(),
+}).refine(mutuallyExclusivePaths, { message: MUTUAL_EXCLUSIVITY_PATH_MSG });
+```
+
+**Exception:** Field-level `.refine()` applied to an individual field definition (e.g., `z.string().refine(...)`, `plan_file: z.string().refine(v => v === 'plan.md', ...)`) is safe — the outer `z.object()` remains a `ZodObject`.
+
+**Regression guard:** `tests/tools/schema-integrity.test.ts` converts all 22 registered tool schemas to JSON Schema and asserts non-empty `properties`. This test fails if a `.refine()` / `.transform()` / `.superRefine()` is re-added to any outer schema.
+
+**Background:** Fixed in plan `2026-03-05-zod-refine-empty-schema`. All 18 affected tools previously emitted empty JSON Schemas due to this pattern.
+
+---
+
+### 64. Mock `McpServer` Intercept Pattern for Tool Metadata Tests
+
+**Rule:** When writing tests that need to inspect tool metadata (input schema shape, parameter constraints, tool descriptions) without spinning up a real MCP server, use the mock `McpServer` intercept pattern: create a plain object with a `registerTool` method that captures schemas into a `Map`, cast it `as unknown as McpServer`, and call each tool module's `register()` function with it in `beforeAll`.
+
+**Rationale:** This pattern exercises the exact production registration path — same `register()` call, same `inputSchema` reference — without a network socket or real server lifecycle. It is safe with `beforeAll` because `register()` calls are synchronous.
+
+**Correct pattern:**
+
+```typescript
+import { beforeAll, describe, it, expect } from 'vitest';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import type { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { register as registerPipeline } from '../../src/tools/pipeline.js';
+
+const capturedSchemas = new Map<string, z.ZodTypeAny>();
+
+const mockServer = {
+  registerTool: (
+    name: string,
+    config: { description: string; inputSchema: z.ZodTypeAny },
+    _handler: unknown
+  ) => {
+    capturedSchemas.set(name, config.inputSchema);
+  },
+} as unknown as McpServer;
+
+beforeAll(() => {
+  registerPipeline(mockServer);
+});
+
+describe('pipeline schemas', () => {
+  it('ledger_start_pipeline has non-empty properties', () => {
+    const schema = capturedSchemas.get('ledger_start_pipeline')!;
+    const json = zodToJsonSchema(schema) as { properties?: object };
+    expect(Object.keys(json.properties ?? {})).not.toHaveLength(0);
+  });
+});
+```
+
+**When to use:** Any test that needs to verify tool schema shape, description content, or parameter constraints without full server lifecycle overhead. See `tests/tools/schema-integrity.test.ts` for the canonical usage.
+
+**Note on `zod-to-json-schema`:** This package is currently a transitive dependency (via `@modelcontextprotocol/sdk`) and is not declared as an explicit `devDependency` in `mcp-server/package.json`. Tests relying on it work today, but if the SDK drops the transitive dep in a future update, imports will fail without a clear error. Prefer adding it explicitly when introducing new test files that import it directly.
+
+---
+
+### 65. All Six Pipeline Stages Are PM-Composable — No Mandatory/Optional Distinction
+
+**Rule:** All six pipeline stages (`implementation`, `qa`, `security-audit`, `code-review`, `release-engineering`, `documentation`) are equally composable by the Project Manager. There is no inherent "mandatory" or "optional" designation for any stage. The PM selects any valid subsequence of `CANONICAL_PIPELINE_ORDERING` per work package via the `active_pipeline_stages` field.
+
+**Default:** When `active_pipeline_stages` is omitted, `DEFAULT_PIPELINE_STAGES` (`['implementation', 'qa', 'code-review', 'documentation']`) is used for backward compatibility.
+
+**Rationale:** The former `MANDATORY_PIPELINE_TYPES` and `OPTIONAL_PIPELINE_TYPES` constants are retired. The PM-composable model enables custom workflows (e.g., skipping QA for documentation-only WPs, adding a security audit before code review) without encoding assumptions into the server.
+
+**Extension:** The `CANONICAL_PIPELINE_ORDERING` constant (`['implementation', 'qa', 'security-audit', 'code-review', 'release-engineering', 'documentation']`) defines the only valid execution order — stages may be omitted but not reordered. `resolvePrerequisite`, `resolveNextAgent`, and `resolveFailAgent` derive routing dynamically from the per-WP `active_pipeline_stages` array.
+
+**Enforcement:** `ledger_create_work_package` validates the `active_pipeline_stages` input (see Constraint 66). Pipeline start and completion routing use the dynamic resolve functions, not static maps.
+
+> Full specification: [Workflow Specification §4.2, §9b](../workflow-specification/data-model.md#42-pipeline-stage-constants).
+
+---
+
+### 66. `active_pipeline_stages` Validation: Hard Guardrails (Reject) and Soft Guardrails (Warn)
+
+**Rule:** When `ledger_create_work_package` receives an `active_pipeline_stages` value, it validates the array before persisting the work package.
+
+**Hard guardrails (reject with error — creation is aborted):**
+- Empty array (`[]`)
+- Entries that are not valid `PIPELINE_TYPES` values
+- Duplicate entries
+- Entries that are not a subsequence of `CANONICAL_PIPELINE_ORDERING` (relative ordering must be preserved; gaps are allowed)
+
+**Soft guardrails (warning appended to the success response message — creation is NOT aborted):**
+- `implementation` present without `qa` (unusual composition)
+- Single-stage chain (degenerate case)
+
+**Omitted field:** When `active_pipeline_stages` is omitted (the common case for standard 4-stage workflows), validation is bypassed entirely. The field is absent on the WP detail and dynamic resolve functions substitute `DEFAULT_PIPELINE_STAGES` at runtime.
+
+**Enforcement:** `validateActiveStages()` helper called inside `createWorkPackage()` in `src/tools/work-package.ts`. Hard rejection throws before the WP is written; soft warning is appended to the response string after the WP is written.
+
+> Full specification: [Workflow Specification §9b.2](../workflow-specification/operations.md#9b2-active-pipeline-stages-validation).
+
+---
+
+### 67. Artifact Declaration Expectation — Soft Warning on Empty `files_modified`
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` and the `artifacts.files_modified` array is either absent or empty, the server appends a soft-warning note **only if the pipeline type is in `ARTIFACT_EXPECTED_PIPELINE_TYPES`** (`implementation`, `code-review`, `release-engineering`, `documentation`). Verification-only pipeline types (`qa`, `security-audit`) are exempt because those agents verify but do not modify files. `code-review` is included because the Reviewer may apply Fix-Forward edits. This is a non-blocking warning — the pipeline completion is still accepted.
+
+**Rationale:** Agents often forget to populate `files_modified`, reducing the value of the pipeline record for auditing and documentation. The soft warning creates a visible signal in the response without blocking legitimate zero-file-change completions. Verification-only agents are exempt to avoid noisy false-positive warnings.
+
+**Exception:** The warning is only emitted on `PASS` completions — `FAIL` pipelines are not expected to declare modified files.
+
+**Enforcement:** Soft check in `completePipeline()` in `src/tools/pipeline.ts` (step 3b), gated by `ARTIFACT_EXPECTED_PIPELINE_TYPES` from `src/utils/pipeline-maps.ts`. Does not reject the call; appended as a text note in the response body only.
+
+---
+
+### 68. Zod `.describe()` Annotations for Pipeline Type Must Use `describePipelineTypes()`
+
+**Rule:** All Zod `.describe()` strings that enumerate pipeline type values MUST be generated by calling `describePipelineTypes(prefix)` from `src/utils/pipeline-maps.ts`. Hardcoding a pipeline type list inline in a `.describe()` string is forbidden.
+
+**Rationale:** `PIPELINE_TYPES` is the single source of truth for the canonical pipeline type list. Hardcoded `.describe()` strings drift silently when a new pipeline type is added — as demonstrated when `observations.ts` still listed only 4 types after `security-audit` and `release-engineering` were introduced. `describePipelineTypes()` derives the annotation from `PIPELINE_TYPES` at schema definition time, so any future addition to `PIPELINE_TYPES` propagates automatically to all MCP JSON Schema annotations.
+
+❌ **Anti-pattern:**
+```typescript
+PipelineTypeEnum.describe('Pipeline type: "implementation", "qa", "code-review", "documentation"')
+```
+
+✅ **Correct pattern:**
+```typescript
+import { describePipelineTypes } from '../utils/pipeline-maps.js';
+// ...
+PipelineTypeEnum.describe(describePipelineTypes('Pipeline type:'))
+```
+
+**Enforcement:** A drift-detection test in `tests/utils/pipeline-maps.test.ts` asserts that the output of `describePipelineTypes()` contains every entry in `PIPELINE_TYPES` — future additions to `PIPELINE_TYPES` that are not reflected in the helper will be caught automatically.
+
+---
+
+### 69. CSS Class Derivation from API Values Is Only Safe for Zod-Enum-Validated Fields
+
+**Rule:** CSS class derivation from raw API values is only safe when the field is a Zod-enum-validated type. For non-enum fields, apply `escapeHtml()` or a whitelist map.
+
+**Rationale:** The pattern `(field).toLowerCase().replace(/ /g, '_')` generates a CSS class string from a server-supplied value. If the field is a closed Zod enum, the server guarantees the value is one of a finite safe set — class injection is not possible. If the field is a free-form string (`z.string()`), a tampered ledger JSON (or a future schema relaxation) could insert arbitrary characters into a `class=""` attribute, enabling CSS injection or layout-breaking attacks.
+
+**Anti-pattern:**
+```javascript
+// ❌ WRONG — open string field; output is injected into class="" without escaping
+var cls = (someOpenStringField || '').toLowerCase().replace(/ /g, '_');
+el.innerHTML = `<span class="badge ${cls}">…</span>`;
+```
+
+**Correct patterns:**
+```javascript
+// ✅ OPTION A — field is a closed Zod enum (safe by schema contract)
+// p.status is WorkPackageStatus — a Zod enum with a fixed value set
+var cls = (p.status || '').toLowerCase().replace(/ /g, '_');
+
+// ✅ OPTION B — whitelist map (safe for any field type)
+var STATUS_CLASS = { READY: 'ready', IN_PROGRESS: 'in_progress', COMPLETE: 'complete', BLOCKED: 'blocked', CANCELLED: 'cancelled' };
+var cls = STATUS_CLASS[p.status] ?? 'unknown';
+
+// ✅ OPTION C — escapeHtml() before insertion (safe for any field type)
+var cls = escapeHtml((someField || '').toLowerCase().replace(/ /g, '_'));
+```
+
+**Scope:** This convention applies to all client-side JavaScript in `mcp-server/gui/public/` (currently `views/work-package.js`, `utils.js`). When adding new attribute values derived from API data, determine whether the field is enum-backed before using the raw-derivation pattern.
+
+---
+
+## Runtime Config Monitoring
+
+- `gui-config.json` is the single source of truth for runtime-adjustable settings (`auto_handoff_enabled`, `max_handoff_depth`).
+- The MCP server (`index.ts`) and GUI server (`gui/server.ts`) **both** must call `readConfigFromDisk()` at startup and `startConfigWatcher()` to begin monitoring.
+- `getConfig()` **MUST NOT** read from disk — it returns from the in-memory singleton cache only.
+- The `FSWatcher` must be closed via `stopConfigWatcher()` during graceful shutdown and in test teardown.
+- The 250ms debounce is mandatory — do not reduce it. Windows `fs.watch()` commonly emits duplicate events within <100ms of a file write.
+- On watcher error or file parse failure, the cache retains its last known good values. The server continues operating with stale config rather than crashing.
+- `ledger_root` in `gui-config.json` is **read-only** from the GUI perspective. `writeConfig()` strips it from incoming data. API handlers **MUST NOT** allow callers to overwrite it via `PUT /api/config`.
+
+---
+
+### 70. Advisory Dependency Freshness Check on PASS Completion (§21.59)
+
+**Rule:** When `ledger_complete_pipeline` is called with `status: 'PASS'` on a WP that has `dependencies`, the server performs an advisory staleness check. For each dependency, the server reads the full WP detail (pre-lock, before lock acquisition) and uses `dep.last_updated` directly. Inside the lock callback, if `dep.last_updated` is later than `pipeline.started_at` (using Date-based comparison via `new Date().getTime()` instead of lexicographic string comparison), a project comment is appended:
+
+```typescript
+{ type: 'warning', priority: 'low', agent: 'system', note: '<dep WP-XXX was modified after this pipeline started>' }
+```
+
+**PASS is never blocked.** This check is purely advisory — no pipeline status is changed, no error is thrown.
+
+**Skip conditions:** The check is entirely skipped when:
+- `pipeline.started_at` is absent (unstarted or legacy pipeline record), OR
+- the WP's `dependencies` array is empty.
+
+**`last_updated` field:** `WorkPackageDetail` now includes a dedicated `last_updated: z.string().optional()` field that is auto-stamped with `now()` on every WP detail write path (status transitions, claim, pipeline start/complete/cancel, creation, cascade reblock/unblock). The previous composite proxy (`max(status_changed_at, latest_pipeline.completed_at)`) is no longer used. The `last_updated` field is auto-stamped via `updateWorkPackageWithSync` (the primary choke point), plus explicit setting in `createWorkPackage`, `propagateDependencyUnblock`, and `propagateDependencyReblock` (which bypass the choke point). Existing WP detail files without the field parse without error (the field is optional).
+
+**Race window (acceptable):** Dependency WP files are read before lock acquisition. A dependency could theoretically be modified between the pre-read and the lock. For an advisory-only check this race window is acceptable — false negatives do not affect correctness.
+
+---
+
+### 71. `gui/server.ts` Two-Tier Routing Convention — Preserve the Route-Map Comment Block
+
+**Rule:** `gui/server.ts` uses a deliberate two-tier routing architecture. When adding a new route, use the correct tier and keep the route-map comment block at the bottom of `matchRoute()` up-to-date.
+
+**Tier 1 — `matchRoute()`:** Handles segment-count-based dispatch. Receives pre-parsed path segments (`rest`), the request method, `ledgerRoot`, and `orchestratorLogsDir`. Suitable for routes that need only path-derived parameters (no body, no dynamic path-tail extraction). Returns a `() => Promise<unknown>` thunk, or `null` if no route matches. The function contains a **route-map comment block** before its final `return null` that lists every route handled outside `matchRoute()` (i.e., in `handleRequest()` special-case blocks). **This comment block must be kept current.** When a new route is handled in `handleRequest()` rather than `matchRoute()`, add a line to that block.
+
+**Tier 2 — `handleRequest()` special-case blocks:** Handles routes that require body parsing (via `readBody()`) or path-tail extraction (via `path.slice()` + `decodeURIComponent()`). Each block is a guarded early-return placed before the `matchRoute()` fallback call.
+
+**Current split (as of WP-009):**
+
+| Tier | Routes |
+|------|--------|
+| `matchRoute()` | All GET routes; DELETE, POST, PATCH routes with only path-derived params |
+| `handleRequest()` special-case | `PUT /api/config`, `POST /api/projects/:slug/reset`, `POST /api/projects/:repo/:slug/reset`, `PATCH /api/projects/:slug`, `PATCH /api/projects/:repo/:slug`, `POST /api/orchestrator/start`, `POST /api/orchestrator/kill/:id`, `POST /api/orchestrator/dismiss/:id`, `GET /api/server-info` (configPath dependency) |
+
+**Why it matters:** The comment block is the only place that enumerates routes handled outside `matchRoute()`. Without it, future contributors adding a new `matchRoute()` branch for an already-handled path could create silent shadowing bugs.
+
+**Test coverage note:** As of WP-009, orchestrator routes have strong handler-level test coverage in `tests/gui/api-orchestrator.test.ts` but no `handleRequest()`-level integration test (unlike `tests/gui/api.test.ts` which exercises `handleRequest()` directly). A future `handleRequest()` integration test for orchestrator routes would provide defence-in-depth.
+
+---
+
+### 72. JSDoc Closure-Dependency Documentation for GUI Helpers
+
+**Rule:** Every closure-scoped helper function in `gui/public/views/*.js` that reads or mutates variables from its enclosing scope MUST include a `Closure dependencies (from <parent>() scope):` JSDoc block listing each closed-over variable with a one-line description of whether it is read-only or mutated by this helper.
+
+**Example:**
+```javascript
+/** Injects action buttons into the rendered table.
+ *
+ *  Closure dependencies (from renderOrchestrator() scope):
+ *    `expandedIds`   — mutated; toggle clicks update row expansion state.
+ *    `refreshQueue`  — read-only; called after Kill/Dismiss actions. */
+function _bindQueueActions(container, entries) { /* ... */ }
+```
+
+**Rationale:** Vanilla JS files lack module-level imports that make dependencies visible. Without explicit documentation, future contributors cannot determine which outer-scope variables a helper depends on without reading the entire enclosing function. This convention was established during the `2026-05-20-orchestrator-gui-polish-rework` sprint and should be applied to all new closure-scoped helpers going forward.
+
+**Scope:** Applies only to `gui/public/views/*.js` files (vanilla JS, no module system). TypeScript modules in `src/` use explicit imports and do not need this pattern.
+
+---
+
+## Knowledge Store Constraints
+
+### 73. `.knowledge/` Directory Uses a Single Lock Scope for All Writes; Excluded from Project Enumeration
+
+**Rule:** All write operations on the `.knowledge/` store (`addInsight`, `updateInsight`) MUST acquire a single `withLock(knowledgeDir(), ...)` scope that covers the entire read-modify-write sequence. Pure reads (`searchInsights`, `listInsights`) do NOT acquire a lock, consistent with the `LedgerStore` read pattern. The `.knowledge/` directory lives at `{ledgerRoot}/.knowledge/` and MUST NOT be included in project enumeration (`listAllProjects`, `detectProjectByCwd`) — it is global infrastructure, not a per-project ledger.
+
+**Rationale:** Using a single lock on `knowledgeDir()` (rather than per-file locks) prevents concurrent writers from interleaving across `global-insights.json` and `{slug}-insights.json` stores. Excluding `.knowledge/` from project enumeration prevents it from being misidentified as a project directory during `ledger_list_projects` or `ledger_detect_project` calls.
+
+**Lock target:** Always `knowledgeDir()` — never a per-file path and never `store.storageDir` (that is the per-project lock target, not the knowledge store lock target).
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — separate lock per store file; concurrent writers can interleave
+await withLock(globalStorePath(), async () => { /* write global store */ });
+await withLock(projectStorePath(slug), async () => { /* write project store */ });
+```
+
+**Correct pattern:**
+```typescript
+// ✅ CORRECT — single lock on the knowledge directory for any write operation
+await withLock(knowledgeDir(), async () => {
+  const store = await _readStore(storePath);
+  // ... mutate store ...
+  await atomicWriteJson(storePath, store);
+});
+```
+
+**Project enumeration exclusion:** `LedgerStore.listAllProjects()` reads `readdir(ledgerRoot)` and filters to subdirectories. The `.knowledge` entry (which starts with `.`) is excluded by the existing filter that skips dot-prefixed entries — no additional code change is required. This constraint documents the expected behaviour so it is preserved if the filter is ever modified.
+
+---
+
+## Known Limitations
+
+### KL-1. `'unknown'` Namespace Collision When Repo Root Fails Slug Validation
+
+**Affected components:** `LedgerStore.storageDir` (via `deriveRepoName()` in `src/utils/ledger-root.ts`) and `migrateToNamespacedLayout()` (via `repository_name` field in `.meta.json`)
+
+**Trigger condition — `LedgerStore.storageDir`:** `deriveRepoName()` derives the repo name by lowercasing the project-root directory basename and delegates to `assertSafeSegment()` (which encapsulates `SAFE_SLUG_REGEX`) for validation (alphanumeric + hyphens only). When a repo's root directory name contains characters that fail this check — such as dots (e.g. `my.project`), underscores, non-ASCII characters, or a path too shallow to extract four levels — `deriveRepoName()` falls back to `'unknown'`. If two or more such repos exist on the same machine, their projects will share the `{ledgerRoot}/unknown/` namespace and can **collide by slug** — two projects with the same plan folder basename will map to the same `storageDir`.
+
+**Trigger condition — `migrateToNamespacedLayout()`:** The migration function uses `repository_name` from each project's `.meta.json` as the namespace. If `repository_name` is absent, `null`, or an empty string, the project is moved to `{ledgerRoot}/unknown/{slug}/`. Additionally, if a user has a repository literally named `'unknown'` (a valid, slug-compatible name), its projects will share the `{ledgerRoot}/unknown/` namespace with all fallback projects, and slug collisions may occur.
+
+**Mitigation:** Rename the repository root directory to a slug-compatible name (lowercase alphanumeric and hyphens only, e.g. rename `My.Project` → `my-project`). This is the only reliable fix; there is no server-side escape hatch once two repos produce the same `repoName`. For the migration-layer scenario, also avoid naming a repository `'unknown'`.
+
+**Detection:** If you suspect a collision, inspect `{ledgerRoot}/unknown/` — multiple slug subdirectories there indicate affected projects. Each `.meta.json` inside will identify the originating `plan_path`.
+
+---
+
+### KL-2. `listAllProjects()` Two-Level Scan Has No Direct Unit Tests *(Resolved — WP-004)*
+
+**Affected component:** `LedgerStore.listAllProjects()` in `src/storage/ledger-store.ts`
+
+**Status:** Resolved by WP-004 (2026-05-27). A dedicated test suite `tests/storage/list-all-projects.test.ts` was added with 10 tests covering:
+
+- New namespaced layout (`{ledgerRoot}/{repoName}/{slug}/`)
+- Old flat layout (`{ledgerRoot}/{slug}/`) for backward compatibility
+- Mixed flat-layout and namespaced-layout projects coexisting in the same ledger root
+- Dot-prefix filtering at depth-1 and depth-2
+- Empty namespace directories (no valid subdirectories)
+- Namespace directories containing invalid (non-project) subdirectories
+- Same-slug cross-namespace collision prevention
+- `detectProjectByCwd()` delegation with both layout types
+- The `stderr` log path for depth-2 slug directories with a missing `.meta.json` file
+
+All 97 storage tests pass. The known limitation below is retained for historical context only.
+
+**Historical details (pre-WP-004):** The two-level scan introduced in WP-002 was exercised indirectly through `detectProjectByCwd` tests but lacked a dedicated test suite. Mixed-layout coexistence and the `stderr` log path had no direct coverage.
+
+**See also:** `api-surface.md` §`LedgerStore` static methods — the canonical `listAllProjects()` architectural constraint (slug-only callers must use this method before constructing a `LedgerStore`).
+
+---
+
+### KL-3. `assertSafeSlug` Is Defined in Three Files — Storage Layer and GUI Layer *(Resolved)*
+
+**Affected components:** `src/utils/ledger-root.ts` (storage layer), `src/gui/handlers/run-log-handlers.ts` (GUI layer), and `gui/api.ts` (GUI layer)
+
+**Was:** All three files defined a local, module-private `assertSafeSlug` using an inline `SAFE_SLUG_REGEX.test()` call. The regex check was duplicated, requiring all three files to be updated in lockstep when validation logic changed.
+
+**Resolution:** All three `assertSafeSlug` implementations now delegate to `assertSafeSegment()` from `src/utils/path-validator.ts`, which encapsulates the `SAFE_SLUG_REGEX` check. The throw-type variants are preserved (`Error` in the storage layer; `ApiError NOT_FOUND` in the GUI layer) — the layer separation is unchanged. `deriveRepoName()` in `src/utils/ledger-root.ts` also delegates to `assertSafeSegment()` directly, completing the consolidation — `src/utils/ledger-root.ts` no longer imports `SAFE_SLUG_REGEX`.
+
+**Ongoing invariant:** When slug-segment validation logic changes, update `assertSafeSegment()` in `path-validator.ts` only — all three `assertSafeSlug` wrappers and `deriveRepoName()` pick up the change automatically.
+
+```
+###  Path: `/mcp-server/docs/agents/project-manifest/data-flows.md`
+
+```md
+# Key Data Flows
+
+This document describes the main interaction paths through the system.
+
+---
+
+## Storage Layout
+
+The centralized ledger uses a **two-level repo-namespaced directory structure**:
+
+```
+{ledgerRoot}/
+├── .migration-state.json        # Written on first startup after migration; absent on first run
+├── .migration-in-progress       # Transient sentinel; only present during an active migration
+├── gui-config.json              # Runtime config (auto_handoff_enabled, max_handoff_depth, …)
+├── ai-insights/                 # Example repo-namespace dir
+│   └── 2026-05-01-my-plan/          # Per-project subfolder
+│       ├── .meta.json
+│       ├── .lock
+│       ├── project-ledger.json
+│       └── WP-001.json
+├── other-repo/                  # Second repo-namespace dir (independent repository)
+│   └── 2026-06-01-another-plan/
+│       └── …
+└── unknown/                     # Fallback namespace (repo root failed slug validation)
+    └── …
+```
+
+**`{repoName}`** is derived by `deriveRepoName(projectPath)`: walks 4 directory levels up from the plan folder to the project root, takes its basename, lowercases it, and validates against `SAFE_SLUG_REGEX` (`/^[a-z0-9][a-z0-9-]*$/`). Falls back to `'unknown'` when the name is empty, `'.'`, `'..'`, or fails slug validation.
+
+**Two-level scan (`LedgerStore.listAllProjects`):** reads the top level of `{ledgerRoot}`. For every depth-1 directory that has a direct `.meta.json` it reads it as a legacy flat-layout project (backward compatibility). For directories without a direct `.meta.json` it treats them as repo-namespace dirs and scans one level deeper, reading `{repoName}/{slug}/.meta.json` for each depth-2 entry. Dot-prefixed directories are skipped at both levels.
+
+**One-time idempotent migration (`migrateToNamespacedLayout`):** on first startup after upgrade, moves each flat-layout `{ledgerRoot}/{slug}/` directory to `{ledgerRoot}/{repoName}/{slug}/` using the `repository_name` field stored in each project's `.meta.json`. The migration writes `.migration-state.json` on success and uses `.migration-in-progress` as a crash-recovery sentinel. Safe to call on every startup — skips immediately when `storage_version >= 2` is already written.
+
+---
+
+## Flow 1: Project Initialization
+
+**Entry Point:** Agent invokes `ledger_initialize_project` tool
+
+```
+Agent → ledger_initialize_project(project_path, plan_file)
+  ↓
+LedgerStore.writeRootIndex()
+  ↓
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json)
+  ↓
+  1. Create parent directories (mkdir -p)
+  2. Write to {file}.tmp.{pid}
+  3. Atomically rename to storage/ledger/{repoName}/{slug}/project-ledger.json
+  ↓
+store.writeProjectMeta() — auto-synced after root index write
+  ↓
+atomicWriteJson(storage/ledger/{repoName}/{slug}/.meta.json)
+  ↓
+store.archiveDocuments([plan_file])  — best-effort; outside lock scope
+  ↓
+  copyFile(join(planPath, plan_file), join(storageDir, plan_file))
+  ENOENT and all other copy errors → file appended to skipped[], warning → stderr
+  Success → file appended to archived[]
+  ↓
+Return RootIndex + { archived_documents, archive_skipped? } to agent
+```
+
+**Result:** New project ledger created with empty work packages array and a `.meta.json` file in the centralized storage directory. A copy of `plan_file` is stored in `storage/ledger/{repoName}/{slug}/` as archived reference (best-effort; missing source is silently skipped).
+
+---
+
+## Flow 1b: List All Projects
+
+**Entry Point:** Agent invokes `ledger_list_projects` tool
+
+```
+Agent → ledger_list_projects(status?)
+  ↓
+LedgerStore.listAllProjects(ledgerRoot)
+  ↓
+readdir(storage/ledger/)
+  ↓
+For each depth-1 entry (excluding .archive/):
+  If entry has a direct .meta.json → old flat-layout project; read it.
+  If entry has no .meta.json → treat as repo-namespace dir; scan depth-2:
+    For each depth-2 slug entry:
+      readFile(storage/ledger/{repoName}/{slug}/.meta.json)
+      ProjectMetaSchema.parse(data)   ← missing/invalid entries skipped, warning → stderr
+  ↓
+Optional filter by status
+  ↓
+Return ProjectMeta[] to agent
+```
+
+**Result:** Array of project metadata for all valid projects in the central ledger (both legacy flat-layout and new repo-namespaced layout), optionally filtered by status. Read-only — no lock acquired.
+
+---
+
+## Flow 1c: Detect Project by Working Directory
+
+**Entry Point:** Agent invokes `ledger_detect_project` tool (typically during pre-flight when `project_path` is not explicitly known)
+
+```
+Agent → ledger_detect_project(cwd_path)
+  ↓
+LedgerStore.detectProjectByCwd(cwd_path)
+  ↓
+LedgerStore.listAllProjects(ledgerRoot)  ← same scan as Flow 1b
+  ↓
+For each ProjectMeta:
+  inferProjectRootFromPlanPath(meta.plan_path)
+    → Replace \ with /
+    → posix.dirname() × 4  (walks up docs/agents/plans/{slug})
+    → returns normalized project root string
+  ↓
+  Normalize cwd_path (\ → /, lowercase on Windows)
+  Normalize project root (\ → /, lowercase on Windows)
+  ↓
+  Match if:
+    normalizedCwd === normalizedRoot           (exact project-root match)
+    OR normalizedCwd.startsWith(root + '/')   (cwd is inside project root)
+  ↓
+Collect all matching projects
+  ↓
+  matches.length === 1 → status: FOUND  (return meta)
+  matches.length  >  1 → status: AMBIGUOUS  (return all candidates)
+  matches.length === 0 → status: NOT_FOUND
+  ↓
+On FOUND:   Return { plan_path, slug, title?, status } to agent
+On AMBIGUOUS: Return error listing all candidate plan_path values
+On NOT_FOUND: Return error with guidance to initialize the project
+```
+
+**Result:** Pure path-string comparison — no lock, no writes, no state mutation. The derived project root is computed from each project's `plan_path` using the established `{root}/docs/agents/plans/{slug}` convention (4-level depth). A parent of the project root does NOT match (matching is downward-only).
+
+---
+
+## Flow 2: Work Package Creation
+
+**Entry Point:** Agent invokes `ledger_create_work_package` tool
+
+```
+Agent → ledger_create_work_package(project_path, assigned_to, dependencies, ...)
+  ↓
+Pre-lock validation (outside lock scope):
+  - Validate dependencies exist
+  - Validate active_pipeline_stages if provided:
+      validateActiveStages(args.active_pipeline_stages, CANONICAL_PIPELINE_ORDERING)
+        Hard guardrails (reject with error — creation aborted):
+          - empty array
+          - entries not in PIPELINE_TYPES
+          - duplicate entries
+          - entries not a subsequence of CANONICAL_PIPELINE_ORDERING
+        Soft guardrails (warning appended to success response — creation NOT aborted):
+          - 'implementation' present without 'qa'
+          - single-stage chain
+      Default when omitted: DEFAULT_PIPELINE_STAGES (['implementation', 'qa', 'code-review', 'documentation'])
+  ↓
+LedgerStore.createWorkPackageWithSync(creator)  ← primary choke point for WP creation
+  ↓
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+creator callback:
+  Generate next WP ID (max-based):
+    - Scan existing work_packages for highest numeric suffix
+    - Next ID = max + 1 (e.g., if highest is WP-003, next is WP-004)
+    - Empty project → WP-001
+  ↓
+  Cycle detection: hasCycle(newWpId, deps, allExistingWps) [BFS]
+    If cycle detected → throw error (no write occurs)
+  ↓
+  Determine initial status (READY or BLOCKED based on dependencies)
+  ↓
+  Create WorkPackageDetail object
+  Create WorkPackageSummary object
+  ↓
+  Update root index:
+    - Append summary to work_packages array
+    - Increment total_work_packages
+    - Increment pending_work_packages
+    - Set status to IN_PROGRESS (if was READY)
+  ↓
+  Return { wpId, wp: detail, root: updatedRoot }
+  ↓
+Auto-stamp wp.last_updated = now()  ← overrides any caller-set value
+Zod validation: WorkPackageDetailSchema.parse(wp)
+Zod validation: RootIndexSchema.parse(root)
+  If either fails → throw error (no write occurs)
+  ↓
+LedgerStore.writeWorkPackage(WP-###, detail)    ← atomicWriteJson  [@internal — called by createWorkPackageWithSync only]
+LedgerStore.writeRootIndex(root)                 ← atomicWriteJson, auto-syncs .meta.json  [@internal — called by createWorkPackageWithSync only]
+  ↓
+Release lock
+  ↓
+Return created WorkPackageDetail to agent
+```
+
+**Result:** Both `storage/ledger/{repoName}/{slug}/WP-###.json` and `storage/ledger/{repoName}/{slug}/project-ledger.json` are created/updated atomically within a single lock scope inside `createWorkPackageWithSync`. `.meta.json` is automatically synced. The `last_updated` field on the new WP is always set by the method, not by the caller. Tool code never calls `writeWorkPackage` or `writeRootIndex` directly — see Constraint 2c.
+
+---
+
+## Flow 3: Claiming a Work Package
+
+**Entry Point:** Agent invokes `ledger_claim_work_package` tool
+
+```
+Agent → ledger_claim_work_package(project_path, work_package_id, agent)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
+  ↓
+Read WorkPackageDetail (storage/ledger/{repoName}/{slug}/WP-###.json) — validated with Zod
+Read RootIndex (storage/ledger/{repoName}/{slug}/project-ledger.json) — validated with Zod
+  ↓
+updater function:
+  1. Validate current status is READY
+  1b. CLAIMABLE_ROLES guard: verify agent maps to a claimable role (Planner and Synthesis excluded) — fires unconditionally before assignment/override checks
+  2. Assignment guard: reject cross-agent claims unless override is set
+  2b. Override auth guard: if override:true, verify caller is PM or current assigned_to
+  3. Check dependencies via canStartWorkPackage()
+  4. Validate status transition READY → IN_PROGRESS
+  5. Update WP status, assigned_to, and status_changed_at
+  6. Update root index summary status and assigned_to
+  ↓
+Validate updated WP and root with Zod
+  ↓
+atomicWriteJson(storage/ledger/{repoName}/{slug}/WP-###.json, updatedWP)
+atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json, updatedRoot)
+store.writeProjectMeta() — auto-synced inside same lock
+  ↓
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Work package transitioned from `READY` to `IN_PROGRESS` with both files updated atomically.
+
+---
+
+## Flow 4: Starting a Pipeline
+
+**Entry Point:** Agent invokes `ledger_start_pipeline` tool
+
+```
+Agent → ledger_start_pipeline(project_path, work_package_id, type, agent_role)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(store.storageDir) — acquire storage/ledger/{repoName}/{slug}/.lock
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Validate WP status is IN_PROGRESS
+  2. Check for duplicate in-progress pipeline of same type
+  3. Enforce pipeline ordering via resolvePrerequisite(type, activeStages):
+       activeStages = wp.active_pipeline_stages ?? DEFAULT_PIPELINE_STAGES
+       Filters CANONICAL_PIPELINE_ORDERING by activeStages; returns the
+       immediately preceding active stage as the prerequisite (null if first stage)
+     If prerequisite not null and most recent prerequisite pipeline is not PASS
+       → throw descriptive error:
+         "Cannot start '<type>' pipeline: requires a PASS '<prereq>' pipeline first.
+          Active pipeline order: <activeStages joined with →>."
+  4. Role check: agent_role must match PIPELINE_AGENT_MAP owner for the type.
+       Exception: agent_role === 'Project Manager' bypasses check (PM Override).
+       If mismatch → throw descriptive error.
+  4b. checkRevalidationGuard(): if a prior PASS of the prerequisite type is stale
+       relative to upstream rework → reject with descriptive explanation.
+  5. Rework detection (auto-cancelled pipelines excluded from all checks):
+       Direct rework: last same-type completed pipeline has FAIL status → increment rework_counts[type]
+       Downstream rework: prerequisite pipeline type reworked after last PASS → increment rework_counts[type]
+       Effective count for circuit breaker: rework_counts?.[type] ?? 0
+       If effective count ≥ MAX_REWORK_COUNT (5) → reject with error
+  6. Create new Pipeline object (status: IN_PROGRESS, started_at: now())
+  7. Append to WP.pipelines array
+  8. Update WP.assigned_to via PIPELINE_AGENT_MAP:
+       implementation      → 'Developer'
+       qa                  → 'QA'
+       security-audit      → 'Security Auditor'
+       code-review         → 'Reviewer'
+       release-engineering → 'Release Engineer'
+       documentation       → 'Documentation'
+  9. Update root index summary assigned_to to match
+  10. Update root.last_updated timestamp
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** New pipeline added to work package with `IN_PROGRESS` status.
+
+---
+
+## Flow 5: Completing a Pipeline
+
+**Entry Point:** Agent invokes `ledger_complete_pipeline` tool
+
+```
+Agent → ledger_complete_pipeline(project_path, work_package_id, type, agent_role, status, summary, ...)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(store.storageDir)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  0. WP status guard: verify WP.status === 'IN_PROGRESS' → throw if not (defense-in-depth)
+  0b. Agent role guard: verify agent_role matches PIPELINE_AGENT_MAP[type]
+       Exception: agent_role === 'Project Manager' → bypass (PM Override)
+       isPmOverride = (agent_role === 'Project Manager')
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. Update pipeline status (PASS or FAIL)
+  3. Set completed_at timestamp
+  4. Set summary, artifacts, metrics, comments
+  5. Update acceptance_criteria if provided (merge by exact criterion text: known → update met; unknown → append new entry)
+  6. If handoff_notes provided:
+       fromAgent = isPmOverride ? 'Project Manager (PM Override)' : PIPELINE_AGENT_MAP[type]
+       toAgent   = (status === FAIL)
+                     ? resolveFailAgent(type, activeStages)
+                     : resolveNextAgent(type, activeStages)
+       Append HandoffNote { from_agent, to_agent, timestamp, notes } to WP.handoff_notes
+       NOTE: On FAIL, implementation/qa/security-audit/code-review route to Developer;
+             release-engineering routes to Release Engineer (self-rework);
+             documentation routes to Documentation (self-rework).
+             Fallback: if the base fail-target's stage is absent from activeStages,
+             routes to the first active stage's agent.
+  7. Update root.last_updated timestamp
+  ↓
+Write both files atomically
+Release lock
+  ↓
+If auto-finalize fired (autoFinalizeResult === 'finalized'):
+  propagateDependencyUnblock(projectPath, work_package_id)
+  [uses batchUpdateWorkPackagesWithSync — acquires its own separate lock — §12.2, Gotcha 8]
+    Pre-check (outside lock): readRootIndex() — if no BLOCKED WP has this WP in its dependencies, return immediately (skip lock, skip all WP reads)
+    If candidates exist: acquire lock via batchUpdateWorkPackagesWithSync
+    For each BLOCKED WP whose dependencies include this WP:
+      If all dependencies are now COMPLETE and blocked_by.type === 'dependency' (or absent):
+        Transition BLOCKED → READY, clear blocked_by
+    All eligible WPs updated atomically in a single lock scope
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Pipeline marked as complete with all metadata captured. When auto-finalize fires, eligible BLOCKED dependents are also transitioned to READY.
+
+---
+
+## Flow 6: Updating Work Package Status
+
+**Entry Point:** Agent invokes `ledger_update_work_package_status` tool
+
+```
+Agent → ledger_update_work_package_status(project_path, work_package_id, status, agent, blocked_by?)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(store.storageDir)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Validate status transition with isValidStatusTransition()
+  1a. BLOCKED → BLOCKED early path: replace blocker (PM/assignee guard; dependency-type guard)
+        → set status_changed_at, update root.last_updated, return early
+  1b. READY → IN_PROGRESS redirect: reject with 'use ledger_claim_work_package' error
+  2. Special validation for COMPLETE:
+       a. Check all acceptance criteria are met (canCompleteWorkPackage)
+       b. Freshness check: most recent non-auto-cancelled doc PASS must post-date most recent impl start
+       c. Only 'Documentation' (or 'Documentation Agent') allowed
+  3. Special validation for BLOCKED: require blocked_by object
+  4. IN_PROGRESS → READY guard: reject if any pipeline is currently IN_PROGRESS;
+       clear assigned_to in WP detail and root index summary
+  5. Pipeline auto-cancellation:
+       IN_PROGRESS → BLOCKED: cancel all IN_PROGRESS pipelines (auto_cancelled: true)
+       IN_PROGRESS → CANCELLED: cancel all IN_PROGRESS pipelines
+  6. Update WP status
+  7. Set status_changed_at = now()
+  8. Handle special transitions:
+       BLOCKED → IN_PROGRESS: clear blocker
+       BLOCKED → READY: clear blocker
+       Any → BLOCKED: set blocker
+       COMPLETE → IN_PROGRESS: increment revision; reset rework_counts to {};
+                                 clearSynthesisState(root) — clears synthesis_generated and synthesis_generated_at (Project Manager or Documentation agent only)
+  9. Update root index summary status
+  10. Update pending_work_packages counter if transitioning to/from a terminal status (COMPLETE or CANCELLED)
+  11. Update root.last_updated timestamp
+  ↓
+Write both files atomically
+Release lock
+  ↓
+If new status is COMPLETE or CANCELLED:
+  propagateDependencyUnblock(projectPath, completedWpId)
+  ↓
+  Pre-check (outside lock): readRootIndex() — if no BLOCKED WP has completedWpId in its dependencies, return immediately (skip lock, skip all WP reads)
+  If candidates exist:
+  LedgerStore.batchUpdateWorkPackagesWithSync(callback)  ← single lock acquisition
+    Acquire lock (separate lock acquisition — §12.2, Gotcha 8)
+    Read root index (inside lock)
+    callback:
+      For each BLOCKED WP that lists completedWpId as a dependency:
+        readWp(wpId) — read WP detail inside the lock
+        Run canStartWorkPackage() — checks ALL dependencies are COMPLETE or CANCELLED
+        If not eligible: skip
+        If blocked_by.type is external, decision, or technical: skip (non-dependency blocker; not cleared automatically)
+        Transition BLOCKED → READY and clear blocked_by field
+        Update root index summary status
+        Add to updatedWps Map
+      Return { updatedWps, root: updatedRoot }
+    Auto-stamp last_updated on each WP; Zod-validate all WPs + root (two-pass validate-then-write)
+    Write all updated WP files atomically; write root index; sync .meta.json once
+    Release lock
+  ↓
+If old status was COMPLETE and new status is IN_PROGRESS (reopen):
+  propagateDependencyReblock(projectPath, reopenedWpId)
+  ↓
+  Pre-check (outside lock): readRootIndex() — if no WP with status READY, IN_PROGRESS, or COMPLETE has reopenedWpId in its dependencies, return immediately (skip lock, skip all WP reads)
+  If candidates exist:
+  LedgerStore.batchUpdateWorkPackagesWithSync(callback)  ← single lock acquisition
+    Acquire lock (separate lock acquisition)
+    Read root index (inside lock)
+    callback:
+      Phase 1 — Re-block non-COMPLETE/non-CANCELLED/non-BLOCKED dependents:
+        For each such WP that lists reopenedWpId as a dependency:
+          readWp(wpId) — read WP detail inside the lock
+          Auto-cancel any IN_PROGRESS pipelines (status=FAIL, auto_cancelled=true, completed_at=now())
+          Transition WP to BLOCKED with blocked_by: {type: "dependency", blocking_work_package: reopenedWpId}
+          Update root index summary status
+          Add to updatedWps Map
+      Phase 2 — Warn COMPLETE dependents:
+        For each COMPLETE WP that lists reopenedWpId as a dependency:
+          readWp(wpId) — read WP detail inside the lock
+          Append warning comment to last pipeline (if any): {type:"warning",priority:"high",note:"..."}
+          Add to updatedWps Map
+      Phase 3 — Update root index:
+        If any WPs were re-blocked (candidates.length > 0): clearSynthesisState(root) — sets synthesis_generated = false and synthesis_generated_at = null
+        Recompute pending_work_packages
+      Return { updatedWps, root: updatedRoot }
+    Auto-stamp last_updated on each WP; Zod-validate all WPs + root (two-pass validate-then-write)
+    Write all updated WP files atomically; write root index; sync .meta.json once
+    Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Work package status updated with all business rules enforced. If transitioned to COMPLETE or CANCELLED, all eligible downstream dependents are automatically unblocked (both terminal statuses satisfy dependency requirements).
+
+---
+
+## Flow 7: Workflow Coordination (Get Next Action)
+
+**Entry Point:** Agent invokes `ledger_get_next_action` tool
+
+```
+Agent → ledger_get_next_action(project_path, agent_role)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Check project state:
+  - No work packages? → Recommend CREATE_WORK_PACKAGES (for PM) or WAIT
+  - All terminal (COMPLETE or CANCELLED)? → Recommend GENERATE_SYNTHESIS (for Synthesis, if `synthesis_generated` is absent/false) or WAIT
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific logic:
+  - Project Manager: 6-priority algorithm (§14.1.2):
+                     P1 UNBLOCK_WP — BLOCKED WPs with decision/external/technical blocker.
+                     P2 REVIEW_REWORK_LIMIT — IN_PROGRESS WPs with rework_counts entry >= MAX_REWORK_COUNT.
+                     P3 REVIEW_STALE — IN_PROGRESS WPs with a stale active pipeline.
+                     P3b REVIEW_ABANDONED — IN_PROGRESS WPs with no active pipelines and no
+                          recent activity (grace period: status_changed_at within STALE_PIPELINE_HOURS).
+                     P3c REPAIR_ORPHAN_BLOCKED — BLOCKED WPs whose dependency block is stale
+                          (canStartWorkPackage returns allowed:true).
+                     P3d ROUTE_PIPELINE_AGENT — non-terminal, non-dependency-blocked IN_PROGRESS WPs
+                          where the next active pipeline stage needs work. Applies the same guards as
+                          §13.1 step 2b: FAIL stages are skipped (downstream FAIL routing), IN_PROGRESS
+                          stages are skipped (stage already in flight), upstream IN_PROGRESS stages are
+                          skipped (premature routing prevention). Returns ROUTE_PIPELINE_AGENT with
+                          next_agent and pipeline_type. Covers stage-transition routing (e.g. impl PASS
+                          → next stage) and freshly-claimed WPs with zero pipelines.
+                     Final Fallback WAIT — no actionable items.
+  - Developer: 7-priority per-WP algorithm (§14.2, evaluated for each IN_PROGRESS/READY WP):
+                     P1 BLOCK_FOR_REWORK_LIMIT — rework_counts.implementation >= MAX_REWORK_COUNT.
+                     P2 RESUME_OR_CANCEL — stale implementation pipeline (>STALE_PIPELINE_HOURS).
+                     P3 CONTINUE_PIPELINE — active non-stale implementation pipeline in progress.
+                     P4 REWORK (direct) — most recent implementation pipeline is FAIL (precedes IMPLEMENT).
+                     P5 REWORK (downstream) — downstream FAIL + hasDownstreamReengagedSince=true.
+                     P5b WAIT_FOR_DOWNSTREAM — downstream FAIL + hasDownstreamReengagedSince=false.
+                     P6 IMPLEMENT — IN_PROGRESS WP with no implementation pipeline.
+                     P7 CLAIM_WP — READY WP with dependencies satisfied.
+                     Fallback WAIT.
+  - QA: 7+1b per-WP algorithm (§14.3):
+                     P1 BLOCK_FOR_REWORK_LIMIT — rework_counts.qa >= MAX_REWORK_COUNT.
+                     P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT — rework_counts.implementation >= MAX_REWORK_COUNT.
+                     P2 RESUME_OR_CANCEL — stale qa pipeline.
+                     P3 CONTINUE_PIPELINE — active non-stale qa pipeline.
+                     P4 RUN_QA (re-engagement) — prior qa pipeline exists + hasNewUpstreamPassSince.
+                     P5 WAIT_FOR_REWORK — most recent qa pipeline is FAIL and P4 guard is false.
+                     P6 RUN_QA (first-run) — implementation PASS, no qa pipeline.
+                     P7 CLAIM_WP — READY WP assigned to QA with dependencies satisfied.
+  - Reviewer: 7+1b per-WP algorithm (§14.4, mirrors QA for code-review pipeline):
+                     P1 BLOCK_FOR_REWORK_LIMIT — rework_counts['code-review'] >= MAX_REWORK_COUNT.
+                     P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT — rework_counts.implementation OR .qa >= MAX.
+                     P2–P3 same stale/active pattern for code-review pipeline.
+                     P4 RUN_REVIEW (re-engagement) — prior code-review + hasNewUpstreamPassSince('qa').
+                     P5 WAIT_FOR_REWORK, P6 RUN_REVIEW (first-run), P7 CLAIM_WP.
+  - Documentation: 7+1b per-WP algorithm (§14.5):
+                     P1 BLOCK_FOR_REWORK_LIMIT — rework_counts.documentation >= MAX.
+                     P1b WAIT_FOR_UPSTREAM_REWORK_LIMIT — any of impl|qa|code-review >= MAX.
+                     P2 RESUME_OR_CANCEL, P3 CONTINUE_PIPELINE (same stale/active pattern).
+                     P4 REWORK (self) — documentation FAIL + !hasNewUpstreamPassSince guard.
+                     P5 FINALIZE_WP — doc PASS + all criteria met + freshness check
+                          (doc completed_at >= latest impl started_at). Replaces MARK_COMPLETE.
+                     P5b UPDATE_CRITERIA — doc PASS + freshness + at least one criterion not met.
+                     P6 WRITE_DOCS — code-review PASS + fresh or first documentation run.
+                     P7 CLAIM_WP — READY WP assigned to Documentation.
+  - Synthesis: Wait until all work packages are terminal (COMPLETE or CANCELLED)
+  ↓
+Return recommendation:
+  {
+    action: "IMPLEMENT" | "CLAIM_WP" | "CONTINUE_PIPELINE" | "REWORK" |
+            "WAIT_FOR_DOWNSTREAM" | "BLOCK_FOR_REWORK_LIMIT" | "WAIT_FOR_REWORK" |
+            "WAIT_FOR_UPSTREAM_REWORK_LIMIT" |
+            "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | "REWORK_DOCS" |
+            "FINALIZE_WP" | "UPDATE_CRITERIA" |
+            "RESUME_OR_CANCEL" | "REVIEW_STALE" | "REVIEW_ABANDONED" | "REVIEW_REWORK_LIMIT" |
+            "UNBLOCK_WP" | "REPAIR_ORPHAN_BLOCKED" | "ROUTE_PIPELINE_AGENT" |
+            "GENERATE_SYNTHESIS" | "WAIT" | ...,
+    work_package_id?: "WP-###",
+    reason: "...",
+    // RESUME_OR_CANCEL includes: pipeline_type, started_at, age_hours
+    // ROUTE_PIPELINE_AGENT includes: next_agent, pipeline_type
+  }
+```
+
+**Result:** Agent receives actionable recommendation based on project state and their role.
+
+---
+
+## Flow 8: Workflow Coordination (Get Handoff Status)
+
+**Entry Point:** Agent invokes `ledger_get_handoff_status` tool
+
+```
+Agent → ledger_get_handoff_status(project_path, current_agent)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific handoff logic:
+  - Planner: If no WPs have been created → READY_FOR_PM (signal PM to begin task decomposition)
+             Otherwise → READY_FOR_PM or WAIT based on overall completion state
+
+  - Developer (§5.1): Operates on non-terminal, non-dependency-blocked WPs ("activeWps")
+      1. Temporal guard — for each activeWP: if the most recent downstream pipeline (qa or
+         code-review) is FAIL AND hasDownstreamReengagedSince(implementation) = true
+         → IN_PROGRESS  (Developer must rework; downstream has already re-engaged)
+      2. Needs QA — for each non-dependency-blocked WP: PASS implementation exists AND
+         hasNewUpstreamPassSince("implementation", "qa") = true
+         → READY_FOR_QA  (covers first-run and post-rework re-delivery)
+      3. All terminal — all WPs are COMPLETE or CANCELLED → READY_FOR_SYNTHESIS
+      4. Active work — any WP is IN_PROGRESS with assigned_to === "Developer" → IN_PROGRESS
+      → WAIT
+
+  - QA (§5.2): Operates on non-terminal, non-dependency-blocked WPs
+      1. Re-engagement (BEFORE FAIL short-circuit) — most recent QA pipeline is FAIL AND
+         hasNewUpstreamPassSince("implementation", "qa") = true
+         → IN_PROGRESS  (QA should re-engage; Developer has since re-delivered)
+      2. FAIL short-circuit — most recent QA pipeline is FAIL (step 1 guard was false)
+         → READY_FOR_DEVELOPER
+      3. READY_FOR_REVIEW — non-terminal WPs where PASS QA exists AND
+         hasNewUpstreamPassSince("qa", "code-review") = true; check if all such are
+         dependency-blocked → if non-empty unblocked subset → READY_FOR_REVIEW
+      4. All terminal → READY_FOR_SYNTHESIS
+      5. IN_PROGRESS assigned to QA → IN_PROGRESS
+      → WAIT
+
+  - Reviewer (§5.3): Mirror of QA applied to the code-review pipeline stage
+      1. Re-engagement (BEFORE FAIL short-circuit) — most recent code-review pipeline is FAIL
+         AND hasNewUpstreamPassSince("qa", "code-review") = true → IN_PROGRESS
+      2. FAIL short-circuit — most recent code-review is FAIL (step 1 guard was false)
+         → READY_FOR_QA
+      3. READY_FOR_DOCUMENTATION — non-terminal WPs where PASS code-review exists AND
+         hasNewUpstreamPassSince("code-review", "documentation") = true; dependency-block
+         routing applies → READY_FOR_DOCUMENTATION or READY_FOR_SYNTHESIS
+      4. All terminal → READY_FOR_SYNTHESIS
+      5. IN_PROGRESS assigned to Reviewer → IN_PROGRESS
+      → WAIT
+
+  - Documentation (§5.4, §14.5 priority — ready-for-docs BEFORE self-rework FAIL):
+      1. Ready-for-docs — non-terminal WPs where PASS code-review exists AND
+         (no documentation pipeline yet OR hasNewUpstreamPassSince("code-review", "documentation")
+         = true) → IN_PROGRESS  (new docs or re-engagement after upstream rework)
+      2. FAIL self-rework — most recent documentation pipeline is FAIL (step 1 guard was false)
+         → IN_PROGRESS  (handled internally; never forwarded to Developer)
+      3. allDocsPassed — all non-dependency-blocked unreviewed WPs have PASS documentation →
+           non-empty unblocked subset → READY_FOR_SYNTHESIS; all dep-blocked → WAIT
+      4. wpsNotYetReviewed remain — dependency-block routing:
+           not all dep-blocked → READY_FOR_REVIEW; all dep-blocked → READY_FOR_SYNTHESIS
+      → WAIT
+
+  - Project Manager (§13.1): Operates on full WP list
+      1. Non-dependency blockers — BLOCKED WP with technical/external/decision blocker
+         → IN_PROGRESS  (PM must intervene; dependency-blocked WPs are skipped here)
+      2. READY WPs — readyStatusForAgent(wp.assigned_to) routes to READY_FOR_QA,
+         READY_FOR_DEVELOPER, etc. based on assigned agent; unassigned WPs route via
+         PIPELINE_AGENT_MAP[firstActiveStage(wp)] to the first-stage owner
+      2b. IN_PROGRESS WPs needing next pipeline stage (fires only when no READY WPs in step 2):
+          For each non-terminal, non-dependency-blocked IN_PROGRESS WP, scans ordered active stages:
+            - PASS stage → continue to next; FAIL stage → break (downstream handles it)
+            - IN_PROGRESS stage → break (already in flight); upstream IN_PROGRESS → break
+            - otherwise → readyStatusForAgent(PIPELINE_AGENT_MAP[stage])
+          Covers stage-transition routing (e.g. impl PASS → READY_FOR_QA) and freshly-claimed
+          WPs with zero pipelines (routes to first active stage's agent).
+      3. All terminal → READY_FOR_SYNTHESIS
+      → WAIT
+  ↓
+Return handoff block:
+  {
+    agent: "QA" | "Reviewer" | "Documentation" | "Synthesis" | "Developer" | ...,
+    status: "READY_FOR_QA" | "READY_FOR_REVIEWER" | "READY_FOR_SYNTHESIS" | ...
+  }
+```
+
+**Key invariant:** The dependency-blocked check is applied symmetrically across all handoff functions. A work package is considered dependency-blocked when `wp.status === 'BLOCKED'` and `blocked_by` is absent or `blocked_by.type === 'dependency'` (single-parameter `isBlockedByDependencies(wp)`). WPs blocked by incomplete dependencies are excluded from "work remaining" counts — they do not prevent progression to the next stage.
+
+**Temporal guard invariant:** Re-engagement detection (`hasDownstreamReengagedSince`, `hasNewUpstreamPassSince`) is applied before FAIL short-circuits in all handoff functions. Auto-cancelled pipelines are excluded from both the upstream PASS lookup and downstream timestamp comparisons during these checks.
+
+**Result:** Agent receives the `AGENT: <next> / STATUS: <status>` handoff block.
+
+---
+
+## Flow 9: Self-Healing Counter and Status Correction
+
+**Entry Point:** Agent invokes `ledger_get_project_status` tool
+
+```
+Agent → ledger_get_project_status(project_path)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+computeHealedStatus(rootIndex)  [pure function — no I/O]
+  ↓
+  Recompute counters from work_packages array:
+    - totalWps = work_packages.length
+    - pendingWps = count where status is not terminal (not COMPLETE and not CANCELLED)
+  ↓
+  Corruption mitigation (§17.2 known-gap):
+    If synthesis_generated === true AND pendingWps > 0:
+      → treat synthesisGenerated as false for all rule evaluation
+      → set corruptionDetected = true
+      → (write callback will call clearSynthesisState(fresh) to prevent a repeated-write loop)
+  ↓
+  Auto-heal project status (first-match-wins; 16 rules from §17.2):
+    1.    (IN_PROGRESS|READY) + pendingWps==0 + totalWps>0 + synthesisGenerated → COMPLETE
+    1b.   READY  + pendingWps==0 + totalWps>0 + !synthesisGenerated → IN_PROGRESS
+    1c.   IN_PROGRESS + pendingWps==0 + totalWps>0 + !synthesisGenerated → IN_PROGRESS (preserve)
+    2.    COMPLETE + pendingWps>0 → IN_PROGRESS  (reopen / drift repair)
+    2b.   COMPLETE + pendingWps==0 + totalWps>0 + !synthesisGenerated → IN_PROGRESS
+    3.    READY + hasInProgressWp → IN_PROGRESS
+    3b.   READY + pendingWps>0 + !hasReadyWp + !hasInProgressWp → BLOCKED
+    3c.   IN_PROGRESS + pendingWps>0 + !hasReadyWp + !hasInProgressWp → BLOCKED
+    4.    BLOCKED + hasInProgressWp → IN_PROGRESS
+    4b.   BLOCKED + hasReadyWp + !hasInProgressWp → READY
+    5a.   BLOCKED + pendingWps==0 + totalWps>0 + synthesisGenerated → COMPLETE
+    5b.   BLOCKED + pendingWps==0 + totalWps>0 + !synthesisGenerated → IN_PROGRESS
+    6b.   (IN_PROGRESS|BLOCKED) + totalWps==0 → READY
+    6c.   COMPLETE + totalWps==0 → READY
+    (CANCELLED projects fall through all rules unchanged)
+  ↓
+  needsWrite = true when any counter differs, status changed, or corruptionDetected
+  ↓
+  Return { totalWps, pendingWps, healedStatus, needsWrite, corruptionDetected }
+  ↓
+If needsWrite is false:
+  computePipelineHealth(rootIndex, store)  [outside lock — read-only, no write path]
+    Iterate rootIndex.work_packages; skip any with status === 'CANCELLED'
+    For each non-CANCELLED WP: store.readWorkPackage(wpId)
+      If readable: getPassedStages(wpDetail) → passed Set<string>
+        activeCount = wp.active_pipeline_stages.length (if field is set and non-empty)
+                   OR DEFAULT_PIPELINE_STAGES.length (4 — legacy default when field is absent)
+        missing = activeCount − passed.size
+        If missing === 0: increment wps_with_all_stages_pass
+        Else: increment wps_missing_stages; add missing to total_stages_missing
+      If unreadable: silently skip (catch{}, contributes nothing)
+    → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
+  Return { ...rootIndex, pipeline_health } to agent
+
+  (No legacy repairs run on this path — repairs are triggered only when needsWrite,
+   needsLegacyVersionBackfill, or needsForwardCompatWarning is true.)
+  ↓
+Pre-lock computation (outside lock — safe because these only read, not write):
+  validatePipelineOrdering(rootIndex, store) — reads WP detail files only
+    For each WP: read detail, check that pipeline started_at timestamps are monotonically
+    non-decreasing. Any violation captured as a warning string. Read failures silently skipped.
+  Pre-compute synthesis repair comment dedup check (note text match against project_comments)
+  Pre-compute forward-compat warning dedup check (note text match against project_comments)
+  ↓
+If needsWrite OR needsLegacyVersionBackfill OR needsForwardCompatWarning
+   OR orderingWarnings.length > 0 OR needsSynthesisRepairComment is true:
+  withLock(store.storageDir)  ← SINGLE lock scope for ALL repairs (consolidated from 3)
+    ↓
+    Re-read rootIndex under lock (fresh copy) — TOCTOU symmetry
+    computeHealedStatus(fresh) again
+    Re-check all dedup conditions against fresh copy
+    ↓
+    needsAnyWrite = freshHealed.needsWrite || freshNeedsVersionBackfill ||
+                    freshNeedsForwardCompatWarning || orderingWarnings.length > 0 ||
+                    freshNeedsSynthesisRepairComment
+    ↓
+    If needsAnyWrite:
+      Status/counter corrections (if freshHealed.needsWrite):
+        fresh.total_work_packages = totalWps
+        fresh.pending_work_packages = pendingWps
+        fresh.status = healedStatus
+        if corruptionDetected: clearSynthesisState(fresh)  ← prevents repeated-write loop
+      Legacy synthesis_generated_at repair (if legacySynthesisTimestampRepair):
+        fresh.synthesis_generated_at = fresh.last_updated
+      Legacy ledger_version backfill (if absent):
+        fresh.ledger_version = SPEC_VERSION (silent — no comment)
+      Forward-compat warning (if ledger_version > SPEC_VERSION, deduplicated):
+        Emit warning project_comment
+        (semver comparison uses isFinite() guard — pre-release segments like '2.5.0-beta' that
+         produce NaN are skipped gracefully, preventing false forward-compat warnings)
+      Pipeline ordering warnings:
+        Append each captured warning as project_comment { type:'warning', priority:'low', agent:'system' }
+      Synthesis timestamp repair comment (deduplicated — pre-lock + in-lock pattern):
+        Append soft warning project_comment if not already present
+      fresh.last_updated = now()
+      LedgerStore.writeRootIndex(fresh)
+    Release lock
+  ↓
+  computePipelineHealth(corrected, store)  [same as no-write path; uses corrected root index]
+    → { wps_with_all_stages_pass, wps_missing_stages, total_stages_missing }
+  Return { ...corrected, pipeline_health } to agent
+```
+
+**Result:** Root index counters, project status, and legacy fields are automatically corrected if they drift out of sync. The corruption mitigation prevents a premature `synthesis_generated` flag from causing a repeated-write loop on every `getProjectStatus` call. Pipeline ordering warnings are appended as system comments whenever healing was triggered. Disk writes only occur when corrections are needed and are always performed under lock with a fresh re-read to avoid race conditions. In all response paths, the response includes a `pipeline_health` sub-object reporting aggregate stage completeness across all non-CANCELLED WPs (see `ledger_get_project_status` in `api-surface.md` for the full schema).
+
+---
+
+## Flow 10: Pipeline Cancellation
+
+**Entry Point:** Agent invokes `ledger_cancel_pipeline` tool
+
+```
+Agent → ledger_cancel_pipeline(project_path, work_package_id, type, reason)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(store.storageDir)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Set pipeline status to FAIL
+  4. Set completed_at to now()
+  5. Set summary to [reason]
+  6. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Stale or abandoned pipeline is closed as FAIL, allowing a fresh pipeline to be started.
+
+---
+
+## Flow 11: Pipeline Progress Update
+
+**Entry Point:** Agent invokes `ledger_update_pipeline_progress` tool
+
+```
+Agent → ledger_update_pipeline_progress(project_path, work_package_id, type, summary)
+  ↓
+LedgerStore.updateWorkPackageWithSync(wpId, updater)
+  ↓
+withLock(store.storageDir)
+  ↓
+Read WorkPackageDetail and RootIndex
+  ↓
+updater function:
+  1. Find most recent IN_PROGRESS pipeline of given type
+  2. If not found → throw error
+  3. Append new summary strings to pipeline.summary array
+  4. Update root.last_updated
+  ↓
+Write both files atomically
+Release lock
+  ↓
+Return updated WorkPackageDetail to agent
+```
+
+**Result:** Pipeline summary updated with incremental progress notes without closing the pipeline.
+
+---
+
+## Flow 12: Workflow Coordination (Get Next Actions — Batch)
+
+**Entry Point:** Agent invokes `ledger_get_next_actions` tool
+
+```
+Agent → ledger_get_next_actions(project_path, agent_role, max_results?)
+  ↓
+LedgerStore.readRootIndex()
+  ↓
+Check project state:
+  - No work packages? → Return empty array or single CREATE_WORK_PACKAGES recommendation
+  - All terminal (COMPLETE or CANCELLED)? → Return single GENERATE_SYNTHESIS (for Synthesis) or empty array
+  ↓
+Load all WorkPackageDetail files (Promise.all)
+  ↓
+Agent-specific logic (same as Flow 7, but collects ALL matches):
+  - Project Manager: Find all actionable WPs across P1–P3c (UNBLOCK_WP, REVIEW_REWORK_LIMIT,
+                     REVIEW_STALE, REVIEW_ABANDONED, REPAIR_ORPHAN_BLOCKED)
+  - Developer: Find all WPs across P1–P7 (BLOCK_FOR_REWORK_LIMIT, RESUME_OR_CANCEL,
+                     CONTINUE_PIPELINE, REWORK, WAIT_FOR_DOWNSTREAM, IMPLEMENT, CLAIM_WP)
+  - QA: Find all WPs across P1–P7 (BLOCK_FOR_REWORK_LIMIT, WAIT_FOR_UPSTREAM_REWORK_LIMIT,
+                     RESUME_OR_CANCEL, CONTINUE_PIPELINE, RUN_QA, WAIT_FOR_REWORK, CLAIM_WP)
+  - Reviewer: Find all WPs across P1–P7 (same pattern for code-review pipeline)
+  - Documentation: Find all WPs across P1–P7 (BLOCK_FOR_REWORK_LIMIT, WAIT_FOR_UPSTREAM_REWORK_LIMIT,
+                     RESUME_OR_CANCEL, CONTINUE_PIPELINE, REWORK, FINALIZE_WP, UPDATE_CRITERIA,
+                     WRITE_DOCS, REWORK_DOCS, CLAIM_WP)
+  - Synthesis: Wait until all work packages are terminal (COMPLETE or CANCELLED)
+  ↓
+Collect actions up to max_results limit (default: 5)
+  ↓
+Return array of recommendations:
+  [
+    {
+      action: "IMPLEMENT" | "RUN_QA" | "RUN_REVIEW" | "WRITE_DOCS" | ...,
+      work_package_id: "WP-###",
+      reason: "...",
+      handoff_notes?: string[]  // If addressed to this agent
+    },
+    ...
+  ]
+```
+
+**Result:** Agent receives multiple actionable recommendations, enabling parallel work on independent work packages.
+
+---
+
+## Flow 13: Auto-Handoff Depth Counter Lifecycle
+
+**Context:** `auto_handoff_depth` is a safeguard against infinite agent-chain loops. `buildHandoffResponse` in `src/tools/workflow-handoff.ts` manages the increment on every handoff-status response. The reset to `0` is performed by `completeSynthesis` in `src/tools/project-lifecycle.ts` per §18.4.
+
+**Ceiling:** `effectiveMaxDepth(root.total_work_packages ?? 0)` — dynamic per §18.2.1: `max(configMax, totalWorkPackages × 30)`, where `configMax = getMaxHandoffDepth()` (default 50, runtime-configurable via `gui-config.json`). The floor ensures small projects still get a meaningful ceiling (50+ handoffs); larger projects scale proportionally.
+
+### 13a: Storage Location
+
+```
+root index (storage/ledger/{repoName}/{slug}/project-ledger.json)
+  └── auto_handoff_depth: number   ← current chain depth (0 when absent)
+```
+
+The field is optional on the root index schema; a missing value is treated as `0` everywhere.
+
+### 13b: Increment Path (normal handoff)
+
+```
+Agent invokes ledger_get_handoff_status (or ledger_get_next_action)
+  ↓
+buildHandoffResponse() — src/tools/workflow.ts
+  ↓
+Registry check: isRegistryLoaded() === true
+  ↓
+Eligibility check:
+  - status not in { COMPLETE, BLOCKED, IN_PROGRESS }
+  - nextAgent resolves to a known VS Code agent handle
+  ↓
+store.readRootIndex()
+  ↓
+currentDepth = root.auto_handoff_depth ?? 0
+  ↓
+  [currentDepth < effectiveMaxDepth(root.total_work_packages ?? 0)?]
+    YES → store.writeRootIndex({ ...root, auto_handoff_depth: currentDepth + 1 })
+          agentId = getAgentId(nextAgent)          // null when persona has no id: frontmatter field
+          agentNames = AGENT_NAMES[nextAgent]       // loaded from personas/name-mapping.json at startup
+          auto_handoff object is included in the response payload:
+            {
+              agent_name:    agentHandle,                        // VS Code display name from Agent Registry
+              agent_id:      agentId ?? (omitted),               // omitted when null — not serialized
+              cc_agent_name: agentNames.claude_code.agent_name,  // e.g. "3-developer"
+              vs_agent_name: agentNames.vscode.agent_name,       // e.g. "3 - Developer v3.6.1"
+              da_agent_name: agentNames.deep_agents.agent_name,  // e.g. "3-developer"
+              prompt:        buildHandoffPrompt(projectPath, agentId)
+            }
+    NO  → auto_handoff is omitted from the response (depth exceeded — see 13d)
+```
+
+### 13c: Reset Path (synthesis complete)
+
+```
+Agent invokes ledger_complete_synthesis
+  ↓
+completeSynthesis() — src/tools/project-lifecycle.ts
+  ↓
+withLock() callback
+  ↓
+store.readRootIndex()
+  ↓
+rootIndex.synthesis_generated = true
+rootIndex.auto_handoff_depth = 0
+rootIndex.status = 'COMPLETE'  (if all WPs are done)
+  ↓
+store.writeRootIndex(rootIndex)  ← single atomic write
+```
+
+The reset is performed atomically alongside `synthesis_generated: true` in the same `writeRootIndex` call, inside the `withLock` callback. `buildHandoffResponse` no longer performs the reset.
+
+### 13d: Depth-Exceeded Path (chain terminated)
+
+```
+currentDepth >= effectiveMaxDepth(root.total_work_packages ?? 0)
+  ↓
+auto_handoff key is NOT included in the response payload
+  ↓
+No error thrown — no warning emitted
+  ↓
+Agent chain terminates; manual routing by the user is required
+```
+
+**Result:** The automatic handoff chain allows up to `effectiveMaxDepth(totalWorkPackages)` consecutive agent invocations (floor 50, scales to `totalWPs × 20` for larger projects per §18.2.1) before requiring human intervention, preventing runaway loops while preserving normal multi-agent workflows.
+
+---
+
+## Data Flow Patterns
+
+### Pattern 1: Read-Validate-Process-Return
+
+All read operations follow this pattern:
+1. Read JSON file
+2. Parse JSON
+3. Validate with Zod schema
+4. Return typed object (or throw error)
+
+### Pattern 2: Validate-Write-Atomically
+
+All write operations follow this pattern:
+1. Validate data with Zod schema
+2. Serialize to pretty JSON (2-space indent, trailing newline)
+3. Write to temp file
+4. Atomically rename to target file
+
+### Pattern 3: Lock-Read-Update-Write-Release
+
+All dual-file updates follow this pattern:
+1. Acquire file lock
+2. Read both files (validated)
+3. Apply update logic
+4. Validate updated data
+5. Write both files atomically
+6. Release lock in `finally` block
+
+### Pattern 4: Status Transition State Machine
+
+Work package status transitions are enforced via state machine:
+```
+READY ──────────────────────────────────────────────────► CANCELLED (PM-only, terminal)
+  │  ↑                                                         ▲
+  │  │ (unclaim, §21.13)                                       │
+  ▼  │                                                         │ (PM-only)
+IN_PROGRESS ──────────────────────────────────────────────────┤
+  │  ▲                                                         │
+  │  │                                                         │
+  ▼  │                                                         │
+BLOCKED                                                        │
+  │                                                            │
+  ▼                                                            │
+IN_PROGRESS → COMPLETE ──────────────────────────────────────┘
+                   │
+                   ▼
+             IN_PROGRESS (revision++)
+```
+
+Simplified table view:
+
+| From        | To            |
+|-------------|---------------|
+| READY       | IN_PROGRESS   |
+| READY       | BLOCKED       |
+| READY       | CANCELLED     |
+| IN_PROGRESS | COMPLETE      |
+| IN_PROGRESS | BLOCKED       |
+| IN_PROGRESS | READY         |
+| IN_PROGRESS | CANCELLED     |
+| BLOCKED     | IN_PROGRESS   |
+| BLOCKED     | READY         |
+| BLOCKED     | CANCELLED     |
+| COMPLETE    | IN_PROGRESS   |
+| COMPLETE    | CANCELLED     |
+
+`CANCELLED` is the only fully terminal status — no outward transitions. Every transition is validated before being applied.
+
+---
+
+## Flow 14: Synthesis Completion
+
+**Entry Point:** Synthesis agent (or Project Manager) invokes `ledger_complete_synthesis` tool
+
+```
+Agent → ledger_complete_synthesis(project_path, agent_role, synthesis_file?)
+  ↓
+withLock(store.storageDir, async () => {
+  Guard 1 (§19.1): agent_role must be "Synthesis" or "Project Manager"
+    → Error if not
+    ↓
+  LedgerStore.readRootIndex()
+    ↓
+  Guard 2 (§19.1): compute fresh totalWps and pendingWps from work_packages array
+    (ignores stale pending_work_packages counter)
+    ↓
+  Guard 3 (§19.1): totalWps must be > 0
+    → Error "Cannot complete synthesis: no work packages exist"
+    ↓
+  Guard 4 (§19.1): pendingWps must be 0
+    → Error if any WPs remain non-terminal (uses freshly computed count)
+    ↓
+  Set synthesis_generated = true
+  Reset auto_handoff_depth = 0  (§18.4)
+  Set last_updated = now()
+    ↓
+  Set project status to COMPLETE (all guards passed)
+    ↓
+  LedgerStore.writeRootIndex(updatedRoot)
+    ↓
+  store.archiveDocuments([synthesis_file])  — best-effort; inside lock scope
+    ↓
+    copyFile(join(planPath, synthesis_file), join(storageDir, synthesis_file))
+    Error → appended to skipped[], warning → stderr
+    Success → appended to archived[]
+    ↓
+  Assign result content block to outer-scope 'let result!'
+})
+  ↓
+Return result + { archived_documents, archive_skipped? }
+```
+
+**Result:** All four §19.1 guards must pass before `synthesis_generated` is set. The `synthesis_generated` flag prevents re-triggering `GENERATE_SYNTHESIS`. The `auto_handoff_depth` reset (§18.4) prevents stale depth counts on future projects. Not idempotent with respect to guard failures — a call with a pending WP or wrong role returns an error. The full read-modify-write cycle is protected by `withLock` to prevent TOCTOU races when multiple agents run concurrently. A copy of `synthesis_file` (default `synthesis.md`) is stored inside the lock scope in `storage/ledger/{repoName}/{slug}/` as an archived reference (best-effort; missing source is silently skipped).
+
+---
+
+## Flow 15: Acceptance Criteria Management
+
+**Entry Point:** Project Manager invokes `ledger_update_acceptance_criteria` tool
+
+```
+PM → ledger_update_acceptance_criteria(project_path, work_package_id, agent_role, operations)
+  ↓
+Guard: agent_role must be "Project Manager"
+  → Error if not (checked before file lock is acquired)
+  ↓
+withLock(store.storageDir, async () => {
+  LedgerStore.readRootIndex() + LedgerStore.readWorkPackage()
+    ↓
+  Guard: WP must not be CANCELLED
+    → Error if CANCELLED
+    ↓
+  Clone acceptance_criteria array
+    ↓
+  Apply operations sequentially on clone:
+    remove:       find exact criterion text match → remove entry
+                  → Error if no match found
+    modify_text:  find exact old_criterion match → replace criterion text
+                  new_criterion must be non-empty/non-whitespace
+                  met flag is preserved (text change only)
+                  → Error if old_criterion not found or new_criterion blank
+    ↓
+  Guard: post-mutation clone must have ≥ 1 criterion remaining
+    → Error if all criteria were removed
+    ↓
+  Commit cloned array atomically to WP detail + root index
+})
+  ↓
+Return success message listing applied operations
+```
+
+**Result:** The PM can remove stale or incorrect criteria and fix criterion text without altering evaluation state (`met` flags). The zero-criteria guard ensures every WP always has at least one testable acceptance criterion. All mutations are atomic — a partial batch never leaves the WP in an intermediate state.
+
+---
+
+## Flow 16: Synthesis Document View (GUI)
+
+**Entry Point:** User navigates to `#/projects/:slug/synthesis` in the dashboard
+
+```
+Browser hash → #/projects/:slug/synthesis
+  ↓
+Router.dispatch()
+  ↓
+synthesisMatch = path.match(/^\/projects\/([^/]+)\/synthesis$/)
+  ↓
+renderSynthesis(app, slug)
+  ↓
+  app.innerHTML = '<p class="loading">Loading synthesis…</p>'   ← immediate feedback
+  ↓
+  API.getSynthesisDocument(slug)
+  → fetch('GET', '/api/projects/:slug/synthesis')
+  ↓
+  server.ts routes to handleGetSynthesisDocument(ledgerRoot, slug)
+    ↓
+    assertSafeSlug(slug)
+    LedgerStore.ledgerDirExists()   ← NOT_FOUND if project absent
+    readFile(storage/ledger/{repoName}/{slug}/synthesis.md, 'utf-8')
+    → Return { content: "<markdown>" }
+    ← 404 NOT_FOUND if synthesis.md absent or project absent
+  ↓
+  marked.parse(result.content)   ← client-side Markdown → HTML
+  ↓
+  app.innerHTML =
+    <breadcrumb: Projects / {slug} / Synthesis> +
+    <div class="synthesis-content">{html}</div>
+
+On NOT_FOUND:
+  app.innerHTML =
+    <breadcrumb: Projects / {slug} / Synthesis> +
+    <p class="empty-state">Synthesis document not available for this project.</p>
+
+On other errors:
+  app.innerHTML = '<p class="error-banner">Failed to load synthesis document.</p>'
+```
+
+**Synthesis link on Project Detail page:**
+
+```
+User navigates to #/projects/:slug
+  ↓
+renderProjectDetail(app, slug) calls Promise.all([API.getProject(slug), API.getPlanDocument(slug)])
+  ↓
+project.synthesis_generated === true?
+  YES → inject <div class="synthesis-link-row"><a href="#/projects/:slug/synthesis">View synthesis →</a></div>
+  NO  → nothing rendered (no HTTP call)
+```
+
+**Key design:**
+- The synthesis link is driven by `project.synthesis_generated` (already in the `GET /api/projects/:slug` response — no extra HTTP call).
+- The "not available" empty state handles projects where `synthesis_generated` is `true` but `synthesis.md` was not archived (e.g. race or skipped archival).
+- `.synthesis-content` shares all typography CSS rules with `.plan-content` via multi-selector (DRY — no duplicated rules).
+
+---
+
+## Flow 12: Auto-Archive Background Service
+
+**Entry Point:** `gui/server.ts` startup (and every 10 minutes thereafter)
+
+### Flow 12a: Timer initialization (server startup)
+
+```
+gui/server.ts main()
+  ↓
+readConfigFromDisk(configPath)    ← populates in-memory config cache
+startConfigWatcher(configPath)    ← watches for GUI-driven config changes
+  ↓
+startAutoArchiveTimer(ledgerRoot)
+  ↓
+  _intervalHandle !== null?
+    YES → no-op (idempotency guard)
+    NO  →
+      tick()              ← runs immediately on startup
+      setInterval(tick, 600_000)   ← then every 10 minutes
+```
+
+### Flow 12b: Single archive scan tick
+
+```
+tick()
+  ↓
+getConfig().auto_archive_days   ← reads live in-memory config (no disk I/O)
+  ↓
+auto_archive_days === 0?
+  YES → return (archiving disabled)
+  NO  →
+    runAutoArchive(ledgerRoot, maxAgeDays)
+      ↓
+      LedgerStore.listAllProjects(ledgerRoot)
+        → readdir(storage/ledger/)
+        → parse each .meta.json
+      ↓
+      For each ProjectMeta:
+        status !== 'COMPLETE'? → skip
+        last_updated unparseable? → skip + stderr warning
+        ageMs < thresholdMs? → skip (not stale enough)
+        ↓ (eligible)
+        withLock(store.storageDir, async () => {
+          store.readRootIndex()
+          store.writeRootIndex({ ...rootIndex, status: 'ARCHIVED' })
+            → atomicWriteJson(project-ledger.json)
+            → store.writeProjectMeta()   ← synced automatically
+              → atomicWriteJson(.meta.json)
+        })
+        ↓
+        archived.push(meta.slug)
+        process.stderr.write('[auto-archive] Archived ...')
+
+      Any per-project error → caught, logged to stderr, scan continues
+      ↓
+      Return archived[]
+```
+
+**Key properties:**
+- `maxAgeDays === 0` short-circuits before any disk I/O (no `listAllProjects` call).
+- Per-project errors are isolated — one corrupted project never aborts the full scan.
+- Both `.meta.json` and `project-ledger.json` are updated atomically inside a single `withLock` scope.
+- Timer reads `getConfig()` on every tick; changing `auto_archive_days` in the GUI takes effect on the next interval without restarting the server.
+- Only `COMPLETE` projects are eligible — `IN_PROGRESS`, `READY`, `BLOCKED`, and already-`ARCHIVED` projects are never touched.
+- All output (archived confirmations, skips, errors) goes to `stderr` only.
+
+---
+
+## Flow 14: GUI — Orchestrator Run Log Listing (with Self-Healing)
+
+**Entry Point:** Browser sends `GET /api/projects/:slug/runs` when the project detail page loads.
+
+```
+GET /api/projects/:slug/runs
+  ↓
+gui/server.ts → assertSafeSlug(slug) → handleListRunLogs(slug, logsDir, legacyLogsDir?)
+  ↓
+src/gui/handlers/run-log-handlers.ts — handleListRunLogs
+  assertSafeSlug(slug)   ← throws ApiError NOT_FOUND for empty / '/' / '..'
+  migrateOrphanedLogs(logsDir, legacyLogsDir, slug)  ← if legacyLogsDir supplied;
+                                                         moves *-{slug}.jsonl files from legacy dir
+                                                         into logsDir when logsDir has none; no-op otherwise
+  findRunLogs(logsDir, slug)
+  ↓
+src/gui/log-resolver.ts — findRunLogs
+  readdir(logsDir)       ← returns [] if directory absent/unreadable
+  filter by suffix "-{slug}.jsonl" (prefix required — exact suffix rejected)
+  for each matching filename:
+    isRunActive(filePath) ← reads last non-empty JSONL line;
+                            active = no terminal action (run_end / run_error);
+                            empty file = active; parse error = inactive
+  sort descending by filename (lexicographic; timestamp prefix makes this chronological)
+  ↓
+Self-healing pass (entries at index 1+):
+  for each non-newest entry where is_active === true:
+    appendFile(filePath, '\n' + JSON.stringify({ action: 'run_error', error: '...healed...', ts: '...' }) + '\n')
+    entry.is_active = false
+  (failures swallowed — best-effort only; newest run at index 0 is never touched)
+  ↓
+Return RunLogEntry[]
+  [{ filename: '20260325T090000-slug.jsonl', is_active: true  },   ← newest, potentially running
+   { filename: '20260324T120000-slug.jsonl', is_active: false },   ← healed if was stale
+   { filename: '20260323T100000-slug.jsonl', is_active: false }]   ← completed or healed
+```
+
+**Frontend rendering (`views/project-detail.js`):**
+- Array is already sorted newest-first by the server
+- Assigns chronological run numbers: oldest = #1, newest = #N (index 0 = #N)
+- Only index 0 can show a "Running" badge (`is_active` on older entries is ignored client-side as a second defence)
+- Timestamp parsed from filename prefix (YYYYMMDDTHHmmss) and formatted via `formatDate()`
+
+**Key properties:**
+- Self-healing is idempotent: once a stale file gains a `run_error` closing entry, it will never be re-healed
+- Healing runs as a side-effect of the GET — no dedicated endpoint or background job needed
+- `logsDir` is the project's ledger storage directory (`{ledger_root}/{slug}/`); logs written there by the orchestrator post-run
+- `legacyLogsDir` (optional) is the old flat `orchestrator/logs/` directory — passed by `server.ts` to enable lazy migration of pre-archival runs
+- Security: slug validated in both `server.ts` dispatch and handler; filename validated in `readLogEntries` (allowlist + path escape check)
+
+---
+
+## Flow 13: GUI — Paginated Project Listing
+
+**Entry Point:** Browser or client sends `GET /api/projects` (with optional query params)
+
+```
+GET /api/projects?page=1&limit=50&status=ACTIVE&search=&sort=last_updated&dir=desc
+  ↓
+gui/server.ts
+  → URLSearchParams.parse(request.url query string)
+  → handleListProjects(ledgerRoot, rawParams)
+  ↓
+gui/api.ts — handleListProjects processing pipeline:
+
+  Step 1: Enrich all projects
+    LedgerStore.listAllProjects(ledgerRoot)   ← readdir + .meta.json parse
+    For each ProjectMeta (concurrent Promise.all):
+      Cache fast-path (WP-006):
+        meta.total_work_packages defined AND meta.project_name defined?
+          YES → use cached values directly (no disk I/O)
+          NO  → readRootIndex() + readManifestFile() → enrich + write cache to .meta.json
+    → ProjectSummary[]
+  ↓
+  Step 2: Search filter (if search param present)
+    case-insensitive string.includes() on slug, project_name, repository_name
+    → filtered ProjectSummary[]
+  ↓
+  Step 3: Compute status_counts
+    Reduce filtered set (BEFORE status filter) into Record<status, count>
+    → e.g. { COMPLETE: 12, IN_PROGRESS: 3, ARCHIVED: 5 }
+  ↓
+  Step 4: Status filter
+    ACTIVE  → exclude only status === 'ARCHIVED'
+    ALL     → include everything
+    specific value → include only exact status match
+  ↓
+  Step 5: Sort (by sort+dir params)
+    'last_updated' | 'date_created' | 'title' | 'slug' | 'status' | 'done'
+    string fields use localeCompare; desc default
+  ↓
+  Step 6: Paginate
+    start = (page - 1) * limit
+    projects = sorted.slice(start, start + limit)
+    total_pages = Math.max(1, Math.ceil(total / limit))
+  ↓
+  Return ProjectListEnvelope {
+    projects: ProjectSummary[];  // page slice only
+    total: number;               // post-filter count
+    page: number;
+    limit: number;
+    total_pages: number;
+    status_counts: Record<string, number>;
+  }
+```
+
+**Param validation (before pipeline runs):**
+- `page`: parseInt; NaN or <1 → clamped to 1
+- `limit`: parseInt; NaN → 50; 0 → 1; >200 → 200
+- `status`: must be in `VALID_STATUS_FILTERS` Set; unknown → 'ACTIVE'
+- `sort`: must be in `SORT_FIELDS` Set; unknown → 'last_updated'
+- `dir`: must be 'asc' or 'desc'; otherwise → 'desc'
+- `search`: trimmed; empty → no filter applied
+
+**Key properties:**
+- `status_counts` reflects the search-filtered universe (not the status-filtered page). Supports UI badge counts that show totals per status regardless of active filter.
+- Per-project enrichment failures are isolated; one unreadable project never breaks the full response.
+- Out-of-range page returns empty `projects[]` with `total` and `total_pages` still correctly set.
+- The entire enrichment step runs in memory; pagination is applied last (no streaming).
+
+---
+
+## Flow N: Knowledge Accumulation (Synthesis → Insight Store)
+
+**Entry Point:** Synthesis agent calls `ledger_search_insights` and/or `ledger_add_insight` during the Knowledge Collection phase (before `ledger_complete_synthesis`).
+
+### N.1 Deduplication Check
+
+```
+Synthesis agent → ledger_search_insights(query, scope?, category?, project_slug?, limit?)
+  ↓
+resolveLedgerRoot()  ← centralised ledger root (same root used by all ledger operations)
+  ↓
+KnowledgeStoreManager.searchInsights(query, filters)
+  ↓
+_loadInsights(filters)
+  Store selection:
+    scope: 'project' + project_slug → readProjectStore(slug)   only
+    scope: 'global'                  → readGlobalStore()         only
+    no filters                       → readGlobalStore() +
+                                        all {slug}-insights.json stores
+  ↓
+For each loaded KnowledgeStore:
+  InsightSchema.parse() on each entry  ← schema validation; malformed entries skipped
+  Filter by scope / category (if specified)
+  ↓
+Substring match (case-insensitive) against title, content, each tag
+  ↓
+Post-filter by tags array (AND semantics, if provided)
+Apply limit slice (if provided)
+  ↓
+Return matched Insight[] (each augmented with formatted_id: 'KN-NNNN') to agent
+```
+
+**Result:** Agent receives a list of matching insights. If a substantively similar insight exists, agent skips the commit (deduplication). If no match or a complementary match, agent proceeds to commit.
+
+### N.2 Insight Commit
+
+```
+Synthesis agent → ledger_add_insight(scope, project_slug?, title, content, category, tags, source?, confidence?)
+  ↓
+KnowledgeStoreManager.addInsight(fields)
+  ↓
+Scope guard: scope === 'project' && !project_slug → throw Error (project_slug required)
+  ↓
+withLock(knowledgeDir(), async () => {        ← single lock scope for entire read-modify-write
+  storePath = scope === 'global'
+    ? globalStorePath()
+    : projectStorePath(slug)   ← _validateSlug(slug) enforced (PROJECT_SLUG_REGEX)
+    ↓
+  store = await _readStore(storePath)          ← returns empty KnowledgeStore if file absent
+    ↓
+  insight = { id: store.next_id, ...fields, created_at: now() }
+  store.insights.push(insight)
+  store.next_id += 1
+  store.last_updated = now()
+    ↓
+  await atomicWriteJson(storePath, store)      ← write-to-temp-then-rename
+})
+  ↓
+Return { ...insight, formatted_id: 'KN-NNNN' } to agent
+```
+
+**Result:** New insight committed to `{ledgerRoot}/.knowledge/global-insights.json` (scope: global) or `{ledgerRoot}/.knowledge/{slug}-insights.json` (scope: project). The `.knowledge/` directory is created on first write. All reads are lock-free; only write operations acquire the lock.
+
+**Storage layout:**
+```
+{ledgerRoot}/.knowledge/
+  .lock                     — lock file created by withLock
+  global-insights.json      — scope: 'global' insights
+  {slug}-insights.json      — scope: 'project' insights for each project slug
+```
+
+---
+
+## Flow O: GUI Knowledge Endpoints (HTTP)
+
+These five HTTP endpoints expose the knowledge store to the browser dashboard. All routes are registered in `gui/server.ts` and delegate to handler functions in `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003), which call `KnowledgeStoreManager` for storage operations.
+
+**Dispatch tier summary:**
+
+| Tier | Routes | Mechanism |
+|------|--------|-----------|
+| Body-free | `GET /api/knowledge`, `DELETE /api/knowledge/:id`, `POST /api/knowledge/:id/promote` | `matchRoute()` — segment-count and method guards; params from query string |
+| Body-parsing | `PATCH /api/knowledge/:id`, `POST /api/knowledge/:id/move` | `handleRequest()` special cases — regex path match, `readJsonBody`, 1 MiB body limit |
+
+---
+
+### O.1: GET /api/knowledge — List or Search Insights
+
+```
+Browser → GET /api/knowledge?scope=global&category=testing&tags=ts,vitest&query=timeout&limit=20&offset=0
+  ↓
+gui/server.ts matchRoute()
+  method === 'GET', rest === ['knowledge']
+  → parse query string: scope, category, tags (comma-split), project_slug, query, limit, offset
+  ↓
+handleListKnowledge(ledgerRoot, params)
+  ↓
+  query present?
+    YES → KnowledgeStoreManager.searchInsights(query, { scope, category, project_slug, tags, limit, offset })
+          (substring match → tag intersection filter → offset/limit pagination — all in searchInsights())
+    NO  → KnowledgeStoreManager.listInsights({ scope, category, tags, project_slug, limit, offset })
+  ↓
+  Return Insight[] (each augmented with formatted_id)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight[] }
+```
+
+**Key notes:**
+- `scope` validated via `InsightScope.safeParse()` — unknown values fall back to `undefined` (no scope filter), no error.
+- `tags` is comma-separated: `"ts,vitest"` → `["ts", "vitest"]`.
+- `limit` and `offset` coerced to non-negative integers; invalid values default to `undefined`/`0`.
+- When `query` is present, `tags`, `limit`, and `offset` are forwarded to `searchInsights()` — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call.
+
+---
+
+### O.2: DELETE /api/knowledge/:id — Delete Insight
+
+```
+Browser → DELETE /api/knowledge/42?scope=project&project_slug=my-repo
+  ↓
+gui/server.ts matchRoute()
+  method === 'DELETE', rest === ['knowledge', '42']
+  → parse :id (decodeURIComponent, raw string)
+  → parse scope, project_slug from query string
+  ↓
+handleDeleteKnowledge(ledgerRoot, rawId, scope, project_slug)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  InsightScope.safeParse(scope)  ← throws VALIDATION_ERROR if absent or not 'global'|'project'
+  project_slug required when scope === 'project'  ← throws VALIDATION_ERROR if absent
+  ↓
+  KnowledgeStoreManager.deleteInsight(id, { scope, project_slug })
+    withLock(knowledgeDir())
+      readStore → find insight by id → splice → atomicWriteJson
+  ↓
+  Return null
+  ↓
+gui/server.ts → HTTP 204 No Content
+```
+
+**ID validation order:** ID is validated first; scope validation runs second. When both are invalid, the caller receives a VALIDATION_ERROR for the ID.
+
+---
+
+### O.3: POST /api/knowledge/:id/promote — Promote Project Insight to Global
+
+```
+Browser → POST /api/knowledge/42/promote?scope=project&project_slug=my-repo
+  ↓
+gui/server.ts matchRoute()
+  method === 'POST', rest === ['knowledge', '42', 'promote']
+  → parse :id (decodeURIComponent)
+  → parse scope, project_slug from query string
+  ↓
+handlePromoteKnowledge(ledgerRoot, rawId, scope, project_slug)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  scope must be 'project'  ← scope='global' throws VALIDATION_ERROR ("already global")
+  project_slug required    ← throws VALIDATION_ERROR if absent
+  ↓
+  KnowledgeStoreManager.moveInsight(id, { scope: 'project', project_slug }, 'global')
+    ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
+    → new insight assigned next_id from global store; new ID differs from original
+    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+  ↓
+  Return new global Insight (new numeric ID — NOT the original project-scoped ID)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**⚠ ID-change semantics:** The returned insight's `id` is the new global store ID, NOT the pre-promote project-scoped ID. Frontend consumers that track which insight was promoted must capture the original ID before calling this endpoint — see `handlePromoteKnowledge` in `api-surface.md`.
+
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — eliminating the TOCTOU race between the former separate add and delete calls. No intermediate state is observable.
+
+---
+
+### O.4: PATCH /api/knowledge/:id — Update Insight Fields
+
+```
+Browser → PATCH /api/knowledge/42
+  Body: { "scope": "project", "project_slug": "my-repo", "title": "Updated title", "tags": ["ts"] }
+  ↓
+gui/server.ts handleRequest() special case
+  knowledgePatchMatch = /^\/api\/knowledge\/([^/]+)$/.exec(path)
+  method === 'PATCH' && knowledgePatchMatch !== null
+  → rawId = decodeURIComponent(knowledgePatchMatch[1])
+  ↓
+  readJsonBody(req)  ← enforces MAX_BODY_BYTES (1 MiB) limit
+    PayloadTooLargeError → HTTP 413
+  ↓
+handleUpdateKnowledge(ledgerRoot, rawId, body)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  KnowledgeUpdateBodySchema.safeParse(body)
+    .strict() — unknown fields rejected
+    scope required; project_slug required when scope === 'project'
+    superseded_by: null is valid (field-clearing semantics)
+    → throws VALIDATION_ERROR on parse failure
+  ↓
+  superseded_by: null → mapped to undefined before forwarding
+  ↓
+  KnowledgeStoreManager.updateInsight(id, updates, { scope, project_slug })
+    withLock(knowledgeDir())
+      readStore → find insight by id → merge updates → sets updated_at → atomicWriteJson
+  ↓
+  Return updated Insight
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**Immutable fields:** `id`, `scope`, `project_slug`, `created_at` cannot be changed via PATCH — they are excluded from `KnowledgeUpdateBodySchema`.
+
+---
+
+### O.5: POST /api/knowledge/:id/move — Move Insight to Another Project
+
+```
+Browser → POST /api/knowledge/42/move
+  Body: { "source_scope": "global", "project_slug": "target-repo" }
+  ↓
+gui/server.ts handleRequest() special case
+  knowledgeMoveMatch = /^\/api\/knowledge\/([^/]+)\/move$/.exec(path)
+  method === 'POST' && knowledgeMoveMatch !== null
+  → rawId = decodeURIComponent(knowledgeMoveMatch[1])
+  ↓
+  readJsonBody(req)  ← enforces MAX_BODY_BYTES (1 MiB) limit
+    PayloadTooLargeError → HTTP 413
+  ↓
+handleMoveKnowledge(ledgerRoot, rawId, body)
+  ↓
+  parseKnowledgeId(rawId)  ← throws VALIDATION_ERROR for non-integer, zero, or float
+  KnowledgeMoveBodySchema.safeParse(body)
+    .strict() — unknown fields rejected
+    source_scope required; source_project_slug required (handler-enforced) when source_scope === 'project'
+    project_slug required (destination)
+    source and destination must differ (source_scope='project' + source_project_slug === project_slug → VALIDATION_ERROR)
+    → throws VALIDATION_ERROR on parse failure
+  ↓
+  KnowledgeStoreManager.moveInsight(id, { scope: source_scope, project_slug: source_project_slug }, 'project', project_slug)
+    ← atomic: reads both stores, writes target then source in a single withLock(knowledgeDir()) span
+    → new insight assigned next_id from target store; new ID differs from original
+    → throws 'Insight with id N not found' on miss (caught → ApiError NOT_FOUND)
+  ↓
+  Return new target Insight (new numeric ID — NOT the original source ID)
+  ↓
+gui/server.ts → HTTP 200 { data: Insight }
+```
+
+**Supported move variants:**
+- `global → project`: moves a global insight into a named project store.
+- `project → project`: moves a project insight to a different project (`source_project_slug !== project_slug` enforced).
+
+**Atomicity (WP-002/WP-003):** `moveInsight()` performs the cross-store read-modify-write inside a single `withLock(knowledgeDir())` span — the former non-atomic add→delete compose pattern (which left a TOCTOU window) is fully replaced. No intermediate state is observable.
+
+```
+###  Path: `/mcp-server/docs/agents/project-manifest/file-tree.md`
+
+```md
+# File Tree
+
+```
+mcp-server/
+├── .gitignore                   # Gitignore (excludes storage/ledger/ runtime data)
+├── .npmrc                       # npm configuration
+├── package.json                 # Project metadata and dependencies
+├── tsconfig.json                # TypeScript compiler configuration
+├── vitest.config.ts             # Vitest test framework configuration
+│
+├── storage/                     # Runtime-generated data (gitignored except .gitkeep)
+│   └── ledger/
+│       ├── .gitkeep             # Ensures directory is tracked in version control
+│       ├── gui-config.json      # Runtime-generated GUI config (auto_handoff_enabled, max_handoff_depth, ledger_root) — created on first GUI or MCP server start
+│       ├── .migration-state.json  # Written after migration completes; contains { storage_version: 2 }; absent on first run
+│       ├── .migration-in-progress # Transient sentinel file written before any dir moves; removed on success (enables crash recovery)
+│       ├── ai-insights/         # Example repo-namespace dir — derived from project-root dirname via deriveRepoName()
+│       │   └── 2026-05-01-my-plan/  # Per-project subfolder — runtime-generated
+│       │       ├── .meta.json       # Project metadata (slug, status, timestamps)
+│       │       ├── .lock            # Lock file for concurrent-write protection
+│       │       ├── project-ledger.json  # Root index
+│       │       ├── WP-001.json      # Work package detail files
+│       │       ├── plan.md          # Archived copy of the project plan (created by ledger_initialize_project; read by GET /api/projects/:slug/plan) — optional; absent when source was missing at init time
+│       │       └── synthesis.md     # Archived copy of the synthesis report (created by ledger_complete_synthesis; optional, absent until synthesis runs and synthesis.md exists in the plan folder)
+│       ├── other-repo/          # Second repo-namespace dir (another repository on the same machine)
+│       │   └── {slug}/              # Each repo manages its own slug namespace independently
+│       │       └── …
+│       └── unknown/             # Fallback namespace — used when repo-root name fails slug validation
+│
+├── scripts/                     # Node.js utility scripts (run directly with `node`)
+│   ├── sync-version.js          # Syncs version from changelog.md → package.json
+│   └── move-unknown-project.js  # Moves a project from the unknown/ namespace to its correct repo namespace; updates .meta.json; use when repository_name was not set at init time
+│
+├── gui/                         # GUI server process code
+│   ├── api.ts               # REST API route handlers; runner_counts: Record-string-number; handleListProjects normalizes runner to unknown, supports sorting by runner; includes handleListChunks, handleGetChunkFile (chunk endpoints); includes orchestrator lifecycle handlers: handleOrchestratorStart, handleGetOrchestratorQueue, handleOrchestratorKill, handleOrchestratorDismiss; knowledge handlers are NOT in this file — they were extracted to gui/api-knowledge.ts (WP-003)
+│   ├── api-knowledge.ts     # GUI REST handlers for the /api/knowledge/* endpoints — extracted from gui/api.ts (WP-003); exports: KnowledgeUpdateBodySchema, KnowledgeMoveBodySchema, KnowledgeListParams interface, parseKnowledgeId helper, handleListKnowledge, handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge; handlePromoteKnowledge and handleMoveKnowledge delegate to KnowledgeStoreManager.moveInsight() (atomic, no add→delete compose); re-exports ApiError for convenience; when query param is present, handleListKnowledge forwards tags, limit, and offset to searchInsights() — full-text search, tag filtering (AND semantics), and pagination can be combined in a single call
+│   ├── chunk-renderer.ts    # renderChunksToMarkdown(jsonlContent) — pure JSONL→Markdown renderer; merges AIMessageChunk token fragments by id; groups by namespace; mirrors serialize_messages_to_markdown() output format
+│   ├── server.ts            # Standalone Node.js HTTP server (node:http); two-tier routing: matchRoute() handles body-free routes (GET /api/knowledge, DELETE /api/knowledge/:id, POST /api/knowledge/:id/promote, plus all /:slug and /:repo/:slug GET routes); handleRequest() handles body-parsing routes (PATCH /api/knowledge/:id, POST /api/knowledge/:id/move, PUT /api/config, POST /api/projects/:slug/reset, POST /api/orchestrator/start) and path-parameter extraction routes; resolveRepoName() private helper reads .meta.json to resolve canonical repository_name from a /:repo/:slug URL pair; serves static files from gui/public/
+│   └── public/              # Static assets served by gui/server.ts
+│       ├── index.html       # Dashboard SPA shell; nav links: Projects (#/), Insights (#/insights), Knowledge (#/knowledge), Orchestrator (#/orchestrator), Configuration (#/config); scripts load in dependency order: api-client → theme → router → utils → views → orchestrator-widgets → orchestrator.js → stale-check → app; loads theme-init.js in <head> for FOUC prevention (no inline scripts — CSP enforces script-src 'self')
+│       ├── theme-init.js    # ES5 IIFE; reads localStorage key mcp-theme and sets data-theme="dark" on documentElement before first paint; plain ES5 (var, IIFE) intentional — no build step required; CSP script-src 'self' means this must remain a static file, not an inline script
+│       ├── styles.css       # Full CSS; runner badge block: .badge-runner base class, .badge-runner-orchestrator, .badge-runner-vscode, .badge-runner-claude-code, .badge-runner-unknown with dark-mode overrides; orchestrator widget block: .orchestrator-status-card/header/body/elapsed/pid/progress-summary (OrchestratorWidgets.renderStatusCard), .orchestrator-kill-btn/.orchestrator-dismiss-btn (OrchestratorWidgets.renderKillButton/renderDismissButton — visual delegated to .btn.btn-danger/.btn.btn-secondary), .log-preview-entry (OrchestratorWidgets.renderLogPreview), .orchestrator-cli-reference h4/pre (OrchestratorWidgets.renderCliReference), .orch-status-cell (orchestrator.js queue table), .orch-active-run-section/.orch-cli-kill-hint (views/project-detail.js orchestrator section), .section-title/.btn-icon (general utilities used by orchestrator views); dark-mode overrides for .orchestrator-status-card, .orchestrator-cli-reference, .log-preview-entry
+│       ├── api-client.js    # API IIFE; buildQueryString(params) helper used by getProjects
+│       ├── theme.js         # Theme IIFE; localStorage key mcp-theme; init() applies saved theme
+│       ├── router.js        # Router IIFE; hash-based routing; dispatches '/' → renderProjectList, '/projects/*' → detail/plan/synthesis/WP/run-log views (pattern-matched first), then named singleton routes: '/config' → renderConfig, '/insights' → renderInsights, '/knowledge' → renderKnowledge, '/orchestrator' → renderOrchestrator; setPolling/clearPolling manage per-view auto-refresh; updateNavActive toggles active class on the matching nav link on each hash change
+│       ├── utils.js         # Shared helpers: escapeHtml, formatDate, statusBadge, showLoading, showError
+│       ├── app.js           # Bootstrap entry point: Theme.init(); Router.init(); StaleCheck.init()
+│       ├── stale-check.js   # StaleCheck IIFE; init() polls API.getServerInfo() immediately then every 30 s; injects .stale-banner into document.body before <header> on stale:true; stops polling after banner; silently continues on network errors
+│       ├── views/
+│   │   ├── project-list.js    # renderProjectList — status filter, search, sortable columns, archive/unarchive/delete row buttons, pagination, 10s polling; runner filter dropdown (RUNNER_STORAGE key mcp-runner-filter, buildRunnerOptions() dynamically filters runner_counts to count only — fixed: previously hardcoded all 4 types; preserves stale localStorage selections as zero-count entry); runnerBadge() renders .badge.badge-runner.badge-runner-{type} — fixed: previously emitted badge-unknown instead of badge-runner-unknown; runnerLabel() unused — cleanup candidate; sortable Runner column
+│   │   ├── project-detail.js  # extractSynopsis, renderPlan, renderSynthesis, renderProjectDetail; STAGE_ABBREV, buildPipelineTrack; showResetModal; archive banner
+│   │   ├── work-package.js    # WP_DEFAULT_STAGES, buildWpDetailBar, renderWorkPackageDetail
+│   │   ├── config.js          # renderConfig — auto_handoff_enabled, max_handoff_depth, auto_archive_days
+│   │   ├── insights.js        # renderInsights — project health stats; 15 s polling
+│   │   ├── knowledge.js       # renderKnowledge — Knowledge page (#/knowledge); tab navigation (Global/Repository scopes); client-side filtering by category, project slug, and free-text query; formatConfidence() helper with named bucket constants (0.0–0.3 low / 0.3–0.7 medium / 0.7–1.0 high); card-level Edit (inline form with in-card error display), Delete (inline confirmation), Promote to Global, and Move to Project actions; buildKnowledgeHtml() — renders insight cards with escapeHtml() on all dynamic values; no polling (knowledge is human-curated)
+│   │   └── orchestrator.js    # renderOrchestrator — plan path input, preflight checklist (Section A), Start Run button gated on allChecksPassed (Section B), live queue table with 5 s polling via Router._setPolling, per-row expand/collapse inline log preview; cleanup managed via _orchLogPreviewCleanups array; CLI reference card footer (WP-011); renderQueueTable delegates to four closure-scoped helpers: _clearSuccessBanner (removes success banner when queue is non-empty; leaves error banners intact), _buildQueueHtml (builds table HTML string), _bindQueueActions (injects Kill/Dismiss/View-Project buttons and toggle listeners), _mountLogPreviews (starts live log-preview widgets for expanded rows) (WP-006)
+│       ├── js/
+│   │   └── orchestrator-widgets.js  # OrchestratorWidgets IIFE — shared orchestrator UI components: kill/dismiss row buttons, formatLogAction (maps JSONL entry → human-friendly label; null/undefined-safe; WP-002), renderLogPreview (returns cleanup fn), renderCliReference; depends on API (api-client.js) and escapeHtml (utils.js) (WP-011)
+│       └── libs/
+│           └── marked.min.js  # Vendored Markdown parser (marked v15.0.12, ~40 KB)
+│
+├── src/                         # Source code
+│   ├── index.ts                 # MCP server entry point and tool registration
+│   │
+│   ├── gui/                     # Shared GUI/config module
+│   │   ├── auto-archive.ts      # Auto-archive service
+│   │   ├── config.ts            # Runtime config: GuiConfigSchema, getConfig(), readConfigFromDisk(), writeConfig()
+│   │   ├── errors.ts            # Shared ApiError class (avoids circular dep between log-resolver ↔ gui/api.ts)
+│   │   ├── log-resolver.ts      # RunLogEntry type; findRunLogs (sorted + self-healing stale runs); readLogEntries; resolveOrchestratorLogsDir; migrateOrphanedLogs
+│   │   ├── orchestrator-manager.ts  # Queue mutation (killQueueEntry, dismissQueueEntry), preflight checks, startOrchestrator, getRunStatus, runStatusFilename; re-exports getQueue, all types, QUEUE_FILENAME from queue/ sub-modules for backward compat (WP-005, WP-006, WP-007, WP-A, WP-B)
+│   │   ├── queue/               # Run-queue helpers: types, reading, validation, progress resolution, status computation (WP-001, WP-003, WP-004, WP-A, WP-B)
+│   │   │   ├── types.ts             # Shared type definitions and QUEUE_FILENAME constant: RawQueueEntry, QueueEntry, KillResult, PreflightResult, StartResult, RunStatus — leaf module, no intra-queue deps beyond compute-effective-status.ts (WP-A)
+│   │   │   ├── validate-entry.ts    # Pure isRawQueueEntry() type-guard — extracted from get-queue.ts for direct unit testability; validates all 5 RawQueueEntry rules including whitespace-only slug rejection (.trim().length > 0); no I/O (WP-001 rework, WP-003)
+│   │   │   ├── get-queue.ts         # Queue reading: imports isRawQueueEntry from validate-entry.ts; readQueueFile, getProjectLedgerStatus (private); isProcessAlive, readQueueFile, getProjectLedgerStatus (exported for orchestrator-manager.ts); getQueue (public API) (WP-B)
+│   │   │   ├── compute-effective-status.ts  # Pure status computation; computeEffectiveStatus(alive, projectExists, hasLogActivity?): EffectiveStatus — 4 priority-ordered transition rules; zero I/O (WP-004)
+│   │   │   ├── format-progress-entry.ts  # Pure JSONL-entry → string mapper; no I/O; formatProgressEntry(); empty-string tool_name treated as absent (WP-D)
+│   │   │   └── resolve-progress.ts  # ProgressResolution interface + resolveProgress() async resolver; EMPTY_RESOLUTION frozen sentinel; re-exports formatProgressEntry as a convenience barrel (two-level re-export chain: format-progress-entry → resolve-progress → orchestrator-manager) (WP-D)
+│   │   └── handlers/
+│   │       └── run-log-handlers.ts  # handleListRunLogs (optional legacyLogsDir migration), handleGetRunLog — thin wrappers adding slug validation over log-resolver.ts
+│   │
+│   ├── schema/                  # Zod schemas and type definitions
+│   │   ├── enums.ts             # Status enums derived from shared/workflow-manifest.json
+│   │   ├── knowledge.ts         # InsightScope, InsightSchema / Insight, KnowledgeStoreSchema / KnowledgeStore — Zod schemas for the knowledge accumulation system (WP-001)
+│   │   ├── project-meta.ts      # ProjectMetaSchema / ProjectMeta — per-project .meta.json
+│   │   ├── root-index.ts        # RootIndex schema
+│   │   ├── validators.ts        # Business rule validators
+│   │   ├── workflow-manifest-schema.ts  # Zod schema for shared/workflow-manifest.json
+│   │   └── work-package.ts      # WorkPackageDetail schema
+│   │
+│   ├── storage/                 # File I/O abstractions
+│   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
+│   │   ├── file-lock.ts         # File locking with proper-lockfile
+│   │   ├── knowledge-store.ts   # KnowledgeStoreManager — all CRUD/query operations for the .knowledge/ store: addInsight, searchInsights, listInsights, updateInsight, deleteInsight, moveInsight; atomic cross-store move via single withLock(knowledgeDir()) span (WP-002); reads are lock-free (WP-001/002)
+│   │   ├── ledger-store.ts      # Central storage abstraction
+│   │   └── migrate-namespaced.ts  # One-shot startup migration: flat {slug}/ → namespaced {repoName}/{slug}/; exports migrateToNamespacedLayout()
+│   │
+│   ├── tools/                   # MCP tool implementations
+│   │   ├── help.ts              # ledger_help
+│   │   ├── help-content.ts      # TOOL_HELP: static documentation strings for all 30 MCP tools
+│   │   ├── knowledge.ts         # ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight — knowledge accumulation tools; formatInsightId() helper (KN-NNNN format) (WP-001/003)
+│   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
+│   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
+│   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
+│   │   ├── work-package.ts      # WP CRUD tools
+│   │   ├── workflow.ts          # Thin aggregator
+│   │   ├── workflow-handoff.ts              # ledger_get_handoff_status
+│   │   ├── workflow-next-action.ts          # ledger_get_next_action
+│   │   └── workflow-next-action-batch.ts    # Batch/collector sub-module
+│   │
+│   └── utils/                   # Utility functions
+│       ├── workflow-helpers.ts  # Shared constants and stateless helpers
+│       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs
+│       ├── client-info.ts       # Module-level MCP server reference for extracting client info
+│       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; loads AGENT_NAMES (TargetNames, NameMappingEntry) from personas/name-mapping.json
+│       ├── if-defined.ts        # ifDefined() type guard helper
+│       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
+│       ├── path-validator.ts    # Project path validation; assertSafeSegment() slug-segment predicate
+│       ├── pipeline-maps.ts     # Shared routing constants and utility functions
+│       ├── project-reset.ts     # Semi-intelligent project reset
+│       ├── read-project-name.ts # Resolves project name from package.json / composer.json / pyproject.toml
+│       ├── runner.ts            # classifyRunner(clientInfo) — normalises raw MCP clientInfo.name into a stable RunnerType enum; exports RunnerType, RunnerInfo, ClientInfo types; used by initializeProject to stamp runner metadata on new projects
+│       ├── server-version.ts      # Reads MCP server version from package.json
+│       ├── timestamp.ts           # Timestamp formatting
+│       ├── workspace-versions.ts  # captureWorkspaceVersions() — reads mcpServer, personas, orchestrator versions from disk
+│       └── wp-id.ts             # Work package ID formatting (WP-###)
+│
+└── tests/                       # Test suites
+    ├── gui-server.test.ts       # 10 tests for resolveRepoName() in gui/server.ts: 9 guard-failure cases (traversal, empty, uppercase, hyphens, separators for both repoUrlParam and slugUrlParam) + 1 positive case confirming the guard passes valid inputs
+    ├── helpers/                 # Shared test utilities (NEVER write to production storage)
+    │   ├── create-temp-store.ts # createTempStore() / cleanupTempStore() helpers
+    │   ├── fixtures.ts          # makeWorkPackageDetail(), makePipeline(), makeWorkPackageSummary()
+    │   └── test-utils.ts        # injectLedgerDir(), nowFloor()
+    │
+    ├── gui/                     # GUI and config module tests
+    │   ├── api-client.test.ts
+    │   ├── stale-check.test.ts  # 10 unit tests for StaleCheck IIFE (jsdom + vm.runInThisContext + fake timers): immediate poll, 30 s interval, banner insertion before <header>, changed-component listing, polling stop after banner, silent error handling
+    │   ├── api-reset.test.ts    # Integration tests for handleResetProject (13 tests)
+    │   ├── api-wp-overview.test.ts  # Unit tests for handleGetWorkPackageOverview (21 tests)
+    │   ├── api.test.ts          # Unit tests for gui/api.ts; includes 6 handleListProjects runner filter tests (WP-005 verification of WP-003 ACs): runner field present and 'unknown' default for projects without stored runner (AC1), runner_counts object shape and values (AC1), runner=orchestrator filter returns only matching projects (AC2), runner_counts unaffected by active runner filter (AC3), runner:'unknown' filter returns projects with no stored runner field (AC4), unrecognized runner query returns empty set without 500 error (AC5), and combined status+runner filter
+    │   ├── auto-archive.test.ts # Unit tests for src/gui/auto-archive.ts (14 tests)
+    │   ├── client-rendering.test.ts
+    │   ├── config.test.ts       # Unit tests for src/gui/config.ts
+    │   ├── dialogue-qa.test.ts
+    │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
+    │   ├── log-resolver.test.ts
+    │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers: planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
+    │   ├── api-knowledge.test.ts  # Unit tests for gui/api-knowledge.ts handlers (WP-003); imports from ../../gui/api-knowledge.js; complements knowledge-api.test.ts
+    │   ├── knowledge-api.test.ts  # 30 unit tests for the 5 knowledge REST handlers (handleListKnowledge, handleUpdateKnowledge, handleDeleteKnowledge, handlePromoteKnowledge, handleMoveKnowledge): imports handlers from ../../gui/api-knowledge.js (updated WP-003); real temp directories + KnowledgeStoreManager fixtures; covers scope disambiguation (global vs project), ID validation (parseKnowledgeId — non-integer, zero, float rejection), VALIDATION_ERROR/NOT_FOUND paths, and promote/move cross-store ID-change semantics
+    │   ├── server-knowledge-routes.test.ts  # 40 HTTP-level routing integration tests for the 5 knowledge endpoints in gui/server.ts: verifies body-free routes (GET, DELETE, POST /promote) are dispatched via matchRoute() and body-parsing routes (PATCH, POST /move) via handleRequest() special cases; covers AC-1 through AC-7 — oversized body (413), invalid JSON (400), missing/invalid scope (400), float/zero/non-numeric IDs (400), missing project_slug when scope=project (400), 404 for absent insights, route isolation (no interference with /api/insights, /api/projects)
+    │   ├── orchestrator-manager.test.ts  # 77 tests: getQueue() lifecycle transitions (AC-1 through AC-6), formatProgressEntry() (11 event types), progress resolution (WP-005); killQueueEntry()/dismissQueueEntry() lifecycle gates, SIGTERM→SIGKILL flow, TOCTOU ESRCH handling, queue-file removal, lock-file cleanup; PID validation (negative/zero/float rejection) (WP-006); 7 lastAction/logFilename population cases (WP-003 AC-6)
+    │   ├── orchestrator-widgets.test.ts  # 41 tests: OrchestratorWidgets functions, all 7 ACs + 7 refined variants; vm.runInThisContext + jsdom, fake timers for renderLogPreview (WP-010)
+    │   ├── project-detail-runs.test.ts
+    │   ├── queue/               # Unit tests for src/gui/queue/ modules (WP-001, WP-003, WP-004, WP-A, WP-B, WP-C, WP-D)
+    │   │   ├── compute-effective-status.test.ts  # 6 pure unit tests: AC-1/2/3 transitions, default hasLogActivity=false, projectExists-always-wins across all 4 alive/hasLogActivity combinations (WP-004)
+    │   │   ├── format-progress-entry.test.ts  # Unit tests for formatProgressEntry() (11 event types + empty tool_name WP-D)
+    │   │   ├── resolve-progress.test.ts  # 29 unit tests covering all 5 acceptance criteria + 3 edge-case tests (malformed JSONL, all-malformed, 0-byte log) (WP-001, WP-C)
+    │   │   └── validate-entry.test.ts  # 17 pure-function unit tests for isRawQueueEntry() across all 5 validation rules: valid entry, null/primitive/object rejection, non-string id/planPath, zero/negative/float pid, empty/whitespace-only/missing expectedSlug, missing/non-string startedAt; no I/O setup (WP-003)
+    │   ├── run-log-handlers.test.ts
+    │   ├── run-log-server.test.ts
+    │   ├── run-log.test.ts
+    │   └── security-headers.test.ts
+    │
+    ├── integration/             # End-to-end workflow tests
+    │   ├── auto-handoff.test.ts
+    │   └── full-workflow.test.ts
+    │
+    ├── schema/                  # Schema validation tests
+    │   ├── project-archiving-schema.test.ts
+    │   ├── project-meta-runner.test.ts  # 10 backward-compatibility tests (WP-005 verification of WP-001 AC5): ProjectMetaSchema and RootIndexSchema accept runner fields when present (orchestrator, vscode, claude-code), accept empty strings for runner_client/runner_version, reject invalid enum values, and parse cleanly without runner fields (legacy fixture and full real-world legacy project-ledger.json simulation)
+    │   ├── root-index.test.ts   # RootIndexSchema and WorkPackageSummarySchema tests (20 tests)
+    │   ├── validators.test.ts
+    │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
+    │
+    ├── storage/                 # Storage layer tests
+        ├── ledger-store.test.ts # LedgerStore unit tests
+        └── migrate-namespaced.test.ts  # 10 tests: clean run, unknown fallbacks, idempotency, sentinel cleanup, move-failure, crash-resume
+    │   └── project-meta.test.ts
+    │
+    ├── tools/                   # Tool-level tests
+    │   ├── begin-work.test.ts
+    │   ├── cancelled-status.test.ts
+    │   ├── cascade-reblock.test.ts
+    │   ├── claim-guard.test.ts
+    │   ├── complete-pipeline-guards.test.ts
+    │   ├── enrichment-resilience.test.ts
+    │   ├── list-projects.test.ts
+    │   ├── meta-enrichment.test.ts
+    │   ├── observations.test.ts
+    │   ├── pipeline-duration.test.ts
+    │   ├── pipeline.test.ts
+    │   ├── project-lifecycle.test.ts
+    │   ├── rework-circuit-breaker.test.ts
+    │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
+    │   ├── schema-integrity.test.ts
+    │   ├── start-pipeline-guards.test.ts
+    │   ├── synthesis-terminal.test.ts
+    │   ├── version-freshness.test.ts
+    │   ├── work-package.test.ts
+    │   ├── workflow-batch-actions.test.ts
+    │   ├── workflow-handoff.test.ts
+    │   ├── workflow-next-action.test.ts
+    │   └── workflow-rework-loop.test.ts
+    │
+    └── utils/                   # Utility function tests
+        ├── agent-registry.test.ts
+        ├── if-defined.test.ts
+        ├── ledger-root.test.ts
+        ├── path-validator.test.ts
+        ├── pipeline-maps.test.ts
+        ├── project-reset.test.ts
+        ├── runner.test.ts       # 10 unit tests for classifyRunner() (WP-005 verification of WP-001 ACs): all four output variants (vscode, claude-code, orchestrator, unknown), undefined input without throw, empty-string name, unrecognized client name, case-insensitive substring matching (vscode keyword, Claude uppercase, langchain variants), and raw runner_client/runner_version value preservation
+        ├── timestamp.test.ts
+        ├── workflow-helpers.test.ts
+        ├── workflow-manifest.test.ts  # Structural invariants (34 tests)
+        └── wp-id.test.ts
+```
+
+---
+
+## Directory Annotations
+
+### `src/schema/`
+
+Centralized data structure definitions using Zod. All schemas are validated at runtime on reads and writes. TypeScript types are inferred from schemas, ensuring type/schema consistency.
+
+### `src/storage/`
+
+File I/O layer with atomicity and locking guarantees. `LedgerStore` is the primary abstraction — all tools should use it rather than reading/writing files directly.
+
+### `src/tools/`
+
+Each file exports a `register(server: McpServer)` function that registers one or more MCP tools. Tools are grouped by functional category (lifecycle, work packages, pipelines, observations, workflow).
+
+The workflow tools are split across four files: `workflow.ts` (thin aggregator), `workflow-next-action.ts` (per-role single-action logic for `ledger_get_next_action`), `workflow-next-action-batch.ts` (batch/collector sub-module), and `workflow-handoff.ts` (`ledger_get_handoff_status`). Shared constants and pure helpers live in `src/utils/workflow-helpers.ts`.
+
+## Generated/Ignored Directories
+
+The following directories are not version-controlled:
+- node_modules/ — npm dependencies
+- dist/ — TypeScript compilation output
+- storage/ledger/{repoName}/{slug}/ — per-project ledger runtime data (repo-namespaced since WP-002)
+
+
+```
+###  Path: `/mcp-server/docs/agents/project-manifest/tech-stack.md`
+
+```md
+# Tech Stack & Patterns
+
+## Runtime & Language
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| **Runtime** | Node.js | ESM module system |
+| **Language** | TypeScript 5.7.2 | Strict mode enabled |
+| **Target** | ES2022 | Node16 module resolution |
+| **Package Manager** | npm | Standard Node.js tooling |
+
+---
+
+## Core Dependencies
+
+### Production
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@modelcontextprotocol/sdk` | ^1.0.4 | MCP server implementation and STDIO transport |
+| `zod` | ^3.24.1 | Runtime schema validation and type inference |
+| `proper-lockfile` | ^4.1.2 | Cross-platform file locking with retry logic |
+
+### Development
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@types/node` | ^22.10.5 | Node.js type definitions |
+| `@types/proper-lockfile` | ^4.1.4 | Type definitions for proper-lockfile |
+| `@vitest/coverage-v8` | ^4.0.18 | V8-based code coverage reporter for vitest |
+| `jsdom` | ^29.0.0 | DOM implementation for GUI tests |
+| `tsx` | ^4.19.2 | TypeScript execution for development |
+| `typescript` | ^5.7.2 | TypeScript compiler |
+| `vitest` | ^4.0.18 | Unit and integration testing framework |
+
+---
+
+## Architectural Patterns
+
+### 1. **MCP Server Architecture**
+
+The application is structured as an **MCP (Model Context Protocol) server** that:
+- Runs as a standalone process communicating via STDIO
+- Registers multiple tools (22 total) that agents can invoke
+- Returns structured JSON responses conforming to MCP specification
+- Logs diagnostics to `stderr` (never `stdout`, which is reserved for protocol)
+
+**Key Files:**
+- `src/index.ts` — Server initialization and tool registration
+
+---
+
+### 2. **Repository Pattern**
+
+`LedgerStore` class provides a **central storage abstraction** with:
+- Validated reads (all JSON is parsed and validated with Zod)
+- Atomic writes (write-to-temp-then-rename pattern)
+- Path management (encapsulates all file path logic)
+- Dual-file synchronization (updates both root index and work package atomically)
+
+**Key Files:**
+- `src/storage/ledger-store.ts`
+
+---
+
+### 3. **Atomic Write Pattern**
+
+All file writes use the **write-to-temp-then-rename pattern**:
+1. Write JSON to `{filePath}.tmp.{pid}`
+2. Use `fs.rename()` to atomically replace target file (POSIX semantics)
+3. Clean up temp file on error
+
+This ensures readers never see partial writes.
+
+**Key Files:**
+- `src/storage/atomic-writer.ts`
+
+---
+
+### 4. **File Locking for Concurrency**
+
+`withLock()` utility provides **distributed file locking**:
+- Creates `.ledger.lock` in the storage directory (`store.storageDir`) — never in the plan directory
+- Retries lock acquisition (5 retries, 200ms intervals)
+- Stale lock detection (10 second timeout)
+- Always releases lock in `finally` block
+
+**Key Files:**
+- `src/storage/file-lock.ts`
+
+---
+
+### 5. **Schema-First Design**
+
+All data structures are defined as **Zod schemas first**:
+- TypeScript types are inferred from schemas (`z.infer<typeof Schema>`)
+- Runtime validation on all reads and writes
+- Centralized schema definitions in `src/schema/`
+
+**Key Files:**
+- `src/schema/work-package.ts`
+- `src/schema/root-index.ts`
+- `src/schema/enums.ts`
+- `src/schema/validators.ts`
+
+---
+
+### 6. **Tool Registration Pattern**
+
+Each tool category has its own module with:
+- Zod input schemas for tool parameters
+- Async handler functions
+- A `register(server: McpServer)` export that registers all tools
+
+**Tool Modules:**
+- `project-lifecycle.ts` — Project initialization and status
+- `work-package.ts` — Work package CRUD operations
+- `pipeline.ts` — Pipeline start/complete operations
+- `observations.ts` — Comment and observation tracking
+- `workflow.ts` — Thin aggregator; delegates to the three sub-modules below
+- `workflow-next-action.ts` — ledger_get_next_action and ledger_get_next_actions (batch) logic
+- `workflow-handoff.ts` — ledger_get_handoff_status logic
+- `help-content.ts` — Static TOOL_HELP documentation strings (extracted from help.ts)
+
+---
+
+### 7. **GUI Dashboard Server**
+
+The GUI is implemented as a **separate HTTP server process** from the MCP server:
+- **Entry point:** `gui/server.ts`, started via `npm run gui`
+- **Port:** 3420 (default), configurable via `--port <n>`
+- **Transport:** Plain `node:http` — no Express or other HTTP framework dependency
+- **Static serving:** Files from `gui/public/` — vanilla HTML/CSS/JS, no build step required
+- **Process isolation:** The GUI server and the MCP server (STDIO) run as independent processes. Both share the same ledger root directory.
+- The GUI server resolves the ledger root the same way as the MCP server (`resolveLedgerRoot()` / `--ledger-dir`).
+
+**Key Files:**
+- `gui/server.ts` — HTTP server, route dispatch, static file serving
+- `gui/api.ts` — Pure async handler functions (one per REST endpoint)
+- `gui/public/` — Static dashboard assets (no build step)
+
+**Theme / Dark Mode:**
+- `styles.css` exposes a `[data-theme="dark"]` attribute block immediately after `:root`, overriding all 8 CSS custom properties. A separate hardcoded-hex overrides section covers badge variants, table hover, banners, health badges, and filter form controls.
+- `gui/public/theme-init.js` handles FOUC prevention — a plain ES5 IIFE loaded via `<script src="/theme-init.js?v=1">` in `<head>` that applies the saved theme before first paint (defaults to dark; light only if `localStorage` key `mcp-theme` is explicitly `'light'`). Written in ES5 intentionally so it can be served as a static asset with no build step; the CSP header enforces `script-src 'self'` (no `'unsafe-inline'`), so inline scripts in `index.html` are not permitted.
+- `app.js` `Theme` IIFE (section 2) manages `localStorage` persistence and wires the `#theme-toggle` button. `Theme.init()` is called before `Router.init()` in the bootstrap sequence.
+
+---
+
+### 8. **Runtime Config Monitoring**
+
+Runtime-adjustable settings are managed via a **module-level singleton cache** backed by `fs.watch()`:
+- **Config file:** `{ledgerRoot}/gui-config.json`
+- **Schema:** `GuiConfigSchema` in `src/gui/config.ts` (`auto_handoff_enabled`, `max_handoff_depth`, `ledger_root`)
+- **Cache:** Module-level `_cache` populated at startup by `readConfigFromDisk()` and kept live by `startConfigWatcher()`
+- **`getConfig()`** is always synchronous — reads from memory only, never disk
+- **Debounce:** 250ms on the `fs.watch()` callback to suppress Windows duplicate-event noise
+- **Fallback:** On watcher error or file parse failure, the cache retains its last known good values — the server continues operating rather than crashing
+- **`ledger_root` is read-only:** `writeConfig()` strips `ledger_root` from incoming data; only startup sets it
+
+**Key Files:**
+- `src/gui/config.ts` — `GuiConfigSchema`, `getConfig()`, `readConfigFromDisk()`, `writeConfig()`, `startConfigWatcher()`, `stopConfigWatcher()`
+
+---
+
+### 9. **Dual-Caller Store Overload Pattern**
+
+Some internal functions in `src/tools/work-package.ts` must be callable by two different callers:
+1. **Top-level MCP tool handlers** — which have a `projectPath: string` but no open store.
+2. **Internal callers** — which already hold a `LedgerStore` and must not construct another one (to avoid redundant I/O and potential double-locking).
+
+The pattern uses a **discriminated union** as the last parameter:
+
+```typescript
+// Shared signature used by propagateDependencyUnblock and propagateDependencyReblock
+function example(
+  projectPath: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): Promise<void>;
+```
+
+A private module helper `resolveStore()` (not exported) encapsulates the disambiguation:
+
+```typescript
+function resolveStore(
+  projectPath: string,
+  ledgerRootOrOpts?: string | { store: LedgerStore }
+): LedgerStore {
+  if (typeof ledgerRootOrOpts === 'object' && ledgerRootOrOpts !== null) {
+    return ledgerRootOrOpts.store;   // ← pre-built store from internal caller
+  }
+  return new LedgerStore(projectPath, ledgerRootOrOpts);  // ← construct from path
+}
+```
+
+**When to apply this pattern:** Any function that (a) owns a lock-protected workflow and (b) is called both by top-level tools and by other internal functions that already hold a store. Do not inline the ternary — extract it into a private `resolveXxx()` helper following this convention.
+
+**Key File:** `src/tools/work-package.ts` — `resolveStore()`
+
+---
+
+## Build & Test
+
+| Script | Command | Purpose |
+|--------|---------|----------|
+| **sync-version** | `npm run sync-version` | Sync version from changelog.md to package.json |
+| **predev** | *(auto)* | Runs sync-version before dev |
+| **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
+| **dev** | `npm run dev` | Run server in development mode with tsx |
+| **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js --check` before every test run — exits 1 if any generated persona file is stale, blocking the test run. This is **one of two** enforcement layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
+| **test** | `npm test` | Run all tests once (pretest fires first) |
+| **test:watch** | `npm run test:watch` | Run tests in watch mode |
+| **check:roles** | `npm run check:roles` | Validate workflow manifest roles via `scripts/check-known-roles.js` |
+| **gui** | `npm run gui` | Start the GUI dashboard server (`tsx gui/server.ts`) |
+
+No explicit build step is required for development (tsx handles TypeScript on-the-fly).
+For production or CI, run `npm run build` — compilation fails immediately on any type error (`noEmitOnError: true`) and no output is written to `dist/`.
+
+---
+
+## Static Services
+
+The server has **no stateful services**. All state is persisted to JSON files on disk. The server is stateless between tool invocations.
+
+---
+
+### 10. **Manifest-Derived Constants**
+
+Specification-derived constants are loaded from `shared/workflow-manifest.json` at module-load time — no inline literal arrays remain in source:
+
+| Constant | Source field | File |
+|----------|-------------|------|
+| `AGENT_ROLES` | `roles[].name` | `src/utils/constants.ts` |
+| `ORCHESTRATING_ROLES` | `roles[].name` where `orchestrating: true` | `src/utils/constants.ts` |
+| `ROLE_IDS` | `roles[].id` | `src/utils/constants.ts` |
+| `SPEC_VERSION` | `spec_version` | `src/utils/constants.ts` |
+| `PIPELINE_TYPES` | `pipelines.canonical_order` | `src/utils/pipeline-maps.ts` |
+| `DEFAULT_PIPELINE_STAGES` | `pipelines.default_stages` | `src/utils/pipeline-maps.ts` |
+| `PIPELINE_AGENT_MAP` | `pipelines.agent_map[].pipeline → role` | `src/utils/pipeline-maps.ts` |
+
+Adding or renaming a role, pipeline type, or status value in the manifest propagates automatically to all constants — no parallel edits to source files are required.
+
+**Key Files:**
+- `shared/workflow-manifest.json` — single source of truth
+- `src/utils/constants.ts` — agent-role and spec-version constants
+- `src/utils/pipeline-maps.ts` — pipeline-type and routing constants
+
+---
+
+## Key Conventions
+
+- **ESM-only:** All imports use `.js` extensions (required for Node16 module resolution)
+- **Strict TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`, `noEmitOnError: true`, and `noUnusedLocals: true` in `tsconfig.json` — `noUncheckedIndexedAccess` widens all string-indexed record lookups to `T | undefined`, eliminating a class of silent runtime errors; `noEmitOnError` prevents any JS from being emitted to `dist/` when type errors are present, ensuring the build fails fast rather than producing a partially compiled output; `noUnusedLocals` makes dead imports and unused variables hard compile errors, preventing structural noise from accumulating silently after refactors
+- **Pretty JSON:** All JSON files written with 2-space indentation and trailing newline
+- **File Naming:** Work package IDs follow the pattern `WP-###` (minimum 3 digits; no upper bound — supports `WP-001` through `WP-9999+`)
 
 ```

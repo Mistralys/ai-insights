@@ -36,6 +36,8 @@ mcp_tools:
     purpose: "Cancel a stale IN_PROGRESS pipeline (use when `ledger_get_next_action` returns `RESUME_OR_CANCEL`)."
   - tool: ledger_add_project_comment
     purpose: Add project-level comments for cross-cutting architectural insights.
+  - tool: ledger_search_insights
+    purpose: "Search prior review findings and recurring patterns before beginning the code review."
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."

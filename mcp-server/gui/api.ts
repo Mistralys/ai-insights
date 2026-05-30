@@ -20,15 +20,17 @@ import { join, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { LedgerStore, SlugConflictError } from '../src/storage/ledger-store.js';
 import { withLock } from '../src/storage/file-lock.js';
-import { inferProjectRootFromPlanPath } from '../src/utils/ledger-root.js';
+import { inferProjectRootFromPlanPath, resolveProjectDir } from '../src/utils/ledger-root.js';
+import { assertSafeSegment } from '../src/utils/path-validator.js';
 import { readProjectName } from '../src/utils/read-project-name.js';
-import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, SAFE_SLUG_REGEX, DIALOGUES_DIR, CHUNKS_DIR } from '../src/utils/constants.js';
+import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR, CHUNKS_DIR } from '../src/utils/constants.js';
 import {
   PIPELINE_AGENT_MAP,
   DEFAULT_PIPELINE_STAGES,
   CANONICAL_PIPELINE_ORDERING,
 } from '../src/utils/pipeline-maps.js';
 import type { PipelineType } from '../src/utils/pipeline-maps.js';
+import { ProjectMetaSchema } from '../src/schema/project-meta.js';
 import type { ProjectMeta } from '../src/schema/project-meta.js';
 import type { ProjectStatus, WorkPackageStatus } from '../src/schema/enums.js';
 import type { RootIndex } from '../src/schema/root-index.js';
@@ -66,6 +68,7 @@ import {
 } from './orchestrator-manager.js';
 import type { QueueEntry, KillResult, StartResult, RunStatus } from './orchestrator-manager.js';
 
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -96,16 +99,16 @@ const SAFE_ID_PATTERN = /^[A-Za-z0-9][\w-]*$/;
 /**
  * Guards against path-traversal attacks on the project slug URL parameter.
  *
- * Rejects any slug that does not match {@link SAFE_SLUG_REGEX}
- * (`/^[a-z0-9][a-z0-9-]*$/`). This reuses the same slug format enforced on
- * project creation and rename, ensuring only lowercase alphanumeric characters
- * and hyphens are accepted — eliminating path separators and traversal
- * sequences by design.
+ * Rejects any slug that does not satisfy the safe-slug rules
+ * (lowercase alphanumeric + hyphens, must start with an alphanumeric character).
+ * This reuses the same slug format enforced on project creation and rename,
+ * ensuring only lowercase alphanumeric characters and hyphens are accepted —
+ * eliminating path separators and traversal sequences by design.
  *
  * @param slug - The raw slug string extracted from the request URL.
  */
 function assertSafeSlug(slug: string): void {
-  if (!slug || !SAFE_SLUG_REGEX.test(slug)) {
+  if (!assertSafeSegment(slug)) {
     notFound(`Invalid project slug: '${slug}'.`);
   }
 }
@@ -141,6 +144,58 @@ function assertSafeQueueId(id: string): void {
   }
 }
 
+/**
+ * Resolves a LedgerStore for URL-parameter-driven handlers.
+ *
+ * Locates the namespaced storage directory via resolveProjectDir(), reads
+ * .meta.json for plan_path, and constructs a LedgerStore from it. Callers
+ * must validate `slug` (via assertSafeSlug) before calling. If `repoName` is
+ * provided, it is validated here via assertSafeSlug before being joined with
+ * `slug` to form a qualified `{repo}/{slug}` lookup.
+ *
+ * @remarks **Security contract — AMBIGUOUS → NOT_FOUND downgrade:**
+ * When `resolveProjectDir()` throws an AMBIGUOUS error (multiple repos contain
+ * this slug), this function intentionally downgrades it to the same NOT_FOUND
+ * ApiError used for a missing project. This prevents callers from learning
+ * that a slug exists in any repository (cross-namespace existence leak).
+ * The inline comment in the catch block documents the downgrade decision;
+ * do not restore the original AMBIGUOUS message without a security review.
+ *
+ * @throws ApiError NOT_FOUND when the project cannot be located, is ambiguous
+ *   across namespaces, or has no metadata.
+ */
+async function resolveProjectStore(
+  ledgerRoot: string,
+  slug: string,
+  repoName?: string
+): Promise<LedgerStore> {
+  if (repoName !== undefined) {
+    assertSafeSlug(repoName);
+  }
+  const slugOrQualified = repoName !== undefined ? `${repoName}/${slug}` : slug;
+
+  let storageDir: string;
+  try {
+    storageDir = await resolveProjectDir(slugOrQualified, ledgerRoot);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Intentionally downgrade AMBIGUOUS to NOT_FOUND: the caller must not learn
+    // that multiple repos contain this slug (prevents cross-namespace existence leak).
+    if (msg.startsWith('NOT_FOUND') || msg.startsWith('AMBIGUOUS')) {
+      notFound(`Project '${slug}' not found.`);
+    }
+    throw err;
+  }
+
+  try {
+    const raw = await readFile(join(storageDir, '.meta.json'), 'utf-8');
+    const meta = ProjectMetaSchema.parse(JSON.parse(raw));
+    return new LedgerStore(meta.plan_path, ledgerRoot);
+  } catch {
+    notFound(`Project '${slug}' not found or has no metadata.`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/insights
 // ---------------------------------------------------------------------------
@@ -169,7 +224,7 @@ export async function handleGetInsights(ledgerRoot: string): Promise<InsightEntr
 
   await Promise.all(
     projects.map(async (meta) => {
-      const store = new LedgerStore(meta.slug, ledgerRoot);
+      const store = new LedgerStore(meta.plan_path, ledgerRoot);
       let rootIndex;
       try {
         rootIndex = await store.readRootIndex();
@@ -346,7 +401,7 @@ export async function handleListProjects(
           project_name = meta.project_name;
         }
       } else {
-        const store = new LedgerStore(meta.slug, ledgerRoot);
+        const store = new LedgerStore(meta.plan_path, ledgerRoot);
 
         await Promise.all([
           (async () => {
@@ -508,17 +563,15 @@ export type ProjectDetail = RootIndex & {
  * Throws NOT_FOUND if the project slug does not exist in the ledger.
  * project_name resolution order: manifest file → slug date-strip fallback →
  * meta.title (takes precedence when set).
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleGetProject(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<ProjectDetail> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   try {
     const [rootIndex, meta] = await Promise.all([
@@ -589,17 +642,15 @@ export async function handleGetProject(
 /**
  * Returns the WP summary array from the project's root index.
  * Throws NOT_FOUND if the project does not exist.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleListWorkPackages(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<RootIndex['work_packages']> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   try {
     const rootIndex = await store.readRootIndex();
@@ -617,19 +668,17 @@ export async function handleListWorkPackages(
 /**
  * Returns the full WP detail for the given WP ID.
  * Throws NOT_FOUND if the project or WP does not exist.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleGetWorkPackage(
   ledgerRoot: string,
   slug: string,
-  wpId: string
+  wpId: string,
+  repoName?: string
 ): Promise<WorkPackageDetailResponse> {
   assertSafeSlug(slug);
   assertSafeWpId(wpId);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   if (!(await store.wpDetailExists(wpId))) {
     notFound(`Work package '${wpId}' not found in project '${slug}'.`);
@@ -655,17 +704,15 @@ export type DeleteProjectResult = { deleted: true; slug: string };
  * Only COMPLETE projects may be deleted.
  * Throws FORBIDDEN if the project is not COMPLETE.
  * Throws NOT_FOUND if the project does not exist.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleDeleteProject(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<DeleteProjectResult> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let meta: ProjectMeta;
   try {
@@ -680,8 +727,7 @@ export async function handleDeleteProject(
     forbidden('Only COMPLETE or ARCHIVED projects can be deleted.');
   }
 
-  const projectDir = join(ledgerRoot, slug);
-  await rm(projectDir, { recursive: true, force: true });
+  await rm(store.storageDir, { recursive: true, force: true });
 
   return { deleted: true, slug };
 }
@@ -697,17 +743,15 @@ export type ArchiveProjectResult = { archived: true; slug: string };
  * Updates both .meta.json and project-ledger.json within a single lock scope.
  * Throws NOT_FOUND if the project does not exist.
  * Throws VALIDATION_ERROR if the project is not in COMPLETE status.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleArchiveProject(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<ArchiveProjectResult> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let meta: ProjectMeta;
   try {
@@ -742,17 +786,15 @@ export type UnarchiveProjectResult = { unarchived: true; slug: string };
  * Updates both .meta.json and project-ledger.json within a single lock scope.
  * Throws NOT_FOUND if the project does not exist.
  * Throws VALIDATION_ERROR if the project is not in ARCHIVED status.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleUnarchiveProject(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<UnarchiveProjectResult> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let meta: ProjectMeta;
   try {
@@ -787,17 +829,15 @@ export async function handleUnarchiveProject(
  * Throws FORBIDDEN  if the project is currently ARCHIVED (unarchive first).
  *
  * STDIO discipline: this function never writes to process.stdout.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleMarkProjectComplete(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<MarkProjectCompleteResult> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let rootIndex: RootIndex;
   try {
@@ -821,19 +861,18 @@ export async function handleMarkProjectComplete(
 /**
  * Returns the content of the archived plan.md for a project.
  * Throws NOT_FOUND if the project does not exist or has no archived plan.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleGetPlanDocument(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<{ content: string }> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   try {
-    const planContent = await readFile(join(ledgerRoot, slug, PLAN_ARCHIVE_FILENAME), 'utf-8');
+    const planContent = await readFile(join(store.storageDir, PLAN_ARCHIVE_FILENAME), 'utf-8');
     return { content: planContent };
   } catch {
     notFound(`Plan document not found for project '${slug}'.`);
@@ -847,20 +886,19 @@ export async function handleGetPlanDocument(
 /**
  * Returns the content of the archived synthesis.md for a project.
  * Throws NOT_FOUND if the project does not exist or has no archived synthesis.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleGetSynthesisDocument(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<{ content: string }> {
   assertSafeSlug(slug);
-  const store = new LedgerStore(slug, ledgerRoot);
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   try {
     const synthesisContent = await readFile(
-      join(ledgerRoot, slug, SYNTHESIS_ARCHIVE_FILENAME),
+      join(store.storageDir, SYNTHESIS_ARCHIVE_FILENAME),
       'utf-8'
     );
     return { content: synthesisContent };
@@ -929,11 +967,13 @@ const ResetRequestSchema = z.object({
  *
  * Throws NOT_FOUND if the project does not exist.
  * Throws VALIDATION_ERROR if the request body is invalid.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleResetProject(
   ledgerRoot: string,
   slug: string,
-  body: unknown
+  body: unknown,
+  repoName?: string
 ): Promise<ProjectResetDiagnosis | ProjectResetResult> {
   assertSafeSlug(slug);
 
@@ -944,11 +984,7 @@ export async function handleResetProject(
   }
   const { dry_run, decisions } = parseResult.data;
 
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   // Read root index and all WP details
   let rootIndex: RootIndex;
@@ -1024,11 +1060,13 @@ export const RenameBodySchema = z
  * Throws `NOT_FOUND` if the project does not exist.
  * Throws `VALIDATION_ERROR` if the body is empty or fails schema validation.
  * Throws `CONFLICT` if the target slug directory already exists.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleRenameProject(
   ledgerRoot: string,
   slug: string,
-  body: unknown
+  body: unknown,
+  repoName?: string
 ): Promise<ProjectMeta> {
   assertSafeSlug(slug);
   const parseResult = RenameBodySchema.safeParse(body);
@@ -1038,16 +1076,13 @@ export async function handleRenameProject(
   const { title, slug: newSlug } = parseResult.data;
 
   // Early-reject invalid slug patterns before touching disk.
-  if (newSlug !== undefined && !SAFE_SLUG_REGEX.test(newSlug)) {
+  if (newSlug !== undefined && !assertSafeSegment(newSlug)) {
     validationError(
       `Invalid slug '${newSlug}'. Must match ^[a-z0-9][a-z0-9-]*$.`
     );
   }
 
-  const store = new LedgerStore(slug, ledgerRoot);
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project not found: ${slug}`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let latestMeta: ProjectMeta | undefined;
 
@@ -1092,18 +1127,16 @@ export interface ProjectHealthSummary {
  *
  * Delegates to the same `analyzeProjectForReset()` logic as the reset modal
  * dry-run path — read-only, no writes, no locks required.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleGetProjectHealth(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<ProjectHealthSummary> {
   assertSafeSlug(slug);
 
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let rootIndex: RootIndex;
   try {
@@ -1170,18 +1203,16 @@ export interface WpOverviewEntry {
  * Corrupt or missing WP detail files are skipped (same error-tolerance
  * pattern as handleGetProjectHealth).
  * STDIO discipline: this handler never writes to process.stdout.
+ * @param repoName  Optional repository name used to resolve the namespaced storage path.
  */
 export async function handleGetWorkPackageOverview(
   ledgerRoot: string,
-  slug: string
+  slug: string,
+  repoName?: string
 ): Promise<WpOverviewEntry[]> {
   assertSafeSlug(slug);
 
-  const store = new LedgerStore(slug, ledgerRoot);
-
-  if (!(await store.ledgerDirExists())) {
-    notFound(`Project '${slug}' not found.`);
-  }
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
 
   let rootIndex: RootIndex;
   try {
@@ -1299,17 +1330,20 @@ function parseDialogueFilename(filename: string): DialogueEntry {
  * @param slug        Project slug — validated via assertSafeSlug().
  * @param wpId        Optional WP ID prefix filter (e.g. 'WP-001').
  *                    When provided, only filenames starting with '{wpId}-' are returned.
+ * @param repoName    Repository namespace. Used to namespace the storage path.
  * @returns           Sorted array of DialogueEntry objects, or [] when the directory
  *                    is absent (no error thrown).
  */
 export async function handleListDialogues(
   ledgerRoot: string,
   slug: string,
-  wpId?: string
+  wpId?: string,
+  repoName?: string
 ): Promise<DialogueEntry[]> {
   assertSafeSlug(slug);
 
-  const dialoguesDir = join(ledgerRoot, slug, DIALOGUES_DIR);
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const dialoguesDir = join(store.storageDir, DIALOGUES_DIR);
 
   let entries: string[];
   try {
@@ -1353,13 +1387,15 @@ export async function handleListDialogues(
  * @param ledgerRoot  Root directory containing all project ledger folders.
  * @param slug        Project slug.
  * @param filename    Dialogue file name (e.g. 'WP-001-developer-r0.md').
+ * @param repoName    Repository namespace. Used to namespace the storage path.
  * @returns           File content as a UTF-8 string.
  * @throws            ApiError NOT_FOUND when filename is invalid or the file does not exist.
  */
 export async function handleGetDialogueFile(
   ledgerRoot: string,
   slug: string,
-  filename: string
+  filename: string,
+  repoName?: string
 ): Promise<{ content: string }> {
   assertSafeSlug(slug);
 
@@ -1369,7 +1405,8 @@ export async function handleGetDialogueFile(
     notFound(`Dialogue file not found: '${filename}'.`);
   }
 
-  const dialoguesDir = resolve(join(ledgerRoot, slug, DIALOGUES_DIR));
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const dialoguesDir = resolve(join(store.storageDir, DIALOGUES_DIR));
   const filePath = resolve(join(dialoguesDir, filename));
 
   // Defence-in-depth: ensure resolved path stays inside dialoguesDir.
@@ -1428,17 +1465,20 @@ function parseChunkFilename(filename: string): ChunkEntry {
  * @param slug        Project slug — validated via assertSafeSlug().
  * @param wpId        Optional WP ID prefix filter (e.g. 'WP-001').
  *                    When provided, only filenames starting with '{wpId}-' are returned.
+ * @param repoName    Repository namespace. Used to namespace the storage path.
  * @returns           Sorted array of ChunkEntry objects, or [] when the directory
  *                    is absent (no error thrown).
  */
 export async function handleListChunks(
   ledgerRoot: string,
   slug: string,
-  wpId?: string
+  wpId?: string,
+  repoName?: string
 ): Promise<ChunkEntry[]> {
   assertSafeSlug(slug);
 
-  const chunksDir = join(ledgerRoot, slug, CHUNKS_DIR);
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const chunksDir = join(store.storageDir, CHUNKS_DIR);
 
   let entries: string[];
   try {
@@ -1482,13 +1522,15 @@ export async function handleListChunks(
  * @param ledgerRoot  Root directory containing all project ledger folders.
  * @param slug        Project slug.
  * @param filename    Chunk file name (e.g. 'WP-001-developer-r0.jsonl').
+ * @param repoName    Repository namespace. Used to namespace the storage path.
  * @returns           File content as a UTF-8 string.
  * @throws            ApiError NOT_FOUND when filename is invalid or the file does not exist.
  */
 export async function handleGetChunkFile(
   ledgerRoot: string,
   slug: string,
-  filename: string
+  filename: string,
+  repoName?: string
 ): Promise<{ content: string }> {
   assertSafeSlug(slug);
 
@@ -1498,7 +1540,8 @@ export async function handleGetChunkFile(
     notFound(`Chunk file not found: '${filename}'.`);
   }
 
-  const chunksDir = resolve(join(ledgerRoot, slug, CHUNKS_DIR));
+  const store = await resolveProjectStore(ledgerRoot, slug, repoName);
+  const chunksDir = resolve(join(store.storageDir, CHUNKS_DIR));
   const filePath = resolve(join(chunksDir, filename));
 
   // Defence-in-depth: ensure resolved path stays inside chunksDir.

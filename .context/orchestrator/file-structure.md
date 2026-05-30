@@ -102,6 +102,7 @@ _SOURCE: Directory tree_
         └── test_prompt_renderer.py
         └── test_revision.py
         └── test_run_queue.py
+        └── test_slug_dir.py
         └── test_state.py
         └── test_stream_retry.py
         └── test_streaming_capture.py

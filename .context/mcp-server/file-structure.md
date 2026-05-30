@@ -34,6 +34,7 @@ _SOURCE: MCP server source directory tree_
         │       └── state-machines.md
         │       └── walkthrough.md
     └── gui/
+        ├── api-knowledge.ts
         ├── api.ts
         ├── chunk-renderer.ts
         ├── orchestrator-manager.ts
@@ -48,11 +49,13 @@ _SOURCE: MCP server source directory tree_
         │   ├── router.js
         │   ├── stale-check.js
         │   ├── styles.css
+        │   ├── theme-init.js
         │   ├── theme.js
         │   ├── utils.js
         │   ├── views/
         │   │   └── config.js
         │   │   └── insights.js
+        │   │   └── knowledge.js
         │   │   └── orchestrator.js
         │   │   └── project-detail.js
         │   │   └── project-list.js
@@ -63,6 +66,8 @@ _SOURCE: MCP server source directory tree_
     └── package-lock.json
     └── package.json
     └── scripts/
+        ├── move-unknown-project.js
+        ├── rename-repository.js
         ├── sync-version.js
     └── src/
         ├── gui/
@@ -82,15 +87,23 @@ _SOURCE: MCP server source directory tree_
         ├── index.ts
         ├── schema/
         │   ├── enums.ts
+        │   ├── knowledge.ts
         │   ├── project-meta.ts
         │   ├── root-index.ts
         │   ├── validators.ts
         │   ├── work-package.ts
         │   ├── workflow-manifest-schema.ts
+        ├── storage/
+        │   ├── atomic-writer.ts
+        │   ├── file-lock.ts
+        │   ├── knowledge-store.ts
+        │   ├── ledger-store.ts
+        │   ├── migrate-namespaced.ts
         ├── tools/
         │   ├── begin-work.ts
         │   ├── help-content.ts
         │   ├── help.ts
+        │   ├── knowledge.ts
         │   ├── observations.ts
         │   ├── pipeline.ts
         │   ├── project-lifecycle.ts
@@ -116,8 +129,10 @@ _SOURCE: MCP server source directory tree_
         │   └── workspace-versions.ts
         │   └── wp-id.ts
     └── tests/
+        ├── gui-server.test.ts
         ├── gui/
         │   ├── api-client.test.ts
+        │   ├── api-knowledge.test.ts
         │   ├── api-orchestrator.test.ts
         │   ├── api-reset.test.ts
         │   ├── api-wp-overview.test.ts
@@ -128,6 +143,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── config.test.ts
         │   ├── dialogue-qa.test.ts
         │   ├── handoff-config-integration.test.ts
+        │   ├── knowledge-api.test.ts
         │   ├── log-resolver.test.ts
         │   ├── orchestrator-manager.test.ts
         │   ├── orchestrator-view.test.ts
@@ -146,6 +162,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── server-body-limit.test.ts
         │   ├── server-error-mapping.test.ts
         │   ├── server-info.test.ts
+        │   ├── server-knowledge-routes.test.ts
         │   ├── server-queue.test.ts
         │   ├── stale-check.test.ts
         ├── helpers/
@@ -156,11 +173,20 @@ _SOURCE: MCP server source directory tree_
         │   ├── auto-handoff.test.ts
         │   ├── full-workflow.test.ts
         ├── schema/
+        │   ├── knowledge.test.ts
         │   ├── project-archiving-schema.test.ts
         │   ├── project-meta-runner.test.ts
         │   ├── root-index.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
+        ├── storage/
+        │   ├── knowledge-store-exclusion.test.ts
+        │   ├── knowledge-store.test.ts
+        │   ├── ledger-store.test.ts
+        │   ├── list-all-projects.test.ts
+        │   ├── migrate-namespaced.test.ts
+        │   ├── project-meta.test.ts
+        │   ├── slug-resolution.test.ts
         ├── tools/
         │   ├── begin-work.test.ts
         │   ├── cancelled-status.test.ts
@@ -168,6 +194,8 @@ _SOURCE: MCP server source directory tree_
         │   ├── claim-guard.test.ts
         │   ├── complete-pipeline-guards.test.ts
         │   ├── enrichment-resilience.test.ts
+        │   ├── knowledge-help.test.ts
+        │   ├── knowledge.test.ts
         │   ├── list-projects.test.ts
         │   ├── meta-enrichment.test.ts
         │   ├── observations.test.ts
@@ -187,6 +215,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── workflow-rework-loop.test.ts
         ├── utils/
         │   └── agent-registry.test.ts
+        │   └── derive-repo-name.test.ts
         │   └── if-defined.test.ts
         │   └── ledger-root.test.ts
         │   └── path-validator.test.ts
